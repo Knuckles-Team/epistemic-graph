@@ -1,0 +1,10 @@
+services:
+  test-runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ../tests:/app/tests
+    environment:
+      - PYTHONPATH=.
+    command: pytest

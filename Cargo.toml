@@ -1,0 +1,17 @@
+[package]
+name = "epistemic-graph"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Rust based epistemic graph engine for agent-utilities"
+license = "MIT"
+
+[lib]
+name = "_epistemic_graph"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20.0", features = ["extension-module"] }
+petgraph = "0.6.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

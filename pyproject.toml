@@ -1,0 +1,61 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "epistemic-graph"
+version = "0.1.0"
+description = "Rust-based epistemic graph engine for agent-utilities"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[[project.authors]]
+name = "Audel Rouhi"
+email = "knucklessg1@gmail.com"
+
+[project.license]
+text = "MIT"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-xdist>=3.0.0",
+    "pytest-cov>=4.0.0",
+]
+owl = [
+    "pyoxigraph>=0.3.22",
+]
+quant = [
+    "numpy>=1.22.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [ "E", "F", "I", "UP", "B" ]
+ignore = [ "E402", "E501", "B008" ]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.vulture]
+exclude = [".venv", "venv", "build", "dist", "target"]
+min_confidence = 95
+
+[tool.maturin]
+python-source = "."
+module-name = "epistemic_graph._epistemic_graph"
