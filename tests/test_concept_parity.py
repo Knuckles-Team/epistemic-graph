@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+
 def test_concept_parity():
     """Ensure all CONCEPT:ID tags used in source code are registered in docs/concepts.md."""
     concepts_file = Path(__file__).parent.parent / "docs" / "concepts.md"
@@ -21,4 +22,6 @@ def test_concept_parity():
 
     # Assert that each used concept is present in the concepts registry
     for concept in used_concepts:
-        assert concept in concepts_content, f"Concept {concept} is used in source code but not registered in docs/concepts.md!"
+        assert concept in concepts_content, (
+            f"Concept {concept} is used in source code but not registered in docs/concepts.md!"
+        )

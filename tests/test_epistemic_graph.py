@@ -1,6 +1,7 @@
 import pytest
 import epistemic_graph
 
+
 def test_node_addition_and_removal(clean_graph):
     """Test standard node insertion, retrieval, checking, and deletion."""
     # Add nodes with JSON properties
@@ -137,18 +138,12 @@ def test_ast_ingestion(clean_graph, tmp_path):
     # Write Python file
     py_file = tmp_path / "model.py"
     py_file.write_text(
-        "class AgentModel(Base):\n"
-        "    def run_agent(self):\n"
-        "        pass\n"
+        "class AgentModel(Base):\n    def run_agent(self):\n        pass\n"
     )
 
     # Write JavaScript file
     js_file = tmp_path / "harness.js"
-    js_file.write_text(
-        "function executeTask() {\n"
-        "    return 42;\n"
-        "}\n"
-    )
+    js_file.write_text("function executeTask() {\n    return 42;\n}\n")
 
     clean_graph.parse_repository(str(tmp_path))
 
