@@ -1,5 +1,6 @@
 import epistemic_graph
 
+
 def test_initial_graph_dynamics(clean_graph):
     """Verify that a clean, newly instantiated EpistemicGraph is properly configured and empty."""
     assert isinstance(clean_graph, epistemic_graph.EpistemicGraph)
