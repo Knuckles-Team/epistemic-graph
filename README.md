@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>High-Performance Rust-compiled Epistemic Graph Compute Engine for Python</b><br>
-  <sub>Bridges sub-millisecond local-first speed with petgraph algorithms and PyO3 native bindings.</sub>
+  <sub>Bridges sub-millisecond local-first speed with petgraph algorithms and Unix Sockets native bindings.</sub>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
   - **Native AST Parser**: High-performance Python directory crawler and AST parser to dynamically map classes, functions, and files into the graph.
   - **VF2 Subgraph Isomorphism**: Highly optimized node-matching algorithm to query and match graph structural patterns.
   - **Reactive State Ledger**: Sequential transaction logs with JSON serialization and replay capabilities to keep states synchronized with zero-overhead.
-- **Zero-overhead FFI**: Fully typed PyO3 bindings mapped cleanly to Python.
+- **Zero-overhead FFI**: Fully typed Unix Sockets bindings mapped cleanly to Python.
 
 ---
 
