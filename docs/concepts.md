@@ -13,6 +13,7 @@ These concepts are actively realized by the compiled Rust/Python Epistemic Graph
 | `CONCEPT:ORCH-1.29` | Compiled Orchestration Kernel | A fast, deterministic core designed to resolve multi-agent dependency loops and order pipeline executions. |
 | `CONCEPT:KG-2.17` | Compiled Semantic Reasoner | Ultra-fast native-compiled Datalog OWL forward chaining reasoning engine. |
 | `CONCEPT:KG-2.18` | High-Performance Quant FFI Engine | Native-compiled quantitative metrics computation and order matching simulation engine. |
+| `CONCEPT:KG-2.19` | Tokio Service Layer | High-performance Tokio async service exposing RPC endpoints over UDS/TCP for inter-agent communication. |
 
 ## Cross-Project References (from agent-utilities)
 

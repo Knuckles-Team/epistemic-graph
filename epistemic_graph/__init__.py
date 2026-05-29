@@ -1,3 +1,3 @@
-from ._epistemic_graph import EpistemicGraph
+from .client import EpistemicGraphClient, SyncEpistemicGraphClient
 
-__all__ = ["EpistemicGraph"]
+__all__ = ["EpistemicGraphClient", "SyncEpistemicGraphClient"]

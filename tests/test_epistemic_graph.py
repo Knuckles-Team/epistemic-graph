@@ -33,8 +33,8 @@ def test_edge_addition_and_removal(clean_graph):
     clean_graph.add_node("A", "{}")
     clean_graph.add_node("B", "{}")
 
-    # Adding edge to non-existent node should raise ValueError from FFI layer
-    with pytest.raises(ValueError, match="Target node 'C' not found"):
+    # Adding edge to non-existent node should raise RuntimeError from FFI layer
+    with pytest.raises(RuntimeError, match="Target node 'C' not found"):
         clean_graph.add_edge("A", "C", "{}")
 
     clean_graph.add_edge("A", "B", '{"weight": 2.5}')
@@ -68,7 +68,7 @@ def test_topological_sorting(clean_graph):
 
     # Create cycle Z -> X
     clean_graph.add_edge("Z", "X", "{}")
-    with pytest.raises(ValueError, match="Graph contains cycles"):
+    with pytest.raises(RuntimeError, match="Graph contains cycles"):
         clean_graph.topological_sort()
 
 
@@ -172,11 +172,17 @@ def test_vf2_subgraph_match(clean_graph):
     clean_graph.add_edge("B", "C", "{}")
 
     # Pattern graph
-    pattern = epistemic_graph.EpistemicGraph()
+    import os
+    from epistemic_graph.client import SyncEpistemicGraphClient
+    socket_path = os.environ.get("GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock")
+    clean_graph.create_graph("pattern_graph", "Agent")
+    pattern = SyncEpistemicGraphClient.connect(socket_path=socket_path, graph_name="pattern_graph")
+    pattern.clear()
     pattern.add_node("P1", '{"type": "class"}')
     pattern.add_node("P2", '{"type": "function"}')
     pattern.add_edge("P1", "P2", "{}")
 
+    # Pass the pattern client to vf2_subgraph_match (client handles sending pattern_graph_name)
     matches = clean_graph.vf2_subgraph_match(pattern)
     assert len(matches) == 1
     assert matches[0] == {"P1": "A", "P2": "B"}
@@ -198,7 +204,10 @@ def test_reactive_state_ledger(clean_graph):
     # JSON Serialization & Load
     json_str = clean_graph.to_json()
 
-    graph2 = epistemic_graph.EpistemicGraph()
+    import os
+    from epistemic_graph.client import SyncEpistemicGraphClient
+    socket_path = os.environ.get("GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock")
+    graph2 = SyncEpistemicGraphClient.connect(socket_path=socket_path)
     graph2.from_json(json_str)
 
     assert graph2.has_node("X") is True
