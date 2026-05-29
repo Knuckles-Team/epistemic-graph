@@ -1,9 +1,9 @@
 import epistemic_graph
-
+from epistemic_graph.client import SyncEpistemicGraphClient
 
 def test_initial_graph_dynamics(clean_graph):
     """Verify that a clean, newly instantiated EpistemicGraph is properly configured and empty."""
-    assert isinstance(clean_graph, epistemic_graph.EpistemicGraph)
+    assert isinstance(clean_graph, SyncEpistemicGraphClient)
 
     # Check that nodes and edges lists are empty
     nodes = clean_graph.get_nodes()

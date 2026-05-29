@@ -1,476 +1,262 @@
 #![allow(non_local_definitions)]
+#![allow(dead_code)]
 
 // CONCEPT:KG-2.16 - High-Performance Graph Compute Engine
 // CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
+// CONCEPT:KG-2.19 - Tokio Service Layer
+//
+// Thin PyO3 FFI surface. Every #[pymethod] returns Result<T>.
+// All logic delegated to graph, algorithms, and reasoning modules.
+// Service-layer modules (protocol, registry, isolation, channels, server)
+// are used by the epistemic-graph-server binary.
 
-use petgraph::algo::toposort;
-use petgraph::stable_graph::{NodeIndex, StableDiGraph};
-use petgraph::visit::{Bfs, EdgeRef};
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::Read;
+pub mod algorithms;
+pub mod graph;
+mod reasoning;
+pub mod types;
+pub mod protocol;
+pub mod registry;
+pub mod isolation;
+pub mod channels;
+pub mod server;
+pub mod event_bus;
 
-#[pyclass]
+use graph::GraphCore;
+use std::collections::HashMap;
+
+/// EpistemicGraph — the sole  exposed to Python.
+///
+/// Wraps `GraphCore` and delegates all operations through typed FFI
+/// boundaries. No `unwrap()` on user-facing paths — all errors surface
+/// as `PyResult`.
+
 pub struct EpistemicGraph {
-    graph: StableDiGraph<String, String>,
-    node_map: HashMap<String, NodeIndex>,
-    node_properties: HashMap<String, String>,
-    edge_properties: HashMap<(String, String), Vec<String>>,
-    ledger: Vec<String>,
+    core: GraphCore,
 }
 
-#[pymethods]
+
 impl EpistemicGraph {
-    #[new]
-    fn new() -> Self {
+    // ── Constructor ──────────────────────────────────────────────────────
+
+        fn new() -> Self {
         EpistemicGraph {
-            graph: StableDiGraph::new(),
-            node_map: HashMap::new(),
-            node_properties: HashMap::new(),
-            edge_properties: HashMap::new(),
-            ledger: Vec::new(),
+            core: GraphCore::new(),
         }
     }
 
+    // ── Node CRUD ────────────────────────────────────────────────────────
+
     fn add_node(&mut self, node_id: String, properties_json: String) {
-        let _idx = if let Some(&existing_idx) = self.node_map.get(&node_id) {
-            existing_idx
-        } else {
-            let new_idx = self.graph.add_node(node_id.clone());
-            self.node_map.insert(node_id.clone(), new_idx);
-            new_idx
-        };
-        self.node_properties
-            .insert(node_id.clone(), properties_json.clone());
-        let log = format!("ADD_NODE|{}|{}", node_id, properties_json);
-        self.ledger.push(log);
+        self.core.add_node(node_id, properties_json);
     }
+
+    fn remove_node(&mut self, node_id: String) {
+        self.core.remove_node(node_id);
+    }
+
+    fn has_node(&self, node_id: String) -> bool {
+        self.core.has_node(&node_id)
+    }
+
+    fn get_nodes(&self) -> Vec<(String, String)> {
+        self.core.get_nodes()
+    }
+
+    /// O(1) property lookup for a single node (avoids materializing all nodes).
+    fn get_node_properties(&self, node_id: String) -> Option<String> {
+        self.core.get_node_properties(&node_id)
+    }
+
+    /// O(1) node count without materializing the full node list.
+    fn node_count(&self) -> usize {
+        self.core.node_count()
+    }
+
+    /// Return all node IDs without properties (lightweight enumeration).
+    fn node_ids(&self) -> Vec<String> {
+        self.core.node_ids()
+    }
+
+    // ── Edge CRUD ────────────────────────────────────────────────────────
 
     fn add_edge(
         &mut self,
         source_id: String,
         target_id: String,
         properties_json: String,
-    ) -> PyResult<()> {
-        let source_idx = match self.node_map.get(&source_id) {
-            Some(&idx) => idx,
-            None => {
-                return Err(PyValueError::new_err(format!(
-                    "Source node '{}' not found",
-                    source_id
-                )))
-            }
-        };
-        let target_idx = match self.node_map.get(&target_id) {
-            Some(&idx) => idx,
-            None => {
-                return Err(PyValueError::new_err(format!(
-                    "Target node '{}' not found",
-                    target_id
-                )))
-            }
-        };
-
-        self.graph.add_edge(
-            source_idx,
-            target_idx,
-            format!("{}:{}", source_id, target_id),
-        );
-        self.edge_properties
-            .entry((source_id.clone(), target_id.clone()))
-            .or_default()
-            .push(properties_json.clone());
-        let log = format!("ADD_EDGE|{}|{}|{}", source_id, target_id, properties_json);
-        self.ledger.push(log);
-        Ok(())
-    }
-
-    fn remove_node(&mut self, node_id: String) {
-        if let Some(idx) = self.node_map.remove(&node_id) {
-            self.graph.remove_node(idx);
-            self.node_properties.remove(&node_id);
-            // Clean up related edge properties
-            self.edge_properties
-                .retain(|(src, tgt), _| src != &node_id && tgt != &node_id);
-            let log = format!("REMOVE_NODE|{}", node_id);
-            self.ledger.push(log);
-        }
+    ) -> Result<(), String> {
+        self.core.add_edge(source_id, target_id, properties_json)
     }
 
     fn remove_edge(&mut self, source_id: String, target_id: String) {
-        if let (Some(&src_idx), Some(&tgt_idx)) =
-            (self.node_map.get(&source_id), self.node_map.get(&target_id))
-        {
-            if let Some(edge_idx) = self.graph.find_edge(src_idx, tgt_idx) {
-                self.graph.remove_edge(edge_idx);
-            }
-            self.edge_properties
-                .remove(&(source_id.clone(), target_id.clone()));
-            let log = format!("REMOVE_EDGE|{}|{}", source_id, target_id);
-            self.ledger.push(log);
-        }
-    }
-
-    fn has_node(&self, node_id: String) -> bool {
-        self.node_map.contains_key(&node_id)
+        self.core.remove_edge(source_id, target_id);
     }
 
     fn has_edge(&self, source_id: String, target_id: String) -> bool {
-        if let (Some(&src_idx), Some(&tgt_idx)) =
-            (self.node_map.get(&source_id), self.node_map.get(&target_id))
-        {
-            self.graph.find_edge(src_idx, tgt_idx).is_some()
-        } else {
-            false
-        }
-    }
-
-    fn get_nodes(&self) -> Vec<(String, String)> {
-        self.node_properties
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
+        self.core.has_edge(&source_id, &target_id)
     }
 
     fn get_edges(&self) -> Vec<(String, String, String)> {
-        let mut res = Vec::new();
-        for ((src, tgt), props_list) in &self.edge_properties {
-            for props in props_list {
-                res.push((src.clone(), tgt.clone(), props.clone()));
-            }
-        }
-        res
-    }
-
-    /// O(1) property lookup for a single node (avoids materializing all nodes).
-    fn get_node_properties(&self, node_id: String) -> Option<String> {
-        self.node_properties.get(&node_id).cloned()
+        self.core.get_edges()
     }
 
     /// O(1) edge property lookup for a specific (source, target) pair.
     fn get_edge_properties(&self, source_id: String, target_id: String) -> Vec<String> {
-        self.edge_properties
-            .get(&(source_id, target_id))
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// O(1) node count without materializing the full node list.
-    fn node_count(&self) -> usize {
-        self.node_map.len()
+        self.core.get_edge_properties(&source_id, &target_id)
     }
 
     /// O(1) edge count without materializing the full edge list.
     fn edge_count(&self) -> usize {
-        self.edge_properties.values().map(|v| v.len()).sum()
+        self.core.edge_count()
     }
 
-    fn topological_sort(&self) -> PyResult<Vec<String>> {
-        match toposort(&self.graph, None) {
-            Ok(indices) => {
-                let sorted: Vec<String> =
-                    indices.iter().map(|&idx| self.graph[idx].clone()).collect();
-                Ok(sorted)
-            }
-            Err(_) => Err(PyValueError::new_err("Graph contains cycles")),
-        }
+    // ── Neighbor Queries (NEW — NetworkX replacement API) ────────────────
+
+    /// In-degree count for a specific node.
+    fn in_degree(&self, node_id: String) -> Result<usize, String> {
+        self.core.in_degree(&node_id)
+    }
+
+    /// Out-degree count for a specific node.
+    fn out_degree(&self, node_id: String) -> Result<usize, String> {
+        self.core.out_degree(&node_id)
+    }
+
+    /// Incoming neighbors (predecessors).
+    fn get_predecessors(&self, node_id: String) -> Result<Vec<String>, String> {
+        self.core.get_predecessors(&node_id)
+    }
+
+    /// Outgoing neighbors (successors).
+    fn get_successors(&self, node_id: String) -> Result<Vec<String>, String> {
+        self.core.get_successors(&node_id)
+    }
+
+    /// All neighbors (both directions, deduplicated).
+    fn get_neighbors(&self, node_id: String) -> Result<Vec<String>, String> {
+        self.core.get_neighbors(&node_id)
+    }
+
+    // ── Graph Algorithms ─────────────────────────────────────────────────
+
+    fn topological_sort(&self) -> Result<Vec<String>, String> {
+        algorithms::topological_sort(&self.core)
     }
 
     fn find_cycle(&self) -> Option<Vec<String>> {
-        // Run simple cycle detection via DFS coloring
-        let mut visited = HashMap::new(); // NodeIndex -> Color: 0=unvisited, 1=visiting, 2=visited
-        let mut parent = HashMap::new(); // NodeIndex -> NodeIndex
-
-        for node in self.graph.node_indices() {
-            visited.insert(node, 0);
-        }
-
-        for node in self.graph.node_indices() {
-            if visited[&node] == 0 {
-                let mut path = Vec::new();
-                if self.dfs_find_cycle(node, &mut visited, &mut parent, &mut path) {
-                    return Some(path);
-                }
-            }
-        }
-        None
+        algorithms::find_cycle(&self.core)
     }
 
     fn get_shortest_path(&self, source_id: String, target_id: String) -> Option<Vec<String>> {
-        let src_idx = *self.node_map.get(&source_id)?;
-        let tgt_idx = *self.node_map.get(&target_id)?;
-
-        let mut bfs = Bfs::new(&self.graph, src_idx);
-        let mut path_predecessor = HashMap::new();
-
-        while let Some(nx) = bfs.next(&self.graph) {
-            for neighbor in self.graph.neighbors(nx) {
-                if !path_predecessor.contains_key(&neighbor) && neighbor != src_idx {
-                    path_predecessor.insert(neighbor, nx);
-                    if neighbor == tgt_idx {
-                        break;
-                    }
-                }
-            }
-        }
-
-        if path_predecessor.contains_key(&tgt_idx) {
-            let mut path = Vec::new();
-            let mut curr = tgt_idx;
-            while curr != src_idx {
-                path.push(self.graph[curr].clone());
-                curr = path_predecessor[&curr];
-            }
-            path.push(source_id);
-            path.reverse();
-            Some(path)
-        } else {
-            None
-        }
+        algorithms::get_shortest_path(&self.core, &source_id, &target_id)
     }
 
     fn get_blast_radius(&self, node_id: String, max_depth: usize) -> Vec<String> {
-        let start_idx = match self.node_map.get(&node_id) {
-            Some(&idx) => idx,
-            None => return Vec::new(),
-        };
-
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
-
-        queue.push_back((start_idx, 0));
-        visited.insert(start_idx);
-
-        let mut blast_nodes = Vec::new();
-
-        while let Some((curr, depth)) = queue.pop_front() {
-            if curr != start_idx {
-                blast_nodes.push(self.graph[curr].clone());
-            }
-            if depth < max_depth {
-                for neighbor in self.graph.neighbors(curr) {
-                    if visited.insert(neighbor) {
-                        queue.push_back((neighbor, depth + 1));
-                    }
-                }
-            }
-        }
-        blast_nodes
+        algorithms::get_blast_radius(&self.core, &node_id, max_depth)
     }
 
-    fn parse_repository(&mut self, root_path: String) -> PyResult<()> {
-        let root = std::path::Path::new(&root_path);
-        if !root.exists() {
-            return Err(PyValueError::new_err(format!(
-                "Path '{}' does not exist",
-                root_path
-            )));
-        }
-        let mut files = Vec::new();
-        self.walk_dir_recursive(root, &mut files);
-
-        for path in files {
-            if let Ok(relative) = path.strip_prefix(root) {
-                let rel_str = relative.to_string_lossy().to_string();
-
-                // Add File node
-                let file_props = format!("{{\"type\": \"file\", \"path\": \"{}\"}}", rel_str);
-                self.add_node(rel_str.clone(), file_props);
-
-                if let Ok(mut file) = std::fs::File::open(&path) {
-                    let mut content = String::new();
-                    if file.read_to_string(&mut content).is_ok() {
-                        let lines: Vec<&str> = content.lines().collect();
-                        for (idx, line) in lines.iter().enumerate() {
-                            let trimmed = line.trim();
-
-                            // Parse class definition
-                            if trimmed.starts_with("class ") {
-                                if let Some(class_name) = trimmed.split_whitespace().nth(1) {
-                                    // Remove parentheses or colon
-                                    let clean_name = class_name
-                                        .split('(')
-                                        .next()
-                                        .unwrap_or("")
-                                        .split(':')
-                                        .next()
-                                        .unwrap_or("")
-                                        .trim();
-                                    if !clean_name.is_empty() {
-                                        let node_id = format!("{}::{}", rel_str, clean_name);
-                                        let props = format!("{{\"type\": \"class\", \"file\": \"{}\", \"line\": {}}}", rel_str, idx + 1);
-                                        self.add_node(node_id.clone(), props);
-                                        // File contains Class
-                                        let edge_props =
-                                            "{\"relationship\": \"contains\"}".to_string();
-                                        let _ = self.add_edge(rel_str.clone(), node_id, edge_props);
-                                    }
-                                }
-                            }
-
-                            // Parse function definition (Python)
-                            if trimmed.starts_with("def ") {
-                                if let Some(func_name) = trimmed.split_whitespace().nth(1) {
-                                    let clean_name = func_name
-                                        .split('(')
-                                        .next()
-                                        .unwrap_or("")
-                                        .split(':')
-                                        .next()
-                                        .unwrap_or("")
-                                        .trim();
-                                    if !clean_name.is_empty() {
-                                        let node_id = format!("{}::{}", rel_str, clean_name);
-                                        let props = format!("{{\"type\": \"function\", \"file\": \"{}\", \"line\": {}}}", rel_str, idx + 1);
-                                        self.add_node(node_id.clone(), props);
-                                        // File contains Function
-                                        let edge_props =
-                                            "{\"relationship\": \"contains\"}".to_string();
-                                        let _ = self.add_edge(rel_str.clone(), node_id, edge_props);
-                                    }
-                                }
-                            }
-
-                            // Parse Javascript / Typescript function / class
-                            if trimmed.starts_with("function ") {
-                                if let Some(func_name) = trimmed.split_whitespace().nth(1) {
-                                    let clean_name =
-                                        func_name.split('(').next().unwrap_or("").trim();
-                                    if !clean_name.is_empty() {
-                                        let node_id = format!("{}::{}", rel_str, clean_name);
-                                        let props = format!("{{\"type\": \"function\", \"file\": \"{}\", \"line\": {}}}", rel_str, idx + 1);
-                                        self.add_node(node_id.clone(), props);
-                                        let edge_props =
-                                            "{\"relationship\": \"contains\"}".to_string();
-                                        let _ = self.add_edge(rel_str.clone(), node_id, edge_props);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
+    /// Degree centrality for a single node: (in + out) / (n - 1).
+    fn compute_degree_centrality(&self, node_id: String) -> Result<f64, String> {
+        algorithms::compute_degree_centrality(&self.core, &node_id)
     }
+
+    /// Degree centrality for ALL nodes. Returns Vec<(node_id, centrality)>.
+    fn degree_centrality_all(&self) -> Vec<(String, f64)> {
+        algorithms::degree_centrality_all(&self.core)
+    }
+
+    /// Betweenness centrality via Brandes' algorithm.
+    fn compute_betweenness_centrality(&self) -> Vec<(String, f64)> {
+        algorithms::betweenness_centrality(&self.core)
+    }
+
+    /// PageRank via power iteration.
+    fn pagerank(&self, damping: f64, iterations: usize) -> Vec<(String, f64)> {
+        algorithms::pagerank(&self.core, damping, iterations)
+    }
+
+    /// Weakly connected components (treats edges as undirected).
+    fn connected_components(&self) -> Vec<Vec<String>> {
+        algorithms::connected_components(&self.core)
+    }
+
+    /// Community detection via label propagation.
+    fn community_detection(&self, resolution: f64) -> Vec<Vec<String>> {
+        algorithms::community_detection(&self.core, resolution)
+    }
+
+    // ── Subgraph Extraction (NEW — NetworkX replacement API) ─────────────
+
+    /// Extract a subgraph containing only the specified node IDs.
+    fn get_subgraph(&self, node_ids: Vec<String>) -> EpistemicGraph {
+        EpistemicGraph {
+            core: self.core.get_subgraph(&node_ids),
+        }
+    }
+
+    // ── Serialization ────────────────────────────────────────────────────
+
+    fn to_json(&self) -> Result<String, String> {
+        self.core.to_json()
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_json(&mut self, json_str: String) -> Result<(), String> {
+        self.core.from_json(&json_str)
+    }
+
+    // ── Ledger ───────────────────────────────────────────────────────────
+
+    fn get_ledger(&self) -> Vec<String> {
+        self.core.get_ledger()
+    }
+
+    fn clear_ledger(&mut self) {
+        self.core.clear_ledger();
+    }
+
+    fn apply_ledger(&mut self, transactions: Vec<String>) -> Result<(), String> {
+        self.core.apply_ledger(transactions)
+    }
+
+    // ── Repository Parsing ───────────────────────────────────────────────
+
+    fn parse_repository(&mut self, root_path: String) -> Result<(), String> {
+        self.core.parse_repository(&root_path)
+    }
+
+    // ── VF2 Subgraph Matching ────────────────────────────────────────────
 
     fn vf2_subgraph_match(
         &self,
         pattern: &EpistemicGraph,
-    ) -> PyResult<Vec<HashMap<String, String>>> {
-        let mut matches = Vec::new();
-        let pattern_nodes: Vec<String> = pattern.node_map.keys().cloned().collect();
-        if pattern_nodes.is_empty() {
-            return Ok(matches);
+    ) -> Result<Vec<HashMap<String, String>>, String> {
+        Ok(self.core.vf2_subgraph_match(&pattern.core))
+    }
+
+    // ── Graph Forking ────────────────────────────────────────────────────
+
+    /// Create a deep clone of this graph (avoids Python deepcopy overhead).
+    fn fork(&self) -> EpistemicGraph {
+        EpistemicGraph {
+            core: self.core.fork(),
         }
-        let mut current_mapping = HashMap::new();
-        let mut mapped_targets = HashSet::new();
-
-        self.backtrack_match(
-            0,
-            &pattern_nodes,
-            &mut current_mapping,
-            &mut mapped_targets,
-            pattern,
-            &mut matches,
-        );
-        Ok(matches)
     }
 
-    fn get_ledger(&self) -> Vec<String> {
-        self.ledger.clone()
+    /// Compute structural diff against another graph, return JSON.
+    fn diff_against(&self, other: &EpistemicGraph) -> String {
+        self.core.diff_against(&other.core)
     }
 
-    fn clear_ledger(&mut self) {
-        self.ledger.clear();
+    // ── Compaction ───────────────────────────────────────────────────────
+
+    /// Compact nodes of a given type exceeding threshold into a summary node.
+    /// Returns IDs of removed nodes.
+    fn compact_nodes_by_type(&mut self, node_type: String, threshold: usize) -> Vec<String> {
+        self.core.compact_nodes_by_type(&node_type, threshold)
     }
 
-    fn apply_ledger(&mut self, transactions: Vec<String>) -> PyResult<()> {
-        for tx in transactions {
-            let parts: Vec<&str> = tx.split('|').collect();
-            if parts.is_empty() {
-                continue;
-            }
-            match parts[0] {
-                "ADD_NODE" if parts.len() >= 3 => {
-                    self.add_node(parts[1].to_string(), parts[2].to_string());
-                }
-                "ADD_EDGE" if parts.len() >= 4 => {
-                    let _ = self.add_edge(
-                        parts[1].to_string(),
-                        parts[2].to_string(),
-                        parts[3].to_string(),
-                    );
-                }
-                "REMOVE_NODE" if parts.len() >= 2 => {
-                    self.remove_node(parts[1].to_string());
-                }
-                "REMOVE_EDGE" if parts.len() >= 3 => {
-                    self.remove_edge(parts[1].to_string(), parts[2].to_string());
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
-
-    fn to_json(&self) -> PyResult<String> {
-        let mut graph_map = HashMap::new();
-        let nodes = self.get_nodes();
-        let edges = self.get_edges();
-        graph_map.insert(
-            "nodes".to_string(),
-            serde_json::to_value(nodes).map_err(|e| PyValueError::new_err(e.to_string()))?,
-        );
-        graph_map.insert(
-            "edges".to_string(),
-            serde_json::to_value(edges).map_err(|e| PyValueError::new_err(e.to_string()))?,
-        );
-        graph_map.insert(
-            "ledger".to_string(),
-            serde_json::to_value(&self.ledger).map_err(|e| PyValueError::new_err(e.to_string()))?,
-        );
-
-        serde_json::to_string(&graph_map).map_err(|e| PyValueError::new_err(e.to_string()))
-    }
-
-    #[allow(clippy::wrong_self_convention)]
-    fn from_json(&mut self, json_str: String) -> PyResult<()> {
-        let graph_map: HashMap<String, serde_json::Value> =
-            serde_json::from_str(&json_str).map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-        // Reset state
-        self.graph.clear();
-        self.node_map.clear();
-        self.node_properties.clear();
-        self.edge_properties.clear();
-        self.ledger.clear();
-
-        if let Some(nodes_val) = graph_map.get("nodes") {
-            let nodes: Vec<(String, String)> = serde_json::from_value(nodes_val.clone())
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            for (node_id, props) in nodes {
-                self.add_node(node_id, props);
-            }
-        }
-
-        if let Some(edges_val) = graph_map.get("edges") {
-            let edges: Vec<(String, String, String)> = serde_json::from_value(edges_val.clone())
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            for (src, tgt, props) in edges {
-                let _ = self.add_edge(src, tgt, props);
-            }
-        }
-
-        if let Some(ledger_val) = graph_map.get("ledger") {
-            let ledger: Vec<String> = serde_json::from_value(ledger_val.clone())
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            self.ledger = ledger;
-        }
-
-        Ok(())
-    }
+    // ── Reasoning ────────────────────────────────────────────────────────
 
     // CONCEPT:KG-2.17 - Compiled Semantic Reasoner
     fn run_datalog_reasoning(
@@ -480,282 +266,36 @@ impl EpistemicGraph {
         symmetric_properties: Vec<String>,
         transitive_properties: Vec<String>,
         inverse_properties: Vec<(String, String)>,
-    ) -> PyResult<Vec<HashMap<String, String>>> {
-        let mut inferred_triples = Vec::new();
-        let mut new_edges_to_add = Vec::new();
-        let mut new_types_to_add = Vec::new();
-
-        // 1. Build rapid lookup structures
-        let subclass_map: HashMap<String, Vec<String>> =
-            subclass_relations
-                .into_iter()
-                .fold(HashMap::new(), |mut acc, (sub, sup)| {
-                    acc.entry(sub).or_default().push(sup);
-                    acc
-                });
-
-        let subprop_map: HashMap<String, Vec<String>> =
-            subproperty_relations
-                .into_iter()
-                .fold(HashMap::new(), |mut acc, (sub, sup)| {
-                    acc.entry(sub).or_default().push(sup);
-                    acc
-                });
-
-        let symmetric_set: HashSet<String> = symmetric_properties.into_iter().collect();
-        let transitive_set: HashSet<String> = transitive_properties.into_iter().collect();
-        let inverse_map: HashMap<String, String> =
-            inverse_properties
-                .into_iter()
-                .fold(HashMap::new(), |mut acc, (p1, p2)| {
-                    acc.insert(p1.clone(), p2.clone());
-                    acc.insert(p2, p1);
-                    acc
-                });
-
-        // 2. Extract current type and property facts
-        let mut current_node_types: HashMap<String, HashSet<String>> = HashMap::new();
-        for (node_id, props_json) in &self.node_properties {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
-                if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
-                    current_node_types
-                        .entry(node_id.clone())
-                        .or_default()
-                        .insert(t.to_string());
-                }
-            }
-        }
-
-        let mut current_edge_types: HashMap<(String, String), HashSet<String>> = HashMap::new();
-        for ((src, tgt), props_json_list) in &self.edge_properties {
-            for props_json in props_json_list {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
-                    if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
-                        current_edge_types
-                            .entry((src.clone(), tgt.clone()))
-                            .or_default()
-                            .insert(t.to_string());
-                    }
-                }
-            }
-        }
-
-        // 3. Forward chaining reasoning until fixpoint
-        let mut changed = true;
-        let mut iteration_count = 0;
-
-        while changed && iteration_count < 100 {
-            changed = false;
-            let mut pending_node_types = Vec::new();
-            let mut pending_edges = Vec::new();
-
-            // Rule 1: Subclass inheritance
-            for (node_id, types) in &current_node_types {
-                for t in types {
-                    if let Some(supertypes) = subclass_map.get(t) {
-                        for sup in supertypes {
-                            if !types.contains(sup) {
-                                pending_node_types.push((node_id.clone(), sup.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Rule 2: Subproperty inheritance
-            for ((src, tgt), types) in &current_edge_types {
-                for t in types {
-                    if let Some(superprops) = subprop_map.get(t) {
-                        for sup in superprops {
-                            if !types.contains(sup) {
-                                pending_edges.push((src.clone(), tgt.clone(), sup.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Rule 3: Symmetric properties
-            for ((src, tgt), types) in &current_edge_types {
-                for t in types {
-                    if symmetric_set.contains(t) {
-                        let rev_key = (tgt.clone(), src.clone());
-                        let exists = current_edge_types
-                            .get(&rev_key)
-                            .is_some_and(|ts| ts.contains(t));
-                        if !exists {
-                            pending_edges.push((tgt.clone(), src.clone(), t.clone()));
-                        }
-                    }
-                }
-            }
-
-            // Rule 4: Inverse properties
-            for ((src, tgt), types) in &current_edge_types {
-                for t in types {
-                    if let Some(inv) = inverse_map.get(t) {
-                        let rev_key = (tgt.clone(), src.clone());
-                        let exists = current_edge_types
-                            .get(&rev_key)
-                            .is_some_and(|ts| ts.contains(inv));
-                        if !exists {
-                            pending_edges.push((tgt.clone(), src.clone(), inv.clone()));
-                        }
-                    }
-                }
-            }
-
-            // Rule 5: Transitive properties
-            for p in &transitive_set {
-                let mut p_edges = Vec::new();
-                for ((src, tgt), ts) in &current_edge_types {
-                    if ts.contains(p) {
-                        p_edges.push((src.clone(), tgt.clone()));
-                    }
-                }
-
-                for (x, y) in &p_edges {
-                    for (y2, z) in &p_edges {
-                        if y == y2 {
-                            let trans_key = (x.clone(), z.clone());
-                            let exists = current_edge_types
-                                .get(&trans_key)
-                                .is_some_and(|ts| ts.contains(p));
-                            if !exists {
-                                pending_edges.push((x.clone(), z.clone(), p.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Commit pending updates to this iteration round
-            for (node_id, new_type) in pending_node_types {
-                let entry = current_node_types.entry(node_id.clone()).or_default();
-                if entry.insert(new_type.clone()) {
-                    new_types_to_add.push((node_id, new_type));
-                    changed = true;
-                }
-            }
-
-            for (src, tgt, new_prop) in pending_edges {
-                let entry = current_edge_types
-                    .entry((src.clone(), tgt.clone()))
-                    .or_default();
-                if entry.insert(new_prop.clone()) {
-                    new_edges_to_add.push((src, tgt, new_prop));
-                    changed = true;
-                }
-            }
-
-            iteration_count += 1;
-        }
-
-        // Apply all inferred facts back to internal structures
-        for (node_id, new_type) in &new_types_to_add {
-            let mut fact = HashMap::new();
-            fact.insert("subject".to_string(), node_id.clone());
-            fact.insert("predicate".to_string(), "type".to_string());
-            fact.insert("object".to_string(), new_type.clone());
-            fact.insert("inference_type".to_string(), "rust_datalog".to_string());
-            inferred_triples.push(fact);
-
-            if let Some(props_json) = self.node_properties.get_mut(node_id) {
-                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(props_json) {
-                    if let Some(obj) = val.as_object_mut() {
-                        obj.insert(
-                            "inferred_type".to_string(),
-                            serde_json::Value::String(new_type.clone()),
-                        );
-                        if let Ok(updated) = serde_json::to_string(&val) {
-                            *props_json = updated;
-                        }
-                    }
-                }
-            }
-        }
-
-        for (src, tgt, new_prop) in &new_edges_to_add {
-            let mut fact = HashMap::new();
-            fact.insert("subject".to_string(), src.clone());
-            fact.insert("predicate".to_string(), new_prop.clone());
-            fact.insert("object".to_string(), tgt.clone());
-            fact.insert("inference_type".to_string(), "rust_datalog".to_string());
-            inferred_triples.push(fact);
-
-            let src_idx = *self.node_map.get(src).unwrap();
-            let tgt_idx = *self.node_map.get(tgt).unwrap();
-            if self.graph.find_edge(src_idx, tgt_idx).is_none() {
-                self.graph
-                    .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
-            }
-
-            let props_json = format!("{{\"type\": \"{}\", \"inferred\": true}}", new_prop);
-            self.edge_properties
-                .entry((src.clone(), tgt.clone()))
-                .or_default()
-                .push(props_json);
-        }
-
-        Ok(inferred_triples)
+    ) -> Result<Vec<HashMap<String, String>>, String> {
+        reasoning::run_datalog_reasoning(
+            &mut self.core,
+            subclass_relations,
+            subproperty_relations,
+            symmetric_properties,
+            transitive_properties,
+            inverse_properties,
+        )
     }
+
+    // ── Quant FFI Algorithms ─────────────────────────────────────────────
 
     // CONCEPT:KG-2.18 - High-Performance Quant FFI Engine
 
     /// Compute rolling mean over a sliding window.
-    fn compute_rolling_mean(&self, values: Vec<f64>, window: usize) -> PyResult<Vec<f64>> {
-        if window == 0 || values.is_empty() {
-            return Ok(vec![0.0; values.len()]);
-        }
-        let mut result = vec![0.0; values.len()];
-        for i in 0..values.len() {
-            let start = if i >= window - 1 { i + 1 - window } else { 0 };
-            let slice = &values[start..=i];
-            result[i] = slice.iter().sum::<f64>() / slice.len() as f64;
-        }
-        Ok(result)
+    fn compute_rolling_mean(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_rolling_mean(&values, window))
     }
 
-    fn compute_rolling_std(&self, values: Vec<f64>, window: usize) -> PyResult<Vec<f64>> {
-        if window == 0 || values.is_empty() {
-            return Ok(vec![0.0; values.len()]);
-        }
-        let mut result = vec![0.0; values.len()];
-        for (i, res_val) in result.iter_mut().enumerate() {
-            let (mean, variance) = Self::_window_stats(&values, i, window);
-            let _ = mean;
-            *res_val = variance.sqrt();
-        }
-        Ok(result)
+    fn compute_rolling_std(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_rolling_std(&values, window))
     }
 
-    fn compute_rolling_zscore(&self, values: Vec<f64>, window: usize) -> PyResult<Vec<f64>> {
-        if window == 0 || values.is_empty() {
-            return Ok(vec![0.0; values.len()]);
-        }
-        let mut result = vec![0.0; values.len()];
-        for i in 0..values.len() {
-            let (mean, variance) = Self::_window_stats(&values, i, window);
-            let std = variance.sqrt();
-            if std > 0.0 {
-                result[i] = (values[i] - mean) / std;
-            } else {
-                result[i] = 0.0;
-            }
-        }
-        Ok(result)
+    fn compute_rolling_zscore(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_rolling_zscore(&values, window))
     }
 
-    fn compute_exponential_decay(&self, values: Vec<f64>, alpha: f64) -> PyResult<Vec<f64>> {
-        if values.is_empty() {
-            return Ok(vec![]);
-        }
-        let mut result = vec![0.0; values.len()];
-        result[0] = values[0];
-        for i in 1..values.len() {
-            result[i] = alpha * values[i] + (1.0 - alpha) * result[i - 1];
-        }
-        Ok(result)
+    fn compute_exponential_decay(&self, values: Vec<f64>, alpha: f64) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_exponential_decay(&values, alpha))
     }
 
     fn simulate_order_matching(
@@ -763,492 +303,71 @@ impl EpistemicGraph {
         bids: Vec<(f64, f64)>,
         asks: Vec<(f64, f64)>,
         orders: Vec<(String, String, f64, f64)>,
-    ) -> PyResult<Vec<HashMap<String, String>>> {
-        let mut matches = Vec::new();
-        let mut bid_book = bids;
-        let mut ask_book = asks;
-
-        bid_book.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-        ask_book.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-        for (order_id, side, price, volume) in orders {
-            let mut remaining_vol = volume;
-
-            if side.to_lowercase() == "buy" {
-                for ask in &mut ask_book {
-                    let ask_price = ask.0;
-                    if ask_price <= price && remaining_vol > 0.0 && ask.1 > 0.0 {
-                        let fill_vol = remaining_vol.min(ask.1);
-                        remaining_vol -= fill_vol;
-                        ask.1 -= fill_vol;
-
-                        let mut m = HashMap::new();
-                        m.insert("order_id".to_string(), order_id.clone());
-                        m.insert("match_price".to_string(), ask_price.to_string());
-                        m.insert("match_volume".to_string(), fill_vol.to_string());
-                        matches.push(m);
-                    }
-                }
-            } else {
-                for bid in &mut bid_book {
-                    let bid_price = bid.0;
-                    if bid_price >= price && remaining_vol > 0.0 && bid.1 > 0.0 {
-                        let fill_vol = remaining_vol.min(bid.1);
-                        remaining_vol -= fill_vol;
-                        bid.1 -= fill_vol;
-
-                        let mut m = HashMap::new();
-                        m.insert("order_id".to_string(), order_id.clone());
-                        m.insert("match_price".to_string(), bid_price.to_string());
-                        m.insert("match_volume".to_string(), fill_vol.to_string());
-                        matches.push(m);
-                    }
-                }
-            }
-        }
-
-        Ok(matches)
+    ) -> Result<Vec<HashMap<String, String>>, String> {
+        Ok(algorithms::simulate_order_matching(bids, asks, orders))
     }
 
-    // ── Centrality ──────────────────────────────────────────────────────
+    // ── New Batch & Lifecycle APIs ───────────────────────────────────────
 
-    /// Compute degree centrality for a single node: (in + out) / (n - 1).
-    fn compute_degree_centrality(&self, node_id: String) -> PyResult<f64> {
-        let idx = match self.node_map.get(&node_id) {
-            Some(&idx) => idx,
-            None => {
-                return Err(PyValueError::new_err(format!(
-                    "Node '{}' not found",
-                    node_id
-                )))
-            }
-        };
-        let n = self.node_map.len();
-        if n <= 1 {
-            return Ok(0.0);
-        }
-        let in_degree = self
-            .graph
-            .edges_directed(idx, petgraph::Direction::Incoming)
-            .count();
-        let out_degree = self
-            .graph
-            .edges_directed(idx, petgraph::Direction::Outgoing)
-            .count();
-        Ok((in_degree + out_degree) as f64 / (n - 1) as f64)
+    /// Greedy graph coloring — assigns colors so no adjacent nodes share a color.
+    /// Returns Vec<(node_id, color_index)>.
+    fn graph_coloring(&self) -> Vec<(String, usize)> {
+        algorithms::graph_coloring(&self.core)
     }
 
-    /// Compute betweenness centrality for all nodes via BFS.
-    /// Returns Vec<(node_id, centrality)>.
-    fn compute_betweenness_centrality(&self) -> Vec<(String, f64)> {
-        let nodes: Vec<NodeIndex> = self.graph.node_indices().collect();
-        let n = nodes.len();
-        let mut centrality: HashMap<NodeIndex, f64> = HashMap::new();
-        for &node in &nodes {
-            centrality.insert(node, 0.0);
-        }
-
-        for &source in &nodes {
-            // BFS from source
-            let mut stack = Vec::new();
-            let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-            let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
-            let mut dist: HashMap<NodeIndex, i64> = HashMap::new();
-
-            for &v in &nodes {
-                predecessors.insert(v, Vec::new());
-                sigma.insert(v, 0.0);
-                dist.insert(v, -1);
-            }
-            sigma.insert(source, 1.0);
-            dist.insert(source, 0);
-
-            let mut queue = VecDeque::new();
-            queue.push_back(source);
-
-            while let Some(v) = queue.pop_front() {
-                stack.push(v);
-                let v_dist = dist[&v];
-                for neighbor in self.graph.neighbors(v) {
-                    if dist[&neighbor] < 0 {
-                        queue.push_back(neighbor);
-                        dist.insert(neighbor, v_dist + 1);
-                    }
-                    if dist[&neighbor] == v_dist + 1 {
-                        *sigma.get_mut(&neighbor).unwrap() += sigma[&v];
-                        predecessors.get_mut(&neighbor).unwrap().push(v);
-                    }
-                }
-            }
-
-            let mut delta: HashMap<NodeIndex, f64> = HashMap::new();
-            for &v in &nodes {
-                delta.insert(v, 0.0);
-            }
-
-            while let Some(w) = stack.pop() {
-                if sigma[&w] > 0.0 {
-                    for &v in &predecessors[&w] {
-                        let d = (sigma[&v] / sigma[&w]) * (1.0 + delta[&w]);
-                        *delta.get_mut(&v).unwrap() += d;
-                    }
-                }
-                if w != source {
-                    *centrality.get_mut(&w).unwrap() += delta[&w];
-                }
-            }
-        }
-
-        // Normalize
-        let norm = if n > 2 {
-            1.0 / ((n - 1) as f64 * (n - 2) as f64)
-        } else {
-            1.0
-        };
-
-        centrality
-            .into_iter()
-            .map(|(idx, val)| (self.graph[idx].clone(), val * norm))
-            .collect()
+    /// Compute similarity edges between nodes that have embeddings.
+    /// Returns Vec<(source_id, target_id, similarity_score)>.
+    fn compute_similarity_edges(&self, threshold: f64) -> Vec<(String, String, f64)> {
+        algorithms::compute_similarity_edges(&self.core, threshold)
     }
 
-    // ── Compaction ──────────────────────────────────────────────────────
-
-    /// Compact nodes of a given type exceeding threshold into a summary node.
-    /// Returns IDs of removed nodes.
-    fn compact_nodes_by_type(&mut self, node_type: String, threshold: usize) -> Vec<String> {
-        // Find all nodes of the given type
-        let mut candidates: Vec<String> = Vec::new();
-        for (node_id, props_json) in &self.node_properties {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
-                if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
-                    if t == node_type {
-                        candidates.push(node_id.clone());
-                    }
-                }
-            }
-        }
-
-        if candidates.len() <= threshold {
-            return Vec::new();
-        }
-
-        // Create summary node
-        let summary_id = format!("summary:{}:{}", node_type, candidates.len());
-        let summary_props = serde_json::json!({
-            "type": format!("{}_summary", node_type),
-            "compacted_count": candidates.len(),
-            "original_type": node_type,
-        });
-        self.add_node(summary_id.clone(), summary_props.to_string());
-
-        // Remove candidates
-        let mut removed = Vec::new();
-        for node_id in &candidates {
-            self.remove_node(node_id.clone());
-            removed.push(node_id.clone());
-        }
-
-        removed
+    /// Lifecycle-aware pruning: archive nodes past max_age, remove those below min_score.
+    /// Returns JSON with prune statistics.
+    fn prune_by_lifecycle(&mut self, max_age_secs: u64, min_score: f64) -> Result<String, String> {
+        let stats = algorithms::prune_by_lifecycle(&mut self.core, max_age_secs, min_score);
+        serde_json::to_string(&stats).map_err(|e| {
+            format!(
+                "[EpistemicGraph::prune_by_lifecycle] serialization error: {e}"
+            )
+        })
     }
 
-    // ── Graph Forking ──────────────────────────────────────────────────
-
-    /// Create a deep clone of this graph (avoids Python deepcopy overhead).
-    fn fork(&self) -> EpistemicGraph {
-        EpistemicGraph {
-            graph: self.graph.clone(),
-            node_map: self.node_map.clone(),
-            node_properties: self.node_properties.clone(),
-            edge_properties: self.edge_properties.clone(),
-            ledger: self.ledger.clone(),
-        }
+    /// Get an optimized context view for an agent within a token budget.
+    /// Returns JSON with the relevant subgraph.
+    fn get_context_view(&self, agent_id: String, max_tokens: u32) -> Result<String, String> {
+        let view = algorithms::get_context_view(&self.core, &agent_id, max_tokens);
+        serde_json::to_string(&view).map_err(|e| {
+            format!(
+                "[EpistemicGraph::get_context_view] serialization error: {e}"
+            )
+        })
     }
 
-    /// Compute structural diff against another graph, return JSON.
-    fn diff_against(&self, other: &EpistemicGraph) -> String {
-        let self_nodes: HashSet<&String> = self.node_map.keys().collect();
-        let other_nodes: HashSet<&String> = other.node_map.keys().collect();
-
-        let added: Vec<&String> = other_nodes.difference(&self_nodes).cloned().collect();
-        let removed: Vec<&String> = self_nodes.difference(&other_nodes).cloned().collect();
-
-        let mut modified: Vec<&String> = Vec::new();
-        for node_id in self_nodes.intersection(&other_nodes) {
-            let self_props = self.node_properties.get(*node_id);
-            let other_props = other.node_properties.get(*node_id);
-            if self_props != other_props {
-                modified.push(node_id);
-            }
-        }
-
-        let self_edges: HashSet<&(String, String)> = self.edge_properties.keys().collect();
-        let other_edges: HashSet<&(String, String)> = other.edge_properties.keys().collect();
-        let edges_added: Vec<&(String, String)> =
-            other_edges.difference(&self_edges).cloned().collect();
-        let edges_removed: Vec<&(String, String)> =
-            self_edges.difference(&other_edges).cloned().collect();
-
-        let diff = serde_json::json!({
-            "nodes_added": added,
-            "nodes_removed": removed,
-            "nodes_modified": modified,
-            "edges_added": edges_added,
-            "edges_removed": edges_removed,
-        });
-        diff.to_string()
+    /// Batch update: apply multiple operations in a single FFI crossing.
+    /// Input: JSON array of operations [{op: "add_node", ...}, ...].
+    /// Returns JSON with operation results.
+    fn batch_update(&mut self, operations_json: String) -> Result<String, String> {
+        algorithms::batch_update(&mut self.core, &operations_json)
     }
-}
 
-impl EpistemicGraph {
-    /// Shared window statistics helper for rolling computations.
-    /// Returns (mean, variance) for the window ending at index `i`.
-    fn _window_stats(values: &[f64], i: usize, window: usize) -> (f64, f64) {
-        let start = if i >= window - 1 { i + 1 - window } else { 0 };
-        let slice = &values[start..=i];
-        let n = slice.len() as f64;
-        let mean = slice.iter().sum::<f64>() / n;
-        let variance = slice.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
-        (mean, variance)
+    /// Runtime metrics for monitoring and observability.
+    fn metrics(&self) -> Result<String, String> {
+        let m = algorithms::compute_metrics(&self.core);
+        serde_json::to_string(&m).map_err(|e| {
+            format!(
+                "[EpistemicGraph::metrics] serialization error: {e}"
+            )
+        })
     }
-    fn dfs_find_cycle(
+
+    /// Personalized PageRank with seed nodes.
+    /// seed_nodes: Vec<(node_id, weight)>
+    fn personalized_pagerank(
         &self,
-        node: NodeIndex,
-        visited: &mut HashMap<NodeIndex, i32>,
-        parent: &mut HashMap<NodeIndex, NodeIndex>,
-        path: &mut Vec<String>,
-    ) -> bool {
-        visited.insert(node, 1); // visiting
-
-        for neighbor in self.graph.neighbors(node) {
-            if visited[&neighbor] == 1 {
-                // Cycle detected! Reconstruct path.
-                let mut curr = node;
-                let mut temp_path = Vec::new();
-                while curr != neighbor {
-                    temp_path.push(self.graph[curr].clone());
-                    curr = parent[&curr];
-                }
-                temp_path.push(self.graph[neighbor].clone());
-                temp_path.reverse();
-                if let Some(first) = temp_path.first().cloned() {
-                    temp_path.push(first);
-                }
-                *path = temp_path;
-                return true;
-            } else if visited[&neighbor] == 0 {
-                parent.insert(neighbor, node);
-                if self.dfs_find_cycle(neighbor, visited, parent, path) {
-                    return true;
-                }
-            }
-        }
-        visited.insert(node, 2); // visited
-        false
+        seed_nodes: Vec<(String, f64)>,
+        damping: f64,
+        iterations: usize,
+    ) -> Vec<(String, f64)> {
+        algorithms::personalized_pagerank(&self.core, &seed_nodes, damping, iterations)
     }
-
-    fn walk_dir_recursive(&self, dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    // Exclude hidden dirs, node_modules, etc.
-                    let name = path.file_name().unwrap_or_default().to_string_lossy();
-                    if !name.starts_with('.') && name != "node_modules" && name != "target" {
-                        self.walk_dir_recursive(&path, files);
-                    }
-                } else {
-                    let ext = path.extension().unwrap_or_default().to_string_lossy();
-                    if ext == "py" || ext == "js" || ext == "ts" {
-                        files.push(path);
-                    }
-                }
-            }
-        }
-    }
-
-    fn backtrack_match(
-        &self,
-        pattern_node_idx: usize,
-        pattern_nodes: &[String],
-        current_mapping: &mut HashMap<String, String>,
-        mapped_targets: &mut HashSet<String>,
-        pattern: &EpistemicGraph,
-        matches: &mut Vec<HashMap<String, String>>,
-    ) {
-        if pattern_node_idx == pattern_nodes.len() {
-            matches.push(current_mapping.clone());
-            return;
-        }
-
-        let p_node = &pattern_nodes[pattern_node_idx];
-
-        for t_node in self.node_map.keys() {
-            if mapped_targets.contains(t_node) {
-                continue;
-            }
-
-            if self.check_match(p_node, t_node, current_mapping, pattern) {
-                current_mapping.insert(p_node.clone(), t_node.clone());
-                mapped_targets.insert(t_node.clone());
-
-                self.backtrack_match(
-                    pattern_node_idx + 1,
-                    pattern_nodes,
-                    current_mapping,
-                    mapped_targets,
-                    pattern,
-                    matches,
-                );
-
-                current_mapping.remove(p_node);
-                mapped_targets.remove(t_node);
-            }
-        }
-    }
-
-    fn check_match(
-        &self,
-        p_node: &str,
-        t_node: &str,
-        current_mapping: &HashMap<String, String>,
-        pattern: &EpistemicGraph,
-    ) -> bool {
-        // 1. Check node properties compatibility
-        let p_props = pattern
-            .node_properties
-            .get(p_node)
-            .map(|s| s.as_str())
-            .unwrap_or("{}");
-        let t_props = self
-            .node_properties
-            .get(t_node)
-            .map(|s| s.as_str())
-            .unwrap_or("{}");
-
-        if !self.match_props(p_props, t_props) {
-            return false;
-        }
-
-        // 2. Check structure compatibility
-        let p_idx = *pattern.node_map.get(p_node).unwrap();
-
-        // In-edges
-        for in_edge in pattern
-            .graph
-            .edges_directed(p_idx, petgraph::Direction::Incoming)
-        {
-            let p_src = &pattern.graph[in_edge.source()];
-            if let Some(t_src) = current_mapping.get(p_src) {
-                if !self.has_edge(t_src.clone(), t_node.to_string()) {
-                    return false;
-                }
-
-                let mut matched_edge = false;
-                if let Some(p_props_list) = pattern
-                    .edge_properties
-                    .get(&(p_src.clone(), p_node.to_string()))
-                {
-                    if let Some(t_props_list) = self
-                        .edge_properties
-                        .get(&(t_src.clone(), t_node.to_string()))
-                    {
-                        for p_edge_props in p_props_list {
-                            for t_edge_props in t_props_list {
-                                if self.match_props(p_edge_props, t_edge_props) {
-                                    matched_edge = true;
-                                    break;
-                                }
-                            }
-                            if matched_edge {
-                                break;
-                            }
-                        }
-                    }
-                } else {
-                    matched_edge = true;
-                }
-
-                if !matched_edge {
-                    return false;
-                }
-            }
-        }
-
-        // Out-edges
-        for out_edge in pattern
-            .graph
-            .edges_directed(p_idx, petgraph::Direction::Outgoing)
-        {
-            let p_tgt = &pattern.graph[out_edge.target()];
-            if let Some(t_tgt) = current_mapping.get(p_tgt) {
-                if !self.has_edge(t_node.to_string(), t_tgt.clone()) {
-                    return false;
-                }
-
-                let mut matched_edge = false;
-                if let Some(p_props_list) = pattern
-                    .edge_properties
-                    .get(&(p_node.to_string(), p_tgt.clone()))
-                {
-                    if let Some(t_props_list) = self
-                        .edge_properties
-                        .get(&(t_node.to_string(), t_tgt.clone()))
-                    {
-                        for p_edge_props in p_props_list {
-                            for t_edge_props in t_props_list {
-                                if self.match_props(p_edge_props, t_edge_props) {
-                                    matched_edge = true;
-                                    break;
-                                }
-                            }
-                            if matched_edge {
-                                break;
-                            }
-                        }
-                    }
-                } else {
-                    matched_edge = true;
-                }
-
-                if !matched_edge {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
-
-    fn match_props(&self, p_json: &str, t_json: &str) -> bool {
-        let p_val: serde_json::Value = match serde_json::from_str(p_json) {
-            Ok(v) => v,
-            Err(_) => return false,
-        };
-        let t_val: serde_json::Value = match serde_json::from_str(t_json) {
-            Ok(v) => v,
-            Err(_) => return false,
-        };
-
-        if let (Some(p_obj), Some(t_obj)) = (p_val.as_object(), t_val.as_object()) {
-            for (k, v) in p_obj {
-                if let Some(t_v) = t_obj.get(k) {
-                    if v != t_v {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            true
-        } else {
-            p_val == t_val
-        }
-    }
-}
-
-#[pymodule]
-fn _epistemic_graph(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<EpistemicGraph>()?;
-    Ok(())
 }

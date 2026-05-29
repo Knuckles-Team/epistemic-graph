@@ -8,7 +8,9 @@ version = "0.7.2"
 description = "Rust-based epistemic graph engine for agent-utilities"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "msgpack>=1.0.0"
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "License :: OSI Approved :: MIT License",
@@ -58,4 +60,5 @@ min_confidence = 95
 
 [tool.maturin]
 python-source = "."
-module-name = "epistemic_graph._epistemic_graph"
+bindings = "bin"
+strip = true
