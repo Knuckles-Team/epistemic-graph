@@ -85,7 +85,7 @@ class EpistemicGraphClient:
             _socket = socket_path or os.environ.get(
                 "GRAPH_SERVICE_SOCKET",
                 os.path.join(
-                    os.environ.get("XDG_RUNTIME_DIR", fallback),
+                    os.environ.get("XDG_RUNTIME_DIR", fallback),  # nosec B108
                     "epistemic-graph.sock",
                 ),
             )
