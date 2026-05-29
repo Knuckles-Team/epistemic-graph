@@ -20,7 +20,7 @@ def _default_socket_path() -> str:
     fallback = os.path.join(
         os.path.expanduser("~"), ".local", "state", "epistemic-graph"
     )
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)  # nosec B108
     os.makedirs(runtime_dir, exist_ok=True)
     return os.path.join(runtime_dir, "epistemic-graph.sock")
 
@@ -29,7 +29,7 @@ def _default_pid_path() -> str:
     fallback = os.path.join(
         os.path.expanduser("~"), ".local", "state", "epistemic-graph"
     )
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)  # nosec B108
     os.makedirs(runtime_dir, exist_ok=True)
     return os.path.join(runtime_dir, "epistemic-graph.pid")
 
