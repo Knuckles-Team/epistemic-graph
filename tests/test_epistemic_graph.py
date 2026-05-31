@@ -248,3 +248,23 @@ def test_reactive_state_ledger(clean_graph):
     clean_graph.ledger.apply(txs)
     assert clean_graph.nodes.has("Z") is True
     assert clean_graph.edges.has("Y", "Z") is True
+
+
+@pytest.mark.concept("CONCEPT:KG-2.20")
+@pytest.mark.asyncio
+async def test_rust_ast_parser_fallback():
+    """Test RustASTParser local python fallback parsing behaves properly."""
+    from epistemic_graph.parser import RustASTParser
+
+    parser = RustASTParser(socket_path="/tmp/non_existent_socket_path.sock")
+    source = b"class MyClass:\n    def my_method(self):\n        pass\n"
+    res = await parser.parse_file("test.py", source)
+
+    assert "nodes" in res
+    assert "edges" in res
+    assert res["symbols_extracted"] == 2
+
+    # Check for MyClass and my_method symbols
+    symbols = [n["properties"]["name"] for n in res["nodes"] if n["node_type"] == "SYMBOL"]
+    assert "MyClass" in symbols
+    assert "my_method" in symbols
