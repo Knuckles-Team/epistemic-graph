@@ -35,7 +35,7 @@ impl SpectralClusterNavigator {
         }
 
         let mut similarity = &normalized * &normalized.transpose();
-        
+
         // Clip to [0, 1]
         for v in similarity.iter_mut() {
             *v = v.clamp(0.0, 1.0);
@@ -81,7 +81,7 @@ impl SpectralClusterNavigator {
             let gap = sorted_vals[i + 1] - sorted_vals[i];
             if gap > max_gap {
                 max_gap = gap;
-                best_k = i + 1; // +1 because we are looking at diffs, and skip evalue 0 (which is at index 0) wait, Python skips index 0 (which is 0.0), so diffs are from 1. 
+                best_k = i + 1; // +1 because we are looking at diffs, and skip evalue 0 (which is at index 0) wait, Python skips index 0 (which is 0.0), so diffs are from 1.
                 // Wait, Python: sorted_vals[1 : upper + 1], diffs between them.
                 // In Python: `best_k = int(np.argmax(gaps)) + 2`.
             }
@@ -108,7 +108,7 @@ impl SpectralClusterNavigator {
         }
         let n = indices.len();
         let d = vectors.shape().1;
-        
+
         let mut cluster_vecs = DMatrix::zeros(n, d);
         for (i, &idx) in indices.iter().enumerate() {
             cluster_vecs.set_row(i, &vectors.row(idx));
@@ -141,7 +141,7 @@ impl SpectralClusterNavigator {
 
         let mut rng = rand::thread_rng();
         let mut centroids = DMatrix::zeros(k, data.shape().1);
-        
+
         // k-means++ simplified
         let mut all_indices: Vec<usize> = (0..n).collect();
         all_indices.shuffle(&mut rng);
@@ -278,7 +278,7 @@ impl SpectralClusterNavigator {
             }
 
             let coherence = self.cluster_coherence(&mat, &member_indices);
-            
+
             results.push(ClusterResult {
                 cluster_id: format!("sc_{}", uuid::Uuid::new_v4().simple().to_string()[..8].to_string()),
                 label: format!("{}_cluster_{}", domain, cluster_idx),

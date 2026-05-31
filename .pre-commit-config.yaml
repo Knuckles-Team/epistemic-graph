@@ -51,7 +51,7 @@ repos:
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,", "--ignore-words=.codespellignore"]
-    exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock)
+    exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/)
 - repo: https://github.com/PyCQA/bandit
   rev: 1.9.4
   hooks:

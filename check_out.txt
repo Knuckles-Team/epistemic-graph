@@ -19,7 +19,7 @@ warning: variable `best_k` is assigned to, but never used
 warning: value assigned to `best_k` is never read
   --> src/compute/spectral.rs:84:17
    |
-84 |                 best_k = i + 1; // +1 because we are looking at diffs, and skip evalue 0 (which is at index 0) wait, Python skips index 0 (which is 0.0), so diffs are from 1. 
+84 |                 best_k = i + 1; // +1 because we are looking at diffs, and skip evalue 0 (which is at index 0) wait, Python skips index 0 (which is 0.0), so diffs are from 1.
    |                 ^^^^^^^^^^^^^^
    |
    = help: maybe it is overwritten before being read?

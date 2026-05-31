@@ -5,7 +5,7 @@ index 9640c60..e42f9c4 100644
 @@ -1,263 +1,477 @@
  #![allow(non_local_definitions)]
 -#![allow(dead_code)]
- 
+
  // CONCEPT:KG-2.16 - High-Performance Graph Compute Engine
  // CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
 -// CONCEPT:KG-2.19 - Tokio Service Layer
@@ -34,7 +34,7 @@ index 9640c60..e42f9c4 100644
 -/// Wraps `GraphCore` and delegates all operations through typed FFI
 -/// boundaries. No `unwrap()` on user-facing paths — all errors surface
 -/// as `PyResult`.
- 
+
 +use petgraph::algo::toposort;
 +use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 +use petgraph::visit::{Bfs, EdgeRef};
@@ -52,7 +52,7 @@ index 9640c60..e42f9c4 100644
 +    edge_properties: HashMap<(String, String), Vec<String>>,
 +    ledger: Vec<String>,
  }
- 
+
 -
 +#[pymethods]
  impl EpistemicGraph {
@@ -70,7 +70,7 @@ index 9640c60..e42f9c4 100644
 +            ledger: Vec::new(),
          }
      }
- 
+
 -    // ── Node CRUD ────────────────────────────────────────────────────────
 -
      fn add_node(&mut self, node_id: String, properties_json: String) {
@@ -114,7 +114,7 @@ index 9640c60..e42f9c4 100644
 +        let log = format!("ADD_NODE|{}|{}", node_id, properties_json);
 +        self.ledger.push(log);
      }
- 
+
 -    // ── Edge CRUD ────────────────────────────────────────────────────────
 -
      fn add_edge(
@@ -157,7 +157,7 @@ index 9640c60..e42f9c4 100644
 +        self.ledger.push(log);
 +        Ok(())
      }
- 
+
 -    fn remove_edge(&mut self, source_id: String, target_id: String) {
 -        self.core.remove_edge(source_id, target_id);
 +    fn remove_node(&mut self, node_id: String) {
@@ -171,7 +171,7 @@ index 9640c60..e42f9c4 100644
 +            self.ledger.push(log);
 +        }
      }
- 
+
 -    fn has_edge(&self, source_id: String, target_id: String) -> bool {
 -        self.core.has_edge(&source_id, &target_id)
 +    fn remove_edge(&mut self, source_id: String, target_id: String) {
@@ -187,13 +187,13 @@ index 9640c60..e42f9c4 100644
 +            self.ledger.push(log);
 +        }
      }
- 
+
 -    fn get_edges(&self) -> Vec<(String, String, String)> {
 -        self.core.get_edges()
 +    fn has_node(&self, node_id: String) -> bool {
 +        self.node_map.contains_key(&node_id)
      }
- 
+
 -    /// O(1) edge property lookup for a specific (source, target) pair.
 -    fn get_edge_properties(&self, source_id: String, target_id: String) -> Vec<String> {
 -        self.core.get_edge_properties(&source_id, &target_id)
@@ -206,7 +206,7 @@ index 9640c60..e42f9c4 100644
 +            false
 +        }
      }
- 
+
 -    /// O(1) edge count without materializing the full edge list.
 -    fn edge_count(&self) -> usize {
 -        self.core.edge_count()
@@ -216,7 +216,7 @@ index 9640c60..e42f9c4 100644
 +            .map(|(k, v)| (k.clone(), v.clone()))
 +            .collect()
      }
- 
+
 -    // ── Neighbor Queries (NEW — NetworkX replacement API) ────────────────
 -
 -    /// In-degree count for a specific node.
@@ -231,7 +231,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        res
      }
- 
+
 -    /// Out-degree count for a specific node.
 -    fn out_degree(&self, node_id: String) -> Result<usize, String> {
 -        self.core.out_degree(&node_id)
@@ -239,7 +239,7 @@ index 9640c60..e42f9c4 100644
 +    fn get_node_properties(&self, node_id: String) -> Option<String> {
 +        self.node_properties.get(&node_id).cloned()
      }
- 
+
 -    /// Incoming neighbors (predecessors).
 -    fn get_predecessors(&self, node_id: String) -> Result<Vec<String>, String> {
 -        self.core.get_predecessors(&node_id)
@@ -250,7 +250,7 @@ index 9640c60..e42f9c4 100644
 +            .cloned()
 +            .unwrap_or_default()
      }
- 
+
 -    /// Outgoing neighbors (successors).
 -    fn get_successors(&self, node_id: String) -> Result<Vec<String>, String> {
 -        self.core.get_successors(&node_id)
@@ -258,7 +258,7 @@ index 9640c60..e42f9c4 100644
 +    fn node_count(&self) -> usize {
 +        self.node_map.len()
      }
- 
+
 -    /// All neighbors (both directions, deduplicated).
 -    fn get_neighbors(&self, node_id: String) -> Result<Vec<String>, String> {
 -        self.core.get_neighbors(&node_id)
@@ -266,7 +266,7 @@ index 9640c60..e42f9c4 100644
 +    fn edge_count(&self) -> usize {
 +        self.edge_properties.values().map(|v| v.len()).sum()
      }
- 
+
 -    // ── Graph Algorithms ─────────────────────────────────────────────────
 -
 -    fn topological_sort(&self) -> Result<Vec<String>, String> {
@@ -281,7 +281,7 @@ index 9640c60..e42f9c4 100644
 +            Err(_) => Err(PyValueError::new_err("Graph contains cycles")),
 +        }
      }
- 
+
      fn find_cycle(&self) -> Option<Vec<String>> {
 -        algorithms::find_cycle(&self.core)
 -    }
@@ -292,7 +292,7 @@ index 9640c60..e42f9c4 100644
 +        // Run simple cycle detection via DFS coloring
 +        let mut visited = HashMap::new(); // NodeIndex -> Color: 0=unvisited, 1=visiting, 2=visited
 +        let mut parent = HashMap::new(); // NodeIndex -> NodeIndex
- 
+
 -    fn get_blast_radius(&self, node_id: String, max_depth: usize) -> Vec<String> {
 -        algorithms::get_blast_radius(&self.core, &node_id, max_depth)
 -    }
@@ -314,7 +314,7 @@ index 9640c60..e42f9c4 100644
 +        for node in self.graph.node_indices() {
 +            visited.insert(node, 0);
 +        }
- 
+
 -    /// PageRank via power iteration.
 -    fn pagerank(&self, damping: f64, iterations: usize) -> Vec<(String, f64)> {
 -        algorithms::pagerank(&self.core, damping, iterations)
@@ -328,7 +328,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        None
      }
- 
+
 -    /// Weakly connected components (treats edges as undirected).
 -    fn connected_components(&self) -> Vec<Vec<String>> {
 -        algorithms::connected_components(&self.core)
@@ -350,7 +350,7 @@ index 9640c60..e42f9c4 100644
 +                }
 +            }
 +        }
- 
+
 -    /// Community detection via label propagation.
 -    fn community_detection(&self, resolution: f64) -> Vec<Vec<String>> {
 -        algorithms::community_detection(&self.core, resolution)
@@ -368,7 +368,7 @@ index 9640c60..e42f9c4 100644
 +            None
 +        }
      }
- 
+
 -    // ── Subgraph Extraction (NEW — NetworkX replacement API) ─────────────
 -
 -    /// Extract a subgraph containing only the specified node IDs.
@@ -403,7 +403,7 @@ index 9640c60..e42f9c4 100644
          }
 +        blast_nodes
      }
- 
+
 -    // ── Serialization ────────────────────────────────────────────────────
 -
 -    fn to_json(&self) -> Result<String, String> {
@@ -503,7 +503,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        Ok(())
      }
- 
+
 -    #[allow(clippy::wrong_self_convention)]
 -    fn from_json(&mut self, json_str: String) -> Result<(), String> {
 -        self.core.from_json(&json_str)
@@ -529,19 +529,19 @@ index 9640c60..e42f9c4 100644
 +        );
 +        Ok(matches)
      }
- 
+
 -    // ── Ledger ───────────────────────────────────────────────────────────
 -
      fn get_ledger(&self) -> Vec<String> {
 -        self.core.get_ledger()
 +        self.ledger.clone()
      }
- 
+
      fn clear_ledger(&mut self) {
 -        self.core.clear_ledger();
 +        self.ledger.clear();
      }
- 
+
 -    fn apply_ledger(&mut self, transactions: Vec<String>) -> Result<(), String> {
 -        self.core.apply_ledger(transactions)
 -    }
@@ -578,7 +578,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        Ok(())
      }
- 
+
 -    // ── VF2 Subgraph Matching ────────────────────────────────────────────
 -
 -    fn vf2_subgraph_match(
@@ -605,7 +605,7 @@ index 9640c60..e42f9c4 100644
 +
 +        serde_json::to_string(&graph_map).map_err(|e| PyValueError::new_err(e.to_string()))
      }
- 
+
 -    // ── Graph Forking ────────────────────────────────────────────────────
 -
 -    /// Create a deep clone of this graph (avoids Python deepcopy overhead).
@@ -632,7 +632,7 @@ index 9640c60..e42f9c4 100644
 +            }
          }
 -    }
- 
+
 -    /// Compute structural diff against another graph, return JSON.
 -    fn diff_against(&self, other: &EpistemicGraph) -> String {
 -        self.core.diff_against(&other.core)
@@ -644,21 +644,21 @@ index 9640c60..e42f9c4 100644
 +                let _ = self.add_edge(src, tgt, props);
 +            }
 +        }
- 
+
 -    // ── Compaction ───────────────────────────────────────────────────────
 +        if let Some(ledger_val) = graph_map.get("ledger") {
 +            let ledger: Vec<String> = serde_json::from_value(ledger_val.clone())
 +                .map_err(|e| PyValueError::new_err(e.to_string()))?;
 +            self.ledger = ledger;
 +        }
- 
+
 -    /// Compact nodes of a given type exceeding threshold into a summary node.
 -    /// Returns IDs of removed nodes.
 -    fn compact_nodes_by_type(&mut self, node_type: String, threshold: usize) -> Vec<String> {
 -        self.core.compact_nodes_by_type(&node_type, threshold)
 +        Ok(())
      }
- 
+
 -    // ── Reasoning ────────────────────────────────────────────────────────
 -
      // CONCEPT:KG-2.17 - Compiled Semantic Reasoner
@@ -723,7 +723,7 @@ index 9640c60..e42f9c4 100644
 +                }
 +            }
 +        }
- 
+
 -    // ── Quant FFI Algorithms ─────────────────────────────────────────────
 +        let mut current_edge_types: HashMap<(String, String), HashSet<String>> = HashMap::new();
 +        for ((src, tgt), props_json_list) in &self.edge_properties {
@@ -898,9 +898,9 @@ index 9640c60..e42f9c4 100644
 +
 +        Ok(inferred_triples)
 +    }
- 
+
      // CONCEPT:KG-2.18 - High-Performance Quant FFI Engine
- 
+
      /// Compute rolling mean over a sliding window.
 -    fn compute_rolling_mean(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
 -        Ok(algorithms::compute_rolling_mean(&values, window))
@@ -916,7 +916,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        Ok(result)
      }
- 
+
 -    fn compute_rolling_std(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
 -        Ok(algorithms::compute_rolling_std(&values, window))
 +    fn compute_rolling_std(&self, values: Vec<f64>, window: usize) -> PyResult<Vec<f64>> {
@@ -931,7 +931,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        Ok(result)
      }
- 
+
 -    fn compute_rolling_zscore(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
 -        Ok(algorithms::compute_rolling_zscore(&values, window))
 +    fn compute_rolling_zscore(&self, values: Vec<f64>, window: usize) -> PyResult<Vec<f64>> {
@@ -950,7 +950,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        Ok(result)
      }
- 
+
 -    fn compute_exponential_decay(&self, values: Vec<f64>, alpha: f64) -> Result<Vec<f64>, String> {
 -        Ok(algorithms::compute_exponential_decay(&values, alpha))
 +    fn compute_exponential_decay(&self, values: Vec<f64>, alpha: f64) -> PyResult<Vec<f64>> {
@@ -964,7 +964,7 @@ index 9640c60..e42f9c4 100644
 +        }
 +        Ok(result)
      }
- 
+
      fn simulate_order_matching(
 @@ -303,71 +763,492 @@ fn simulate_order_matching(
          bids: Vec<(f64, f64)>,
@@ -1018,7 +1018,7 @@ index 9640c60..e42f9c4 100644
 +
 +        Ok(matches)
      }
- 
+
 -    // ── New Batch & Lifecycle APIs ───────────────────────────────────────
 +    // ── Centrality ──────────────────────────────────────────────────────
 +
@@ -1108,7 +1108,7 @@ index 9640c60..e42f9c4 100644
 +                }
 +            }
 +        }
- 
+
 -    /// Greedy graph coloring — assigns colors so no adjacent nodes share a color.
 -    /// Returns Vec<(node_id, color_index)>.
 -    fn graph_coloring(&self) -> Vec<(String, usize)> {
@@ -1125,7 +1125,7 @@ index 9640c60..e42f9c4 100644
 +            .map(|(idx, val)| (self.graph[idx].clone(), val * norm))
 +            .collect()
      }
- 
+
 -    /// Compute similarity edges between nodes that have embeddings.
 -    /// Returns Vec<(source_id, target_id, similarity_score)>.
 -    fn compute_similarity_edges(&self, threshold: f64) -> Vec<(String, String, f64)> {
@@ -1182,7 +1182,7 @@ index 9640c60..e42f9c4 100644
 +            ledger: self.ledger.clone(),
 +        }
      }
- 
+
 -    /// Lifecycle-aware pruning: archive nodes past max_age, remove those below min_score.
 -    /// Returns JSON with prune statistics.
 -    fn prune_by_lifecycle(&mut self, max_age_secs: u64, min_score: f64) -> Result<String, String> {
@@ -1226,7 +1226,7 @@ index 9640c60..e42f9c4 100644
 +        diff.to_string()
      }
 +}
- 
+
 -    /// Get an optimized context view for an agent within a token budget.
 -    /// Returns JSON with the relevant subgraph.
 -    fn get_context_view(&self, agent_id: String, max_tokens: u32) -> Result<String, String> {
@@ -1282,7 +1282,7 @@ index 9640c60..e42f9c4 100644
 +        visited.insert(node, 2); // visited
 +        false
      }
- 
+
 -    /// Batch update: apply multiple operations in a single FFI crossing.
 -    /// Input: JSON array of operations [{op: "add_node", ...}, ...].
 -    /// Returns JSON with operation results.
@@ -1307,7 +1307,7 @@ index 9640c60..e42f9c4 100644
 +            }
 +        }
      }
- 
+
 -    /// Runtime metrics for monitoring and observability.
 -    fn metrics(&self) -> Result<String, String> {
 -        let m = algorithms::compute_metrics(&self.core);
@@ -1355,7 +1355,7 @@ index 9640c60..e42f9c4 100644
 +            }
 +        }
      }
- 
+
 -    /// Personalized PageRank with seed nodes.
 -    /// seed_nodes: Vec<(node_id, weight)>
 -    fn personalized_pagerank(

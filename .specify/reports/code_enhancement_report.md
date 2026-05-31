@@ -9,7 +9,7 @@
 ```mermaid
 xychart-beta
     title "Domain Scores"
-    x-axis ["Project Anal", "Dependency A", "Codebase Opt", "Security Ana", "Test Coverag", "Documentatio", "Architecture", "Concept Trac", "Linting & Fo", "Pre-Commit C", "Test Executi", "Directory Or", "Version Sync", "Changelog Au", "Pytest Quali", "Environment ", "analyze_xdg_"]
+    x-axis ["Project Analysis", "Dependency Audit", "Codebase Opt", "Security Analysis", "Test Coverage", "Documentation", "Architecture", "Concept Traceability", "Linting & Formatting", "Pre-Commit Compliance", "Test Execution", "Directory Org", "Version Sync", "Changelog Audit", "Pytest Quality", "Environment Variables", "analyze_xdg_kg"]
     y-axis "Score" 0 --> 100
     bar [60, 100, 88, 0, 70, 72, 65, 23, 100, 94, 100, 100, 100, 75, 92, 60, 0]
 ```
@@ -66,7 +66,7 @@ xychart-beta
 
 | Criterion | Points | Evidence | Reasoning |
 |-----------|--------|----------|-----------|
-| dependency_freshness | 100 | `source=/home/apps/workspace/agent-packages/epistemic-graph/p` | Audited 7 deps (7 installed, 0 constraint-only). 0 major, 0 minor, 0 patch updat |
+| dependency_freshness | 100 | `source=/home/apps/workspace/agent-packages/epistemic-graph/p` | Audited 7 deps (7 installed, 0 constraint-only). 0 major, 0 minor, 0 patch updates |
 
 ---
 
@@ -258,7 +258,7 @@ xychart-beta
 
 | Criterion | Points | Evidence | Reasoning |
 |-----------|--------|----------|-----------|
-| pytest_quality | 92 | `{"test_files": 6, "total_tests": 26, "descriptive_name_ratio` | 26 tests across 6 files. Naming: 20/20, Structure: 17/20, Fixtures: 15/20, Asser |
+| pytest_quality | 92 | `{"test_files": 6, "total_tests": 26, "descriptive_name_ratio` | 26 tests across 6 files. Naming: 20/20, Structure: 17/20, Fixtures: 15/20, Assertions |
 
 **Findings:**
 - No @pytest.mark.parametrize usage — consider data-driven tests
