@@ -102,9 +102,12 @@ impl PositionalInteractionEncoder {
 }
 
 pub fn get_or_create_encoder(pos_dim: usize, hidden_dim: usize, out_dim: usize, seed: u64) -> Vec<f64> {
-    // Just a placeholder to ensure it compiles without caching, or we can use caching.
-    // For now, we instantiate per call to keep it stateless and avoid Mutex locks overhead
-    // if performance allows, otherwise cache it.
-    let enc = PositionalInteractionEncoder::new(pos_dim, hidden_dim, out_dim, seed);
-    enc.encode_interaction(1, 2) // placeholder
+    let key = format!("{}-{}-{}-{}", pos_dim, hidden_dim, out_dim, seed);
+    let mut cache = ENCODER_CACHE.lock().unwrap();
+    if !cache.contains_key(&key) {
+        let encoder = PositionalInteractionEncoder::new(pos_dim, hidden_dim, out_dim, seed);
+        cache.insert(key.clone(), encoder);
+    }
+    let encoder = cache.get(&key).unwrap();
+    encoder.encode_interaction(1, 2)
 }

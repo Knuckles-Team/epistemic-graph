@@ -7,11 +7,4 @@
 
 pub mod semantic;
 
-// These modules require nalgebra/ndarray and are gated behind datascience feature.
-// They are DEPRECATED in favor of pure-Rust implementations in src/datascience/.
-// #[cfg(feature = "datascience")]
-// pub mod spectral;
-// #[cfg(feature = "datascience")]
-// pub mod hypergraph;
-// #[cfg(feature = "datascience")]
-// pub mod distillation;
+pub mod hypergraph;
