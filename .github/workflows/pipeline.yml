@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish-pypi:
-    uses: Knuckles-Team/pipelines/.github/workflows/python_pipeline.yml@main
+    uses: Knuckles-Team/pipelines/.github/workflows/maturin_pipeline.yml@main
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
   publish-docker:

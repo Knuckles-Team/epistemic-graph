@@ -1,9 +1,9 @@
-"""High-performance compiled Quant FFI Engine.
+"""High-performance compiled Quant epistemic-graph Engine.
 
 CONCEPT:KG-2.18
 
 All numerical computations delegate to the Rust-compiled EpistemicGraph
-core via PyO3 FFI.  The Python layer provides ergonomic API wrappers
+core via PyO3 epistemic-graph.  The Python layer provides ergonomic API wrappers
 while the Rust core handles the hot-path arithmetic.
 """
 
@@ -15,7 +15,7 @@ _engine = EpistemicGraph()
 def moving_average(values: list[float], window: int) -> list[float]:
     """Calculate simple moving average with a sliding window.
 
-    Attempts Rust ``compute_rolling_mean`` FFI first; falls back to
+    Attempts Rust ``compute_rolling_mean`` epistemic-graph first; falls back to
     Python if the method is not yet compiled into the binary.
     """
     try:
@@ -78,15 +78,15 @@ def simulate_order_matching(
     """
     # Build the Rust-compatible order list from the ergonomic Python args
     side = "buy" if is_buy else "sell"
-    orders: list[tuple[str, str, float, float]] = [(side, "limit", price, volume)]
+    orders: list[tuple[str, str, float, float]] = [("order_1", side, price, volume)]
 
     try:
         raw_results = _engine.simulate_order_matching(bids, asks, orders)
         # Parse Rust results back into the Python tuple format
         trades: list[tuple[float, float]] = []
         for r in raw_results:
-            trade_price = float(r.get("price", 0))
-            trade_vol = float(r.get("volume", 0))
+            trade_price = float(r.get("match_price", 0))
+            trade_vol = float(r.get("match_volume", 0))
             trades.append((trade_price, trade_vol))
 
         # Rebuild remaining books after fills
@@ -124,32 +124,6 @@ def simulate_order_matching(
             ask_book = sorted(asks, key=lambda x: x[0])
             return new_bids, ask_book, trades
 
-    except Exception:
-        # Graceful fallback to pure-Python matching if Rust bridge fails
-        bid_book = sorted(bids, key=lambda x: x[0], reverse=True)
-        ask_book = sorted(asks, key=lambda x: x[0])
-        trades_fallback: list[tuple[float, float]] = []
-        remaining = volume
-
-        if is_buy:
-            new_asks_fb: list[tuple[float, float]] = []
-            for ask_price, ask_vol in ask_book:
-                if ask_price <= price and remaining > 0:
-                    fill = min(remaining, ask_vol)
-                    remaining -= fill
-                    ask_vol -= fill
-                    trades_fallback.append((ask_price, fill))
-                if ask_vol > 0:
-                    new_asks_fb.append((ask_price, ask_vol))
-            return bid_book, new_asks_fb, trades_fallback
-        else:
-            new_bids_fb: list[tuple[float, float]] = []
-            for bid_price, bid_vol in bid_book:
-                if bid_price >= price and remaining > 0:
-                    fill = min(remaining, bid_vol)
-                    remaining -= fill
-                    bid_vol -= fill
-                    trades_fallback.append((bid_price, fill))
-                if bid_vol > 0:
-                    new_bids_fb.append((bid_price, bid_vol))
-            return new_bids_fb, ask_book, trades_fallback
+    except Exception as e:
+        print(f"Rust simulate_order_matching failed: {e}")
+        raise

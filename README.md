@@ -1,39 +1,119 @@
 # epistemic-graph
 
 <p align="center">
-  <b>High-Performance Rust-compiled Epistemic Graph Compute Engine for Python</b><br>
-  <sub>Bridges sub-millisecond local-first speed with petgraph algorithms and Unix Sockets native bindings.</sub>
+  <b>Unified Rust-Native Compute Engine for AI Agent Infrastructure</b><br>
+  <sub>Consolidates graph operations, quantitative finance, data science, AST analysis, and OWL reasoning into a single high-performance binary.</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.13.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.14.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/language-Rust%20%7C%20Python-orange" alt="Language">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
 ---
 
+## Architecture
+
+The `epistemic-graph` crate is the **singular computation engine** for the agent-utilities ecosystem. All high-performance operations route through this crate, exposed to Python via PyO3 FFI or accessed remotely via the Tokio UDS/TCP server.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    epistemic-graph                        │
+│                                                          │
+│  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌───────────┐  │
+│  │  Graph   │  │ Finance  │  │  Data   │  │ Reasoning │  │
+│  │  Core    │  │ Engine   │  │ Science │  │  Engine   │  │
+│  │(petgraph)│  │          │  │         │  │ (Datalog) │  │
+│  └─────────┘  └──────────┘  └─────────┘  └───────────┘  │
+│  ┌─────────┐  ┌──────────┐  ┌─────────┐                 │
+│  │   AST   │  │ Semantic │  │  Algo   │                 │
+│  │ Parser  │  │  Store   │  │ Library │                 │
+│  └─────────┘  └──────────┘  └─────────┘                 │
+│                                                          │
+│  ╔════════════════════════════════════════════════════╗   │
+│  ║  Tokio Server (UDS/TCP + HMAC-SHA256 auth)        ║   │
+│  ╚════════════════════════════════════════════════════╝   │
+│                         ↕ PyO3 FFI                       │
+│  ╔════════════════════════════════════════════════════╗   │
+│  ║  Python: EpistemicGraph class                     ║   │
+│  ╚════════════════════════════════════════════════════╝   │
+└──────────────────────────────────────────────────────────┘
+```
+
 ## Features
 
-- **Blazing Fast**: Native-compiled Rust graph structures utilizing `petgraph` stable graph under the hood.
-- **Robust Algorithms**:
-  - **Topological Sorting**: Sub-millisecond DAG resolving.
-  - **DFS Cycle Detection**: Returns precise cycle paths for immediate debugging of dependency loops.
-  - **Shortest Path Finder**: Efficient unweighted BFS traversal.
-  - **Blast Radius Calculator**: Transitive impact analysis up to target depth.
-- **Advanced Capabilities 🔬**:
-  - **Native AST Parser**: High-performance Python directory crawler and AST parser to dynamically map classes, functions, and files into the graph.
-  - **VF2 Subgraph Isomorphism**: Highly optimized node-matching algorithm to query and match graph structural patterns.
-  - **Reactive State Ledger**: Sequential transaction logs with JSON serialization and replay capabilities to keep states synchronized with zero-overhead.
-- **Zero-overhead FFI**: Fully typed Unix Sockets bindings mapped cleanly to Python.
+### Core Graph Engine (CONCEPT:KG-2.2)
+- **petgraph-backed**: Native-compiled Rust graph structures
+- **Topological Sort**: Sub-millisecond DAG resolving
+- **DFS Cycle Detection**: Returns precise cycle paths
+- **Shortest Path**: Efficient unweighted BFS traversal
+- **Blast Radius**: Transitive impact analysis to configurable depth
+- **PageRank & PPR**: Centrality computation
+- **Community Detection**: Louvain-style graph clustering
+- **VF2 Subgraph Isomorphism**: Pattern matching queries
+- **Reactive State Ledger**: Transaction log with replay for backend persistence
+
+### Finance Engine (CONCEPT:QF-1.0)
+- **Portfolio Optimization**: Mean-variance (MVO), min-variance, risk-parity, efficient frontier
+- **Risk Metrics**: VaR (historical + Monte Carlo), CVaR, Sortino, Calmar, max drawdown
+- **Regime Detection**: Hidden Markov Model (Baum-Welch + Viterbi)
+- **Signal Generation**: Rolling Z-score, EWMA, momentum, alpha combination, information coefficient
+- **Execution Algorithms**: TWAP/VWAP scheduling, market impact estimation, LOB matching
+- **Pairs Trading**: Spread signal generation and regime-aware position sizing
+
+### Data Science Engine (CONCEPT:DS-1.0)
+- **OLS Regression**: Gradient descent with configurable learning rate and epochs
+- **K-Means Clustering**: Parallel centroid computation
+- **PCA**: Eigenvalue decomposition via power iteration
+- **Dataset Statistics**: Mean, std, min, max, correlation matrix
+
+### Reasoning Engine (CONCEPT:KG-2.23)
+- **Transitive/Symmetric Inference**: Compiled Datalog closures
+- **Domain/Range Rules**: OWL-style type inference
+- **Property Chain Composition**: Multi-hop rule chaining
+
+### AST Parser
+- **Multi-Language**: Python, Rust, TypeScript, JavaScript, Go (via tree-sitter)
+- **Full Granularity**: Functions, classes, methods, imports stored as `Symbol` nodes
+- **Repository Ingestion**: Directory walker with automatic graph population
+
+---
+
+## Cargo Feature Flags
+
+| Feature | Description | Dependencies |
+|---------|-------------|--------------|
+| `ast` | Tree-sitter AST parser | `tree-sitter`, language grammars |
+| `finance` | Quantitative finance engine | (pure Rust) |
+| `datascience` | ML primitives | (pure Rust) |
+| `reasoning` | OWL/Datalog reasoning | (pure Rust) |
+| `compute` | All compute features | `finance` + `datascience` + `reasoning` |
+| `server` | Tokio UDS/TCP server | `tokio`, `hmac`, `rmp-serde` |
+| `full` | Everything | `compute` + `server` + `ast` |
+| `all` | Alias for `full` | (same as `full`) |
+
+### Build examples
+
+```bash
+# Library only (default, no server)
+cargo build
+
+# With compute modules
+cargo build --features compute
+
+# Full build including server binary
+cargo build --features full
+
+# Run all tests
+cargo test --lib --features compute
+```
 
 ---
 
 ## Quickstart
 
 ### 1. Installation
-
-To compile and install the extension locally in editable mode, you must have Rust and `maturin` installed:
 
 ```bash
 uv pip install -e .
@@ -49,36 +129,41 @@ import epistemic_graph
 # Initialize
 g = epistemic_graph.EpistemicGraph()
 
-# Add nodes and edges with JSON properties
+# Graph operations
 g.add_node("AgentA", '{"type": "coordinator"}')
 g.add_node("AgentB", '{"type": "worker"}')
 g.add_edge("AgentA", "AgentB", '{"weight": 1.5}')
 
-# Check structure
-assert g.has_node("AgentA")
-assert g.has_edge("AgentA", "AgentB")
+print("Order:", g.topological_sort())
+print("Cycle:", g.find_cycle())
 
-# Topological Sort
-print("Workflow Order:", g.topological_sort())  # -> ["AgentA", "AgentB"]
+# Finance — portfolio optimization
+weights = g.optimize_portfolio([0.1, 0.15, 0.08], [[0.04, 0.01, 0.005], ...], 0.02)
 
-# Cycle Check
-print("Cycle:", g.find_cycle())  # -> None
+# Finance — risk metrics
+metrics = g.risk_metrics([0.01, -0.02, 0.03, -0.005, 0.02])
+
+# Data Science — regression
+coeffs = g.linear_regression([[1.0, 2.0], [3.0, 4.0]], [3.0, 7.0])
+
+# Reasoning — transitive inference
+inferred = g.infer_transitive(["part_of", "depends_on"], ["related_concept"])
 ```
 
 ---
 
 ## Development & Test
 
-We use standard ecosystem tools to ensure quality and compliance.
-
 ### Run Unit Tests
-Ensure the module is built and run `pytest`:
 ```bash
+# Rust tests (29 compute + graph tests)
+cargo test --lib --features compute
+
+# Python tests
 uv run pytest
 ```
 
 ### Format and Lint
-Run styling checks before submitting changes:
 ```bash
 pre-commit run --all-files
 ```
@@ -87,13 +172,20 @@ pre-commit run --all-files
 
 ## Documentation
 
-For deep technical details, refer to the `docs` folder:
 - [Technical Overview](docs/overview.md) — Rust-side structures and graph algorithm layouts.
 - [Concept Registry](docs/concepts.md) — Registered `CONCEPT` bridges.
 - [AI Agent Handbook](AGENTS.md) — Quick command sheet for coding assistants.
 - [Changelog](CHANGELOG.md) — Progression of updates and releases.
 
 ---
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GRAPH_SERVICE_AUTH_SECRET` | HMAC-SHA256 secret for inter-process authentication |
+| `GRAPH_SERVICE_SOCKET` | Path to Unix Domain Socket for UDS communication |
+| `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
 ## License
 

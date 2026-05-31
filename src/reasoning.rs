@@ -61,8 +61,8 @@ pub fn run_datalog_reasoning(
 
     // 2. Extract current type and property facts
     let mut current_node_types: HashMap<String, HashSet<String>> = HashMap::new();
-    for (node_id, props_json) in &core.node_properties {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
+    for (node_id, props_msgpack) in &core.node_properties {
+        if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
             if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
                 current_node_types
                     .entry(node_id.clone())
@@ -73,9 +73,9 @@ pub fn run_datalog_reasoning(
     }
 
     let mut current_edge_types: HashMap<(String, String), HashSet<String>> = HashMap::new();
-    for ((src, tgt), props_json_list) in &core.edge_properties {
-        for props_json in props_json_list {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
+    for ((src, tgt), props_msgpack_list) in &core.edge_properties {
+        for props_msgpack in props_msgpack_list {
+            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
                 if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
                     current_edge_types
                         .entry((src.clone(), tgt.clone()))
@@ -206,15 +206,15 @@ pub fn run_datalog_reasoning(
         fact.insert("inference_type".to_string(), "rust_datalog".to_string());
         inferred_triples.push(fact);
 
-        if let Some(props_json) = core.node_properties.get_mut(node_id) {
-            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(props_json) {
+        if let Some(props_msgpack) = core.node_properties.get_mut(node_id) {
+            if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
                 if let Some(obj) = val.as_object_mut() {
                     obj.insert(
                         "inferred_type".to_string(),
                         serde_json::Value::String(new_type.clone()),
                     );
-                    if let Ok(updated) = serde_json::to_string(&val) {
-                        *props_json = updated;
+                    if let Ok(updated) = rmp_serde::to_vec_named(&val) {
+                        *props_msgpack = updated;
                     }
                 }
             }
@@ -239,12 +239,198 @@ pub fn run_datalog_reasoning(
             }
         }
 
-        let props_json = format!("{{\"type\": \"{}\", \"inferred\": true}}", new_prop);
-        core.edge_properties
-            .entry((src.clone(), tgt.clone()))
-            .or_default()
-            .push(props_json);
+        let val = serde_json::json!({
+            "type": new_prop.clone(),
+            "inferred": true
+        });
+        if let Ok(props_msgpack) = rmp_serde::to_vec_named(&val) {
+            core.edge_properties
+                .entry((src.clone(), tgt.clone()))
+                .or_default()
+                .push(props_msgpack);
+        }
     }
 
     Ok(inferred_triples)
+}
+
+/// Domain/Range inference.
+///
+/// If property P has domain D, then for every edge (s, P, o), infer s rdf:type D.
+/// If property P has range R, then for every edge (s, P, o), infer o rdf:type R.
+///
+/// Returns inferred type triples.
+pub fn infer_domain_range(
+    core: &mut GraphCore,
+    domain_rules: Vec<(String, String)>,  // (property, domain_type)
+    range_rules: Vec<(String, String)>,   // (property, range_type)
+) -> Vec<HashMap<String, String>> {
+    let mut inferred = Vec::new();
+    let mut new_types: Vec<(String, String)> = Vec::new();
+
+    // Build lookup
+    let domain_map: HashMap<String, Vec<String>> =
+        domain_rules.into_iter().fold(HashMap::new(), |mut acc, (prop, domain)| {
+            acc.entry(prop).or_default().push(domain);
+            acc
+        });
+
+    let range_map: HashMap<String, Vec<String>> =
+        range_rules.into_iter().fold(HashMap::new(), |mut acc, (prop, range)| {
+            acc.entry(prop).or_default().push(range);
+            acc
+        });
+
+    // Scan all edges
+    for ((src, tgt), props_msgpack_list) in &core.edge_properties {
+        for props_msgpack in props_msgpack_list {
+            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
+                if let Some(edge_type) = val.get("type").and_then(|v| v.as_str()) {
+                    // Domain inference: src gets the domain type
+                    if let Some(domains) = domain_map.get(edge_type) {
+                        for domain in domains {
+                            new_types.push((src.clone(), domain.clone()));
+                            let mut fact = HashMap::new();
+                            fact.insert("subject".to_string(), src.clone());
+                            fact.insert("predicate".to_string(), "rdf:type".to_string());
+                            fact.insert("object".to_string(), domain.clone());
+                            fact.insert("inference_type".to_string(), "domain_inference".to_string());
+                            inferred.push(fact);
+                        }
+                    }
+
+                    // Range inference: tgt gets the range type
+                    if let Some(ranges) = range_map.get(edge_type) {
+                        for range in ranges {
+                            new_types.push((tgt.clone(), range.clone()));
+                            let mut fact = HashMap::new();
+                            fact.insert("subject".to_string(), tgt.clone());
+                            fact.insert("predicate".to_string(), "rdf:type".to_string());
+                            fact.insert("object".to_string(), range.clone());
+                            fact.insert("inference_type".to_string(), "range_inference".to_string());
+                            inferred.push(fact);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply inferred types to graph
+    for (node_id, new_type) in &new_types {
+        if let Some(props_msgpack) = core.node_properties.get_mut(node_id) {
+            if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
+                if let Some(obj) = val.as_object_mut() {
+                    // Append to inferred_types array
+                    let arr = obj.entry("inferred_types".to_string())
+                        .or_insert_with(|| serde_json::Value::Array(vec![]));
+                    if let serde_json::Value::Array(ref mut a) = arr {
+                        let type_val = serde_json::Value::String(new_type.clone());
+                        if !a.contains(&type_val) {
+                            a.push(type_val);
+                        }
+                    }
+                    if let Ok(updated) = rmp_serde::to_vec_named(&val) {
+                        *props_msgpack = updated;
+                    }
+                }
+            }
+        }
+    }
+
+    inferred
+}
+
+/// Property chain inference.
+///
+/// Given chains like [(hasPart, isPartOf) -> composedOf], infer new edges
+/// when the chain pattern is found in the graph.
+///
+/// chain: (prop1, prop2, inferred_prop) — if (a, prop1, b) and (b, prop2, c), then (a, inferred_prop, c)
+pub fn infer_property_chains(
+    core: &mut GraphCore,
+    chains: Vec<(String, String, String)>,
+) -> Vec<HashMap<String, String>> {
+    let mut inferred = Vec::new();
+    let mut new_edges: Vec<(String, String, String)> = Vec::new();
+
+    // Index edges by type for fast lookup
+    let mut edges_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for ((src, tgt), props_msgpack_list) in &core.edge_properties {
+        for props_msgpack in props_msgpack_list {
+            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
+                if let Some(edge_type) = val.get("type").and_then(|v| v.as_str()) {
+                    edges_by_type
+                        .entry(edge_type.to_string())
+                        .or_default()
+                        .push((src.clone(), tgt.clone()));
+                }
+            }
+        }
+    }
+
+    for (prop1, prop2, inferred_prop) in &chains {
+        let edges1 = edges_by_type.get(prop1).cloned().unwrap_or_default();
+        let edges2 = edges_by_type.get(prop2).cloned().unwrap_or_default();
+
+        // Build index: for prop2, map source -> targets
+        let mut prop2_from: HashMap<String, Vec<String>> = HashMap::new();
+        for (src, tgt) in &edges2 {
+            prop2_from.entry(src.clone()).or_default().push(tgt.clone());
+        }
+
+        // For each (a, prop1, b), check if (b, prop2, c) exists
+        for (a, b) in &edges1 {
+            if let Some(targets) = prop2_from.get(b) {
+                for c in targets {
+                    // Check if (a, inferred_prop, c) already exists
+                    let exists = core.edge_properties
+                        .get(&(a.clone(), c.clone()))
+                        .map(|props| {
+                            props.iter().any(|p| {
+                                rmp_serde::from_slice::<serde_json::Value>(p)
+                                    .ok()
+                                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s.to_string()))
+                                    == Some(inferred_prop.clone())
+                            })
+                        })
+                        .unwrap_or(false);
+
+                    if !exists {
+                        new_edges.push((a.clone(), c.clone(), inferred_prop.clone()));
+                        let mut fact = HashMap::new();
+                        fact.insert("subject".to_string(), a.clone());
+                        fact.insert("predicate".to_string(), inferred_prop.clone());
+                        fact.insert("object".to_string(), c.clone());
+                        fact.insert("inference_type".to_string(), "property_chain".to_string());
+                        inferred.push(fact);
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply inferred edges to graph
+    for (src, tgt, prop) in &new_edges {
+        if let (Some(&src_idx), Some(&tgt_idx)) =
+            (core.node_map.get(src), core.node_map.get(tgt))
+        {
+            if core.graph.find_edge(src_idx, tgt_idx).is_none() {
+                core.graph.add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
+            }
+        }
+        let val = serde_json::json!({
+            "type": prop.clone(),
+            "inferred": true,
+            "chain": true
+        });
+        if let Ok(props_msgpack) = rmp_serde::to_vec_named(&val) {
+            core.edge_properties
+                .entry((src.clone(), tgt.clone()))
+                .or_default()
+                .push(props_msgpack);
+        }
+    }
+
+    inferred
 }
