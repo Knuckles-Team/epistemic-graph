@@ -41,6 +41,9 @@ uuid = { version = "1.8", features = ["v4"] }
 thiserror = "1.0"
 anyhow = "1.0"
 tracing = "0.1"
+nalgebra = { version = "0.32", features = ["serde"] }
+rand_chacha = "0.3"
+rand_distr = "0.4"
 
 # Optional Server
 tokio = { version = "1.38", features = ["full"], optional = true }
