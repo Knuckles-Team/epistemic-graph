@@ -1,6 +1,6 @@
 [package]
 name = "epistemic-graph"
-version = "0.16.0"
+version = "0.17.0"
 edition = "2021"
 authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
 description = "High-performance Rust graph compute engine for AI agents"
