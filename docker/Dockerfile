@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Compile Rust bindings and install in-place
-RUN pip install -e .
+RUN pip install epistemic-graph[all] --break-system-packages
 
 # Run pytest by default
 CMD ["pytest"]

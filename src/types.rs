@@ -83,7 +83,7 @@ impl NodeData {
     ///
     /// Extracts `type` from the JSON and stores the rest as metadata.
     pub fn from_json_props(id: String, json_str: &str) -> Self {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(json_str.as_bytes()) {
             let node_type = val
                 .get("type")
                 .and_then(|v| v.as_str())
@@ -125,7 +125,7 @@ impl NodeData {
     /// Serialize back to JSON string (backward compat with legacy API).
     pub fn to_json_props(&self) -> String {
         // Try to merge into existing metadata JSON
-        if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&self.metadata) {
+        if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(self.metadata.as_bytes()) {
             if let Some(obj) = val.as_object_mut() {
                 obj.insert(
                     "type".to_string(),
@@ -183,7 +183,7 @@ impl EdgeData {
 
     /// Parse a legacy JSON properties string into EdgeData.
     pub fn from_json_props(json_str: &str) -> Self {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(json_str.as_bytes()) {
             let relationship_type = val
                 .get("relationship")
                 .or_else(|| val.get("type"))
@@ -209,7 +209,7 @@ impl EdgeData {
 
     /// Serialize back to JSON string (backward compat).
     pub fn to_json_props(&self) -> String {
-        if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&self.metadata) {
+        if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(self.metadata.as_bytes()) {
             if let Some(obj) = val.as_object_mut() {
                 obj.insert(
                     "relationship".to_string(),
@@ -263,7 +263,7 @@ pub struct PruneStats {
 pub struct ContextView {
     pub agent_id: String,
     pub nodes: Vec<String>,
-    pub edges: Vec<(String, String, String)>,
+    pub edges: Vec<(String, String, Vec<u8>)>,
     pub budget_used: u32,
     pub budget_max: u32,
 }

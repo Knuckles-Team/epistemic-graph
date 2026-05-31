@@ -1,29 +1,78 @@
 [package]
 name = "epistemic-graph"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
-description = "Rust based epistemic graph engine for agent-utilities"
+description = "High-performance Rust graph compute engine for AI agents"
 license = "MIT"
 
 [lib]
 name = "epistemic_graph"
+crate-type = ["rlib"]
 
 [[bin]]
 name = "epistemic-graph-server"
 path = "src/main.rs"
+required-features = ["server"]
+
+[features]
+default = ["graph", "algorithms"]
+
+graph = []
+algorithms = []
+finance = []
+ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-javascript", "dep:tree-sitter-go"]
+datascience = []
+reasoning = []
+server = ["dep:tokio", "dep:clap", "dep:rdkafka", "dep:tracing-subscriber"]
+compute = ["finance", "ast", "datascience", "reasoning"]
+full = ["compute", "server"]
+all = ["full"]
 
 [dependencies]
-petgraph = "0.6.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rmp-serde = "1.3"
+petgraph = { version = "0.6.4", features = ["serde-1"] }
 rayon = "1.10"
-tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive", "env"] }
-rdkafka = "0.36"
+parking_lot = "0.12"
+ahash = "0.8"
+bincode = "1.3"
+uuid = { version = "1.8", features = ["v4"] }
+thiserror = "1.0"
+anyhow = "1.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Optional Server
+tokio = { version = "1.38", features = ["full"], optional = true }
+clap = { version = "4.5", features = ["derive", "env"], optional = true }
+rdkafka = { version = "0.36.0", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
 hmac = "0.12"
-sha2 = "0.10"
 hex = "0.4"
+rmp-serde = "1.3"
+lazy_static = "1.4"
+sha2 = "0.10"
+rand = "0.8"
+hnsw_rs = "0.3"
+
+# Optional AST
+tree-sitter = { version = "0.23", optional = true }
+tree-sitter-python = { version = "0.23", optional = true }
+tree-sitter-rust = { version = "0.23", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-javascript = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.23", optional = true }
+serde_bytes = "0.11.19"
+
+
+[dev-dependencies]
+tokio = { version = "1.38", features = ["full", "test-util"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+tracing-subscriber = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

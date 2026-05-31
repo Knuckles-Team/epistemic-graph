@@ -1,0 +1,377 @@
+#![allow(non_local_definitions)]
+#![allow(dead_code)]
+
+// CONCEPT:KG-2.16 - High-Performance Graph Compute Engine
+// CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
+// CONCEPT:KG-2.19 - Tokio Service Layer
+//
+// Thin PyO3 epistemic-graph surface. Every #[pymethod] returns Result<T>.
+// All logic delegated to graph, algorithms, and reasoning modules.
+// Service-layer modules (protocol, registry, isolation, channels, server)
+// are used by the epistemic-graph-server binary.
+
+pub mod algorithms;
+pub mod graph;
+mod reasoning;
+pub mod types;
+pub mod protocol;
+pub mod registry;
+pub mod isolation;
+pub mod channels;
+pub mod server;
+pub mod event_bus;
+pub mod parser;
+pub mod compute;
+pub mod finance;
+
+
+use graph::GraphCore;
+use std::collections::HashMap;
+
+/// EpistemicGraph — the sole  exposed to Python.
+///
+/// Wraps `GraphCore` and delegates all operations through typed epistemic-graph
+/// boundaries. No `unwrap()` on user-facing paths — all errors surface
+/// as `PyResult`.
+
+pub struct EpistemicGraph {
+    core: GraphCore,
+}
+
+
+impl EpistemicGraph {
+    // ── Constructor ──────────────────────────────────────────────────────
+
+        fn new() -> Self {
+        EpistemicGraph {
+            core: GraphCore::new(),
+        }
+    }
+
+    // ── Node CRUD ────────────────────────────────────────────────────────
+
+    fn add_node(&mut self, node_id: String, properties_json: String) {
+        self.core.add_node(node_id, properties_json);
+    }
+
+    fn remove_node(&mut self, node_id: String) {
+        self.core.remove_node(node_id);
+    }
+
+    fn has_node(&self, node_id: String) -> bool {
+        self.core.has_node(&node_id)
+    }
+
+    fn get_nodes(&self) -> Vec<(String, String)> {
+        self.core.get_nodes()
+    }
+
+    /// O(1) property lookup for a single node (avoids materializing all nodes).
+    fn get_node_properties(&self, node_id: String) -> Option<String> {
+        self.core.get_node_properties(&node_id)
+    }
+
+    /// O(1) node count without materializing the full node list.
+    fn node_count(&self) -> usize {
+        self.core.node_count()
+    }
+
+    /// Return all node IDs without properties (lightweight enumeration).
+    fn node_ids(&self) -> Vec<String> {
+        self.core.node_ids()
+    }
+
+    // ── Edge CRUD ────────────────────────────────────────────────────────
+
+    fn add_edge(
+        &mut self,
+        source_id: String,
+        target_id: String,
+        properties_json: String,
+    ) -> Result<(), String> {
+        self.core.add_edge(source_id, target_id, properties_json)
+    }
+
+    fn remove_edge(&mut self, source_id: String, target_id: String) {
+        self.core.remove_edge(source_id, target_id);
+    }
+
+    fn has_edge(&self, source_id: String, target_id: String) -> bool {
+        self.core.has_edge(&source_id, &target_id)
+    }
+
+    fn get_edges(&self) -> Vec<(String, String, String)> {
+        self.core.get_edges()
+    }
+
+    /// O(1) edge property lookup for a specific (source, target) pair.
+    fn get_edge_properties(&self, source_id: String, target_id: String) -> Vec<String> {
+        self.core.get_edge_properties(&source_id, &target_id)
+    }
+
+    /// O(1) edge count without materializing the full edge list.
+    fn edge_count(&self) -> usize {
+        self.core.edge_count()
+    }
+
+    // ── Neighbor Queries (NEW — Epistemic Graph replacement API) ────────────────
+
+    /// In-degree count for a specific node.
+    fn in_degree(&self, node_id: String) -> Result<usize, String> {
+        self.core.in_degree(&node_id)
+    }
+
+    /// Out-degree count for a specific node.
+    fn out_degree(&self, node_id: String) -> Result<usize, String> {
+        self.core.out_degree(&node_id)
+    }
+
+    /// Incoming neighbors (predecessors).
+    fn get_predecessors(&self, node_id: String) -> Result<Vec<String>, String> {
+        self.core.get_predecessors(&node_id)
+    }
+
+    /// Outgoing neighbors (successors).
+    fn get_successors(&self, node_id: String) -> Result<Vec<String>, String> {
+        self.core.get_successors(&node_id)
+    }
+
+    /// All neighbors (both directions, deduplicated).
+    fn get_neighbors(&self, node_id: String) -> Result<Vec<String>, String> {
+        self.core.get_neighbors(&node_id)
+    }
+
+    // ── Graph Algorithms ─────────────────────────────────────────────────
+
+    fn topological_sort(&self) -> Result<Vec<String>, String> {
+        algorithms::topological_sort(&self.core)
+    }
+
+    fn find_cycle(&self) -> Option<Vec<String>> {
+        algorithms::find_cycle(&self.core)
+    }
+
+    fn get_shortest_path(&self, source_id: String, target_id: String) -> Option<Vec<String>> {
+        algorithms::get_shortest_path(&self.core, &source_id, &target_id)
+    }
+
+    fn get_blast_radius(&self, node_id: String, max_depth: usize) -> Vec<String> {
+        algorithms::get_blast_radius(&self.core, &node_id, max_depth)
+    }
+
+    /// Degree centrality for a single node: (in + out) / (n - 1).
+    fn compute_degree_centrality(&self, node_id: String) -> Result<f64, String> {
+        algorithms::compute_degree_centrality(&self.core, &node_id)
+    }
+
+    /// Degree centrality for ALL nodes. Returns Vec<(node_id, centrality)>.
+    fn degree_centrality_all(&self) -> Vec<(String, f64)> {
+        algorithms::degree_centrality_all(&self.core)
+    }
+
+    /// Betweenness centrality via Brandes' algorithm.
+    fn compute_betweenness_centrality(&self) -> Vec<(String, f64)> {
+        algorithms::betweenness_centrality(&self.core)
+    }
+
+    /// PageRank via power iteration.
+    fn pagerank(&self, damping: f64, iterations: usize) -> Vec<(String, f64)> {
+        algorithms::pagerank(&self.core, damping, iterations)
+    }
+
+    /// Weakly connected components (treats edges as undirected).
+    fn connected_components(&self) -> Vec<Vec<String>> {
+        algorithms::connected_components(&self.core)
+    }
+
+    /// Community detection via label propagation.
+    fn community_detection(&self, resolution: f64) -> Vec<Vec<String>> {
+        algorithms::community_detection(&self.core, resolution)
+    }
+
+    // ── Subgraph Extraction (NEW — Epistemic Graph replacement API) ─────────────
+
+    /// Extract a subgraph containing only the specified node IDs.
+    fn get_subgraph(&self, node_ids: Vec<String>) -> EpistemicGraph {
+        EpistemicGraph {
+            core: self.core.get_subgraph(&node_ids),
+        }
+    }
+
+    // ── Serialization ────────────────────────────────────────────────────
+
+    fn to_json(&self) -> Result<String, String> {
+        self.core.to_json()
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn from_json(&mut self, json_str: String) -> Result<(), String> {
+        self.core.from_json(&json_str)
+    }
+
+    // ── Ledger ───────────────────────────────────────────────────────────
+
+    fn get_ledger(&self) -> Vec<String> {
+        self.core.get_ledger()
+    }
+
+    fn clear_ledger(&mut self) {
+        self.core.clear_ledger();
+    }
+
+    fn apply_ledger(&mut self, transactions: Vec<String>) -> Result<(), String> {
+        self.core.apply_ledger(transactions)
+    }
+
+    // ── Repository Parsing ───────────────────────────────────────────────
+
+    fn parse_repository(&mut self, root_path: String) -> Result<(), String> {
+        self.core.parse_repository(&root_path)
+    }
+
+    // ── VF2 Subgraph Matching ────────────────────────────────────────────
+
+    fn vf2_subgraph_match(
+        &self,
+        pattern: &EpistemicGraph,
+    ) -> Result<Vec<HashMap<String, String>>, String> {
+        Ok(self.core.vf2_subgraph_match(&pattern.core))
+    }
+
+    // ── Graph Forking ────────────────────────────────────────────────────
+
+    /// Create a deep clone of this graph (avoids Python deepcopy overhead).
+    fn fork(&self) -> EpistemicGraph {
+        EpistemicGraph {
+            core: self.core.fork(),
+        }
+    }
+
+    /// Compute structural diff against another graph, return JSON.
+    fn diff_against(&self, other: &EpistemicGraph) -> String {
+        self.core.diff_against(&other.core)
+    }
+
+    // ── Compaction ───────────────────────────────────────────────────────
+
+    /// Compact nodes of a given type exceeding threshold into a summary node.
+    /// Returns IDs of removed nodes.
+    fn compact_nodes_by_type(&mut self, node_type: String, threshold: usize) -> Vec<String> {
+        self.core.compact_nodes_by_type(&node_type, threshold)
+    }
+
+    // ── Reasoning ────────────────────────────────────────────────────────
+
+    // CONCEPT:KG-2.17 - Compiled Semantic Reasoner
+    fn run_datalog_reasoning(
+        &mut self,
+        subclass_relations: Vec<(String, String)>,
+        subproperty_relations: Vec<(String, String)>,
+        symmetric_properties: Vec<String>,
+        transitive_properties: Vec<String>,
+        inverse_properties: Vec<(String, String)>,
+    ) -> Result<Vec<HashMap<String, String>>, String> {
+        reasoning::run_datalog_reasoning(
+            &mut self.core,
+            subclass_relations,
+            subproperty_relations,
+            symmetric_properties,
+            transitive_properties,
+            inverse_properties,
+        )
+    }
+
+    // ── Quant epistemic-graph Algorithms ─────────────────────────────────────────────
+
+    // CONCEPT:KG-2.18 - High-Performance Quant epistemic-graph Engine
+
+    /// Compute rolling mean over a sliding window.
+    fn compute_rolling_mean(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_rolling_mean(&values, window))
+    }
+
+    fn compute_rolling_std(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_rolling_std(&values, window))
+    }
+
+    fn compute_rolling_zscore(&self, values: Vec<f64>, window: usize) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_rolling_zscore(&values, window))
+    }
+
+    fn compute_exponential_decay(&self, values: Vec<f64>, alpha: f64) -> Result<Vec<f64>, String> {
+        Ok(algorithms::compute_exponential_decay(&values, alpha))
+    }
+
+    fn simulate_order_matching(
+        &self,
+        bids: Vec<(f64, f64)>,
+        asks: Vec<(f64, f64)>,
+        orders: Vec<(String, String, f64, f64)>,
+    ) -> Result<Vec<HashMap<String, String>>, String> {
+        Ok(algorithms::simulate_order_matching(bids, asks, orders))
+    }
+
+    // ── New Batch & Lifecycle APIs ───────────────────────────────────────
+
+    /// Greedy graph coloring — assigns colors so no adjacent nodes share a color.
+    /// Returns Vec<(node_id, color_index)>.
+    fn graph_coloring(&self) -> Vec<(String, usize)> {
+        algorithms::graph_coloring(&self.core)
+    }
+
+    /// Compute similarity edges between nodes that have embeddings.
+    /// Returns Vec<(source_id, target_id, similarity_score)>.
+    fn compute_similarity_edges(&self, threshold: f64) -> Vec<(String, String, f64)> {
+        algorithms::compute_similarity_edges(&self.core, threshold)
+    }
+
+    /// Lifecycle-aware pruning: archive nodes past max_age, remove those below min_score.
+    /// Returns JSON with prune statistics.
+    fn prune_by_lifecycle(&mut self, max_age_secs: u64, min_score: f64) -> Result<String, String> {
+        let stats = algorithms::prune_by_lifecycle(&mut self.core, max_age_secs, min_score);
+        serde_json::to_string(&stats).map_err(|e| {
+            format!(
+                "[EpistemicGraph::prune_by_lifecycle] serialization error: {e}"
+            )
+        })
+    }
+
+    /// Get an optimized context view for an agent within a token budget.
+    /// Returns JSON with the relevant subgraph.
+    fn get_context_view(&self, agent_id: String, max_tokens: u32) -> Result<String, String> {
+        let view = algorithms::get_context_view(&self.core, &agent_id, max_tokens);
+        serde_json::to_string(&view).map_err(|e| {
+            format!(
+                "[EpistemicGraph::get_context_view] serialization error: {e}"
+            )
+        })
+    }
+
+    /// Batch update: apply multiple operations in a single epistemic-graph crossing.
+    /// Input: JSON array of operations [{op: "add_node", ...}, ...].
+    /// Returns JSON with operation results.
+    fn batch_update(&mut self, operations_json: String) -> Result<String, String> {
+        algorithms::batch_update(&mut self.core, &operations_json)
+    }
+
+    /// Runtime metrics for monitoring and observability.
+    fn metrics(&self) -> Result<String, String> {
+        let m = algorithms::compute_metrics(&self.core);
+        serde_json::to_string(&m).map_err(|e| {
+            format!(
+                "[EpistemicGraph::metrics] serialization error: {e}"
+            )
+        })
+    }
+
+    /// Personalized PageRank with seed nodes.
+    /// seed_nodes: Vec<(node_id, weight)>
+    fn personalized_pagerank(
+        &self,
+        seed_nodes: Vec<(String, f64)>,
+        damping: f64,
+        iterations: usize,
+    ) -> Vec<(String, f64)> {
+        algorithms::personalized_pagerank(&self.core, &seed_nodes, damping, iterations)
+    }
+}

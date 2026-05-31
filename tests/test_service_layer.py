@@ -59,6 +59,7 @@ def service():
     except subprocess.TimeoutExpired:
         proc.kill()
     import shutil
+
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
@@ -87,103 +88,123 @@ def client_factory(service):
                 await c.close()
             except Exception:
                 pass
+
     asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_cleanup())
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_ping(service, client_factory):
     """Test basic connectivity with a Ping request."""
+
     async def _test():
         client = await client_factory()
         result = await client.ping()
         assert result == "pong"
+
     asyncio.run(_test())
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_node_crud(service, client_factory):
     """Test node add/has/remove via the service."""
+
     async def _test():
         client = await client_factory()
-        await client.add_node("test:n1", {"type": "TestNode"})
-        assert await client.has_node("test:n1") is True
-        assert await client.has_node("nonexistent") is False
-        await client.remove_node("test:n1")
-        assert await client.has_node("test:n1") is False
+        await client.nodes.add("test:n1", {"type": "TestNode"})
+        assert await client.nodes.has("test:n1") is True
+        assert await client.nodes.has("nonexistent") is False
+        await client.nodes.remove("test:n1")
+        assert await client.nodes.has("test:n1") is False
+
     asyncio.run(_test())
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_edge_crud(service, client_factory):
     """Test edge add/has/remove via the service."""
+
     async def _test():
         client = await client_factory()
-        await client.add_node("e:a", {})
-        await client.add_node("e:b", {})
-        await client.add_edge("e:a", "e:b", {"weight": 1.5})
-        assert await client.has_edge("e:a", "e:b") is True
-        await client.remove_edge("e:a", "e:b")
-        assert await client.has_edge("e:a", "e:b") is False
+        await client.nodes.add("e:a", {})
+        await client.nodes.add("e:b", {})
+        await client.edges.add("e:a", "e:b", {"weight": 1.5})
+        assert await client.edges.has("e:a", "e:b") is True
+        await client.edges.remove("e:a", "e:b")
+        assert await client.edges.has("e:a", "e:b") is False
+
     asyncio.run(_test())
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_multi_graph(service, client_factory):
     """Test creating, listing, and deleting named graphs."""
+
     async def _test():
         client = await client_factory()
-        await client.create_graph("agent:test-worker", "Agent")
-        graphs = await client.list_graphs()
+        await client.tenants.create("agent:test-worker", "Agent")
+        graphs = await client.tenants.list()
         names = [g["name"] for g in graphs]
         assert "__bus__" in names
         assert "agent:test-worker" in names
 
-        await client.delete_graph("agent:test-worker")
-        graphs = await client.list_graphs()
+        await client.tenants.delete("agent:test-worker")
+        graphs = await client.tenants.list()
         names = [g["name"] for g in graphs]
         assert "agent:test-worker" not in names
+
     asyncio.run(_test())
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_channel_p2p(service, client_factory):
     """Test P2P channel creation, messaging, and close with imprint."""
+
     async def _test():
         client = await client_factory()
-        await client.create_channel(
+        await client.channels.create(
             "channel:p2p:a:b", "PeerToPeer", "agent:a", ["agent:b"]
         )
-        await client.send_message("channel:p2p:a:b", "agent:a", "hello")
-        msgs = await client.get_channel_messages("channel:p2p:a:b")
+        await client.channels.send_message("channel:p2p:a:b", "agent:a", "hello")
+        msgs = await client.channels.get_messages("channel:p2p:a:b")
         assert len(msgs) == 1
         assert msgs[0]["payload"] == "hello"
 
-        imprint = await client.close_channel(
+        imprint = await client.channels.close(
             "channel:p2p:a:b", topic_metadata="test p2p"
         )
         assert imprint["message_count"] == 1
+
     asyncio.run(_test())
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_channel_group(service, client_factory):
     """Test group channel join/leave/close lifecycle."""
+
     async def _test():
         client = await client_factory()
-        await client.create_channel(
-            "channel:group:test", "Group", "agent:a", []
-        )
-        await client.join_channel("channel:group:test", "agent:b")
-        members = await client.get_channel_members("channel:group:test")
+        await client.channels.create("channel:group:test", "Group", "agent:a", [])
+        await client.channels.join("channel:group:test", "agent:b")
+        members = await client.channels.get_members("channel:group:test")
         assert len(members) == 2
 
-        await client.leave_channel("channel:group:test", "agent:b")
-        members = await client.get_channel_members("channel:group:test")
+        await client.channels.leave("channel:group:test", "agent:b")
+        members = await client.channels.get_members("channel:group:test")
         assert len(members) == 1
+
     asyncio.run(_test())
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_auth_required(service):
     """Test that unauthenticated requests are rejected."""
+
     async def _test():
         from epistemic_graph.client import EpistemicGraphClient
+
         client = await EpistemicGraphClient.connect(
             socket_path=service["socket_path"],
             auth_secret="wrong-secret",
@@ -192,26 +213,30 @@ def test_service_auth_required(service):
         with pytest.raises(RuntimeError, match="Authentication failed"):
             await client.ping()
         await client.close()
+
     asyncio.run(_test())
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_algorithms(service, client_factory):
     """Test algorithm execution via the service."""
+
     async def _test():
         client = await client_factory()
         # Build a small graph.
-        await client.add_node("algo:a", {})
-        await client.add_node("algo:b", {})
-        await client.add_node("algo:c", {})
-        await client.add_edge("algo:a", "algo:b", {})
-        await client.add_edge("algo:b", "algo:c", {})
+        await client.nodes.add("algo:a", {})
+        await client.nodes.add("algo:b", {})
+        await client.nodes.add("algo:c", {})
+        await client.edges.add("algo:a", "algo:b", {})
+        await client.edges.add("algo:b", "algo:c", {})
 
         # Topological sort.
-        order = await client.topological_sort()
+        order = await client.graph.topological_sort()
         assert order.index("algo:a") < order.index("algo:b")
         assert order.index("algo:b") < order.index("algo:c")
 
         # PageRank.
-        ranks = await client.pagerank(damping=0.85, iterations=10)
+        ranks = await client.analytics.pagerank(damping=0.85, iterations=10)
         assert len(ranks) > 0
+
     asyncio.run(_test())

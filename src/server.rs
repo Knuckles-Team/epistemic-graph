@@ -59,6 +59,22 @@ pub async fn dispatch(
         // ── Service-level ────────────────────────────────────────────
         Method::Ping => Response::ok(req.id, serde_json::json!("pong")),
 
+        Method::ParseFile { file_path, source } => {
+            #[cfg(feature = "ast")]
+            match crate::parser::tree_sitter::parse_file(&file_path, &source) {
+                Ok(result) => match serde_json::to_value(&result) {
+                    Ok(val) => Response::ok(req.id, val),
+                    Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
+                },
+                Err(e) => Response::err(req.id, e),
+            }
+            #[cfg(not(feature = "ast"))]
+            {
+                let _ = (file_path, source);
+                Response::err(req.id, "AST feature not enabled".to_string())
+            }
+        }
+
         Method::Shutdown => {
             info!("Shutdown requested via protocol");
             Response::ok(req.id, serde_json::json!("shutting_down"))
@@ -224,9 +240,9 @@ async fn dispatch_graph_op(
     drop(s); // Release registry lock before graph lock.
 
     match method {
-        Method::AddNode { node_id, properties_json } => {
+        Method::AddNode { node_id, properties_msgpack} => {
             let mut g = core.write().await;
-            g.add_node(node_id, properties_json);
+            g.add_node(node_id, properties_msgpack);
             Response::ok(req_id, serde_json::json!("ok"))
         }
         Method::RemoveNode { node_id } => {
@@ -240,11 +256,24 @@ async fn dispatch_graph_op(
         }
         Method::GetNodes => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.get_nodes()))
+            let nodes: Vec<(String, serde_json::Value)> = g.get_nodes()
+                .into_iter()
+                .map(|(k, p)| {
+                    let val = rmp_serde::from_slice::<serde_json::Value>(&p).unwrap_or(serde_json::json!({}));
+                    (k, val)
+                })
+                .collect();
+            Response::ok(req_id, serde_json::json!(nodes))
         }
         Method::GetNodeProperties { node_id } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.get_node_properties(&node_id)))
+            let val = match g.get_node_properties(&node_id) {
+                Some(props_msgpack) => {
+                    rmp_serde::from_slice::<serde_json::Value>(&props_msgpack).unwrap_or(serde_json::json!({}))
+                }
+                None => serde_json::Value::Null,
+            };
+            Response::ok(req_id, val)
         }
         Method::NodeCount => {
             let g = core.read().await;
@@ -254,9 +283,35 @@ async fn dispatch_graph_op(
             let g = core.read().await;
             Response::ok(req_id, serde_json::json!(g.node_ids()))
         }
-        Method::AddEdge { source_id, target_id, properties_json } => {
+        Method::AddEmbedding { node_id, embedding } => {
             let mut g = core.write().await;
-            match g.add_edge(source_id, target_id, properties_json) {
+            g.semantic_store.add_embedding(node_id, embedding);
+            Response::ok(req_id, serde_json::json!("ok"))
+        }
+        Method::SemanticSearch { query_embedding, n_results } => {
+            let g = core.read().await;
+            let results = g.semantic_store.semantic_search(&query_embedding, n_results);
+            Response::ok(req_id, serde_json::json!(results))
+        }
+        Method::SpectralCluster { vectors: _, max_k: _, domain: _ } => {
+            Response::err(req_id, "SpectralCluster is deprecated. Use datascience primitives.".to_string())
+        }
+        Method::HypergraphEncodeInteraction { pos_a: _, pos_b: _, pos_dim: _, hidden_dim: _, out_dim: _, seed: _ } => {
+            Response::err(req_id, "HypergraphEncodeInteraction is deprecated. Use datascience primitives.".to_string())
+        }
+        Method::BatchCosineSimilarity { query: _, targets: _ } => {
+            Response::err(req_id, "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string())
+        }
+        Method::FinanceOptimizePortfolio { expected_returns, cov_matrix, risk_free_rate } => {
+            let result = crate::finance::optimizer::mean_variance_optimization(&expected_returns, &cov_matrix, risk_free_rate);
+            Response::ok(req_id, serde_json::json!(result))
+        }
+        Method::FindSimilarPairs { embeddings: _, ids: _, threshold: _, use_lsh: _, lsh_num_tables: _, lsh_hash_size: _, seed: _ } => {
+            Response::err(req_id, "FindSimilarPairs is deprecated. Use datascience primitives.".to_string())
+        }
+        Method::AddEdge { source_id, target_id, properties_msgpack} => {
+            let mut g = core.write().await;
+            match g.add_edge(source_id, target_id, properties_msgpack) {
                 Ok(()) => Response::ok(req_id, serde_json::json!("ok")),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
@@ -276,7 +331,11 @@ async fn dispatch_graph_op(
         }
         Method::GetEdgeProperties { source_id, target_id } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.get_edge_properties(&source_id, &target_id)))
+            let props = g.get_edge_properties(&source_id, &target_id);
+            let val: Vec<serde_json::Value> = props.into_iter()
+                .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
+                .collect();
+            Response::ok(req_id, serde_json::json!(val))
         }
         Method::ClearGraph => {
             let mut g = core.write().await;
@@ -316,6 +375,18 @@ async fn dispatch_graph_op(
                 crate::algorithms::connected_components(&g)
             ))
         }
+        Method::StronglyConnectedComponents => {
+            let g = core.read().await;
+            Response::ok(req_id, serde_json::json!(
+                crate::algorithms::strongly_connected_components(&g)
+            ))
+        }
+        Method::MinimumSpanningTree => {
+            let g = core.read().await;
+            Response::ok(req_id, serde_json::json!(
+                crate::algorithms::minimum_spanning_tree(&g)
+            ))
+        }
         Method::Metrics => {
             let g = core.read().await;
             let m = crate::algorithms::compute_metrics(&g);
@@ -324,23 +395,28 @@ async fn dispatch_graph_op(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::ToJson => {
+        Method::EvictLRU { max_nodes } => {
+            let mut g = core.write().await;
+            let evicted = g.evict_lru(max_nodes);
+            Response::ok(req_id, serde_json::json!(evicted))
+        }
+        Method::ToMsgpack => {
             let g = core.read().await;
-            match g.to_json() {
+            match g.to_msgpack() {
                 Ok(json) => Response::ok(req_id, serde_json::json!(json)),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::FromJson { json_str } => {
+        Method::FromMsgpack { msgpack } => {
             let mut g = core.write().await;
-            match g.from_json(&json_str) {
+            match g.from_msgpack(&msgpack) {
                 Ok(()) => Response::ok(req_id, serde_json::json!("ok")),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::Reconcile { graph_name: _, json_str } => {
+        Method::Reconcile { graph_name: _, msgpack } => {
             let mut g = core.write().await;
-            match g.from_json(&json_str) {
+            match g.from_msgpack(&msgpack) {
                 Ok(()) => Response::ok(req_id, serde_json::json!("reconciled")),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
@@ -366,9 +442,9 @@ async fn dispatch_graph_op(
                             let o = tokens[2].trim_matches(|c| c == '<' || c == '>');
 
                             if is_insert {
-                                g.add_node(s.to_string(), "{}".to_string());
-                                g.add_node(o.to_string(), "{}".to_string());
-                                let _ = g.add_edge(s.to_string(), o.to_string(), format!("{{\"predicate\": \"{}\"}}", p));
+                                g.add_node(s.to_string(), "{}".to_string().into_bytes());
+                                g.add_node(o.to_string(), "{}".to_string().into_bytes());
+                                let _ = g.add_edge(s.to_string(), o.to_string(), format!("{{\"predicate\": \"{}\"}}", p).into_bytes());
                             } else {
                                 // For delete, we just remove the edge matching the predicate
                                 g.remove_edge(s.to_string(), o.to_string());
@@ -465,10 +541,10 @@ async fn dispatch_graph_op(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::BatchUpdate { operations_json } => {
+        Method::BatchUpdate { operations_msgpack } => {
             let mut g = core.write().await;
-            match crate::algorithms::batch_update(&mut g, &operations_json) {
-                Ok(res) => match serde_json::from_str::<serde_json::Value>(&res) {
+            match crate::algorithms::batch_update(&mut g, &operations_msgpack) {
+                Ok(res) => match rmp_serde::from_slice::<serde_json::Value>(&res) {
                     Ok(val) => Response::ok(req_id, val),
                     Err(e) => Response::err(req_id, format!("Invalid batch result: {}", e)),
                 },
@@ -514,8 +590,8 @@ async fn dispatch_graph_op(
         Method::GetSubgraph { node_ids } => {
             let g = core.read().await;
             let sub = g.get_subgraph(&node_ids);
-            match sub.to_json() {
-                Ok(json) => match serde_json::from_str::<serde_json::Value>(&json) {
+            match sub.to_msgpack() {
+                Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
                     Ok(val) => Response::ok(req_id, val),
                     Err(e) => Response::err(req_id, e.to_string()),
                 },
@@ -528,8 +604,8 @@ async fn dispatch_graph_op(
             // For now, we return the JSON representation of the fork.
             let g = core.read().await;
             let sub = g.fork();
-            match sub.to_json() {
-                Ok(json) => match serde_json::from_str::<serde_json::Value>(&json) {
+            match sub.to_msgpack() {
+                Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
                     Ok(val) => Response::ok(req_id, val),
                     Err(e) => Response::err(req_id, e.to_string()),
                 },
@@ -548,7 +624,7 @@ async fn dispatch_graph_op(
             let g1 = core.read().await;
             let g2 = other_core.read().await;
             let diff_str = g1.diff_against(&g2);
-            match serde_json::from_str::<serde_json::Value>(&diff_str) {
+            match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
                 Ok(val) => Response::ok(req_id, val),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
