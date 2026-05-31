@@ -1,7 +1,9 @@
+import pytest
 import re
 from pathlib import Path
 
 
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_concept_parity():
     """Ensure all CONCEPT:ID tags used in source code are registered in docs/concepts.md."""
     concepts_file = Path(__file__).parent.parent / "docs" / "concepts.md"

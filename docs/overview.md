@@ -14,7 +14,7 @@ graph TD
     end
 
     subgraph Native Compiled Layer (PyO3)
-        EG_PY -->|FFI / PyClass| EG_RS[EpistemicGraph Struct]
+        EG_PY -->|epistemic-graph / PyClass| EG_RS[EpistemicGraph Struct]
         EG_RS -->|StableDiGraph| PG[petgraph StableDiGraph]
     end
 ```

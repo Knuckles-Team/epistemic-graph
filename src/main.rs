@@ -10,29 +10,21 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, Level};
 
-mod algorithms;
-mod channels;
-mod graph;
-mod isolation;
-mod protocol;
-mod reasoning;
-mod registry;
-mod server;
-pub mod types;
-mod event_bus;
-
-use channels::ChannelManager;
-use isolation::IsolationLayer;
-use registry::GraphRegistry;
-use server::ServerState;
+use epistemic_graph::channels::ChannelManager;
+use epistemic_graph::isolation::IsolationLayer;
+use epistemic_graph::registry::GraphRegistry;
+use epistemic_graph::server::{self, ServerState};
+use epistemic_graph::event_bus;
 
 #[derive(Parser, Debug)]
 #[command(name = "epistemic-graph-server")]
 #[command(about = "Tokio-native epistemic graph service")]
 struct Args {
     /// Unix Domain Socket path.
-    #[arg(long, default_value = "/tmp/epistemic-graph.sock")]
-    socket_path: String,
+    /// Falls back to $GRAPH_SERVICE_SOCKET, then $XDG_RUNTIME_DIR/epistemic-graph.sock,
+    /// then /tmp/epistemic-graph.sock.
+    #[arg(long, env = "GRAPH_SERVICE_SOCKET")]
+    socket_path: Option<String>,
 
     /// Optional TCP address (e.g., 0.0.0.0:9100). If set, TCP listener is started.
     #[arg(long)]
@@ -55,6 +47,20 @@ struct Args {
     persist_on_shutdown: bool,
 }
 
+fn resolve_socket_path(explicit: Option<String>) -> String {
+    if let Some(p) = explicit {
+        return p;
+    }
+    if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+        let xdg_sock = format!("{}/epistemic-graph.sock", xdg);
+        // Prefer XDG if the directory exists
+        if std::path::Path::new(&xdg).exists() {
+            return xdg_sock;
+        }
+    }
+    "/tmp/epistemic-graph.sock".to_string()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -63,9 +69,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args = Args::parse();
+    let socket_path = resolve_socket_path(args.socket_path);
 
     info!("Starting epistemic-graph-server");
-    info!("  UDS: {}", args.socket_path);
+    info!("  UDS: {}", socket_path);
     if let Some(ref tcp) = args.tcp_addr {
         info!("  TCP: {}", tcp);
     }
@@ -114,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Start UDS listener (main loop).
-    server::serve_uds(&args.socket_path, state).await?;
+    server::serve_uds(&socket_path, state).await?;
 
     Ok(())
 }

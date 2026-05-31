@@ -16,9 +16,10 @@ use std::io::Read;
 pub struct GraphCore {
     pub graph: StableDiGraph<String, String>,
     pub node_map: HashMap<String, NodeIndex>,
-    pub node_properties: HashMap<String, String>,
-    pub edge_properties: HashMap<(String, String), Vec<String>>,
+    pub node_properties: HashMap<String, Vec<u8>>,
+    pub edge_properties: HashMap<(String, String), Vec<Vec<u8>>>,
     pub ledger: Vec<String>,
+    pub semantic_store: crate::compute::semantic::SemanticStore,
 }
 
 impl GraphCore {
@@ -29,12 +30,13 @@ impl GraphCore {
             node_properties: HashMap::new(),
             edge_properties: HashMap::new(),
             ledger: Vec::new(),
+            semantic_store: crate::compute::semantic::SemanticStore::new(),
         }
     }
 
     // ── Node CRUD ────────────────────────────────────────────────────────
 
-    pub fn add_node(&mut self, node_id: String, properties_json: String) {
+    pub fn add_node(&mut self, node_id: String, properties_msgpack: Vec<u8>) {
         let _idx = if let Some(&existing_idx) = self.node_map.get(&node_id) {
             existing_idx
         } else {
@@ -43,8 +45,8 @@ impl GraphCore {
             new_idx
         };
         self.node_properties
-            .insert(node_id.clone(), properties_json.clone());
-        let log = format!("ADD_NODE|{}|{}", node_id, properties_json);
+            .insert(node_id.clone(), properties_msgpack.clone());
+        let log = format!("ADD_NODE|{}|{}", node_id, hex::encode(&properties_msgpack));
         self.ledger.push(log);
         if self.ledger.len() > 100_000 {
             self.ledger.drain(0..50_000);
@@ -69,14 +71,14 @@ impl GraphCore {
         self.node_map.contains_key(node_id)
     }
 
-    pub fn get_nodes(&self) -> Vec<(String, String)> {
+    pub fn get_nodes(&self) -> Vec<(String, Vec<u8>)> {
         self.node_properties
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
 
-    pub fn get_node_properties(&self, node_id: &str) -> Option<String> {
+    pub fn get_node_properties(&self, node_id: &str) -> Option<Vec<u8>> {
         self.node_properties.get(node_id).cloned()
     }
 
@@ -95,7 +97,7 @@ impl GraphCore {
         &mut self,
         source_id: String,
         target_id: String,
-        properties_json: String,
+        properties_msgpack: Vec<u8>,
     ) -> Result<(), String> {
         let source_idx = match self.node_map.get(&source_id) {
             Some(&idx) => idx,
@@ -124,8 +126,8 @@ impl GraphCore {
         self.edge_properties
             .entry((source_id.clone(), target_id.clone()))
             .or_default()
-            .push(properties_json.clone());
-        let log = format!("ADD_EDGE|{}|{}|{}", source_id, target_id, properties_json);
+            .push(properties_msgpack.clone());
+        let log = format!("ADD_EDGE|{}|{}|{}", source_id, target_id, hex::encode(&properties_msgpack));
         self.ledger.push(log);
         if self.ledger.len() > 100_000 {
             self.ledger.drain(0..50_000);
@@ -160,7 +162,7 @@ impl GraphCore {
         }
     }
 
-    pub fn get_edges(&self) -> Vec<(String, String, String)> {
+    pub fn get_edges(&self) -> Vec<(String, String, Vec<u8>)> {
         let mut res = Vec::new();
         for ((src, tgt), props_list) in &self.edge_properties {
             for props in props_list {
@@ -170,7 +172,7 @@ impl GraphCore {
         res
     }
 
-    pub fn get_edge_properties(&self, source_id: &str, target_id: &str) -> Vec<String> {
+    pub fn get_edge_properties(&self, source_id: &str, target_id: &str) -> Vec<Vec<u8>> {
         self.edge_properties
             .get(&(source_id.to_string(), target_id.to_string()))
             .cloned()
@@ -248,7 +250,7 @@ impl GraphCore {
 
     // ── Serialization ────────────────────────────────────────────────────
 
-    pub fn to_json(&self) -> Result<String, String> {
+    pub fn to_msgpack(&self) -> Result<Vec<u8>, String> {
         let mut graph_map = HashMap::new();
         let nodes = self.get_nodes();
         let edges = self.get_edges();
@@ -265,8 +267,13 @@ impl GraphCore {
             serde_json::to_value(&self.ledger)
                 .map_err(|e| e.to_string())?,
         );
+        graph_map.insert(
+            "semantic_store".to_string(),
+            serde_json::to_value(&self.semantic_store)
+                .map_err(|e| e.to_string())?,
+        );
 
-        serde_json::to_string(&graph_map).map_err(|e| e.to_string())
+        rmp_serde::to_vec_named(&graph_map).map_err(|e| e.to_string())
     }
 
     pub fn clear(&mut self) {
@@ -275,11 +282,12 @@ impl GraphCore {
         self.node_properties.clear();
         self.edge_properties.clear();
         self.ledger.clear();
+        self.semantic_store = crate::compute::semantic::SemanticStore::new();
     }
 
-    pub fn from_json(&mut self, json_str: &str) -> Result<(), String> {
+    pub fn from_msgpack(&mut self, msgpack: &[u8]) -> Result<(), String> {
         let graph_map: HashMap<String, serde_json::Value> =
-            serde_json::from_str(json_str).map_err(|e| e.to_string())?;
+            rmp_serde::from_slice(msgpack).map_err(|e| e.to_string())?;
 
         // Reset state
         self.graph.clear();
@@ -289,7 +297,7 @@ impl GraphCore {
         self.ledger.clear();
 
         if let Some(nodes_val) = graph_map.get("nodes") {
-            let nodes: Vec<(String, String)> = serde_json::from_value(nodes_val.clone())
+            let nodes: Vec<(String, Vec<u8>)> = serde_json::from_value(nodes_val.clone())
                 .map_err(|e| e.to_string())?;
             for (node_id, props) in nodes {
                 self.add_node(node_id, props);
@@ -297,7 +305,7 @@ impl GraphCore {
         }
 
         if let Some(edges_val) = graph_map.get("edges") {
-            let edges: Vec<(String, String, String)> =
+            let edges: Vec<(String, String, Vec<u8>)> =
                 serde_json::from_value(edges_val.clone())
                     .map_err(|e| e.to_string())?;
             for (src, tgt, props) in edges {
@@ -309,6 +317,13 @@ impl GraphCore {
             let ledger: Vec<String> = serde_json::from_value(ledger_val.clone())
                 .map_err(|e| e.to_string())?;
             self.ledger = ledger;
+        }
+
+        if let Some(store_val) = graph_map.get("semantic_store") {
+            let store: crate::compute::semantic::SemanticStore =
+                serde_json::from_value(store_val.clone())
+                    .map_err(|e| e.to_string())?;
+            self.semantic_store = store;
         }
 
         Ok(())
@@ -332,13 +347,13 @@ impl GraphCore {
             }
             match parts[0] {
                 "ADD_NODE" if parts.len() >= 3 => {
-                    self.add_node(parts[1].to_string(), parts[2].to_string());
+                    self.add_node(parts[1].to_string(), parts[2].as_bytes().to_vec());
                 }
                 "ADD_EDGE" if parts.len() >= 4 => {
                     let _ = self.add_edge(
                         parts[1].to_string(),
                         parts[2].to_string(),
-                        parts[3].to_string(),
+                        parts[3].as_bytes().to_vec(),
                     );
                 }
                 "REMOVE_NODE" if parts.len() >= 2 => {
@@ -388,6 +403,7 @@ impl GraphCore {
             node_properties: self.node_properties.clone(),
             edge_properties: self.edge_properties.clone(),
             ledger: self.ledger.clone(),
+            semantic_store: self.semantic_store.clone(),
         }
     }
 
@@ -431,7 +447,7 @@ impl GraphCore {
     pub fn compact_nodes_by_type(&mut self, node_type: &str, threshold: usize) -> Vec<String> {
         let mut candidates: Vec<String> = Vec::new();
         for (node_id, props_json) in &self.node_properties {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json) {
                 if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
                     if t == node_type {
                         candidates.push(node_id.clone());
@@ -450,7 +466,7 @@ impl GraphCore {
             "compacted_count": candidates.len(),
             "original_type": node_type,
         });
-        self.add_node(summary_id.clone(), summary_props.to_string());
+        self.add_node(summary_id.clone(), summary_props.to_string().into_bytes());
 
         let mut removed = Vec::new();
         for node_id in &candidates {
@@ -478,7 +494,7 @@ impl GraphCore {
                 let rel_str = relative.to_string_lossy().to_string();
 
                 let file_props = format!("{{\"type\": \"file\", \"path\": \"{}\"}}", rel_str);
-                self.add_node(rel_str.clone(), file_props);
+                self.add_node(rel_str.clone(), file_props.into_bytes());
 
                 if let Ok(mut file) = std::fs::File::open(&path) {
                     let mut content = String::new();
@@ -513,9 +529,9 @@ impl GraphCore {
                         "{{\"type\": \"class\", \"file\": \"{}\", \"line\": {}}}",
                         rel_str, line_num
                     );
-                    self.add_node(node_id.clone(), props);
+                    self.add_node(node_id.clone(), props.into_bytes());
                     let edge_props = "{\"relationship\": \"contains\"}".to_string();
-                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props);
+                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props.into_bytes());
                 }
             }
         }
@@ -537,9 +553,9 @@ impl GraphCore {
                         "{{\"type\": \"function\", \"file\": \"{}\", \"line\": {}}}",
                         rel_str, line_num
                     );
-                    self.add_node(node_id.clone(), props);
+                    self.add_node(node_id.clone(), props.into_bytes());
                     let edge_props = "{\"relationship\": \"contains\"}".to_string();
-                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props);
+                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props.into_bytes());
                 }
             }
         }
@@ -554,9 +570,9 @@ impl GraphCore {
                         "{{\"type\": \"function\", \"file\": \"{}\", \"line\": {}}}",
                         rel_str, line_num
                     );
-                    self.add_node(node_id.clone(), props);
+                    self.add_node(node_id.clone(), props.into_bytes());
                     let edge_props = "{\"relationship\": \"contains\"}".to_string();
-                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props);
+                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props.into_bytes());
                 }
             }
         }
@@ -584,6 +600,41 @@ impl GraphCore {
         );
         matches
     }
+
+    /// Evict nodes down to `max_nodes` by removing the least-recently-added.
+    ///
+    /// CONCEPT:KG-2.16 — Memory pressure defense. When the in-memory graph
+    /// grows beyond `max_nodes`, this method removes the oldest nodes (by
+    /// insertion order in `node_map`) until the count is at or below the cap.
+    /// Returns the number of evicted nodes.
+    pub fn evict_lru(&mut self, max_nodes: usize) -> usize {
+        let current = self.node_map.len();
+        if current <= max_nodes {
+            return 0;
+        }
+        let to_evict = current - max_nodes;
+
+        // Collect node IDs to evict — nodes with the lowest NodeIndex values
+        // were inserted earliest, so they approximate LRU.
+        let mut indexed: Vec<(String, NodeIndex)> = self
+            .node_map
+            .iter()
+            .map(|(k, &v)| (k.clone(), v))
+            .collect();
+        indexed.sort_by_key(|(_, idx)| *idx);
+
+        let evict_ids: Vec<String> = indexed
+            .into_iter()
+            .take(to_evict)
+            .map(|(id, _)| id)
+            .collect();
+
+        for node_id in &evict_ids {
+            self.remove_node(node_id.clone());
+        }
+
+        evict_ids.len()
+    }
 }
 
 // ── Free Functions (non-method helpers) ──────────────────────────────────
@@ -599,7 +650,9 @@ pub fn walk_dir_recursive(dir: &std::path::Path, files: &mut Vec<std::path::Path
                 }
             } else {
                 let ext = path.extension().unwrap_or_default().to_string_lossy();
-                if ext == "py" || ext == "js" || ext == "ts" {
+                if ext == "py" || ext == "js" || ext == "ts" || ext == "rs"
+                    || ext == "go" || ext == "tsx" || ext == "jsx" || ext == "mjs"
+                {
                     files.push(path);
                 }
             }
@@ -658,13 +711,13 @@ fn check_match(
     let p_props = pattern
         .node_properties
         .get(p_node)
-        .map(|s| s.as_str())
-        .unwrap_or("{}");
+        .map(|s| s.as_slice())
+        .unwrap_or(b"{}");
     let t_props = host
         .node_properties
         .get(t_node)
-        .map(|s| s.as_str())
-        .unwrap_or("{}");
+        .map(|s| s.as_slice())
+        .unwrap_or(b"{}");
 
     if !match_props(p_props, t_props) {
         return false;
@@ -745,12 +798,12 @@ fn check_edge_props(
     true
 }
 
-pub fn match_props(p_json: &str, t_json: &str) -> bool {
-    let p_val: serde_json::Value = match serde_json::from_str(p_json) {
+pub fn match_props(p_msgpack: &[u8], t_msgpack: &[u8]) -> bool {
+    let p_val: serde_json::Value = match rmp_serde::from_slice(p_msgpack) {
         Ok(v) => v,
         Err(_) => return false,
     };
-    let t_val: serde_json::Value = match serde_json::from_str(t_json) {
+    let t_val: serde_json::Value = match rmp_serde::from_slice(t_msgpack) {
         Ok(v) => v,
         Err(_) => return false,
     };

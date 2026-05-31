@@ -159,7 +159,7 @@ def cmd_graphs_list(args: argparse.Namespace) -> None:
             socket_path=args.socket_path,
             auth_secret=args.auth_secret,
         )
-        graphs = await client.list_graphs()
+        graphs = await client.tenants.list()
         if not graphs:
             print("No graphs registered.")
         else:

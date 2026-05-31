@@ -4,7 +4,7 @@
 
 ## Overview
 
-`epistemic-graph` is a Unix Sockets-based Rust crate that provides the **sole high-performance compute backend** for `agent-utilities`. It replaces all previous graph computation libraries (including `rustworkx`) with a single, purpose-built engine.
+`epistemic-graph` is a Unix Sockets-based Rust crate that provides the **sole high-performance compute backend** for `agent-utilities`. It replaces all previous graph computation libraries (including `epistemic-graph`) with a single, purpose-built engine.
 
 ## Architecture
 
@@ -18,14 +18,14 @@
 │  ┌──────────────────────────────────────────────────────┐  │
 │  │ Rust Core (lib.rs)                                    │  │
 │  │                                                       │  │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐  │  │
-│  │  │ graph.rs     │  │ algorithms.rs│  │ reasoning.rs│  │  │
-│  │  │ (GraphCore,  │  │ (PageRank,   │  │ (Datalog,   │  │  │
-│  │  │  petgraph)   │  │  BFS, DFS,   │  │  Prolog)    │  │  │
-│  │  │              │  │  community,  │  │             │  │  │
-│  │  │              │  │  coloring,   │  │             │  │  │
-│  │  │              │  │  similarity) │  │             │  │  │
-│  │  └─────────────┘  └──────────────┘  └─────────────┘  │  │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐  ┌─────────────┐  │  │
+│  │  │ graph.rs     │  │ algorithms.rs│  │ reasoning.rs│  │ finance.rs   │  │  │
+│  │  │ (GraphCore,  │  │ (PageRank,   │  │ (Datalog,   │  │ (MVO, RP,    │  │  │
+│  │  │  petgraph)   │  │  BFS, DFS,   │  │  Prolog)    │  │  Kelly,      │  │  │
+│  │  │              │  │  community,  │  │             │  │  Optimization│  │  │
+│  │  │              │  │  coloring,   │  │             │  │  via faer)   │  │  │
+│  │  │              │  │  similarity) │  │             │  │              │  │  │
+│  │  └─────────────┘  └──────────────┘  └─────────────┘  └─────────────┘  │  │
 │  │                                                       │  │
 │  │  ┌─────────────┐                                      │  │
 │  │  │ types.rs     │  NodeData, EdgeData, LifecycleState  │  │
@@ -40,7 +40,7 @@
 ### `lib.rs` — Unix Sockets Surface
 - Single `#[pyclass]`: `EpistemicGraph`
 - Every `#[pymethod]` returns `PyResult<T>` — no panics on user-facing paths
-- Delegates all logic to `graph`, `algorithms`, and `reasoning`
+- Delegates all logic to `graph`, `algorithms`, `reasoning`, and `finance`
 
 ### `graph.rs` — GraphCore
 - `petgraph::StableDiGraph`-backed directed graph
@@ -80,6 +80,11 @@
 - Datalog-style forward chaining
 - Prolog-style backward chaining with unification
 
+### `finance.rs` — Quantitative Optimization
+- High-performance linear algebra using `faer` and `ndarray`
+- Offloads Portfolio Optimization (Mean-Variance, Risk Parity, Black-Litterman) from Python
+- Eliminates the need for Python's `scipy` and `numpy` in the execution layer
+
 ## Usage from Python
 
 ```python
@@ -105,7 +110,7 @@ import json
 stats_json = g.prune_by_lifecycle(max_age_secs=86400, min_score=0.1)
 stats = json.loads(stats_json)
 
-# Batch operations (single FFI crossing)
+# Batch operations (single epistemic-graph crossing)
 ops = json.dumps([
     {"op": "add_node", "node_id": "concept:auth", "properties": "{}"},
     {"op": "add_edge", "source": "agent:planner", "target": "concept:auth", "properties": "{}"},
@@ -129,7 +134,7 @@ No `unwrap()` calls on user-facing code paths. All errors are structured and des
 
 | Crate | Version | Purpose |
 |---|---|---|
-| `pyo3` | 0.28 | Python ↔ Rust FFI |
+| `pyo3` | 0.28 | Python ↔ Rust epistemic-graph |
 | `petgraph` | 0.6.4 | Core graph data structure |
 | `serde` | 1.0 | JSON serialization |
 | `serde_json` | 1.0 | JSON parsing |
@@ -139,6 +144,8 @@ No `unwrap()` calls on user-facing code paths. All errors are structured and des
 | `tracing` | 0.1 | Structured logging |
 | `hmac` / `sha2` | 0.12 / 0.10 | HMAC-SHA256 authentication |
 | `hex` | 0.4 | Hex encoding for auth tokens |
+| `faer` | 0.19 | High-performance linear algebra for finance |
+| `ndarray` | 0.15 | N-dimensional arrays for convex optimization |
 
 ## Service Mode (Tokio-First)
 

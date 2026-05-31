@@ -31,7 +31,8 @@ pub enum Method {
     // ── Node CRUD ────────────────────────────────────────────────────
     AddNode {
         node_id: String,
-        properties_json: String,
+        #[serde(with = "serde_bytes")]
+        properties_msgpack: Vec<u8>,
     },
     RemoveNode {
         node_id: String,
@@ -50,7 +51,8 @@ pub enum Method {
     AddEdge {
         source_id: String,
         target_id: String,
-        properties_json: String,
+        #[serde(with = "serde_bytes")]
+        properties_msgpack: Vec<u8>,
     },
     RemoveEdge {
         source_id: String,
@@ -111,6 +113,8 @@ pub enum Method {
         iterations: usize,
     },
     ConnectedComponents,
+    StronglyConnectedComponents,
+    MinimumSpanningTree,
     CommunityDetection {
         resolution: f64,
     },
@@ -129,14 +133,19 @@ pub enum Method {
         max_tokens: u32,
     },
     BatchUpdate {
-        operations_json: String,
+        #[serde(with = "serde_bytes")]
+        operations_msgpack: Vec<u8>,
     },
     Metrics,
+    EvictLRU {
+        max_nodes: usize,
+    },
 
     // ── Serialization ────────────────────────────────────────────────
-    ToJson,
-    FromJson {
-        json_str: String,
+    ToMsgpack,
+    FromMsgpack {
+        #[serde(with = "serde_bytes")]
+        msgpack: Vec<u8>,
     },
 
     // ── Ledger ───────────────────────────────────────────────────────
@@ -220,7 +229,8 @@ pub enum Method {
     Checkpoint,
     Reconcile {
         graph_name: String,
-        json_str: String,
+        #[serde(with = "serde_bytes")]
+        msgpack: Vec<u8>,
     },
     ApplyMutation {
         event_type: String,
@@ -231,6 +241,56 @@ pub enum Method {
     },
     Vf2SubgraphMatch {
         pattern_graph_name: String,
+    },
+
+    // ── AST Parsing ──────────────────────────────────────────────────
+    ParseFile {
+        file_path: String,
+        #[serde(with = "serde_bytes")]
+        source: Vec<u8>,
+    },
+
+    // ── Semantic Compute ─────────────────────────────────────────────
+    AddEmbedding {
+        node_id: String,
+        embedding: Vec<f32>,
+    },
+    SemanticSearch {
+        query_embedding: Vec<f32>,
+        n_results: usize,
+    },
+    SpectralCluster {
+        vectors: Vec<Vec<f64>>,
+        max_k: usize,
+        domain: String,
+    },
+    HypergraphEncodeInteraction {
+        pos_a: usize,
+        pos_b: usize,
+        pos_dim: usize,
+        hidden_dim: usize,
+        out_dim: usize,
+        seed: u64,
+    },
+    BatchCosineSimilarity {
+        query: Vec<f32>,
+        targets: Vec<Vec<f32>>,
+    },
+    FindSimilarPairs {
+        embeddings: Vec<Vec<f32>>,
+        ids: Vec<String>,
+        threshold: f32,
+        use_lsh: bool,
+        lsh_num_tables: usize,
+        lsh_hash_size: usize,
+        seed: u64,
+    },
+
+    // ── Quantitative Finance ──────────────────────────────────────────
+    FinanceOptimizePortfolio {
+        expected_returns: Vec<f64>,
+        cov_matrix: Vec<Vec<f64>>,
+        risk_free_rate: f64,
     },
 
     // ── Zero-Trust Consensus ─────────────────────────────────────────
@@ -317,11 +377,11 @@ mod tests {
             auth_token: "abc123".to_string(),
             method: Method::AddNode {
                 node_id: "n1".to_string(),
-                properties_json: r#"{"type":"Agent"}"#.to_string(),
+                properties_msgpack: vec![0x81, 0xa4, 0x74, 0x79, 0x70, 0x65, 0xa5, 0x41, 0x67, 0x65, 0x6e, 0x74],
             },
         };
         let json = serde_json::to_string(&req).unwrap();
-        let parsed: Request = serde_json::from_str(&json).unwrap();
+        let parsed: Request = serde_json::from_slice(&json).unwrap();
         assert_eq!(parsed.id, 1);
         assert_eq!(parsed.graph, "agent:planner");
     }
@@ -340,7 +400,7 @@ mod tests {
             },
         };
         let json = serde_json::to_string(&req).unwrap();
-        let parsed: Request = serde_json::from_str(&json).unwrap();
+        let parsed: Request = serde_json::from_slice(&json).unwrap();
         assert_eq!(parsed.id, 42);
         if let Method::CreateChannel { channel_type, .. } = parsed.method {
             assert_eq!(channel_type, ChannelType::PeerToPeer);
@@ -369,7 +429,7 @@ mod tests {
     fn test_all_graph_types_roundtrip() {
         for gt in [GraphType::Agent, GraphType::Team, GraphType::Global, GraphType::Bus] {
             let json = serde_json::to_string(&gt).unwrap();
-            let parsed: GraphType = serde_json::from_str(&json).unwrap();
+            let parsed: GraphType = serde_json::from_slice(&json).unwrap();
             assert_eq!(parsed, gt);
         }
     }
@@ -378,7 +438,7 @@ mod tests {
     fn test_method_ping_roundtrip() {
         let method = Method::Ping;
         let json = serde_json::to_string(&method).unwrap();
-        let parsed: Method = serde_json::from_str(&json).unwrap();
+        let parsed: Method = serde_json::from_slice(&json).unwrap();
         assert!(matches!(parsed, Method::Ping));
     }
 
@@ -389,7 +449,7 @@ mod tests {
             iterations: 100,
         };
         let json = serde_json::to_string(&method).unwrap();
-        let parsed: Method = serde_json::from_str(&json).unwrap();
+        let parsed: Method = serde_json::from_slice(&json).unwrap();
         if let Method::PageRank { damping, iterations } = parsed {
             assert!((damping - 0.85).abs() < f64::EPSILON);
             assert_eq!(iterations, 100);
@@ -405,7 +465,7 @@ mod tests {
             query: "INSERT DATA { <A> <B> <C> }".to_string(),
         };
         let json = serde_json::to_string(&method).unwrap();
-        let parsed: Method = serde_json::from_str(&json).unwrap();
+        let parsed: Method = serde_json::from_slice(&json).unwrap();
         if let Method::ApplyMutation { event_type, query } = parsed {
             assert_eq!(event_type, "TRIPLE_INSERT");
             assert_eq!(query, "INSERT DATA { <A> <B> <C> }");

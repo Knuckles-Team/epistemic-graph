@@ -51,7 +51,7 @@ pub async fn start_kafka_consumer(
 
                 // The Python client emits JSON like:
                 // {"event_type": "TRIPLE_INSERT", "query": "INSERT DATA ...", "source": "fuseki_backend"}
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) {
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(payload.as_bytes()) {
                     if let (Some(event_type), Some(query)) = (
                         json.get("event_type").and_then(|v| v.as_str()),
                         json.get("query").and_then(|v| v.as_str()),

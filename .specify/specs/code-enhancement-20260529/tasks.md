@@ -1,0 +1,65 @@
+# Tasks: Code Enhancement: epistemic-graph
+
+Generated: 2026-05-29T22:58:07.801007+00:00
+Skipped informational: 2
+
+- [ ] [P] **T001** [Dependency Audit] Package not found on PyPI: epistemic-graph
+  - Priority: P3-Low | Effort: Large
+- [ ] [P] **T002** [Codebase Optimization] Needs attention: client.py (608L) — God class: EpistemicGraphClient (69 methods)
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T003** [Security Analysis] 24 HIGH severity vulnerabilities found
+  - Priority: P1-High | Effort: Medium
+- [ ] [P] **T004** [Test Coverage] Low test-to-source ratio: 0.27
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T005** [Test Coverage] 9 potential doc-test drift items
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T006** [Documentation & Governance] README.md missing sections: overview
+  - Priority: P2-Medium | Effort: Small
+- [ ] [P] **T007** [Documentation & Governance] README.md is short (100 lines) — consider expanding
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T008** [Documentation & Governance] README missing: Has a Table of Contents
+  - Priority: P2-Medium | Effort: Small
+- [ ] [P] **T009** [Documentation & Governance] README missing: Has architecture overview or diagram
+  - Priority: P2-Medium | Effort: Small
+- [ ] [P] **T010** [Documentation & Governance] AGENTS.md missing sections: tech stack, project structure
+  - Priority: P2-Medium | Effort: Small
+- [ ] [P] **T011** [Documentation & Governance] 4 broken file references in documentation
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T012** [Architecture & Design Patterns] SRP: 1 modules exceed 500 lines (god modules)
+  - Priority: P2-Medium | Effort: Large
+- [ ] [P] **T013** [Architecture & Design Patterns] SRP: 1 classes have >15 methods
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T014** [Architecture & Design Patterns] No discernible layer architecture (no domain/service/adapter separation)
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T015** [Architecture & Design Patterns] Low dependency injection ratio: 4%
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T016** [Concept Traceability] Low traceability ratio: 0% concepts fully traced
+  - Priority: P4-Enhancement | Effort: Medium
+- [ ] [P] **T017** [Concept Traceability] 6 orphaned concepts (only in one source)
+  - Priority: P4-Enhancement | Effort: Medium
+- [ ] [P] **T018** [Concept Traceability] 26 test functions missing concept markers
+  - Priority: P4-Enhancement | Effort: Small
+- [ ] [P] **T019** [Concept Traceability] 22 significant functions (>10 lines) missing concept markers in docstrings
+  - Priority: P4-Enhancement | Effort: Small
+- [ ] [P] **T020** [Linting & Formatting] Total lint findings: 0 (high/error: 0, medium/warning: 0, low: 0)
+  - Priority: P4-Enhancement | Effort: Medium
+- [ ] [P] **T021** [Pre-Commit Compliance] 2 hook(s) may be outdated: ruff-pre-commit, uv-pre-commit
+  - Priority: P2-Medium | Effort: Small
+- [ ] [P] **T022** [Changelog Audit] CHANGELOG.md exists but could not be parsed — check format compliance
+  - Priority: P3-Low | Effort: Medium
+- [ ] [P] **T023** [Changelog Audit] No changelog entries within the last 30 days
+  - Priority: P3-Low | Effort: Medium
+- [ ] [P] **T024** [Changelog Audit] keepachangelog not installed — pip install 'universal-skills[code-enhancer]'
+  - Priority: P3-Low | Effort: Small
+- [ ] [P] **T025** [Pytest Quality] Test directory lacks subdirectory organization (consider unit/, integration/, e2
+  - Priority: P4-Enhancement | Effort: Medium
+- [ ] [P] **T026** [Pytest Quality] No @pytest.mark.parametrize usage — consider data-driven tests
+  - Priority: P4-Enhancement | Effort: Medium
+- [ ] [P] **T027** [Environment Variables] Only 0% of env vars documented in README.md
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T028** [Environment Variables] Undocumented env vars: GRAPH_SERVICE_AUTH_SECRET, GRAPH_SERVICE_SOCKET, PATH, PY
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T029** [Environment Variables] 7 Python env vars not in .env.example: GRAPH_SERVICE_AUTH_SECRET, GRAPH_SERVICE_
+  - Priority: P2-Medium | Effort: Medium
+- [ ] [P] **T030** [analyze_xdg_kg] Analysis error: No module named 'agent_utilities.knowledge_graph'
+  - Priority: P1-High | Effort: Medium

@@ -1,0 +1,175 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.0.3, pluggy-1.6.0 -- /home/apps/workspace/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/apps/workspace/agent-packages/epistemic-graph
+configfile: pytest.ini
+plugins: logfire-4.32.1, langsmith-0.8.1, cov-7.1.0, anyio-4.13.0, timeout-2.4.0, asyncio-1.3.0, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/test_epistemic_graph.py::test_topological_sorting ERROR            [100%]
+
+==================================== ERRORS ====================================
+__________________ ERROR at setup of test_topological_sorting __________________
+Traceback (most recent call last):
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/runner.py", line 353, in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/runner.py", line 245, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/logging.py", line 843, in pytest_runtest_setup
+    yield
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/capture.py", line 895, in pytest_runtest_setup
+    return (yield)
+            ^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 53, in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_result.py", line 103, in get_result
+    raise exc.with_traceback(tb)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 38, in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/runner.py", line 165, in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/runner.py", line 523, in setup
+    col.setup()
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/python.py", line 1723, in setup
+    self._request._fillfixtures()
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/fixtures.py", line 707, in _fillfixtures
+    item.funcargs[argname] = self.getfixturevalue(argname)
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/fixtures.py", line 539, in getfixturevalue
+    fixturedef = self._get_active_fixturedef(argname)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/fixtures.py", line 627, in _get_active_fixturedef
+    fixturedef.execute(request=subrequest)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/fixtures.py", line 1110, in execute
+    result: FixtureValue = ihook.pytest_fixture_setup(
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pytest_asyncio/plugin.py", line 728, in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 53, in run_old_style_hookwrapper
+    return result.get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_result.py", line 103, in get_result
+    raise exc.with_traceback(tb)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 38, in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/setuponly.py", line 36, in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/fixtures.py", line 1202, in pytest_fixture_setup
+    result = call_fixture_func(fixturefunc, request, kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/.venv/lib/python3.11/site-packages/_pytest/fixtures.py", line 915, in call_fixture_func
+    fixture_result = fixturefunc(**kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/agent-packages/epistemic-graph/tests/conftest.py", line 45, in clean_graph
+    client = SyncEpistemicGraphClient.connect(socket_path=socket_path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/apps/workspace/agent-packages/epistemic-graph/epistemic_graph/client.py", line 683, in connect
+    async_client = future.result()
+                   ^^^^^^^^^^^^^^^
+  File "/home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/apps/workspace/agent-packages/epistemic-graph/epistemic_graph/client.py", line 519, in connect
+    reader, writer = await asyncio.open_unix_connection(_socket)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/streams.py", line 97, in open_unix_connection
+    transport, _ = await loop.create_unix_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/unix_events.py", line 259, in create_unix_connection
+    await self.sock_connect(sock, path)
+  File "/home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 638, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/genius/.local/share/uv/python/cpython-3.11.15-linux-x86_64-gnu/lib/python3.11/asyncio/selector_events.py", line 646, in _sock_connect
+    sock.connect(address)
+FileNotFoundError: [Errno 2] No such file or directory
+---------------------------- Captured stdout setup -----------------------------
+Starting epistemic-graph-server...
+---------------------------- Captured stderr setup -----------------------------
+   Compiling epistemic-graph v0.13.0 (/home/apps/workspace/agent-packages/epistemic-graph)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.71s
+=============================== warnings summary ===============================
+tests/test_epistemic_graph.py:5
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:5: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:32
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:32: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:59
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:59: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:78
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:78: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:99
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:99: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:121
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:121: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:142
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:142: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:172
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:172: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+tests/test_epistemic_graph.py:199
+  /home/apps/workspace/agent-packages/epistemic-graph/tests/test_epistemic_graph.py:199: PytestUnknownMarkWarning: Unknown pytest.mark.concept - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.concept("CONCEPT:KG-2.0")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/test_epistemic_graph.py::test_topological_sorting - FileNotFoundE...
+======================== 9 warnings, 1 error in 15.79s =========================

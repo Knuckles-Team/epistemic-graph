@@ -1,0 +1,32 @@
+{
+  "comparison": [
+    {
+      "project": "epistemic-graph",
+      "gpa": 2.35,
+      "project_analysis": "D",
+      "dependency_audit": "A",
+      "codebase_optimization": "B",
+      "security_analysis": "F",
+      "test_coverage": "C",
+      "documentation_and_governance": "C",
+      "architecture_and_design_patterns": "D",
+      "concept_traceability": "F",
+      "linting_and_formatting": "A",
+      "pre-commit_compliance": "A",
+      "test_execution": "A",
+      "directory_organization": "A",
+      "version_sync_analysis": "A",
+      "changelog_audit": "C",
+      "pytest_quality": "A",
+      "environment_variables": "D",
+      "analyze_xdg_kg": "F"
+    }
+  ],
+  "integration": {},
+  "metadata": {
+    "projects_analyzed": 1,
+    "errors": 0,
+    "elapsed_seconds": 30.0,
+    "concurrency": 4
+  }
+}

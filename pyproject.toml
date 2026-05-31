@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "epistemic-graph"
-version = "0.13.0"
+version = "0.14.0"
 description = "Rust-based epistemic graph engine for agent-utilities"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,6 +40,15 @@ owl = [
 quant = [
     "numpy>=1.22.0",
 ]
+finance = []
+ast = []
+datascience = []
+reasoning = []
+server = []
+full = []
+all = [
+    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full]",
+]
 
 [tool.ruff]
 line-length = 88
@@ -62,3 +71,4 @@ min_confidence = 95
 python-source = "."
 bindings = "bin"
 strip = true
+features = ["server"]

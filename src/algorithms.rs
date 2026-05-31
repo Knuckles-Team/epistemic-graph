@@ -4,7 +4,7 @@
 // connected components — all operating on GraphCore.
 
 use petgraph::stable_graph::NodeIndex;
-use petgraph::visit::{Bfs, EdgeRef};
+use petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::graph::GraphCore;
@@ -376,6 +376,81 @@ pub fn connected_components(core: &GraphCore) -> Vec<Vec<String>> {
     components
 }
 
+/// Strongly connected components via Tarjan's algorithm.
+///
+/// CONCEPT:KG-2.16 — Unlike weakly connected components which treat edges as
+/// undirected, SCC respects edge direction. Two nodes are in the same SCC iff
+/// there is a directed path from each to the other. This is critical for
+/// belief cluster detection where causal direction matters.
+pub fn strongly_connected_components(core: &GraphCore) -> Vec<Vec<String>> {
+    let sccs = petgraph::algo::tarjan_scc(&core.graph);
+    sccs.into_iter()
+        .map(|component| {
+            component
+                .into_iter()
+                .map(|idx| core.graph[idx].clone())
+                .collect()
+        })
+        .collect()
+}
+
+/// Minimum spanning tree via Kruskal's algorithm.
+///
+/// CONCEPT:KG-2.16 — Returns the MST edges as `(source, target, weight)` tuples.
+/// Edge weights are extracted from the `weight` field of edge properties JSON.
+/// Edges without a weight field default to 1.0. Useful for argument coherence
+/// analysis — the MST reveals the minimum-cost skeleton connecting all beliefs.
+pub fn minimum_spanning_tree(core: &GraphCore) -> Vec<(String, String, f64)> {
+    use petgraph::data::FromElements;
+    use petgraph::stable_graph::StableGraph;
+
+    // Build a weighted undirected graph for MST computation
+    let mut undirected: petgraph::Graph<String, f64, petgraph::Undirected> =
+        petgraph::Graph::new_undirected();
+
+    // Map node indices from core to undirected graph
+    let mut idx_map: HashMap<NodeIndex, petgraph::graph::NodeIndex> = HashMap::new();
+    for (&ref _id, &idx) in &core.node_map {
+        let new_idx = undirected.add_node(core.graph[idx].clone());
+        idx_map.insert(idx, new_idx);
+    }
+
+    // Add edges with weights
+    for edge_ref in core.graph.edge_references() {
+        let src = edge_ref.source();
+        let tgt = edge_ref.target();
+        if let (Some(&u_src), Some(&u_tgt)) = (idx_map.get(&src), idx_map.get(&tgt)) {
+            let src_id = &core.graph[src];
+            let tgt_id = &core.graph[tgt];
+            // Extract weight from edge properties
+            let weight = core
+                .edge_properties
+                .get(&(src_id.clone(), tgt_id.clone()))
+                .and_then(|props| props.first())
+                .and_then(|json_str| serde_json::from_slice::<serde_json::Value>(json_str).ok())
+                .and_then(|v| v.get("weight").and_then(|w| w.as_f64()))
+                .unwrap_or(1.0);
+            undirected.add_edge(u_src, u_tgt, weight);
+        }
+    }
+
+    // Compute MST using petgraph's built-in min_spanning_tree
+    let mst_graph = StableGraph::<String, f64, petgraph::Undirected>::from_elements(
+        petgraph::algo::min_spanning_tree(&undirected),
+    );
+
+    // Extract edges from MST
+    mst_graph
+        .edge_references()
+        .map(|e| {
+            let src_id = mst_graph[e.source()].clone();
+            let tgt_id = mst_graph[e.target()].clone();
+            let weight = *e.weight();
+            (src_id, tgt_id, weight)
+        })
+        .collect()
+}
+
 /// Simple community detection via label propagation (Louvain-inspired).
 ///
 /// Each node starts with its own label. Iteratively, each node adopts the
@@ -450,7 +525,7 @@ pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String
     communities.into_values().collect()
 }
 
-// ── Quant FFI Algorithms ─────────────────────────────────────────────────
+// ── Quant epistemic-graph Algorithms ─────────────────────────────────────────────────
 
 /// Compute rolling mean over a sliding window.
 pub fn compute_rolling_mean(values: &[f64], window: usize) -> Vec<f64> {
@@ -570,7 +645,11 @@ fn window_stats(values: &[f64], i: usize, window: usize) -> (f64, f64) {
     let slice = &values[start..=i];
     let n = slice.len() as f64;
     let mean = slice.iter().sum::<f64>() / n;
-    let variance = slice.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+    let variance = if n > 1.0 {
+        slice.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0)
+    } else {
+        0.0
+    };
     (mean, variance)
 }
 
@@ -634,7 +713,7 @@ pub fn compute_similarity_edges(core: &GraphCore, threshold: f64) -> Vec<(String
         .node_properties
         .iter()
         .filter_map(|(node_id, props_json)| {
-            let val: serde_json::Value = serde_json::from_str(props_json).ok()?;
+            let val: serde_json::Value = serde_json::from_slice(&props_json).ok()?;
             let emb = val.get("embedding")?;
             let vec: Vec<f64> = serde_json::from_value(emb.clone()).ok()?;
             if vec.is_empty() {
@@ -699,7 +778,7 @@ pub fn prune_by_lifecycle(
     let mut archived = 0usize;
 
     for (node_id, props_json) in &core.node_properties {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&props_json) {
             let created_at = val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
             let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
             let lifecycle = val
@@ -829,17 +908,17 @@ pub fn get_context_view(
     }
 }
 
-/// Batch update: apply multiple graph operations in a single FFI crossing.
+/// Batch update: apply multiple graph operations in a single epistemic-graph crossing.
 ///
 /// Accepts a JSON array of operations:
 /// - {"op": "add_node", "id": "...", "properties": "..."}
 /// - {"op": "remove_node", "id": "..."}
 /// - {"op": "add_edge", "source": "...", "target": "...", "properties": "..."}
 /// - {"op": "remove_edge", "source": "...", "target": "..."}
-pub fn batch_update(core: &mut GraphCore, operations_json: &str) -> Result<String, String> {
-    let ops: Vec<serde_json::Value> = serde_json::from_str(operations_json).map_err(|e| {
+pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
+    let ops: Vec<serde_json::Value> = rmp_serde::from_slice(operations_msgpack).map_err(|e| {
         format!(
-            "[EpistemicGraph::batch_update] invalid JSON: {e}"
+            "[EpistemicGraph::batch_update] invalid MsgPack: {e}"
         )
     })?;
 
@@ -859,7 +938,7 @@ pub fn batch_update(core: &mut GraphCore, operations_json: &str) -> Result<Strin
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "{}".to_string());
                 if !id.is_empty() {
-                    core.add_node(id.to_string(), props);
+                    core.add_node(id.to_string(), props.into_bytes());
                     added_nodes += 1;
                 }
             }
@@ -878,7 +957,7 @@ pub fn batch_update(core: &mut GraphCore, operations_json: &str) -> Result<Strin
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "{}".to_string());
                 if !src.is_empty() && !tgt.is_empty() {
-                    if let Err(e) = core.add_edge(src.to_string(), tgt.to_string(), props) {
+                    if let Err(e) = core.add_edge(src.to_string(), tgt.to_string(), props.into_bytes()) {
                         errors.push(format!("op[{i}]: {e}"));
                     } else {
                         added_edges += 1;
@@ -906,7 +985,7 @@ pub fn batch_update(core: &mut GraphCore, operations_json: &str) -> Result<Strin
         "removed_edges": removed_edges,
         "errors": errors,
     });
-    Ok(result.to_string())
+    rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())
 }
 
 /// Compute runtime metrics for observability.
@@ -916,7 +995,7 @@ pub fn compute_metrics(core: &GraphCore) -> crate::types::GraphMetrics {
     let mut archived = 0usize;
 
     for props_json in core.node_properties.values() {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(props_json) {
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&props_json) {
             match val
                 .get("lifecycle_state")
                 .and_then(|v| v.as_str())
