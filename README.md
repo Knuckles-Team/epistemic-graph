@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.15.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.16.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/language-Rust%20%7C%20Python-orange" alt="Language">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -45,6 +45,7 @@ The `epistemic-graph` crate is the **singular computation engine** for the agent
 
 ### Core Graph Engine (CONCEPT:KG-2.2)
 - **petgraph-backed**: Native-compiled Rust graph structures
+- **Temporal Knowledge Graph (TKG)**: Ebbinghaus Forgetting Curve and fact decay natively integrated
 - **Topological Sort**: Sub-millisecond DAG resolving
 - **DFS Cycle Detection**: Returns precise cycle paths
 - **Shortest Path**: Efficient unweighted BFS traversal

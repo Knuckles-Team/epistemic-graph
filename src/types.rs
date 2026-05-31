@@ -59,6 +59,19 @@ pub struct NodeData {
     /// Extensible metadata as JSON string.
     #[serde(default)]
     pub metadata: String,
+    /// Belief confidence score (0.0 to 1.0) for temporal fact decay.
+    #[serde(default = "default_confidence")]
+    pub confidence: f64,
+    /// Start of temporal validity window (epoch seconds).
+    #[serde(default)]
+    pub valid_from: Option<u64>,
+    /// End of temporal validity window (epoch seconds), if applicable.
+    #[serde(default)]
+    pub valid_until: Option<u64>,
+}
+
+fn default_confidence() -> f64 {
+    1.0
 }
 
 impl NodeData {
@@ -76,6 +89,9 @@ impl NodeData {
             created_at: now,
             updated_at: now,
             metadata: String::new(),
+            confidence: 1.0,
+            valid_from: Some(now),
+            valid_until: None,
         }
     }
 
@@ -116,6 +132,9 @@ impl NodeData {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0),
                 metadata: json_str.to_string(),
+                confidence: val.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0),
+                valid_from: val.get("valid_from").and_then(|v| v.as_u64()),
+                valid_until: val.get("valid_until").and_then(|v| v.as_u64()),
             }
         } else {
             NodeData::new(id, "unknown".to_string())
@@ -135,6 +154,13 @@ impl NodeData {
                     "lifecycle_state".to_string(),
                     serde_json::Value::String(self.lifecycle_state.to_string()),
                 );
+                obj.insert("confidence".to_string(), serde_json::json!(self.confidence));
+                if let Some(vf) = self.valid_from {
+                    obj.insert("valid_from".to_string(), serde_json::json!(vf));
+                }
+                if let Some(vu) = self.valid_until {
+                    obj.insert("valid_until".to_string(), serde_json::json!(vu));
+                }
                 if let Ok(s) = serde_json::to_string(&val) {
                     return s;
                 }
@@ -144,6 +170,9 @@ impl NodeData {
         serde_json::json!({
             "type": self.node_type,
             "lifecycle_state": self.lifecycle_state.to_string(),
+            "confidence": self.confidence,
+            "valid_from": self.valid_from,
+            "valid_until": self.valid_until,
         })
         .to_string()
     }
@@ -165,6 +194,15 @@ pub struct EdgeData {
     /// Extensible metadata as JSON string.
     #[serde(default)]
     pub metadata: String,
+    /// Belief confidence score (0.0 to 1.0) for temporal fact decay.
+    #[serde(default = "default_confidence")]
+    pub confidence: f64,
+    /// Start of temporal validity window (epoch seconds).
+    #[serde(default)]
+    pub valid_from: Option<u64>,
+    /// End of temporal validity window (epoch seconds), if applicable.
+    #[serde(default)]
+    pub valid_until: Option<u64>,
 }
 
 fn default_weight() -> f64 {
@@ -178,6 +216,9 @@ impl EdgeData {
             weight: 1.0,
             provenance: String::new(),
             metadata: String::new(),
+            confidence: 1.0,
+            valid_from: None,
+            valid_until: None,
         }
     }
 
@@ -201,6 +242,9 @@ impl EdgeData {
                 weight,
                 provenance,
                 metadata: json_str.to_string(),
+                confidence: val.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0),
+                valid_from: val.get("valid_from").and_then(|v| v.as_u64()),
+                valid_until: val.get("valid_until").and_then(|v| v.as_u64()),
             }
         } else {
             EdgeData::new("RELATED_TO".to_string())
@@ -219,6 +263,13 @@ impl EdgeData {
                     "weight".to_string(),
                     serde_json::json!(self.weight),
                 );
+                obj.insert("confidence".to_string(), serde_json::json!(self.confidence));
+                if let Some(vf) = self.valid_from {
+                    obj.insert("valid_from".to_string(), serde_json::json!(vf));
+                }
+                if let Some(vu) = self.valid_until {
+                    obj.insert("valid_until".to_string(), serde_json::json!(vu));
+                }
                 if let Ok(s) = serde_json::to_string(&val) {
                     return s;
                 }
@@ -227,6 +278,9 @@ impl EdgeData {
         serde_json::json!({
             "relationship": self.relationship_type,
             "weight": self.weight,
+            "confidence": self.confidence,
+            "valid_from": self.valid_from,
+            "valid_until": self.valid_until,
         })
         .to_string()
     }

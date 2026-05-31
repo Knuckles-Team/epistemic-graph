@@ -30,7 +30,10 @@ class NodeClient:
     async def add(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
         await self._client._send(
             "AddNode",
-            {"node_id": node_id, "properties_msgpack": msgpack.packb(properties or {})},
+            {
+                "node_id": node_id,
+                "properties_msgpack": list(msgpack.packb(properties or {})),
+            },
         )
 
     async def remove(self, node_id: str) -> None:
@@ -81,7 +84,7 @@ class EdgeClient:
             {
                 "source_id": source_id,
                 "target_id": target_id,
-                "properties_msgpack": msgpack.packb(properties or {}),
+                "properties_msgpack": list(msgpack.packb(properties or {})),
             },
         )
 
@@ -295,7 +298,7 @@ class LifecycleClient:
 
     async def batch_update(self, operations: list[dict[str, Any]]) -> Any:
         return await self._client._send(
-            "BatchUpdate", {"operations_msgpack": msgpack.packb(operations)}
+            "BatchUpdate", {"operations_msgpack": list(msgpack.packb(operations))}
         )
 
     async def metrics(self) -> dict[str, Any]:

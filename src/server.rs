@@ -290,8 +290,51 @@ async fn dispatch_graph_op(
         }
         Method::SemanticSearch { query_embedding, n_results } => {
             let g = core.read().await;
-            let results = g.semantic_store.semantic_search(&query_embedding, n_results);
-            Response::ok(req_id, serde_json::json!(results))
+            // Fetch more results initially to account for filtered out nodes
+            let raw_results = g.semantic_store.semantic_search(&query_embedding, n_results * 2);
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let mut weighted_results = Vec::new();
+            for (node_id, mut similarity) in raw_results {
+                if let Some(props_bytes) = g.get_node_properties(&node_id) {
+                    if let Ok(json_str) = String::from_utf8(props_bytes) {
+                        let node_data = crate::types::NodeData::from_json_props(node_id.clone(), &json_str);
+
+                        // Filter out strictly stale facts where the validity window has closed
+                        if let Some(vu) = node_data.valid_until {
+                            if now > vu {
+                                continue;
+                            }
+                        }
+
+                        // Apply temporal decay to confidence (Ebbinghaus Forgetting Curve)
+                        let mut current_confidence = node_data.confidence;
+                        if let Some(vf) = node_data.valid_from {
+                            if now > vf {
+                                let age_secs = now - vf;
+                                let age_days = age_secs as f64 / 86400.0;
+                                // Half-life of 30 days (decay rate lambda = ln(2) / 30)
+                                let decay_rate = 0.693147 / 30.0;
+                                current_confidence *= (-decay_rate * age_days).exp();
+                            }
+                        }
+
+                        // Adjust similarity by current confidence (salience)
+                        similarity *= current_confidence as f32;
+                    }
+                }
+                weighted_results.push((node_id, similarity));
+            }
+
+            // Re-sort descending based on the new confidence-weighted similarity
+            weighted_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            weighted_results.truncate(n_results);
+
+            Response::ok(req_id, serde_json::json!(weighted_results))
         }
         Method::SpectralCluster { vectors: _, max_k: _, domain: _ } => {
             Response::err(req_id, "SpectralCluster is deprecated. Use datascience primitives.".to_string())
