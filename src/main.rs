@@ -102,39 +102,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
     }));
 
-    // Start TCP listener if configured.
-    if let Some(ref tcp_addr) = args.tcp_addr {
-        let tcp_state = state.clone();
-        let addr = tcp_addr.clone();
-        tokio::spawn(async move {
-            if let Err(e) = server::serve_tcp(&addr, tcp_state).await {
-                tracing::error!("TCP server error: {}", e);
-            }
-        });
-    }
-
-    // Start Kafka consumer if configured. Opt-in `kafka` feature: rdkafka's
-    // librdkafka does not build cleanly cross-platform (Windows/manylinux), so
-    // it is excluded from the default wheel and enabled only where the event bus
-    // is actually deployed (linux server, build with `--features kafka`).
-    #[cfg(feature = "kafka")]
-    if let Ok(brokers) = std::env::var("KAFKA_BOOTSTRAP_SERVERS") {
-        if !brokers.is_empty() {
-            let kafka_state = state.clone();
+    // ── Transport ───────────────────────────────────────────────────────
+    // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,
+    // so TCP is the main (and only) transport there.
+    #[cfg(unix)]
+    {
+        // TCP listener (secondary) if configured.
+        if let Some(ref tcp_addr) = args.tcp_addr {
+            let tcp_state = state.clone();
+            let addr = tcp_addr.clone();
             tokio::spawn(async move {
-                event_bus::start_kafka_consumer(
-                    &brokers,
-                    "epistemic-graph-consumer",
-                    "kg.mutations",
-                    kafka_state,
-                )
-                .await;
+                if let Err(e) = server::serve_tcp(&addr, tcp_state).await {
+                    tracing::error!("TCP server error: {}", e);
+                }
             });
         }
+
+        // Kafka consumer — opt-in `kafka` feature (linux deployments only).
+        #[cfg(feature = "kafka")]
+        if let Ok(brokers) = std::env::var("KAFKA_BOOTSTRAP_SERVERS") {
+            if !brokers.is_empty() {
+                let kafka_state = state.clone();
+                tokio::spawn(async move {
+                    event_bus::start_kafka_consumer(
+                        &brokers,
+                        "epistemic-graph-consumer",
+                        "kg.mutations",
+                        kafka_state,
+                    )
+                    .await;
+                });
+            }
+        }
+
+        // UDS listener (main loop).
+        server::serve_uds(&socket_path, state).await?;
     }
 
-    // Start UDS listener (main loop).
-    server::serve_uds(&socket_path, state).await?;
+    #[cfg(not(unix))]
+    {
+        // Windows: no UDS — serve on TCP as the main loop.
+        let _ = &socket_path; // computed for parity; UDS unavailable here
+        let addr = args
+            .tcp_addr
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:8765".to_string());
+        info!("UDS unavailable on this platform; serving on TCP: {}", addr);
+        server::serve_tcp(&addr, state).await?;
+    }
 
     Ok(())
 }
