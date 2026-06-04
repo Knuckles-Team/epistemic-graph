@@ -24,9 +24,14 @@ finance = []
 ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-javascript", "dep:tree-sitter-go"]
 datascience = []
 reasoning = []
-server = ["dep:tokio", "dep:clap", "dep:rdkafka", "dep:tracing-subscriber"]
+server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
+# Opt-in Kafka event bus. rdkafka's bundled librdkafka does not build cleanly on
+# every wheel target (Windows MSVC ./configure; manylinux cmake curl include), so
+# it is kept OUT of the default/server wheel and enabled only where the event bus
+# is deployed (linux server: build with `--features kafka` or `full`).
+kafka = ["dep:rdkafka", "dep:tokio"]
 compute = ["finance", "ast", "datascience", "reasoning"]
-full = ["compute", "server"]
+full = ["compute", "server", "kafka"]
 all = ["full"]
 
 [dependencies]
@@ -48,11 +53,9 @@ rand_distr = "0.4"
 # Optional Server
 tokio = { version = "1.38", features = ["full"], optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
-# cmake-build: build the bundled librdkafka via CMake (works on Windows MSVC,
-# where the default unix ./configure build fails). default-features=false drops
-# libz/ssl so no extra system libs are needed on any platform (matches the
-# minimal --disable-* configure build that already worked on linux/macOS).
-rdkafka = { version = "0.36.0", optional = true, default-features = false, features = ["cmake-build", "tokio"] }
+# Only pulled in by the opt-in `kafka` feature (linux server deployments). The
+# default bundled ./configure build with minimal features works on linux/macOS.
+rdkafka = { version = "0.36.0", optional = true, default-features = false, features = ["tokio"] }
 tracing-subscriber = { version = "0.3", optional = true }
 hmac = "0.12"
 hex = "0.4"
