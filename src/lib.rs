@@ -5,7 +5,7 @@
 // CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
 // CONCEPT:KG-2.19 - Tokio Service Layer
 //
-// Thin PyO3 FFI surface. Every #[pymethod] returns Result<T>.
+// Tokio service layer handling MessagePack RPC.
 // All logic delegated to graph, algorithms, and reasoning modules.
 // Service-layer modules (protocol, registry, isolation, channels, server)
 // are used by the epistemic-graph-server binary.

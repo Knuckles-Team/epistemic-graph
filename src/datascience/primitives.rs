@@ -1,7 +1,8 @@
 // CONCEPT:KG-2.22a — ML Primitives
 //
 // Core machine learning building blocks implemented in Rust.
-// These replace scipy/sklearn hot paths and are exposed via PyO3.
+// These replace scipy/sklearn hot paths and are served over the Tokio
+// service protocol (no in-process Python extension).
 
 use serde::{Deserialize, Serialize};
 

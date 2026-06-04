@@ -1,7 +1,7 @@
 # CONCEPT:KG-2.19 — Epistemic Graph Service Client
 #
 # Async Python client for the Tokio-based epistemic-graph service.
-# Communicates over UDS or TCP using JSON-over-newline framing
+# Communicates over UDS or TCP using Length-prefixed MessagePack framing
 # with HMAC-SHA256 authentication.
 
 from __future__ import annotations
@@ -45,8 +45,15 @@ class NodeClient:
     async def list(self) -> builtins.list[tuple[str, str]]:
         return await self._client._send("GetNodes")
 
-    async def properties(self, node_id: str) -> str | None:
-        return await self._client._send("GetNodeProperties", {"node_id": node_id})
+    async def properties(self, node_id: str) -> dict[str, Any] | None:
+        raw_val = await self._client._send("GetNodeProperties", {"node_id": node_id})
+        if raw_val is None:
+            return None
+        if isinstance(raw_val, bytes):
+            import msgpack
+
+            return msgpack.unpackb(raw_val, raw=False)
+        return raw_val
 
     async def count(self) -> int:
         return await self._client._send("NodeCount")
@@ -98,13 +105,20 @@ class EdgeClient:
             "HasEdge", {"source_id": source_id, "target_id": target_id}
         )
 
-    async def list(self) -> builtins.list[tuple[str, str, str]]:
+    async def list(self) -> builtins.list[tuple[str, str, builtins.list[int] | bytes]]:
         return await self._client._send("GetEdges")
 
-    async def properties(self, source_id: str, target_id: str) -> builtins.list[str]:
-        return await self._client._send(
+    async def properties(self, source_id: str, target_id: str) -> dict[str, Any] | None:
+        raw_val = await self._client._send(
             "GetEdgeProperties", {"source_id": source_id, "target_id": target_id}
         )
+        if raw_val is None:
+            return None
+        if isinstance(raw_val, bytes):
+            import msgpack
+
+            return msgpack.unpackb(raw_val, raw=False)
+        return raw_val
 
     async def count(self) -> int:
         return await self._client._send("EdgeCount")
@@ -450,6 +464,74 @@ class ConsensusClient:
         )
 
 
+class FinanceClient:
+    """CONCEPT:KG-2.6 — Quantitative Finance Namespace"""
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def optimize_portfolio(
+        self,
+        expected_returns: list[float],
+        cov_matrix: list[list[float]],
+        risk_free_rate: float,
+        min_weight: float | None = None,
+        max_weight: float | None = None,
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "FinanceOptimizePortfolio",
+            {
+                "expected_returns": expected_returns,
+                "cov_matrix": cov_matrix,
+                "risk_free_rate": risk_free_rate,
+                "min_weight": min_weight,
+                "max_weight": max_weight,
+            },
+        )
+
+    async def risk_parity(self, cov_matrix: list[list[float]]) -> dict[str, Any]:
+        return await self._client._send(
+            "FinanceRiskParity",
+            {"cov_matrix": cov_matrix},
+        )
+
+    async def black_litterman(
+        self,
+        market_weights: list[float],
+        cov_matrix: list[list[float]],
+        views: list[float],
+        pick_matrix: list[list[float]],
+        tau: float,
+        risk_aversion: float,
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "FinanceBlackLitterman",
+            {
+                "market_weights": market_weights,
+                "cov_matrix": cov_matrix,
+                "views": views,
+                "pick_matrix": pick_matrix,
+                "tau": tau,
+                "risk_aversion": risk_aversion,
+            },
+        )
+
+    async def efficient_frontier(
+        self,
+        expected_returns: list[float],
+        cov_matrix: list[list[float]],
+        target_return: float,
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "FinanceEfficientFrontier",
+            {
+                "expected_returns": expected_returns,
+                "cov_matrix": cov_matrix,
+                "target_return": target_return,
+            },
+        )
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -492,6 +574,7 @@ class EpistemicGraphClient:
         self.channels = ChannelsClient(self)
         self.tenants = MultiTenantClient(self)
         self.consensus = ConsensusClient(self)
+        self.finance = FinanceClient(self)
 
     @classmethod
     async def connect(
@@ -595,6 +678,9 @@ class EpistemicGraphClient:
     async def ping(self) -> str:
         return await self._send("Ping")
 
+    async def health(self) -> dict[str, Any]:
+        return await self._send("Health")
+
     async def checkpoint(self) -> str:
         return await self._send("Checkpoint")
 
@@ -639,6 +725,7 @@ class SyncEpistemicGraphClient:
         self.channels = self._SyncWrapper(self._client.channels, self._loop)
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
+        self.finance = self._SyncWrapper(self._client.finance, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

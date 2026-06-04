@@ -5,12 +5,12 @@
 
 use std::sync::Arc;
 use tokio::net::{TcpListener, UnixListener};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info};
 
 use crate::channels::ChannelManager;
 use crate::isolation::IsolationLayer;
-use crate::protocol::{Method, Request, Response};
+use crate::protocol::{Method, Request, Response, ResultPayload};
 use crate::registry::GraphRegistry;
 
 /// Shared server state behind Arc<RwLock<>>.
@@ -20,6 +20,10 @@ pub struct ServerState {
     pub channels: ChannelManager,
     pub auth_secret: String,
     pub persist_dir: Option<String>,
+    /// Global backpressure: caps concurrent in-flight requests across all
+    /// connections. Exhaustion yields a `BUSY` response so clients retry with
+    /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
+    pub max_in_flight: Arc<Semaphore>,
 }
 
 /// Verify HMAC-SHA256 authentication token.
@@ -57,13 +61,25 @@ pub async fn dispatch(
 
     match req.method {
         // ── Service-level ────────────────────────────────────────────
-        Method::Ping => Response::ok(req.id, serde_json::json!("pong")),
+        Method::Ping => Response::ok(req.id, ResultPayload::String("pong".to_string())),
+
+        Method::Health => {
+            // Simplified health check for now
+            let uptime_s = 0; // you can capture start time in ServerState
+            let mem_bytes = 0;
+            Response::ok(req.id, ResultPayload::Json(serde_json::json!({
+                "status": "ok",
+                "uptime_s": uptime_s,
+                "mem_bytes": mem_bytes
+            })))
+        }
+
 
         Method::ParseFile { file_path, source } => {
             #[cfg(feature = "ast")]
             match crate::parser::tree_sitter::parse_file(&file_path, &source) {
                 Ok(result) => match serde_json::to_value(&result) {
-                    Ok(val) => Response::ok(req.id, val),
+                    Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
                 },
                 Err(e) => Response::err(req.id, e),
@@ -77,20 +93,20 @@ pub async fn dispatch(
 
         Method::Shutdown => {
             info!("Shutdown requested via protocol");
-            Response::ok(req.id, serde_json::json!("shutting_down"))
+            Response::ok(req.id, ResultPayload::String("shutting_down".to_string()))
         }
 
         Method::Checkpoint => {
             info!("Checkpoint requested");
             // Checkpoint logic would serialize all graphs to disk here.
-            Response::ok(req.id, serde_json::json!("checkpoint_complete"))
+            Response::ok(req.id, ResultPayload::String("checkpoint_complete".to_string()))
         }
 
         // ── Multi-tenant graph management ────────────────────────────
         Method::CreateGraph { graph_name, graph_type } => {
             let mut s = state.write().await;
             match s.registry.create_graph(&graph_name, graph_type, None) {
-                Ok(()) => Response::ok(req.id, serde_json::json!({"created": graph_name})),
+                Ok(()) => Response::ok(req.id, ResultPayload::Json(serde_json::json!({"created": graph_name}))),
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -98,7 +114,7 @@ pub async fn dispatch(
         Method::DeleteGraph { graph_name } => {
             let mut s = state.write().await;
             match s.registry.delete_graph(&graph_name) {
-                Ok(()) => Response::ok(req.id, serde_json::json!({"deleted": graph_name})),
+                Ok(()) => Response::ok(req.id, ResultPayload::Json(serde_json::json!({"deleted": graph_name}))),
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -108,14 +124,14 @@ pub async fn dispatch(
             let graphs: Vec<serde_json::Value> = s.registry.list().iter().map(|(name, gt)| {
                 serde_json::json!({"name": name, "type": gt})
             }).collect();
-            Response::ok(req.id, serde_json::json!(graphs))
+            Response::ok(req.id, ResultPayload::Json(serde_json::json!(graphs)))
         }
 
         // ── Channel operations ───────────────────────────────────────
         Method::CreateChannel { channel_id, channel_type, creator, initial_members } => {
             let mut s = state.write().await;
             match s.channels.create_channel(&channel_id, channel_type, &creator, initial_members) {
-                Ok(()) => Response::ok(req.id, serde_json::json!({"channel": channel_id})),
+                Ok(()) => Response::ok(req.id, ResultPayload::Json(serde_json::json!({"channel": channel_id}))),
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -123,7 +139,7 @@ pub async fn dispatch(
         Method::JoinChannel { channel_id, agent_id } => {
             let mut s = state.write().await;
             match s.channels.join_channel(&channel_id, &agent_id) {
-                Ok(()) => Response::ok(req.id, serde_json::json!("joined")),
+                Ok(()) => Response::ok(req.id, ResultPayload::String("joined".to_string())),
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -136,7 +152,7 @@ pub async fn dispatch(
                         Some(imp) => serde_json::to_value(&imp).unwrap_or(serde_json::json!("closed")),
                         None => serde_json::json!("left"),
                     };
-                    Response::ok(req.id, val)
+                    Response::ok(req.id, ResultPayload::Json(val))
                 }
                 Err(e) => Response::err(req.id, e),
             }
@@ -150,7 +166,7 @@ pub async fn dispatch(
                         Some(imp) => serde_json::to_value(&imp).unwrap_or(serde_json::json!("closed")),
                         None => serde_json::json!("closed"),
                     };
-                    Response::ok(req.id, val)
+                    Response::ok(req.id, ResultPayload::Json(val))
                 }
                 Err(e) => Response::err(req.id, e),
             }
@@ -159,7 +175,7 @@ pub async fn dispatch(
         Method::SendMessage { channel_id, sender, payload } => {
             let mut s = state.write().await;
             match s.channels.send_message(&channel_id, &sender, &payload) {
-                Ok(()) => Response::ok(req.id, serde_json::json!("sent")),
+                Ok(()) => Response::ok(req.id, ResultPayload::String("sent".to_string())),
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -171,7 +187,7 @@ pub async fn dispatch(
                     let val: Vec<serde_json::Value> = msgs.iter().map(|m| {
                         serde_json::json!({"sender": m.sender, "payload": m.payload, "timestamp": m.timestamp})
                     }).collect();
-                    Response::ok(req.id, serde_json::json!(val))
+                    Response::ok(req.id, ResultPayload::Json(serde_json::json!(val)))
                 }
                 Err(e) => Response::err(req.id, e),
             }
@@ -182,13 +198,13 @@ pub async fn dispatch(
             let channels: Vec<serde_json::Value> = s.channels.list_channels().iter().map(|(id, ct, members)| {
                 serde_json::json!({"id": id, "type": ct, "members": members})
             }).collect();
-            Response::ok(req.id, serde_json::json!(channels))
+            Response::ok(req.id, ResultPayload::Json(serde_json::json!(channels)))
         }
 
         Method::GetChannelMembers { channel_id } => {
             let s = state.read().await;
             match s.channels.get_members(&channel_id) {
-                Ok(members) => Response::ok(req.id, serde_json::json!(members)),
+                Ok(members) => Response::ok(req.id, ResultPayload::Json(serde_json::json!(members))),
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -202,7 +218,7 @@ pub async fn dispatch(
                 role,
                 teams,
             });
-            Response::ok(req.id, serde_json::json!("registered"))
+            Response::ok(req.id, ResultPayload::String("registered".to_string()))
         }
 
         Method::ApplyMultisigMutation { signatures, threshold, mutation_type, query } => {
@@ -243,16 +259,16 @@ async fn dispatch_graph_op(
         Method::AddNode { node_id, properties_msgpack} => {
             let mut g = core.write().await;
             g.add_node(node_id, properties_msgpack);
-            Response::ok(req_id, serde_json::json!("ok"))
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::RemoveNode { node_id } => {
             let mut g = core.write().await;
             g.remove_node(node_id);
-            Response::ok(req_id, serde_json::json!("ok"))
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::HasNode { node_id } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.has_node(&node_id)))
+            Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
         }
         Method::GetNodes => {
             let g = core.read().await;
@@ -263,30 +279,28 @@ async fn dispatch_graph_op(
                     (k, val)
                 })
                 .collect();
-            Response::ok(req_id, serde_json::json!(nodes))
+            Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
         Method::GetNodeProperties { node_id } => {
             let g = core.read().await;
             let val = match g.get_node_properties(&node_id) {
-                Some(props_msgpack) => {
-                    rmp_serde::from_slice::<serde_json::Value>(&props_msgpack).unwrap_or(serde_json::json!({}))
-                }
-                None => serde_json::Value::Null,
+                Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
+                None => ResultPayload::Json(serde_json::Value::Null),
             };
             Response::ok(req_id, val)
         }
         Method::NodeCount => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.node_count()))
+            Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
         }
         Method::NodeIds => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.node_ids()))
+            Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
         }
         Method::AddEmbedding { node_id, embedding } => {
             let mut g = core.write().await;
             g.semantic_store.add_embedding(node_id, embedding);
-            Response::ok(req_id, serde_json::json!("ok"))
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::SemanticSearch { query_embedding, n_results } => {
             let g = core.read().await;
@@ -334,7 +348,7 @@ async fn dispatch_graph_op(
             weighted_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             weighted_results.truncate(n_results);
 
-            Response::ok(req_id, serde_json::json!(weighted_results))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(weighted_results)))
         }
         Method::SpectralCluster { vectors: _, max_k: _, domain: _ } => {
             Response::err(req_id, "SpectralCluster is deprecated. Use datascience primitives.".to_string())
@@ -345,9 +359,23 @@ async fn dispatch_graph_op(
         Method::BatchCosineSimilarity { query: _, targets: _ } => {
             Response::err(req_id, "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string())
         }
-        Method::FinanceOptimizePortfolio { expected_returns, cov_matrix, risk_free_rate } => {
-            let result = crate::finance::optimizer::mean_variance_optimization(&expected_returns, &cov_matrix, risk_free_rate);
-            Response::ok(req_id, serde_json::json!(result))
+        Method::FinanceOptimizePortfolio { expected_returns, cov_matrix, risk_free_rate, min_weight, max_weight } => {
+            let result = crate::finance::optimizer::mean_variance_optimization(&expected_returns, &cov_matrix, risk_free_rate, min_weight, max_weight);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::FinanceRiskParity { cov_matrix } => {
+            let result = crate::finance::optimizer::risk_parity(&cov_matrix);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::FinanceBlackLitterman { market_weights, cov_matrix, views, pick_matrix, tau, risk_aversion } => {
+            let result = crate::finance::optimizer::black_litterman(
+                &market_weights, &cov_matrix, &views, &pick_matrix, tau, risk_aversion
+            );
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::FinanceEfficientFrontier { expected_returns, cov_matrix, target_return } => {
+            let result = crate::finance::optimizer::efficient_frontier_target(&expected_returns, &cov_matrix, target_return);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
         Method::FindSimilarPairs { embeddings: _, ids: _, threshold: _, use_lsh: _, lsh_num_tables: _, lsh_hash_size: _, seed: _ } => {
             Response::err(req_id, "FindSimilarPairs is deprecated. Use datascience primitives.".to_string())
@@ -355,22 +383,22 @@ async fn dispatch_graph_op(
         Method::AddEdge { source_id, target_id, properties_msgpack} => {
             let mut g = core.write().await;
             match g.add_edge(source_id, target_id, properties_msgpack) {
-                Ok(()) => Response::ok(req_id, serde_json::json!("ok")),
+                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::RemoveEdge { source_id, target_id } => {
             let mut g = core.write().await;
             g.remove_edge(source_id, target_id);
-            Response::ok(req_id, serde_json::json!("ok"))
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::HasEdge { source_id, target_id } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.has_edge(&source_id, &target_id)))
+            Response::ok(req_id, ResultPayload::Bool(g.has_edge(&source_id, &target_id)))
         }
         Method::GetEdges => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.get_edges()))
+            Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
         Method::GetEdgeProperties { source_id, target_id } => {
             let g = core.read().await;
@@ -378,89 +406,89 @@ async fn dispatch_graph_op(
             let val: Vec<serde_json::Value> = props.into_iter()
                 .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
                 .collect();
-            Response::ok(req_id, serde_json::json!(val))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
         }
         Method::ClearGraph => {
             let mut g = core.write().await;
             g.clear();
-            Response::ok(req_id, serde_json::json!("ok"))
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::EdgeCount => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.edge_count()))
+            Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
         }
         Method::TopologicalSort => {
             let g = core.read().await;
             match crate::algorithms::topological_sort(&g) {
-                Ok(order) => Response::ok(req_id, serde_json::json!(order)),
+                Ok(order) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(order))),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::FindCycle => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::find_cycle(&g)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))))
         }
         Method::GetShortestPath { source_id, target_id } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
                 crate::algorithms::get_shortest_path(&g, &source_id, &target_id)
-            ))
+            )))
         }
         Method::PageRank { damping, iterations } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
                 crate::algorithms::pagerank(&g, damping, iterations)
-            ))
+            )))
         }
         Method::ConnectedComponents => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
                 crate::algorithms::connected_components(&g)
-            ))
+            )))
         }
         Method::StronglyConnectedComponents => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
                 crate::algorithms::strongly_connected_components(&g)
-            ))
+            )))
         }
         Method::MinimumSpanningTree => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
                 crate::algorithms::minimum_spanning_tree(&g)
-            ))
+            )))
         }
         Method::Metrics => {
             let g = core.read().await;
             let m = crate::algorithms::compute_metrics(&g);
             match serde_json::to_value(&m) {
-                Ok(v) => Response::ok(req_id, v),
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::EvictLRU { max_nodes } => {
             let mut g = core.write().await;
             let evicted = g.evict_lru(max_nodes);
-            Response::ok(req_id, serde_json::json!(evicted))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
         }
         Method::ToMsgpack => {
             let g = core.read().await;
             match g.to_msgpack() {
-                Ok(json) => Response::ok(req_id, serde_json::json!(json)),
+                Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::FromMsgpack { msgpack } => {
             let mut g = core.write().await;
             match g.from_msgpack(&msgpack) {
-                Ok(()) => Response::ok(req_id, serde_json::json!("ok")),
+                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::Reconcile { graph_name: _, msgpack } => {
             let mut g = core.write().await;
             match g.from_msgpack(&msgpack) {
-                Ok(()) => Response::ok(req_id, serde_json::json!("reconciled")),
+                Ok(()) => Response::ok(req_id, ResultPayload::String("reconciled".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
@@ -496,83 +524,83 @@ async fn dispatch_graph_op(
                     }
                 }
             }
-            Response::ok(req_id, serde_json::json!("mutation_applied"))
+            Response::ok(req_id, ResultPayload::String("mutation_applied".to_string()))
         }
         Method::InDegree { node_id } => {
             let g = core.read().await;
             match g.in_degree(&node_id) {
-                Ok(deg) => Response::ok(req_id, serde_json::json!(deg)),
+                Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::OutDegree { node_id } => {
             let g = core.read().await;
             match g.out_degree(&node_id) {
-                Ok(deg) => Response::ok(req_id, serde_json::json!(deg)),
+                Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetPredecessors { node_id } => {
             let g = core.read().await;
             match g.get_predecessors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, serde_json::json!(nodes)),
+                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetSuccessors { node_id } => {
             let g = core.read().await;
             match g.get_successors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, serde_json::json!(nodes)),
+                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetNeighbors { node_id } => {
             let g = core.read().await;
             match g.get_neighbors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, serde_json::json!(nodes)),
+                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetBlastRadius { node_id, max_depth } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::get_blast_radius(&g, &node_id, max_depth)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(&g, &node_id, max_depth))))
         }
         Method::DegreeCentrality { node_id } => {
             let g = core.read().await;
             match crate::algorithms::compute_degree_centrality(&g, &node_id) {
-                Ok(val) => Response::ok(req_id, serde_json::json!(val)),
+                Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::DegreeCentralityAll => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::degree_centrality_all(&g)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(&g))))
         }
         Method::BetweennessCentrality => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::betweenness_centrality(&g)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::betweenness_centrality(&g))))
         }
         Method::PersonalizedPageRank { seed_nodes, damping, iterations } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::personalized_pagerank(&g, &seed_nodes, damping, iterations)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::personalized_pagerank(&g, &seed_nodes, damping, iterations))))
         }
         Method::CommunityDetection { resolution } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::community_detection(&g, resolution)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::community_detection(&g, resolution))))
         }
         Method::GraphColoring => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::graph_coloring(&g)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))))
         }
         Method::ComputeSimilarityEdges { threshold } => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(crate::algorithms::compute_similarity_edges(&g, threshold)))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::compute_similarity_edges(&g, threshold))))
         }
         Method::PruneByLifecycle { max_age_secs, min_score } => {
             let mut g = core.write().await;
             let stats = crate::algorithms::prune_by_lifecycle(&mut g, max_age_secs, min_score);
             match serde_json::to_value(&stats) {
-                Ok(v) => Response::ok(req_id, v),
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
@@ -580,7 +608,7 @@ async fn dispatch_graph_op(
             let g = core.read().await;
             let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
             match serde_json::to_value(&view) {
-                Ok(v) => Response::ok(req_id, v),
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
@@ -588,7 +616,7 @@ async fn dispatch_graph_op(
             let mut g = core.write().await;
             match crate::algorithms::batch_update(&mut g, &operations_msgpack) {
                 Ok(res) => match rmp_serde::from_slice::<serde_json::Value>(&res) {
-                    Ok(val) => Response::ok(req_id, val),
+                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, format!("Invalid batch result: {}", e)),
                 },
                 Err(e) => Response::err(req_id, e),
@@ -597,7 +625,7 @@ async fn dispatch_graph_op(
         Method::ParseRepository { root_path } => {
             let mut g = core.write().await;
             match g.parse_repository(&root_path) {
-                Ok(_) => Response::ok(req_id, serde_json::json!("ok")),
+                Ok(_) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
@@ -608,25 +636,25 @@ async fn dispatch_graph_op(
             if let Some(p_core) = pattern_core {
                 let p = p_core.read().await;
                 let g = core.read().await;
-                Response::ok(req_id, serde_json::json!(g.vf2_subgraph_match(&p)))
+                Response::ok(req_id, ResultPayload::Json(serde_json::json!(g.vf2_subgraph_match(&p))))
             } else {
                 Response::err(req_id, format!("Pattern graph '{}' not found", pattern_graph_name))
             }
         }
         Method::GetLedger => {
             let g = core.read().await;
-            Response::ok(req_id, serde_json::json!(g.get_ledger()))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(g.get_ledger())))
         }
 
         Method::ClearLedger => {
             let mut g = core.write().await;
             g.clear_ledger();
-            Response::ok(req_id, serde_json::json!("ok"))
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::ApplyLedger { transactions } => {
             let mut g = core.write().await;
             match g.apply_ledger(transactions) {
-                Ok(()) => Response::ok(req_id, serde_json::json!("ok")),
+                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e),
             }
         }
@@ -635,7 +663,7 @@ async fn dispatch_graph_op(
             let sub = g.get_subgraph(&node_ids);
             match sub.to_msgpack() {
                 Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
-                    Ok(val) => Response::ok(req_id, val),
+                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, e.to_string()),
                 },
                 Err(e) => Response::err(req_id, e),
@@ -649,7 +677,7 @@ async fn dispatch_graph_op(
             let sub = g.fork();
             match sub.to_msgpack() {
                 Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
-                    Ok(val) => Response::ok(req_id, val),
+                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, e.to_string()),
                 },
                 Err(e) => Response::err(req_id, e),
@@ -668,14 +696,14 @@ async fn dispatch_graph_op(
             let g2 = other_core.read().await;
             let diff_str = g1.diff_against(&g2);
             match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
-                Ok(val) => Response::ok(req_id, val),
+                Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::CompactNodesByType { node_type, threshold } => {
             let mut g = core.write().await;
             let removed = g.compact_nodes_by_type(&node_type, threshold);
-            Response::ok(req_id, serde_json::json!({ "removed_nodes": removed }))
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })))
         }
         // Catch-all for methods not yet fully dispatched.
         _ => Response::err(req_id, format!("Method not yet implemented for graph dispatch")),
@@ -688,6 +716,9 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Snapshot the shared backpressure semaphore once per connection.
+    let sem = { state.read().await.max_in_flight.clone() };
 
     loop {
         let mut len_buf = [0u8; 4];
@@ -714,7 +745,26 @@ where
         };
 
         let is_shutdown = matches!(req.method, Method::Shutdown);
+
+        // Backpressure: acquire an in-flight permit, or shed load with BUSY.
+        let _permit = match sem.clone().try_acquire_owned() {
+            Ok(p) => p,
+            Err(_) => {
+                let resp =
+                    Response::err(req.id, "BUSY: server at capacity, retry with backoff");
+                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out_len = out.len() as u32;
+                if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
+                    break;
+                }
+                if stream.write_all(&out).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+        };
         let resp = dispatch(&state, req).await;
+        drop(_permit);
 
         let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
         let out_len = out.len() as u32;

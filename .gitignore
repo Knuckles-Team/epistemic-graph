@@ -81,3 +81,11 @@ debug/
 *errors*.txt
 failed_tests.txt
 trace.txt
+
+# AI agent scratch (do not commit) — keep repo roots pristine
+.agent/
+.agents/
+.agent_data/
+.tmp/
+.pytest_tmp/
+.hypothesis/

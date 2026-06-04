@@ -22,6 +22,7 @@ These concepts are actively realized by the compiled Rust/Python Epistemic Graph
 | `CONCEPT:ECO-4.0` | Unified Toolkit Ingestion | agent-utilities |
 | `CONCEPT:KG-2.0` | Knowledge Graph Core Core Architecture | agent-utilities |
 | `CONCEPT:ORCH-1.0` | Multi-Agent Orchestration Abstraction | agent-utilities |
+| `CONCEPT:KG-2.8` | Code/Test Enrichment & Interlinking | agent-utilities |
 \n## CONCEPT:KG-2.20\nRust-Native Finance Compute Suite
 \n## CONCEPT:KG-2.22\nGraph Network Protocols
 \n## CONCEPT:KG-2.22\nData Science Primitives

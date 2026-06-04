@@ -1,6 +1,6 @@
 // CONCEPT:KG-2.19 — Epistemic Graph Service Wire Protocol
 //
-// JSON-over-newline framing for UDS/TCP communication between
+// Length-prefixed MessagePack framing for UDS/TCP communication between
 // the Python client and the Tokio service layer. Every request
 // is authenticated via HMAC-SHA256.
 
@@ -225,6 +225,7 @@ pub enum Method {
 
     // ── Service-Level ────────────────────────────────────────────────
     Ping,
+    Health,
     Shutdown,
     Checkpoint,
     Reconcile {
@@ -291,6 +292,24 @@ pub enum Method {
         expected_returns: Vec<f64>,
         cov_matrix: Vec<Vec<f64>>,
         risk_free_rate: f64,
+        min_weight: Option<f64>,
+        max_weight: Option<f64>,
+    },
+    FinanceRiskParity {
+        cov_matrix: Vec<Vec<f64>>,
+    },
+    FinanceBlackLitterman {
+        market_weights: Vec<f64>,
+        cov_matrix: Vec<Vec<f64>>,
+        views: Vec<f64>,
+        pick_matrix: Vec<Vec<f64>>,
+        tau: f64,
+        risk_aversion: f64,
+    },
+    FinanceEfficientFrontier {
+        expected_returns: Vec<f64>,
+        cov_matrix: Vec<Vec<f64>>,
+        target_return: f64,
     },
 
     // ── Zero-Trust Consensus ─────────────────────────────────────────
@@ -330,14 +349,30 @@ pub enum ChannelType {
 
 // ── Response ────────────────────────────────────────────────────────────
 
+/// Untagged result payload for efficient serialization without JSON overhead.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ResultPayload {
+    Bool(bool),
+    Count(u64),
+    Float(f64),
+    String(String),
+    Ids(Vec<String>),
+    NodeList(Vec<(String, serde_json::Value)>),
+    EdgeList(Vec<(String, String, Vec<u8>)>),
+    PropertiesMsgpack(#[serde(with = "serde_bytes")] Vec<u8>),
+    Rows(Vec<Vec<u8>>),
+    Json(serde_json::Value),
+}
+
 /// Response envelope sent back to the Python client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
     /// Correlation ID matching the request.
     pub id: u64,
-    /// Result payload (JSON value) on success.
+    /// Result payload on success.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
+    pub result: Option<ResultPayload>,
     /// Error message on failure.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -345,7 +380,7 @@ pub struct Response {
 
 impl Response {
     /// Create a successful response.
-    pub fn ok(id: u64, result: serde_json::Value) -> Self {
+    pub fn ok(id: u64, result: ResultPayload) -> Self {
         Response {
             id,
             result: Some(result),
@@ -381,7 +416,7 @@ mod tests {
             },
         };
         let json = serde_json::to_string(&req).unwrap();
-        let parsed: Request = serde_json::from_slice(&json).unwrap();
+        let parsed: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.id, 1);
         assert_eq!(parsed.graph, "agent:planner");
     }
@@ -400,7 +435,7 @@ mod tests {
             },
         };
         let json = serde_json::to_string(&req).unwrap();
-        let parsed: Request = serde_json::from_slice(&json).unwrap();
+        let parsed: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.id, 42);
         if let Method::CreateChannel { channel_type, .. } = parsed.method {
             assert_eq!(channel_type, ChannelType::PeerToPeer);
@@ -411,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_response_ok() {
-        let resp = Response::ok(1, serde_json::json!({"count": 42}));
+        let resp = Response::ok(1, ResultPayload::Json(serde_json::json!({"count": 42})));
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"count\":42"));
         assert!(!json.contains("error"));
@@ -429,7 +464,7 @@ mod tests {
     fn test_all_graph_types_roundtrip() {
         for gt in [GraphType::Agent, GraphType::Team, GraphType::Global, GraphType::Bus] {
             let json = serde_json::to_string(&gt).unwrap();
-            let parsed: GraphType = serde_json::from_slice(&json).unwrap();
+            let parsed: GraphType = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, gt);
         }
     }
@@ -438,7 +473,7 @@ mod tests {
     fn test_method_ping_roundtrip() {
         let method = Method::Ping;
         let json = serde_json::to_string(&method).unwrap();
-        let parsed: Method = serde_json::from_slice(&json).unwrap();
+        let parsed: Method = serde_json::from_str(&json).unwrap();
         assert!(matches!(parsed, Method::Ping));
     }
 
@@ -449,7 +484,7 @@ mod tests {
             iterations: 100,
         };
         let json = serde_json::to_string(&method).unwrap();
-        let parsed: Method = serde_json::from_slice(&json).unwrap();
+        let parsed: Method = serde_json::from_str(&json).unwrap();
         if let Method::PageRank { damping, iterations } = parsed {
             assert!((damping - 0.85).abs() < f64::EPSILON);
             assert_eq!(iterations, 100);
@@ -465,7 +500,7 @@ mod tests {
             query: "INSERT DATA { <A> <B> <C> }".to_string(),
         };
         let json = serde_json::to_string(&method).unwrap();
-        let parsed: Method = serde_json::from_slice(&json).unwrap();
+        let parsed: Method = serde_json::from_str(&json).unwrap();
         if let Method::ApplyMutation { event_type, query } = parsed {
             assert_eq!(event_type, "TRIPLE_INSERT");
             assert_eq!(query, "INSERT DATA { <A> <B> <C> }");
