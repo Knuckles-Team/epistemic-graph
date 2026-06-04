@@ -1,60 +1,92 @@
-"""High-performance compiled Quant epistemic-graph Engine.
+"""Quant numerical helpers for the epistemic-graph client layer.
 
 CONCEPT:KG-2.18
 
-All numerical computations delegate to the Rust-compiled EpistemicGraph
-core via PyO3 epistemic-graph.  The Python layer provides ergonomic API wrappers
-while the Rust core handles the hot-path arithmetic.
+Pure-Python rolling-statistics and order-matching primitives used by the
+ergonomic client API. These were previously routed through an in-process
+compiled ``EpistemicGraph`` extension; that coupling has been removed in favour
+of the out-of-process Tokio + MessagePack service (see ``client.py``). Hot-path
+numeric work that genuinely needs the Rust engine is exposed through the
+service protocol (``finance`` methods); the lightweight helpers below run
+locally without any compiled extension so the module imports cleanly in any
+environment.
 """
 
-from ._epistemic_graph import EpistemicGraph
+from __future__ import annotations
 
-_engine = EpistemicGraph()
+from math import sqrt
 
 
 def moving_average(values: list[float], window: int) -> list[float]:
-    """Calculate simple moving average with a sliding window.
+    """Simple moving average with a trailing window.
 
-    Attempts Rust ``compute_rolling_mean`` epistemic-graph first; falls back to
-    Python if the method is not yet compiled into the binary.
+    Partial (shorter) windows are used for the first ``window - 1`` points so
+    the output length matches the input length.
     """
-    try:
-        return _engine.compute_rolling_mean(values, window)
-    except AttributeError:
-        # compute_rolling_mean is defined in .pyi stubs but not yet
-        # compiled into all builds — graceful Python fallback.
-        if not values:
-            return []
-        result: list[float] = []
-        for i in range(len(values)):
-            start = max(0, i - window + 1)
-            slice_vals = values[start : i + 1]
-            result.append(sum(slice_vals) / len(slice_vals))
-        return result
+    if window <= 0:
+        raise ValueError("window must be positive")
+    if not values:
+        return []
+    result: list[float] = []
+    for i in range(len(values)):
+        start = max(0, i - window + 1)
+        slice_vals = values[start : i + 1]
+        result.append(sum(slice_vals) / len(slice_vals))
+    return result
 
 
 def exponential_moving_average(values: list[float], alpha: float) -> list[float]:
-    """Calculate exponential moving average (exponential decay)."""
-    return _engine.compute_exponential_decay(values, alpha)
+    """Exponential moving average with smoothing factor ``alpha`` in (0, 1]."""
+    if not 0.0 < alpha <= 1.0:
+        raise ValueError("alpha must be in (0, 1]")
+    if not values:
+        return []
+    result: list[float] = [values[0]]
+    for v in values[1:]:
+        result.append(alpha * v + (1.0 - alpha) * result[-1])
+    return result
 
 
 def rolling_variance(values: list[float], window: int) -> list[float]:
-    """Calculate rolling sample variance.
+    """Rolling sample variance (ddof=1) over a trailing window.
 
-    Wraps the Rust ``compute_rolling_std`` and squares each element
-    to convert standard deviation → variance, preserving the existing
-    API contract (callers expect variance, Rust exposes std).
+    Windows shorter than two elements yield ``0.0`` (variance undefined for a
+    single sample), matching the partial-window convention of
+    :func:`moving_average`.
     """
-    stds = _engine.compute_rolling_std(values, window)
-    return [s * s for s in stds]
+    if window <= 0:
+        raise ValueError("window must be positive")
+    if not values:
+        return []
+    result: list[float] = []
+    for i in range(len(values)):
+        start = max(0, i - window + 1)
+        slice_vals = values[start : i + 1]
+        n = len(slice_vals)
+        if n < 2:
+            result.append(0.0)
+            continue
+        mean = sum(slice_vals) / n
+        result.append(sum((x - mean) ** 2 for x in slice_vals) / (n - 1))
+    return result
 
 
 def rolling_zscore(values: list[float], window: int) -> list[float]:
-    """Calculate rolling z-score.
+    """Rolling z-score of the latest point relative to its trailing window.
 
-    Delegates to Rust ``compute_rolling_zscore`` for performance.
+    A zero-variance window yields ``0.0`` (no deviation to normalise).
     """
-    return _engine.compute_rolling_zscore(values, window)
+    if window <= 0:
+        raise ValueError("window must be positive")
+    if not values:
+        return []
+    variances = rolling_variance(values, window)
+    means = moving_average(values, window)
+    result: list[float] = []
+    for i, v in enumerate(values):
+        std = sqrt(variances[i])
+        result.append((v - means[i]) / std if std > 0.0 else 0.0)
+    return result
 
 
 def simulate_order_matching(
@@ -66,64 +98,43 @@ def simulate_order_matching(
 ) -> tuple[
     list[tuple[float, float]], list[tuple[float, float]], list[tuple[float, float]]
 ]:
-    """Simulate order matching against L2 book limits.
+    """Match a marketable limit order against an L2 book.
 
-    Bridges the ergonomic Python API (explicit bids/asks/price/volume/is_buy)
-    to the Rust core's order-tuple format, providing both a unified backend
-    and a caller-friendly interface.
-
-    The Rust API expects ``orders: list[tuple[side, type, price, volume]]``
-    and returns dicts.  This wrapper converts both directions so callers
-    keep using the familiar ``(bids, asks, trades)`` tuple return.
+    Returns ``(remaining_bids, remaining_asks, trades)`` where ``trades`` is a
+    list of ``(price, volume)`` fills. A buy crosses against asks priced at or
+    below ``price`` (best/lowest first); a sell crosses against bids priced at
+    or above ``price`` (best/highest first). Untouched levels are preserved.
     """
-    # Build the Rust-compatible order list from the ergonomic Python args
-    side = "buy" if is_buy else "sell"
-    orders: list[tuple[str, str, float, float]] = [("order_1", side, price, volume)]
+    trades: list[tuple[float, float]] = []
+    remaining = volume
 
-    try:
-        raw_results = _engine.simulate_order_matching(bids, asks, orders)
-        # Parse Rust results back into the Python tuple format
-        trades: list[tuple[float, float]] = []
-        for r in raw_results:
-            trade_price = float(r.get("match_price", 0))
-            trade_vol = float(r.get("match_volume", 0))
-            trades.append((trade_price, trade_vol))
+    if is_buy:
+        ask_book = sorted(asks, key=lambda x: x[0])  # ascending price
+        new_asks: list[tuple[float, float]] = []
+        for ask_price, ask_vol in ask_book:
+            if remaining > 0 and ask_price <= price:
+                take = min(remaining, ask_vol)
+                remaining -= take
+                trades.append((ask_price, take))
+                leftover = ask_vol - take
+                if leftover > 0:
+                    new_asks.append((ask_price, leftover))
+            else:
+                new_asks.append((ask_price, ask_vol))
+        bid_book = sorted(bids, key=lambda x: x[0], reverse=True)
+        return bid_book, new_asks, trades
 
-        # Rebuild remaining books after fills
-        filled_volume = sum(t[1] for t in trades)
-        remaining_vol = max(0.0, volume - filled_volume)
-
-        if is_buy:
-            ask_book = sorted(asks, key=lambda x: x[0])
-            new_asks: list[tuple[float, float]] = []
-            consumed = volume - remaining_vol
-            for ask_price, ask_vol in ask_book:
-                if ask_price <= price and consumed > 0:
-                    take = min(consumed, ask_vol)
-                    consumed -= take
-                    leftover = ask_vol - take
-                    if leftover > 0:
-                        new_asks.append((ask_price, leftover))
-                else:
-                    new_asks.append((ask_price, ask_vol))
-            bid_book = sorted(bids, key=lambda x: x[0], reverse=True)
-            return bid_book, new_asks, trades
+    bid_book = sorted(bids, key=lambda x: x[0], reverse=True)  # descending price
+    new_bids: list[tuple[float, float]] = []
+    for bid_price, bid_vol in bid_book:
+        if remaining > 0 and bid_price >= price:
+            take = min(remaining, bid_vol)
+            remaining -= take
+            trades.append((bid_price, take))
+            leftover = bid_vol - take
+            if leftover > 0:
+                new_bids.append((bid_price, leftover))
         else:
-            bid_book = sorted(bids, key=lambda x: x[0], reverse=True)
-            new_bids: list[tuple[float, float]] = []
-            consumed = volume - remaining_vol
-            for bid_price, bid_vol in bid_book:
-                if bid_price >= price and consumed > 0:
-                    take = min(consumed, bid_vol)
-                    consumed -= take
-                    leftover = bid_vol - take
-                    if leftover > 0:
-                        new_bids.append((bid_price, leftover))
-                else:
-                    new_bids.append((bid_price, bid_vol))
-            ask_book = sorted(asks, key=lambda x: x[0])
-            return new_bids, ask_book, trades
-
-    except Exception as e:
-        print(f"Rust simulate_order_matching failed: {e}")
-        raise
+            new_bids.append((bid_price, bid_vol))
+    ask_book = sorted(asks, key=lambda x: x[0])
+    return new_bids, ask_book, trades
