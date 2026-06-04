@@ -4,7 +4,9 @@
 // and serves requests over UDS or TCP with HMAC-SHA256 authentication.
 
 use std::sync::Arc;
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::UnixListener;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info};
 
@@ -781,7 +783,8 @@ where
     }
 }
 
-/// Start the server on a Unix Domain Socket.
+/// Start the server on a Unix Domain Socket (unix only; Windows uses TCP).
+#[cfg(unix)]
 pub async fn serve_uds(socket_path: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     // Remove stale socket file.
     let _ = std::fs::remove_file(socket_path);
