@@ -48,7 +48,11 @@ rand_distr = "0.4"
 # Optional Server
 tokio = { version = "1.38", features = ["full"], optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
-rdkafka = { version = "0.36.0", optional = true }
+# cmake-build: build the bundled librdkafka via CMake (works on Windows MSVC,
+# where the default unix ./configure build fails). default-features=false drops
+# libz/ssl so no extra system libs are needed on any platform (matches the
+# minimal --disable-* configure build that already worked on linux/macOS).
+rdkafka = { version = "0.36.0", optional = true, default-features = false, features = ["cmake-build", "tokio"] }
 tracing-subscriber = { version = "0.3", optional = true }
 hmac = "0.12"
 hex = "0.4"
