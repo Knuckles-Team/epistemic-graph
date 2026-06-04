@@ -88,7 +88,7 @@ impl ExecutionOrchestrator {
         pattern: &petgraph::graph::DiGraph<String, ()>,
     ) -> Result<bool, String> {
         tracing::info!("Performing VF2 Subgraph Matching.");
-        
+
         let node_match = |a: &String, b: &String| a == b;
         let edge_match = |_: &(), _: &()| true;
 
