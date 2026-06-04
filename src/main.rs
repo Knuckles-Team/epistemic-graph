@@ -85,12 +85,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
 
+    let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(1024);
+    info!("Backpressure: max in-flight requests = {}", max_in_flight);
+
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
+        max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
     }));
 
     // Start TCP listener if configured.
