@@ -14,6 +14,7 @@ use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{self, ServerState};
+#[cfg(feature = "kafka")]
 use epistemic_graph::event_bus;
 
 #[derive(Parser, Debug)]
@@ -112,7 +113,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // Start Kafka consumer if configured.
+    // Start Kafka consumer if configured. Opt-in `kafka` feature: rdkafka's
+    // librdkafka does not build cleanly cross-platform (Windows/manylinux), so
+    // it is excluded from the default wheel and enabled only where the event bus
+    // is actually deployed (linux server, build with `--features kafka`).
+    #[cfg(feature = "kafka")]
     if let Ok(brokers) = std::env::var("KAFKA_BOOTSTRAP_SERVERS") {
         if !brokers.is_empty() {
             let kafka_state = state.clone();

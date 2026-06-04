@@ -24,7 +24,7 @@ pub mod isolation;
 pub mod channels;
 #[cfg(feature = "server")]
 pub mod server;
-#[cfg(feature = "server")]
+#[cfg(feature = "kafka")]
 pub mod event_bus;
 pub mod parser;
 pub mod compute;
