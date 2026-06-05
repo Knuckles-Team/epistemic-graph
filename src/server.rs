@@ -379,6 +379,140 @@ async fn dispatch_graph_op(
             let result = crate::finance::optimizer::efficient_frontier_target(&expected_returns, &cov_matrix, target_return);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
+
+        // ── Data Science Primitives (CONCEPT:KG-2.22) ─────────────────
+        Method::DsLinearRegression { x, y } => {
+            let result = crate::datascience::primitives::linear_regression(&x, &y);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::DsKMeans { data, k, max_iter } => {
+            let result = crate::datascience::primitives::kmeans(&data, k, max_iter);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::DsPca { data, n_components } => {
+            let result = crate::datascience::primitives::pca(&data, n_components);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::DsComputeStats { data } => {
+            let result = crate::datascience::primitives::compute_stats(&data);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::DsTrainTestSplit { data, labels, test_ratio, shuffle, seed } => {
+            let (x_train, x_test, y_train, y_test) =
+                crate::datascience::primitives::train_test_split(&data, &labels, test_ratio, shuffle, seed);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!({
+                "x_train": x_train,
+                "x_test": x_test,
+                "y_train": y_train,
+                "y_test": y_test,
+            })))
+        }
+        Method::DsFitEstimator { estimator, x, y, params } => {
+            match crate::datascience::estimators::fit_estimator(&estimator, &x, &y, &params) {
+                Ok(model) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(model))),
+                Err(e) => Response::err(req_id, e),
+            }
+        }
+        Method::DsPredictEstimator { model, x } => {
+            let preds = crate::datascience::estimators::predict(&model, &x);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(preds)))
+        }
+
+        // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────
+        Method::FinanceVar { returns, confidence } => {
+            let v = crate::finance::risk::historical_var(&returns, confidence);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceCvar { returns, confidence } => {
+            let v = crate::finance::risk::historical_cvar(&returns, confidence);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceMaxDrawdown { returns } => {
+            let v = crate::finance::risk::max_drawdown(&returns);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceDrawdownSeries { returns } => {
+            let v = crate::finance::risk::drawdown_series(&returns);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceDownsideDeviation { returns, target } => {
+            let v = crate::finance::risk::downside_deviation(&returns, target);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceRiskMetrics { returns, risk_free_rate } => {
+            let result = crate::finance::risk::compute_risk_metrics(&returns, risk_free_rate);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+        Method::FinanceMonteCarloVar { mean, std_dev, n_simulations, confidence } => {
+            let v = crate::finance::risk::monte_carlo_var(mean, std_dev, n_simulations, confidence);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceStressTest { weights, expected_returns, cov_matrix, shock_factors } => {
+            let v = crate::finance::risk::stress_test(&weights, &expected_returns, &cov_matrix, &shock_factors);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+
+        // ── Extended Finance: Regime detection (HMM) ──────────────────
+        Method::FinanceDetectRegimes { observations, n_states, max_iter, tol } => {
+            let result = crate::finance::regime::detect_regimes(&observations, n_states, max_iter, tol);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+        }
+
+        // ── Extended Finance: Signals / alpha ─────────────────────────
+        Method::FinanceRollingZscore { values, window } => {
+            let v = crate::finance::signals::rolling_zscore(&values, window);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceEwma { values, span } => {
+            let v = crate::finance::signals::ewma_signal(&values, span);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceSignalDecay { signal, half_life } => {
+            let v = crate::finance::signals::signal_decay(&signal, half_life);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceCombineAlphas { signals, weights } => {
+            let v = crate::finance::signals::combine_alphas(&signals, &weights);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceCrossSectionalRank { cross_section } => {
+            let v = crate::finance::signals::cross_sectional_rank(&cross_section);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceMomentum { prices, lookback } => {
+            let v = crate::finance::signals::momentum(&prices, lookback);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceMeanReversion { values, window } => {
+            let v = crate::finance::signals::mean_reversion(&values, window);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceInformationCoefficient { signal, forward_returns } => {
+            let v = crate::finance::signals::information_coefficient(&signal, &forward_returns);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+
+        // ── Extended Finance: Execution / microstructure ──────────────
+        Method::FinanceTwap { total_quantity, n_slices, start_time, interval_secs } => {
+            let v = crate::finance::exchange::twap_schedule(total_quantity, n_slices, start_time, interval_secs);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceVwap { total_quantity, volume_profile, start_time, interval_secs } => {
+            let v = crate::finance::exchange::vwap_schedule(total_quantity, &volume_profile, start_time, interval_secs);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceMarketImpact { daily_volatility, order_quantity, average_daily_volume, impact_coefficient } => {
+            let v = crate::finance::exchange::estimate_market_impact(daily_volatility, order_quantity, average_daily_volume, impact_coefficient);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinancePairsTrading { prices_a, prices_b, lookback } => {
+            let v = crate::finance::exchange::pairs_trading_signal(&prices_a, &prices_b, lookback);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceMatchOrders { orders } => {
+            let v = crate::finance::exchange::match_orders(&orders);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
         Method::FindSimilarPairs { embeddings: _, ids: _, threshold: _, use_lsh: _, lsh_num_tables: _, lsh_hash_size: _, seed: _ } => {
             Response::err(req_id, "FindSimilarPairs is deprecated. Use datascience primitives.".to_string())
         }
