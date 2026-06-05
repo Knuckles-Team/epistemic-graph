@@ -6,6 +6,15 @@
 
 use serde::{Deserialize, Serialize};
 
+/// serde defaults for `DsTrainTestSplit` so older clients omitting these fields
+/// get scikit-learn-compatible behavior (shuffle on, fixed seed).
+fn default_shuffle() -> bool {
+    true
+}
+fn default_split_seed() -> u64 {
+    42
+}
+
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
@@ -310,6 +319,149 @@ pub enum Method {
         expected_returns: Vec<f64>,
         cov_matrix: Vec<Vec<f64>>,
         target_return: f64,
+    },
+
+    // ── Data Science Primitives (CONCEPT:KG-2.22) ─────────────────────
+    DsLinearRegression {
+        x: Vec<Vec<f64>>,
+        y: Vec<f64>,
+    },
+    DsKMeans {
+        data: Vec<Vec<f64>>,
+        k: usize,
+        max_iter: usize,
+    },
+    DsPca {
+        data: Vec<Vec<f64>>,
+        n_components: usize,
+    },
+    DsComputeStats {
+        data: Vec<Vec<f64>>,
+    },
+    DsTrainTestSplit {
+        data: Vec<Vec<f64>>,
+        labels: Vec<f64>,
+        test_ratio: f64,
+        #[serde(default = "default_shuffle")]
+        shuffle: bool,
+        #[serde(default = "default_split_seed")]
+        seed: u64,
+    },
+    DsFitEstimator {
+        estimator: String,
+        x: Vec<Vec<f64>>,
+        y: Vec<f64>,
+        #[serde(default)]
+        params: crate::datascience::estimators::EstimatorParams,
+    },
+    DsPredictEstimator {
+        model: crate::datascience::estimators::FittedModel,
+        x: Vec<Vec<f64>>,
+    },
+
+    // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────────
+    FinanceVar {
+        returns: Vec<f64>,
+        confidence: f64,
+    },
+    FinanceCvar {
+        returns: Vec<f64>,
+        confidence: f64,
+    },
+    FinanceMaxDrawdown {
+        returns: Vec<f64>,
+    },
+    FinanceDrawdownSeries {
+        returns: Vec<f64>,
+    },
+    FinanceDownsideDeviation {
+        returns: Vec<f64>,
+        target: f64,
+    },
+    FinanceRiskMetrics {
+        returns: Vec<f64>,
+        risk_free_rate: f64,
+    },
+    FinanceMonteCarloVar {
+        mean: f64,
+        std_dev: f64,
+        n_simulations: usize,
+        confidence: f64,
+    },
+    FinanceStressTest {
+        weights: Vec<f64>,
+        expected_returns: Vec<f64>,
+        cov_matrix: Vec<Vec<f64>>,
+        shock_factors: Vec<f64>,
+    },
+
+    // ── Extended Finance: Regime detection (HMM) ──────────────────────
+    FinanceDetectRegimes {
+        observations: Vec<f64>,
+        n_states: usize,
+        max_iter: usize,
+        tol: f64,
+    },
+
+    // ── Extended Finance: Signals / alpha ─────────────────────────────
+    FinanceRollingZscore {
+        values: Vec<f64>,
+        window: usize,
+    },
+    FinanceEwma {
+        values: Vec<f64>,
+        span: usize,
+    },
+    FinanceSignalDecay {
+        signal: Vec<f64>,
+        half_life: f64,
+    },
+    FinanceCombineAlphas {
+        signals: Vec<Vec<f64>>,
+        weights: Vec<f64>,
+    },
+    FinanceCrossSectionalRank {
+        cross_section: Vec<Vec<f64>>,
+    },
+    FinanceMomentum {
+        prices: Vec<f64>,
+        lookback: usize,
+    },
+    FinanceMeanReversion {
+        values: Vec<f64>,
+        window: usize,
+    },
+    FinanceInformationCoefficient {
+        signal: Vec<f64>,
+        forward_returns: Vec<f64>,
+    },
+
+    // ── Extended Finance: Execution / microstructure ──────────────────
+    FinanceTwap {
+        total_quantity: f64,
+        n_slices: usize,
+        start_time: u64,
+        interval_secs: u64,
+    },
+    FinanceVwap {
+        total_quantity: f64,
+        volume_profile: Vec<f64>,
+        start_time: u64,
+        interval_secs: u64,
+    },
+    FinanceMarketImpact {
+        daily_volatility: f64,
+        order_quantity: f64,
+        average_daily_volume: f64,
+        impact_coefficient: f64,
+    },
+    FinancePairsTrading {
+        prices_a: Vec<f64>,
+        prices_b: Vec<f64>,
+        lookback: usize,
+    },
+    FinanceMatchOrders {
+        orders: Vec<crate::finance::exchange::Order>,
     },
 
     // ── Zero-Trust Consensus ─────────────────────────────────────────
