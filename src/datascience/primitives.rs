@@ -341,19 +341,39 @@ pub fn compute_stats(data: &[Vec<f64>]) -> DatasetStats {
     }
 }
 
-/// Train-test split (deterministic, no shuffle).
+/// Train-test split. When `shuffle` is true the rows are permuted with a
+/// `seed`-seeded Fisher–Yates shuffle before splitting (matching scikit-learn's
+/// shuffle-by-default behavior and avoiding pure-extrapolation test folds on
+/// ordered data); when false the split is deterministic and contiguous.
 pub fn train_test_split(
     data: &[Vec<f64>],
     labels: &[f64],
     test_ratio: f64,
+    shuffle: bool,
+    seed: u64,
 ) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
+
     let n = data.len();
     let split_idx = ((1.0 - test_ratio) * n as f64) as usize;
 
-    let x_train = data[..split_idx].to_vec();
-    let x_test = data[split_idx..].to_vec();
-    let y_train = labels[..split_idx].to_vec();
-    let y_test = labels[split_idx..].to_vec();
+    let mut idx: Vec<usize> = (0..n).collect();
+    if shuffle {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        for i in (1..n).rev() {
+            let j = (rng.gen::<u64>() as usize) % (i + 1);
+            idx.swap(i, j);
+        }
+    }
+
+    let gather_x = |sel: &[usize]| sel.iter().map(|&i| data[i].clone()).collect();
+    let gather_y = |sel: &[usize]| sel.iter().map(|&i| labels[i]).collect();
+
+    let x_train = gather_x(&idx[..split_idx]);
+    let x_test = gather_x(&idx[split_idx..]);
+    let y_train = gather_y(&idx[..split_idx]);
+    let y_test = gather_y(&idx[split_idx..]);
 
     (x_train, x_test, y_train, y_test)
 }
@@ -361,7 +381,7 @@ pub fn train_test_split(
 // ── Internal Helpers ─────────────────────────────────────────────────
 
 /// Solve Ax = b using Gaussian elimination with partial pivoting.
-fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+pub(crate) fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let n = a.len();
     let mut aug: Vec<Vec<f64>> = a.iter()
         .enumerate()
@@ -491,10 +511,17 @@ mod tests {
     fn test_train_test_split() {
         let data = vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0], vec![5.0]];
         let labels = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let (x_train, x_test, y_train, y_test) = train_test_split(&data, &labels, 0.2);
+        // Deterministic (no shuffle) so the size assertions are unambiguous.
+        let (x_train, x_test, y_train, y_test) =
+            train_test_split(&data, &labels, 0.2, false, 0);
         assert_eq!(x_train.len(), 4);
         assert_eq!(x_test.len(), 1);
         assert_eq!(y_train.len(), 4);
         assert_eq!(y_test.len(), 1);
+
+        // Shuffled split preserves sizes and partitions all rows.
+        let (xs_tr, xs_te, _, _) = train_test_split(&data, &labels, 0.2, true, 42);
+        assert_eq!(xs_tr.len(), 4);
+        assert_eq!(xs_te.len(), 1);
     }
 }

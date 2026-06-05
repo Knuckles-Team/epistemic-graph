@@ -89,17 +89,38 @@ sc = SyncEpistemicGraphClient.connect(...)
 ```
 
 Sub-clients on the connection: `.nodes`, `.edges`, `.graph` (algorithms),
-`.analytics`, `.finance`, `.lifecycle`, `.ledger`, `.channels`, `.tenants`,
-`.consensus`. **Connection pooling + shard routing** live in
+`.analytics`, `.finance`, `.datascience`, `.lifecycle`, `.ledger`, `.channels`,
+`.tenants`, `.consensus`. **Connection pooling + shard routing** live in
 `epistemic_graph/pool.py` (`ConnectionPool`, `ShardRouter` using rendezvous/HRW
 hashing over `GRAPH_SERVICE_ENDPOINTS`). `epistemic_graph/quant.py` provides
 pure-Python rolling-stats/order-matching helpers (no compiled extension).
 
-Engine capabilities served over the protocol: **finance** (mean-variance,
-min-variance, risk-parity, efficient-frontier, **black_litterman** consuming
-views/τ/risk-aversion, VaR/CVaR, HMM regime detection, signals, TWAP/VWAP),
-**data science** (OLS, K-means, PCA, stats), **reasoning** (transitive/symmetric/
-inverse closure, domain/range, property chains).
+Engine capabilities served over the protocol:
+
+- **finance** (`client.finance.*`): portfolio optimization (mean-variance,
+  min-variance, risk-parity, efficient-frontier, **black_litterman** consuming
+  views/τ/risk-aversion); risk metrics (`var`, `cvar`, `max_drawdown`,
+  `drawdown_series`, `downside_deviation`, `risk_metrics` → VaR/CVaR/Sortino/
+  Calmar/vol, `monte_carlo_var`, `stress_test`); **HMM regime detection**
+  (`detect_regimes` — Baum-Welch + Viterbi); signals (`rolling_zscore`, `ewma`,
+  `signal_decay`, `combine_alphas`, `cross_sectional_rank`, `momentum`,
+  `mean_reversion`, `information_coefficient`); execution/microstructure
+  (`twap`, `vwap`, `market_impact`, `pairs_trading`, `match_orders`).
+- **data science** (`client.datascience.*`): primitives (`linear_regression`
+  OLS, `kmeans`, `pca`, `compute_stats`, `train_test_split` with seeded shuffle);
+  and a stateless estimator API — `fit_estimator(name, x, y, params)` returns a
+  serializable model blob, `predict_estimator(model, x)` predicts. Estimators:
+  `ridge`, `lasso`, `elasticnet`, `decisiontree`, `randomforest`,
+  `gradientboosting`, `adaboost`, `svr` (RBF/linear via SMO). **These replace
+  scikit-learn** on the hot path (parity-validated vs sklearn).
+- **reasoning**: transitive/symmetric/inverse closure, domain/range, chains.
+
+**Adding a capability:** implement it in the relevant Rust module
+(`src/finance/*`, `src/datascience/*`), then expose it across three layers —
+a `Method` variant in `src/protocol.rs`, a dispatch arm in `src/server.rs`, and
+a client method in `epistemic_graph/client.py` — and add a round-trip test in
+`tests/`. Compute already resident in the graph should be a **batch** op (one
+round-trip), never a per-row loop. See `docs/RUST_COMPUTE_GUIDE.md`.
 
 ---
 
