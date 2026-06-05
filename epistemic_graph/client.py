@@ -531,6 +531,281 @@ class FinanceClient:
             },
         )
 
+    # ── Risk metrics ──────────────────────────────────────────────────
+    async def var(self, returns: list[float], confidence: float = 0.95) -> float:
+        return await self._client._send(
+            "FinanceVar", {"returns": returns, "confidence": confidence}
+        )
+
+    async def cvar(self, returns: list[float], confidence: float = 0.95) -> float:
+        return await self._client._send(
+            "FinanceCvar", {"returns": returns, "confidence": confidence}
+        )
+
+    async def max_drawdown(self, returns: list[float]) -> float:
+        return await self._client._send("FinanceMaxDrawdown", {"returns": returns})
+
+    async def drawdown_series(self, returns: list[float]) -> list[float]:
+        return await self._client._send("FinanceDrawdownSeries", {"returns": returns})
+
+    async def downside_deviation(
+        self, returns: list[float], target: float = 0.0
+    ) -> float:
+        return await self._client._send(
+            "FinanceDownsideDeviation", {"returns": returns, "target": target}
+        )
+
+    async def risk_metrics(
+        self, returns: list[float], risk_free_rate: float = 0.0
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "FinanceRiskMetrics",
+            {"returns": returns, "risk_free_rate": risk_free_rate},
+        )
+
+    async def monte_carlo_var(
+        self,
+        mean: float,
+        std_dev: float,
+        n_simulations: int = 10000,
+        confidence: float = 0.95,
+    ) -> float:
+        return await self._client._send(
+            "FinanceMonteCarloVar",
+            {
+                "mean": mean,
+                "std_dev": std_dev,
+                "n_simulations": n_simulations,
+                "confidence": confidence,
+            },
+        )
+
+    async def stress_test(
+        self,
+        weights: list[float],
+        expected_returns: list[float],
+        cov_matrix: list[list[float]],
+        shock_factors: list[float],
+    ) -> list[float]:
+        return await self._client._send(
+            "FinanceStressTest",
+            {
+                "weights": weights,
+                "expected_returns": expected_returns,
+                "cov_matrix": cov_matrix,
+                "shock_factors": shock_factors,
+            },
+        )
+
+    # ── Regime detection (HMM) ────────────────────────────────────────
+    async def detect_regimes(
+        self,
+        observations: list[float],
+        n_states: int = 2,
+        max_iter: int = 100,
+        tol: float = 1e-4,
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "FinanceDetectRegimes",
+            {
+                "observations": observations,
+                "n_states": n_states,
+                "max_iter": max_iter,
+                "tol": tol,
+            },
+        )
+
+    # ── Signals / alpha ───────────────────────────────────────────────
+    async def rolling_zscore(self, values: list[float], window: int) -> list[float]:
+        return await self._client._send(
+            "FinanceRollingZscore", {"values": values, "window": window}
+        )
+
+    async def ewma(self, values: list[float], span: int) -> list[float]:
+        return await self._client._send(
+            "FinanceEwma", {"values": values, "span": span}
+        )
+
+    async def signal_decay(
+        self, signal: list[float], half_life: float
+    ) -> list[float]:
+        return await self._client._send(
+            "FinanceSignalDecay", {"signal": signal, "half_life": half_life}
+        )
+
+    async def combine_alphas(
+        self, signals: list[list[float]], weights: list[float]
+    ) -> list[float]:
+        return await self._client._send(
+            "FinanceCombineAlphas", {"signals": signals, "weights": weights}
+        )
+
+    async def cross_sectional_rank(
+        self, cross_section: list[list[float]]
+    ) -> list[list[float]]:
+        return await self._client._send(
+            "FinanceCrossSectionalRank", {"cross_section": cross_section}
+        )
+
+    async def momentum(self, prices: list[float], lookback: int) -> list[float]:
+        return await self._client._send(
+            "FinanceMomentum", {"prices": prices, "lookback": lookback}
+        )
+
+    async def mean_reversion(self, values: list[float], window: int) -> list[float]:
+        return await self._client._send(
+            "FinanceMeanReversion", {"values": values, "window": window}
+        )
+
+    async def information_coefficient(
+        self, signal: list[float], forward_returns: list[float]
+    ) -> float:
+        return await self._client._send(
+            "FinanceInformationCoefficient",
+            {"signal": signal, "forward_returns": forward_returns},
+        )
+
+    # ── Execution / microstructure ────────────────────────────────────
+    async def twap(
+        self,
+        total_quantity: float,
+        n_slices: int,
+        start_time: int = 0,
+        interval_secs: int = 60,
+    ) -> list[tuple[int, float]]:
+        return await self._client._send(
+            "FinanceTwap",
+            {
+                "total_quantity": total_quantity,
+                "n_slices": n_slices,
+                "start_time": start_time,
+                "interval_secs": interval_secs,
+            },
+        )
+
+    async def vwap(
+        self,
+        total_quantity: float,
+        volume_profile: list[float],
+        start_time: int = 0,
+        interval_secs: int = 60,
+    ) -> list[tuple[int, float]]:
+        return await self._client._send(
+            "FinanceVwap",
+            {
+                "total_quantity": total_quantity,
+                "volume_profile": volume_profile,
+                "start_time": start_time,
+                "interval_secs": interval_secs,
+            },
+        )
+
+    async def market_impact(
+        self,
+        daily_volatility: float,
+        order_quantity: float,
+        average_daily_volume: float,
+        impact_coefficient: float = 0.1,
+    ) -> float:
+        return await self._client._send(
+            "FinanceMarketImpact",
+            {
+                "daily_volatility": daily_volatility,
+                "order_quantity": order_quantity,
+                "average_daily_volume": average_daily_volume,
+                "impact_coefficient": impact_coefficient,
+            },
+        )
+
+    async def pairs_trading(
+        self, prices_a: list[float], prices_b: list[float], lookback: int
+    ) -> list[float]:
+        return await self._client._send(
+            "FinancePairsTrading",
+            {"prices_a": prices_a, "prices_b": prices_b, "lookback": lookback},
+        )
+
+    async def match_orders(
+        self, orders: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Match a limit-order book. Each order: {id, side, price, quantity, timestamp}."""
+        return await self._client._send("FinanceMatchOrders", {"orders": orders})
+
+
+class DataScienceClient:
+    """CONCEPT:KG-2.22 — Data Science Primitives Namespace.
+
+    Rust-backed OLS / K-means / PCA / dataset-stats / split. Arrays are shipped
+    whole per call (one round-trip) — never loop per row over the wire.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def linear_regression(
+        self, x: list[list[float]], y: list[float]
+    ) -> dict[str, Any]:
+        return await self._client._send("DsLinearRegression", {"x": x, "y": y})
+
+    async def kmeans(
+        self, data: list[list[float]], k: int, max_iter: int = 100
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "DsKMeans", {"data": data, "k": k, "max_iter": max_iter}
+        )
+
+    async def pca(
+        self, data: list[list[float]], n_components: int
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "DsPca", {"data": data, "n_components": n_components}
+        )
+
+    async def compute_stats(self, data: list[list[float]]) -> dict[str, Any]:
+        return await self._client._send("DsComputeStats", {"data": data})
+
+    async def train_test_split(
+        self,
+        data: list[list[float]],
+        labels: list[float],
+        test_ratio: float = 0.2,
+        shuffle: bool = True,
+        seed: int = 42,
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "DsTrainTestSplit",
+            {
+                "data": data,
+                "labels": labels,
+                "test_ratio": test_ratio,
+                "shuffle": shuffle,
+                "seed": seed,
+            },
+        )
+
+    async def fit_estimator(
+        self,
+        estimator: str,
+        x: list[list[float]],
+        y: list[float],
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Fit a regression estimator (ridge/lasso/elasticnet/decisiontree/
+        randomforest/gradientboosting/adaboost/svr). Returns a serializable
+        fitted-model blob to pass back to ``predict_estimator``."""
+        return await self._client._send(
+            "DsFitEstimator",
+            {"estimator": estimator, "x": x, "y": y, "params": params or {}},
+        )
+
+    async def predict_estimator(
+        self, model: dict[str, Any], x: list[list[float]]
+    ) -> list[float]:
+        """Predict with a model blob returned by ``fit_estimator``."""
+        return await self._client._send(
+            "DsPredictEstimator", {"model": model, "x": x}
+        )
+
 
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
@@ -575,6 +850,7 @@ class EpistemicGraphClient:
         self.tenants = MultiTenantClient(self)
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
+        self.datascience = DataScienceClient(self)
 
     @classmethod
     async def connect(
@@ -726,6 +1002,7 @@ class SyncEpistemicGraphClient:
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
+        self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""
