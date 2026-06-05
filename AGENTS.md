@@ -27,6 +27,26 @@ configured `bindings = "bin"`. This is enforced by `scripts/check_no_pyo3.sh`
 The framing is a 4-byte big-endian `u32` length prefix + a MessagePack body, so
 binary payloads containing `0x0A` survive intact (newline framing would not).
 
+**Why this drives architecture decisions (read before designing a caller).**
+Because the engine is **tokio + MessagePack over a socket — NOT PyO3, NOT an FFI /
+in-process call** — every invocation costs *serialize → socket round-trip →
+deserialize* against a separate process. A call is **not** a cheap function call.
+Two rules follow, and they shape every integration:
+
+- **Batch, never per-element.** Ship work to the engine in **one** round-trip over
+  data already resident in the graph (e.g. `compute_similarity_edges(threshold)` for
+  all-pairs similarity), instead of calling per pair/row in a Python loop. *N*
+  elements in a loop = *N* round-trips = catastrophic; the same work as one batch op
+  = one round-trip. If a batch op you need doesn't exist yet, add it engine-side
+  rather than looping client-side.
+- **Keep tight per-element math in-process.** A single cosine of two vectors is
+  cheaper in local numpy than marshalled over the wire — push to the engine only
+  when a *batch* amortizes the round-trip. (Reference: agent-utilities `KG-2.3`
+  similarity collapse routes the all-pairs batch here but keeps pairwise cosine local.)
+
+There is no GIL coupling and no shared address space — design for a network boundary,
+because that is exactly what it is.
+
 ---
 
 ## Commands for AI Agents
