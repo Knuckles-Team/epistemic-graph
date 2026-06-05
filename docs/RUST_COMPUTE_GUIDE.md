@@ -80,10 +80,35 @@
 - Datalog-style forward chaining
 - Prolog-style backward chaining with unification
 
-### `finance.rs` — Quantitative Optimization
-- High-performance linear algebra using `faer` and `ndarray`
-- Offloads Portfolio Optimization (Mean-Variance, Risk Parity, Black-Litterman) from Python
-- Eliminates the need for Python's `scipy` and `numpy` in the execution layer
+### `finance/` — Quantitative Finance
+Replaces Python `scipy`/`numpy` quant code in the execution layer. Served via
+`client.finance.*`:
+- **Optimization** (`optimizer.rs`): mean-variance, min-variance, risk-parity,
+  efficient-frontier, Black-Litterman (views/τ/risk-aversion).
+- **Risk** (`risk.rs`): `var`, `cvar`, `max_drawdown`, `drawdown_series`,
+  `downside_deviation`, `risk_metrics` (VaR/CVaR/Sortino/Calmar/vol),
+  `monte_carlo_var`, `stress_test`.
+- **Regime** (`regime.rs`): `detect_regimes` — Gaussian HMM (Baum-Welch + Viterbi).
+- **Signals** (`signals.rs`): rolling z-score, EWMA, signal decay, alpha combine,
+  cross-sectional rank, momentum, mean-reversion, information coefficient.
+- **Execution** (`exchange.rs`): TWAP/VWAP schedules, market-impact, pairs-trading
+  spread, limit-order-book matching.
+
+### `datascience/` — ML Primitives & Estimators
+Replaces `scikit-learn` on the hot path (parity-validated). Served via
+`client.datascience.*`:
+- **Primitives** (`primitives.rs`): `linear_regression` (OLS), `kmeans`, `pca`,
+  `compute_stats`, `train_test_split` (seeded shuffle).
+- **Estimators** (`estimators.rs`): stateless `fit_estimator(name, x, y, params)`
+  → serializable model blob, `predict_estimator(model, x)` → predictions.
+  Names: `ridge`, `lasso`, `elasticnet`, `decisiontree`, `randomforest`,
+  `gradientboosting`, `adaboost`, `svr` (RBF/linear via SMO). `rayon`-parallel
+  forests; no external ML crates.
+
+> Downstream packages (e.g. `data-science-mcp`, `emerald-exchange`,
+> `agent-utilities/domains/finance`) should call these over the client rather
+> than re-implementing the math in Python. sklearn-parity for the estimators is
+> validated out-of-tree against scikit-learn on identical splits.
 
 ## Usage from Python
 
