@@ -622,13 +622,9 @@ class FinanceClient:
         )
 
     async def ewma(self, values: list[float], span: int) -> list[float]:
-        return await self._client._send(
-            "FinanceEwma", {"values": values, "span": span}
-        )
+        return await self._client._send("FinanceEwma", {"values": values, "span": span})
 
-    async def signal_decay(
-        self, signal: list[float], half_life: float
-    ) -> list[float]:
+    async def signal_decay(self, signal: list[float], half_life: float) -> list[float]:
         return await self._client._send(
             "FinanceSignalDecay", {"signal": signal, "half_life": half_life}
         )
@@ -725,11 +721,531 @@ class FinanceClient:
             {"prices_a": prices_a, "prices_b": prices_b, "lookback": lookback},
         )
 
-    async def match_orders(
-        self, orders: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    async def match_orders(self, orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Match a limit-order book. Each order: {id, side, price, quantity, timestamp}."""
         return await self._client._send("FinanceMatchOrders", {"orders": orders})
+
+    # ── Market making / microstructure (CONCEPT:KG-2.20f) ──────────────
+    async def avellaneda_stoikov(
+        self,
+        mid: float,
+        inventory: float,
+        sigma: float,
+        gamma: float,
+        kappa: float,
+        tau: float,
+    ) -> dict[str, Any]:
+        """Optimal AS quotes around a freely-drifting mid. Returns
+        {bid, ask, reservation, half_spread, withdraw}."""
+        return await self._client._send(
+            "FinanceAvellanedaStoikov",
+            {
+                "mid": mid,
+                "inventory": inventory,
+                "sigma": sigma,
+                "gamma": gamma,
+                "kappa": kappa,
+                "tau": tau,
+            },
+        )
+
+    async def glt_quotes(
+        self,
+        mid: float,
+        inventory: float,
+        sigma: float,
+        gamma: float,
+        kappa: float,
+        a: float,
+    ) -> dict[str, Any]:
+        """Guéant-Lehalle-Fernandez-Tapia closed-form quotes with inventory skew."""
+        return await self._client._send(
+            "FinanceGltQuotes",
+            {
+                "mid": mid,
+                "inventory": inventory,
+                "sigma": sigma,
+                "gamma": gamma,
+                "kappa": kappa,
+                "a": a,
+            },
+        )
+
+    async def logit_quotes(
+        self,
+        p_mid: float,
+        inventory: float,
+        sigma: float,
+        gamma: float,
+        kappa: float,
+        tau: float,
+        boundary_m: float = 0.0,
+    ) -> dict[str, Any]:
+        """Logit-space AS quotes for bounded (0,1) prediction-market prices, with
+        a boundary-aware inventory cap. ``withdraw=True`` ⇒ pull quotes."""
+        return await self._client._send(
+            "FinanceLogitQuotes",
+            {
+                "p_mid": p_mid,
+                "inventory": inventory,
+                "sigma": sigma,
+                "gamma": gamma,
+                "kappa": kappa,
+                "tau": tau,
+                "boundary_m": boundary_m,
+            },
+        )
+
+    async def glosten_milgrom_spread(self, alpha: float, p: float) -> float:
+        return await self._client._send(
+            "FinanceGlostenMilgromSpread", {"alpha": alpha, "p": p}
+        )
+
+    async def expected_pnl_rate(
+        self,
+        delta: float,
+        a: float,
+        kappa: float,
+        alpha: float,
+        p: float,
+        v_h: float = 1.0,
+        v_l: float = 0.0,
+    ) -> float:
+        return await self._client._send(
+            "FinanceExpectedPnlRate",
+            {
+                "delta": delta,
+                "a": a,
+                "kappa": kappa,
+                "alpha": alpha,
+                "p": p,
+                "v_h": v_h,
+                "v_l": v_l,
+            },
+        )
+
+    async def breakeven_alpha(
+        self, delta: float, p: float, v_h: float = 1.0, v_l: float = 0.0
+    ) -> float:
+        return await self._client._send(
+            "FinanceBreakevenAlpha", {"delta": delta, "p": p, "v_h": v_h, "v_l": v_l}
+        )
+
+    async def ofi_series(
+        self,
+        ts: list[float],
+        bid_px: list[float],
+        bid_sz: list[float],
+        ask_px: list[float],
+        ask_sz: list[float],
+        window_secs: float = 1.0,
+    ) -> list[float]:
+        """Cont-Kukanov-Stoikov rolling order-flow imbalance over book events."""
+        return await self._client._send(
+            "FinanceOfiSeries",
+            {
+                "ts": ts,
+                "bid_px": bid_px,
+                "bid_sz": bid_sz,
+                "ask_px": ask_px,
+                "ask_sz": ask_sz,
+                "window_secs": window_secs,
+            },
+        )
+
+    async def microprice_series(
+        self,
+        bid_px: list[float],
+        bid_sz: list[float],
+        ask_px: list[float],
+        ask_sz: list[float],
+    ) -> list[float]:
+        return await self._client._send(
+            "FinanceMicropriceSeries",
+            {"bid_px": bid_px, "bid_sz": bid_sz, "ask_px": ask_px, "ask_sz": ask_sz},
+        )
+
+    async def vpin_pm(
+        self,
+        buy_vol: list[float],
+        sell_vol: list[float],
+        p_mean: list[float],
+    ) -> float:
+        """VPIN toxicity normalised for binary-payoff variance (prediction markets)."""
+        return await self._client._send(
+            "FinanceVpinPm",
+            {"buy_vol": buy_vol, "sell_vol": sell_vol, "p_mean": p_mean},
+        )
+
+    async def hawkes_mle(
+        self, times: list[float], t_horizon: float, max_iter: int = 200
+    ) -> dict[str, Any]:
+        """Fit an exponential-kernel Hawkes process. Returns mu/alpha/beta plus
+        branching_ratio (>0.95 ⇒ near-critical / crash early-warning)."""
+        return await self._client._send(
+            "FinanceHawkesMle",
+            {"times": times, "t_horizon": t_horizon, "max_iter": max_iter},
+        )
+
+    async def hardiman_bouchaud(
+        self, times: list[float], t_horizon: float, n_windows: int = 100
+    ) -> float:
+        """Model-free Hawkes branching ratio from count over-dispersion."""
+        return await self._client._send(
+            "FinanceHardimanBouchaud",
+            {"times": times, "t_horizon": t_horizon, "n_windows": n_windows},
+        )
+
+    # ── Position sizing (CONCEPT:KG-2.20f) ─────────────────────────────
+    async def kelly_fraction(self, q: float, c: float, fraction: float = 0.25) -> float:
+        """Fractional Kelly for a YES contract: f* = (q−c)/(1−c), scaled."""
+        return await self._client._send(
+            "FinanceKellyFraction", {"q": q, "c": c, "fraction": fraction}
+        )
+
+    async def bayesian_kelly(
+        self, alpha: float, beta: float, c: float, n_quadrature: int = 50
+    ) -> float:
+        """Kelly under a Beta(α,β) posterior over the true probability — shrinks
+        the bet as posterior variance grows."""
+        return await self._client._send(
+            "FinanceBayesianKelly",
+            {"alpha": alpha, "beta": beta, "c": c, "n_quadrature": n_quadrature},
+        )
+
+    async def posterior_credible_interval(
+        self, alpha: float, beta: float, level: float = 0.05
+    ) -> dict[str, float]:
+        return await self._client._send(
+            "FinancePosteriorCredibleInterval",
+            {"alpha": alpha, "beta": beta, "level": level},
+        )
+
+    # ── Backtest validation (CONCEPT:KG-2.20f) ─────────────────────────
+    async def purged_cpcv(
+        self,
+        n_samples: int,
+        n_groups: int = 6,
+        n_test_groups: int = 2,
+        purge_window: int = 0,
+        embargo: int = 0,
+    ) -> list[dict[str, list[int]]]:
+        """Purged combinatorial CV splits — each {train: [...], test: [...]}."""
+        return await self._client._send(
+            "FinancePurgedCpcv",
+            {
+                "n_samples": n_samples,
+                "n_groups": n_groups,
+                "n_test_groups": n_test_groups,
+                "purge_window": purge_window,
+                "embargo": embargo,
+            },
+        )
+
+    async def deflated_sharpe(
+        self, observed_sr: float, n_trials: int, sr_returns: list[float]
+    ) -> float:
+        """Probability the observed Sharpe beats zero after deflating for trials
+        and non-normality (Bailey & López de Prado). DSR > 0.95 = strong."""
+        return await self._client._send(
+            "FinanceDeflatedSharpe",
+            {
+                "observed_sr": observed_sr,
+                "n_trials": n_trials,
+                "sr_returns": sr_returns,
+            },
+        )
+
+    async def probability_backtest_overfit(
+        self, insample: list[list[float]], oos: list[list[float]]
+    ) -> float:
+        """PBO — rows = CV splits, cols = strategies. < 0.3 robust; > 0.5 overfit."""
+        return await self._client._send(
+            "FinanceProbabilityBacktestOverfit",
+            {"insample": insample, "oos": oos},
+        )
+
+    async def diebold_mariano(
+        self, losses_a: list[float], losses_b: list[float], h: int = 1
+    ) -> dict[str, Any]:
+        """Test of equal predictive accuracy (Newey-West HAC for h>1)."""
+        return await self._client._send(
+            "FinanceDieboldMariano",
+            {"losses_a": losses_a, "losses_b": losses_b, "h": h},
+        )
+
+    # ── Forensic accounting (CONCEPT:KG-2.20g) ─────────────────────────
+    async def forensic_report(
+        self, this_year: dict[str, Any], prior_year: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Beneish M / Altman Z / Piotroski F / Sloan accruals over two fiscal
+        years. Returns scores + flags + verdict (INVESTIGATE | CLEAN). Each year
+        dict carries standardized line items (sales, cogs, net_income, cfo, ...)."""
+        return await self._client._send(
+            "FinanceForensicReport",
+            {"this_year": this_year, "prior_year": prior_year},
+        )
+
+    # ── State-space / stat-arb (CONCEPT:KG-2.20h) ──────────────────────
+    async def kalman_filter_1d(
+        self,
+        observations: list[float],
+        f: float = 1.0,
+        q: float = 1e-5,
+        h: float = 1.0,
+        r: float = 1e-3,
+        x0: float = 0.0,
+        p0: float = 1.0,
+    ) -> dict[str, Any]:
+        """Scalar Kalman filter — returns {states, variances} per step."""
+        return await self._client._send(
+            "FinanceKalmanFilter1d",
+            {
+                "observations": observations,
+                "f": f,
+                "q": q,
+                "h": h,
+                "r": r,
+                "x0": x0,
+                "p0": p0,
+            },
+        )
+
+    async def kalman_beta(
+        self,
+        market_returns: list[float],
+        asset_returns: list[float],
+        q: float = 1e-5,
+        r: float = 1e-3,
+        beta0: float = 1.0,
+        p0: float = 1.0,
+    ) -> dict[str, Any]:
+        """Dynamic (time-varying) beta via Kalman filter — {states (betas), variances}.
+        OLS gives the average; this gives the current hidden beta with uncertainty."""
+        return await self._client._send(
+            "FinanceKalmanBeta",
+            {
+                "market_returns": market_returns,
+                "asset_returns": asset_returns,
+                "q": q,
+                "r": r,
+                "beta0": beta0,
+                "p0": p0,
+            },
+        )
+
+    async def kalman_volatility(
+        self,
+        returns: list[float],
+        q: float = 0.1,
+        r: float = 1.0,
+        log_var0: float | None = None,
+        p0: float = 1.0,
+        annualization: float = 252.0,
+    ) -> list[float]:
+        """Kalman volatility tracker (log-variance state) — annualised vol series.
+        Tells you what volatility *is* now, not what it was (vs GARCH/EWMA)."""
+        return await self._client._send(
+            "FinanceKalmanVolatility",
+            {
+                "returns": returns,
+                "q": q,
+                "r": r,
+                "log_var0": log_var0,
+                "p0": p0,
+                "annualization": annualization,
+            },
+        )
+
+    async def adf_test(self, series: list[float], max_lag: int = 1) -> dict[str, Any]:
+        """Augmented Dickey-Fuller cointegration/stationarity test — returns
+        {statistic, crit_5pct, stationary_5pct, ...}."""
+        return await self._client._send(
+            "FinanceAdfTest", {"series": series, "max_lag": max_lag}
+        )
+
+    async def ou_calibrate(
+        self, spread: list[float], dt: float = 1.0
+    ) -> dict[str, Any]:
+        """Calibrate an Ornstein-Uhlenbeck mean-reversion process from a spread —
+        {theta, mu, sigma, half_life, sigma_eq}."""
+        return await self._client._send(
+            "FinanceOuCalibrate", {"spread": spread, "dt": dt}
+        )
+
+    async def ou_optimal_thresholds(
+        self,
+        theta: float,
+        mu: float,
+        sigma: float,
+        sigma_eq: float,
+        cost: float = 0.0,
+    ) -> dict[str, Any]:
+        """MFPT-optimal OU entry/exit band — {entry_long, entry_short, exit, z,
+        expected_return_per_unit_time}."""
+        return await self._client._send(
+            "FinanceOuOptimalThresholds",
+            {
+                "theta": theta,
+                "mu": mu,
+                "sigma": sigma,
+                "sigma_eq": sigma_eq,
+                "cost": cost,
+            },
+        )
+
+    async def markov_transition_matrix(
+        self, states: list[int], n_states: int
+    ) -> list[list[float]]:
+        """Laplace-smoothed row-stochastic transition matrix from a state sequence
+        (cross-venue lead-lag / regime transitions)."""
+        return await self._client._send(
+            "FinanceMarkovTransitionMatrix", {"states": states, "n_states": n_states}
+        )
+
+    # ── Signal combination / sizing / calibration (CONCEPT:KG-2.20i) ───
+    async def order_book_imbalance(
+        self, v_bid: list[float], v_ask: list[float]
+    ) -> list[float]:
+        """Level-1 order-book imbalance series ∈ [−1, 1]."""
+        return await self._client._send(
+            "FinanceOrderBookImbalance", {"v_bid": v_bid, "v_ask": v_ask}
+        )
+
+    async def information_ratio(self, ic: float, n_independent: float) -> float:
+        """Fundamental law of active management: IR = IC · √(N_independent)."""
+        return await self._client._send(
+            "FinanceInformationRatio", {"ic": ic, "n_independent": n_independent}
+        )
+
+    async def effective_independent_n(self, returns_matrix: list[list[float]]) -> float:
+        """Effective number of independent signals (eigenvalue participation ratio)
+        — correlated signals collapse, exposing the real N in IR = IC·√N."""
+        return await self._client._send(
+            "FinanceEffectiveIndependentN", {"returns_matrix": returns_matrix}
+        )
+
+    async def alpha_combination_engine(
+        self, returns_matrix: list[list[float]], lookback: int = 20
+    ) -> list[float]:
+        """Combine N signals into weights that reward independent edge and penalise
+        shared variance (the IR = IC·√N combination engine). Rows = signals."""
+        return await self._client._send(
+            "FinanceAlphaCombinationEngine",
+            {"returns_matrix": returns_matrix, "lookback": lookback},
+        )
+
+    async def brier_score(self, forecasts: list[float], outcomes: list[float]) -> float:
+        """Brier score of probabilistic forecasts vs binary outcomes (< 0.25 =
+        production-grade calibration)."""
+        return await self._client._send(
+            "FinanceBrierScore", {"forecasts": forecasts, "outcomes": outcomes}
+        )
+
+    async def convergence_gate(
+        self, strengths: list[float], strong_threshold: float = 0.6, min_agree: int = 5
+    ) -> dict[str, Any]:
+        """Conviction gate — require ≥min_agree of N signals to STRONGLY agree on a
+        direction before trading. Returns {agree, total, fraction, direction, pass}."""
+        return await self._client._send(
+            "FinanceConvergenceGate",
+            {
+                "strengths": strengths,
+                "strong_threshold": strong_threshold,
+                "min_agree": min_agree,
+            },
+        )
+
+    async def empirical_kelly(
+        self,
+        p: float,
+        b: float,
+        historical_returns: list[float],
+        n_simulations: int = 10000,
+        seed: int = 42,
+    ) -> float:
+        """Uncertainty-adjusted Kelly: f* · (1 − CV_edge), with CV_edge from a
+        seeded bootstrap of the historical returns. Shrinks bets when edge is noisy."""
+        return await self._client._send(
+            "FinanceEmpiricalKelly",
+            {
+                "p": p,
+                "b": b,
+                "historical_returns": historical_returns,
+                "n_simulations": n_simulations,
+                "seed": seed,
+            },
+        )
+
+    # ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ─────────
+    async def sabr_implied_vol(
+        self,
+        f: float,
+        k: float,
+        t: float,
+        alpha: float,
+        beta: float,
+        rho: float,
+        nu: float,
+    ) -> float:
+        """SABR lognormal (Black) implied volatility for one strike (Hagan 2002)."""
+        return await self._client._send(
+            "FinanceSabrImpliedVol",
+            {
+                "f": f,
+                "k": k,
+                "t": t,
+                "alpha": alpha,
+                "beta": beta,
+                "rho": rho,
+                "nu": nu,
+            },
+        )
+
+    async def sabr_smile(
+        self,
+        f: float,
+        strikes: list[float],
+        t: float,
+        alpha: float,
+        beta: float,
+        rho: float,
+        nu: float,
+    ) -> list[float]:
+        """SABR implied-vol smile across strikes."""
+        return await self._client._send(
+            "FinanceSabrSmile",
+            {
+                "f": f,
+                "strikes": strikes,
+                "t": t,
+                "alpha": alpha,
+                "beta": beta,
+                "rho": rho,
+                "nu": nu,
+            },
+        )
+
+    async def sabr_calibrate(
+        self,
+        f: float,
+        t: float,
+        strikes: list[float],
+        market_vols: list[float],
+        beta: float = 0.5,
+    ) -> dict[str, Any]:
+        """Calibrate SABR (α, ρ, ν) to a market smile with β fixed — returns
+        {alpha, beta, rho, nu, rmse, converged}."""
+        return await self._client._send(
+            "FinanceSabrCalibrate",
+            {
+                "f": f,
+                "t": t,
+                "strikes": strikes,
+                "market_vols": market_vols,
+                "beta": beta,
+            },
+        )
 
 
 class DataScienceClient:
@@ -754,9 +1270,7 @@ class DataScienceClient:
             "DsKMeans", {"data": data, "k": k, "max_iter": max_iter}
         )
 
-    async def pca(
-        self, data: list[list[float]], n_components: int
-    ) -> dict[str, Any]:
+    async def pca(self, data: list[list[float]], n_components: int) -> dict[str, Any]:
         return await self._client._send(
             "DsPca", {"data": data, "n_components": n_components}
         )
@@ -802,9 +1316,7 @@ class DataScienceClient:
         self, model: dict[str, Any], x: list[list[float]]
     ) -> list[float]:
         """Predict with a model blob returned by ``fit_estimator``."""
-        return await self._client._send(
-            "DsPredictEstimator", {"model": model, "x": x}
-        )
+        return await self._client._send("DsPredictEstimator", {"model": model, "x": x})
 
 
 class EpistemicGraphClient:

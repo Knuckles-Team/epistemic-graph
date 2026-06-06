@@ -9,3 +9,7 @@ pub mod risk;
 pub mod regime;
 pub mod signals;
 pub mod exchange;
+pub mod quant;
+pub mod forensic;
+pub mod statespace;
+pub mod derivatives;
