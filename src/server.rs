@@ -513,6 +513,168 @@ async fn dispatch_graph_op(
             let v = crate::finance::exchange::match_orders(&orders);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
+
+        // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────
+        Method::FinanceAvellanedaStoikov { mid, inventory, sigma, gamma, kappa, tau } => {
+            let v = crate::finance::quant::avellaneda_stoikov(mid, inventory, sigma, gamma, kappa, tau);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceGltQuotes { mid, inventory, sigma, gamma, kappa, a } => {
+            let v = crate::finance::quant::glt_quotes(mid, inventory, sigma, gamma, kappa, a);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceLogitQuotes { p_mid, inventory, sigma, gamma, kappa, tau, boundary_m } => {
+            let v = crate::finance::quant::logit_space_quotes(p_mid, inventory, sigma, gamma, kappa, tau, boundary_m);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceGlostenMilgromSpread { alpha, p } => {
+            let v = crate::finance::quant::glosten_milgrom_spread(alpha, p);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceExpectedPnlRate { delta, a, kappa, alpha, p, v_h, v_l } => {
+            let v = crate::finance::quant::expected_pnl_rate(delta, a, kappa, alpha, p, v_h, v_l);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceBreakevenAlpha { delta, p, v_h, v_l } => {
+            let v = crate::finance::quant::breakeven_alpha(delta, p, v_h, v_l);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceOfiSeries { ts, bid_px, bid_sz, ask_px, ask_sz, window_secs } => {
+            let v = crate::finance::quant::ofi_series(&ts, &bid_px, &bid_sz, &ask_px, &ask_sz, window_secs);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceMicropriceSeries { bid_px, bid_sz, ask_px, ask_sz } => {
+            let v = crate::finance::quant::microprice_series(&bid_px, &bid_sz, &ask_px, &ask_sz);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceVpinPm { buy_vol, sell_vol, p_mean } => {
+            let v = crate::finance::quant::vpin_pm(&buy_vol, &sell_vol, &p_mean);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceHawkesMle { times, t_horizon, max_iter } => {
+            let v = crate::finance::quant::hawkes_mle(&times, t_horizon, max_iter);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceHardimanBouchaud { times, t_horizon, n_windows } => {
+            let v = crate::finance::quant::hardiman_bouchaud_branching_ratio(&times, t_horizon, n_windows);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+
+        // ── Position Sizing (CONCEPT:KG-2.20f) ────────────────────────
+        Method::FinanceKellyFraction { q, c, fraction } => {
+            let v = crate::finance::quant::kelly_fraction(q, c, fraction);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceBayesianKelly { alpha, beta, c, n_quadrature } => {
+            let v = crate::finance::quant::bayesian_kelly_fraction(alpha, beta, c, n_quadrature);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinancePosteriorCredibleInterval { alpha, beta, level } => {
+            let (lo, hi) = crate::finance::quant::posterior_credible_interval(alpha, beta, level);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!({"lower": lo, "upper": hi})))
+        }
+
+        // ── Backtest Validation (CONCEPT:KG-2.20f) ────────────────────
+        Method::FinancePurgedCpcv { n_samples, n_groups, n_test_groups, purge_window, embargo } => {
+            let v = crate::finance::quant::purged_cpcv_splits(n_samples, n_groups, n_test_groups, purge_window, embargo);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceDeflatedSharpe { observed_sr, n_trials, sr_returns } => {
+            let v = crate::finance::quant::deflated_sharpe_ratio(observed_sr, n_trials, &sr_returns);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceProbabilityBacktestOverfit { insample, oos } => {
+            let v = crate::finance::quant::probability_of_backtest_overfit(&insample, &oos);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceDieboldMariano { losses_a, losses_b, h } => {
+            let v = crate::finance::quant::diebold_mariano(&losses_a, &losses_b, h);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+
+        // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────
+        Method::FinanceForensicReport { this_year, prior_year } => {
+            let v = crate::finance::forensic::forensic_report(&this_year, &prior_year);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+
+        // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────
+        Method::FinanceKalmanFilter1d { observations, f, q, h, r, x0, p0 } => {
+            let v = crate::finance::statespace::kalman_filter_1d(&observations, f, q, h, r, x0, p0);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceKalmanBeta { market_returns, asset_returns, q, r, beta0, p0 } => {
+            let v = crate::finance::statespace::kalman_beta(&market_returns, &asset_returns, q, r, beta0, p0);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceKalmanVolatility { returns, q, r, log_var0, p0, annualization } => {
+            let v = crate::finance::statespace::kalman_volatility(&returns, q, r, log_var0, p0, annualization);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceAdfTest { series, max_lag } => {
+            let v = crate::finance::statespace::adf_test(&series, max_lag);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceOuCalibrate { spread, dt } => {
+            let v = crate::finance::statespace::ou_calibrate(&spread, dt);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceOuOptimalThresholds { theta, mu, sigma, sigma_eq, cost } => {
+            let params = crate::finance::statespace::OuParams {
+                theta, mu, sigma, sigma_eq,
+                half_life: if theta > 1e-12 { std::f64::consts::LN_2 / theta } else { f64::INFINITY },
+            };
+            let v = crate::finance::statespace::ou_optimal_thresholds(&params, cost);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceMarkovTransitionMatrix { states, n_states } => {
+            let v = crate::finance::statespace::markov_transition_matrix(&states, n_states);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+
+        // ── Signal Combination / Sizing / Calibration (CONCEPT:KG-2.20i) ──
+        Method::FinanceOrderBookImbalance { v_bid, v_ask } => {
+            let v = crate::finance::quant::order_book_imbalance(&v_bid, &v_ask);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceInformationRatio { ic, n_independent } => {
+            let v = crate::finance::quant::information_ratio(ic, n_independent);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceEffectiveIndependentN { returns_matrix } => {
+            let v = crate::finance::quant::effective_independent_n(&returns_matrix);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceAlphaCombinationEngine { returns_matrix, lookback } => {
+            let v = crate::finance::quant::alpha_combination_engine(&returns_matrix, lookback);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceBrierScore { forecasts, outcomes } => {
+            let v = crate::finance::quant::brier_score(&forecasts, &outcomes);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceConvergenceGate { strengths, strong_threshold, min_agree } => {
+            let v = crate::finance::quant::convergence_gate(&strengths, strong_threshold, min_agree);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceEmpiricalKelly { p, b, historical_returns, n_simulations, seed } => {
+            let v = crate::finance::quant::empirical_kelly(p, b, &historical_returns, n_simulations, seed);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+
+        // ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ────
+        Method::FinanceSabrImpliedVol { f, k, t, alpha, beta, rho, nu } => {
+            let v = crate::finance::derivatives::sabr_implied_vol(f, k, t, alpha, beta, rho, nu);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceSabrSmile { f, strikes, t, alpha, beta, rho, nu } => {
+            let v = crate::finance::derivatives::sabr_smile(f, &strikes, t, alpha, beta, rho, nu);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceSabrCalibrate { f, t, strikes, market_vols, beta } => {
+            let v = crate::finance::derivatives::sabr_calibrate(f, t, &strikes, &market_vols, beta);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
         Method::FindSimilarPairs { embeddings: _, ids: _, threshold: _, use_lsh: _, lsh_num_tables: _, lsh_hash_size: _, seed: _ } => {
             Response::err(req_id, "FindSimilarPairs is deprecated. Use datascience primitives.".to_string())
         }
