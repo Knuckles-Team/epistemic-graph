@@ -105,7 +105,27 @@ Engine capabilities served over the protocol:
   (`detect_regimes` — Baum-Welch + Viterbi); signals (`rolling_zscore`, `ewma`,
   `signal_decay`, `combine_alphas`, `cross_sectional_rank`, `momentum`,
   `mean_reversion`, `information_coefficient`); execution/microstructure
-  (`twap`, `vwap`, `market_impact`, `pairs_trading`, `match_orders`).
+  (`twap`, `vwap`, `market_impact`, `pairs_trading`, `match_orders`);
+  **market-making / HFT** (`CONCEPT:KG-2.20f`): `avellaneda_stoikov`,
+  `glt_quotes`, `logit_quotes` (bounded prediction-market prices + boundary
+  inventory cap), `glosten_milgrom_spread`, `expected_pnl_rate`,
+  `breakeven_alpha`, `ofi_series`, `microprice_series`, `vpin_pm`, `hawkes_mle`
+  (+ `hardiman_bouchaud`); **sizing** `kelly_fraction`, `bayesian_kelly`,
+  `posterior_credible_interval`; **backtest validation** `purged_cpcv`,
+  `deflated_sharpe`, `probability_backtest_overfit`, `diebold_mariano`;
+  **forensic accounting** (`CONCEPT:KG-2.20g`) `forensic_report` — Beneish M /
+  Altman Z / Piotroski F / Sloan accruals over two fiscal years;
+  **state-space / stat-arb** (`CONCEPT:KG-2.20h`): `kalman_filter_1d`,
+  `kalman_beta` (dynamic time-varying beta), `kalman_volatility` (log-variance
+  state), `adf_test` (cointegration; finite-sample-interpolated MacKinnon 1/5/10% criticals
+  + approximate p-value), `ou_calibrate` + `ou_optimal_thresholds`
+  (Ornstein-Uhlenbeck mean reversion with numerical-MFPT-optimal entry/exit),
+  `markov_transition_matrix`; **signal combination / sizing / calibration**
+  (`CONCEPT:KG-2.20i`): `order_book_imbalance`, `information_ratio` (IC·√N),
+  `effective_independent_n` (eigenvalue participation ratio), `alpha_combination_engine`,
+  `brier_score`, `convergence_gate`, `empirical_kelly` (uncertainty-adjusted);
+  **derivatives** (`CONCEPT:KG-2.20j`): `sabr_implied_vol`, `sabr_smile`, `sabr_calibrate`
+  (Hagan 2002 SABR stochastic-vol surface for smile/skew vol-arb).
 - **data science** (`client.datascience.*`): primitives (`linear_regression`
   OLS, `kmeans`, `pca`, `compute_stats`, `train_test_split` with seeded shuffle);
   and a stateless estimator API — `fit_estimator(name, x, y, params)` returns a

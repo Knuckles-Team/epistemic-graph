@@ -464,6 +464,234 @@ pub enum Method {
         orders: Vec<crate::finance::exchange::Order>,
     },
 
+    // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────────
+    FinanceAvellanedaStoikov {
+        mid: f64,
+        inventory: f64,
+        sigma: f64,
+        gamma: f64,
+        kappa: f64,
+        tau: f64,
+    },
+    FinanceGltQuotes {
+        mid: f64,
+        inventory: f64,
+        sigma: f64,
+        gamma: f64,
+        kappa: f64,
+        a: f64,
+    },
+    FinanceLogitQuotes {
+        p_mid: f64,
+        inventory: f64,
+        sigma: f64,
+        gamma: f64,
+        kappa: f64,
+        tau: f64,
+        boundary_m: f64,
+    },
+    FinanceGlostenMilgromSpread {
+        alpha: f64,
+        p: f64,
+    },
+    FinanceExpectedPnlRate {
+        delta: f64,
+        a: f64,
+        kappa: f64,
+        alpha: f64,
+        p: f64,
+        v_h: f64,
+        v_l: f64,
+    },
+    FinanceBreakevenAlpha {
+        delta: f64,
+        p: f64,
+        v_h: f64,
+        v_l: f64,
+    },
+    FinanceOfiSeries {
+        ts: Vec<f64>,
+        bid_px: Vec<f64>,
+        bid_sz: Vec<f64>,
+        ask_px: Vec<f64>,
+        ask_sz: Vec<f64>,
+        window_secs: f64,
+    },
+    FinanceMicropriceSeries {
+        bid_px: Vec<f64>,
+        bid_sz: Vec<f64>,
+        ask_px: Vec<f64>,
+        ask_sz: Vec<f64>,
+    },
+    FinanceVpinPm {
+        buy_vol: Vec<f64>,
+        sell_vol: Vec<f64>,
+        p_mean: Vec<f64>,
+    },
+    FinanceHawkesMle {
+        times: Vec<f64>,
+        t_horizon: f64,
+        max_iter: usize,
+    },
+    FinanceHardimanBouchaud {
+        times: Vec<f64>,
+        t_horizon: f64,
+        n_windows: usize,
+    },
+
+    // ── Position Sizing (CONCEPT:KG-2.20f) ────────────────────────────
+    FinanceKellyFraction {
+        q: f64,
+        c: f64,
+        fraction: f64,
+    },
+    FinanceBayesianKelly {
+        alpha: f64,
+        beta: f64,
+        c: f64,
+        n_quadrature: usize,
+    },
+    FinancePosteriorCredibleInterval {
+        alpha: f64,
+        beta: f64,
+        level: f64,
+    },
+
+    // ── Backtest Validation (CONCEPT:KG-2.20f) ────────────────────────
+    FinancePurgedCpcv {
+        n_samples: usize,
+        n_groups: usize,
+        n_test_groups: usize,
+        purge_window: usize,
+        embargo: usize,
+    },
+    FinanceDeflatedSharpe {
+        observed_sr: f64,
+        n_trials: usize,
+        sr_returns: Vec<f64>,
+    },
+    FinanceProbabilityBacktestOverfit {
+        insample: Vec<Vec<f64>>,
+        oos: Vec<Vec<f64>>,
+    },
+    FinanceDieboldMariano {
+        losses_a: Vec<f64>,
+        losses_b: Vec<f64>,
+        h: usize,
+    },
+
+    // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────────
+    FinanceForensicReport {
+        this_year: crate::finance::forensic::YearData,
+        prior_year: crate::finance::forensic::YearData,
+    },
+
+    // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────────
+    FinanceKalmanFilter1d {
+        observations: Vec<f64>,
+        f: f64,
+        q: f64,
+        h: f64,
+        r: f64,
+        x0: f64,
+        p0: f64,
+    },
+    FinanceKalmanBeta {
+        market_returns: Vec<f64>,
+        asset_returns: Vec<f64>,
+        q: f64,
+        r: f64,
+        beta0: f64,
+        p0: f64,
+    },
+    FinanceKalmanVolatility {
+        returns: Vec<f64>,
+        q: f64,
+        r: f64,
+        log_var0: Option<f64>,
+        p0: f64,
+        annualization: f64,
+    },
+    FinanceAdfTest {
+        series: Vec<f64>,
+        max_lag: usize,
+    },
+    FinanceOuCalibrate {
+        spread: Vec<f64>,
+        dt: f64,
+    },
+    FinanceOuOptimalThresholds {
+        theta: f64,
+        mu: f64,
+        sigma: f64,
+        sigma_eq: f64,
+        cost: f64,
+    },
+    FinanceMarkovTransitionMatrix {
+        states: Vec<usize>,
+        n_states: usize,
+    },
+
+    // ── Signal Combination / Sizing / Calibration (CONCEPT:KG-2.20i) ──
+    FinanceOrderBookImbalance {
+        v_bid: Vec<f64>,
+        v_ask: Vec<f64>,
+    },
+    FinanceInformationRatio {
+        ic: f64,
+        n_independent: f64,
+    },
+    FinanceEffectiveIndependentN {
+        returns_matrix: Vec<Vec<f64>>,
+    },
+    FinanceAlphaCombinationEngine {
+        returns_matrix: Vec<Vec<f64>>,
+        lookback: usize,
+    },
+    FinanceBrierScore {
+        forecasts: Vec<f64>,
+        outcomes: Vec<f64>,
+    },
+    FinanceConvergenceGate {
+        strengths: Vec<f64>,
+        strong_threshold: f64,
+        min_agree: usize,
+    },
+    FinanceEmpiricalKelly {
+        p: f64,
+        b: f64,
+        historical_returns: Vec<f64>,
+        n_simulations: usize,
+        seed: u64,
+    },
+
+    // ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ────────
+    FinanceSabrImpliedVol {
+        f: f64,
+        k: f64,
+        t: f64,
+        alpha: f64,
+        beta: f64,
+        rho: f64,
+        nu: f64,
+    },
+    FinanceSabrSmile {
+        f: f64,
+        strikes: Vec<f64>,
+        t: f64,
+        alpha: f64,
+        beta: f64,
+        rho: f64,
+        nu: f64,
+    },
+    FinanceSabrCalibrate {
+        f: f64,
+        t: f64,
+        strikes: Vec<f64>,
+        market_vols: Vec<f64>,
+        beta: f64,
+    },
+
     // ── Zero-Trust Consensus ─────────────────────────────────────────
     RegisterIdentity {
         agent_id: String,
