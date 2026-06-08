@@ -104,6 +104,17 @@ Replaces `scikit-learn` on the hot path (parity-validated). Served via
   Names: `ridge`, `lasso`, `elasticnet`, `decisiontree`, `randomforest`,
   `gradientboosting`, `adaboost`, `svr` (RBF/linear via SMO). `rayon`-parallel
   forests; no external ML crates.
+- **Training kernels** (`training.rs`, CONCEPT:KG-2.22): the pure-Rust loss /
+  optimizer performance path for the in-house training substrate — `softmax`,
+  `log_softmax`, `cross_entropy` (+ analytic grad), `dpo_loss` (Bradley-Terry,
+  + chosen/rejected grads), `grpo_surrogate` (PPO/GRPO clipped, + grad with a
+  zero-grad clip region), `kl_divergence` (Schulman k3), `adam_step`, `sgd_step`.
+  Mirrors the torch kernels in `data-science-mcp trainers/objectives.py` so a
+  trainer can batch a step over the wire in one round-trip. No candle/ndarray —
+  same hand-vectorized style as the rest of `datascience`. Each is a forward (and,
+  where it drives backprop, an analytic-gradient) function; unit-tested on toy
+  tensors. New kernel? add a fn here + `Method::Ds*` (protocol.rs) + dispatch
+  (server.rs) + `client.datascience.*` (client.py) + a round-trip test.
 
 > Downstream packages (e.g. `data-science-mcp`, `emerald-exchange`,
 > `agent-utilities/domains/finance`) should call these over the client rather
