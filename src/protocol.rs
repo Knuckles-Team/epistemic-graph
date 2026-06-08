@@ -15,6 +15,26 @@ fn default_split_seed() -> u64 {
     42
 }
 
+/// serde defaults for the training loss/optimizer kernels (CONCEPT:KG-2.22).
+fn default_temperature() -> f64 {
+    1.0
+}
+fn default_dpo_beta() -> f64 {
+    0.1
+}
+fn default_clip_eps() -> f64 {
+    0.2
+}
+fn default_adam_beta1() -> f64 {
+    0.9
+}
+fn default_adam_beta2() -> f64 {
+    0.999
+}
+fn default_adam_eps() -> f64 {
+    1e-8
+}
+
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
@@ -357,6 +377,60 @@ pub enum Method {
     DsPredictEstimator {
         model: crate::datascience::estimators::FittedModel,
         x: Vec<Vec<f64>>,
+    },
+
+    // ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ────────────
+    DsSoftmax {
+        logits: Vec<f64>,
+        #[serde(default = "default_temperature")]
+        temperature: f64,
+    },
+    DsLogSoftmax {
+        logits: Vec<f64>,
+    },
+    DsCrossEntropy {
+        logits: Vec<Vec<f64>>,
+        labels: Vec<usize>,
+    },
+    DsDpoLoss {
+        policy_chosen: Vec<f64>,
+        policy_rejected: Vec<f64>,
+        ref_chosen: Vec<f64>,
+        ref_rejected: Vec<f64>,
+        #[serde(default = "default_dpo_beta")]
+        beta: f64,
+    },
+    DsGrpoSurrogate {
+        logprob: Vec<f64>,
+        old_logprob: Vec<f64>,
+        advantage: Vec<f64>,
+        #[serde(default = "default_clip_eps")]
+        clip_eps: f64,
+    },
+    DsKlDivergence {
+        logprob: Vec<f64>,
+        ref_logprob: Vec<f64>,
+    },
+    DsAdamStep {
+        params: Vec<f64>,
+        grads: Vec<f64>,
+        #[serde(default)]
+        m: Vec<f64>,
+        #[serde(default)]
+        v: Vec<f64>,
+        lr: f64,
+        #[serde(default = "default_adam_beta1")]
+        beta1: f64,
+        #[serde(default = "default_adam_beta2")]
+        beta2: f64,
+        #[serde(default = "default_adam_eps")]
+        eps: f64,
+        t: u64,
+    },
+    DsSgdStep {
+        params: Vec<f64>,
+        grads: Vec<f64>,
+        lr: f64,
     },
 
     // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────────

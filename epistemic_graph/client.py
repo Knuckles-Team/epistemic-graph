@@ -1318,6 +1318,114 @@ class DataScienceClient:
         """Predict with a model blob returned by ``fit_estimator``."""
         return await self._client._send("DsPredictEstimator", {"model": model, "x": x})
 
+    # ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ──────────────────
+    # The Rust performance path for the in-house training substrate (Wave C / C1),
+    # mirroring data-science-mcp `trainers/objectives.py`. Batch a step over the
+    # wire instead of marshalling per element.
+
+    async def softmax(
+        self, logits: list[float], temperature: float = 1.0
+    ) -> list[float]:
+        """Numerically-stable softmax with temperature."""
+        return await self._client._send(
+            "DsSoftmax", {"logits": logits, "temperature": temperature}
+        )
+
+    async def log_softmax(self, logits: list[float]) -> list[float]:
+        """Numerically-stable log-softmax."""
+        return await self._client._send("DsLogSoftmax", {"logits": logits})
+
+    async def cross_entropy(
+        self, logits: list[list[float]], labels: list[int]
+    ) -> dict[str, Any]:
+        """Mean categorical cross-entropy → ``{loss, grad}`` (grad = softmax−onehot)."""
+        return await self._client._send(
+            "DsCrossEntropy", {"logits": logits, "labels": labels}
+        )
+
+    async def dpo_loss(
+        self,
+        policy_chosen: list[float],
+        policy_rejected: list[float],
+        ref_chosen: list[float],
+        ref_rejected: list[float],
+        beta: float = 0.1,
+    ) -> dict[str, Any]:
+        """Bradley-Terry DPO loss → ``{loss, grad_chosen, grad_rejected}``."""
+        return await self._client._send(
+            "DsDpoLoss",
+            {
+                "policy_chosen": policy_chosen,
+                "policy_rejected": policy_rejected,
+                "ref_chosen": ref_chosen,
+                "ref_rejected": ref_rejected,
+                "beta": beta,
+            },
+        )
+
+    async def grpo_surrogate(
+        self,
+        logprob: list[float],
+        old_logprob: list[float],
+        advantage: list[float],
+        clip_eps: float = 0.2,
+    ) -> dict[str, Any]:
+        """GRPO clipped surrogate (loss to minimise) → ``{loss, grad}``."""
+        return await self._client._send(
+            "DsGrpoSurrogate",
+            {
+                "logprob": logprob,
+                "old_logprob": old_logprob,
+                "advantage": advantage,
+                "clip_eps": clip_eps,
+            },
+        )
+
+    async def kl_divergence(
+        self, logprob: list[float], ref_logprob: list[float]
+    ) -> float:
+        """Schulman k3 low-variance KL estimate (≥0)."""
+        return await self._client._send(
+            "DsKlDivergence", {"logprob": logprob, "ref_logprob": ref_logprob}
+        )
+
+    async def adam_step(
+        self,
+        params: list[float],
+        grads: list[float],
+        *,
+        lr: float,
+        t: int,
+        m: list[float] | None = None,
+        v: list[float] | None = None,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        eps: float = 1e-8,
+    ) -> dict[str, Any]:
+        """One Adam step with bias correction → ``{params, m, v}``."""
+        return await self._client._send(
+            "DsAdamStep",
+            {
+                "params": params,
+                "grads": grads,
+                "m": m or [],
+                "v": v or [],
+                "lr": lr,
+                "beta1": beta1,
+                "beta2": beta2,
+                "eps": eps,
+                "t": t,
+            },
+        )
+
+    async def sgd_step(
+        self, params: list[float], grads: list[float], lr: float
+    ) -> list[float]:
+        """One plain SGD step ``params − lr·grads``."""
+        return await self._client._send(
+            "DsSgdStep", {"params": params, "grads": grads, "lr": lr}
+        )
+
 
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client

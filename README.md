@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.25.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.26.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/language-Rust%20%7C%20Python-orange" alt="Language">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -68,6 +68,8 @@ The `epistemic-graph` crate is the **singular computation engine** for the agent
 - **K-Means Clustering**: Parallel centroid computation
 - **PCA**: Eigenvalue decomposition via power iteration
 - **Dataset Statistics**: Mean, std, min, max, correlation matrix
+- **Estimators**: ridge / lasso / elasticnet / decisiontree / randomforest / gradientboosting / adaboost / svr (replaces sklearn on the hot path)
+- **Training loss / optimizer kernels (CONCEPT:KG-2.22)**: `softmax` / `log_softmax`, `cross_entropy` (+grad), `dpo_loss` (Bradley-Terry, +grads), `grpo_surrogate` (PPO clip, +grad), `kl_divergence` (Schulman k3), `adam_step` / `sgd_step` — the pure-Rust performance path for the in-house training substrate, mirroring `data-science-mcp trainers/objectives.py`. `client.datascience.{...}`.
 
 ### Reasoning Engine (CONCEPT:KG-2.23)
 - **Transitive/Symmetric Inference**: Compiled Datalog closures

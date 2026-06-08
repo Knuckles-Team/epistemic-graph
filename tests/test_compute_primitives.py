@@ -170,3 +170,57 @@ def test_match_orders_roundtrip(clean_graph):
     fills = clean_graph.finance.match_orders(orders)
     assert isinstance(fills, list)
     assert len(fills) >= 1
+
+
+# ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ────────────────────
+
+
+def test_softmax_roundtrip(clean_graph):
+    probs = clean_graph.datascience.softmax([1.0, 2.0, 3.0], temperature=1.0)
+    assert len(probs) == 3
+    assert math.isclose(sum(probs), 1.0, abs_tol=1e-9)
+    assert probs[2] > probs[1] > probs[0]
+
+
+def test_log_softmax_roundtrip(clean_graph):
+    ls = clean_graph.datascience.log_softmax([0.5, -1.0, 2.0])
+    # log-softmax exponentiates back to a simplex
+    assert math.isclose(sum(math.exp(x) for x in ls), 1.0, abs_tol=1e-9)
+
+
+def test_cross_entropy_roundtrip(clean_graph):
+    res = clean_graph.datascience.cross_entropy([[2.0, 1.0, 0.1], [0.5, 2.5, 0.3]], [0, 1])
+    assert res["loss"] > 0.0
+    for row in res["grad"]:
+        assert math.isclose(sum(row), 0.0, abs_tol=1e-9)  # softmax−onehot sums to 0
+
+
+def test_dpo_loss_roundtrip(clean_graph):
+    small = clean_graph.datascience.dpo_loss([0.2], [0.0], [0.0], [0.0], beta=1.0)
+    big = clean_graph.datascience.dpo_loss([2.0], [0.0], [0.0], [0.0], beta=1.0)
+    assert big["loss"] < small["loss"]  # wider margin → lower loss
+    assert math.isclose(big["grad_chosen"][0], -big["grad_rejected"][0], abs_tol=1e-9)
+
+
+def test_grpo_surrogate_roundtrip(clean_graph):
+    lp = [0.5, -0.5, 1.0]
+    res = clean_graph.datascience.grpo_surrogate(lp, lp, [1.0, -1.0, 0.5], clip_eps=0.2)
+    assert math.isclose(res["loss"], -((1.0 - 1.0 + 0.5) / 3.0), abs_tol=1e-9)
+
+
+def test_kl_divergence_roundtrip(clean_graph):
+    lp = [0.1, -0.2, 0.3]
+    assert math.isclose(clean_graph.datascience.kl_divergence(lp, lp), 0.0, abs_tol=1e-9)
+    assert clean_graph.datascience.kl_divergence(lp, [0.6, 0.1, 0.0]) >= 0.0
+
+
+def test_adam_step_roundtrip(clean_graph):
+    res = clean_graph.datascience.adam_step([1.0], [1.0], lr=0.1, t=1)
+    assert res["params"][0] < 1.0  # positive grad → param decreases
+    assert len(res["m"]) == 1 and len(res["v"]) == 1
+
+
+def test_sgd_step_roundtrip(clean_graph):
+    res = clean_graph.datascience.sgd_step([1.0, 2.0], [0.5, -0.5], 0.1)
+    assert math.isclose(res[0], 0.95, abs_tol=1e-9)
+    assert math.isclose(res[1], 2.05, abs_tol=1e-9)
