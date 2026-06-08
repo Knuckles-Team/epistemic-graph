@@ -418,6 +418,69 @@ async fn dispatch_graph_op(
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(preds)))
         }
 
+        // ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ────────
+        Method::DsSoftmax { logits, temperature } => {
+            let r = crate::datascience::training::softmax(&logits, temperature);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+        }
+        Method::DsLogSoftmax { logits } => {
+            let r = crate::datascience::training::log_softmax(&logits);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+        }
+        Method::DsCrossEntropy { logits, labels } => {
+            let r = crate::datascience::training::cross_entropy(&logits, &labels);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+        }
+        Method::DsDpoLoss {
+            policy_chosen,
+            policy_rejected,
+            ref_chosen,
+            ref_rejected,
+            beta,
+        } => {
+            let r = crate::datascience::training::dpo_loss(
+                &policy_chosen,
+                &policy_rejected,
+                &ref_chosen,
+                &ref_rejected,
+                beta,
+            );
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+        }
+        Method::DsGrpoSurrogate { logprob, old_logprob, advantage, clip_eps } => {
+            let r = crate::datascience::training::grpo_surrogate(
+                &logprob,
+                &old_logprob,
+                &advantage,
+                clip_eps,
+            );
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+        }
+        Method::DsKlDivergence { logprob, ref_logprob } => {
+            let r = crate::datascience::training::kl_divergence(&logprob, &ref_logprob);
+            Response::ok(req_id, ResultPayload::Float(r))
+        }
+        Method::DsAdamStep {
+            params,
+            grads,
+            m,
+            v,
+            lr,
+            beta1,
+            beta2,
+            eps,
+            t,
+        } => {
+            let r = crate::datascience::training::adam_step(
+                &params, &grads, &m, &v, lr, beta1, beta2, eps, t,
+            );
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+        }
+        Method::DsSgdStep { params, grads, lr } => {
+            let r = crate::datascience::training::sgd_step(&params, &grads, lr);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+        }
+
         // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────
         Method::FinanceVar { returns, confidence } => {
             let v = crate::finance::risk::historical_var(&returns, confidence);
