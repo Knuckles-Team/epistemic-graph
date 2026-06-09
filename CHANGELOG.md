@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`ParseFiles` batch AST op (CONCEPT:KG-2.16)** — parse N files in ONE round-trip instead of N
+  per-file `ParseFile` calls. `Method::ParseFiles { files_msgpack }` (a MessagePack
+  `Vec<(path, source)>`) → `parser::tree_sitter::parse_files`, which fans the files across rayon
+  (each parse is stateless), returns an **ordered** `Vec<ParseResult>` (1:1 with input), and maps a
+  per-file parse failure to an empty result so the batch never aborts. `Health` now advertises
+  `version` + `ops` (e.g. `["ParseFiles"]`) for client capability negotiation. Client:
+  `GraphOperationsClient.parse_files()` + `EpistemicGraphClient.supports()`. Version → 0.27.0.
 - **Training loss / optimizer kernels (CONCEPT:KG-2.22)** — `src/datascience/training.rs`: pure-Rust
   `softmax` / `log_softmax`, `cross_entropy` (+ analytic grad), `dpo_loss` (Bradley-Terry, + chosen/rejected
   grads), `grpo_surrogate` (PPO/GRPO clipped, + grad with zero-grad clip region), `kl_divergence` (Schulman k3),
