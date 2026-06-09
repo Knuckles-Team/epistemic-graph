@@ -19,7 +19,7 @@
 
 ## Architecture
 
-The `epistemic-graph` crate is the **singular computation engine** for the agent-utilities ecosystem. All high-performance operations route through this crate, exposed to Python via PyO3 FFI or accessed remotely via the Tokio UDS/TCP server.
+The `epistemic-graph` crate is the **singular computation engine** for the agent-utilities ecosystem. All high-performance operations route through this crate, exposed to Python **out-of-process** over a long-running Tokio service speaking length-prefixed **MessagePack over Unix Domain Sockets (default) or TCP**, authenticated with HMAC-SHA256. There is **no PyO3 / in-process FFI** — the engine runs as a separate process (`maturin` ships it as `bindings = "bin"`), so callers cross a network boundary, not a function call. This is enforced by `scripts/check_no_pyo3.sh`.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -38,7 +38,7 @@ The `epistemic-graph` crate is the **singular computation engine** for the agent
 │  ╔════════════════════════════════════════════════════╗   │
 │  ║  Tokio Server (UDS/TCP + HMAC-SHA256 auth)        ║   │
 │  ╚════════════════════════════════════════════════════╝   │
-│                         ↕ PyO3 FFI                       │
+│           ↕ length-prefixed MessagePack (UDS / TCP)      │
 │  ╔════════════════════════════════════════════════════╗   │
 │  ║  Python: EpistemicGraph class                     ║   │
 │  ╚════════════════════════════════════════════════════╝   │
