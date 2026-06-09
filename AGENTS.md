@@ -222,3 +222,26 @@ no `*.db`/`*.log`/scratch `*.txt`/`*.orig`/`*.rej`/`*.bak`, no build artifacts
 (`*.tsbuildinfo`), and no AI scratch dirs (`.agent/`, `.agents/`, `.agent_data/`,
 `.tmp/`, `.hypothesis/`). Put experiments in `~/workspace/scratch/`, tests in
 `tests/`. Run `git status` before finishing and confirm no stray root files.
+
+## Working with Git Worktrees (multi-session)
+
+Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
+edit the canonical checkout** (`/home/apps/workspace/agent-packages/<repo>`) — a
+background `repository-manager` sync can reset its working tree and discard
+uncommitted edits. Take your own git worktree on your own branch instead:
+
+```bash
+# preferred — repository-manager MCP:
+rm_worktree add <repo> <your-branch>      # -> /home/apps/worktrees/<repo>/<your-branch>
+
+# raw-git fallback:
+git -C agent-packages/<repo> checkout main
+git -C agent-packages/<repo> worktree add /home/apps/worktrees/<repo>/<branch> -b <branch>
+```
+
+Work in the worktree, **commit often** (commits survive a working-tree reset),
+then merge to main locally (`rm_worktree merge <repo> <branch>`, or `git merge
+--no-ff`). Each session must use a **distinct branch** — git allows a branch in
+only one worktree, which is what keeps concurrent sessions from colliding.
+Worktrees live under `/home/apps/worktrees/` (outside the workspace scan, so the
+sync leaves them alone). Push only when asked.
