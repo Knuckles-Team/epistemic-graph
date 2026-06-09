@@ -93,3 +93,30 @@ def test_length_prefixed_framing_is_binary_safe():
 
     assert decoded["params"]["blob"] == b"\x0a\x0a\xde\xad\x0a\xbe\xef\x0a"
     assert decoded["id"] == 7
+
+
+# ── group_relative_advantage (RL reward kernel, CONCEPT:KG-2.20i) ───────────
+
+
+def test_group_relative_advantage_grpo_and_dr_grpo():
+    from epistemic_graph.quant import group_relative_advantage
+
+    # GRPO: (r−μ)/σ — symmetric, mean maps to 0.
+    adv = group_relative_advantage([1.0, 2.0, 3.0])
+    assert adv[1] == 0.0
+    assert adv[0] == pytest.approx(-adv[2])
+    # Dr.GRPO length_unbiased: centered (r−μ), no /σ division.
+    assert group_relative_advantage([1.0, 2.0, 3.0], length_unbiased=True) == [
+        -1.0,
+        0.0,
+        1.0,
+    ]
+    # degenerate groups → zeros
+    assert group_relative_advantage([]) == []
+    assert group_relative_advantage([5.0]) == [0.0]
+    assert group_relative_advantage([2.0, 2.0, 2.0]) == [0.0, 0.0, 0.0]
+
+
+# (cross-package parity with agent-utilities' batch_normalized_advantage is asserted
+# from the agent-utilities side — tests/test_training_signals.py — where both packages
+# import cleanly; agent-utilities depends on epistemic-graph, not the reverse.)
