@@ -1,6 +1,6 @@
 # Technical Overview — epistemic-graph
 
-The `epistemic-graph` project implements the high-performance graph compute backend for the Knowledge Graph in the agent ecosystem. By leveraging **Rust's `petgraph`** library and compiling as a **PyO3 native binary**, it provides sub-millisecond graph processing operations, including dependency cycle detection, topological sorting, and shortest path search.
+The `epistemic-graph` project implements the high-performance graph compute backend for the Knowledge Graph in the agent ecosystem. By leveraging **Rust's `petgraph`** library and running as an **out-of-process Tokio service** (length-prefixed **MessagePack over UDS/TCP**, HMAC-authenticated — **no PyO3/FFI**), it provides sub-millisecond graph processing operations, including dependency cycle detection, topological sorting, and shortest path search.
 
 ---
 
@@ -10,13 +10,14 @@ The `epistemic-graph` project implements the high-performance graph compute back
 graph TD
     subgraph Python Environment
         AU[agent_utilities / engine.py] --> GCE[GraphComputeEngine]
-        GCE -->|backend_type='rust'| EG_PY[import epistemic_graph]
+        GCE -->|backend_type='rust'| EG_PY[epistemic_graph.client]
     end
 
-    subgraph Native Compiled Layer (PyO3)
-        EG_PY -->|epistemic-graph / PyClass| EG_RS[EpistemicGraph Struct]
-        EG_RS -->|StableDiGraph| PG[petgraph StableDiGraph]
+    subgraph Rust Server Process - epistemic-graph-server
+        EG_RS[GraphCore] -->|StableDiGraph| PG[petgraph StableDiGraph]
     end
+
+    EG_PY -->|length-prefixed MessagePack over UDS / TCP| EG_RS
 ```
 
 ### Core Struct (`src/lib.rs`)
