@@ -59,6 +59,27 @@ epistemic-graph-service graphs list
 | `--checkpoint-interval` | — | `300` | Auto-checkpoint interval (seconds) |
 | `--persist-on-shutdown` | — | `true` | Serialize on SIGTERM |
 
+## Snapshot persistence
+
+When `--persist-dir` is set the service keeps a fast, RDB-style on-disk snapshot of
+every in-memory graph so state survives a restart without an external database
+(`src/persist.rs`, server-feature-gated):
+
+- **Format.** Each graph is serialized with `GraphCore::to_msgpack` to
+  `{persist_dir}/{sanitized-name}.mp` (compact MessagePack — small on disk, fast to
+  write), alongside a `manifest.json` listing the graphs and their files.
+- **Atomicity.** Each snapshot is written to a temp file and `rename`d into place, so
+  a crash mid-write never corrupts the previous good snapshot.
+- **Triggers.** `checkpoint_all(state)` runs (1) on an interval timer every
+  `--checkpoint-interval` seconds, (2) on the `Checkpoint` RPC (returns
+  `checkpoint_complete:{n}`), and (3) on graceful shutdown when
+  `--persist-on-shutdown` is true.
+- **Recovery.** On startup `load_all(state)` reads the manifest and rehydrates every
+  graph before the listener accepts connections, so clients reconnect to a warm graph.
+
+This is the durable-backup path for the singleton host daemon: cheap enough to run on
+a short interval, and bounded by the live graph size (no unbounded WAL growth).
+
 ## Wire Protocol
 
 Communication uses JSON-over-newline framing. Each line is a complete JSON object.

@@ -89,6 +89,43 @@ def rolling_zscore(values: list[float], window: int) -> list[float]:
     return result
 
 
+def group_relative_advantage(
+    rewards: list[float], *, eps: float = 1e-8, length_unbiased: bool = False
+) -> list[float]:
+    """Group-relative advantage ``A_i = (r_i − μ) / σ`` — the GRPO/REINFORCE++ kernel.
+
+    CONCEPT:KG-2.20i
+
+    Names the within-group reward normalization (the same math already exposed for
+    cross-sectional finance signals as ``cross_sectional_rank`` / ``rolling_zscore``)
+    as the canonical reinforcement-learning reward kernel, so agent-utilities'
+    ``graph/training_signals.batch_normalized_advantage`` has a native home to delegate
+    the batch math to instead of recomputing it in the Python hot path (GRPO
+    arXiv:2402.03300, REINFORCE++ arXiv:2501.03262).
+
+    ``length_unbiased`` applies the Dr.GRPO correction (arXiv:2503.20783): drop the
+    difficulty-biased ``/σ`` term and return the centered ``(r − μ)``. Degenerate groups
+    (≤1 sample / ~zero variance) return zeros. Population std (``pstdev``) is used so this
+    matches ``batch_normalized_advantage`` bit-for-bit (parity-tested). The Rust hot-path
+    twin follows the standard finance-signal pattern: ``src/finance/signals.rs`` →
+    ``src/protocol.rs`` → ``client.py`` (a batch op, one round-trip).
+    """
+    n = len(rewards)
+    if n == 0:
+        return []
+    if n == 1:
+        return [0.0]
+    mean = sum(rewards) / n
+    centered = [r - mean for r in rewards]
+    if length_unbiased:
+        return [round(c, 6) for c in centered]
+    variance = sum((r - mean) ** 2 for r in rewards) / n  # population variance
+    std = sqrt(variance)
+    if std < eps:
+        return [0.0] * n
+    return [round(c / std, 6) for c in centered]
+
+
 def simulate_order_matching(
     bids: list[tuple[float, float]],
     asks: list[tuple[float, float]],

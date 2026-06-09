@@ -268,3 +268,27 @@ async def test_rust_ast_parser_fallback():
     symbols = [n["properties"]["name"] for n in res["nodes"] if n["node_type"] == "SYMBOL"]
     assert "MyClass" in symbols
     assert "my_method" in symbols
+
+
+@pytest.mark.concept("CONCEPT:KG-2.0")
+def test_get_subgraph_batched(clean_graph):
+    """Batched GetSubgraph returns decoded node properties + induced edges in
+    one round-trip (replaces N per-node GetNodeProperties + a full edge scan)."""
+    g = clean_graph
+    g.nodes.add("a", {"type": "Concept", "name": "Alpha"})
+    g.nodes.add("b", {"type": "Concept", "name": "Beta"})
+    g.nodes.add("c", {"type": "Concept", "name": "Gamma"})  # outside the request
+    g.edges.add("a", "b", {"rel_type": "RELATES_TO"})
+    g.edges.add("b", "c", {"rel_type": "MENTIONS"})  # endpoint c not requested
+
+    sub = g.graph.get_subgraph(["a", "b"])
+
+    # Only requested nodes that exist, with DECODED properties.
+    props = {n["id"]: n["properties"] for n in sub["nodes"]}
+    assert set(props) == {"a", "b"}
+    assert props["a"]["name"] == "Alpha" and props["a"]["type"] == "Concept"
+
+    # Only the edge with both endpoints inside the requested set.
+    rels = {(e["source"], e["target"], e["properties"].get("rel_type")) for e in sub["edges"]}
+    assert ("a", "b", "RELATES_TO") in rels
+    assert all(e["target"] != "c" and e["source"] != "c" for e in sub["edges"])

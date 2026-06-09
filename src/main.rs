@@ -102,6 +102,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
     }));
 
+    // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
+    // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
+    // the configured interval. Both no-op when no persist dir is configured.
+    if let Err(e) = epistemic_graph::persist::load_all(&state).await {
+        tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
+    }
+    if args.checkpoint_interval > 0 {
+        let cp_state = state.clone();
+        let interval = args.checkpoint_interval;
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(interval));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                if let Err(e) = epistemic_graph::persist::checkpoint_all(&cp_state).await {
+                    tracing::warn!("Auto-checkpoint failed: {}", e);
+                }
+            }
+        });
+    }
+
     // ── Transport ───────────────────────────────────────────────────────
     // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,
     // so TCP is the main (and only) transport there.

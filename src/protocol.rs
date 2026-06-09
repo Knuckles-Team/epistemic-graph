@@ -279,6 +279,13 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         source: Vec<u8>,
     },
+    /// Batched parse: one round-trip for N files (CONCEPT:KG-2.16). The blob is
+    /// a MessagePack-encoded `Vec<(file_path, source_bytes)>`; the response is an
+    /// ordered `Vec<ParseResult>`, one per input file. Mirrors `BatchUpdate`.
+    ParseFiles {
+        #[serde(with = "serde_bytes")]
+        files_msgpack: Vec<u8>,
+    },
 
     // ── Semantic Compute ─────────────────────────────────────────────
     AddEmbedding {

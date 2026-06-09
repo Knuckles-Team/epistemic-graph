@@ -69,10 +69,15 @@ pub async fn dispatch(
             // Simplified health check for now
             let uptime_s = 0; // you can capture start time in ServerState
             let mem_bytes = 0;
+            // ``version`` + ``ops`` let clients negotiate capabilities (e.g. only
+            // use ``ParseFiles`` against an engine that advertises it) and fall
+            // back gracefully against an older binary. (CONCEPT:KG-2.19)
             Response::ok(req.id, ResultPayload::Json(serde_json::json!({
                 "status": "ok",
                 "uptime_s": uptime_s,
-                "mem_bytes": mem_bytes
+                "mem_bytes": mem_bytes,
+                "version": env!("CARGO_PKG_VERSION"),
+                "ops": ["ParseFiles"]
             })))
         }
 
@@ -93,6 +98,38 @@ pub async fn dispatch(
             }
         }
 
+        Method::ParseFiles { files_msgpack } => {
+            #[cfg(feature = "ast")]
+            {
+                // Blob is MessagePack `Vec<(file_path, source_bytes)>`; inner bytes
+                // arrive as msgpack `bin`, so decode the source as ByteBuf.
+                let files: Vec<(String, serde_bytes::ByteBuf)> =
+                    match rmp_serde::from_slice(&files_msgpack) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            return Response::err(
+                                req.id,
+                                format!("Invalid files_msgpack: {}", e),
+                            );
+                        }
+                    };
+                let owned: Vec<(String, Vec<u8>)> = files
+                    .into_iter()
+                    .map(|(p, b)| (p, b.into_vec()))
+                    .collect();
+                let results = crate::parser::tree_sitter::parse_files(&owned);
+                match serde_json::to_value(&results) {
+                    Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
+                    Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
+                }
+            }
+            #[cfg(not(feature = "ast"))]
+            {
+                let _ = files_msgpack;
+                Response::err(req.id, "AST feature not enabled".to_string())
+            }
+        }
+
         Method::Shutdown => {
             info!("Shutdown requested via protocol");
             Response::ok(req.id, ResultPayload::String("shutting_down".to_string()))
@@ -100,8 +137,13 @@ pub async fn dispatch(
 
         Method::Checkpoint => {
             info!("Checkpoint requested");
-            // Checkpoint logic would serialize all graphs to disk here.
-            Response::ok(req.id, ResultPayload::String("checkpoint_complete".to_string()))
+            match crate::persist::checkpoint_all(state).await {
+                Ok(n) => Response::ok(
+                    req.id,
+                    ResultPayload::String(format!("checkpoint_complete:{}", n)),
+                ),
+                Err(e) => Response::err(req.id, e),
+            }
         }
 
         // ── Multi-tenant graph management ────────────────────────────
@@ -1020,15 +1062,32 @@ async fn dispatch_graph_op(
             }
         }
         Method::GetSubgraph { node_ids } => {
+            // Batched subgraph read: return the induced nodes (with DECODED
+            // properties) and the edges among them in ONE round-trip, so callers
+            // never loop per-node `GetNodeProperties` or pull the whole edge set.
+            // (Previously serialized to msgpack then mis-parsed as JSON → error.)
             let g = core.read().await;
             let sub = g.get_subgraph(&node_ids);
-            match sub.to_msgpack() {
-                Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
-                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                    Err(e) => Response::err(req_id, e.to_string()),
-                },
-                Err(e) => Response::err(req_id, e),
+            let mut nodes = Vec::with_capacity(sub.node_properties.len());
+            for (id, blob) in &sub.node_properties {
+                let props: serde_json::Value =
+                    rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                nodes.push(serde_json::json!({ "id": id, "properties": props }));
             }
+            let mut edges = Vec::new();
+            for ((src, tgt), blobs) in &sub.edge_properties {
+                for blob in blobs {
+                    let props: serde_json::Value =
+                        rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                    edges.push(serde_json::json!({
+                        "source": src, "target": tgt, "properties": props
+                    }));
+                }
+            }
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({ "nodes": nodes, "edges": edges })),
+            )
         }
         Method::Fork => {
             // Cannot return the forked GraphCore directly because it needs to be registered.
