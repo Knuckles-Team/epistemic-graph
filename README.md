@@ -11,6 +11,10 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
+> **Documentation** — The architecture, service-mode operations, Rust compute
+> reference, measured transport benchmarks, and concept registry for the engine are
+> maintained in the [official documentation](https://knuckles-team.github.io/epistemic-graph/).
+
 ---
 
 ## Architecture
