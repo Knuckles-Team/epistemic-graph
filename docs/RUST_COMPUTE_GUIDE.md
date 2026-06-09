@@ -170,10 +170,10 @@ No `unwrap()` calls on user-facing code paths. All errors are structured and des
 
 | Crate | Version | Purpose |
 |---|---|---|
-| `pyo3` | 0.28 | Python ↔ Rust epistemic-graph |
 | `petgraph` | 0.6.4 | Core graph data structure |
 | `serde` | 1.0 | JSON serialization |
 | `serde_json` | 1.0 | JSON parsing |
+| `rmp-serde` | 1.3 | MessagePack (wire transport — no PyO3) |
 | `rayon` | 1.10 | Data parallelism |
 | `tokio` | 1.x | Async runtime (service layer) |
 | `clap` | 4.x | CLI argument parsing |
