@@ -82,6 +82,38 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
     Ok(count)
 }
 
+/// Apply an Ebbinghaus decay sweep across every registered graph (CONCEPT:KG-2.16).
+///
+/// Mirrors `checkpoint_all`'s lock discipline: the global registry lock is
+/// released before sweeping, and only one per-graph **write** lock is held at a
+/// time, so the sweep never blocks the whole registry. Returns the aggregate
+/// stats. Used by the optional periodic decay tick in `main.rs`.
+pub async fn decay_all(
+    state: &Arc<RwLock<ServerState>>,
+    half_life_secs: f64,
+    floor: f64,
+    prune: bool,
+) -> crate::types::DecayStats {
+    let entries: Vec<Arc<RwLock<GraphCore>>> = {
+        let s = state.read().await;
+        s.registry.all_entries().iter().map(|e| e.core.clone()).collect()
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut total = crate::types::DecayStats::default();
+    for core in entries {
+        let mut g = core.write().await;
+        let s = g.decay_sweep(now, half_life_secs, floor, prune);
+        total.nodes_decayed += s.nodes_decayed;
+        total.edges_decayed += s.edges_decayed;
+        total.nodes_pruned += s.nodes_pruned;
+        total.edges_pruned += s.edges_pruned;
+    }
+    total
+}
+
 /// Reconstruct the registry from the persist dir on startup.
 ///
 /// Returns the number of graphs loaded. No-op (Ok(0)) when no persist dir or no

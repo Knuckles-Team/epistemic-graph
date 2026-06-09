@@ -351,6 +351,32 @@ class LifecycleClient:
         """Evict oldest nodes to enforce max_nodes cap. Returns eviction count."""
         return await self._client._send("EvictLRU", {"max_nodes": max_nodes})
 
+    async def decay_sweep(
+        self,
+        half_life_secs: float = 604_800.0,
+        floor: float = 0.0,
+        prune: bool = False,
+    ) -> dict[str, Any]:
+        """CONCEPT:KG-2.16 — Ebbinghaus forgetting-curve decay.
+
+        Decays every node's and edge's belief ``confidence`` by
+        ``R = 0.5 ** (Δt / half_life_secs)`` since its last access, persisting the
+        result and advancing the access clock so repeated sweeps compound exactly.
+        With ``prune=True`` (or a positive ``floor``), items whose decayed
+        confidence falls below ``floor`` are removed. The server is the time
+        authority. Returns ``{nodes_decayed, edges_decayed, nodes_pruned,
+        edges_pruned}``.
+        """
+        return await self._client._send(
+            "DecaySweep",
+            {"half_life_secs": half_life_secs, "floor": floor, "prune": prune},
+        )
+
+    async def touch_nodes(self, node_ids: list[str]) -> int:
+        """Refresh nodes on access (spaced repetition): reset the forgetting clock
+        and restore ``confidence = 1.0``. Returns the number of nodes touched."""
+        return await self._client._send("TouchNodes", {"node_ids": node_ids})
+
 
 class LedgerClient:
     """CONCEPT:KG-2.0 — Ledger Namespace"""

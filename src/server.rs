@@ -874,6 +874,27 @@ async fn dispatch_graph_op(
             let evicted = g.evict_lru(max_nodes);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
         }
+        Method::DecaySweep { half_life_secs, floor, prune } => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let mut g = core.write().await;
+            let stats = g.decay_sweep(now, half_life_secs, floor, prune);
+            match serde_json::to_value(&stats) {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                Err(e) => Response::err(req_id, e.to_string()),
+            }
+        }
+        Method::TouchNodes { node_ids } => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let mut g = core.write().await;
+            let touched = g.touch_nodes(&node_ids, now);
+            Response::ok(req_id, ResultPayload::Count(touched as u64))
+        }
         Method::ToMsgpack => {
             let g = core.read().await;
             match g.to_msgpack() {
