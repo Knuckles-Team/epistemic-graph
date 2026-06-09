@@ -141,6 +141,19 @@ class GraphOperationsClient:
             "ParseFile", {"file_path": file_path, "source": source}
         )
 
+    async def parse_files(
+        self, files: list[tuple[str, bytes]]
+    ) -> list[dict[str, Any]]:
+        """Parse many files in ONE round-trip (CONCEPT:KG-2.16 batch op).
+
+        ``files`` is a list of ``(file_path, source_bytes)``. Returns one parse
+        result per input file, **in input order**, each with the same shape as
+        :meth:`parse_file`. The payload mirrors the ``BatchUpdate`` convention: a
+        single MessagePack blob (``Vec<(String, bytes)>`` engine-side).
+        """
+        blob = msgpack.packb([[fp, src] for fp, src in files])
+        return await self._client._send("ParseFiles", {"files_msgpack": blob})
+
     async def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         await self._client._send(
             "AddEmbedding", {"node_id": node_id, "embedding": embedding}
@@ -1576,6 +1589,24 @@ class EpistemicGraphClient:
 
     async def health(self) -> dict[str, Any]:
         return await self._send("Health")
+
+    async def supports(self, op: str) -> bool:
+        """True if the connected engine advertises protocol op ``op``.
+
+        Capability negotiation (CONCEPT:KG-2.19): the server's ``Health`` response
+        carries an ``ops`` list. The probe is cached for the connection's life. An
+        older engine that doesn't advertise ``ops`` reports no extra ops, so newer
+        callers (e.g. ``ParseFiles``) gracefully fall back to per-item paths.
+        """
+        ops = getattr(self, "_server_ops", None)
+        if ops is None:
+            try:
+                h = await self.health()
+                ops = set(h.get("ops", []) or []) if isinstance(h, dict) else set()
+            except Exception:
+                ops = set()
+            self._server_ops = ops
+        return op in ops
 
     async def checkpoint(self) -> str:
         return await self._send("Checkpoint")

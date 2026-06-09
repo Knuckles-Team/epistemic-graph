@@ -69,10 +69,15 @@ pub async fn dispatch(
             // Simplified health check for now
             let uptime_s = 0; // you can capture start time in ServerState
             let mem_bytes = 0;
+            // ``version`` + ``ops`` let clients negotiate capabilities (e.g. only
+            // use ``ParseFiles`` against an engine that advertises it) and fall
+            // back gracefully against an older binary. (CONCEPT:KG-2.19)
             Response::ok(req.id, ResultPayload::Json(serde_json::json!({
                 "status": "ok",
                 "uptime_s": uptime_s,
-                "mem_bytes": mem_bytes
+                "mem_bytes": mem_bytes,
+                "version": env!("CARGO_PKG_VERSION"),
+                "ops": ["ParseFiles"]
             })))
         }
 
@@ -89,6 +94,38 @@ pub async fn dispatch(
             #[cfg(not(feature = "ast"))]
             {
                 let _ = (file_path, source);
+                Response::err(req.id, "AST feature not enabled".to_string())
+            }
+        }
+
+        Method::ParseFiles { files_msgpack } => {
+            #[cfg(feature = "ast")]
+            {
+                // Blob is MessagePack `Vec<(file_path, source_bytes)>`; inner bytes
+                // arrive as msgpack `bin`, so decode the source as ByteBuf.
+                let files: Vec<(String, serde_bytes::ByteBuf)> =
+                    match rmp_serde::from_slice(&files_msgpack) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            return Response::err(
+                                req.id,
+                                format!("Invalid files_msgpack: {}", e),
+                            );
+                        }
+                    };
+                let owned: Vec<(String, Vec<u8>)> = files
+                    .into_iter()
+                    .map(|(p, b)| (p, b.into_vec()))
+                    .collect();
+                let results = crate::parser::tree_sitter::parse_files(&owned);
+                match serde_json::to_value(&results) {
+                    Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
+                    Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
+                }
+            }
+            #[cfg(not(feature = "ast"))]
+            {
+                let _ = files_msgpack;
                 Response::err(req.id, "AST feature not enabled".to_string())
             }
         }

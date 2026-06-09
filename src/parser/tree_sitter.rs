@@ -412,6 +412,26 @@ fn get_node_text(node: Node, source: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// Parse many files in one call (CONCEPT:KG-2.16 batch op). Files are parsed
+/// independently and in parallel via rayon (tree-sitter is stateless per call);
+/// a file that fails to parse yields an empty [`ParseResult`] in its slot, so
+/// the output is 1:1 with — and in the same order as — the input. This is the
+/// engine-side primitive behind the `ParseFiles` protocol op: one round-trip
+/// instead of N.
+pub fn parse_files(files: &[(String, Vec<u8>)]) -> Vec<ParseResult> {
+    use rayon::prelude::*;
+    files
+        .par_iter()
+        .map(|(path, src)| {
+            parse_file(path, src).unwrap_or(ParseResult {
+                nodes: Vec::new(),
+                edges: Vec::new(),
+                symbols_extracted: 0,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,5 +523,26 @@ class Strategy(ABC, Base):
         assert!(methods.contains(&"run"));
         assert!(methods.contains(&"__enter__"));
         assert!(methods.contains(&"__exit__"));
+    }
+
+    #[test]
+    fn parse_files_preserves_order_and_is_fault_tolerant() {
+        let files: Vec<(String, Vec<u8>)> = vec![
+            ("a.py".into(), b"def a():\n    return 1\n".to_vec()),
+            // Unsupported extension → parse_file errs → empty slot, no abort.
+            ("b.txt".into(), b"not python".to_vec()),
+            ("c.py".into(), b"class C:\n    def m(self): ...\n".to_vec()),
+        ];
+        let results = parse_files(&files);
+        assert_eq!(results.len(), 3, "one result per input, order preserved");
+        assert!(results[0]
+            .nodes
+            .iter()
+            .any(|n| n.properties.get("name").map(|s| s.as_str()) == Some("a")));
+        assert!(results[1].nodes.is_empty());
+        assert!(results[2]
+            .nodes
+            .iter()
+            .any(|n| n.properties.get("name").map(|s| s.as_str()) == Some("C")));
     }
 }
