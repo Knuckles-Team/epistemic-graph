@@ -971,6 +971,60 @@ async fn dispatch_graph_op(
             }
             Response::ok(req_id, ResultPayload::String("mutation_applied".to_string()))
         }
+        // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. Forward-chaining
+        // OWL/RDFS inference over the target graph. Runs Datalog reasoning
+        // (subclass / subproperty / symmetric / transitive / inverse) and,
+        // when supplied, domain/range and property-chain inference. All
+        // inferred edges and type annotations are materialised in-place and
+        // the inferred triples are returned to the caller.
+        Method::RunDatalogReasoning {
+            subclass_relations,
+            subproperty_relations,
+            symmetric_properties,
+            transitive_properties,
+            inverse_properties,
+            domain_rules,
+            range_rules,
+            property_chains,
+        } => {
+            let mut g = core.write().await;
+            let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
+
+            match crate::reasoning::run_datalog_reasoning(
+                &mut g,
+                subclass_relations,
+                subproperty_relations,
+                symmetric_properties,
+                transitive_properties,
+                inverse_properties,
+            ) {
+                Ok(triples) => all_inferred.extend(triples),
+                Err(e) => return Response::err(req_id, e),
+            }
+
+            if !domain_rules.is_empty() || !range_rules.is_empty() {
+                all_inferred.extend(crate::reasoning::infer_domain_range(
+                    &mut g,
+                    domain_rules,
+                    range_rules,
+                ));
+            }
+
+            if !property_chains.is_empty() {
+                all_inferred.extend(crate::reasoning::infer_property_chains(
+                    &mut g,
+                    property_chains,
+                ));
+            }
+
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "inferred_count": all_inferred.len(),
+                    "inferred_triples": all_inferred,
+                })),
+            )
+        }
         Method::InDegree { node_id } => {
             let g = core.read().await;
             match g.in_degree(&node_id) {

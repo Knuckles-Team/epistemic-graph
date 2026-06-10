@@ -434,3 +434,57 @@ pub fn infer_property_chains(
 
     inferred
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::GraphCore;
+
+    fn props(json: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&json).unwrap()
+    }
+
+    #[test]
+    fn transitive_closure_infers_indirect_edge() {
+        let mut core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({"type": "Person"})));
+        core.add_node("b".into(), props(serde_json::json!({"type": "Person"})));
+        core.add_node("c".into(), props(serde_json::json!({"type": "Person"})));
+        core.add_edge("a".into(), "b".into(), props(serde_json::json!({"type": "ancestor"}))).unwrap();
+        core.add_edge("b".into(), "c".into(), props(serde_json::json!({"type": "ancestor"}))).unwrap();
+
+        let inferred = run_datalog_reasoning(
+            &mut core,
+            vec![],
+            vec![],
+            vec![],
+            vec!["ancestor".into()],
+            vec![],
+        )
+        .unwrap();
+
+        assert!(!inferred.is_empty());
+        assert!(core.has_edge("a", "c"));
+    }
+
+    #[test]
+    fn subclass_inheritance_infers_supertype() {
+        let mut core = GraphCore::new();
+        core.add_node("rex".into(), props(serde_json::json!({"type": "Dog"})));
+
+        let inferred = run_datalog_reasoning(
+            &mut core,
+            vec![("Dog".into(), "Animal".into())],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .unwrap();
+
+        assert!(inferred.iter().any(|t| {
+            t.get("subject").map(String::as_str) == Some("rex")
+                && t.get("object").map(String::as_str) == Some("Animal")
+        }));
+    }
+}
