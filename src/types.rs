@@ -310,6 +310,21 @@ pub struct PruneStats {
     pub nodes_archived: usize,
 }
 
+// ── Decay Stats ──────────────────────────────────────────────────────────
+
+/// Result of an Ebbinghaus forgetting-curve decay sweep (CONCEPT:KG-2.16).
+///
+/// `*_decayed` count items whose belief `confidence` was reduced this sweep;
+/// `*_pruned` count items removed because their decayed confidence fell below
+/// the sweep `floor`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DecayStats {
+    pub nodes_decayed: usize,
+    pub edges_decayed: usize,
+    pub nodes_pruned: usize,
+    pub edges_pruned: usize,
+}
+
 // ── Context View ─────────────────────────────────────────────────────────
 
 /// Optimized context view returned by get_context_view.

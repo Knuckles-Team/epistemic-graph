@@ -535,11 +535,14 @@ class Strategy(ABC, Base):
         ];
         let results = parse_files(&files);
         assert_eq!(results.len(), 3, "one result per input, order preserved");
+        // a.py: function 'a' present.
         assert!(results[0]
             .nodes
             .iter()
             .any(|n| n.properties.get("name").map(|s| s.as_str()) == Some("a")));
+        // b.txt: unsupported → empty result, not an error.
         assert!(results[1].nodes.is_empty());
+        // c.py: class 'C' present (parity with single-file parse_file).
         assert!(results[2]
             .nodes
             .iter()

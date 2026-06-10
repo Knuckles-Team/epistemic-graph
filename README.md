@@ -15,11 +15,17 @@
 > reference, measured transport benchmarks, and concept registry for the engine are
 > maintained in the [official documentation](https://knuckles-team.github.io/epistemic-graph/).
 
+> **This is the compute engine for
+> [`agent-utilities`](https://github.com/Knuckles-Team/agent-utilities)** — a
+> standalone Rust service reached out-of-process over MessagePack/UDS (no PyO3).
+> You can use it on its own (binary + pure-Python client), or let `agent-utilities`
+> drive it. Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ---
 
 ## Architecture
 
-The `epistemic-graph` crate is the **singular computation engine** for the agent-utilities ecosystem. All high-performance operations route through this crate, exposed to Python via PyO3 FFI or accessed remotely via the Tokio UDS/TCP server.
+The `epistemic-graph` crate is the **singular computation engine** for the agent-utilities ecosystem. All high-performance operations route through this crate, exposed to Python **out-of-process** over a long-running Tokio service speaking length-prefixed **MessagePack over Unix Domain Sockets (default) or TCP**, authenticated with HMAC-SHA256. There is **no PyO3 / in-process FFI** — the engine runs as a separate process (`maturin` ships it as `bindings = "bin"`), so callers cross a network boundary, not a function call. This is enforced by `scripts/check_no_pyo3.sh`.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -38,7 +44,7 @@ The `epistemic-graph` crate is the **singular computation engine** for the agent
 │  ╔════════════════════════════════════════════════════╗   │
 │  ║  Tokio Server (UDS/TCP + HMAC-SHA256 auth)        ║   │
 │  ╚════════════════════════════════════════════════════╝   │
-│                         ↕ PyO3 FFI                       │
+│           ↕ length-prefixed MessagePack (UDS / TCP)      │
 │  ╔════════════════════════════════════════════════════╗   │
 │  ║  Python: EpistemicGraph class                     ║   │
 │  ╚════════════════════════════════════════════════════╝   │

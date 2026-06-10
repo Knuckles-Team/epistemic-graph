@@ -635,9 +635,156 @@ impl GraphCore {
 
         evict_ids.len()
     }
+
+    // ── Ebbinghaus Temporal Decay (CONCEPT:KG-2.16) ──────────────────────
+
+    /// Apply an Ebbinghaus forgetting-curve decay to every node's and edge's
+    /// belief `confidence`, then optionally prune anything below `floor`.
+    ///
+    /// Retention follows `R = 0.5^(Δt / half_life)` where `Δt` is the seconds
+    /// elapsed since the item's `last_access` (falling back to `updated_at` →
+    /// `created_at` → `now`, so a freshly-stamped item never decays on its first
+    /// sweep). The decayed confidence is persisted and `last_access` advanced to
+    /// `now`, so repeated sweeps compound exactly: `R(Δt₁)·R(Δt₂) = R(Δt₁+Δt₂)`.
+    /// A per-item `half_life` property overrides `default_half_life` when present
+    /// and positive. Properties are read/written as MessagePack (the wire/storage
+    /// format produced by `client.nodes.add`).
+    pub fn decay_sweep(
+        &mut self,
+        now: u64,
+        default_half_life: f64,
+        floor: f64,
+        prune: bool,
+    ) -> crate::types::DecayStats {
+        let mut stats = crate::types::DecayStats::default();
+
+        // ── Nodes ──
+        let node_ids: Vec<String> = self.node_properties.keys().cloned().collect();
+        let mut node_prune: Vec<String> = Vec::new();
+        for nid in node_ids {
+            if let Some(bytes) = self.node_properties.get(&nid).cloned() {
+                if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(obj) = val.as_object_mut() {
+                        let (new_conf, changed) = apply_decay(obj, now, default_half_life);
+                        if changed {
+                            stats.nodes_decayed += 1;
+                            if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                                self.node_properties.insert(nid.clone(), reenc);
+                            }
+                        }
+                        if prune && new_conf < floor {
+                            node_prune.push(nid.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Edges ── (edge_properties: (src,tgt) -> Vec<Vec<u8>> parallel edges)
+        let edge_keys: Vec<(String, String)> = self.edge_properties.keys().cloned().collect();
+        let mut edge_prune: Vec<(String, String)> = Vec::new();
+        for key in edge_keys {
+            let mut min_conf = 1.0f64;
+            if let Some(blobs) = self.edge_properties.get_mut(&key) {
+                for b in blobs.iter_mut() {
+                    if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(b) {
+                        if let Some(obj) = val.as_object_mut() {
+                            let (new_conf, changed) = apply_decay(obj, now, default_half_life);
+                            if changed {
+                                stats.edges_decayed += 1;
+                                if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                                    *b = reenc;
+                                }
+                            }
+                            if new_conf < min_conf {
+                                min_conf = new_conf;
+                            }
+                        }
+                    }
+                }
+            }
+            if prune && min_conf < floor {
+                edge_prune.push(key);
+            }
+        }
+
+        // ── Prune below floor ──
+        for (s, t) in &edge_prune {
+            self.remove_edge(s.clone(), t.clone());
+            stats.edges_pruned += 1;
+        }
+        for nid in &node_prune {
+            self.remove_node(nid.clone());
+            stats.nodes_pruned += 1;
+        }
+        stats
+    }
+
+    /// Refresh the given nodes on access (spaced-repetition reset): stamp
+    /// `last_access = now` and restore `confidence = 1.0` so the forgetting
+    /// clock restarts. Call when an agent actually reads/uses a fact. Returns
+    /// the number of nodes touched.
+    pub fn touch_nodes(&mut self, node_ids: &[String], now: u64) -> usize {
+        let mut touched = 0usize;
+        for nid in node_ids {
+            if let Some(bytes) = self.node_properties.get(nid).cloned() {
+                if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(obj) = val.as_object_mut() {
+                        obj.insert("last_access".to_string(), serde_json::json!(now));
+                        obj.insert("confidence".to_string(), serde_json::json!(1.0_f64));
+                        if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                            self.node_properties.insert(nid.clone(), reenc);
+                            touched += 1;
+                        }
+                    }
+                }
+            }
+        }
+        touched
+    }
 }
 
 // ── Free Functions (non-method helpers) ──────────────────────────────────
+
+/// Apply the Ebbinghaus retention curve to a single property map in place.
+///
+/// Reads `confidence` (default 1.0), `last_access` (→ `updated_at` → `created_at`
+/// → `now`) and an optional per-item `half_life`. Writes the decayed
+/// `confidence` and advances `last_access` to `now`. Returns `(new_confidence,
+/// changed)`; `changed` is false when no time elapsed (fresh item) so callers can
+/// skip a re-encode. `last_access` is always stamped so the next sweep has an
+/// anchor.
+fn apply_decay(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    now: u64,
+    default_half_life: f64,
+) -> (f64, bool) {
+    let confidence = obj.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let last_access = obj
+        .get("last_access")
+        .and_then(|v| v.as_u64())
+        .or_else(|| obj.get("updated_at").and_then(|v| v.as_u64()))
+        .or_else(|| obj.get("created_at").and_then(|v| v.as_u64()))
+        .unwrap_or(now);
+    let half_life = obj
+        .get("half_life")
+        .and_then(|v| v.as_f64())
+        .filter(|h| *h > 0.0)
+        .unwrap_or(default_half_life);
+
+    if now <= last_access || half_life <= 0.0 {
+        // Nothing to decay yet; ensure there is an anchor for the next sweep.
+        obj.insert("last_access".to_string(), serde_json::json!(now));
+        return (confidence, false);
+    }
+
+    let dt = (now - last_access) as f64;
+    let retention = 0.5_f64.powf(dt / half_life);
+    let new_conf = (confidence * retention).clamp(0.0, 1.0);
+    obj.insert("confidence".to_string(), serde_json::json!(new_conf));
+    obj.insert("last_access".to_string(), serde_json::json!(now));
+    (new_conf, true)
+}
 
 pub fn walk_dir_recursive(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -821,5 +968,91 @@ pub fn match_props(p_msgpack: &[u8], t_msgpack: &[u8]) -> bool {
         true
     } else {
         p_val == t_val
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn props(map: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&map).unwrap()
+    }
+
+    fn confidence_of(core: &GraphCore, id: &str) -> f64 {
+        let bytes = core.get_node_properties(id).expect("node exists");
+        let v: serde_json::Value = rmp_serde::from_slice(&bytes).unwrap();
+        v.get("confidence").and_then(|c| c.as_f64()).unwrap()
+    }
+
+    #[test]
+    fn decay_halves_confidence_at_one_half_life() {
+        let mut g = GraphCore::new();
+        let now = 1_000_000u64;
+        g.add_node(
+            "n1".to_string(),
+            props(serde_json::json!({"type": "Fact", "confidence": 1.0, "last_access": now - 100})),
+        );
+        let stats = g.decay_sweep(now, 100.0, 0.0, false);
+        assert_eq!(stats.nodes_decayed, 1);
+        let c = confidence_of(&g, "n1");
+        assert!((c - 0.5).abs() < 1e-9, "expected ~0.5, got {c}");
+    }
+
+    #[test]
+    fn fresh_node_does_not_decay() {
+        let mut g = GraphCore::new();
+        let now = 1_000_000u64;
+        g.add_node(
+            "n1".to_string(),
+            props(serde_json::json!({"type": "Fact", "confidence": 1.0, "last_access": now})),
+        );
+        let stats = g.decay_sweep(now, 100.0, 0.0, false);
+        assert_eq!(stats.nodes_decayed, 0);
+        assert!((confidence_of(&g, "n1") - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn decay_compounds_across_sweeps() {
+        // R(Δt₁)·R(Δt₂) must equal R(Δt₁+Δt₂): two one-half-life sweeps → 0.25.
+        let mut g = GraphCore::new();
+        g.add_node(
+            "n1".to_string(),
+            props(serde_json::json!({"type": "Fact", "confidence": 1.0, "last_access": 1000u64})),
+        );
+        g.decay_sweep(1100, 100.0, 0.0, false);
+        g.decay_sweep(1200, 100.0, 0.0, false);
+        let c = confidence_of(&g, "n1");
+        assert!((c - 0.25).abs() < 1e-9, "expected ~0.25, got {c}");
+    }
+
+    #[test]
+    fn touch_resets_confidence_and_clock() {
+        let mut g = GraphCore::new();
+        let now = 5000u64;
+        g.add_node(
+            "n1".to_string(),
+            props(serde_json::json!({"type": "Fact", "confidence": 0.3, "last_access": 1000u64})),
+        );
+        assert_eq!(g.touch_nodes(&["n1".to_string()], now), 1);
+        assert!((confidence_of(&g, "n1") - 1.0).abs() < 1e-12);
+        // Immediately after touch, a sweep at the same instant must not decay.
+        assert_eq!(g.decay_sweep(now, 100.0, 0.0, false).nodes_decayed, 0);
+    }
+
+    #[test]
+    fn prune_removes_below_floor() {
+        let mut g = GraphCore::new();
+        let now = 1_000_000u64;
+        // ~4 half-lives elapsed → retention ≈ 0.0625, below the 0.1 floor.
+        g.add_node(
+            "n1".to_string(),
+            props(serde_json::json!({"type": "Fact", "confidence": 1.0, "last_access": now - 400})),
+        );
+        let stats = g.decay_sweep(now, 100.0, 0.1, true);
+        assert_eq!(stats.nodes_pruned, 1);
+        assert!(!g.has_node("n1"));
     }
 }

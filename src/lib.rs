@@ -19,6 +19,8 @@ pub mod protocol;
 #[cfg(feature = "server")]
 pub mod registry;
 #[cfg(feature = "server")]
+pub mod persist;
+#[cfg(feature = "server")]
 pub mod isolation;
 #[cfg(feature = "server")]
 pub mod channels;
