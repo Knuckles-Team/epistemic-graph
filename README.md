@@ -136,31 +136,41 @@ pip install -e .
 
 ### 2. Python Usage
 
-```python
-import epistemic_graph
+The client speaks to the out-of-process engine and exposes capabilities through
+typed namespaces (`g.nodes`, `g.edges`, `g.graph`, `g.finance`, `g.datascience`,
+`g.reasoning`, ...). Use `SyncEpistemicGraphClient` for blocking code or
+`EpistemicGraphClient` for async.
 
-# Initialize
-g = epistemic_graph.EpistemicGraph()
+```python
+from epistemic_graph import SyncEpistemicGraphClient
+
+# Connect to the running engine (starts/attaches to the UDS service)
+g = SyncEpistemicGraphClient()
 
 # Graph operations
-g.add_node("AgentA", '{"type": "coordinator"}')
-g.add_node("AgentB", '{"type": "worker"}')
-g.add_edge("AgentA", "AgentB", '{"weight": 1.5}')
+g.nodes.add("AgentA", {"type": "coordinator"})
+g.nodes.add("AgentB", {"type": "worker"})
+g.edges.add("AgentA", "AgentB", {"weight": 1.5})
 
-print("Order:", g.topological_sort())
-print("Cycle:", g.find_cycle())
+print("Order:", g.graph.topological_sort())
+print("Cycle:", g.graph.find_cycle())
 
 # Finance — portfolio optimization
-weights = g.optimize_portfolio([0.1, 0.15, 0.08], [[0.04, 0.01, 0.005], ...], 0.02)
+weights = g.finance.optimize_portfolio([0.1, 0.15, 0.08], [[0.04, 0.01, 0.005], ...], 0.02)
 
 # Finance — risk metrics
-metrics = g.risk_metrics([0.01, -0.02, 0.03, -0.005, 0.02])
+metrics = g.finance.risk_metrics([0.01, -0.02, 0.03, -0.005, 0.02])
 
 # Data Science — regression
-coeffs = g.linear_regression([[1.0, 2.0], [3.0, 4.0]], [3.0, 7.0])
+coeffs = g.datascience.linear_regression([[1.0, 2.0], [3.0, 4.0]], [3.0, 7.0])
 
-# Reasoning — transitive inference
-inferred = g.infer_transitive(["part_of", "depends_on"], ["related_concept"])
+# Reasoning — OWL/RDFS forward chaining (CONCEPT:KG-2.17)
+# Materialises inferred edges/types in-graph and returns the inferred triples.
+result = g.reasoning.reason(
+    subclass_relations=[("Dog", "Animal")],
+    transitive_properties=["ancestor"],
+)
+print("Inferred:", result["inferred_count"], "triples")
 ```
 
 ---
