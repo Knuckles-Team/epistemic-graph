@@ -737,6 +737,21 @@ pub enum Method {
         v_bid: Vec<f64>,
         v_ask: Vec<f64>,
     },
+    FinanceQueueImbalance {
+        bid_q: Vec<f64>,
+        ask_q: Vec<f64>,
+        bid_rate: Vec<f64>,
+        ask_rate: Vec<f64>,
+    },
+    FinanceRealizedVolTick {
+        mid: Vec<f64>,
+        window: usize,
+    },
+    FinanceSpreadReversion {
+        bid_px: Vec<f64>,
+        ask_px: Vec<f64>,
+        window: usize,
+    },
     FinanceInformationRatio {
         ic: f64,
         n_independent: f64,
