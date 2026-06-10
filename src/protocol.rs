@@ -217,12 +217,30 @@ pub enum Method {
     },
 
     // ── Reasoning ────────────────────────────────────────────────────
+    // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. A single round of
+    // forward-chaining OWL/RDFS inference (Datalog) plus optional
+    // domain/range and property-chain inference. All rule sets default to
+    // empty so clients may run any subset without sending every field.
     RunDatalogReasoning {
+        #[serde(default)]
         subclass_relations: Vec<(String, String)>,
+        #[serde(default)]
         subproperty_relations: Vec<(String, String)>,
+        #[serde(default)]
         symmetric_properties: Vec<String>,
+        #[serde(default)]
         transitive_properties: Vec<String>,
+        #[serde(default)]
         inverse_properties: Vec<(String, String)>,
+        /// (property, domain_type) — subjects of `property` are inferred to be `domain_type`.
+        #[serde(default)]
+        domain_rules: Vec<(String, String)>,
+        /// (property, range_type) — objects of `property` are inferred to be `range_type`.
+        #[serde(default)]
+        range_rules: Vec<(String, String)>,
+        /// (predicate_a, predicate_b, inferred_predicate) — chain composition.
+        #[serde(default)]
+        property_chains: Vec<(String, String, String)>,
     },
 
     // ── Multi-Tenant Graph Management ────────────────────────────────

@@ -376,6 +376,52 @@ class LifecycleClient:
         return await self._client._send("TouchNodes", {"node_ids": node_ids})
 
 
+class ReasoningClient:
+    """CONCEPT:KG-2.17 — Compiled Semantic Reasoner Namespace.
+
+    Forward-chaining OWL/RDFS inference executed in the Rust engine. Materialises
+    inferred edges and type annotations in-place and returns the inferred triples.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def reason(
+        self,
+        subclass_relations: list[tuple[str, str]] | None = None,
+        subproperty_relations: list[tuple[str, str]] | None = None,
+        symmetric_properties: list[str] | None = None,
+        transitive_properties: list[str] | None = None,
+        inverse_properties: list[tuple[str, str]] | None = None,
+        domain_rules: list[tuple[str, str]] | None = None,
+        range_rules: list[tuple[str, str]] | None = None,
+        property_chains: list[tuple[str, str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Run one fixpoint of Datalog reasoning plus optional domain/range and
+        property-chain inference over the current graph.
+
+        Every rule set is optional; omitted sets are treated as empty. Returns
+        ``{"inferred_count": int, "inferred_triples": [{subject, predicate,
+        object, inference_type}, ...]}``. The inferred edges/types are also
+        persisted into the graph as a side effect.
+        """
+        return await self._client._send(
+            "RunDatalogReasoning",
+            {
+                "subclass_relations": [list(t) for t in (subclass_relations or [])],
+                "subproperty_relations": [
+                    list(t) for t in (subproperty_relations or [])
+                ],
+                "symmetric_properties": list(symmetric_properties or []),
+                "transitive_properties": list(transitive_properties or []),
+                "inverse_properties": [list(t) for t in (inverse_properties or [])],
+                "domain_rules": [list(t) for t in (domain_rules or [])],
+                "range_rules": [list(t) for t in (range_rules or [])],
+                "property_chains": [list(t) for t in (property_chains or [])],
+            },
+        )
+
+
 class LedgerClient:
     """CONCEPT:KG-2.0 — Ledger Namespace"""
 
@@ -1550,6 +1596,7 @@ class EpistemicGraphClient:
         self.graph = GraphOperationsClient(self)
         self.analytics = AnalyticsClient(self)
         self.lifecycle = LifecycleClient(self)
+        self.reasoning = ReasoningClient(self)
         self.ledger = LedgerClient(self)
         self.channels = ChannelsClient(self)
         self.tenants = MultiTenantClient(self)
@@ -1720,6 +1767,7 @@ class SyncEpistemicGraphClient:
         self.graph = self._SyncWrapper(self._client.graph, self._loop)
         self.analytics = self._SyncWrapper(self._client.analytics, self._loop)
         self.lifecycle = self._SyncWrapper(self._client.lifecycle, self._loop)
+        self.reasoning = self._SyncWrapper(self._client.reasoning, self._loop)
         self.ledger = self._SyncWrapper(self._client.ledger, self._loop)
         self.channels = self._SyncWrapper(self._client.channels, self._loop)
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
