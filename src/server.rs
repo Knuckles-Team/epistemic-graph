@@ -137,8 +137,13 @@ pub async fn dispatch(
 
         Method::Checkpoint => {
             info!("Checkpoint requested");
-            // Checkpoint logic would serialize all graphs to disk here.
-            Response::ok(req.id, ResultPayload::String("checkpoint_complete".to_string()))
+            match crate::persist::checkpoint_all(state).await {
+                Ok(n) => Response::ok(
+                    req.id,
+                    ResultPayload::String(format!("checkpoint_complete:{}", n)),
+                ),
+                Err(e) => Response::err(req.id, e),
+            }
         }
 
         // ── Multi-tenant graph management ────────────────────────────
@@ -869,6 +874,27 @@ async fn dispatch_graph_op(
             let evicted = g.evict_lru(max_nodes);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
         }
+        Method::DecaySweep { half_life_secs, floor, prune } => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let mut g = core.write().await;
+            let stats = g.decay_sweep(now, half_life_secs, floor, prune);
+            match serde_json::to_value(&stats) {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                Err(e) => Response::err(req_id, e.to_string()),
+            }
+        }
+        Method::TouchNodes { node_ids } => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let mut g = core.write().await;
+            let touched = g.touch_nodes(&node_ids, now);
+            Response::ok(req_id, ResultPayload::Count(touched as u64))
+        }
         Method::ToMsgpack => {
             let g = core.read().await;
             match g.to_msgpack() {
@@ -1057,15 +1083,32 @@ async fn dispatch_graph_op(
             }
         }
         Method::GetSubgraph { node_ids } => {
+            // Batched subgraph read: return the induced nodes (with DECODED
+            // properties) and the edges among them in ONE round-trip, so callers
+            // never loop per-node `GetNodeProperties` or pull the whole edge set.
+            // (Previously serialized to msgpack then mis-parsed as JSON → error.)
             let g = core.read().await;
             let sub = g.get_subgraph(&node_ids);
-            match sub.to_msgpack() {
-                Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
-                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                    Err(e) => Response::err(req_id, e.to_string()),
-                },
-                Err(e) => Response::err(req_id, e),
+            let mut nodes = Vec::with_capacity(sub.node_properties.len());
+            for (id, blob) in &sub.node_properties {
+                let props: serde_json::Value =
+                    rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                nodes.push(serde_json::json!({ "id": id, "properties": props }));
             }
+            let mut edges = Vec::new();
+            for ((src, tgt), blobs) in &sub.edge_properties {
+                for blob in blobs {
+                    let props: serde_json::Value =
+                        rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                    edges.push(serde_json::json!({
+                        "source": src, "target": tgt, "properties": props
+                    }));
+                }
+            }
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({ "nodes": nodes, "edges": edges })),
+            )
         }
         Method::Fork => {
             // Cannot return the forked GraphCore directly because it needs to be registered.
