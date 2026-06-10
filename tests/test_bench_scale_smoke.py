@@ -17,6 +17,7 @@ _BENCH_PATH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "bench_s
 
 def _load():
     spec = importlib.util.spec_from_file_location("bench_scale", _BENCH_PATH)
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
