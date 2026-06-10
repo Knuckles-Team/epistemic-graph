@@ -141,9 +141,7 @@ class GraphOperationsClient:
             "ParseFile", {"file_path": file_path, "source": source}
         )
 
-    async def parse_files(
-        self, files: list[tuple[str, bytes]]
-    ) -> list[dict[str, Any]]:
+    async def parse_files(self, files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
         """Parse many files in ONE round-trip (CONCEPT:KG-2.16 batch op).
 
         ``files`` is a list of ``(file_path, source_bytes)``. Returns one parse
