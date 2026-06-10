@@ -46,6 +46,19 @@ struct Args {
     /// Serialize graphs to disk on shutdown.
     #[arg(long, default_value = "true")]
     persist_on_shutdown: bool,
+
+    /// Ebbinghaus decay sweep interval in seconds (0 = disabled).
+    #[arg(long, default_value = "0", env = "GRAPH_SERVICE_DECAY_INTERVAL")]
+    decay_interval: u64,
+
+    /// Half-life (seconds) for the periodic decay sweep. Default: 7 days.
+    #[arg(long, default_value = "604800", env = "GRAPH_SERVICE_DECAY_HALF_LIFE")]
+    decay_half_life: f64,
+
+    /// Prune nodes/edges whose decayed confidence falls below this floor
+    /// (0 = decay only, never prune).
+    #[arg(long, default_value = "0.0", env = "GRAPH_SERVICE_DECAY_FLOOR")]
+    decay_floor: f64,
 }
 
 fn resolve_socket_path(explicit: Option<String>) -> String {
@@ -101,6 +114,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         persist_dir: args.persist_dir,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
     }));
+
+    // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
+    // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
+    // the configured interval. Both no-op when no persist dir is configured.
+    if let Err(e) = epistemic_graph::persist::load_all(&state).await {
+        tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
+    }
+    if args.checkpoint_interval > 0 {
+        let cp_state = state.clone();
+        let interval = args.checkpoint_interval;
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(interval));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                if let Err(e) = epistemic_graph::persist::checkpoint_all(&cp_state).await {
+                    tracing::warn!("Auto-checkpoint failed: {}", e);
+                }
+            }
+        });
+    }
+    // Periodic Ebbinghaus decay sweep (CONCEPT:KG-2.16) — opt-in. Confidence on
+    // every node/edge decays toward 0 with a configurable half-life; with a
+    // non-zero floor, forgotten facts are pruned. Off by default (interval 0).
+    if args.decay_interval > 0 {
+        let dk_state = state.clone();
+        let interval = args.decay_interval;
+        let half_life = args.decay_half_life;
+        let floor = args.decay_floor;
+        let prune = args.decay_floor > 0.0;
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(interval));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                let stats =
+                    epistemic_graph::persist::decay_all(&dk_state, half_life, floor, prune).await;
+                tracing::info!(
+                    "Decay sweep: {} nodes / {} edges decayed, {} nodes / {} edges pruned",
+                    stats.nodes_decayed,
+                    stats.edges_decayed,
+                    stats.nodes_pruned,
+                    stats.edges_pruned
+                );
+            }
+        });
+    }
 
     // ── Transport ───────────────────────────────────────────────────────
     // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,

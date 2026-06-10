@@ -35,6 +35,12 @@ fn default_adam_eps() -> f64 {
     1e-8
 }
 
+/// serde default for the Ebbinghaus decay half-life (CONCEPT:KG-2.16): 7 days in
+/// seconds. Older clients omitting it get a one-week memory half-life.
+fn default_decay_half_life() -> f64 {
+    604_800.0
+}
+
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
@@ -168,6 +174,19 @@ pub enum Method {
     Metrics,
     EvictLRU {
         max_nodes: usize,
+    },
+
+    // ── Temporal Decay (CONCEPT:KG-2.16 — Ebbinghaus forgetting curve) ──
+    DecaySweep {
+        #[serde(default = "default_decay_half_life")]
+        half_life_secs: f64,
+        #[serde(default)]
+        floor: f64,
+        #[serde(default)]
+        prune: bool,
+    },
+    TouchNodes {
+        node_ids: Vec<String>,
     },
 
     // ── Serialization ────────────────────────────────────────────────
