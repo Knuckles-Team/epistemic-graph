@@ -15,6 +15,12 @@
 > reference, measured transport benchmarks, and concept registry for the engine are
 > maintained in the [official documentation](https://knuckles-team.github.io/epistemic-graph/).
 
+> **This is the compute engine for
+> [`agent-utilities`](https://github.com/Knuckles-Team/agent-utilities)** — a
+> standalone Rust service reached out-of-process over MessagePack/UDS (no PyO3).
+> You can use it on its own (binary + pure-Python client), or let `agent-utilities`
+> drive it. Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ---
 
 ## Architecture
