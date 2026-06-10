@@ -742,6 +742,27 @@ async fn dispatch_graph_op(
             let v = crate::finance::quant::order_book_imbalance(&v_bid, &v_ask);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
+        Method::FinanceQueueImbalance {
+            bid_q,
+            ask_q,
+            bid_rate,
+            ask_rate,
+        } => {
+            let v = crate::finance::quant::queue_imbalance(&bid_q, &ask_q, &bid_rate, &ask_rate);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceRealizedVolTick { mid, window } => {
+            let v = crate::finance::quant::realized_vol_tick(&mid, window);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
+        Method::FinanceSpreadReversion {
+            bid_px,
+            ask_px,
+            window,
+        } => {
+            let v = crate::finance::quant::spread_reversion(&bid_px, &ask_px, window);
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+        }
         Method::FinanceInformationRatio { ic, n_independent } => {
             let v = crate::finance::quant::information_ratio(ic, n_independent);
             Response::ok(req_id, ResultPayload::Float(v))

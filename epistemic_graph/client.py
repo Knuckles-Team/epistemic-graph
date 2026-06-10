@@ -1159,6 +1159,44 @@ class FinanceClient:
             "FinanceOrderBookImbalance", {"v_bid": v_bid, "v_ask": v_ask}
         )
 
+    async def queue_imbalance(
+        self,
+        bid_q: list[float],
+        ask_q: list[float],
+        bid_rate: list[float],
+        ask_rate: list[float],
+    ) -> dict[str, Any]:
+        """Queue-position / time-to-fill signal at the best bid/ask. Returns
+        {skew, bid_fill_time, ask_fill_time}; skew = (ask_q−bid_q)/(ask_q+bid_q)
+        (positive ⇒ ask queue heavier ⇒ resting bid fills faster)."""
+        return await self._client._send(
+            "FinanceQueueImbalance",
+            {
+                "bid_q": bid_q,
+                "ask_q": ask_q,
+                "bid_rate": bid_rate,
+                "ask_rate": ask_rate,
+            },
+        )
+
+    async def realized_vol_tick(self, mid: list[float], window: int = 20) -> list[float]:
+        """Tick-level rolling realized volatility of the mid-price (model-free;
+        distinct from the kalman_volatility state-space filter)."""
+        return await self._client._send(
+            "FinanceRealizedVolTick", {"mid": mid, "window": window}
+        )
+
+    async def spread_reversion(
+        self, bid_px: list[float], ask_px: list[float], window: int = 20
+    ) -> dict[str, Any]:
+        """Spread mean-reversion feature. Returns {zscore, signal} where the
+        rolling z-score of (ask−bid) drives signal = −zscore (wide ⇒ expect
+        tighten). Lightweight rolling stats, NOT the OU calibration."""
+        return await self._client._send(
+            "FinanceSpreadReversion",
+            {"bid_px": bid_px, "ask_px": ask_px, "window": window},
+        )
+
     async def information_ratio(self, ic: float, n_independent: float) -> float:
         """Fundamental law of active management: IR = IC · √(N_independent)."""
         return await self._client._send(
