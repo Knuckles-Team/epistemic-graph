@@ -954,6 +954,114 @@ pub fn order_book_imbalance(v_bid: &[f64], v_ask: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// Queue-position / time-to-fill signal at the best bid/ask, batched over
+/// snapshots. `bid_q`/`ask_q` are the resting sizes ahead in each best-level
+/// queue; `bid_rate`/`ask_rate` are recent fill/arrival rates (size per unit
+/// time) on each side (pass uniform 1.0 rates when unknown).
+///
+/// `skew` = (ask_q − bid_q)/(ask_q + bid_q) ∈ [−1, 1] — deliberately the inverse
+/// sign of `order_book_imbalance` (which is volume pressure) so the two stay
+/// complementary: positive `skew` ⇒ the ask queue is heavier, so a resting bid
+/// fills relatively faster. `*_fill_time` = queue_ahead / arrival_rate (larger ⇒
+/// slower fill ⇒ more adverse-selection exposure while resting).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct QueueSignal {
+    pub skew: Vec<f64>,
+    pub bid_fill_time: Vec<f64>,
+    pub ask_fill_time: Vec<f64>,
+}
+
+pub fn queue_imbalance(
+    bid_q: &[f64],
+    ask_q: &[f64],
+    bid_rate: &[f64],
+    ask_rate: &[f64],
+) -> QueueSignal {
+    let n = bid_q.len().min(ask_q.len());
+    let mut skew = vec![0.0_f64; n];
+    let mut bid_fill_time = vec![0.0_f64; n];
+    let mut ask_fill_time = vec![0.0_f64; n];
+    for i in 0..n {
+        let tot = ask_q[i] + bid_q[i];
+        skew[i] = if tot > 0.0 {
+            (ask_q[i] - bid_q[i]) / tot
+        } else {
+            0.0
+        };
+        let br = bid_rate.get(i).copied().unwrap_or(1.0).max(1e-9);
+        let ar = ask_rate.get(i).copied().unwrap_or(1.0).max(1e-9);
+        bid_fill_time[i] = bid_q[i].max(0.0) / br;
+        ask_fill_time[i] = ask_q[i].max(0.0) / ar;
+    }
+    QueueSignal {
+        skew,
+        bid_fill_time,
+        ask_fill_time,
+    }
+}
+
+/// Tick-level realized volatility: for each tick `i`, the square root of the sum
+/// of squared log-returns of the mid-price over the trailing `window` ticks.
+/// Distinct from the state-space `kalman_volatility` filter — this is a
+/// model-free rolling realized measure. Non-positive mids contribute a zero
+/// return for that step (guarded).
+pub fn realized_vol_tick(mid: &[f64], window: usize) -> Vec<f64> {
+    let n = mid.len();
+    let w = window.max(1);
+    let mut r2 = vec![0.0_f64; n]; // squared log-return at each step
+    for i in 1..n {
+        if mid[i] > 0.0 && mid[i - 1] > 0.0 {
+            let lr = (mid[i] / mid[i - 1]).ln();
+            r2[i] = lr * lr;
+        }
+    }
+    let mut out = vec![0.0_f64; n];
+    let mut acc = 0.0_f64;
+    for i in 0..n {
+        acc += r2[i];
+        if i >= w {
+            acc -= r2[i - w];
+        }
+        out[i] = acc.max(0.0).sqrt();
+    }
+    out
+}
+
+/// Spread mean-reversion feature, batched over snapshots. The spread
+/// (ask − bid) is z-scored against its trailing rolling mean/std over `window`
+/// ticks; `signal = −zscore` (a wide spread is expected to tighten). This is a
+/// lightweight rolling-statistic feature — NOT the parametric Ornstein-Uhlenbeck
+/// calibration in `statespace.rs`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpreadReversion {
+    pub zscore: Vec<f64>,
+    pub signal: Vec<f64>,
+}
+
+pub fn spread_reversion(bid_px: &[f64], ask_px: &[f64], window: usize) -> SpreadReversion {
+    let n = bid_px.len().min(ask_px.len());
+    let w = window.max(2);
+    let spread: Vec<f64> = (0..n).map(|i| ask_px[i] - bid_px[i]).collect();
+    let mut zscore = vec![0.0_f64; n];
+    let mut signal = vec![0.0_f64; n];
+    for i in 0..n {
+        let lo = i.saturating_sub(w - 1);
+        let slice = &spread[lo..=i];
+        let m = slice.len() as f64;
+        if m < 2.0 {
+            continue;
+        }
+        let mean = slice.iter().sum::<f64>() / m;
+        let var = slice.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / m;
+        let std = var.sqrt();
+        if std > 1e-12 {
+            zscore[i] = (spread[i] - mean) / std;
+            signal[i] = -zscore[i];
+        }
+    }
+    SpreadReversion { zscore, signal }
+}
+
 /// Information Ratio from the fundamental law of active management:
 /// IR = IC · √(N_independent).
 pub fn information_ratio(ic: f64, n_independent: f64) -> f64 {
@@ -1403,6 +1511,39 @@ mod tests {
         let obi = order_book_imbalance(&[100.0, 50.0], &[0.0, 50.0]);
         assert!((obi[0] - 1.0).abs() < 1e-9); // all bid
         assert!(obi[1].abs() < 1e-9); // balanced
+    }
+
+    #[test]
+    fn test_queue_imbalance() {
+        // balanced queue ⇒ skew ≈ 0
+        let q = queue_imbalance(&[100.0, 50.0], &[100.0, 150.0], &[10.0, 10.0], &[10.0, 10.0]);
+        assert!(q.skew[0].abs() < 1e-9);
+        // ask queue heavier ⇒ positive skew (bid fills faster)
+        assert!(q.skew[1] > 0.0);
+        // fill time = queue_ahead / rate
+        assert!((q.bid_fill_time[0] - 10.0).abs() < 1e-9);
+        assert!((q.ask_fill_time[1] - 15.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_realized_vol_tick() {
+        // constant mid ⇒ zero realized vol everywhere
+        let flat = realized_vol_tick(&[100.0, 100.0, 100.0, 100.0], 3);
+        assert!(flat.iter().all(|v| v.abs() < 1e-12));
+        // a moving series ⇒ strictly positive rolling RV
+        let rv = realized_vol_tick(&[100.0, 101.0, 100.0, 102.0, 101.0], 3);
+        assert_eq!(rv.len(), 5);
+        assert!(rv[4] > 0.0);
+    }
+
+    #[test]
+    fn test_spread_reversion() {
+        // a sudden spread widening at the end ⇒ negative reversion signal (expect tighten)
+        let bid = vec![0.50, 0.50, 0.50, 0.50, 0.50, 0.50];
+        let ask = vec![0.52, 0.52, 0.52, 0.52, 0.52, 0.60];
+        let sr = spread_reversion(&bid, &ask, 5);
+        assert_eq!(sr.signal.len(), 6);
+        assert!(sr.zscore[5] > 0.0 && sr.signal[5] < 0.0);
     }
 
     #[test]
