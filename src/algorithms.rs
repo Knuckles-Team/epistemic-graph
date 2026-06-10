@@ -6,8 +6,16 @@
 use petgraph::stable_graph::NodeIndex;
 use petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::{Duration, Instant};
 
 use crate::graph::GraphCore;
+
+/// Hard wall-clock budget for one [`community_detection`] call. Label
+/// propagation is already iteration-capped, but a very large or adversarial
+/// call graph can make each pass expensive; this deadline guarantees the call
+/// always returns a valid partition in bounded time instead of appearing to
+/// hang. (CONCEPT:KG-2.16)
+const COMMUNITY_DETECTION_BUDGET: Duration = Duration::from_secs(15);
 
 // ── Traversal Algorithms ─────────────────────────────────────────────────
 
@@ -457,10 +465,18 @@ pub fn minimum_spanning_tree(core: &GraphCore) -> Vec<(String, String, f64)> {
 /// most common label among its neighbors. `resolution` controls sensitivity
 /// (higher = more communities). Converges when no labels change.
 pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String>> {
-    let nodes: Vec<String> = core.node_map.keys().cloned().collect();
+    // Deterministic node order. The previous version iterated `node_map`'s
+    // HashMap keys in arbitrary order and broke label ties via `max_by_key`
+    // (also order-dependent), so the algorithm could *oscillate* between
+    // equivalent labelings and never reach the `changed == false` early-exit —
+    // burning all 100 iterations every run and producing a different result
+    // each time. Sorting both the node sweep and the tie-break makes
+    // propagation stable (reproducible) and lets it converge early.
+    let mut nodes: Vec<String> = core.node_map.keys().cloned().collect();
     if nodes.is_empty() {
         return Vec::new();
     }
+    nodes.sort_unstable();
 
     // Initialize: each node is its own community
     let mut labels: HashMap<String, usize> = HashMap::new();
@@ -468,8 +484,14 @@ pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String
         labels.insert(node_id.clone(), i);
     }
 
+    // Bounded by BOTH an iteration cap and a wall-clock deadline, so a large or
+    // adversarial graph can never make this call hang (CONCEPT:KG-2.16).
     let max_iterations = 100;
+    let deadline = Instant::now() + COMMUNITY_DETECTION_BUDGET;
     for _ in 0..max_iterations {
+        if Instant::now() >= deadline {
+            break;
+        }
         let mut changed = false;
 
         for node_id in &nodes {
@@ -499,7 +521,13 @@ pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String
                 }
             }
 
-            if let Some((&best_label, _)) = label_counts.iter().max_by_key(|&(_, &count)| count) {
+            // Most common neighbor label; break ties deterministically toward
+            // the SMALLEST label so propagation is stable and convergent.
+            let best = label_counts
+                .iter()
+                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                .map(|(&lbl, _)| lbl);
+            if let Some(best_label) = best {
                 let current = labels[node_id];
                 if best_label != current {
                     labels.insert(node_id.clone(), best_label);
@@ -513,7 +541,8 @@ pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String
         }
     }
 
-    // Group nodes by label
+    // Group nodes by label, returning a deterministic order (communities sorted
+    // by their smallest member; members sorted) so callers + tests are stable.
     let mut communities: HashMap<usize, Vec<String>> = HashMap::new();
     for (node_id, label) in &labels {
         communities
@@ -521,8 +550,15 @@ pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String
             .or_default()
             .push(node_id.clone());
     }
-
-    communities.into_values().collect()
+    let mut out: Vec<Vec<String>> = communities
+        .into_values()
+        .map(|mut members| {
+            members.sort_unstable();
+            members
+        })
+        .collect();
+    out.sort_unstable_by(|a, b| a[0].cmp(&b[0]));
+    out
 }
 
 // ── Quant epistemic-graph Algorithms ─────────────────────────────────────────────────
@@ -1098,4 +1134,106 @@ pub fn personalized_pagerank(
         .into_iter()
         .map(|(idx, score)| (core.graph[idx].clone(), score))
         .collect()
+}
+
+#[cfg(test)]
+mod community_tests {
+    use super::*;
+
+    fn p() -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({"type": "Code"})).unwrap()
+    }
+
+    fn build(nodes: &[&str], edges: &[(&str, &str)]) -> GraphCore {
+        let mut g = GraphCore::new();
+        for n in nodes {
+            g.add_node((*n).to_string(), p());
+        }
+        for (s, t) in edges {
+            g.add_edge((*s).to_string(), (*t).to_string(), p()).unwrap();
+        }
+        g
+    }
+
+    #[test]
+    fn empty_graph_returns_empty() {
+        let g = GraphCore::new();
+        assert!(community_detection(&g, 1.0).is_empty());
+    }
+
+    #[test]
+    fn deterministic_across_runs() {
+        // A symmetric structure with label ties is exactly what made the old
+        // HashMap-order tie-break non-deterministic. The hardened version must
+        // return the SAME partition every call.
+        let nodes = ["a", "b", "c", "d", "e", "f"];
+        let edges = [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"), // triangle 1
+            ("d", "e"),
+            ("e", "f"),
+            ("f", "d"), // triangle 2
+        ];
+        let g = build(&nodes, &edges);
+        let first = community_detection(&g, 1.0);
+        for _ in 0..20 {
+            assert_eq!(community_detection(&g, 1.0), first, "result must be stable");
+        }
+        // Output is sorted (communities by first member, members sorted).
+        for community in &first {
+            let mut sorted = community.clone();
+            sorted.sort_unstable();
+            assert_eq!(community, &sorted);
+        }
+    }
+
+    #[test]
+    fn separates_two_disconnected_cliques() {
+        let g = build(
+            &["a", "b", "c", "x", "y", "z"],
+            &[
+                ("a", "b"),
+                ("b", "c"),
+                ("c", "a"),
+                ("x", "y"),
+                ("y", "z"),
+                ("z", "x"),
+            ],
+        );
+        let communities = community_detection(&g, 1.0);
+        // Every node assigned exactly once; the two cliques never merge.
+        let total: usize = communities.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 6);
+        for c in &communities {
+            let has_first = c.iter().any(|n| ["a", "b", "c"].contains(&n.as_str()));
+            let has_second = c.iter().any(|n| ["x", "y", "z"].contains(&n.as_str()));
+            assert!(!(has_first && has_second), "cliques must not merge: {c:?}");
+        }
+    }
+
+    #[test]
+    fn terminates_quickly_on_dense_graph() {
+        // A dense graph with many ties is the oscillation-prone case. With the
+        // wall-clock budget + deterministic tie-break it must finish well under
+        // the budget and partition all nodes.
+        let ids: Vec<String> = (0..120).map(|i| format!("n{i:03}")).collect();
+        let mut g = GraphCore::new();
+        for id in &ids {
+            g.add_node(id.clone(), p());
+        }
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                g.add_edge(ids[i].clone(), ids[j].clone(), p()).unwrap();
+            }
+        }
+        let start = Instant::now();
+        let communities = community_detection(&g, 1.0);
+        assert!(
+            start.elapsed() < COMMUNITY_DETECTION_BUDGET + Duration::from_secs(2),
+            "must respect the wall-clock budget"
+        );
+        let total: usize = communities.iter().map(|c| c.len()).sum();
+        assert_eq!(total, ids.len(), "every node must be assigned a community");
+    }
 }
