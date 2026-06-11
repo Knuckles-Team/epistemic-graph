@@ -1225,7 +1225,9 @@ class FinanceClient:
             },
         )
 
-    async def realized_vol_tick(self, mid: list[float], window: int = 20) -> list[float]:
+    async def realized_vol_tick(
+        self, mid: list[float], window: int = 20
+    ) -> list[float]:
         """Tick-level rolling realized volatility of the mid-price (model-free;
         distinct from the kalman_volatility state-space filter)."""
         return await self._client._send(

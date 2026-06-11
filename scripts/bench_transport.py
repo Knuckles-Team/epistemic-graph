@@ -27,7 +27,13 @@ async def _run(ops: int) -> dict[str, float]:
     sock = os.path.join(tempfile.mkdtemp(), "bench.sock")
     proc = subprocess.Popen(
         [str(SERVER), "--socket-path", sock],
-        env={**os.environ, "GRAPH_SERVICE_AUTH_SECRET": ""},
+        env={
+                **os.environ,
+                # Benchmarks measure pure transport: run unauthenticated,
+                # which now requires the explicit insecure opt-out.
+                "GRAPH_SERVICE_AUTH_SECRET": "",
+                "EPISTEMIC_GRAPH_ALLOW_INSECURE": "1",
+            },
     )
     try:
         # Wait for the socket to appear.
