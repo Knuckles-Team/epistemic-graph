@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Order {
     pub id: String,
-    pub side: String,   // "buy" or "sell"
+    pub side: String, // "buy" or "sell"
     pub price: f64,
     pub quantity: f64,
     pub timestamp: u64,
@@ -53,14 +53,22 @@ pub fn vwap_schedule(
     }
     let total_vol: f64 = volume_profile.iter().sum();
     if total_vol <= 0.0 {
-        return twap_schedule(total_quantity, volume_profile.len(), start_time, interval_secs);
+        return twap_schedule(
+            total_quantity,
+            volume_profile.len(),
+            start_time,
+            interval_secs,
+        );
     }
     volume_profile
         .iter()
         .enumerate()
         .map(|(i, &vol)| {
             let weight = vol / total_vol;
-            (start_time + i as u64 * interval_secs, total_quantity * weight)
+            (
+                start_time + i as u64 * interval_secs,
+                total_quantity * weight,
+            )
         })
         .collect()
 }
@@ -87,11 +95,7 @@ pub fn estimate_market_impact(
 ///
 /// Computes the Z-score of the spread between two price series
 /// using the hedge ratio from OLS regression.
-pub fn pairs_trading_signal(
-    prices_a: &[f64],
-    prices_b: &[f64],
-    lookback: usize,
-) -> Vec<f64> {
+pub fn pairs_trading_signal(prices_a: &[f64], prices_b: &[f64], lookback: usize) -> Vec<f64> {
     let n = prices_a.len().min(prices_b.len());
     if n < lookback || lookback < 2 {
         return vec![f64::NAN; n];
@@ -118,13 +122,18 @@ pub fn pairs_trading_signal(
         let alpha = mean_a - beta * mean_b;
 
         // Compute spread and its z-score
-        let spread: Vec<f64> = window_a.iter()
+        let spread: Vec<f64> = window_a
+            .iter()
             .zip(window_b.iter())
             .map(|(&a, &b)| a - beta * b - alpha)
             .collect();
 
         let spread_mean: f64 = spread.iter().sum::<f64>() / lookback as f64;
-        let spread_var: f64 = spread.iter().map(|s| (s - spread_mean).powi(2)).sum::<f64>() / lookback as f64;
+        let spread_var: f64 = spread
+            .iter()
+            .map(|s| (s - spread_mean).powi(2))
+            .sum::<f64>()
+            / lookback as f64;
         let spread_std = spread_var.sqrt();
 
         if spread_std > 1e-12 {
@@ -177,7 +186,11 @@ pub fn match_orders(orders: &[Order]) -> Vec<Fill> {
                     let mut new_order = order.clone();
                     new_order.quantity = remaining;
                     bids.push(new_order);
-                    bids.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap_or(std::cmp::Ordering::Equal));
+                    bids.sort_by(|a, b| {
+                        b.price
+                            .partial_cmp(&a.price)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
                 }
             }
             "sell" => {
@@ -209,7 +222,11 @@ pub fn match_orders(orders: &[Order]) -> Vec<Fill> {
                     let mut new_order = order.clone();
                     new_order.quantity = remaining;
                     asks.push(new_order);
-                    asks.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap_or(std::cmp::Ordering::Equal));
+                    asks.sort_by(|a, b| {
+                        a.price
+                            .partial_cmp(&b.price)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
                 }
             }
             _ => {}
@@ -251,7 +268,9 @@ mod tests {
 
     #[test]
     fn test_pairs_signal() {
-        let a = vec![100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0];
+        let a = vec![
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0,
+        ];
         let b = vec![50.0, 50.5, 51.0, 51.5, 52.0, 52.5, 53.0, 53.5, 54.0, 54.5];
         let signal = pairs_trading_signal(&a, &b, 5);
         assert_eq!(signal.len(), 10);
@@ -261,8 +280,20 @@ mod tests {
     #[test]
     fn test_match_orders() {
         let orders = vec![
-            Order { id: "b1".into(), side: "buy".into(), price: 100.0, quantity: 10.0, timestamp: 1 },
-            Order { id: "s1".into(), side: "sell".into(), price: 99.0, quantity: 5.0, timestamp: 2 },
+            Order {
+                id: "b1".into(),
+                side: "buy".into(),
+                price: 100.0,
+                quantity: 10.0,
+                timestamp: 1,
+            },
+            Order {
+                id: "s1".into(),
+                side: "sell".into(),
+                price: 99.0,
+                quantity: 5.0,
+                timestamp: 2,
+            },
         ];
         let fills = match_orders(&orders);
         assert!(!fills.is_empty());
