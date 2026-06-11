@@ -23,10 +23,7 @@ const COMMUNITY_DETECTION_BUDGET: Duration = Duration::from_secs(15);
 pub fn topological_sort(core: &GraphCore) -> Result<Vec<String>, String> {
     match petgraph::algo::toposort(&core.graph, None) {
         Ok(indices) => {
-            let sorted: Vec<String> = indices
-                .iter()
-                .map(|&idx| core.graph[idx].clone())
-                .collect();
+            let sorted: Vec<String> = indices.iter().map(|&idx| core.graph[idx].clone()).collect();
             Ok(sorted)
         }
         Err(_) => Err("Graph contains cycles".to_string()),
@@ -90,7 +87,11 @@ fn dfs_find_cycle(
 }
 
 /// BFS shortest path between two nodes.
-pub fn get_shortest_path(core: &GraphCore, source_id: &str, target_id: &str) -> Option<Vec<String>> {
+pub fn get_shortest_path(
+    core: &GraphCore,
+    source_id: &str,
+    target_id: &str,
+) -> Option<Vec<String>> {
     let src_idx = *core.node_map.get(source_id)?;
     let tgt_idx = *core.node_map.get(target_id)?;
 
@@ -157,9 +158,10 @@ pub fn get_blast_radius(core: &GraphCore, node_id: &str, max_depth: usize) -> Ve
 
 /// Degree centrality for a single node: (in + out) / (n - 1).
 pub fn compute_degree_centrality(core: &GraphCore, node_id: &str) -> Result<f64, String> {
-    let idx = core.node_map.get(node_id).ok_or_else(|| {
-        format!("Node '{}' not found", node_id)
-    })?;
+    let idx = core
+        .node_map
+        .get(node_id)
+        .ok_or_else(|| format!("Node '{}' not found", node_id))?;
     let n = core.node_map.len();
     if n <= 1 {
         return Ok(0.0);
@@ -179,11 +181,7 @@ pub fn compute_degree_centrality(core: &GraphCore, node_id: &str) -> Result<f64,
 pub fn degree_centrality_all(core: &GraphCore) -> Vec<(String, f64)> {
     let n = core.node_map.len();
     if n <= 1 {
-        return core
-            .node_map
-            .keys()
-            .map(|k| (k.clone(), 0.0))
-            .collect();
+        return core.node_map.keys().map(|k| (k.clone(), 0.0)).collect();
     }
     let denom = (n - 1) as f64;
 
@@ -545,10 +543,7 @@ pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String
     // by their smallest member; members sorted) so callers + tests are stable.
     let mut communities: HashMap<usize, Vec<String>> = HashMap::new();
     for (node_id, label) in &labels {
-        communities
-            .entry(*label)
-            .or_default()
-            .push(node_id.clone());
+        communities.entry(*label).or_default().push(node_id.clone());
     }
     let mut out: Vec<Vec<String>> = communities
         .into_values()
@@ -952,11 +947,8 @@ pub fn get_context_view(
 /// - {"op": "add_edge", "source": "...", "target": "...", "properties": "..."}
 /// - {"op": "remove_edge", "source": "...", "target": "..."}
 pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
-    let ops: Vec<serde_json::Value> = rmp_serde::from_slice(operations_msgpack).map_err(|e| {
-        format!(
-            "[EpistemicGraph::batch_update] invalid MsgPack: {e}"
-        )
-    })?;
+    let ops: Vec<serde_json::Value> = rmp_serde::from_slice(operations_msgpack)
+        .map_err(|e| format!("[EpistemicGraph::batch_update] invalid MsgPack: {e}"))?;
 
     let mut added_nodes = 0u32;
     let mut removed_nodes = 0u32;
@@ -969,12 +961,18 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
         match op_type {
             "add_node" => {
                 let id = op.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let props = op
-                    .get("properties")
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "{}".to_string());
                 if !id.is_empty() {
-                    core.add_node(id.to_string(), props.into_bytes());
+                    // Store properties as MsgPack (NOT json.to_string().into_bytes()).
+                    // GraphCore stores raw property bytes and the Python client reads
+                    // them with `msgpack.unpackb` — JSON-string bytes were unreadable,
+                    // so batch-written nodes looked empty/absent. Match the single
+                    // `AddNode` op, which stores `properties_msgpack`.
+                    let props_val = op
+                        .get("properties")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+                    let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
+                    core.add_node(id.to_string(), props_mp);
                     added_nodes += 1;
                 }
             }
@@ -988,12 +986,14 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
             "add_edge" => {
                 let src = op.get("source").and_then(|v| v.as_str()).unwrap_or("");
                 let tgt = op.get("target").and_then(|v| v.as_str()).unwrap_or("");
-                let props = op
-                    .get("properties")
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "{}".to_string());
                 if !src.is_empty() && !tgt.is_empty() {
-                    if let Err(e) = core.add_edge(src.to_string(), tgt.to_string(), props.into_bytes()) {
+                    // MsgPack props — same read-compatibility fix as add_node above.
+                    let props_val = op
+                        .get("properties")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+                    let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
+                    if let Err(e) = core.add_edge(src.to_string(), tgt.to_string(), props_mp) {
                         errors.push(format!("op[{i}]: {e}"));
                     } else {
                         added_edges += 1;
@@ -1235,5 +1235,30 @@ mod community_tests {
         );
         let total: usize = communities.iter().map(|c| c.len()).sum();
         assert_eq!(total, ids.len(), "every node must be assigned a community");
+    }
+
+    #[test]
+    fn batch_update_stores_msgpack_readable_properties() {
+        // Regression: batch_update used to store JSON-string bytes, which the
+        // read path (msgpack) couldn't decode → batch-written nodes looked empty.
+        let mut g = GraphCore::new();
+        let ops = serde_json::json!([
+            {"op": "add_node", "id": "code:A", "properties": {"type": "Code", "language": "java", "name": "Widget"}},
+            {"op": "add_node", "id": "code:B", "properties": {"type": "Code", "language": "rust"}},
+            {"op": "add_edge", "source": "code:A", "target": "code:B", "properties": {"rel_type": "CALLS"}},
+        ]);
+        let ops_mp = rmp_serde::to_vec_named(&ops).unwrap();
+        let res_mp = batch_update(&mut g, &ops_mp).unwrap();
+        let res: serde_json::Value = rmp_serde::from_slice(&res_mp).unwrap();
+        assert_eq!(res["added_nodes"], 2);
+        assert_eq!(res["added_edges"], 1);
+        assert_eq!(g.node_count(), 2);
+
+        // The stored property bytes MUST decode as MsgPack (not JSON bytes) and
+        // round-trip the values — exactly what the Python client expects.
+        let raw = g.get_node_properties("code:A").expect("node A present");
+        let props: serde_json::Value = rmp_serde::from_slice(&raw).expect("props are msgpack");
+        assert_eq!(props["language"], "java");
+        assert_eq!(props["name"], "Widget");
     }
 }
