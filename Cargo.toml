@@ -21,7 +21,7 @@ default = ["graph", "algorithms"]
 graph = []
 algorithms = []
 finance = []
-ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-javascript", "dep:tree-sitter-go"]
+ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-javascript", "dep:tree-sitter-go", "dep:tree-sitter-java", "dep:tree-sitter-c", "dep:tree-sitter-cpp", "dep:tree-sitter-c-sharp"]
 datascience = []
 reasoning = []
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
@@ -72,6 +72,12 @@ tree-sitter-rust = { version = "0.23", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }
 tree-sitter-javascript = { version = "0.23", optional = true }
 tree-sitter-go = { version = "0.23", optional = true }
+tree-sitter-java = { version = "0.23", optional = true }
+tree-sitter-c = { version = "0.23", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+# Pinned to an ABI-14 grammar: 0.23.5 was regenerated with tree-sitter ABI 15,
+# which the 0.23 core runtime rejects ("Incompatible language version 15").
+tree-sitter-c-sharp = { version = "=0.23.1", optional = true }
 serde_bytes = "0.11.19"
 
 

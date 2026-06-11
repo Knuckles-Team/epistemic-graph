@@ -34,29 +34,51 @@ pub struct ParseResult {
     pub symbols_extracted: usize,
 }
 
+/// Resolve a file path to its tree-sitter grammar plus a stable language label
+/// (the label is stamped on every extracted symbol so the graph can answer
+/// "show me all Java code" and compute per-language metrics). Returns ``None``
+/// for paths we don't have a grammar for.
+fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
+    let ext = file_path
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let pair: (Language, &'static str) = match ext.as_str() {
+        "py" | "pyi" => (tree_sitter_python::LANGUAGE.into(), "python"),
+        "js" | "jsx" | "mjs" | "cjs" => (tree_sitter_javascript::LANGUAGE.into(), "javascript"),
+        "ts" | "mts" | "cts" => (
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            "typescript",
+        ),
+        "tsx" => (tree_sitter_typescript::LANGUAGE_TSX.into(), "typescript"),
+        "go" => (tree_sitter_go::LANGUAGE.into(), "go"),
+        "rs" => (tree_sitter_rust::LANGUAGE.into(), "rust"),
+        "java" => (tree_sitter_java::LANGUAGE.into(), "java"),
+        "c" | "h" => (tree_sitter_c::LANGUAGE.into(), "c"),
+        "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" | "c++" => {
+            (tree_sitter_cpp::LANGUAGE.into(), "cpp")
+        }
+        "cs" => (tree_sitter_c_sharp::LANGUAGE.into(), "csharp"),
+        _ => return None,
+    };
+    Some(pair)
+}
+
+/// Extensions the parser can ingest — kept in sync with [`lang_for_path`] and
+/// mirrored by the Python file-discovery walk.
+pub const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "py", "pyi", "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "go", "rs", "java", "c",
+    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs",
+];
+
 pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String> {
     let mut parser = Parser::new();
-    let language: Language = if file_path.ends_with(".py") {
-        tree_sitter_python::LANGUAGE.into()
-    } else if file_path.ends_with(".js") {
-        tree_sitter_javascript::LANGUAGE.into()
-    } else if file_path.ends_with(".ts") {
-        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
-    } else if file_path.ends_with(".tsx") {
-        tree_sitter_typescript::LANGUAGE_TSX.into()
-    } else if file_path.ends_with(".go") {
-        tree_sitter_go::LANGUAGE.into()
-    } else {
-        return Err("Unsupported file extension".into());
-    };
+    let (language, lang_label) = lang_for_path(file_path).ok_or("Unsupported file extension")?;
 
-    parser
-        .set_language(&language)
-        .map_err(|e| e.to_string())?;
+    parser.set_language(&language).map_err(|e| e.to_string())?;
 
-    let tree = parser
-        .parse(source, None)
-        .ok_or("Failed to parse source")?;
+    let tree = parser.parse(source, None).ok_or("Failed to parse source")?;
 
     let mut result = ParseResult {
         nodes: Vec::new(),
@@ -70,6 +92,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
         tree.root_node(),
         source,
         file_path,
+        lang_label,
         &file_node_id,
         &mut result,
     );
@@ -245,39 +268,158 @@ fn py_marks(decorators: &[String]) -> Vec<String> {
     marks
 }
 
+/// Semantic kind for a type-like declaration node across grammars, or ``None``.
+/// Covers Python/JS/TS/Java/C#/C/C++/Rust/Go type containers so every language's
+/// classes, structs, interfaces, enums, traits, etc. surface as ``Class`` symbols
+/// (the detail string preserves the precise kind for classification).
+fn class_like_kind(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "class_definition"
+        | "class_declaration"
+        | "class_specifier"
+        | "abstract_class_declaration" => "class",
+        "interface_declaration" => "interface",
+        "struct_specifier" | "struct_item" | "struct_declaration" => "struct",
+        "enum_declaration" | "enum_item" | "enum_specifier" => "enum",
+        "trait_item" => "trait",
+        "union_item" | "union_specifier" => "union",
+        "record_declaration" | "record_struct_declaration" => "record",
+        "namespace_definition" => "namespace",
+        // Go puts struct/interface names on the type_spec under a type_declaration.
+        "type_spec" | "type_alias_declaration" => "type",
+        _ => return None,
+    })
+}
+
+/// Semantic kind for a callable declaration node across grammars, or ``None``.
+fn function_like_kind(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "function_definition"
+        | "function_declaration"
+        | "function_item"
+        | "generator_function_declaration" => "function",
+        "method_definition" | "method_declaration" => "method",
+        "constructor_declaration" => "constructor",
+        _ => return None,
+    })
+}
+
+/// Best-effort symbol name across grammars. Most declarations expose a ``name``
+/// field; C/C++ functions nest the identifier under ``declarator`` and Rust
+/// ``impl`` blocks use ``type``, so fall back to those.
+fn symbol_name(node: Node, source: &[u8]) -> Option<String> {
+    if let Some(n) = node.child_by_field_name("name") {
+        return Some(get_node_text(n, source));
+    }
+    if let Some(decl) = node.child_by_field_name("declarator") {
+        if let Some(name) = innermost_declarator_name(decl, source) {
+            return Some(name);
+        }
+    }
+    if let Some(t) = node.child_by_field_name("type") {
+        return Some(get_node_text(t, source));
+    }
+    None
+}
+
+/// Descend a C/C++ declarator chain (pointer/function/array declarators) to the
+/// innermost identifier — that's the function/variable name.
+fn innermost_declarator_name(node: Node, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "identifier"
+        | "field_identifier"
+        | "type_identifier"
+        | "qualified_identifier"
+        | "destructor_name"
+        | "operator_name" => return Some(get_node_text(node, source)),
+        _ => {}
+    }
+    if let Some(inner) = node.child_by_field_name("declarator") {
+        if let Some(name) = innermost_declarator_name(inner, source) {
+            return Some(name);
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(name) = innermost_declarator_name(child, source) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// Build a SYMBOL node (id = content hash) + an IMPLEMENTS edge from its file,
+/// stamping the common facts (name, symbol_type, kind_detail, language, line,
+/// ast_hash, file_path) plus any language-specific ``extra`` properties.
+#[allow(clippy::too_many_arguments)]
+fn emit_symbol(
+    node: Node,
+    source: &[u8],
+    file_path: &str,
+    language: &str,
+    symbol_type: &str,
+    kind_detail: &str,
+    name: String,
+    file_node_id: &str,
+    extra: HashMap<String, String>,
+    result: &mut ParseResult,
+) {
+    let content_bytes = &source[node.start_byte()..node.end_byte()];
+    let mut hasher = Sha256::new();
+    hasher.update(content_bytes);
+    let content_hash = format!("{:x}", hasher.finalize());
+    let symbol_id = format!("symbol:{}", content_hash);
+
+    let mut properties = HashMap::new();
+    properties.insert("name".to_string(), name);
+    properties.insert("symbol_type".to_string(), symbol_type.to_string());
+    properties.insert("kind_detail".to_string(), kind_detail.to_string());
+    properties.insert("language".to_string(), language.to_string());
+    properties.insert(
+        "line".to_string(),
+        (node.start_position().row + 1).to_string(),
+    );
+    properties.insert("ast_hash".to_string(), content_hash);
+    properties.insert("file_path".to_string(), file_path.to_string());
+    for (k, v) in extra {
+        properties.insert(k, v);
+    }
+
+    result.nodes.push(ExtractedNode {
+        node_id: symbol_id.clone(),
+        node_type: "SYMBOL".to_string(),
+        properties,
+    });
+    result.edges.push(ExtractedEdge {
+        source: file_node_id.to_string(),
+        target: symbol_id,
+        edge_type: "IMPLEMENTS".to_string(),
+        properties: HashMap::new(),
+    });
+    result.symbols_extracted += 1;
+}
+
 fn walk_node(
     node: Node,
     source: &[u8],
     file_path: &str,
+    language: &str,
     file_node_id: &str,
     result: &mut ParseResult,
 ) {
     let kind = node.kind();
 
-    if kind == "class_definition" || kind == "class_declaration" {
-        if let Some(name_node) = node.child_by_field_name("name") {
-            let name = get_node_text(name_node, source);
-            let content_bytes = &source[node.start_byte()..node.end_byte()];
-            let mut hasher = Sha256::new();
-            hasher.update(content_bytes);
-            let content_hash = format!("{:x}", hasher.finalize());
-            let symbol_id = format!("symbol:{}", content_hash);
-
-            let mut properties = HashMap::new();
-            properties.insert("name".to_string(), name);
-            properties.insert("symbol_type".to_string(), "Class".to_string());
-            properties.insert("line".to_string(), (node.start_position().row + 1).to_string());
-            properties.insert("ast_hash".to_string(), content_hash);
-            properties.insert("file_path".to_string(), file_path.to_string());
-
-            // CONCEPT:KG-2.8 — structural facts for design-pattern detection.
-            if file_path.ends_with(".py") {
+    if let Some(detail) = class_like_kind(kind) {
+        if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
+            let mut extra = HashMap::new();
+            // CONCEPT:KG-2.8 — Python structural facts for design-pattern detection.
+            if language == "python" {
                 let bases = py_class_bases(node, source);
                 let (methods, has_abstract) = py_class_methods(node, source);
                 let decorators = py_decorators(node, source);
-                properties.insert("bases".to_string(), bases.join(","));
-                properties.insert("methods".to_string(), methods.join(","));
-                properties.insert(
+                extra.insert("bases".to_string(), bases.join(","));
+                extra.insert("methods".to_string(), methods.join(","));
+                extra.insert(
                     "decorators".to_string(),
                     decorators
                         .iter()
@@ -285,50 +427,32 @@ fn walk_node(
                         .collect::<Vec<_>>()
                         .join(","),
                 );
-                properties.insert("is_abstract".to_string(), has_abstract.to_string());
-                properties.insert("method_count".to_string(), methods.len().to_string());
+                extra.insert("is_abstract".to_string(), has_abstract.to_string());
+                extra.insert("method_count".to_string(), methods.len().to_string());
             }
-
-            result.nodes.push(ExtractedNode {
-                node_id: symbol_id.clone(),
-                node_type: "SYMBOL".to_string(),
-                properties,
-            });
-
-            result.edges.push(ExtractedEdge {
-                source: file_node_id.to_string(),
-                target: symbol_id,
-                edge_type: "IMPLEMENTS".to_string(),
-                properties: HashMap::new(),
-            });
-
-            result.symbols_extracted += 1;
+            emit_symbol(
+                node,
+                source,
+                file_path,
+                language,
+                "Class",
+                detail,
+                name,
+                file_node_id,
+                extra,
+                result,
+            );
         }
-    } else if kind == "function_definition"
-        || kind == "function_declaration"
-        || kind == "method_definition"
-    {
-        if let Some(name_node) = node.child_by_field_name("name") {
-            let name = get_node_text(name_node, source);
-            let content_bytes = &source[node.start_byte()..node.end_byte()];
-            let mut hasher = Sha256::new();
-            hasher.update(content_bytes);
-            let content_hash = format!("{:x}", hasher.finalize());
-            let symbol_id = format!("symbol:{}", content_hash);
-
-            let mut properties = HashMap::new();
-            properties.insert("name".to_string(), name.clone());
-            properties.insert("symbol_type".to_string(), "Function".to_string());
-            properties.insert("line".to_string(), (node.start_position().row + 1).to_string());
-            properties.insert("ast_hash".to_string(), content_hash);
-            properties.insert("file_path".to_string(), file_path.to_string());
-
+    } else if let Some(detail) = function_like_kind(kind) {
+        if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
+            let mut extra = HashMap::new();
             // CONCEPT:KG-2.8 — native Python test-quality metrics on the symbol.
-            if file_path.ends_with(".py") {
+            if language == "python" {
                 let decorators = py_decorators(node, source);
                 let marks = py_marks(&decorators);
-                let is_skipped =
-                    marks.iter().any(|m| m == "skip" || m == "skipif" || m == "xfail");
+                let is_skipped = marks
+                    .iter()
+                    .any(|m| m == "skip" || m == "skipif" || m == "xfail");
                 let mock_decos = decorators
                     .iter()
                     .filter(|d| {
@@ -341,45 +465,55 @@ fn walk_node(
                 let mut m = TestMetrics::default();
                 collect_test_metrics(node, source, &mut m);
 
-                properties.insert("is_test".to_string(), is_test.to_string());
-                properties.insert("assert_count".to_string(), m.assert_count.to_string());
-                properties.insert("raises_count".to_string(), m.raises_count.to_string());
-                properties.insert(
+                extra.insert("is_test".to_string(), is_test.to_string());
+                extra.insert("assert_count".to_string(), m.assert_count.to_string());
+                extra.insert("raises_count".to_string(), m.raises_count.to_string());
+                extra.insert(
                     "mock_count".to_string(),
                     (m.mock_count + mock_decos).to_string(),
                 );
-                properties.insert(
+                extra.insert(
                     "fixture_count".to_string(),
                     py_param_count(node, source).to_string(),
                 );
-                properties.insert("marks".to_string(), marks.join(","));
-                properties.insert("is_skipped".to_string(), is_skipped.to_string());
+                extra.insert("marks".to_string(), marks.join(","));
+                extra.insert("is_skipped".to_string(), is_skipped.to_string());
                 // Cap calls list to keep the payload bounded.
                 let mut calls = m.calls.clone();
                 calls.sort();
                 calls.dedup();
                 calls.truncate(64);
-                properties.insert("calls".to_string(), calls.join(","));
+                extra.insert("calls".to_string(), calls.join(","));
             }
-
-            result.nodes.push(ExtractedNode {
-                node_id: symbol_id.clone(),
-                node_type: "SYMBOL".to_string(),
-                properties,
-            });
-
-            result.edges.push(ExtractedEdge {
-                source: file_node_id.to_string(),
-                target: symbol_id,
-                edge_type: "IMPLEMENTS".to_string(),
-                properties: HashMap::new(),
-            });
-
-            result.symbols_extracted += 1;
+            emit_symbol(
+                node,
+                source,
+                file_path,
+                language,
+                "Function",
+                detail,
+                name,
+                file_node_id,
+                extra,
+                result,
+            );
         }
-    } else if kind == "call" {
+    } else if kind == "call" || kind == "call_expression" {
         if let Some(function_node) = node.child_by_field_name("function") {
             let callee = get_node_text(function_node, source);
+            let mut properties = HashMap::new();
+            properties.insert("raw".to_string(), callee.clone());
+            result.edges.push(ExtractedEdge {
+                source: file_node_id.to_string(),
+                target: callee,
+                edge_type: "calls_raw".to_string(),
+                properties,
+            });
+        }
+    } else if kind == "method_invocation" {
+        // Java call site: `obj.method(...)` exposes the method via `name`.
+        if let Some(name_node) = node.child_by_field_name("name") {
+            let callee = get_node_text(name_node, source);
             let mut properties = HashMap::new();
             properties.insert("raw".to_string(), callee.clone());
             result.edges.push(ExtractedEdge {
@@ -403,7 +537,7 @@ fn walk_node(
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        walk_node(child, source, file_path, file_node_id, result);
+        walk_node(child, source, file_path, language, file_node_id, result);
     }
 }
 
@@ -523,6 +657,111 @@ class Strategy(ABC, Base):
         assert!(methods.contains(&"run"));
         assert!(methods.contains(&"__enter__"));
         assert!(methods.contains(&"__exit__"));
+    }
+
+    /// Find a symbol by name in a parsed file, returning its properties.
+    fn sym(path: &str, src: &str, name: &str) -> HashMap<String, String> {
+        let r =
+            parse_file(path, src.as_bytes()).unwrap_or_else(|e| panic!("parse {path} failed: {e}"));
+        r.nodes
+            .into_iter()
+            .find(|n| n.properties.get("name").map(|s| s.as_str()) == Some(name))
+            .unwrap_or_else(|| panic!("no symbol {name} in {path}"))
+            .properties
+    }
+
+    #[test]
+    fn java_class_and_method() {
+        let src = r#"
+public class Widget {
+    private int value;
+    public int getValue() { return value; }
+}
+interface Drawable { void draw(); }
+"#;
+        let c = sym("Widget.java", src, "Widget");
+        assert_eq!(c["symbol_type"], "Class");
+        assert_eq!(c["kind_detail"], "class");
+        assert_eq!(c["language"], "java");
+        let m = sym("Widget.java", src, "getValue");
+        assert_eq!(m["symbol_type"], "Function");
+        assert_eq!(m["kind_detail"], "method");
+        let i = sym("Widget.java", src, "Drawable");
+        assert_eq!(i["kind_detail"], "interface");
+    }
+
+    #[test]
+    fn rust_struct_trait_fn() {
+        let src = r#"
+pub struct Point { x: i32, y: i32 }
+pub trait Shape { fn area(&self) -> f64; }
+pub fn make_point() -> Point { Point { x: 0, y: 0 } }
+"#;
+        assert_eq!(sym("m.rs", src, "Point")["kind_detail"], "struct");
+        assert_eq!(sym("m.rs", src, "Shape")["kind_detail"], "trait");
+        let f = sym("m.rs", src, "make_point");
+        assert_eq!(f["symbol_type"], "Function");
+        assert_eq!(f["language"], "rust");
+    }
+
+    #[test]
+    fn go_func_and_struct() {
+        let src = r#"
+package main
+type Server struct { addr string }
+func NewServer(a string) *Server { return &Server{addr: a} }
+func (s *Server) Start() error { return nil }
+"#;
+        assert_eq!(sym("s.go", src, "Server")["kind_detail"], "type");
+        let f = sym("s.go", src, "NewServer");
+        assert_eq!(f["symbol_type"], "Function");
+        assert_eq!(f["language"], "go");
+        assert_eq!(sym("s.go", src, "Start")["kind_detail"], "method");
+    }
+
+    #[test]
+    fn c_function_via_declarator() {
+        // C function names nest under the declarator (no `name` field).
+        let src = "int add(int a, int b) { return a + b; }\nstruct Pt { int x; };\n";
+        let f = sym("a.c", src, "add");
+        assert_eq!(f["symbol_type"], "Function");
+        assert_eq!(f["language"], "c");
+        assert_eq!(sym("a.c", src, "Pt")["kind_detail"], "struct");
+    }
+
+    #[test]
+    fn typescript_interface_and_function() {
+        let src = r#"
+export interface User { id: number; name: string; }
+export function greet(u: User): string { return u.name; }
+"#;
+        assert_eq!(sym("u.ts", src, "User")["kind_detail"], "interface");
+        let f = sym("u.ts", src, "greet");
+        assert_eq!(f["symbol_type"], "Function");
+        assert_eq!(f["language"], "typescript");
+    }
+
+    #[test]
+    fn csharp_class_and_method() {
+        let src = r#"
+namespace App {
+    public class Service {
+        public int Compute(int n) { return n * 2; }
+    }
+}
+"#;
+        assert_eq!(sym("S.cs", src, "Service")["kind_detail"], "class");
+        let m = sym("S.cs", src, "Compute");
+        assert_eq!(m["kind_detail"], "method");
+        assert_eq!(m["language"], "csharp");
+    }
+
+    #[test]
+    fn python_still_carries_language_and_metrics() {
+        // Regression: Python keeps its rich metrics AND gains the language field.
+        let p = func_props("def helper(a, b):\n    return a + b\n", "helper");
+        assert_eq!(p["language"], "python");
+        assert_eq!(p["fixture_count"], "2");
     }
 
     #[test]
