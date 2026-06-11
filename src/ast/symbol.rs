@@ -83,7 +83,7 @@ pub struct Symbol {
 impl Symbol {
     /// Generate a deterministic ID for this symbol.
     pub fn generate_id(file_path: &str, name: &str, line_start: u32) -> String {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let input = format!("{}:{}:{}", file_path, name, line_start);
         let hash = Sha256::digest(input.as_bytes());
         format!("sym:{}", hex::encode(&hash[..8]))

@@ -1,5 +1,5 @@
 use nalgebra::DMatrix;
-use rand::{SeedableRng};
+use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, StandardNormal};
 use std::collections::HashMap;
@@ -101,7 +101,12 @@ impl PositionalInteractionEncoder {
     }
 }
 
-pub fn get_or_create_encoder(pos_dim: usize, hidden_dim: usize, out_dim: usize, seed: u64) -> Vec<f64> {
+pub fn get_or_create_encoder(
+    pos_dim: usize,
+    hidden_dim: usize,
+    out_dim: usize,
+    seed: u64,
+) -> Vec<f64> {
     let key = format!("{}-{}-{}-{}", pos_dim, hidden_dim, out_dim, seed);
     let mut cache = ENCODER_CACHE.lock().unwrap();
     if !cache.contains_key(&key) {

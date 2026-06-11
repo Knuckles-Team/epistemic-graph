@@ -85,8 +85,28 @@ fn resolve_socket_path(explicit: Option<String>) -> String {
     "/tmp/epistemic-graph.sock".to_string()
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Explicit, hardware-sized multi-thread runtime (CONCEPT:KG-2.8 — A4). The
+    // default `#[tokio::main]` already spins one worker per core, but building the
+    // runtime explicitly lets us (a) put a small floor under the worker count so a
+    // 1-2 core box (Raspberry Pi) still has runtime threads to overlap I/O, and
+    // (b) size the BLOCKING pool that off-reactor CPU work (parse_files, the
+    // checkpoint encode, community detection) runs on, so a big box uses every
+    // core. This is the seam Phase D's HardwareProfile tunes further.
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2);
+    let worker_threads = cores.max(2);
+    let max_blocking = (cores * 2).max(4);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .max_blocking_threads(max_blocking)
+        .enable_all()
+        .build()?;
+    runtime.block_on(run())
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_max_level(Level::INFO)
         .with_target(false)

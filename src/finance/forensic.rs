@@ -80,8 +80,7 @@ pub fn beneish_m_score(t: &YearData, p: &YearData) -> f64 {
         d(t.total_liabilities, t.total_assets),
         d(p.total_liabilities, p.total_assets),
     );
-    -4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi
-        - 0.172 * sgai
+    -4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi - 0.172 * sgai
         + 4.679 * tata
         - 0.327 * lvgi
 }
@@ -104,8 +103,8 @@ pub fn piotroski_f_score(t: &YearData, p: &YearData) -> i32 {
     s += (d(t.net_income, t.total_assets) > d(p.net_income, p.total_assets)) as i32;
     s += (t.cfo > t.net_income) as i32; // cash beats accruals
     s += (t.long_term_debt < p.long_term_debt) as i32;
-    s += (d(t.current_assets, t.current_liabilities)
-        > d(p.current_assets, p.current_liabilities)) as i32;
+    s += (d(t.current_assets, t.current_liabilities) > d(p.current_assets, p.current_liabilities))
+        as i32;
     s += (t.shares <= p.shares) as i32; // no dilution
     s += (d(t.sales - t.cogs, t.sales) > d(p.sales - p.cogs, p.sales)) as i32;
     s += (d(t.sales, t.total_assets) > d(p.sales, p.total_assets)) as i32;
@@ -138,7 +137,10 @@ pub fn forensic_report(t: &YearData, p: &YearData) -> ForensicReport {
         flags.push(format!("Z-Score {:.2} — financial distress zone", z));
     }
     if a.abs() > ACCRUAL_BAD {
-        flags.push(format!("Accruals {:+.1}% — earnings-quality red flag", a * 100.0));
+        flags.push(format!(
+            "Accruals {:+.1}% — earnings-quality red flag",
+            a * 100.0
+        ));
     }
     if f < F_STRONG {
         flags.push(format!("F-Score {}/9 — not strengthening", f));

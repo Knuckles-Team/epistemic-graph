@@ -36,7 +36,8 @@ pub fn sabr_implied_vol(f: f64, k: f64, t: f64, alpha: f64, beta: f64, rho: f64,
     // Denominator series in log(F/K).
     let log_fk2 = log_fk * log_fk;
     let denom = fk_beta
-        * (1.0 + (one_m_beta.powi(2) / 24.0) * log_fk2
+        * (1.0
+            + (one_m_beta.powi(2) / 24.0) * log_fk2
             + (one_m_beta.powi(4) / 1920.0) * log_fk2 * log_fk2);
 
     // Time-dependent correction bracket.
@@ -77,13 +78,7 @@ pub struct SabrFit {
 /// Calibrate SABR (α, ρ, ν) to a market smile with `beta` fixed (the usual
 /// convention — β is a modelling choice, not fit). Minimises RMSE of model vs
 /// market implied vols via Nelder-Mead, with α seeded from the ATM vol.
-pub fn sabr_calibrate(
-    f: f64,
-    t: f64,
-    strikes: &[f64],
-    market_vols: &[f64],
-    beta: f64,
-) -> SabrFit {
+pub fn sabr_calibrate(f: f64, t: f64, strikes: &[f64], market_vols: &[f64], beta: f64) -> SabrFit {
     let n = strikes.len().min(market_vols.len());
     if n == 0 {
         return SabrFit {

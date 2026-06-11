@@ -112,7 +112,8 @@ pub fn downside_deviation(returns: &[f64], target: f64) -> f64 {
     if returns.is_empty() {
         return 0.0;
     }
-    let below: Vec<f64> = returns.iter()
+    let below: Vec<f64> = returns
+        .iter()
         .filter(|&&r| r < target)
         .map(|&r| (r - target).powi(2))
         .collect();
@@ -140,7 +141,8 @@ pub fn compute_risk_metrics(returns: &[f64], risk_free_rate: f64) -> RiskMetrics
 
     let n = returns.len() as f64;
     let mean: f64 = returns.iter().sum::<f64>() / n;
-    let variance: f64 = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
+    let variance: f64 =
+        returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0);
     let vol = variance.sqrt();
     let dd = max_drawdown(returns);
     let dsd = downside_deviation(returns, risk_free_rate / 252.0);
@@ -175,12 +177,7 @@ pub fn compute_risk_metrics(returns: &[f64], risk_free_rate: f64) -> RiskMetrics
 }
 
 /// Monte Carlo VaR — simulate returns from mean/std and compute VaR.
-pub fn monte_carlo_var(
-    mean: f64,
-    std: f64,
-    n_simulations: usize,
-    confidence: f64,
-) -> f64 {
+pub fn monte_carlo_var(mean: f64, std: f64, n_simulations: usize, confidence: f64) -> f64 {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let mut simulated: Vec<f64> = (0..n_simulations)
@@ -210,7 +207,8 @@ pub fn stress_test(
     shock_factors
         .iter()
         .map(|&shock| {
-            let stressed_returns: Vec<f64> = expected_returns.iter()
+            let stressed_returns: Vec<f64> = expected_returns
+                .iter()
                 .map(|&r| r * (1.0 + shock))
                 .collect();
             let mut port_ret = 0.0;
@@ -224,7 +222,7 @@ pub fn stress_test(
                     port_var += weights[i] * weights[j] * cov_matrix[i][j] * (1.0 + shock.abs());
                 }
             }
-            port_ret - port_var.sqrt() * 1.65  // 95% stress loss
+            port_ret - port_var.sqrt() * 1.65 // 95% stress loss
         })
         .collect()
 }
@@ -235,7 +233,9 @@ mod tests {
 
     #[test]
     fn test_historical_var() {
-        let returns = vec![-0.05, -0.03, -0.01, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07];
+        let returns = vec![
+            -0.05, -0.03, -0.01, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07,
+        ];
         let var95 = historical_var(&returns, 0.95);
         assert!(var95 > 0.0, "VaR should be positive for this sample");
     }
@@ -249,7 +249,9 @@ mod tests {
 
     #[test]
     fn test_risk_metrics() {
-        let returns = vec![0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.005, 0.01, -0.015, 0.02];
+        let returns = vec![
+            0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.005, 0.01, -0.015, 0.02,
+        ];
         let metrics = compute_risk_metrics(&returns, 0.02);
         assert!(metrics.volatility > 0.0);
         assert!(metrics.max_drawdown >= 0.0);
