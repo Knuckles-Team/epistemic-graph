@@ -151,6 +151,41 @@ fn collect_test_metrics(node: Node, source: &[u8], m: &mut TestMetrics) {
     }
 }
 
+/// Collect callee names within a function/method body across languages: Python
+/// `call`, JS/TS/Go/Rust/C/C++ `call_expression`, Java `method_invocation`. The
+/// callee is the last dotted/`::` segment (`obj.method` → `method`, `a::b` → `b`)
+/// so name-based call-edge resolution matches the bare symbol name. (CONCEPT:KG-2.8)
+fn collect_calls(node: Node, source: &[u8], out: &mut Vec<String>) {
+    match node.kind() {
+        "call" | "call_expression" => {
+            if let Some(f) = node.child_by_field_name("function") {
+                let text = get_node_text(f, source);
+                let name = text
+                    .rsplit(|c| c == '.' || c == ':')
+                    .next()
+                    .unwrap_or(&text)
+                    .trim();
+                if !name.is_empty() {
+                    out.push(name.to_string());
+                }
+            }
+        }
+        "method_invocation" => {
+            if let Some(n) = node.child_by_field_name("name") {
+                let name = get_node_text(n, source).trim().to_string();
+                if !name.is_empty() {
+                    out.push(name);
+                }
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_calls(child, source, out);
+    }
+}
+
 /// Count a Python function's parameters, excluding a leading `self`/`cls`.
 fn py_param_count(node: Node, source: &[u8]) -> usize {
     let params = match node.child_by_field_name("parameters") {
@@ -446,6 +481,18 @@ fn walk_node(
     } else if let Some(detail) = function_like_kind(kind) {
         if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
             let mut extra = HashMap::new();
+            // Callee names within the body — for EVERY language (call /
+            // call_expression / method_invocation), capped. This is the signal
+            // ``resolve_call_edges`` uses to build the call graph, which feature
+            // clustering runs over; without it non-Python repos formed 0 features.
+            // (CONCEPT:KG-2.8)
+            let mut calls = Vec::new();
+            collect_calls(node, source, &mut calls);
+            calls.sort();
+            calls.dedup();
+            calls.truncate(64);
+            extra.insert("calls".to_string(), calls.join(","));
+
             // CONCEPT:KG-2.8 — native Python test-quality metrics on the symbol.
             if language == "python" {
                 let decorators = py_decorators(node, source);
@@ -478,12 +525,6 @@ fn walk_node(
                 );
                 extra.insert("marks".to_string(), marks.join(","));
                 extra.insert("is_skipped".to_string(), is_skipped.to_string());
-                // Cap calls list to keep the payload bounded.
-                let mut calls = m.calls.clone();
-                calls.sort();
-                calls.dedup();
-                calls.truncate(64);
-                extra.insert("calls".to_string(), calls.join(","));
             }
             emit_symbol(
                 node,
@@ -762,6 +803,42 @@ namespace App {
         let p = func_props("def helper(a, b):\n    return a + b\n", "helper");
         assert_eq!(p["language"], "python");
         assert_eq!(p["fixture_count"], "2");
+    }
+
+    #[test]
+    fn calls_collected_across_languages() {
+        // Java: method_invocation inside a method body.
+        let java = "class A { int f(){ return g() + this.h(); } int g(){return 1;} }";
+        let cj: Vec<String> = sym("A.java", java, "f")["calls"]
+            .split(',')
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            cj.contains(&"g".to_string()) && cj.contains(&"h".to_string()),
+            "{cj:?}"
+        );
+
+        // Rust: call_expression incl. a path call (helper::run -> run).
+        let rust = "fn outer() { inner(); helper::run(); }";
+        let cr: Vec<String> = sym("m.rs", rust, "outer")["calls"]
+            .split(',')
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            cr.contains(&"inner".to_string()) && cr.contains(&"run".to_string()),
+            "{cr:?}"
+        );
+
+        // Go: call_expression.
+        let go = "package m\nfunc Outer() { doThing(); fmt.Println(\"x\") }";
+        let cg: Vec<String> = sym("m.go", go, "Outer")["calls"]
+            .split(',')
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            cg.contains(&"doThing".to_string()) && cg.contains(&"Println".to_string()),
+            "{cg:?}"
+        );
     }
 
     #[test]
