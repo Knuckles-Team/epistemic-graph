@@ -73,6 +73,10 @@ lazy_static = "1.4"
 sha2 = "0.10"
 rand = "0.8"
 hnsw_rs = "0.3"
+# Advisory file locking for the single-writer persist-dir guard (Phase B1):
+# exactly one engine may own a persist dir, closing the split-brain/orphan class
+# at the engine level (complements the Python-side spawn guard).
+fs4 = "0.8"
 
 # Optional AST
 tree-sitter = { version = "0.23", optional = true }
