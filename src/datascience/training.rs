@@ -14,7 +14,11 @@ use serde::{Deserialize, Serialize};
 
 /// Numerically-stable softmax with temperature.
 pub fn softmax(logits: &[f64], temperature: f64) -> Vec<f64> {
-    let t = if temperature.abs() < 1e-12 { 1.0 } else { temperature };
+    let t = if temperature.abs() < 1e-12 {
+        1.0
+    } else {
+        temperature
+    };
     let max = logits.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
     let exps: Vec<f64> = logits.iter().map(|&x| ((x - max) / t).exp()).collect();
     let sum: f64 = exps.iter().sum();
@@ -44,7 +48,10 @@ pub struct CrossEntropyResult {
 pub fn cross_entropy(logits: &[Vec<f64>], labels: &[usize]) -> CrossEntropyResult {
     let n = logits.len();
     if n == 0 || n != labels.len() {
-        return CrossEntropyResult { loss: 0.0, grad: vec![] };
+        return CrossEntropyResult {
+            loss: 0.0,
+            grad: vec![],
+        };
     }
     let mut loss = 0.0;
     let mut grad = Vec::with_capacity(n);
@@ -61,7 +68,10 @@ pub fn cross_entropy(logits: &[Vec<f64>], labels: &[usize]) -> CrossEntropyResul
         }
         grad.push(g);
     }
-    CrossEntropyResult { loss: loss / n as f64, grad }
+    CrossEntropyResult {
+        loss: loss / n as f64,
+        grad,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,25 +96,30 @@ pub fn dpo_loss(
     beta: f64,
 ) -> DpoResult {
     let n = policy_chosen.len();
-    if n == 0
-        || policy_rejected.len() != n
-        || ref_chosen.len() != n
-        || ref_rejected.len() != n
-    {
-        return DpoResult { loss: 0.0, grad_chosen: vec![], grad_rejected: vec![] };
+    if n == 0 || policy_rejected.len() != n || ref_chosen.len() != n || ref_rejected.len() != n {
+        return DpoResult {
+            loss: 0.0,
+            grad_chosen: vec![],
+            grad_rejected: vec![],
+        };
     }
     let mut loss = 0.0;
     let mut grad_chosen = vec![0.0; n];
     let mut grad_rejected = vec![0.0; n];
     for i in 0..n {
-        let z = beta * ((policy_chosen[i] - policy_rejected[i]) - (ref_chosen[i] - ref_rejected[i]));
+        let z =
+            beta * ((policy_chosen[i] - policy_rejected[i]) - (ref_chosen[i] - ref_rejected[i]));
         loss += -(sigmoid(z).ln());
         // d/dz [-log σ(z)] = -(1 - σ(z)) = σ(z) - 1 ; chain through β, averaged.
         let dz = (sigmoid(z) - 1.0) * beta / n as f64;
         grad_chosen[i] = dz; // ∂z/∂pc = +β
         grad_rejected[i] = -dz; // ∂z/∂pr = -β
     }
-    DpoResult { loss: loss / n as f64, grad_chosen, grad_rejected }
+    DpoResult {
+        loss: loss / n as f64,
+        grad_chosen,
+        grad_rejected,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,7 +139,10 @@ pub fn grpo_surrogate(
 ) -> GrpoResult {
     let n = logprob.len();
     if n == 0 || old_logprob.len() != n || advantage.len() != n {
-        return GrpoResult { loss: 0.0, grad: vec![] };
+        return GrpoResult {
+            loss: 0.0,
+            grad: vec![],
+        };
     }
     let mut loss = 0.0;
     let mut grad = vec![0.0; n];
@@ -139,7 +157,10 @@ pub fn grpo_surrogate(
             grad[i] = -(ratio * advantage[i]) / n as f64; // d ratio/d logprob = ratio
         }
     }
-    GrpoResult { loss: loss / n as f64, grad }
+    GrpoResult {
+        loss: loss / n as f64,
+        grad,
+    }
 }
 
 /// Schulman k3 low-variance KL estimate `E[(r−1) − log r]` with `r = exp(ref − lp)`.
@@ -179,10 +200,22 @@ pub fn adam_step(
 ) -> AdamResult {
     let n = params.len();
     if n == 0 || grads.len() != n {
-        return AdamResult { params: params.to_vec(), m: m.to_vec(), v: v.to_vec() };
+        return AdamResult {
+            params: params.to_vec(),
+            m: m.to_vec(),
+            v: v.to_vec(),
+        };
     }
-    let m_in = if m.len() == n { m.to_vec() } else { vec![0.0; n] };
-    let v_in = if v.len() == n { v.to_vec() } else { vec![0.0; n] };
+    let m_in = if m.len() == n {
+        m.to_vec()
+    } else {
+        vec![0.0; n]
+    };
+    let v_in = if v.len() == n {
+        v.to_vec()
+    } else {
+        vec![0.0; n]
+    };
     let step = t.max(1) as f64;
     let bc1 = 1.0 - beta1.powf(step);
     let bc2 = 1.0 - beta2.powf(step);
@@ -196,7 +229,11 @@ pub fn adam_step(
         let v_hat = new_v[i] / bc2;
         new_params[i] = params[i] - lr * m_hat / (v_hat.sqrt() + eps);
     }
-    AdamResult { params: new_params, m: new_m, v: new_v }
+    AdamResult {
+        params: new_params,
+        m: new_m,
+        v: new_v,
+    }
 }
 
 /// One plain SGD step `params - lr * grads`.
@@ -204,7 +241,11 @@ pub fn sgd_step(params: &[f64], grads: &[f64], lr: f64) -> Vec<f64> {
     if params.len() != grads.len() {
         return params.to_vec();
     }
-    params.iter().zip(grads.iter()).map(|(&p, &g)| p - lr * g).collect()
+    params
+        .iter()
+        .zip(grads.iter())
+        .map(|(&p, &g)| p - lr * g)
+        .collect()
 }
 
 #[cfg(test)]

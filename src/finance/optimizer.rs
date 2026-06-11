@@ -60,7 +60,9 @@ fn project_simplex_with_bounds(v: &[f64], min_w: f64, max_w: f64) -> Vec<f64> {
     let mut u = v.to_vec();
     for _ in 0..100 {
         let mut sum = 0.0;
-        for &w in &u { sum += w; }
+        for &w in &u {
+            sum += w;
+        }
         let diff = (sum - 1.0) / (n as f64);
         for w in &mut u {
             *w = (*w - diff).clamp(min_w, max_w);
@@ -119,7 +121,8 @@ pub fn mean_variance_optimization(
                 d_var += 2.0 * weights[j] * cov_matrix[i][j];
             }
             // d(Sharpe)/dw_i = (μ_i * vol - excess * dvar/(2*vol)) / vol^2
-            grad[i] = -(d_ret * port_vol - excess * d_var / (2.0 * port_vol)) / (port_vol * port_vol);
+            grad[i] =
+                -(d_ret * port_vol - excess * d_var / (2.0 * port_vol)) / (port_vol * port_vol);
         }
 
         // Gradient step
@@ -260,8 +263,14 @@ pub fn efficient_frontier(
         return vec![];
     }
 
-    let min_ret = expected_returns.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max_ret = expected_returns.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min_ret = expected_returns
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
+    let max_ret = expected_returns
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
     let step = if n_points > 1 {
         (max_ret - min_ret) / (n_points as f64 - 1.0)
     } else {
@@ -454,16 +463,17 @@ mod tests {
         let result = mean_variance_optimization(&returns, &cov, 0.02, None, None);
         assert_eq!(result.weights.len(), 3);
         let sum: f64 = result.weights.iter().sum();
-        assert!((sum - 1.0).abs() < 0.01, "Weights should sum to 1.0, got {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 0.01,
+            "Weights should sum to 1.0, got {}",
+            sum
+        );
         assert!(result.sharpe_ratio > 0.0);
     }
 
     #[test]
     fn test_min_variance() {
-        let cov = vec![
-            vec![0.04, 0.006],
-            vec![0.006, 0.09],
-        ];
+        let cov = vec![vec![0.04, 0.006], vec![0.006, 0.09]];
         let result = minimum_variance(&cov);
         assert_eq!(result.weights.len(), 2);
         // Lower-vol asset should have higher weight
@@ -472,10 +482,7 @@ mod tests {
 
     #[test]
     fn test_risk_parity() {
-        let cov = vec![
-            vec![0.04, 0.0],
-            vec![0.0, 0.09],
-        ];
+        let cov = vec![vec![0.04, 0.0], vec![0.0, 0.09]];
         let result = risk_parity(&cov);
         assert_eq!(result.weights.len(), 2);
         let sum: f64 = result.weights.iter().sum();
@@ -485,10 +492,7 @@ mod tests {
     #[test]
     fn test_efficient_frontier() {
         let returns = vec![0.08, 0.12];
-        let cov = vec![
-            vec![0.04, 0.01],
-            vec![0.01, 0.09],
-        ];
+        let cov = vec![vec![0.04, 0.01], vec![0.01, 0.09]];
         let frontier = efficient_frontier(&returns, &cov, 0.02, 5);
         assert_eq!(frontier.len(), 5);
     }

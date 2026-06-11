@@ -70,7 +70,11 @@ pub fn detect_regimes(
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let global_mean: f64 = observations.iter().sum::<f64>() / t as f64;
-    let global_var: f64 = observations.iter().map(|x| (x - global_mean).powi(2)).sum::<f64>() / t as f64;
+    let global_var: f64 = observations
+        .iter()
+        .map(|x| (x - global_mean).powi(2))
+        .sum::<f64>()
+        / t as f64;
     let global_std = global_var.sqrt().max(1e-8);
 
     let mut means: Vec<f64> = (0..n_states)
@@ -97,11 +101,16 @@ pub fn detect_regimes(
         // Forward pass (log space)
         let mut log_alpha = vec![vec![0.0_f64; n_states]; t];
         for s in 0..n_states {
-            log_alpha[0][s] = pi[s].max(1e-300).ln() + normal_pdf(observations[0], means[s], stds[s]).max(1e-300).ln();
+            log_alpha[0][s] = pi[s].max(1e-300).ln()
+                + normal_pdf(observations[0], means[s], stds[s])
+                    .max(1e-300)
+                    .ln();
         }
         for tt in 1..t {
             for j in 0..n_states {
-                let emission = normal_pdf(observations[tt], means[j], stds[j]).max(1e-300).ln();
+                let emission = normal_pdf(observations[tt], means[j], stds[j])
+                    .max(1e-300)
+                    .ln();
                 let trans_probs: Vec<f64> = (0..n_states)
                     .map(|i| log_alpha[tt - 1][i] + trans[i][j].max(1e-300).ln())
                     .collect();
@@ -117,7 +126,9 @@ pub fn detect_regimes(
                 let vals: Vec<f64> = (0..n_states)
                     .map(|j| {
                         trans[i][j].max(1e-300).ln()
-                            + normal_pdf(observations[tt + 1], means[j], stds[j]).max(1e-300).ln()
+                            + normal_pdf(observations[tt + 1], means[j], stds[j])
+                                .max(1e-300)
+                                .ln()
                             + log_beta[tt + 1][j]
                     })
                     .collect();
@@ -161,7 +172,9 @@ pub fn detect_regimes(
                 for tt in 0..t - 1 {
                     let xi_val = (log_alpha[tt][i]
                         + trans[i][j].max(1e-300).ln()
-                        + normal_pdf(observations[tt + 1], means[j], stds[j]).max(1e-300).ln()
+                        + normal_pdf(observations[tt + 1], means[j], stds[j])
+                            .max(1e-300)
+                            .ln()
                         + log_beta[tt + 1][j]
                         - ll)
                         .exp();
@@ -179,13 +192,19 @@ pub fn detect_regimes(
         for s in 0..n_states {
             let gamma_s_sum: f64 = gamma.iter().map(|g| g[s]).sum();
             if gamma_s_sum > 1e-8 {
-                means[s] = gamma.iter().enumerate()
+                means[s] = gamma
+                    .iter()
+                    .enumerate()
                     .map(|(tt, g)| g[s] * observations[tt])
-                    .sum::<f64>() / gamma_s_sum;
+                    .sum::<f64>()
+                    / gamma_s_sum;
 
-                let var: f64 = gamma.iter().enumerate()
+                let var: f64 = gamma
+                    .iter()
+                    .enumerate()
                     .map(|(tt, g)| g[s] * (observations[tt] - means[s]).powi(2))
-                    .sum::<f64>() / gamma_s_sum;
+                    .sum::<f64>()
+                    / gamma_s_sum;
                 stds[s] = var.sqrt().max(1e-8);
             }
         }
@@ -224,12 +243,16 @@ fn viterbi(
 
     for s in 0..n {
         v[0][s] = pi[s].max(1e-300).ln()
-            + normal_pdf(observations[0], means[s], stds[s]).max(1e-300).ln();
+            + normal_pdf(observations[0], means[s], stds[s])
+                .max(1e-300)
+                .ln();
     }
 
     for tt in 1..t {
         for j in 0..n {
-            let emission = normal_pdf(observations[tt], means[j], stds[j]).max(1e-300).ln();
+            let emission = normal_pdf(observations[tt], means[j], stds[j])
+                .max(1e-300)
+                .ln();
             let mut best_val = f64::NEG_INFINITY;
             let mut best_state = 0;
             for i in 0..n {

@@ -230,9 +230,7 @@ pub fn run_datalog_reasoning(
         inferred_triples.push(fact);
 
         // Safe access — only add edge if both nodes exist
-        if let (Some(&src_idx), Some(&tgt_idx)) =
-            (core.node_map.get(src), core.node_map.get(tgt))
-        {
+        if let (Some(&src_idx), Some(&tgt_idx)) = (core.node_map.get(src), core.node_map.get(tgt)) {
             if core.graph.find_edge(src_idx, tgt_idx).is_none() {
                 core.graph
                     .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
@@ -262,24 +260,28 @@ pub fn run_datalog_reasoning(
 /// Returns inferred type triples.
 pub fn infer_domain_range(
     core: &mut GraphCore,
-    domain_rules: Vec<(String, String)>,  // (property, domain_type)
-    range_rules: Vec<(String, String)>,   // (property, range_type)
+    domain_rules: Vec<(String, String)>, // (property, domain_type)
+    range_rules: Vec<(String, String)>,  // (property, range_type)
 ) -> Vec<HashMap<String, String>> {
     let mut inferred = Vec::new();
     let mut new_types: Vec<(String, String)> = Vec::new();
 
     // Build lookup
     let domain_map: HashMap<String, Vec<String>> =
-        domain_rules.into_iter().fold(HashMap::new(), |mut acc, (prop, domain)| {
-            acc.entry(prop).or_default().push(domain);
-            acc
-        });
+        domain_rules
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, (prop, domain)| {
+                acc.entry(prop).or_default().push(domain);
+                acc
+            });
 
     let range_map: HashMap<String, Vec<String>> =
-        range_rules.into_iter().fold(HashMap::new(), |mut acc, (prop, range)| {
-            acc.entry(prop).or_default().push(range);
-            acc
-        });
+        range_rules
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, (prop, range)| {
+                acc.entry(prop).or_default().push(range);
+                acc
+            });
 
     // Scan all edges
     for ((src, tgt), props_msgpack_list) in &core.edge_properties {
@@ -294,7 +296,10 @@ pub fn infer_domain_range(
                             fact.insert("subject".to_string(), src.clone());
                             fact.insert("predicate".to_string(), "rdf:type".to_string());
                             fact.insert("object".to_string(), domain.clone());
-                            fact.insert("inference_type".to_string(), "domain_inference".to_string());
+                            fact.insert(
+                                "inference_type".to_string(),
+                                "domain_inference".to_string(),
+                            );
                             inferred.push(fact);
                         }
                     }
@@ -307,7 +312,10 @@ pub fn infer_domain_range(
                             fact.insert("subject".to_string(), tgt.clone());
                             fact.insert("predicate".to_string(), "rdf:type".to_string());
                             fact.insert("object".to_string(), range.clone());
-                            fact.insert("inference_type".to_string(), "range_inference".to_string());
+                            fact.insert(
+                                "inference_type".to_string(),
+                                "range_inference".to_string(),
+                            );
                             inferred.push(fact);
                         }
                     }
@@ -322,7 +330,8 @@ pub fn infer_domain_range(
             if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
                 if let Some(obj) = val.as_object_mut() {
                     // Append to inferred_types array
-                    let arr = obj.entry("inferred_types".to_string())
+                    let arr = obj
+                        .entry("inferred_types".to_string())
                         .or_insert_with(|| serde_json::Value::Array(vec![]));
                     if let serde_json::Value::Array(ref mut a) = arr {
                         let type_val = serde_json::Value::String(new_type.clone());
@@ -384,17 +393,21 @@ pub fn infer_property_chains(
             if let Some(targets) = prop2_from.get(b) {
                 for c in targets {
                     // Check if (a, inferred_prop, c) already exists
-                    let exists = core.edge_properties
-                        .get(&(a.clone(), c.clone()))
-                        .map(|props| {
-                            props.iter().any(|p| {
-                                rmp_serde::from_slice::<serde_json::Value>(p)
-                                    .ok()
-                                    .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s.to_string()))
-                                    == Some(inferred_prop.clone())
+                    let exists =
+                        core.edge_properties
+                            .get(&(a.clone(), c.clone()))
+                            .map(|props| {
+                                props.iter().any(|p| {
+                                    rmp_serde::from_slice::<serde_json::Value>(p).ok().and_then(
+                                        |v| {
+                                            v.get("type")
+                                                .and_then(|t| t.as_str())
+                                                .map(|s| s.to_string())
+                                        },
+                                    ) == Some(inferred_prop.clone())
+                                })
                             })
-                        })
-                        .unwrap_or(false);
+                            .unwrap_or(false);
 
                     if !exists {
                         new_edges.push((a.clone(), c.clone(), inferred_prop.clone()));
@@ -412,11 +425,10 @@ pub fn infer_property_chains(
 
     // Apply inferred edges to graph
     for (src, tgt, prop) in &new_edges {
-        if let (Some(&src_idx), Some(&tgt_idx)) =
-            (core.node_map.get(src), core.node_map.get(tgt))
-        {
+        if let (Some(&src_idx), Some(&tgt_idx)) = (core.node_map.get(src), core.node_map.get(tgt)) {
             if core.graph.find_edge(src_idx, tgt_idx).is_none() {
-                core.graph.add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
+                core.graph
+                    .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
             }
         }
         let val = serde_json::json!({
@@ -450,8 +462,18 @@ mod tests {
         core.add_node("a".into(), props(serde_json::json!({"type": "Person"})));
         core.add_node("b".into(), props(serde_json::json!({"type": "Person"})));
         core.add_node("c".into(), props(serde_json::json!({"type": "Person"})));
-        core.add_edge("a".into(), "b".into(), props(serde_json::json!({"type": "ancestor"}))).unwrap();
-        core.add_edge("b".into(), "c".into(), props(serde_json::json!({"type": "ancestor"}))).unwrap();
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"type": "ancestor"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "b".into(),
+            "c".into(),
+            props(serde_json::json!({"type": "ancestor"})),
+        )
+        .unwrap();
 
         let inferred = run_datalog_reasoning(
             &mut core,
