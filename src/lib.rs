@@ -11,25 +11,26 @@
 // are used by the epistemic-graph-server binary.
 
 pub mod algorithms;
+pub mod ast;
+#[cfg(feature = "server")]
+pub mod channels;
+pub mod compute;
+pub mod datascience;
+#[cfg(feature = "kafka")]
+pub mod event_bus;
+pub mod finance;
 pub mod graph;
-mod reasoning;
-pub mod types;
 #[cfg(feature = "server")]
-pub mod protocol;
-#[cfg(feature = "server")]
-pub mod registry;
+pub mod isolation;
+pub mod metrics;
+pub mod parser;
 #[cfg(feature = "server")]
 pub mod persist;
 #[cfg(feature = "server")]
-pub mod isolation;
+pub mod protocol;
+mod reasoning;
 #[cfg(feature = "server")]
-pub mod channels;
+pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
-#[cfg(feature = "kafka")]
-pub mod event_bus;
-pub mod parser;
-pub mod compute;
-pub mod finance;
-pub mod ast;
-pub mod datascience;
+pub mod types;

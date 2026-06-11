@@ -108,6 +108,7 @@ fn check_graph_access(
     if isolation.check_access(agent, graph_name, graph_type, graph_owner, access) {
         Ok(())
     } else {
+        crate::metrics::access_denied();
         Err(format!(
             "ACCESS_DENIED: agent '{}' lacks {:?} access to graph '{}'",
             if agent.is_empty() {
@@ -184,12 +185,27 @@ fn weight_semantic_results(
     weighted_results
 }
 
-/// Dispatch a single request to the appropriate handler.
+/// Dispatch a single request to the appropriate handler, recording
+/// per-operation request counters and latency (CONCEPT:KG-2.51).
 pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
+    #[cfg(feature = "metrics")]
+    {
+        let op: &'static str = (&req.method).into();
+        let start = std::time::Instant::now();
+        let resp = dispatch_inner(state, req).await;
+        crate::metrics::record_request(op, start.elapsed().as_secs_f64());
+        resp
+    }
+    #[cfg(not(feature = "metrics"))]
+    dispatch_inner(state, req).await
+}
+
+async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
     // Auth check.
     {
         let s = state.read().await;
         if !verify_auth(&s.auth_secret, req.id, &req.auth_token) {
+            crate::metrics::auth_failure();
             return Response::err(req.id, "Authentication failed");
         }
     }
@@ -288,10 +304,13 @@ pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Respons
                 .registry
                 .create_graph(&graph_name, graph_type, req.agent_id.clone())
             {
-                Ok(()) => Response::ok(
-                    req.id,
-                    ResultPayload::Json(serde_json::json!({"created": graph_name})),
-                ),
+                Ok(()) => {
+                    crate::metrics::set_graph_size(&graph_name, 0, 0);
+                    Response::ok(
+                        req.id,
+                        ResultPayload::Json(serde_json::json!({"created": graph_name})),
+                    )
+                }
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -311,10 +330,13 @@ pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Respons
                 }
             }
             match s.registry.delete_graph(graph_name) {
-                Ok(()) => Response::ok(
-                    req.id,
-                    ResultPayload::Json(serde_json::json!({"deleted": graph_name})),
-                ),
+                Ok(()) => {
+                    crate::metrics::drop_graph(graph_name);
+                    Response::ok(
+                        req.id,
+                        ResultPayload::Json(serde_json::json!({"deleted": graph_name})),
+                    )
+                }
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -544,7 +566,9 @@ async fn dispatch_graph_op(
     let core = entry.core.clone();
     drop(s); // Release registry lock before graph lock.
 
-    match method {
+    crate::metrics::graph_op(graph_name);
+
+    let response = match method {
         Method::AddNode {
             node_id,
             properties_msgpack,
@@ -2021,7 +2045,21 @@ async fn dispatch_graph_op(
         }
         // Catch-all for methods not yet fully dispatched.
         _ => Response::err(req_id, "Method not yet implemented for graph dispatch"),
+    };
+
+    // Refresh the per-graph size gauges after mutations — both petgraph
+    // counts are O(1), so this adds no meaningful write-path cost.
+    #[cfg(feature = "metrics")]
+    if matches!(access, AccessLevel::Write) {
+        let g = core.read().await;
+        crate::metrics::set_graph_size(
+            graph_name,
+            g.graph.node_count() as i64,
+            g.graph.edge_count() as i64,
+        );
     }
+
+    response
 }
 
 /// Handle a single client connection (UDS or TCP).
@@ -2064,6 +2102,7 @@ where
         let _permit = match sem.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
+                crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
                 let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
                 let out_len = out.len() as u32;
@@ -2076,8 +2115,10 @@ where
                 continue;
             }
         };
+        crate::metrics::connection_request_started(sem.available_permits());
         let resp = dispatch(&state, req).await;
         drop(_permit);
+        crate::metrics::connection_request_finished(sem.available_permits());
 
         let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
         let out_len = out.len() as u32;
