@@ -160,6 +160,25 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // ── Single-writer persist-dir guard (CONCEPT:KG-2.8 / OS-5.9, Phase B1) ──
+    // Refuse to start if another engine already owns this persist dir; hold the
+    // lock for the whole process lifetime so no second engine can clobber our
+    // snapshots (the engine-level complement to the Python spawn guard). Kept in
+    // `_persist_lock` until run() returns; the kernel releases it on exit/crash.
+    let _persist_lock = match &args.persist_dir {
+        Some(dir) => match epistemic_graph::persist_lock::acquire(dir) {
+            Ok(lock) => {
+                info!("Acquired single-writer lock on persist dir {}", dir);
+                Some(lock)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
+
     let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())

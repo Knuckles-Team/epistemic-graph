@@ -27,6 +27,8 @@ pub mod parser;
 #[cfg(feature = "server")]
 pub mod persist;
 #[cfg(feature = "server")]
+pub mod persist_lock;
+#[cfg(feature = "server")]
 pub mod protocol;
 mod reasoning;
 #[cfg(feature = "server")]
