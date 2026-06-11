@@ -64,6 +64,11 @@ struct Args {
     /// (0 = decay only, never prune).
     #[arg(long, default_value = "0.0", env = "GRAPH_SERVICE_DECAY_FLOOR")]
     decay_floor: f64,
+
+    /// Prometheus /metrics HTTP listener address (e.g. 127.0.0.1:9101).
+    /// Disabled when unset. Separate from the MessagePack RPC transports.
+    #[arg(long, env = "GRAPH_SERVICE_METRICS_ADDR")]
+    metrics_addr: Option<String>,
 }
 
 fn resolve_socket_path(explicit: Option<String>) -> String {
@@ -150,6 +155,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         persist_dir: args.persist_dir,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
     }));
+
+    // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
+    // Opt-in: bound only when --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is
+    // set, so shards never collide on a default port.
+    if let Some(ref metrics_addr) = args.metrics_addr {
+        #[cfg(feature = "metrics")]
+        {
+            let listener = tokio::net::TcpListener::bind(metrics_addr).await?;
+            info!(
+                "Metrics: serving Prometheus exposition on http://{}/metrics",
+                metrics_addr
+            );
+            tokio::spawn(async move {
+                epistemic_graph::metrics::serve(listener).await;
+            });
+        }
+        #[cfg(not(feature = "metrics"))]
+        tracing::warn!(
+            "--metrics-addr {} ignored: binary built without the `metrics` feature",
+            metrics_addr
+        );
+    }
 
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
