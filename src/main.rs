@@ -11,11 +11,11 @@ use tokio::sync::RwLock;
 use tracing::{info, Level};
 
 use epistemic_graph::channels::ChannelManager;
+#[cfg(feature = "kafka")]
+use epistemic_graph::event_bus;
 use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{self, ServerState};
-#[cfg(feature = "kafka")]
-use epistemic_graph::event_bus;
 
 #[derive(Parser, Debug)]
 #[command(name = "epistemic-graph-server")]
@@ -34,6 +34,11 @@ struct Args {
     /// HMAC-SHA256 shared secret for authentication.
     #[arg(long, env = "GRAPH_SERVICE_AUTH_SECRET", default_value = "")]
     auth_secret: String,
+
+    /// Allow starting WITHOUT an auth secret (insecure; development only).
+    /// Also enabled by EPISTEMIC_GRAPH_ALLOW_INSECURE=1|true.
+    #[arg(long)]
+    allow_insecure: bool,
 
     /// Directory for checkpoint persistence.
     #[arg(long, env = "GRAPH_SERVICE_PERSIST_DIR")]
@@ -85,6 +90,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let socket_path = resolve_socket_path(args.socket_path);
 
+    // ── Security gate: an auth secret is mandatory ───────────────────────
+    // An empty secret means every request is accepted unauthenticated. That is
+    // never a silent default: the server refuses to start unless the operator
+    // explicitly opts in via --allow-insecure or EPISTEMIC_GRAPH_ALLOW_INSECURE=1.
+    let allow_insecure = args.allow_insecure
+        || std::env::var("EPISTEMIC_GRAPH_ALLOW_INSECURE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+    if args.auth_secret.is_empty() && !allow_insecure {
+        eprintln!(
+            "error: no auth secret configured — refusing to start.\n\
+             Set GRAPH_SERVICE_AUTH_SECRET (or pass --auth-secret) to enable \
+             HMAC-SHA256 authentication.\n\
+             To intentionally run unauthenticated (development only), pass \
+             --allow-insecure or set EPISTEMIC_GRAPH_ALLOW_INSECURE=1."
+        );
+        std::process::exit(2);
+    }
+
     info!("Starting epistemic-graph-server");
     info!("  UDS: {}", socket_path);
     if let Some(ref tcp) = args.tcp_addr {
@@ -98,6 +122,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "enabled"
         }
     );
+    if args.auth_secret.is_empty() {
+        tracing::warn!(
+            "SECURITY: running WITHOUT authentication (insecure opt-out is set). \
+             Every connection to UDS {}{} is trusted unconditionally. \
+             Do NOT expose this server beyond localhost.",
+            socket_path,
+            match &args.tcp_addr {
+                Some(tcp) => format!(" and TCP {}", tcp),
+                None => String::new(),
+            }
+        );
+    }
 
     let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
         .ok()
@@ -125,8 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cp_state = state.clone();
         let interval = args.checkpoint_interval;
         tokio::spawn(async move {
-            let mut ticker =
-                tokio::time::interval(std::time::Duration::from_secs(interval));
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
             ticker.tick().await; // consume the immediate first tick
             loop {
                 ticker.tick().await;
@@ -146,8 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let floor = args.decay_floor;
         let prune = args.decay_floor > 0.0;
         tokio::spawn(async move {
-            let mut ticker =
-                tokio::time::interval(std::time::Duration::from_secs(interval));
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
             ticker.tick().await; // consume the immediate first tick
             loop {
                 ticker.tick().await;

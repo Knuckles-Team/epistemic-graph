@@ -52,6 +52,12 @@ pub struct Request {
     pub graph: String,
     /// HMAC-SHA256 hex digest for authentication.
     pub auth_token: String,
+    /// Caller identity for ACL enforcement (see `isolation.rs`). Optional and
+    /// backward-compatible: older clients simply omit the field. When isolation
+    /// rules are registered, graph-targeted operations are checked against this
+    /// identity; an absent identity is treated as an anonymous agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
     /// The operation to perform.
     #[serde(flatten)]
     pub method: Method,
@@ -923,9 +929,12 @@ mod tests {
             id: 1,
             graph: "agent:planner".to_string(),
             auth_token: "abc123".to_string(),
+            agent_id: None,
             method: Method::AddNode {
                 node_id: "n1".to_string(),
-                properties_msgpack: vec![0x81, 0xa4, 0x74, 0x79, 0x70, 0x65, 0xa5, 0x41, 0x67, 0x65, 0x6e, 0x74],
+                properties_msgpack: vec![
+                    0x81, 0xa4, 0x74, 0x79, 0x70, 0x65, 0xa5, 0x41, 0x67, 0x65, 0x6e, 0x74,
+                ],
             },
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -940,6 +949,7 @@ mod tests {
             id: 42,
             graph: "__bus__".to_string(),
             auth_token: "tok".to_string(),
+            agent_id: Some("agent:a".to_string()),
             method: Method::CreateChannel {
                 channel_id: "channel:p2p:a:b".to_string(),
                 channel_type: ChannelType::PeerToPeer,
@@ -975,7 +985,12 @@ mod tests {
 
     #[test]
     fn test_all_graph_types_roundtrip() {
-        for gt in [GraphType::Agent, GraphType::Team, GraphType::Global, GraphType::Bus] {
+        for gt in [
+            GraphType::Agent,
+            GraphType::Team,
+            GraphType::Global,
+            GraphType::Bus,
+        ] {
             let json = serde_json::to_string(&gt).unwrap();
             let parsed: GraphType = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, gt);
@@ -998,7 +1013,11 @@ mod tests {
         };
         let json = serde_json::to_string(&method).unwrap();
         let parsed: Method = serde_json::from_str(&json).unwrap();
-        if let Method::PageRank { damping, iterations } = parsed {
+        if let Method::PageRank {
+            damping,
+            iterations,
+        } = parsed
+        {
             assert!((damping - 0.85).abs() < f64::EPSILON);
             assert_eq!(iterations, 100);
         } else {
