@@ -11,7 +11,7 @@ use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info};
 
 use crate::channels::ChannelManager;
-use crate::isolation::IsolationLayer;
+use crate::isolation::{AccessLevel, IsolationLayer};
 use crate::protocol::{Method, Request, Response, ResultPayload};
 use crate::registry::GraphRegistry;
 
@@ -28,31 +28,101 @@ pub struct ServerState {
     pub max_in_flight: Arc<Semaphore>,
 }
 
-/// Verify HMAC-SHA256 authentication token.
-fn verify_auth(secret: &str, request_id: u64, token: &str) -> bool {
+/// Compute the HMAC-SHA256 hex token for a request id. Shared by `verify_auth`
+/// and trusted in-process callers (Kafka event bus, tests) that dispatch
+/// requests without going through a socket client.
+pub fn compute_auth_token(secret: &str, request_id: u64) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
     type HmacSha256 = Hmac<Sha256>;
 
-    if secret.is_empty() {
-        return true; // No auth configured.
-    }
-
-    let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
-        Ok(m) => m,
-        Err(_) => return false,
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
+        return String::new();
     };
     mac.update(request_id.to_string().as_bytes());
-    let expected = hex::encode(mac.finalize().into_bytes());
-    token == expected
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Verify HMAC-SHA256 authentication token.
+///
+/// An empty secret accepts everything — the binary only allows that
+/// configuration behind the explicit insecure opt-out enforced at startup
+/// (`--allow-insecure` / `EPISTEMIC_GRAPH_ALLOW_INSECURE=1`, see `main.rs`).
+fn verify_auth(secret: &str, request_id: u64, token: &str) -> bool {
+    if secret.is_empty() {
+        return true; // Explicitly opted-out of authentication at startup.
+    }
+    token == compute_auth_token(secret, request_id)
+}
+
+/// Whether a graph-targeted method mutates the target graph (Write) or only
+/// reads from it (Read). Pure-compute methods (finance, datascience, parse)
+/// never touch graph state and classify as Read.
+fn requires_write(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::AddNode { .. }
+            | Method::RemoveNode { .. }
+            | Method::AddEdge { .. }
+            | Method::RemoveEdge { .. }
+            | Method::ClearGraph
+            | Method::AddEmbedding { .. }
+            | Method::PruneByLifecycle { .. }
+            | Method::BatchUpdate { .. }
+            | Method::EvictLRU { .. }
+            | Method::DecaySweep { .. }
+            | Method::TouchNodes { .. }
+            | Method::FromMsgpack { .. }
+            | Method::ClearLedger
+            | Method::ApplyLedger { .. }
+            | Method::CompactNodesByType { .. }
+            | Method::RunDatalogReasoning { .. }
+            | Method::Reconcile { .. }
+            | Method::ApplyMutation { .. }
+            | Method::ApplyMultisigMutation { .. }
+            | Method::ParseRepository { .. }
+            | Method::DeleteGraph { .. }
+    )
+}
+
+/// Enforce the isolation ACL for a graph-targeted operation.
+///
+/// Back-compat invariant: while no identities are registered the layer has no
+/// rules and everything is allowed (single-tenant deployments are unchanged).
+/// Once rules exist, `check_access` decides: peer agent graphs are denied,
+/// managers reach subordinate graphs, team graphs are member-read/manager-write,
+/// the `__bus__` stays open to all authenticated agents.
+fn check_graph_access(
+    isolation: &IsolationLayer,
+    caller: Option<&str>,
+    graph_name: &str,
+    graph_type: crate::protocol::GraphType,
+    graph_owner: Option<&str>,
+    access: AccessLevel,
+) -> Result<(), String> {
+    if !isolation.has_rules() {
+        return Ok(());
+    }
+    let agent = caller.unwrap_or("");
+    if isolation.check_access(agent, graph_name, graph_type, graph_owner, access) {
+        Ok(())
+    } else {
+        Err(format!(
+            "ACCESS_DENIED: agent '{}' lacks {:?} access to graph '{}'",
+            if agent.is_empty() {
+                "<anonymous>"
+            } else {
+                agent
+            },
+            access,
+            graph_name
+        ))
+    }
 }
 
 /// Dispatch a single request to the appropriate handler.
-pub async fn dispatch(
-    state: &Arc<RwLock<ServerState>>,
-    req: Request,
-) -> Response {
+pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
     // Auth check.
     {
         let s = state.read().await;
@@ -72,15 +142,17 @@ pub async fn dispatch(
             // ``version`` + ``ops`` let clients negotiate capabilities (e.g. only
             // use ``ParseFiles`` against an engine that advertises it) and fall
             // back gracefully against an older binary. (CONCEPT:KG-2.19)
-            Response::ok(req.id, ResultPayload::Json(serde_json::json!({
-                "status": "ok",
-                "uptime_s": uptime_s,
-                "mem_bytes": mem_bytes,
-                "version": env!("CARGO_PKG_VERSION"),
-                "ops": ["ParseFiles"]
-            })))
+            Response::ok(
+                req.id,
+                ResultPayload::Json(serde_json::json!({
+                    "status": "ok",
+                    "uptime_s": uptime_s,
+                    "mem_bytes": mem_bytes,
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "ops": ["ParseFiles"]
+                })),
+            )
         }
-
 
         Method::ParseFile { file_path, source } => {
             #[cfg(feature = "ast")]
@@ -107,16 +179,11 @@ pub async fn dispatch(
                     match rmp_serde::from_slice(&files_msgpack) {
                         Ok(f) => f,
                         Err(e) => {
-                            return Response::err(
-                                req.id,
-                                format!("Invalid files_msgpack: {}", e),
-                            );
+                            return Response::err(req.id, format!("Invalid files_msgpack: {}", e));
                         }
                     };
-                let owned: Vec<(String, Vec<u8>)> = files
-                    .into_iter()
-                    .map(|(p, b)| (p, b.into_vec()))
-                    .collect();
+                let owned: Vec<(String, Vec<u8>)> =
+                    files.into_iter().map(|(p, b)| (p, b.into_vec())).collect();
                 let results = crate::parser::tree_sitter::parse_files(&owned);
                 match serde_json::to_value(&results) {
                     Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
@@ -147,40 +214,83 @@ pub async fn dispatch(
         }
 
         // ── Multi-tenant graph management ────────────────────────────
-        Method::CreateGraph { graph_name, graph_type } => {
+        Method::CreateGraph {
+            graph_name,
+            graph_type,
+        } => {
             let mut s = state.write().await;
-            match s.registry.create_graph(&graph_name, graph_type, None) {
-                Ok(()) => Response::ok(req.id, ResultPayload::Json(serde_json::json!({"created": graph_name}))),
+            // The creator (when identified) becomes the graph owner, which is
+            // what peer-deny / manager-access checks resolve against.
+            match s
+                .registry
+                .create_graph(&graph_name, graph_type, req.agent_id.clone())
+            {
+                Ok(()) => Response::ok(
+                    req.id,
+                    ResultPayload::Json(serde_json::json!({"created": graph_name})),
+                ),
                 Err(e) => Response::err(req.id, e),
             }
         }
 
-        Method::DeleteGraph { graph_name } => {
+        Method::DeleteGraph { ref graph_name } => {
             let mut s = state.write().await;
-            match s.registry.delete_graph(&graph_name) {
-                Ok(()) => Response::ok(req.id, ResultPayload::Json(serde_json::json!({"deleted": graph_name}))),
+            if let Some(entry) = s.registry.get(graph_name) {
+                if let Err(denied) = check_graph_access(
+                    &s.isolation,
+                    req.agent_id.as_deref(),
+                    graph_name,
+                    entry.graph_type,
+                    entry.owner.as_deref(),
+                    AccessLevel::Write,
+                ) {
+                    return Response::err(req.id, denied);
+                }
+            }
+            match s.registry.delete_graph(graph_name) {
+                Ok(()) => Response::ok(
+                    req.id,
+                    ResultPayload::Json(serde_json::json!({"deleted": graph_name})),
+                ),
                 Err(e) => Response::err(req.id, e),
             }
         }
 
         Method::ListGraphs => {
             let s = state.read().await;
-            let graphs: Vec<serde_json::Value> = s.registry.list().iter().map(|(name, gt)| {
-                serde_json::json!({"name": name, "type": gt})
-            }).collect();
+            let graphs: Vec<serde_json::Value> = s
+                .registry
+                .list()
+                .iter()
+                .map(|(name, gt)| serde_json::json!({"name": name, "type": gt}))
+                .collect();
             Response::ok(req.id, ResultPayload::Json(serde_json::json!(graphs)))
         }
 
         // ── Channel operations ───────────────────────────────────────
-        Method::CreateChannel { channel_id, channel_type, creator, initial_members } => {
+        Method::CreateChannel {
+            channel_id,
+            channel_type,
+            creator,
+            initial_members,
+        } => {
             let mut s = state.write().await;
-            match s.channels.create_channel(&channel_id, channel_type, &creator, initial_members) {
-                Ok(()) => Response::ok(req.id, ResultPayload::Json(serde_json::json!({"channel": channel_id}))),
+            match s
+                .channels
+                .create_channel(&channel_id, channel_type, &creator, initial_members)
+            {
+                Ok(()) => Response::ok(
+                    req.id,
+                    ResultPayload::Json(serde_json::json!({"channel": channel_id})),
+                ),
                 Err(e) => Response::err(req.id, e),
             }
         }
 
-        Method::JoinChannel { channel_id, agent_id } => {
+        Method::JoinChannel {
+            channel_id,
+            agent_id,
+        } => {
             let mut s = state.write().await;
             match s.channels.join_channel(&channel_id, &agent_id) {
                 Ok(()) => Response::ok(req.id, ResultPayload::String("joined".to_string())),
@@ -188,12 +298,17 @@ pub async fn dispatch(
             }
         }
 
-        Method::LeaveChannel { channel_id, agent_id } => {
+        Method::LeaveChannel {
+            channel_id,
+            agent_id,
+        } => {
             let mut s = state.write().await;
             match s.channels.leave_channel(&channel_id, &agent_id) {
                 Ok(imprint) => {
                     let val = match imprint {
-                        Some(imp) => serde_json::to_value(&imp).unwrap_or(serde_json::json!("closed")),
+                        Some(imp) => {
+                            serde_json::to_value(&imp).unwrap_or(serde_json::json!("closed"))
+                        }
                         None => serde_json::json!("left"),
                     };
                     Response::ok(req.id, ResultPayload::Json(val))
@@ -202,12 +317,21 @@ pub async fn dispatch(
             }
         }
 
-        Method::CloseChannel { channel_id, summary_embedding, topic_metadata } => {
+        Method::CloseChannel {
+            channel_id,
+            summary_embedding,
+            topic_metadata,
+        } => {
             let mut s = state.write().await;
-            match s.channels.close_channel(&channel_id, summary_embedding, topic_metadata) {
+            match s
+                .channels
+                .close_channel(&channel_id, summary_embedding, topic_metadata)
+            {
                 Ok(imprint) => {
                     let val = match imprint {
-                        Some(imp) => serde_json::to_value(&imp).unwrap_or(serde_json::json!("closed")),
+                        Some(imp) => {
+                            serde_json::to_value(&imp).unwrap_or(serde_json::json!("closed"))
+                        }
                         None => serde_json::json!("closed"),
                     };
                     Response::ok(req.id, ResultPayload::Json(val))
@@ -216,7 +340,11 @@ pub async fn dispatch(
             }
         }
 
-        Method::SendMessage { channel_id, sender, payload } => {
+        Method::SendMessage {
+            channel_id,
+            sender,
+            payload,
+        } => {
             let mut s = state.write().await;
             match s.channels.send_message(&channel_id, &sender, &payload) {
                 Ok(()) => Response::ok(req.id, ResultPayload::String("sent".to_string())),
@@ -248,14 +376,24 @@ pub async fn dispatch(
         Method::GetChannelMembers { channel_id } => {
             let s = state.read().await;
             match s.channels.get_members(&channel_id) {
-                Ok(members) => Response::ok(req.id, ResultPayload::Json(serde_json::json!(members))),
+                Ok(members) => {
+                    Response::ok(req.id, ResultPayload::Json(serde_json::json!(members)))
+                }
                 Err(e) => Response::err(req.id, e),
             }
         }
 
         // ── Zero-Trust Consensus ─────────────────────────────────────────
-        Method::RegisterIdentity { agent_id, role, teams, signature } => {
-            info!("RegisterIdentity: agent_id={}, role={:?}, signature={}", agent_id, role, signature);
+        Method::RegisterIdentity {
+            agent_id,
+            role,
+            teams,
+            signature,
+        } => {
+            info!(
+                "RegisterIdentity: agent_id={}, role={:?}, signature={}",
+                agent_id, role, signature
+            );
             let mut s = state.write().await;
             s.isolation.register_agent(crate::isolation::AgentIdentity {
                 agent_id: agent_id.clone(),
@@ -265,29 +403,57 @@ pub async fn dispatch(
             Response::ok(req.id, ResultPayload::String("registered".to_string()))
         }
 
-        Method::ApplyMultisigMutation { signatures, threshold, mutation_type, query } => {
+        Method::ApplyMultisigMutation {
+            signatures,
+            threshold,
+            mutation_type,
+            query,
+        } => {
             if signatures.len() < threshold {
-                return Response::err(req.id, format!("Insufficient signatures: {} < {}", signatures.len(), threshold));
+                return Response::err(
+                    req.id,
+                    format!(
+                        "Insufficient signatures: {} < {}",
+                        signatures.len(),
+                        threshold
+                    ),
+                );
             }
             // Delegate mutation application to the target graph
-            dispatch_graph_op(state, &req.graph, req.id, Method::ApplyMutation {
-                event_type: mutation_type,
-                query,
-            }).await
+            dispatch_graph_op(
+                state,
+                &req.graph,
+                req.id,
+                req.agent_id.as_deref(),
+                Method::ApplyMutation {
+                    event_type: mutation_type,
+                    query,
+                },
+            )
+            .await
         }
 
         // ── Graph operations (dispatch to target graph) ──────────────
         _ => {
-            dispatch_graph_op(state, &req.graph, req.id, req.method).await
+            dispatch_graph_op(
+                state,
+                &req.graph,
+                req.id,
+                req.agent_id.as_deref(),
+                req.method,
+            )
+            .await
         }
     }
 }
 
-/// Dispatch a graph-level operation to the target named graph.
+/// Dispatch a graph-level operation to the target named graph, enforcing the
+/// isolation ACL (`isolation.rs::check_access`) when rules are registered.
 async fn dispatch_graph_op(
     state: &Arc<RwLock<ServerState>>,
     graph_name: &str,
     req_id: u64,
+    caller: Option<&str>,
     method: Method,
 ) -> Response {
     let s = state.read().await;
@@ -296,11 +462,30 @@ async fn dispatch_graph_op(
         None => return Response::err(req_id, format!("Graph '{}' not found", graph_name)),
     };
 
+    let access = if requires_write(&method) {
+        AccessLevel::Write
+    } else {
+        AccessLevel::Read
+    };
+    if let Err(denied) = check_graph_access(
+        &s.isolation,
+        caller,
+        graph_name,
+        entry.graph_type,
+        entry.owner.as_deref(),
+        access,
+    ) {
+        return Response::err(req_id, denied);
+    }
+
     let core = entry.core.clone();
     drop(s); // Release registry lock before graph lock.
 
     match method {
-        Method::AddNode { node_id, properties_msgpack} => {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => {
             let mut g = core.write().await;
             g.add_node(node_id, properties_msgpack);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
@@ -316,10 +501,12 @@ async fn dispatch_graph_op(
         }
         Method::GetNodes => {
             let g = core.read().await;
-            let nodes: Vec<(String, serde_json::Value)> = g.get_nodes()
+            let nodes: Vec<(String, serde_json::Value)> = g
+                .get_nodes()
                 .into_iter()
                 .map(|(k, p)| {
-                    let val = rmp_serde::from_slice::<serde_json::Value>(&p).unwrap_or(serde_json::json!({}));
+                    let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                        .unwrap_or(serde_json::json!({}));
                     (k, val)
                 })
                 .collect();
@@ -346,10 +533,15 @@ async fn dispatch_graph_op(
             g.semantic_store.add_embedding(node_id, embedding);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
-        Method::SemanticSearch { query_embedding, n_results } => {
+        Method::SemanticSearch {
+            query_embedding,
+            n_results,
+        } => {
             let g = core.read().await;
             // Fetch more results initially to account for filtered out nodes
-            let raw_results = g.semantic_store.semantic_search(&query_embedding, n_results * 2);
+            let raw_results = g
+                .semantic_store
+                .semantic_search(&query_embedding, n_results * 2);
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -360,7 +552,8 @@ async fn dispatch_graph_op(
             for (node_id, mut similarity) in raw_results {
                 if let Some(props_bytes) = g.get_node_properties(&node_id) {
                     if let Ok(json_str) = String::from_utf8(props_bytes) {
-                        let node_data = crate::types::NodeData::from_json_props(node_id.clone(), &json_str);
+                        let node_data =
+                            crate::types::NodeData::from_json_props(node_id.clone(), &json_str);
 
                         // Filter out strictly stale facts where the validity window has closed
                         if let Some(vu) = node_data.valid_until {
@@ -376,7 +569,7 @@ async fn dispatch_graph_op(
                                 let age_secs = now - vf;
                                 let age_days = age_secs as f64 / 86400.0;
                                 // Half-life of 30 days (decay rate lambda = ln(2) / 30)
-                                let decay_rate = 0.693147 / 30.0;
+                                let decay_rate = std::f64::consts::LN_2 / 30.0;
                                 current_confidence *= (-decay_rate * age_days).exp();
                             }
                         }
@@ -389,36 +582,89 @@ async fn dispatch_graph_op(
             }
 
             // Re-sort descending based on the new confidence-weighted similarity
-            weighted_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            weighted_results
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             weighted_results.truncate(n_results);
 
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(weighted_results)))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(weighted_results)),
+            )
         }
-        Method::SpectralCluster { vectors: _, max_k: _, domain: _ } => {
-            Response::err(req_id, "SpectralCluster is deprecated. Use datascience primitives.".to_string())
-        }
-        Method::HypergraphEncodeInteraction { pos_a: _, pos_b: _, pos_dim: _, hidden_dim: _, out_dim: _, seed: _ } => {
-            Response::err(req_id, "HypergraphEncodeInteraction is deprecated. Use datascience primitives.".to_string())
-        }
-        Method::BatchCosineSimilarity { query: _, targets: _ } => {
-            Response::err(req_id, "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string())
-        }
-        Method::FinanceOptimizePortfolio { expected_returns, cov_matrix, risk_free_rate, min_weight, max_weight } => {
-            let result = crate::finance::optimizer::mean_variance_optimization(&expected_returns, &cov_matrix, risk_free_rate, min_weight, max_weight);
+        Method::SpectralCluster {
+            vectors: _,
+            max_k: _,
+            domain: _,
+        } => Response::err(
+            req_id,
+            "SpectralCluster is deprecated. Use datascience primitives.".to_string(),
+        ),
+        Method::HypergraphEncodeInteraction {
+            pos_a: _,
+            pos_b: _,
+            pos_dim: _,
+            hidden_dim: _,
+            out_dim: _,
+            seed: _,
+        } => Response::err(
+            req_id,
+            "HypergraphEncodeInteraction is deprecated. Use datascience primitives.".to_string(),
+        ),
+        Method::BatchCosineSimilarity {
+            query: _,
+            targets: _,
+        } => Response::err(
+            req_id,
+            "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
+        ),
+        Method::FinanceOptimizePortfolio {
+            expected_returns,
+            cov_matrix,
+            risk_free_rate,
+            min_weight,
+            max_weight,
+        } => {
+            let result = crate::finance::optimizer::mean_variance_optimization(
+                &expected_returns,
+                &cov_matrix,
+                risk_free_rate,
+                min_weight,
+                max_weight,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
         Method::FinanceRiskParity { cov_matrix } => {
             let result = crate::finance::optimizer::risk_parity(&cov_matrix);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
-        Method::FinanceBlackLitterman { market_weights, cov_matrix, views, pick_matrix, tau, risk_aversion } => {
+        Method::FinanceBlackLitterman {
+            market_weights,
+            cov_matrix,
+            views,
+            pick_matrix,
+            tau,
+            risk_aversion,
+        } => {
             let result = crate::finance::optimizer::black_litterman(
-                &market_weights, &cov_matrix, &views, &pick_matrix, tau, risk_aversion
+                &market_weights,
+                &cov_matrix,
+                &views,
+                &pick_matrix,
+                tau,
+                risk_aversion,
             );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
-        Method::FinanceEfficientFrontier { expected_returns, cov_matrix, target_return } => {
-            let result = crate::finance::optimizer::efficient_frontier_target(&expected_returns, &cov_matrix, target_return);
+        Method::FinanceEfficientFrontier {
+            expected_returns,
+            cov_matrix,
+            target_return,
+        } => {
+            let result = crate::finance::optimizer::efficient_frontier_target(
+                &expected_returns,
+                &cov_matrix,
+                target_return,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
 
@@ -439,29 +685,46 @@ async fn dispatch_graph_op(
             let result = crate::datascience::primitives::compute_stats(&data);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
-        Method::DsTrainTestSplit { data, labels, test_ratio, shuffle, seed } => {
+        Method::DsTrainTestSplit {
+            data,
+            labels,
+            test_ratio,
+            shuffle,
+            seed,
+        } => {
             let (x_train, x_test, y_train, y_test) =
-                crate::datascience::primitives::train_test_split(&data, &labels, test_ratio, shuffle, seed);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!({
-                "x_train": x_train,
-                "x_test": x_test,
-                "y_train": y_train,
-                "y_test": y_test,
-            })))
+                crate::datascience::primitives::train_test_split(
+                    &data, &labels, test_ratio, shuffle, seed,
+                );
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "x_train": x_train,
+                    "x_test": x_test,
+                    "y_train": y_train,
+                    "y_test": y_test,
+                })),
+            )
         }
-        Method::DsFitEstimator { estimator, x, y, params } => {
-            match crate::datascience::estimators::fit_estimator(&estimator, &x, &y, &params) {
-                Ok(model) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(model))),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
+        Method::DsFitEstimator {
+            estimator,
+            x,
+            y,
+            params,
+        } => match crate::datascience::estimators::fit_estimator(&estimator, &x, &y, &params) {
+            Ok(model) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(model))),
+            Err(e) => Response::err(req_id, e),
+        },
         Method::DsPredictEstimator { model, x } => {
             let preds = crate::datascience::estimators::predict(&model, &x);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(preds)))
         }
 
         // ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ────────
-        Method::DsSoftmax { logits, temperature } => {
+        Method::DsSoftmax {
+            logits,
+            temperature,
+        } => {
             let r = crate::datascience::training::softmax(&logits, temperature);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
         }
@@ -489,7 +752,12 @@ async fn dispatch_graph_op(
             );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
         }
-        Method::DsGrpoSurrogate { logprob, old_logprob, advantage, clip_eps } => {
+        Method::DsGrpoSurrogate {
+            logprob,
+            old_logprob,
+            advantage,
+            clip_eps,
+        } => {
             let r = crate::datascience::training::grpo_surrogate(
                 &logprob,
                 &old_logprob,
@@ -498,7 +766,10 @@ async fn dispatch_graph_op(
             );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
         }
-        Method::DsKlDivergence { logprob, ref_logprob } => {
+        Method::DsKlDivergence {
+            logprob,
+            ref_logprob,
+        } => {
             let r = crate::datascience::training::kl_divergence(&logprob, &ref_logprob);
             Response::ok(req_id, ResultPayload::Float(r))
         }
@@ -524,11 +795,17 @@ async fn dispatch_graph_op(
         }
 
         // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────
-        Method::FinanceVar { returns, confidence } => {
+        Method::FinanceVar {
+            returns,
+            confidence,
+        } => {
             let v = crate::finance::risk::historical_var(&returns, confidence);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceCvar { returns, confidence } => {
+        Method::FinanceCvar {
+            returns,
+            confidence,
+        } => {
             let v = crate::finance::risk::historical_cvar(&returns, confidence);
             Response::ok(req_id, ResultPayload::Float(v))
         }
@@ -544,22 +821,46 @@ async fn dispatch_graph_op(
             let v = crate::finance::risk::downside_deviation(&returns, target);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceRiskMetrics { returns, risk_free_rate } => {
+        Method::FinanceRiskMetrics {
+            returns,
+            risk_free_rate,
+        } => {
             let result = crate::finance::risk::compute_risk_metrics(&returns, risk_free_rate);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
-        Method::FinanceMonteCarloVar { mean, std_dev, n_simulations, confidence } => {
+        Method::FinanceMonteCarloVar {
+            mean,
+            std_dev,
+            n_simulations,
+            confidence,
+        } => {
             let v = crate::finance::risk::monte_carlo_var(mean, std_dev, n_simulations, confidence);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceStressTest { weights, expected_returns, cov_matrix, shock_factors } => {
-            let v = crate::finance::risk::stress_test(&weights, &expected_returns, &cov_matrix, &shock_factors);
+        Method::FinanceStressTest {
+            weights,
+            expected_returns,
+            cov_matrix,
+            shock_factors,
+        } => {
+            let v = crate::finance::risk::stress_test(
+                &weights,
+                &expected_returns,
+                &cov_matrix,
+                &shock_factors,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
 
         // ── Extended Finance: Regime detection (HMM) ──────────────────
-        Method::FinanceDetectRegimes { observations, n_states, max_iter, tol } => {
-            let result = crate::finance::regime::detect_regimes(&observations, n_states, max_iter, tol);
+        Method::FinanceDetectRegimes {
+            observations,
+            n_states,
+            max_iter,
+            tol,
+        } => {
+            let result =
+                crate::finance::regime::detect_regimes(&observations, n_states, max_iter, tol);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
 
@@ -592,25 +893,62 @@ async fn dispatch_graph_op(
             let v = crate::finance::signals::mean_reversion(&values, window);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceInformationCoefficient { signal, forward_returns } => {
+        Method::FinanceInformationCoefficient {
+            signal,
+            forward_returns,
+        } => {
             let v = crate::finance::signals::information_coefficient(&signal, &forward_returns);
             Response::ok(req_id, ResultPayload::Float(v))
         }
 
         // ── Extended Finance: Execution / microstructure ──────────────
-        Method::FinanceTwap { total_quantity, n_slices, start_time, interval_secs } => {
-            let v = crate::finance::exchange::twap_schedule(total_quantity, n_slices, start_time, interval_secs);
+        Method::FinanceTwap {
+            total_quantity,
+            n_slices,
+            start_time,
+            interval_secs,
+        } => {
+            let v = crate::finance::exchange::twap_schedule(
+                total_quantity,
+                n_slices,
+                start_time,
+                interval_secs,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceVwap { total_quantity, volume_profile, start_time, interval_secs } => {
-            let v = crate::finance::exchange::vwap_schedule(total_quantity, &volume_profile, start_time, interval_secs);
+        Method::FinanceVwap {
+            total_quantity,
+            volume_profile,
+            start_time,
+            interval_secs,
+        } => {
+            let v = crate::finance::exchange::vwap_schedule(
+                total_quantity,
+                &volume_profile,
+                start_time,
+                interval_secs,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceMarketImpact { daily_volatility, order_quantity, average_daily_volume, impact_coefficient } => {
-            let v = crate::finance::exchange::estimate_market_impact(daily_volatility, order_quantity, average_daily_volume, impact_coefficient);
+        Method::FinanceMarketImpact {
+            daily_volatility,
+            order_quantity,
+            average_daily_volume,
+            impact_coefficient,
+        } => {
+            let v = crate::finance::exchange::estimate_market_impact(
+                daily_volatility,
+                order_quantity,
+                average_daily_volume,
+                impact_coefficient,
+            );
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinancePairsTrading { prices_a, prices_b, lookback } => {
+        Method::FinancePairsTrading {
+            prices_a,
+            prices_b,
+            lookback,
+        } => {
             let v = crate::finance::exchange::pairs_trading_signal(&prices_a, &prices_b, lookback);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
@@ -620,23 +958,56 @@ async fn dispatch_graph_op(
         }
 
         // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────
-        Method::FinanceAvellanedaStoikov { mid, inventory, sigma, gamma, kappa, tau } => {
-            let v = crate::finance::quant::avellaneda_stoikov(mid, inventory, sigma, gamma, kappa, tau);
+        Method::FinanceAvellanedaStoikov {
+            mid,
+            inventory,
+            sigma,
+            gamma,
+            kappa,
+            tau,
+        } => {
+            let v =
+                crate::finance::quant::avellaneda_stoikov(mid, inventory, sigma, gamma, kappa, tau);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceGltQuotes { mid, inventory, sigma, gamma, kappa, a } => {
+        Method::FinanceGltQuotes {
+            mid,
+            inventory,
+            sigma,
+            gamma,
+            kappa,
+            a,
+        } => {
             let v = crate::finance::quant::glt_quotes(mid, inventory, sigma, gamma, kappa, a);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceLogitQuotes { p_mid, inventory, sigma, gamma, kappa, tau, boundary_m } => {
-            let v = crate::finance::quant::logit_space_quotes(p_mid, inventory, sigma, gamma, kappa, tau, boundary_m);
+        Method::FinanceLogitQuotes {
+            p_mid,
+            inventory,
+            sigma,
+            gamma,
+            kappa,
+            tau,
+            boundary_m,
+        } => {
+            let v = crate::finance::quant::logit_space_quotes(
+                p_mid, inventory, sigma, gamma, kappa, tau, boundary_m,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
         Method::FinanceGlostenMilgromSpread { alpha, p } => {
             let v = crate::finance::quant::glosten_milgrom_spread(alpha, p);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceExpectedPnlRate { delta, a, kappa, alpha, p, v_h, v_l } => {
+        Method::FinanceExpectedPnlRate {
+            delta,
+            a,
+            kappa,
+            alpha,
+            p,
+            v_h,
+            v_l,
+        } => {
             let v = crate::finance::quant::expected_pnl_rate(delta, a, kappa, alpha, p, v_h, v_l);
             Response::ok(req_id, ResultPayload::Float(v))
         }
@@ -644,24 +1015,57 @@ async fn dispatch_graph_op(
             let v = crate::finance::quant::breakeven_alpha(delta, p, v_h, v_l);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceOfiSeries { ts, bid_px, bid_sz, ask_px, ask_sz, window_secs } => {
-            let v = crate::finance::quant::ofi_series(&ts, &bid_px, &bid_sz, &ask_px, &ask_sz, window_secs);
+        Method::FinanceOfiSeries {
+            ts,
+            bid_px,
+            bid_sz,
+            ask_px,
+            ask_sz,
+            window_secs,
+        } => {
+            let v = crate::finance::quant::ofi_series(
+                &ts,
+                &bid_px,
+                &bid_sz,
+                &ask_px,
+                &ask_sz,
+                window_secs,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceMicropriceSeries { bid_px, bid_sz, ask_px, ask_sz } => {
+        Method::FinanceMicropriceSeries {
+            bid_px,
+            bid_sz,
+            ask_px,
+            ask_sz,
+        } => {
             let v = crate::finance::quant::microprice_series(&bid_px, &bid_sz, &ask_px, &ask_sz);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceVpinPm { buy_vol, sell_vol, p_mean } => {
+        Method::FinanceVpinPm {
+            buy_vol,
+            sell_vol,
+            p_mean,
+        } => {
             let v = crate::finance::quant::vpin_pm(&buy_vol, &sell_vol, &p_mean);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceHawkesMle { times, t_horizon, max_iter } => {
+        Method::FinanceHawkesMle {
+            times,
+            t_horizon,
+            max_iter,
+        } => {
             let v = crate::finance::quant::hawkes_mle(&times, t_horizon, max_iter);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceHardimanBouchaud { times, t_horizon, n_windows } => {
-            let v = crate::finance::quant::hardiman_bouchaud_branching_ratio(&times, t_horizon, n_windows);
+        Method::FinanceHardimanBouchaud {
+            times,
+            t_horizon,
+            n_windows,
+        } => {
+            let v = crate::finance::quant::hardiman_bouchaud_branching_ratio(
+                &times, t_horizon, n_windows,
+            );
             Response::ok(req_id, ResultPayload::Float(v))
         }
 
@@ -670,50 +1074,118 @@ async fn dispatch_graph_op(
             let v = crate::finance::quant::kelly_fraction(q, c, fraction);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceBayesianKelly { alpha, beta, c, n_quadrature } => {
+        Method::FinanceBayesianKelly {
+            alpha,
+            beta,
+            c,
+            n_quadrature,
+        } => {
             let v = crate::finance::quant::bayesian_kelly_fraction(alpha, beta, c, n_quadrature);
             Response::ok(req_id, ResultPayload::Float(v))
         }
         Method::FinancePosteriorCredibleInterval { alpha, beta, level } => {
             let (lo, hi) = crate::finance::quant::posterior_credible_interval(alpha, beta, level);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!({"lower": lo, "upper": hi})))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({"lower": lo, "upper": hi})),
+            )
         }
 
         // ── Backtest Validation (CONCEPT:KG-2.20f) ────────────────────
-        Method::FinancePurgedCpcv { n_samples, n_groups, n_test_groups, purge_window, embargo } => {
-            let v = crate::finance::quant::purged_cpcv_splits(n_samples, n_groups, n_test_groups, purge_window, embargo);
+        Method::FinancePurgedCpcv {
+            n_samples,
+            n_groups,
+            n_test_groups,
+            purge_window,
+            embargo,
+        } => {
+            let v = crate::finance::quant::purged_cpcv_splits(
+                n_samples,
+                n_groups,
+                n_test_groups,
+                purge_window,
+                embargo,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceDeflatedSharpe { observed_sr, n_trials, sr_returns } => {
-            let v = crate::finance::quant::deflated_sharpe_ratio(observed_sr, n_trials, &sr_returns);
+        Method::FinanceDeflatedSharpe {
+            observed_sr,
+            n_trials,
+            sr_returns,
+        } => {
+            let v =
+                crate::finance::quant::deflated_sharpe_ratio(observed_sr, n_trials, &sr_returns);
             Response::ok(req_id, ResultPayload::Float(v))
         }
         Method::FinanceProbabilityBacktestOverfit { insample, oos } => {
             let v = crate::finance::quant::probability_of_backtest_overfit(&insample, &oos);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceDieboldMariano { losses_a, losses_b, h } => {
+        Method::FinanceDieboldMariano {
+            losses_a,
+            losses_b,
+            h,
+        } => {
             let v = crate::finance::quant::diebold_mariano(&losses_a, &losses_b, h);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
 
         // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────
-        Method::FinanceForensicReport { this_year, prior_year } => {
+        Method::FinanceForensicReport {
+            this_year,
+            prior_year,
+        } => {
             let v = crate::finance::forensic::forensic_report(&this_year, &prior_year);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
 
         // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────
-        Method::FinanceKalmanFilter1d { observations, f, q, h, r, x0, p0 } => {
+        Method::FinanceKalmanFilter1d {
+            observations,
+            f,
+            q,
+            h,
+            r,
+            x0,
+            p0,
+        } => {
             let v = crate::finance::statespace::kalman_filter_1d(&observations, f, q, h, r, x0, p0);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceKalmanBeta { market_returns, asset_returns, q, r, beta0, p0 } => {
-            let v = crate::finance::statespace::kalman_beta(&market_returns, &asset_returns, q, r, beta0, p0);
+        Method::FinanceKalmanBeta {
+            market_returns,
+            asset_returns,
+            q,
+            r,
+            beta0,
+            p0,
+        } => {
+            let v = crate::finance::statespace::kalman_beta(
+                &market_returns,
+                &asset_returns,
+                q,
+                r,
+                beta0,
+                p0,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceKalmanVolatility { returns, q, r, log_var0, p0, annualization } => {
-            let v = crate::finance::statespace::kalman_volatility(&returns, q, r, log_var0, p0, annualization);
+        Method::FinanceKalmanVolatility {
+            returns,
+            q,
+            r,
+            log_var0,
+            p0,
+            annualization,
+        } => {
+            let v = crate::finance::statespace::kalman_volatility(
+                &returns,
+                q,
+                r,
+                log_var0,
+                p0,
+                annualization,
+            );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
         Method::FinanceAdfTest { series, max_lag } => {
@@ -724,10 +1196,23 @@ async fn dispatch_graph_op(
             let v = crate::finance::statespace::ou_calibrate(&spread, dt);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceOuOptimalThresholds { theta, mu, sigma, sigma_eq, cost } => {
+        Method::FinanceOuOptimalThresholds {
+            theta,
+            mu,
+            sigma,
+            sigma_eq,
+            cost,
+        } => {
             let params = crate::finance::statespace::OuParams {
-                theta, mu, sigma, sigma_eq,
-                half_life: if theta > 1e-12 { std::f64::consts::LN_2 / theta } else { f64::INFINITY },
+                theta,
+                mu,
+                sigma,
+                sigma_eq,
+                half_life: if theta > 1e-12 {
+                    std::f64::consts::LN_2 / theta
+                } else {
+                    f64::INFINITY
+                },
             };
             let v = crate::finance::statespace::ou_optimal_thresholds(&params, cost);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
@@ -771,63 +1256,134 @@ async fn dispatch_graph_op(
             let v = crate::finance::quant::effective_independent_n(&returns_matrix);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceAlphaCombinationEngine { returns_matrix, lookback } => {
+        Method::FinanceAlphaCombinationEngine {
+            returns_matrix,
+            lookback,
+        } => {
             let v = crate::finance::quant::alpha_combination_engine(&returns_matrix, lookback);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceBrierScore { forecasts, outcomes } => {
+        Method::FinanceBrierScore {
+            forecasts,
+            outcomes,
+        } => {
             let v = crate::finance::quant::brier_score(&forecasts, &outcomes);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceConvergenceGate { strengths, strong_threshold, min_agree } => {
-            let v = crate::finance::quant::convergence_gate(&strengths, strong_threshold, min_agree);
+        Method::FinanceConvergenceGate {
+            strengths,
+            strong_threshold,
+            min_agree,
+        } => {
+            let v =
+                crate::finance::quant::convergence_gate(&strengths, strong_threshold, min_agree);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceEmpiricalKelly { p, b, historical_returns, n_simulations, seed } => {
-            let v = crate::finance::quant::empirical_kelly(p, b, &historical_returns, n_simulations, seed);
+        Method::FinanceEmpiricalKelly {
+            p,
+            b,
+            historical_returns,
+            n_simulations,
+            seed,
+        } => {
+            let v = crate::finance::quant::empirical_kelly(
+                p,
+                b,
+                &historical_returns,
+                n_simulations,
+                seed,
+            );
             Response::ok(req_id, ResultPayload::Float(v))
         }
 
         // ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ────
-        Method::FinanceSabrImpliedVol { f, k, t, alpha, beta, rho, nu } => {
+        Method::FinanceSabrImpliedVol {
+            f,
+            k,
+            t,
+            alpha,
+            beta,
+            rho,
+            nu,
+        } => {
             let v = crate::finance::derivatives::sabr_implied_vol(f, k, t, alpha, beta, rho, nu);
             Response::ok(req_id, ResultPayload::Float(v))
         }
-        Method::FinanceSabrSmile { f, strikes, t, alpha, beta, rho, nu } => {
+        Method::FinanceSabrSmile {
+            f,
+            strikes,
+            t,
+            alpha,
+            beta,
+            rho,
+            nu,
+        } => {
             let v = crate::finance::derivatives::sabr_smile(f, &strikes, t, alpha, beta, rho, nu);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FinanceSabrCalibrate { f, t, strikes, market_vols, beta } => {
+        Method::FinanceSabrCalibrate {
+            f,
+            t,
+            strikes,
+            market_vols,
+            beta,
+        } => {
             let v = crate::finance::derivatives::sabr_calibrate(f, t, &strikes, &market_vols, beta);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
         }
-        Method::FindSimilarPairs { embeddings: _, ids: _, threshold: _, use_lsh: _, lsh_num_tables: _, lsh_hash_size: _, seed: _ } => {
-            Response::err(req_id, "FindSimilarPairs is deprecated. Use datascience primitives.".to_string())
-        }
-        Method::AddEdge { source_id, target_id, properties_msgpack} => {
+        Method::FindSimilarPairs {
+            embeddings: _,
+            ids: _,
+            threshold: _,
+            use_lsh: _,
+            lsh_num_tables: _,
+            lsh_hash_size: _,
+            seed: _,
+        } => Response::err(
+            req_id,
+            "FindSimilarPairs is deprecated. Use datascience primitives.".to_string(),
+        ),
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => {
             let mut g = core.write().await;
             match g.add_edge(source_id, target_id, properties_msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::RemoveEdge { source_id, target_id } => {
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => {
             let mut g = core.write().await;
             g.remove_edge(source_id, target_id);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
-        Method::HasEdge { source_id, target_id } => {
+        Method::HasEdge {
+            source_id,
+            target_id,
+        } => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Bool(g.has_edge(&source_id, &target_id)))
+            Response::ok(
+                req_id,
+                ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
+            )
         }
         Method::GetEdges => {
             let g = core.read().await;
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
-        Method::GetEdgeProperties { source_id, target_id } => {
+        Method::GetEdgeProperties {
+            source_id,
+            target_id,
+        } => {
             let g = core.read().await;
             let props = g.get_edge_properties(&source_id, &target_id);
-            let val: Vec<serde_json::Value> = props.into_iter()
+            let val: Vec<serde_json::Value> = props
+                .into_iter()
                 .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
                 .collect();
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
@@ -850,37 +1406,61 @@ async fn dispatch_graph_op(
         }
         Method::FindCycle => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
+            )
         }
-        Method::GetShortestPath { source_id, target_id } => {
+        Method::GetShortestPath {
+            source_id,
+            target_id,
+        } => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
-                crate::algorithms::get_shortest_path(&g, &source_id, &target_id)
-            )))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
+                    &g, &source_id, &target_id
+                ))),
+            )
         }
-        Method::PageRank { damping, iterations } => {
+        Method::PageRank {
+            damping,
+            iterations,
+        } => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
-                crate::algorithms::pagerank(&g, damping, iterations)
-            )))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::pagerank(
+                    &g, damping, iterations
+                ))),
+            )
         }
         Method::ConnectedComponents => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
-                crate::algorithms::connected_components(&g)
-            )))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::connected_components(
+                    &g
+                ))),
+            )
         }
         Method::StronglyConnectedComponents => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
-                crate::algorithms::strongly_connected_components(&g)
-            )))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(
+                    crate::algorithms::strongly_connected_components(&g)
+                )),
+            )
         }
         Method::MinimumSpanningTree => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(
-                crate::algorithms::minimum_spanning_tree(&g)
-            )))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::minimum_spanning_tree(
+                    &g
+                ))),
+            )
         }
         Method::Metrics => {
             let g = core.read().await;
@@ -895,7 +1475,11 @@ async fn dispatch_graph_op(
             let evicted = g.evict_lru(max_nodes);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
         }
-        Method::DecaySweep { half_life_secs, floor, prune } => {
+        Method::DecaySweep {
+            half_life_secs,
+            floor,
+            prune,
+        } => {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -930,7 +1514,10 @@ async fn dispatch_graph_op(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::Reconcile { graph_name: _, msgpack } => {
+        Method::Reconcile {
+            graph_name: _,
+            msgpack,
+        } => {
             let mut g = core.write().await;
             match g.from_msgpack(&msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("reconciled".to_string())),
@@ -960,7 +1547,11 @@ async fn dispatch_graph_op(
                             if is_insert {
                                 g.add_node(s.to_string(), "{}".to_string().into_bytes());
                                 g.add_node(o.to_string(), "{}".to_string().into_bytes());
-                                let _ = g.add_edge(s.to_string(), o.to_string(), format!("{{\"predicate\": \"{}\"}}", p).into_bytes());
+                                let _ = g.add_edge(
+                                    s.to_string(),
+                                    o.to_string(),
+                                    format!("{{\"predicate\": \"{}\"}}", p).into_bytes(),
+                                );
                             } else {
                                 // For delete, we just remove the edge matching the predicate
                                 g.remove_edge(s.to_string(), o.to_string());
@@ -969,7 +1560,10 @@ async fn dispatch_graph_op(
                     }
                 }
             }
-            Response::ok(req_id, ResultPayload::String("mutation_applied".to_string()))
+            Response::ok(
+                req_id,
+                ResultPayload::String("mutation_applied".to_string()),
+            )
         }
         // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. Forward-chaining
         // OWL/RDFS inference over the target graph. Runs Datalog reasoning
@@ -1062,7 +1656,12 @@ async fn dispatch_graph_op(
         }
         Method::GetBlastRadius { node_id, max_depth } => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(&g, &node_id, max_depth))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
+                    &g, &node_id, max_depth
+                ))),
+            )
         }
         Method::DegreeCentrality { node_id } => {
             let g = core.read().await;
@@ -1073,29 +1672,67 @@ async fn dispatch_graph_op(
         }
         Method::DegreeCentralityAll => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(&g))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(
+                    &g
+                ))),
+            )
         }
         Method::BetweennessCentrality => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::betweenness_centrality(&g))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(
+                    crate::algorithms::betweenness_centrality(&g)
+                )),
+            )
         }
-        Method::PersonalizedPageRank { seed_nodes, damping, iterations } => {
+        Method::PersonalizedPageRank {
+            seed_nodes,
+            damping,
+            iterations,
+        } => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::personalized_pagerank(&g, &seed_nodes, damping, iterations))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::personalized_pagerank(
+                    &g,
+                    &seed_nodes,
+                    damping,
+                    iterations
+                ))),
+            )
         }
         Method::CommunityDetection { resolution } => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::community_detection(&g, resolution))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::community_detection(
+                    &g, resolution
+                ))),
+            )
         }
         Method::GraphColoring => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
+            )
         }
         Method::ComputeSimilarityEdges { threshold } => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(crate::algorithms::compute_similarity_edges(&g, threshold))))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(
+                    crate::algorithms::compute_similarity_edges(&g, threshold)
+                )),
+            )
         }
-        Method::PruneByLifecycle { max_age_secs, min_score } => {
+        Method::PruneByLifecycle {
+            max_age_secs,
+            min_score,
+        } => {
             let mut g = core.write().await;
             let stats = crate::algorithms::prune_by_lifecycle(&mut g, max_age_secs, min_score);
             match serde_json::to_value(&stats) {
@@ -1103,7 +1740,10 @@ async fn dispatch_graph_op(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::GetContextView { agent_id, max_tokens } => {
+        Method::GetContextView {
+            agent_id,
+            max_tokens,
+        } => {
             let g = core.read().await;
             let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
             match serde_json::to_value(&view) {
@@ -1130,19 +1770,44 @@ async fn dispatch_graph_op(
         }
         Method::Vf2SubgraphMatch { pattern_graph_name } => {
             let s = state.read().await;
-            let pattern_core = s.registry.get(&pattern_graph_name).map(|entry| entry.core.clone());
+            // The pattern graph is read too — gate it like any other read.
+            if let Some(entry) = s.registry.get(&pattern_graph_name) {
+                if let Err(denied) = check_graph_access(
+                    &s.isolation,
+                    caller,
+                    &pattern_graph_name,
+                    entry.graph_type,
+                    entry.owner.as_deref(),
+                    AccessLevel::Read,
+                ) {
+                    return Response::err(req_id, denied);
+                }
+            }
+            let pattern_core = s
+                .registry
+                .get(&pattern_graph_name)
+                .map(|entry| entry.core.clone());
             drop(s);
             if let Some(p_core) = pattern_core {
                 let p = p_core.read().await;
                 let g = core.read().await;
-                Response::ok(req_id, ResultPayload::Json(serde_json::json!(g.vf2_subgraph_match(&p))))
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(g.vf2_subgraph_match(&p))),
+                )
             } else {
-                Response::err(req_id, format!("Pattern graph '{}' not found", pattern_graph_name))
+                Response::err(
+                    req_id,
+                    format!("Pattern graph '{}' not found", pattern_graph_name),
+                )
             }
         }
         Method::GetLedger => {
             let g = core.read().await;
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(g.get_ledger())))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(g.get_ledger())),
+            )
         }
 
         Method::ClearLedger => {
@@ -1203,8 +1868,24 @@ async fn dispatch_graph_op(
             let s_lock = state.read().await;
             let other_entry = match s_lock.registry.get(&other_graph) {
                 Some(e) => e,
-                None => return Response::err(req_id, format!("Other graph '{}' not found", other_graph)),
+                None => {
+                    return Response::err(
+                        req_id,
+                        format!("Other graph '{}' not found", other_graph),
+                    )
+                }
             };
+            // Diffing reads the other graph's content — gate it as a read.
+            if let Err(denied) = check_graph_access(
+                &s_lock.isolation,
+                caller,
+                &other_graph,
+                other_entry.graph_type,
+                other_entry.owner.as_deref(),
+                AccessLevel::Read,
+            ) {
+                return Response::err(req_id, denied);
+            }
             let other_core = other_entry.core.clone();
             drop(s_lock);
 
@@ -1216,13 +1897,19 @@ async fn dispatch_graph_op(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::CompactNodesByType { node_type, threshold } => {
+        Method::CompactNodesByType {
+            node_type,
+            threshold,
+        } => {
             let mut g = core.write().await;
             let removed = g.compact_nodes_by_type(&node_type, threshold);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })))
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })),
+            )
         }
         // Catch-all for methods not yet fully dispatched.
-        _ => Response::err(req_id, format!("Method not yet implemented for graph dispatch")),
+        _ => Response::err(req_id, "Method not yet implemented for graph dispatch"),
     }
 }
 
@@ -1266,8 +1953,7 @@ where
         let _permit = match sem.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
-                let resp =
-                    Response::err(req.id, "BUSY: server at capacity, retry with backoff");
+                let resp = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
                 let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
                 let out_len = out.len() as u32;
                 if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
@@ -1338,5 +2024,337 @@ pub async fn serve_tcp(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::
                 error!("Accept error: {}", e);
             }
         }
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::isolation::{AgentIdentity, AgentRole};
+    use crate::protocol::GraphType;
+
+    const SECRET: &str = "dispatch-test-secret";
+
+    fn test_state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+        }))
+    }
+
+    /// State with worker1/worker2 (team alpha) + their manager registered, and
+    /// per-agent + team graphs created with real owners.
+    async fn multi_tenant_state() -> Arc<RwLock<ServerState>> {
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "manager".into(),
+                role: AgentRole::Manager {
+                    subordinates: vec!["worker1".into(), "worker2".into()],
+                },
+                teams: vec!["alpha".into()],
+            });
+            for w in ["worker1", "worker2"] {
+                s.isolation.register_agent(AgentIdentity {
+                    agent_id: w.into(),
+                    role: AgentRole::Agent,
+                    teams: vec!["alpha".into()],
+                });
+            }
+            s.registry
+                .create_graph("agent:worker1", GraphType::Agent, Some("worker1".into()))
+                .unwrap();
+            s.registry
+                .create_graph("team:alpha", GraphType::Team, Some("manager".into()))
+                .unwrap();
+            s.registry
+                .create_graph("global:ontology", GraphType::Global, None)
+                .unwrap();
+        }
+        state
+    }
+
+    fn request(id: u64, graph: &str, agent_id: Option<&str>, method: Method) -> Request {
+        Request {
+            id,
+            graph: graph.to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: agent_id.map(str::to_string),
+            method,
+        }
+    }
+
+    fn add_node(node_id: &str) -> Method {
+        Method::AddNode {
+            node_id: node_id.to_string(),
+            properties_msgpack: rmp_serde::to_vec(&serde_json::json!({})).unwrap(),
+        }
+    }
+
+    fn assert_denied(resp: &Response) {
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.starts_with("ACCESS_DENIED"),
+            "expected ACCESS_DENIED, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
+    fn assert_ok(resp: &Response) {
+        assert!(
+            resp.error.is_none(),
+            "expected success, got error: {:?}",
+            resp.error
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bad_auth_token_rejected() {
+        let state = test_state();
+        let mut req = request(1, "__bus__", None, Method::Ping);
+        req.auth_token = "bogus".to_string();
+        let resp = dispatch(&state, req).await;
+        assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
+    }
+
+    #[tokio::test]
+    async fn test_no_isolation_rules_is_back_compat() {
+        // No identities registered → no rules → any caller (even anonymous)
+        // can write to any graph, exactly as before enforcement existed.
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("agent:worker1", GraphType::Agent, Some("worker1".into()))
+                .unwrap();
+        }
+        let resp = dispatch(&state, request(1, "agent:worker1", None, add_node("n1"))).await;
+        assert_ok(&resp);
+        let resp = dispatch(
+            &state,
+            request(2, "agent:worker1", Some("worker2"), add_node("n2")),
+        )
+        .await;
+        assert_ok(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_owner_can_write_own_graph() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(
+            &state,
+            request(1, "agent:worker1", Some("worker1"), add_node("n1")),
+        )
+        .await;
+        assert_ok(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_peer_denied_read_and_write() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(
+            &state,
+            request(1, "agent:worker1", Some("worker2"), add_node("n1")),
+        )
+        .await;
+        assert_denied(&resp);
+        let resp = dispatch(
+            &state,
+            request(2, "agent:worker1", Some("worker2"), Method::GetNodes),
+        )
+        .await;
+        assert_denied(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_anonymous_denied_when_rules_exist() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(&state, request(1, "agent:worker1", None, Method::GetNodes)).await;
+        assert_denied(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_manager_reaches_subordinate_graph() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(
+            &state,
+            request(1, "agent:worker1", Some("manager"), add_node("n1")),
+        )
+        .await;
+        assert_ok(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_team_member_read_only() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(
+            &state,
+            request(1, "team:alpha", Some("worker1"), Method::GetNodes),
+        )
+        .await;
+        assert_ok(&resp);
+        let resp = dispatch(
+            &state,
+            request(2, "team:alpha", Some("worker1"), add_node("n1")),
+        )
+        .await;
+        assert_denied(&resp);
+        let resp = dispatch(
+            &state,
+            request(3, "team:alpha", Some("manager"), add_node("n1")),
+        )
+        .await;
+        assert_ok(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_global_graph_read_only() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(
+            &state,
+            request(1, "global:ontology", Some("worker1"), Method::GetNodes),
+        )
+        .await;
+        assert_ok(&resp);
+        let resp = dispatch(
+            &state,
+            request(2, "global:ontology", Some("worker1"), add_node("n1")),
+        )
+        .await;
+        assert_denied(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_bus_stays_open_to_all() {
+        let state = multi_tenant_state().await;
+        for (id, agent) in [(1, Some("worker1")), (2, Some("worker2")), (3, None)] {
+            let resp = dispatch(
+                &state,
+                request(id, "__bus__", agent, add_node(&format!("n{}", id))),
+            )
+            .await;
+            assert_ok(&resp);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_graph_records_caller_as_owner() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(
+            &state,
+            request(
+                1,
+                "__bus__",
+                Some("worker2"),
+                Method::CreateGraph {
+                    graph_name: "agent:worker2".to_string(),
+                    graph_type: GraphType::Agent,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        {
+            let s = state.read().await;
+            assert_eq!(
+                s.registry.get("agent:worker2").unwrap().owner.as_deref(),
+                Some("worker2")
+            );
+        }
+        // Owner writes fine; the peer is denied.
+        let resp = dispatch(
+            &state,
+            request(2, "agent:worker2", Some("worker2"), add_node("n1")),
+        )
+        .await;
+        assert_ok(&resp);
+        let resp = dispatch(
+            &state,
+            request(3, "agent:worker2", Some("worker1"), add_node("n2")),
+        )
+        .await;
+        assert_denied(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_delete_graph_requires_write_access() {
+        let state = multi_tenant_state().await;
+        let del = || Method::DeleteGraph {
+            graph_name: "agent:worker1".to_string(),
+        };
+        let resp = dispatch(&state, request(1, "__bus__", Some("worker2"), del())).await;
+        assert_denied(&resp);
+        let resp = dispatch(&state, request(2, "__bus__", Some("worker1"), del())).await;
+        assert_ok(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_channel_operations_unaffected_by_rules() {
+        let state = multi_tenant_state().await;
+        let resp = dispatch(
+            &state,
+            request(
+                1,
+                "__bus__",
+                Some("worker1"),
+                Method::CreateChannel {
+                    channel_id: "channel:p2p:worker1:worker2".to_string(),
+                    channel_type: crate::protocol::ChannelType::PeerToPeer,
+                    creator: "worker1".to_string(),
+                    initial_members: vec!["worker1".to_string(), "worker2".to_string()],
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let resp = dispatch(
+            &state,
+            request(
+                2,
+                "__bus__",
+                Some("worker2"),
+                Method::SendMessage {
+                    channel_id: "channel:p2p:worker1:worker2".to_string(),
+                    sender: "worker2".to_string(),
+                    payload: "hello".to_string(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+    }
+
+    #[tokio::test]
+    async fn test_diff_against_gates_other_graph() {
+        let state = multi_tenant_state().await;
+        // worker2 owns nothing here; create their graph for the diff source.
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("agent:worker2", GraphType::Agent, Some("worker2".into()))
+                .unwrap();
+        }
+        // worker2 may read its own graph but NOT diff it against worker1's.
+        let resp = dispatch(
+            &state,
+            request(
+                1,
+                "agent:worker2",
+                Some("worker2"),
+                Method::DiffAgainst {
+                    other_graph: "agent:worker1".to_string(),
+                },
+            ),
+        )
+        .await;
+        assert_denied(&resp);
     }
 }

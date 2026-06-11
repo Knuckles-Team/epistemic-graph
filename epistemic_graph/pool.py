@@ -23,9 +23,13 @@ class ConnectionPool:
         auth_secret: str | None = None,
         min_size: int = 1,
         max_size: int = 10,
+        agent_id: str | None = None,
     ) -> None:
         self.endpoint = endpoint
         self.auth_secret = auth_secret
+        # Optional caller identity forwarded on every request for server-side
+        # ACL enforcement (see the server's isolation layer).
+        self.agent_id = agent_id
         self.min_size = min_size
         self.max_size = max_size
         self._pool: asyncio.Queue[EpistemicGraphClient] = asyncio.Queue(
@@ -45,17 +49,21 @@ class ConnectionPool:
         if self.endpoint.startswith("tcp://"):
             tcp_addr = self.endpoint[6:]
             client = await EpistemicGraphClient.connect(
-                tcp_addr=tcp_addr, auth_secret=self.auth_secret
+                tcp_addr=tcp_addr, auth_secret=self.auth_secret, agent_id=self.agent_id
             )
         elif self.endpoint.startswith("unix://"):
             socket_path = self.endpoint[7:]
             client = await EpistemicGraphClient.connect(
-                socket_path=socket_path, auth_secret=self.auth_secret
+                socket_path=socket_path,
+                auth_secret=self.auth_secret,
+                agent_id=self.agent_id,
             )
         else:
             # Default to socket if no scheme provided
             client = await EpistemicGraphClient.connect(
-                socket_path=self.endpoint, auth_secret=self.auth_secret
+                socket_path=self.endpoint,
+                auth_secret=self.auth_secret,
+                agent_id=self.agent_id,
             )
 
         self._active_connections += 1
@@ -110,13 +118,16 @@ class ShardRouter:
         auth_secret: str | None = None,
         min_size: int = 1,
         max_size: int = 10,
+        agent_id: str | None = None,
     ) -> None:
         if not endpoints:
             raise ValueError("ShardRouter requires at least one endpoint")
         self.endpoints = endpoints
         self.pools: dict[str, ConnectionPool] = {}
         for ep in endpoints:
-            self.pools[ep] = ConnectionPool(ep, auth_secret, min_size, max_size)
+            self.pools[ep] = ConnectionPool(
+                ep, auth_secret, min_size, max_size, agent_id=agent_id
+            )
 
     async def initialize(self) -> None:
         """Initialize all connection pools."""

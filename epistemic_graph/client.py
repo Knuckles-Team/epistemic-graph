@@ -1583,11 +1583,16 @@ class EpistemicGraphClient:
         writer: asyncio.StreamWriter,
         auth_secret: str,
         graph_name: str,
+        agent_id: str | None = None,
     ) -> None:
         self._reader = reader
         self._writer = writer
         self._auth_secret = auth_secret
         self._graph_name = graph_name
+        # Caller identity for server-side ACL enforcement (isolation layer).
+        # Optional: single-tenant deployments never need it; once identities
+        # are registered server-side, requests carry it for check_access().
+        self._agent_id = agent_id
         self._request_id = 0
         self._closed = False
         self._lock = asyncio.Lock()
@@ -1613,6 +1618,7 @@ class EpistemicGraphClient:
         tcp_addr: str | None = None,
         auth_secret: str | None = None,
         graph_name: str = "__bus__",
+        agent_id: str | None = None,
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
 
@@ -1635,7 +1641,7 @@ class EpistemicGraphClient:
             reader, writer = await asyncio.open_unix_connection(_socket)
             logger.info("Connected to epistemic-graph service via UDS: %s", _socket)
 
-        return cls(reader, writer, _secret, graph_name)
+        return cls(reader, writer, _secret, graph_name, agent_id=agent_id)
 
     # ── Internal ──────────────────────────────────────────────────────────
 
@@ -1665,6 +1671,8 @@ class EpistemicGraphClient:
             "auth_token": self._compute_token(req_id),
             "method": method,
         }
+        if self._agent_id is not None:
+            request["agent_id"] = self._agent_id
         if params:
             request["params"] = params
 
