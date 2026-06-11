@@ -66,7 +66,13 @@ def _spawn_shards(binary: Path, n: int, tmp: str) -> list[subprocess.Popen]:
         sock = os.path.join(tmp, f"shard{i}.sock")
         p = subprocess.Popen(
             [str(binary), "--socket-path", sock],
-            env={**os.environ, "GRAPH_SERVICE_AUTH_SECRET": ""},
+            env={
+                **os.environ,
+                # Benchmarks measure pure transport: run unauthenticated,
+                # which now requires the explicit insecure opt-out.
+                "GRAPH_SERVICE_AUTH_SECRET": "",
+                "EPISTEMIC_GRAPH_ALLOW_INSECURE": "1",
+            },
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

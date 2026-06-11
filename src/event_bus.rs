@@ -15,7 +15,10 @@ pub async fn start_kafka_consumer(
     topic: &str,
     state: Arc<RwLock<ServerState>>,
 ) {
-    info!("Starting Kafka consumer for topic '{}' at brokers '{}'", topic, brokers);
+    info!(
+        "Starting Kafka consumer for topic '{}' at brokers '{}'",
+        topic, brokers
+    );
 
     let consumer: StreamConsumer = match ClientConfig::new()
         .set("bootstrap.servers", brokers)
@@ -56,10 +59,18 @@ pub async fn start_kafka_consumer(
                         json.get("event_type").and_then(|v| v.as_str()),
                         json.get("query").and_then(|v| v.as_str()),
                     ) {
+                        // The event bus is an in-process, trusted ingest path:
+                        // sign the request with the server's own secret so it
+                        // passes verification when authentication is enabled.
+                        let auth_token = {
+                            let s = state.read().await;
+                            crate::server::compute_auth_token(&s.auth_secret, 0)
+                        };
                         let req = Request {
-                            id: 0, // EventBus events don't have a correlation ID
+                            id: 0,                             // EventBus events don't have a correlation ID
                             graph: "agent:global".to_string(), // Default fallback graph for mutations
-                            auth_token: "".to_string(),
+                            auth_token,
+                            agent_id: None,
                             method: Method::ApplyMutation {
                                 event_type: event_type.to_string(),
                                 query: query.to_string(),

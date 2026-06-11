@@ -11,6 +11,9 @@ def start_epistemic_graph_server():
     rust_dir = os.path.join(os.path.dirname(__file__), "..")
     rust_dir = os.path.abspath(rust_dir)
     socket_path = "/tmp/test_epistemic_graph_local.sock"
+    # Real secret so the suite exercises the HMAC auth path end-to-end
+    # (an empty secret makes the server refuse to start by design).
+    auth_secret = "epistemic-graph-test-secret"  # sanitizer:ignore — test-only value
 
     if os.path.exists(socket_path):
         os.remove(socket_path)
@@ -33,6 +36,7 @@ def start_epistemic_graph_server():
             socket_path,
         ],
         cwd=rust_dir,
+        env={**os.environ, "GRAPH_SERVICE_AUTH_SECRET": auth_secret},
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -43,6 +47,7 @@ def start_epistemic_graph_server():
         time.sleep(0.5)
 
     os.environ["GRAPH_SERVICE_SOCKET"] = socket_path
+    os.environ["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret
 
     yield process
 

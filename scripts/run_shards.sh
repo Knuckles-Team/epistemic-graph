@@ -20,8 +20,18 @@ if [[ ! -x "$BIN" ]]; then
   echo "error: server binary not found at $BIN (build with: cargo build --release --features server)" >&2
   exit 1
 fi
-if [[ -z "${EPISTEMIC_GRAPH_SECRET:-}" ]]; then
-  echo "warning: EPISTEMIC_GRAPH_SECRET is unset; shards will run unauthenticated" >&2
+if [[ -z "${EPISTEMIC_GRAPH_SECRET:-}" && -z "${GRAPH_SERVICE_AUTH_SECRET:-}" ]]; then
+  case "${EPISTEMIC_GRAPH_ALLOW_INSECURE:-}" in
+    1|true|TRUE|True)
+      echo "warning: no auth secret set; shards will run UNAUTHENTICATED (EPISTEMIC_GRAPH_ALLOW_INSECURE is set)" >&2
+      ;;
+    *)
+      echo "error: no auth secret set — the server refuses to start without one." >&2
+      echo "       Set EPISTEMIC_GRAPH_SECRET (or GRAPH_SERVICE_AUTH_SECRET), or" >&2
+      echo "       export EPISTEMIC_GRAPH_ALLOW_INSECURE=1 to intentionally run unauthenticated." >&2
+      exit 1
+      ;;
+  esac
 fi
 # The server binary reads the HMAC secret from GRAPH_SERVICE_AUTH_SECRET.
 export GRAPH_SERVICE_AUTH_SECRET="${EPISTEMIC_GRAPH_SECRET:-${GRAPH_SERVICE_AUTH_SECRET:-}}"

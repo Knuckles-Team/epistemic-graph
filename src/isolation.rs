@@ -61,6 +61,13 @@ impl IsolationLayer {
         self.agents.remove(agent_id);
     }
 
+    /// True once any identity has been registered. While no rules exist the
+    /// server skips ACL checks entirely (single-tenant back-compat); the first
+    /// `RegisterIdentity` switches graph-targeted dispatch to enforcing mode.
+    pub fn has_rules(&self) -> bool {
+        !self.agents.is_empty()
+    }
+
     /// Check if an agent has the requested access level to a graph.
     pub fn check_access(
         &self,
@@ -190,15 +197,31 @@ mod tests {
     #[test]
     fn test_bus_access_for_all() {
         let layer = setup();
-        assert!(layer.check_access("worker1", "__bus__", GraphType::Bus, None, AccessLevel::Write));
-        assert!(layer.check_access("manager", "__bus__", GraphType::Bus, None, AccessLevel::Read));
+        assert!(layer.check_access(
+            "worker1",
+            "__bus__",
+            GraphType::Bus,
+            None,
+            AccessLevel::Write
+        ));
+        assert!(layer.check_access(
+            "manager",
+            "__bus__",
+            GraphType::Bus,
+            None,
+            AccessLevel::Read
+        ));
     }
 
     #[test]
     fn test_agent_graph_owner_access() {
         let layer = setup();
         assert!(layer.check_access(
-            "worker1", "agent:worker1", GraphType::Agent, Some("worker1"), AccessLevel::Write
+            "worker1",
+            "agent:worker1",
+            GraphType::Agent,
+            Some("worker1"),
+            AccessLevel::Write
         ));
     }
 
@@ -206,7 +229,11 @@ mod tests {
     fn test_agent_graph_peer_denied() {
         let layer = setup();
         assert!(!layer.check_access(
-            "worker2", "agent:worker1", GraphType::Agent, Some("worker1"), AccessLevel::Read
+            "worker2",
+            "agent:worker1",
+            GraphType::Agent,
+            Some("worker1"),
+            AccessLevel::Read
         ));
     }
 
@@ -214,7 +241,11 @@ mod tests {
     fn test_manager_access_to_subordinate() {
         let layer = setup();
         assert!(layer.check_access(
-            "manager", "agent:worker1", GraphType::Agent, Some("worker1"), AccessLevel::Write
+            "manager",
+            "agent:worker1",
+            GraphType::Agent,
+            Some("worker1"),
+            AccessLevel::Write
         ));
     }
 
@@ -222,10 +253,18 @@ mod tests {
     fn test_team_member_read_only() {
         let layer = setup();
         assert!(layer.check_access(
-            "worker1", "team:alpha", GraphType::Team, None, AccessLevel::Read
+            "worker1",
+            "team:alpha",
+            GraphType::Team,
+            None,
+            AccessLevel::Read
         ));
         assert!(!layer.check_access(
-            "worker1", "team:alpha", GraphType::Team, None, AccessLevel::Write
+            "worker1",
+            "team:alpha",
+            GraphType::Team,
+            None,
+            AccessLevel::Write
         ));
     }
 
@@ -233,7 +272,11 @@ mod tests {
     fn test_team_manager_can_write() {
         let layer = setup();
         assert!(layer.check_access(
-            "manager", "team:alpha", GraphType::Team, None, AccessLevel::Write
+            "manager",
+            "team:alpha",
+            GraphType::Team,
+            None,
+            AccessLevel::Write
         ));
     }
 
@@ -241,10 +284,18 @@ mod tests {
     fn test_global_read_only() {
         let layer = setup();
         assert!(layer.check_access(
-            "worker1", "global:ontology", GraphType::Global, None, AccessLevel::Read
+            "worker1",
+            "global:ontology",
+            GraphType::Global,
+            None,
+            AccessLevel::Read
         ));
         assert!(!layer.check_access(
-            "worker1", "global:ontology", GraphType::Global, None, AccessLevel::Write
+            "worker1",
+            "global:ontology",
+            GraphType::Global,
+            None,
+            AccessLevel::Write
         ));
     }
 }
