@@ -108,6 +108,7 @@ fn check_graph_access(
     if isolation.check_access(agent, graph_name, graph_type, graph_owner, access) {
         Ok(())
     } else {
+        crate::metrics::access_denied();
         Err(format!(
             "ACCESS_DENIED: agent '{}' lacks {:?} access to graph '{}'",
             if agent.is_empty() {
@@ -121,12 +122,90 @@ fn check_graph_access(
     }
 }
 
-/// Dispatch a single request to the appropriate handler.
+/// Run a CPU-heavy, read-only computation on the blocking thread pool
+/// (CONCEPT:KG-2.51). Callers snapshot whatever graph state the computation
+/// needs under a short read lock, drop the lock, then hand the owned snapshot
+/// here — so the tokio runtime threads and the per-graph RwLock are never
+/// held across O(V·E)-class work.
+async fn compute_off_lock<T, F>(req_id: u64, f: F) -> Result<T, Response>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| Response::err(req_id, format!("Blocking compute task failed: {}", e)))
+}
+
+/// Confidence-weight raw semantic-search hits (CONCEPT:KG-2.51): drop
+/// strictly-stale facts (validity window closed), apply Ebbinghaus temporal
+/// decay (30-day half-life) to each hit's confidence, re-rank by the
+/// decay-weighted similarity and truncate to `n_results`. Pure function —
+/// runs on the blocking pool, never under the graph lock.
+fn weight_semantic_results(
+    candidates: Vec<(String, f32, Option<Vec<u8>>)>,
+    now: u64,
+    n_results: usize,
+) -> Vec<(String, f32)> {
+    let mut weighted_results = Vec::new();
+    for (node_id, mut similarity, props) in candidates {
+        if let Some(props_bytes) = props {
+            if let Ok(json_str) = String::from_utf8(props_bytes) {
+                let node_data = crate::types::NodeData::from_json_props(node_id.clone(), &json_str);
+
+                // Filter out strictly stale facts where the validity window has closed
+                if let Some(vu) = node_data.valid_until {
+                    if now > vu {
+                        continue;
+                    }
+                }
+
+                // Apply temporal decay to confidence (Ebbinghaus Forgetting Curve)
+                let mut current_confidence = node_data.confidence;
+                if let Some(vf) = node_data.valid_from {
+                    if now > vf {
+                        let age_secs = now - vf;
+                        let age_days = age_secs as f64 / 86400.0;
+                        // Half-life of 30 days (decay rate lambda = ln(2) / 30)
+                        let decay_rate = std::f64::consts::LN_2 / 30.0;
+                        current_confidence *= (-decay_rate * age_days).exp();
+                    }
+                }
+
+                // Adjust similarity by current confidence (salience)
+                similarity *= current_confidence as f32;
+            }
+        }
+        weighted_results.push((node_id, similarity));
+    }
+
+    // Re-sort descending based on the new confidence-weighted similarity
+    weighted_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    weighted_results.truncate(n_results);
+    weighted_results
+}
+
+/// Dispatch a single request to the appropriate handler, recording
+/// per-operation request counters and latency (CONCEPT:KG-2.51).
 pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
+    #[cfg(feature = "metrics")]
+    {
+        let op: &'static str = (&req.method).into();
+        let start = std::time::Instant::now();
+        let resp = dispatch_inner(state, req).await;
+        crate::metrics::record_request(op, start.elapsed().as_secs_f64());
+        resp
+    }
+    #[cfg(not(feature = "metrics"))]
+    dispatch_inner(state, req).await
+}
+
+async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
     // Auth check.
     {
         let s = state.read().await;
         if !verify_auth(&s.auth_secret, req.id, &req.auth_token) {
+            crate::metrics::auth_failure();
             return Response::err(req.id, "Authentication failed");
         }
     }
@@ -225,10 +304,13 @@ pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Respons
                 .registry
                 .create_graph(&graph_name, graph_type, req.agent_id.clone())
             {
-                Ok(()) => Response::ok(
-                    req.id,
-                    ResultPayload::Json(serde_json::json!({"created": graph_name})),
-                ),
+                Ok(()) => {
+                    crate::metrics::set_graph_size(&graph_name, 0, 0);
+                    Response::ok(
+                        req.id,
+                        ResultPayload::Json(serde_json::json!({"created": graph_name})),
+                    )
+                }
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -248,10 +330,13 @@ pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Respons
                 }
             }
             match s.registry.delete_graph(graph_name) {
-                Ok(()) => Response::ok(
-                    req.id,
-                    ResultPayload::Json(serde_json::json!({"deleted": graph_name})),
-                ),
+                Ok(()) => {
+                    crate::metrics::drop_graph(graph_name);
+                    Response::ok(
+                        req.id,
+                        ResultPayload::Json(serde_json::json!({"deleted": graph_name})),
+                    )
+                }
                 Err(e) => Response::err(req.id, e),
             }
         }
@@ -481,7 +566,9 @@ async fn dispatch_graph_op(
     let core = entry.core.clone();
     drop(s); // Release registry lock before graph lock.
 
-    match method {
+    crate::metrics::graph_op(graph_name);
+
+    let response = match method {
         Method::AddNode {
             node_id,
             properties_msgpack,
@@ -537,59 +624,51 @@ async fn dispatch_graph_op(
             query_embedding,
             n_results,
         } => {
-            let g = core.read().await;
+            // CONCEPT:KG-2.51 — never run heavy compute under the graph lock.
+            // The ANN search (the HNSW path rebuilds its index per query) and
+            // the per-candidate Ebbinghaus decay scoring both run on the
+            // blocking pool; the read lock is held only to memcpy the
+            // embedding store, then briefly again to fetch the ~2·n candidate
+            // property blobs. A large search no longer stalls writers.
+            let store = { core.read().await.semantic_store.clone() };
             // Fetch more results initially to account for filtered out nodes
-            let raw_results = g
-                .semantic_store
-                .semantic_search(&query_embedding, n_results * 2);
+            let raw_results = match compute_off_lock(req_id, move || {
+                store.semantic_search(&query_embedding, n_results * 2)
+            })
+            .await
+            {
+                Ok(r) => r,
+                Err(resp) => return resp,
+            };
+
+            // Bounded candidate-metadata fetch: only the hit ids, not the graph.
+            let candidates: Vec<(String, f32, Option<Vec<u8>>)> = {
+                let g = core.read().await;
+                raw_results
+                    .into_iter()
+                    .map(|(id, sim)| {
+                        let props = g.get_node_properties(&id);
+                        (id, sim, props)
+                    })
+                    .collect()
+            };
 
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
 
-            let mut weighted_results = Vec::new();
-            for (node_id, mut similarity) in raw_results {
-                if let Some(props_bytes) = g.get_node_properties(&node_id) {
-                    if let Ok(json_str) = String::from_utf8(props_bytes) {
-                        let node_data =
-                            crate::types::NodeData::from_json_props(node_id.clone(), &json_str);
-
-                        // Filter out strictly stale facts where the validity window has closed
-                        if let Some(vu) = node_data.valid_until {
-                            if now > vu {
-                                continue;
-                            }
-                        }
-
-                        // Apply temporal decay to confidence (Ebbinghaus Forgetting Curve)
-                        let mut current_confidence = node_data.confidence;
-                        if let Some(vf) = node_data.valid_from {
-                            if now > vf {
-                                let age_secs = now - vf;
-                                let age_days = age_secs as f64 / 86400.0;
-                                // Half-life of 30 days (decay rate lambda = ln(2) / 30)
-                                let decay_rate = std::f64::consts::LN_2 / 30.0;
-                                current_confidence *= (-decay_rate * age_days).exp();
-                            }
-                        }
-
-                        // Adjust similarity by current confidence (salience)
-                        similarity *= current_confidence as f32;
-                    }
-                }
-                weighted_results.push((node_id, similarity));
+            match compute_off_lock(req_id, move || {
+                weight_semantic_results(candidates, now, n_results)
+            })
+            .await
+            {
+                Ok(weighted_results) => Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(weighted_results)),
+                ),
+                Err(resp) => resp,
             }
-
-            // Re-sort descending based on the new confidence-weighted similarity
-            weighted_results
-                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            weighted_results.truncate(n_results);
-
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(weighted_results)),
-            )
         }
         Method::SpectralCluster {
             vectors: _,
@@ -1397,6 +1476,10 @@ async fn dispatch_graph_op(
             let g = core.read().await;
             Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
         }
+        // TopologicalSort / FindCycle / GetShortestPath / components / blast
+        // radius / degree centrality stay under the read lock intentionally
+        // (CONCEPT:KG-2.51): they are single-pass O(V+E), so a structural
+        // snapshot would cost as much as the computation itself.
         Method::TopologicalSort => {
             let g = core.read().await;
             match crate::algorithms::topological_sort(&g) {
@@ -1427,13 +1510,16 @@ async fn dispatch_graph_op(
             damping,
             iterations,
         } => {
-            let g = core.read().await;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::pagerank(
-                    &g, damping, iterations
-                ))),
-            )
+            // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
+            let snap = { core.read().await.topology_snapshot() };
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::pagerank(&snap, damping, iterations)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
         }
         Method::ConnectedComponents => {
             let g = core.read().await;
@@ -1454,17 +1540,37 @@ async fn dispatch_graph_op(
             )
         }
         Method::MinimumSpanningTree => {
-            let g = core.read().await;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::minimum_spanning_tree(
-                    &g
-                ))),
-            )
+            // O(E log E) + per-edge JSON weight parsing — snapshot (incl. the
+            // edge property blobs it reads), compute off-lock (KG-2.51).
+            let snap = { core.read().await.analysis_snapshot() };
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::minimum_spanning_tree(&snap)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
         }
         Method::Metrics => {
-            let g = core.read().await;
-            let m = crate::algorithms::compute_metrics(&g);
+            // Parses every node's property JSON — memcpy snapshot under the
+            // lock is cheaper than O(V) JSON parsing under it (KG-2.51). The
+            // ledger is not snapshotted; capture its length for the
+            // total_mutations field before releasing the lock.
+            let (snap, ledger_len) = {
+                let g = core.read().await;
+                (g.analysis_snapshot(), g.ledger.len() as u64)
+            };
+            let m = match compute_off_lock(req_id, move || {
+                let mut m = crate::algorithms::compute_metrics(&snap);
+                m.total_mutations = ledger_len;
+                m
+            })
+            .await
+            {
+                Ok(m) => m,
+                Err(resp) => return resp,
+            };
             match serde_json::to_value(&m) {
                 Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1571,6 +1677,10 @@ async fn dispatch_graph_op(
         // when supplied, domain/range and property-chain inference. All
         // inferred edges and type annotations are materialised in-place and
         // the inferred triples are returned to the caller.
+        //
+        // Intentionally under the write lock (KG-2.51): reasoning MUTATES the
+        // graph as it infers, so it cannot run on a snapshot — materialising
+        // on a clone and merging back would cost more than the inference.
         Method::RunDatalogReasoning {
             subclass_relations,
             subproperty_relations,
@@ -1680,39 +1790,51 @@ async fn dispatch_graph_op(
             )
         }
         Method::BetweennessCentrality => {
-            let g = core.read().await;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(
-                    crate::algorithms::betweenness_centrality(&g)
-                )),
-            )
+            // O(V·E) Brandes — snapshot topology, compute off-lock (KG-2.51).
+            let snap = { core.read().await.topology_snapshot() };
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::betweenness_centrality(&snap)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
         }
         Method::PersonalizedPageRank {
             seed_nodes,
             damping,
             iterations,
         } => {
-            let g = core.read().await;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::personalized_pagerank(
-                    &g,
-                    &seed_nodes,
-                    damping,
-                    iterations
-                ))),
-            )
+            // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
+            let snap = { core.read().await.topology_snapshot() };
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::personalized_pagerank(&snap, &seed_nodes, damping, iterations)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
         }
         Method::CommunityDetection { resolution } => {
-            let g = core.read().await;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::community_detection(
-                    &g, resolution
-                ))),
-            )
+            // Label propagation has an internal 15s wall-clock budget — that
+            // budget used to burn entirely UNDER the read lock, stalling every
+            // writer on the graph. Snapshot topology, compute off-lock
+            // (KG-2.51).
+            let snap = { core.read().await.topology_snapshot() };
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::community_detection(&snap, resolution)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
         }
+        // GraphColoring stays under the read lock intentionally (KG-2.51):
+        // greedy coloring is a single O(V+E) sweep, so a snapshot would cost
+        // as much as the computation.
         Method::GraphColoring => {
             let g = core.read().await;
             Response::ok(
@@ -1721,13 +1843,18 @@ async fn dispatch_graph_op(
             )
         }
         Method::ComputeSimilarityEdges { threshold } => {
-            let g = core.read().await;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(
-                    crate::algorithms::compute_similarity_edges(&g, threshold)
-                )),
-            )
+            // O(V²·d) all-pairs cosine on rayon — must never run under the
+            // graph lock OR on the tokio runtime threads. Snapshot the
+            // property blobs it reads, compute off-lock (KG-2.51).
+            let snap = { core.read().await.analysis_snapshot() };
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::compute_similarity_edges(&snap, threshold)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
         }
         Method::PruneByLifecycle {
             max_age_secs,
@@ -1789,12 +1916,15 @@ async fn dispatch_graph_op(
                 .map(|entry| entry.core.clone());
             drop(s);
             if let Some(p_core) = pattern_core {
-                let p = p_core.read().await;
-                let g = core.read().await;
-                Response::ok(
-                    req_id,
-                    ResultPayload::Json(serde_json::json!(g.vf2_subgraph_match(&p))),
-                )
+                // Exponential-worst-case matching never runs under either
+                // graph's lock: snapshot pattern then host SEQUENTIALLY (no
+                // nested cross-graph locks), compute off-lock (KG-2.51).
+                let p_snap = { p_core.read().await.analysis_snapshot() };
+                let g_snap = { core.read().await.analysis_snapshot() };
+                match compute_off_lock(req_id, move || g_snap.vf2_subgraph_match(&p_snap)).await {
+                    Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                    Err(resp) => resp,
+                }
             } else {
                 Response::err(
                     req_id,
@@ -1889,9 +2019,14 @@ async fn dispatch_graph_op(
             let other_core = other_entry.core.clone();
             drop(s_lock);
 
+            // Snapshot the other graph first, then diff under only THIS
+            // graph's lock — never hold two graph locks at once (two
+            // concurrent opposite-direction diffs plus a queued writer can
+            // deadlock a write-preferring RwLock). The diff itself is a
+            // single O(V+E) comparison, so it stays under-lock (KG-2.51).
+            let other_snap = { other_core.read().await.analysis_snapshot() };
             let g1 = core.read().await;
-            let g2 = other_core.read().await;
-            let diff_str = g1.diff_against(&g2);
+            let diff_str = g1.diff_against(&other_snap);
             match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
                 Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1910,7 +2045,21 @@ async fn dispatch_graph_op(
         }
         // Catch-all for methods not yet fully dispatched.
         _ => Response::err(req_id, "Method not yet implemented for graph dispatch"),
+    };
+
+    // Refresh the per-graph size gauges after mutations — both petgraph
+    // counts are O(1), so this adds no meaningful write-path cost.
+    #[cfg(feature = "metrics")]
+    if matches!(access, AccessLevel::Write) {
+        let g = core.read().await;
+        crate::metrics::set_graph_size(
+            graph_name,
+            g.graph.node_count() as i64,
+            g.graph.edge_count() as i64,
+        );
     }
+
+    response
 }
 
 /// Handle a single client connection (UDS or TCP).
@@ -1953,6 +2102,7 @@ where
         let _permit = match sem.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
+                crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
                 let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
                 let out_len = out.len() as u32;
@@ -1965,8 +2115,10 @@ where
                 continue;
             }
         };
+        crate::metrics::connection_request_started(sem.available_permits());
         let resp = dispatch(&state, req).await;
         drop(_permit);
+        crate::metrics::connection_request_finished(sem.available_permits());
 
         let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
         let out_len = out.len() as u32;
@@ -2330,6 +2482,210 @@ mod tests {
         )
         .await;
         assert_ok(&resp);
+    }
+
+    // ── Lock-free compute (CONCEPT:KG-2.51) ─────────────────────────────
+
+    fn json_props(val: serde_json::Value) -> Option<Vec<u8>> {
+        // SemanticSearch's decay path reads properties as a UTF-8 JSON string
+        // (NodeData::from_json_props), so encode candidates the same way.
+        Some(val.to_string().into_bytes())
+    }
+
+    #[test]
+    fn test_weight_semantic_results_orders_decays_and_truncates() {
+        let now = 100_000_000u64;
+        let thirty_days = 30 * 86_400u64;
+        let candidates = vec![
+            // Fresh fact: confidence 1.0, no decay → keeps raw similarity.
+            (
+                "fresh".to_string(),
+                0.8f32,
+                json_props(serde_json::json!({"type": "Fact", "valid_from": now})),
+            ),
+            // One half-life old: 0.9 similarity decays to ~0.45 → ranks below.
+            (
+                "aged".to_string(),
+                0.9f32,
+                json_props(serde_json::json!({"type": "Fact", "valid_from": now - thirty_days})),
+            ),
+            // Validity window closed → filtered out entirely.
+            (
+                "stale".to_string(),
+                0.99f32,
+                json_props(serde_json::json!({"type": "Fact", "valid_until": now - 1})),
+            ),
+            // No properties → similarity passes through unweighted.
+            ("bare".to_string(), 0.5f32, None),
+        ];
+
+        let out = weight_semantic_results(candidates, now, 10);
+        let ids: Vec<&str> = out.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["fresh", "bare", "aged"]);
+        let aged_score = out[2].1;
+        assert!(
+            (aged_score - 0.45).abs() < 0.01,
+            "expected ~0.45 after one half-life, got {aged_score}"
+        );
+
+        // Truncation honors n_results after re-ranking.
+        let top1 = weight_semantic_results(
+            vec![
+                ("a".to_string(), 0.4f32, None),
+                ("b".to_string(), 0.7f32, None),
+            ],
+            now,
+            1,
+        );
+        assert_eq!(top1.len(), 1);
+        assert_eq!(top1[0].0, "b");
+    }
+
+    /// Writers must keep making progress while a large semantic search (HNSW
+    /// path, index rebuilt per query) runs concurrently on the same graph.
+    /// Before KG-2.51 the search held the graph read lock for its whole
+    /// duration; now it only memcpys the embedding store under the lock.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_writers_not_starved_by_large_semantic_search() {
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("agent:busy", GraphType::Agent, None)
+                .unwrap();
+        }
+        // Seed enough embeddings to take the HNSW path (>= brute-force
+        // threshold) and make the search non-trivial.
+        {
+            let s = state.read().await;
+            let core = s.registry.get("agent:busy").unwrap().core.clone();
+            drop(s);
+            let mut g = core.write().await;
+            for i in 0..2_000u32 {
+                let id = format!("n{}", i);
+                g.add_node(
+                    id.clone(),
+                    rmp_serde::to_vec(&serde_json::json!({})).unwrap(),
+                );
+                let emb: Vec<f32> = (0..64).map(|d| ((i + d) % 97) as f32 / 97.0).collect();
+                g.semantic_store.add_embedding(id, emb);
+            }
+        }
+
+        let search_state = state.clone();
+        let search = tokio::spawn(async move {
+            dispatch(
+                &search_state,
+                request(
+                    1,
+                    "agent:busy",
+                    None,
+                    Method::SemanticSearch {
+                        query_embedding: vec![0.5f32; 64],
+                        n_results: 25,
+                    },
+                ),
+            )
+            .await
+        });
+
+        // Interleave writes while the search task runs; each must complete
+        // promptly instead of queueing behind a long-held read lock.
+        for i in 0..50u64 {
+            let resp = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                dispatch(
+                    &state,
+                    request(100 + i, "agent:busy", None, add_node(&format!("w{}", i))),
+                ),
+            )
+            .await
+            .expect("writer starved during semantic search");
+            assert_ok(&resp);
+            tokio::task::yield_now().await;
+        }
+
+        let resp = search.await.expect("search task panicked");
+        assert_ok(&resp);
+        assert!(matches!(resp.result, Some(ResultPayload::Json(_))));
+    }
+
+    #[tokio::test]
+    async fn test_offloaded_algorithms_round_trip() {
+        // Snapshot+spawn_blocking arms must preserve result semantics.
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("agent:algo", GraphType::Agent, None)
+                .unwrap();
+        }
+        for (id, m) in [
+            (1, add_node("a")),
+            (2, add_node("b")),
+            (3, add_node("c")),
+            (
+                4,
+                Method::AddEdge {
+                    source_id: "a".into(),
+                    target_id: "b".into(),
+                    properties_msgpack: rmp_serde::to_vec(&serde_json::json!({"weight": 2.0}))
+                        .unwrap(),
+                },
+            ),
+            (
+                5,
+                Method::AddEdge {
+                    source_id: "b".into(),
+                    target_id: "c".into(),
+                    properties_msgpack: rmp_serde::to_vec(&serde_json::json!({})).unwrap(),
+                },
+            ),
+        ] {
+            assert_ok(&dispatch(&state, request(id, "agent:algo", None, m)).await);
+        }
+
+        let pagerank = dispatch(
+            &state,
+            request(
+                10,
+                "agent:algo",
+                None,
+                Method::PageRank {
+                    damping: 0.85,
+                    iterations: 20,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&pagerank);
+        let Some(ResultPayload::Json(scores)) = pagerank.result else {
+            panic!("expected JSON pagerank result");
+        };
+        assert_eq!(scores.as_array().map(|a| a.len()), Some(3));
+
+        let communities = dispatch(
+            &state,
+            request(
+                11,
+                "agent:algo",
+                None,
+                Method::CommunityDetection { resolution: 1.0 },
+            ),
+        )
+        .await;
+        assert_ok(&communities);
+
+        let metrics = dispatch(&state, request(12, "agent:algo", None, Method::Metrics)).await;
+        assert_ok(&metrics);
+        let Some(ResultPayload::Json(m)) = metrics.result else {
+            panic!("expected JSON metrics result");
+        };
+        assert_eq!(m.get("node_count").and_then(|v| v.as_u64()), Some(3));
+        assert_eq!(m.get("edge_count").and_then(|v| v.as_u64()), Some(2));
+        // total_mutations comes from the ledger length captured under-lock
+        // (3 adds + 2 edges) — the snapshot itself carries no ledger.
+        assert_eq!(m.get("total_mutations").and_then(|v| v.as_u64()), Some(5));
     }
 
     #[tokio::test]
