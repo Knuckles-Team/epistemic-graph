@@ -124,7 +124,13 @@ pub fn fit_estimator(
         .collect();
     match key.as_str() {
         "ridge" => Ok(fit_ridge(x, y, params.alpha.unwrap_or(1.0))),
-        "lasso" => Ok(fit_elastic_net(x, y, params.alpha.unwrap_or(1.0), 1.0, params)),
+        "lasso" => Ok(fit_elastic_net(
+            x,
+            y,
+            params.alpha.unwrap_or(1.0),
+            1.0,
+            params,
+        )),
         "elasticnet" => Ok(fit_elastic_net(
             x,
             y,
@@ -141,9 +147,7 @@ pub fn fit_estimator(
             None,
         ))),
         "randomforest" | "randomforestregressor" => Ok(fit_random_forest(x, y, params)),
-        "gradientboosting" | "gradientboostingregressor" => {
-            Ok(fit_gradient_boosting(x, y, params))
-        }
+        "gradientboosting" | "gradientboostingregressor" => Ok(fit_gradient_boosting(x, y, params)),
         "adaboost" | "adaboostregressor" => Ok(fit_adaboost(x, y, params)),
         "svr" => Ok(fit_svr(x, y, params)),
         other => Err(format!("Unknown estimator '{}'", other)),
@@ -153,7 +157,10 @@ pub fn fit_estimator(
 /// Predict with a fitted model.
 pub fn predict(model: &FittedModel, x: &[Vec<f64>]) -> Vec<f64> {
     match model {
-        FittedModel::Linear { coefficients, intercept } => x
+        FittedModel::Linear {
+            coefficients,
+            intercept,
+        } => x
             .iter()
             .map(|row| {
                 intercept
@@ -175,12 +182,13 @@ pub fn predict(model: &FittedModel, x: &[Vec<f64>]) -> Vec<f64> {
                 }
             })
             .collect(),
-        FittedModel::GradientBoosting { init, learning_rate, trees } => x
+        FittedModel::GradientBoosting {
+            init,
+            learning_rate,
+            trees,
+        } => x
             .iter()
-            .map(|row| {
-                init + learning_rate
-                    * trees.iter().map(|t| t.predict_one(row)).sum::<f64>()
-            })
+            .map(|row| init + learning_rate * trees.iter().map(|t| t.predict_one(row)).sum::<f64>())
             .collect(),
         FittedModel::AdaBoost { trees, weights } => x
             .iter()
@@ -193,7 +201,13 @@ pub fn predict(model: &FittedModel, x: &[Vec<f64>]) -> Vec<f64> {
                 weighted_median(&preds)
             })
             .collect(),
-        FittedModel::Svr { support_vectors, dual_coef, intercept, kernel, gamma } => x
+        FittedModel::Svr {
+            support_vectors,
+            dual_coef,
+            intercept,
+            kernel,
+            gamma,
+        } => x
             .iter()
             .map(|row| {
                 let mut s = *intercept;
@@ -226,7 +240,10 @@ fn fit_ridge(x: &[Vec<f64>], y: &[f64], alpha: f64) -> FittedModel {
     let n = x.len();
     let p = if n > 0 { x[0].len() } else { 0 };
     if n == 0 || p == 0 {
-        return FittedModel::Linear { coefficients: vec![0.0; p], intercept: 0.0 };
+        return FittedModel::Linear {
+            coefficients: vec![0.0; p],
+            intercept: 0.0,
+        };
     }
     let xbar = col_means(x, p);
     let ybar = y.iter().sum::<f64>() / n as f64;
@@ -251,8 +268,16 @@ fn fit_ridge(x: &[Vec<f64>], y: &[f64], alpha: f64) -> FittedModel {
         a[j][j] += alpha;
     }
     let coef = solve_linear_system(&a, &b);
-    let intercept = ybar - xbar.iter().zip(coef.iter()).map(|(m, c)| m * c).sum::<f64>();
-    FittedModel::Linear { coefficients: coef, intercept }
+    let intercept = ybar
+        - xbar
+            .iter()
+            .zip(coef.iter())
+            .map(|(m, c)| m * c)
+            .sum::<f64>();
+    FittedModel::Linear {
+        coefficients: coef,
+        intercept,
+    }
 }
 
 #[inline]
@@ -279,7 +304,10 @@ fn fit_elastic_net(
     let n = x.len();
     let p = if n > 0 { x[0].len() } else { 0 };
     if n == 0 || p == 0 {
-        return FittedModel::Linear { coefficients: vec![0.0; p], intercept: 0.0 };
+        return FittedModel::Linear {
+            coefficients: vec![0.0; p],
+            intercept: 0.0,
+        };
     }
     let max_iter = params.max_iter.unwrap_or(1000);
     let tol = params.tol.unwrap_or(1e-4);
@@ -296,7 +324,9 @@ fn fit_elastic_net(
         }
     }
     let yc: Vec<f64> = y.iter().map(|&v| v - ybar).collect();
-    let col_sq: Vec<f64> = (0..p).map(|j| xc[j].iter().map(|v| v * v).sum::<f64>() / nf).collect();
+    let col_sq: Vec<f64> = (0..p)
+        .map(|j| xc[j].iter().map(|v| v * v).sum::<f64>() / nf)
+        .collect();
 
     let mut beta = vec![0.0; p];
     let mut resid = yc.clone(); // r = yc - Xc*beta  (beta starts at 0)
@@ -331,8 +361,16 @@ fn fit_elastic_net(
             break;
         }
     }
-    let intercept = ybar - xbar.iter().zip(beta.iter()).map(|(m, c)| m * c).sum::<f64>();
-    FittedModel::Linear { coefficients: beta, intercept }
+    let intercept = ybar
+        - xbar
+            .iter()
+            .zip(beta.iter())
+            .map(|(m, c)| m * c)
+            .sum::<f64>();
+    FittedModel::Linear {
+        coefficients: beta,
+        intercept,
+    }
 }
 
 // ── CART regression tree ───────────────────────────────────────────────────
@@ -387,7 +425,13 @@ fn build_node(
     let mean = indices.iter().map(|&i| y[i]).sum::<f64>() / n as f64;
 
     let make_leaf = |nodes: &mut Vec<TreeNode>| -> i64 {
-        nodes.push(TreeNode { feature: -1, threshold: 0.0, left: -1, right: -1, value: mean });
+        nodes.push(TreeNode {
+            feature: -1,
+            threshold: 0.0,
+            left: -1,
+            right: -1,
+            value: mean,
+        });
         (nodes.len() - 1) as i64
     };
 
@@ -415,7 +459,11 @@ fn build_node(
     for &f in &feats {
         // Sort sample indices by feature f.
         let mut sorted: Vec<usize> = indices.to_vec();
-        sorted.sort_by(|&a, &b| x[a][f].partial_cmp(&x[b][f]).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|&a, &b| {
+            x[a][f]
+                .partial_cmp(&x[b][f])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Prefix sums of y and y^2 for O(1) child SSE.
         let m = sorted.len();
@@ -462,12 +510,30 @@ fn build_node(
         value: mean,
     });
     let left_idx = build_node(
-        x, y, &best_left, depth + 1, max_depth, min_samples_split, min_samples_leaf, p,
-        max_features, rng, nodes,
+        x,
+        y,
+        &best_left,
+        depth + 1,
+        max_depth,
+        min_samples_split,
+        min_samples_leaf,
+        p,
+        max_features,
+        rng,
+        nodes,
     );
     let right_idx = build_node(
-        x, y, &best_right, depth + 1, max_depth, min_samples_split, min_samples_leaf, p,
-        max_features, rng, nodes,
+        x,
+        y,
+        &best_right,
+        depth + 1,
+        max_depth,
+        min_samples_split,
+        min_samples_leaf,
+        p,
+        max_features,
+        rng,
+        nodes,
     );
     nodes[node_idx].left = left_idx;
     nodes[node_idx].right = right_idx;
@@ -494,7 +560,8 @@ fn fit_random_forest(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) -> Fit
     let trees: Vec<DecisionTree> = (0..n_estimators)
         .into_par_iter()
         .map(|t| {
-            let mut rng = ChaCha8Rng::seed_from_u64(base_seed.wrapping_add(t as u64).wrapping_add(1));
+            let mut rng =
+                ChaCha8Rng::seed_from_u64(base_seed.wrapping_add(t as u64).wrapping_add(1));
             // Bootstrap sample (n draws with replacement).
             let boot: Vec<usize> = (0..n).map(|_| (rng.gen::<u64>() as usize) % n).collect();
             fit_tree(x, y, &boot, params, params.max_features, Some(&mut rng))
@@ -510,7 +577,10 @@ fn fit_gradient_boosting(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) ->
     let n_estimators = params.n_estimators.unwrap_or(100);
     let lr = params.learning_rate.unwrap_or(0.1);
     // GBM uses shallow trees by default (sklearn default max_depth=3).
-    let tree_params = EstimatorParams { max_depth: Some(params.max_depth.unwrap_or(3)), ..params.clone() };
+    let tree_params = EstimatorParams {
+        max_depth: Some(params.max_depth.unwrap_or(3)),
+        ..params.clone()
+    };
 
     let init = y.iter().sum::<f64>() / n as f64;
     let mut f = vec![init; n];
@@ -525,7 +595,11 @@ fn fit_gradient_boosting(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) ->
         }
         trees.push(tree);
     }
-    FittedModel::GradientBoosting { init, learning_rate: lr, trees }
+    FittedModel::GradientBoosting {
+        init,
+        learning_rate: lr,
+        trees,
+    }
 }
 
 // ── AdaBoost.R2 (Drucker 1997, linear loss) ────────────────────────────────
@@ -536,7 +610,10 @@ fn fit_adaboost(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) -> FittedMo
     let lr = params.learning_rate.unwrap_or(1.0);
     let base_seed = params.random_state.unwrap_or(0);
     // AdaBoostRegressor default base estimator: DecisionTreeRegressor(max_depth=3).
-    let tree_params = EstimatorParams { max_depth: Some(params.max_depth.unwrap_or(3)), ..params.clone() };
+    let tree_params = EstimatorParams {
+        max_depth: Some(params.max_depth.unwrap_or(3)),
+        ..params.clone()
+    };
 
     let mut w = vec![1.0 / n as f64; n];
     let mut trees: Vec<DecisionTree> = Vec::new();
@@ -650,7 +727,9 @@ fn fit_svr(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) -> FittedModel {
     let c = params.c.unwrap_or(1.0);
     let epsilon = params.epsilon.unwrap_or(0.1);
     let kernel = params.kernel.clone().unwrap_or_else(|| "rbf".to_string());
-    let gamma = params.gamma.unwrap_or_else(|| if p > 0 { 1.0 / p as f64 } else { 1.0 });
+    let gamma = params
+        .gamma
+        .unwrap_or_else(|| if p > 0 { 1.0 / p as f64 } else { 1.0 });
     let max_iter = params.max_iter.unwrap_or(1000);
     let tol = params.tol.unwrap_or(1e-3);
 
@@ -760,7 +839,13 @@ fn fit_svr(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) -> FittedModel {
             coefs.push(beta[i]);
         }
     }
-    FittedModel::Svr { support_vectors: svs, dual_coef: coefs, intercept: bias, kernel, gamma }
+    FittedModel::Svr {
+        support_vectors: svs,
+        dual_coef: coefs,
+        intercept: bias,
+        kernel,
+        gamma,
+    }
 }
 
 #[cfg(test)]
@@ -775,11 +860,25 @@ mod tests {
     fn ridge_recovers_linear() {
         // y = 2x0 + 3x1 + 1, alpha small -> near-OLS.
         let x = vec![
-            vec![0.0, 0.0], vec![1.0, 0.0], vec![0.0, 1.0],
-            vec![1.0, 1.0], vec![2.0, 1.0], vec![1.0, 2.0], vec![2.0, 2.0],
+            vec![0.0, 0.0],
+            vec![1.0, 0.0],
+            vec![0.0, 1.0],
+            vec![1.0, 1.0],
+            vec![2.0, 1.0],
+            vec![1.0, 2.0],
+            vec![2.0, 2.0],
         ];
         let y: Vec<f64> = x.iter().map(|r| 2.0 * r[0] + 3.0 * r[1] + 1.0).collect();
-        let m = fit_estimator("ridge", &x, &y, &EstimatorParams { alpha: Some(1e-6), ..Default::default() }).unwrap();
+        let m = fit_estimator(
+            "ridge",
+            &x,
+            &y,
+            &EstimatorParams {
+                alpha: Some(1e-6),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let pred = predict(&m, &x);
         assert!(rmse(&pred, &y) < 1e-3, "ridge rmse {}", rmse(&pred, &y));
     }
@@ -787,9 +886,20 @@ mod tests {
     #[test]
     fn lasso_zeros_irrelevant_feature() {
         // y depends only on x0; x1 is noise-free irrelevant.
-        let x: Vec<Vec<f64>> = (0..40).map(|i| vec![i as f64 * 0.1, (i % 5) as f64]).collect();
+        let x: Vec<Vec<f64>> = (0..40)
+            .map(|i| vec![i as f64 * 0.1, (i % 5) as f64])
+            .collect();
         let y: Vec<f64> = x.iter().map(|r| 5.0 * r[0]).collect();
-        let m = fit_estimator("lasso", &x, &y, &EstimatorParams { alpha: Some(0.01), ..Default::default() }).unwrap();
+        let m = fit_estimator(
+            "lasso",
+            &x,
+            &y,
+            &EstimatorParams {
+                alpha: Some(0.01),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         if let FittedModel::Linear { coefficients, .. } = &m {
             assert!(coefficients[0] > 4.0, "x0 coef {}", coefficients[0]);
             assert!(coefficients[1].abs() < 0.5, "x1 coef {}", coefficients[1]);
@@ -802,7 +912,10 @@ mod tests {
     fn tree_fits_step_function() {
         // Step: y=0 for x<0.5, y=10 for x>=0.5.
         let x: Vec<Vec<f64>> = (0..20).map(|i| vec![i as f64 / 20.0]).collect();
-        let y: Vec<f64> = x.iter().map(|r| if r[0] < 0.5 { 0.0 } else { 10.0 }).collect();
+        let y: Vec<f64> = x
+            .iter()
+            .map(|r| if r[0] < 0.5 { 0.0 } else { 10.0 })
+            .collect();
         let m = fit_estimator("decisiontree", &x, &y, &EstimatorParams::default()).unwrap();
         let pred = predict(&m, &x);
         assert!(rmse(&pred, &y) < 1e-6, "tree rmse {}", rmse(&pred, &y));
@@ -812,8 +925,28 @@ mod tests {
     fn forest_and_gbm_fit_quadratic() {
         let x: Vec<Vec<f64>> = (0..60).map(|i| vec![(i as f64 - 30.0) / 10.0]).collect();
         let y: Vec<f64> = x.iter().map(|r| r[0] * r[0]).collect();
-        let rf = fit_estimator("randomforest", &x, &y, &EstimatorParams { n_estimators: Some(40), random_state: Some(1), ..Default::default() }).unwrap();
-        let gbm = fit_estimator("gradientboosting", &x, &y, &EstimatorParams { n_estimators: Some(60), learning_rate: Some(0.1), ..Default::default() }).unwrap();
+        let rf = fit_estimator(
+            "randomforest",
+            &x,
+            &y,
+            &EstimatorParams {
+                n_estimators: Some(40),
+                random_state: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let gbm = fit_estimator(
+            "gradientboosting",
+            &x,
+            &y,
+            &EstimatorParams {
+                n_estimators: Some(60),
+                learning_rate: Some(0.1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(rmse(&predict(&rf, &x), &y) < 1.0);
         assert!(rmse(&predict(&gbm, &x), &y) < 0.5);
     }
@@ -822,7 +955,17 @@ mod tests {
     fn adaboost_fits_linear() {
         let x: Vec<Vec<f64>> = (0..50).map(|i| vec![i as f64 * 0.1]).collect();
         let y: Vec<f64> = x.iter().map(|r| 2.0 * r[0] + 1.0).collect();
-        let m = fit_estimator("adaboost", &x, &y, &EstimatorParams { n_estimators: Some(30), random_state: Some(1), ..Default::default() }).unwrap();
+        let m = fit_estimator(
+            "adaboost",
+            &x,
+            &y,
+            &EstimatorParams {
+                n_estimators: Some(30),
+                random_state: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(rmse(&predict(&m, &x), &y) < 1.0);
     }
 
@@ -834,9 +977,21 @@ mod tests {
             "svr",
             &x,
             &y,
-            &EstimatorParams { c: Some(10.0), epsilon: Some(0.05), gamma: Some(0.5), kernel: Some("rbf".into()), max_iter: Some(3000), ..Default::default() },
-        ).unwrap();
+            &EstimatorParams {
+                c: Some(10.0),
+                epsilon: Some(0.05),
+                gamma: Some(0.5),
+                kernel: Some("rbf".into()),
+                max_iter: Some(3000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         // Approximate fit; loose tolerance (SMO is not bit-identical to libsvm).
-        assert!(rmse(&predict(&m, &x), &y) < 0.4, "svr rmse {}", rmse(&predict(&m, &x), &y));
+        assert!(
+            rmse(&predict(&m, &x), &y) < 0.4,
+            "svr rmse {}",
+            rmse(&predict(&m, &x), &y)
+        );
     }
 }

@@ -105,9 +105,9 @@ impl NodeData {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let embedding = val.get("embedding").and_then(|v| {
-                serde_json::from_value::<Vec<f32>>(v.clone()).ok()
-            });
+            let embedding = val
+                .get("embedding")
+                .and_then(|v| serde_json::from_value::<Vec<f32>>(v.clone()).ok());
             let lifecycle_str = val
                 .get("lifecycle_state")
                 .and_then(|v| v.as_str())
@@ -123,16 +123,13 @@ impl NodeData {
                 node_type,
                 embedding,
                 lifecycle_state,
-                created_at: val
-                    .get("created_at")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
-                updated_at: val
-                    .get("updated_at")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
+                created_at: val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0),
+                updated_at: val.get("updated_at").and_then(|v| v.as_u64()).unwrap_or(0),
                 metadata: json_str.to_string(),
-                confidence: val.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0),
+                confidence: val
+                    .get("confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0),
                 valid_from: val.get("valid_from").and_then(|v| v.as_u64()),
                 valid_until: val.get("valid_until").and_then(|v| v.as_u64()),
             }
@@ -242,7 +239,10 @@ impl EdgeData {
                 weight,
                 provenance,
                 metadata: json_str.to_string(),
-                confidence: val.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0),
+                confidence: val
+                    .get("confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0),
                 valid_from: val.get("valid_from").and_then(|v| v.as_u64()),
                 valid_until: val.get("valid_until").and_then(|v| v.as_u64()),
             }
@@ -259,10 +259,7 @@ impl EdgeData {
                     "relationship".to_string(),
                     serde_json::Value::String(self.relationship_type.clone()),
                 );
-                obj.insert(
-                    "weight".to_string(),
-                    serde_json::json!(self.weight),
-                );
+                obj.insert("weight".to_string(), serde_json::json!(self.weight));
                 obj.insert("confidence".to_string(), serde_json::json!(self.confidence));
                 if let Some(vf) = self.valid_from {
                     obj.insert("valid_from".to_string(), serde_json::json!(vf));

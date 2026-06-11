@@ -263,7 +263,18 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                     };
                 let owned: Vec<(String, Vec<u8>)> =
                     files.into_iter().map(|(p, b)| (p, b.into_vec())).collect();
-                let results = crate::parser::tree_sitter::parse_files(&owned);
+                // Parse on the blocking pool, NOT the async reactor: parse_files is
+                // CPU-bound (rayon tree-sitter over every file) and a large batch
+                // would otherwise stall the runtime thread, blocking unrelated
+                // requests until it finishes. (CONCEPT:KG-2.8 — work off-reactor, A4)
+                let results = match compute_off_lock(req.id, move || {
+                    crate::parser::tree_sitter::parse_files(&owned)
+                })
+                .await
+                {
+                    Ok(r) => r,
+                    Err(resp) => return resp,
+                };
                 match serde_json::to_value(&results) {
                     Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),

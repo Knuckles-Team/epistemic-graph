@@ -110,9 +110,7 @@ mod sf {
         ];
         if x < 0.5 {
             // reflection
-            std::f64::consts::PI.ln()
-                - (std::f64::consts::PI * x).sin().ln()
-                - ln_gamma(1.0 - x)
+            std::f64::consts::PI.ln() - (std::f64::consts::PI * x).sin().ln() - ln_gamma(1.0 - x)
         } else {
             let x = x - 1.0;
             let mut a = C[0];
@@ -321,8 +319,7 @@ pub fn avellaneda_stoikov(
     tau: f64,
 ) -> Quote {
     let reservation = mid - inventory * gamma * sigma * sigma * tau;
-    let half_spread =
-        gamma * sigma * sigma * tau + (2.0 / gamma) * (1.0 + gamma / kappa).ln();
+    let half_spread = gamma * sigma * sigma * tau + (2.0 / gamma) * (1.0 + gamma / kappa).ln();
     Quote {
         bid: reservation - half_spread,
         ask: reservation + half_spread,
@@ -334,14 +331,7 @@ pub fn avellaneda_stoikov(
 
 /// Guéant-Lehalle-Fernandez-Tapia (2013) closed form with asymmetric
 /// inventory-dependent skew. `a` is the fill-intensity scale A.
-pub fn glt_quotes(
-    mid: f64,
-    inventory: f64,
-    sigma: f64,
-    gamma: f64,
-    kappa: f64,
-    a: f64,
-) -> Quote {
+pub fn glt_quotes(mid: f64, inventory: f64, sigma: f64, gamma: f64, kappa: f64, a: f64) -> Quote {
     let base = (1.0 / gamma) * (1.0 + gamma / kappa).ln();
     let inv_term = ((sigma * sigma * gamma) / (2.0 * kappa * a)
         * (1.0 + gamma / kappa).powf(1.0 + kappa / gamma))
@@ -374,8 +364,7 @@ pub fn logit_space_quotes(
     let withdraw = boundary_m > 0.0 && inventory.abs() > cap;
     let x_mid = logit(p);
     let x_res = x_mid - inventory * gamma * sigma * sigma * tau;
-    let half_spread =
-        gamma * sigma * sigma * tau + (2.0 / gamma) * (1.0 + gamma / kappa).ln();
+    let half_spread = gamma * sigma * sigma * tau + (2.0 / gamma) * (1.0 + gamma / kappa).ln();
     Quote {
         bid: sigmoid(x_res - half_spread),
         ask: sigmoid(x_res + half_spread),
@@ -1288,10 +1277,7 @@ pub fn convergence_gate(
     min_agree: usize,
 ) -> ConvergenceGate {
     let total = strengths.len();
-    let up = strengths
-        .iter()
-        .filter(|s| **s >= strong_threshold)
-        .count();
+    let up = strengths.iter().filter(|s| **s >= strong_threshold).count();
     let down = strengths
         .iter()
         .filter(|s| **s <= -strong_threshold)
@@ -1441,7 +1427,9 @@ mod tests {
     #[test]
     fn test_hawkes_mle_recovers_excitation() {
         // synthetic clustered times; just assert it fits within stationarity
-        let times: Vec<f64> = (0..50).map(|i| i as f64 * 0.3 + (i % 3) as f64 * 0.05).collect();
+        let times: Vec<f64> = (0..50)
+            .map(|i| i as f64 * 0.3 + (i % 3) as f64 * 0.05)
+            .collect();
         let fit = hawkes_mle(&times, 20.0, 200);
         assert!(fit.mu > 0.0);
         assert!(fit.branching_ratio >= 0.0 && fit.branching_ratio < 1.0);
@@ -1487,7 +1475,9 @@ mod tests {
 
     #[test]
     fn test_deflated_sharpe_and_pbo() {
-        let rets: Vec<f64> = (0..100).map(|i| 0.01 + 0.001 * ((i % 7) as f64 - 3.0)).collect();
+        let rets: Vec<f64> = (0..100)
+            .map(|i| 0.01 + 0.001 * ((i % 7) as f64 - 3.0))
+            .collect();
         let dsr = deflated_sharpe_ratio(1.5, 10, &rets);
         assert!((0.0..=1.0).contains(&dsr));
         // IS-best always OOS-best ⇒ PBO = 0
@@ -1516,7 +1506,12 @@ mod tests {
     #[test]
     fn test_queue_imbalance() {
         // balanced queue ⇒ skew ≈ 0
-        let q = queue_imbalance(&[100.0, 50.0], &[100.0, 150.0], &[10.0, 10.0], &[10.0, 10.0]);
+        let q = queue_imbalance(
+            &[100.0, 50.0],
+            &[100.0, 150.0],
+            &[10.0, 10.0],
+            &[10.0, 10.0],
+        );
         assert!(q.skew[0].abs() < 1e-9);
         // ask queue heavier ⇒ positive skew (bid fills faster)
         assert!(q.skew[1] > 0.0);
@@ -1598,7 +1593,9 @@ mod tests {
         let stable: Vec<f64> = (0..200).map(|_| 0.02).collect();
         let f_stable = empirical_kelly(0.6, 1.0, &stable, 500, 42);
         // same bet but noisy edge ⇒ smaller fraction
-        let noisy: Vec<f64> = (0..200).map(|i| 0.02 + 0.2 * ((i % 5) as f64 - 2.0)).collect();
+        let noisy: Vec<f64> = (0..200)
+            .map(|i| 0.02 + 0.2 * ((i % 5) as f64 - 2.0))
+            .collect();
         let f_noisy = empirical_kelly(0.6, 1.0, &noisy, 500, 42);
         assert!(f_stable > 0.0);
         assert!(f_noisy <= f_stable, "stable={} noisy={}", f_stable, f_noisy);
