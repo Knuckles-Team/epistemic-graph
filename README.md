@@ -87,7 +87,7 @@ The `epistemic-graph` crate is the **singular computation engine** for the agent
 - **Property Chain Composition**: Multi-hop rule chaining
 
 ### AST Parser
-- **Multi-Language**: Python, Rust, TypeScript, JavaScript, Go (via tree-sitter)
+- **Multi-Language**: 9 languages via tree-sitter — Python, Rust, TypeScript, JavaScript, Go, Java, C, C++, C# (`src/parser/tree_sitter.rs::lang_for_path`)
 - **Full Granularity**: Functions, classes, methods, imports stored as `Symbol` nodes
 - **Repository Ingestion**: Directory walker with automatic graph population
 
@@ -175,6 +175,90 @@ print("Inferred:", result["inferred_count"], "triples")
 
 ---
 
+## Security: Authentication & Tenant Isolation
+
+- **Auth is mandatory.** Every request carries an `HMAC-SHA256(secret, request_id)`
+  token. The server **refuses to start with an empty secret** — set
+  `GRAPH_SERVICE_AUTH_SECRET` (or `--auth-secret`). To intentionally run
+  unauthenticated (development only) pass `--allow-insecure` or set
+  `EPISTEMIC_GRAPH_ALLOW_INSECURE=1`; the server then starts with a prominent
+  `SECURITY:` warning naming the bind addresses.
+- **ACLs are enforced in dispatch.** Once any identity is registered
+  (`client.consensus.register_identity`), every graph-targeted operation is
+  checked by the isolation layer (`src/isolation.rs`): peer agent graphs are
+  denied, managers reach subordinate graphs, team graphs are member-read /
+  manager-write, `global:` graphs are read-only, and `__bus__` stays open to
+  all authenticated agents. Callers identify themselves with the optional
+  `agent_id` field (`EpistemicGraphClient.connect(..., agent_id="worker1")`).
+  With **zero registered identities nothing is checked** — single-tenant
+  deployments are unchanged. Violations return `ACCESS_DENIED: ...` errors.
+- **TCP has no TLS.** The optional TCP listener is plaintext; keep it on
+  loopback or behind a TLS-terminating proxy / WireGuard / SSH tunnel.
+
+See [docs/service_mode.md](docs/service_mode.md) for the full protocol,
+policy table, and examples.
+
+---
+
+## Engine Internals
+
+Capabilities living in the binary beyond the headline features:
+
+- **HNSW semantic store** (`src/compute/semantic.rs`) — per-graph embedding
+  store with an `hnsw_rs` approximate-nearest-neighbor index for O(log n)
+  cosine search, falling back to brute force below 32 embeddings. Served over
+  the protocol as `AddEmbedding` / `SemanticSearch`; search results are
+  re-weighted by temporal confidence decay (Ebbinghaus) before ranking.
+- **Kafka event bus** (`src/event_bus.rs`, opt-in feature `kafka`) — a
+  background consumer that subscribes to `kg.mutations` (brokers from
+  `KAFKA_BOOTSTRAP_SERVERS`) and dispatches `ApplyMutation` requests into the
+  registry, letting external producers stream graph mutations without holding
+  a socket connection. Excluded from the default wheel because `rdkafka`
+  doesn't build on every wheel target; build with `--features kafka` or `full`.
+- **Parser symbol metadata** (`src/parser/tree_sitter.rs`) — beyond raw
+  symbols, each parse extracts per-symbol metadata (name, kind, line,
+  docstring, argument list) plus import edges, and stamps every symbol with a
+  stable language label so the graph can answer per-language queries
+  ("all Java symbols") and compute per-language metrics.
+- **Spectral clustering** (`src/compute/spectral.rs`) — a normalized-Laplacian
+  spectral cluster navigator. **Source-only today:** the module is not
+  compiled into the crate (excluded from `compute/mod.rs`) and the
+  `SpectralCluster` protocol method returns a deprecation error pointing at
+  the `datascience` primitives (`kmeans`/`pca`).
+- **Hypergraph interaction encoding** (`src/compute/hypergraph.rs`) — a seeded
+  2-layer MLP positional-interaction encoder with an encoder cache, used to
+  embed (position, position) interactions into fixed-width vectors. Compiled,
+  but its `HypergraphEncodeInteraction` protocol method is deprecated in favor
+  of the `datascience` primitives.
+- **Execution orchestrator** (`src/execution/orchestrator.rs`) — scaffold for
+  executing compiled task graphs (topological scheduling of `TaskGraphSpec`).
+  **Not wired into the crate** (no `execution` module in `lib.rs`); orchestration
+  currently lives in agent-utilities, which compiles task graphs client-side.
+
+---
+
+## Scaling & HA Reality
+
+What the architecture does and does not give you (measured numbers in
+[docs/benchmarks.md](docs/benchmarks.md)):
+
+- **Sharding is client-side.** Shards are independent server processes, one
+  graph universe each; the Python `ShardRouter` (`epistemic_graph/pool.py`)
+  picks a shard per graph name with rendezvous/HRW hashing over
+  `GRAPH_SERVICE_ENDPOINTS`. There is no server-side coordination, rebalancing,
+  or cross-shard query.
+- **No replication, no HA.** Each graph lives in exactly one process's memory.
+  If a shard dies, its graphs are unavailable until the process restarts and
+  reloads its last snapshot.
+- **RPO = checkpoint interval.** Durability is periodic snapshotting
+  (`--persist-dir`, default every 300 s) plus checkpoint-on-shutdown; a crash
+  loses writes since the last checkpoint. There is no WAL.
+- **The 100M-agent figure is a projection**, not a load test: it assumes
+  ~52 kB resident per agent (measured on bounded 40-node subgraphs), 64 GB RAM
+  per host, and linear shard scaling — arithmetic that yields ~78 hosts.
+
+---
+
 ## Development & Test
 
 ### Run Unit Tests
@@ -206,8 +290,11 @@ pre-commit run --all-files
 
 | Variable | Description |
 |----------|-------------|
-| `GRAPH_SERVICE_AUTH_SECRET` | HMAC-SHA256 secret for inter-process authentication |
+| `GRAPH_SERVICE_AUTH_SECRET` | HMAC-SHA256 secret for inter-process authentication (**required** — the server refuses to start without it unless the insecure opt-out is set) |
+| `EPISTEMIC_GRAPH_ALLOW_INSECURE` | `1`/`true`: explicit opt-out allowing an empty auth secret (development only; logs a prominent warning) |
 | `GRAPH_SERVICE_SOCKET` | Path to Unix Domain Socket for UDS communication |
+| `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints consumed by the Python `ShardRouter` |
+| `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess load is shed with `BUSY` |
 | `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
 ## License

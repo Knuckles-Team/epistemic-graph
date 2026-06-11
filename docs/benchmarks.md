@@ -77,6 +77,34 @@ a single box — bounded by RAM and validated to scale linearly per shard. Large
 sets scale the host count proportionally (e.g. 520 kB/agent → ~780 hosts). This is a
 *measured projection*, not a load test at 100M.
 
+## Scaling & HA reality
+
+Read the multi-shard numbers above with these architectural facts in mind:
+
+- **Sharding is client-side.** A "shard" is an independent
+  `epistemic-graph-server` process with its own UDS socket and its own graph
+  universe. The Python `ShardRouter` (`epistemic_graph/pool.py`) maps each
+  graph name to a shard with rendezvous/HRW hashing over
+  `GRAPH_SERVICE_ENDPOINTS`. The servers do not know about each other: there
+  is no server-side coordination, no rebalancing on membership change (HRW
+  remaps only the affected graphs, but nothing migrates their data), and no
+  cross-shard queries.
+- **No replication / no HA.** Each graph is held in exactly one process's
+  memory. A crashed shard means its graphs are unavailable until the process
+  restarts and reloads the last snapshot; there is no failover replica.
+- **RPO = checkpoint interval.** Durability is periodic RDB-style
+  snapshotting (`--persist-dir`, `--checkpoint-interval`, default 300 s) plus
+  checkpoint-on-shutdown. There is no write-ahead log, so a hard crash loses
+  all writes since the last completed checkpoint. Set the interval to your
+  tolerable data-loss window.
+- **What the 100M projection assumes.** The extrapolation above is
+  arithmetic, not a load test: it assumes (1) ~52 kB marginal RSS per agent —
+  measured on *bounded 40-node subgraphs*, so larger working sets scale the
+  host count proportionally; (2) a 64 GB per-host RAM budget; (3) throughput
+  continues to scale linearly with shard count as measured at 1→4 shards;
+  (4) a fleet of ~78 independent hosts with client-side routing — with the
+  availability and durability caveats above applying to every one of them.
+
 ## Notes
 
 - Numbers are for the hot in-memory CRUD path; analytic ops (clustering,
