@@ -11,11 +11,11 @@ use tokio::sync::RwLock;
 use tracing::{info, Level};
 
 use epistemic_graph::channels::ChannelManager;
+#[cfg(feature = "kafka")]
+use epistemic_graph::event_bus;
 use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{self, ServerState};
-#[cfg(feature = "kafka")]
-use epistemic_graph::event_bus;
 
 #[derive(Parser, Debug)]
 #[command(name = "epistemic-graph-server")]
@@ -161,8 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cp_state = state.clone();
         let interval = args.checkpoint_interval;
         tokio::spawn(async move {
-            let mut ticker =
-                tokio::time::interval(std::time::Duration::from_secs(interval));
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
             ticker.tick().await; // consume the immediate first tick
             loop {
                 ticker.tick().await;
@@ -182,8 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let floor = args.decay_floor;
         let prune = args.decay_floor > 0.0;
         tokio::spawn(async move {
-            let mut ticker =
-                tokio::time::interval(std::time::Duration::from_secs(interval));
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
             ticker.tick().await; // consume the immediate first tick
             loop {
                 ticker.tick().await;
