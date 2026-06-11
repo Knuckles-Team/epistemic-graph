@@ -66,7 +66,10 @@ pub struct Request {
 // ── Method ──────────────────────────────────────────────────────────────
 
 /// All operations supported by the service.
+// `IntoStaticStr` (metrics builds) yields the variant name as the bounded
+// `op` label for request counters/histograms (CONCEPT:KG-2.51).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "metrics", derive(strum::IntoStaticStr))]
 #[serde(tag = "method", content = "params")]
 pub enum Method {
     // ── Node CRUD ────────────────────────────────────────────────────

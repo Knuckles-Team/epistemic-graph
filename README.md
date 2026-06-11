@@ -209,6 +209,22 @@ Capabilities living in the binary beyond the headline features:
   cosine search, falling back to brute force below 32 embeddings. Served over
   the protocol as `AddEmbedding` / `SemanticSearch`; search results are
   re-weighted by temporal confidence decay (Ebbinghaus) before ranking.
+- **Lock-free heavy compute** (CONCEPT:KG-2.51) — CPU-heavy read-only
+  operations (semantic search, PageRank, betweenness, community detection,
+  MST, similarity edges, VF2, lifecycle metrics) never run while holding the
+  per-graph lock: dispatch takes a cheap structural snapshot
+  (`GraphCore::topology_snapshot` / `analysis_snapshot`) under the read lock
+  and computes on the tokio blocking pool, so a large analytics request no
+  longer stalls writers on that graph. Single-pass O(V+E) ops stay under-lock
+  (a snapshot would cost as much as the computation).
+- **Prometheus metrics** (`src/metrics.rs`, cargo feature `metrics`, on by
+  default; CONCEPT:KG-2.51) — per-op request counters + latency histograms,
+  in-flight / admission-permit gauges, BUSY-rejection counter, per-graph op
+  counters and node/edge gauges (bounded label cardinality), checkpoint
+  duration/timestamp, and auth-failure / ACL-denial counters. Exposed by a
+  dependency-free HTTP listener on `--metrics-addr` /
+  `GRAPH_SERVICE_METRICS_ADDR` (disabled when unset; e.g. `127.0.0.1:9101`),
+  entirely separate from the MessagePack RPC transports.
 - **Kafka event bus** (`src/event_bus.rs`, opt-in feature `kafka`) — a
   background consumer that subscribes to `kg.mutations` (brokers from
   `KAFKA_BOOTSTRAP_SERVERS`) and dispatches `ApplyMutation` requests into the
@@ -295,6 +311,7 @@ pre-commit run --all-files
 | `GRAPH_SERVICE_SOCKET` | Path to Unix Domain Socket for UDS communication |
 | `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints consumed by the Python `ShardRouter` |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess load is shed with `BUSY` |
+| `GRAPH_SERVICE_METRICS_ADDR` | Prometheus `/metrics` HTTP listener address (e.g. `127.0.0.1:9101`). Disabled when unset |
 | `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
 ## License
