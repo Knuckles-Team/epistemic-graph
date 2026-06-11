@@ -46,9 +46,12 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// Serialize every registered graph to the configured persist dir.
 ///
 /// Returns the number of graphs written. No-op (Ok(0)) when no persist dir is
-/// configured. The global state lock is released before serializing — only the
-/// per-graph read lock is held during each graph's snapshot — so checkpoints do
-/// not block concurrent reads/writes to other graphs.
+/// configured. The global state lock is released before serializing, and for each
+/// graph the per-graph read lock is held ONLY long enough to clone an owned
+/// `GraphSnapshot` (a memcpy) — the slow MessagePack encode then runs OFF the lock.
+/// Previously the read lock was held through the whole encode, which on a 450MB
+/// graph blocks every concurrent writer for ~10s each checkpoint (the periodic
+/// ingest "freeze"). (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
 pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let start = std::time::Instant::now();
     let (dir, entries) = {
@@ -70,10 +73,14 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
     let mut manifest = serde_json::Map::new();
     let mut count = 0usize;
     for (name, gtype, core) in entries {
-        let bytes = {
+        // Brief lock: clone the serializable state, then release immediately.
+        let snapshot = {
             let g = core.read().await;
-            g.to_msgpack()?
+            g.snapshot()
         };
+        // Slow path (MessagePack encode of the cloned snapshot) runs OFF the lock,
+        // so concurrent writers to this graph are not blocked during the encode.
+        let bytes = snapshot.to_msgpack()?;
         let fname = sanitize(&name);
         let path = Path::new(&dir).join(format!("{fname}.mp"));
         atomic_write(&path, &bytes)?;

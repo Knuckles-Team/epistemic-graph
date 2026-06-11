@@ -64,10 +64,7 @@ pub fn signal_decay(signal: &[f64], half_life: f64) -> Vec<f64> {
 }
 
 /// Alpha combination — weighted linear combination of multiple alpha signals.
-pub fn combine_alphas(
-    signals: &[Vec<f64>],
-    weights: &[f64],
-) -> Vec<f64> {
+pub fn combine_alphas(signals: &[Vec<f64>], weights: &[f64]) -> Vec<f64> {
     if signals.is_empty() || weights.is_empty() {
         return vec![];
     }
@@ -87,9 +84,7 @@ pub fn combine_alphas(
 
 /// Cross-sectional rank — rank values at each time step.
 /// Returns ranks as percentiles (0.0 to 1.0).
-pub fn cross_sectional_rank(
-    cross_section: &[Vec<f64>],
-) -> Vec<Vec<f64>> {
+pub fn cross_sectional_rank(cross_section: &[Vec<f64>]) -> Vec<Vec<f64>> {
     if cross_section.is_empty() {
         return vec![];
     }
@@ -99,7 +94,16 @@ pub fn cross_sectional_rank(
 
     for t in 0..n_times {
         let mut vals: Vec<(usize, f64)> = (0..n_assets)
-            .map(|a| (a, if t < cross_section[a].len() { cross_section[a][t] } else { f64::NAN }))
+            .map(|a| {
+                (
+                    a,
+                    if t < cross_section[a].len() {
+                        cross_section[a][t]
+                    } else {
+                        f64::NAN
+                    },
+                )
+            })
             .filter(|(_, v)| v.is_finite())
             .collect();
 
@@ -136,7 +140,10 @@ pub fn momentum(prices: &[f64], lookback: usize) -> Vec<f64> {
 pub fn mean_reversion(values: &[f64], window: usize) -> Vec<f64> {
     let zscore = rolling_zscore(values, window);
     // Negate: large positive z-score → sell signal (expect reversion)
-    zscore.iter().map(|z| if z.is_finite() { -z } else { f64::NAN }).collect()
+    zscore
+        .iter()
+        .map(|z| if z.is_finite() { -z } else { f64::NAN })
+        .collect()
 }
 
 /// Compute Information Coefficient (IC) — correlation between signal and forward returns.
@@ -147,7 +154,8 @@ pub fn information_coefficient(signal: &[f64], forward_returns: &[f64]) -> f64 {
     }
 
     // Filter out NaN pairs
-    let pairs: Vec<(f64, f64)> = signal.iter()
+    let pairs: Vec<(f64, f64)> = signal
+        .iter()
         .zip(forward_returns.iter())
         .filter(|(&s, &r)| s.is_finite() && r.is_finite())
         .map(|(&s, &r)| (s, r))

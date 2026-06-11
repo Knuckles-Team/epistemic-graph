@@ -132,10 +132,7 @@ pub fn kalman_volatility(
     if n == 0 {
         return vec![];
     }
-    let log_sq: Vec<f64> = returns
-        .iter()
-        .map(|x| (x * x).max(1e-12).ln())
-        .collect();
+    let log_sq: Vec<f64> = returns.iter().map(|x| (x * x).max(1e-12).ln()).collect();
     let seed = log_var0.unwrap_or_else(|| {
         let m = n.min(60);
         log_sq[..m].iter().sum::<f64>() / m as f64
@@ -467,7 +464,9 @@ mod tests {
     #[test]
     fn test_kalman_filter_1d_tracks_constant() {
         // noisy observations of a constant 5.0; filter should converge near 5
-        let obs: Vec<f64> = (0..100).map(|i| 5.0 + 0.01 * ((i % 5) as f64 - 2.0)).collect();
+        let obs: Vec<f64> = (0..100)
+            .map(|i| 5.0 + 0.01 * ((i % 5) as f64 - 2.0))
+            .collect();
         let out = kalman_filter_1d(&obs, 1.0, 1e-5, 1.0, 1e-2, 0.0, 1.0);
         assert!((out.states.last().unwrap() - 5.0).abs() < 0.1);
     }
@@ -476,9 +475,17 @@ mod tests {
     fn test_kalman_beta_recovers_known_beta() {
         // r_asset = 1.5 * r_market + small noise; filter should land near 1.5
         let rm: Vec<f64> = (0..300).map(|i| ((i as f64 * 0.1).sin()) * 0.01).collect();
-        let ra: Vec<f64> = rm.iter().enumerate().map(|(i, m)| 1.5 * m + 1e-5 * ((i % 3) as f64 - 1.0)).collect();
+        let ra: Vec<f64> = rm
+            .iter()
+            .enumerate()
+            .map(|(i, m)| 1.5 * m + 1e-5 * ((i % 3) as f64 - 1.0))
+            .collect();
         let out = kalman_beta(&rm, &ra, 1e-6, 1e-4, 1.0, 1.0);
-        assert!((out.states.last().unwrap() - 1.5).abs() < 0.2, "beta={}", out.states.last().unwrap());
+        assert!(
+            (out.states.last().unwrap() - 1.5).abs() < 0.2,
+            "beta={}",
+            out.states.last().unwrap()
+        );
     }
 
     #[test]
@@ -514,16 +521,33 @@ mod tests {
         let rw = adf_test(&y, 1);
         // stationary series rejects the unit root (very negative ADF stat); the
         // random walk does not — so the stationary stat is more negative.
-        assert!(stat.statistic < rw.statistic, "stat={} rw={}", stat.statistic, rw.statistic);
-        assert!(stat.stationary_5pct, "AR(0.2) should be stationary: {}", stat.statistic);
-        assert!(!rw.stationary_5pct, "random walk should NOT be stationary: {}", rw.statistic);
+        assert!(
+            stat.statistic < rw.statistic,
+            "stat={} rw={}",
+            stat.statistic,
+            rw.statistic
+        );
+        assert!(
+            stat.stationary_5pct,
+            "AR(0.2) should be stationary: {}",
+            stat.statistic
+        );
+        assert!(
+            !rw.stationary_5pct,
+            "random walk should NOT be stationary: {}",
+            rw.statistic
+        );
         // interpolated criticals are ordered 1% < 5% < 10% (more negative = stricter)
         assert!(stat.crit_1pct < stat.crit_5pct && stat.crit_5pct < stat.crit_10pct);
         // p-value is in [0,1] and the strongly-stationary series has the smaller p
         assert!((0.0..=1.0).contains(&stat.p_value_approx));
         assert!((0.0..=1.0).contains(&rw.p_value_approx));
-        assert!(stat.p_value_approx < rw.p_value_approx,
-            "stationary p {} should be < RW p {}", stat.p_value_approx, rw.p_value_approx);
+        assert!(
+            stat.p_value_approx < rw.p_value_approx,
+            "stationary p {} should be < RW p {}",
+            stat.p_value_approx,
+            rw.p_value_approx
+        );
     }
 
     #[test]
@@ -544,7 +568,13 @@ mod tests {
 
     #[test]
     fn test_ou_optimal_thresholds_band_brackets_mean() {
-        let p = OuParams { theta: 0.5, mu: 0.0, sigma: 0.1, half_life: 1.386, sigma_eq: 0.1 };
+        let p = OuParams {
+            theta: 0.5,
+            mu: 0.0,
+            sigma: 0.1,
+            half_life: 1.386,
+            sigma_eq: 0.1,
+        };
         let th = ou_optimal_thresholds(&p, 0.001);
         assert!(th.entry_long < th.exit && th.exit < th.entry_short);
         assert!(th.z > 0.0);
