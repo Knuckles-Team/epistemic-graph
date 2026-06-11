@@ -93,14 +93,23 @@ pub fn linear_regression(x: &[Vec<f64>], y: &[f64]) -> RegressionResult {
     let mut residuals = Vec::with_capacity(n);
 
     for i in 0..n {
-        let y_pred: f64 = intercept + coefficients.iter().zip(x[i].iter()).map(|(c, xi)| c * xi).sum::<f64>();
+        let y_pred: f64 = intercept
+            + coefficients
+                .iter()
+                .zip(x[i].iter())
+                .map(|(c, xi)| c * xi)
+                .sum::<f64>();
         let res = y[i] - y_pred;
         residuals.push(res);
         ss_res += res * res;
         ss_tot += (y[i] - y_mean) * (y[i] - y_mean);
     }
 
-    let r_squared = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
+    let r_squared = if ss_tot > 0.0 {
+        1.0 - ss_res / ss_tot
+    } else {
+        0.0
+    };
 
     RegressionResult {
         coefficients,
@@ -142,7 +151,8 @@ pub fn kmeans(data: &[Vec<f64>], k: usize, max_iter: usize) -> KMeansResult {
             let mut best_dist = f64::INFINITY;
             let mut best_label = 0;
             for (c_idx, centroid) in centroids.iter().enumerate() {
-                let dist: f64 = data[i].iter()
+                let dist: f64 = data[i]
+                    .iter()
                     .zip(centroid.iter())
                     .map(|(a, b)| (a - b).powi(2))
                     .sum();
@@ -187,7 +197,8 @@ pub fn kmeans(data: &[Vec<f64>], k: usize, max_iter: usize) -> KMeansResult {
     // Compute inertia
     let mut inertia = 0.0;
     for i in 0..n {
-        let dist: f64 = data[i].iter()
+        let dist: f64 = data[i]
+            .iter()
             .zip(centroids[labels[i]].iter())
             .map(|(a, b)| (a - b).powi(2))
             .sum();
@@ -225,7 +236,8 @@ pub fn pca(data: &[Vec<f64>], n_components: usize) -> PCAResult {
         .map(|d| data.iter().map(|row| row[d]).sum::<f64>() / n as f64)
         .collect();
 
-    let centered: Vec<Vec<f64>> = data.iter()
+    let centered: Vec<Vec<f64>> = data
+        .iter()
         .map(|row| row.iter().zip(means.iter()).map(|(x, m)| x - m).collect())
         .collect();
 
@@ -264,14 +276,23 @@ pub fn pca(data: &[Vec<f64>], n_components: usize) -> PCAResult {
     }
 
     let total_variance: f64 = eigenvalues.iter().sum();
-    let explained_variance_ratio: Vec<f64> = eigenvalues.iter()
-        .map(|&ev| if total_variance > 0.0 { ev / total_variance } else { 0.0 })
+    let explained_variance_ratio: Vec<f64> = eigenvalues
+        .iter()
+        .map(|&ev| {
+            if total_variance > 0.0 {
+                ev / total_variance
+            } else {
+                0.0
+            }
+        })
         .collect();
 
     // Transform data
-    let transformed: Vec<Vec<f64>> = centered.iter()
+    let transformed: Vec<Vec<f64>> = centered
+        .iter()
         .map(|row| {
-            components.iter()
+            components
+                .iter()
                 .map(|comp| row.iter().zip(comp.iter()).map(|(x, c)| x * c).sum::<f64>())
                 .collect()
         })
@@ -292,8 +313,13 @@ pub fn compute_stats(data: &[Vec<f64>]) -> DatasetStats {
 
     if n == 0 || dim == 0 {
         return DatasetStats {
-            means: vec![], stds: vec![], mins: vec![], maxs: vec![],
-            correlation_matrix: vec![], n_samples: 0, n_features: 0,
+            means: vec![],
+            stds: vec![],
+            mins: vec![],
+            maxs: vec![],
+            correlation_matrix: vec![],
+            n_samples: 0,
+            n_features: 0,
         };
     }
 
@@ -303,9 +329,11 @@ pub fn compute_stats(data: &[Vec<f64>]) -> DatasetStats {
 
     let stds: Vec<f64> = (0..dim)
         .map(|d| {
-            let var: f64 = data.iter()
+            let var: f64 = data
+                .iter()
                 .map(|row| (row[d] - means[d]).powi(2))
-                .sum::<f64>() / (n - 1).max(1) as f64;
+                .sum::<f64>()
+                / (n - 1).max(1) as f64;
             var.sqrt()
         })
         .collect();
@@ -315,7 +343,11 @@ pub fn compute_stats(data: &[Vec<f64>]) -> DatasetStats {
         .collect();
 
     let maxs: Vec<f64> = (0..dim)
-        .map(|d| data.iter().map(|row| row[d]).fold(f64::NEG_INFINITY, f64::max))
+        .map(|d| {
+            data.iter()
+                .map(|row| row[d])
+                .fold(f64::NEG_INFINITY, f64::max)
+        })
         .collect();
 
     // Correlation matrix
@@ -323,9 +355,11 @@ pub fn compute_stats(data: &[Vec<f64>]) -> DatasetStats {
     for i in 0..dim {
         for j in 0..dim {
             if stds[i] > 1e-12 && stds[j] > 1e-12 {
-                let cov: f64 = data.iter()
+                let cov: f64 = data
+                    .iter()
                     .map(|row| (row[i] - means[i]) * (row[j] - means[j]))
-                    .sum::<f64>() / (n - 1).max(1) as f64;
+                    .sum::<f64>()
+                    / (n - 1).max(1) as f64;
                 corr[i][j] = cov / (stds[i] * stds[j]);
             } else if i == j {
                 corr[i][j] = 1.0;
@@ -334,7 +368,10 @@ pub fn compute_stats(data: &[Vec<f64>]) -> DatasetStats {
     }
 
     DatasetStats {
-        means, stds, mins, maxs,
+        means,
+        stds,
+        mins,
+        maxs,
         correlation_matrix: corr,
         n_samples: n,
         n_features: dim,
@@ -383,7 +420,8 @@ pub fn train_test_split(
 /// Solve Ax = b using Gaussian elimination with partial pivoting.
 pub(crate) fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let n = a.len();
-    let mut aug: Vec<Vec<f64>> = a.iter()
+    let mut aug: Vec<Vec<f64>> = a
+        .iter()
         .enumerate()
         .map(|(i, row)| {
             let mut r = row.clone();
@@ -442,7 +480,13 @@ fn power_iteration(matrix: &[Vec<f64>], max_iter: usize) -> (f64, Vec<f64>) {
     for _ in 0..max_iter {
         // w = A * v
         let w: Vec<f64> = (0..n)
-            .map(|i| matrix[i].iter().zip(v.iter()).map(|(a, b)| a * b).sum::<f64>())
+            .map(|i| {
+                matrix[i]
+                    .iter()
+                    .zip(v.iter())
+                    .map(|(a, b)| a * b)
+                    .sum::<f64>()
+            })
             .collect();
 
         // Eigenvalue estimate = v^T * w
@@ -477,8 +521,12 @@ mod tests {
     #[test]
     fn test_kmeans() {
         let data = vec![
-            vec![1.0, 1.0], vec![1.1, 1.1], vec![0.9, 0.9],
-            vec![5.0, 5.0], vec![5.1, 5.1], vec![4.9, 4.9],
+            vec![1.0, 1.0],
+            vec![1.1, 1.1],
+            vec![0.9, 0.9],
+            vec![5.0, 5.0],
+            vec![5.1, 5.1],
+            vec![4.9, 4.9],
         ];
         let result = kmeans(&data, 2, 100);
         assert_eq!(result.labels.len(), 6);
@@ -491,7 +539,10 @@ mod tests {
     #[test]
     fn test_pca() {
         let data = vec![
-            vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0], vec![7.0, 8.0],
+            vec![1.0, 2.0],
+            vec![3.0, 4.0],
+            vec![5.0, 6.0],
+            vec![7.0, 8.0],
         ];
         let result = pca(&data, 1);
         assert_eq!(result.components.len(), 1);
@@ -512,8 +563,7 @@ mod tests {
         let data = vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0], vec![5.0]];
         let labels = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         // Deterministic (no shuffle) so the size assertions are unambiguous.
-        let (x_train, x_test, y_train, y_test) =
-            train_test_split(&data, &labels, 0.2, false, 0);
+        let (x_train, x_test, y_train, y_test) = train_test_split(&data, &labels, 0.2, false, 0);
         assert_eq!(x_train.len(), 4);
         assert_eq!(x_test.len(), 1);
         assert_eq!(y_train.len(), 4);

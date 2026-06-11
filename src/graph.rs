@@ -22,6 +22,35 @@ pub struct GraphCore {
     pub semantic_store: crate::compute::semantic::SemanticStore,
 }
 
+/// Owned, serializable persistent state of a graph — exactly what a snapshot file
+/// holds. Two roles (CONCEPT:KG-2.8):
+///
+/// * **Non-blocking checkpoint (A1):** producing it clones the node/edge/ledger/
+///   semantic data (a memcpy, fast relative to encoding), so `checkpoint_all` can
+///   take it under a BRIEF lock and serialize it OFF the lock — instead of holding
+///   the lock through the whole ~10s MessagePack encode of a 450MB graph, which
+///   froze every concurrent writer.
+/// * **Direct serialization (A3):** encoded straight via `rmp_serde`. Node/edge
+///   properties are ALREADY MessagePack byte blobs; the previous path round-tripped
+///   them through `serde_json::Value`, re-encoding every property byte as a JSON
+///   number — pure overhead and the dominant allocator in checkpoint flamegraphs.
+///   The on-disk shape (a map keyed `nodes`/`edges`/`ledger`/`semantic_store`) is
+///   unchanged, so `from_msgpack` reads both pre- and post-change snapshot files.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct GraphSnapshot {
+    pub nodes: Vec<(String, Vec<u8>)>,
+    pub edges: Vec<(String, String, Vec<u8>)>,
+    pub ledger: Vec<String>,
+    pub semantic_store: crate::compute::semantic::SemanticStore,
+}
+
+impl GraphSnapshot {
+    /// Serialize this snapshot to MessagePack (called OFF the graph lock).
+    pub fn to_msgpack(&self) -> Result<Vec<u8>, String> {
+        rmp_serde::to_vec_named(self).map_err(|e| e.to_string())
+    }
+}
+
 impl GraphCore {
     pub fn new() -> Self {
         GraphCore {
@@ -256,28 +285,25 @@ impl GraphCore {
 
     // ── Serialization ────────────────────────────────────────────────────
 
-    pub fn to_msgpack(&self) -> Result<Vec<u8>, String> {
-        let mut graph_map = HashMap::new();
-        let nodes = self.get_nodes();
-        let edges = self.get_edges();
-        graph_map.insert(
-            "nodes".to_string(),
-            serde_json::to_value(nodes).map_err(|e| e.to_string())?,
-        );
-        graph_map.insert(
-            "edges".to_string(),
-            serde_json::to_value(edges).map_err(|e| e.to_string())?,
-        );
-        graph_map.insert(
-            "ledger".to_string(),
-            serde_json::to_value(&self.ledger).map_err(|e| e.to_string())?,
-        );
-        graph_map.insert(
-            "semantic_store".to_string(),
-            serde_json::to_value(&self.semantic_store).map_err(|e| e.to_string())?,
-        );
+    /// Owned, serializable snapshot of this graph's persistent state. Cheap
+    /// relative to serialization (clones the node/edge/ledger/semantic data), so a
+    /// checkpoint takes it under a BRIEF lock and serializes OFF the lock.
+    /// (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
+    pub fn snapshot(&self) -> GraphSnapshot {
+        GraphSnapshot {
+            nodes: self.get_nodes(),
+            edges: self.get_edges(),
+            ledger: self.ledger.clone(),
+            semantic_store: self.semantic_store.clone(),
+        }
+    }
 
-        rmp_serde::to_vec_named(&graph_map).map_err(|e| e.to_string())
+    /// Serialize the whole graph to MessagePack. Now encodes the typed snapshot
+    /// directly (A3) instead of round-tripping every property byte through
+    /// `serde_json::Value`; the on-disk shape is unchanged so `from_msgpack` reads
+    /// pre- and post-change files alike.
+    pub fn to_msgpack(&self) -> Result<Vec<u8>, String> {
+        self.snapshot().to_msgpack()
     }
 
     pub fn clear(&mut self) {
@@ -1053,6 +1079,73 @@ mod tests {
         let stats = g.decay_sweep(now, 100.0, 0.0, false);
         assert_eq!(stats.nodes_decayed, 0);
         assert!((confidence_of(&g, "n1") - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn msgpack_roundtrip_preserves_nodes_edges_props() {
+        // A3: to_msgpack now encodes the typed snapshot directly. Round-trip must
+        // preserve node/edge property BYTES exactly (they are opaque msgpack blobs).
+        let mut g = GraphCore::new();
+        let p1 = props(serde_json::json!({"type": "Code", "language": "java", "n": 7}));
+        let p2 = props(serde_json::json!({"type": "Code", "language": "rust"}));
+        g.add_node("a".to_string(), p1.clone());
+        g.add_node("b".to_string(), p2.clone());
+        let _ = g.add_edge(
+            "a".to_string(),
+            "b".to_string(),
+            props(serde_json::json!({"type": "CALLS"})),
+        );
+        g.ledger.push("evt1".to_string());
+        let expected_ledger = g.ledger.clone(); // includes auto ADD_NODE/ADD_EDGE entries
+
+        let bytes = g.to_msgpack().unwrap();
+        let mut g2 = GraphCore::new();
+        g2.from_msgpack(&bytes).unwrap();
+
+        assert_eq!(g2.node_count(), 2);
+        assert_eq!(g2.get_node_properties("a"), Some(p1));
+        assert_eq!(g2.get_node_properties("b"), Some(p2));
+        assert_eq!(g2.get_edge_properties("a", "b").len(), 1);
+        assert_eq!(g2.ledger, expected_ledger);
+    }
+
+    #[test]
+    fn from_msgpack_reads_legacy_serde_json_value_format() {
+        // Backward compat: reproduce the PRE-A3 on-disk shape (values round-tripped
+        // through serde_json::Value before rmp encoding) and assert from_msgpack
+        // still loads it — so existing __bus__.mp snapshots keep loading.
+        let mut g = GraphCore::new();
+        let p = props(serde_json::json!({"type": "Code", "v": 42}));
+        g.add_node("a".to_string(), p.clone());
+        let _ = g.add_edge(
+            "a".to_string(),
+            "a".to_string(),
+            props(serde_json::json!({"type": "SELF"})),
+        );
+
+        let mut legacy = std::collections::HashMap::new();
+        legacy.insert(
+            "nodes".to_string(),
+            serde_json::to_value(g.get_nodes()).unwrap(),
+        );
+        legacy.insert(
+            "edges".to_string(),
+            serde_json::to_value(g.get_edges()).unwrap(),
+        );
+        legacy.insert(
+            "ledger".to_string(),
+            serde_json::to_value(&g.ledger).unwrap(),
+        );
+        legacy.insert(
+            "semantic_store".to_string(),
+            serde_json::to_value(&g.semantic_store).unwrap(),
+        );
+        let legacy_bytes = rmp_serde::to_vec_named(&legacy).unwrap();
+
+        let mut g2 = GraphCore::new();
+        g2.from_msgpack(&legacy_bytes).unwrap();
+        assert_eq!(g2.node_count(), 1);
+        assert_eq!(g2.get_node_properties("a"), Some(p));
     }
 
     #[test]

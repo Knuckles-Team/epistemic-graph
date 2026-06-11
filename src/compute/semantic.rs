@@ -4,8 +4,8 @@
 // O(log n) approximate nearest-neighbor search. Falls back to
 // brute-force cosine for small collections (< 32 embeddings).
 
-use hnsw_rs::prelude::DistCosine;
 use hnsw_rs::hnsw::Hnsw;
+use hnsw_rs::prelude::DistCosine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -102,8 +102,13 @@ impl SemanticStore {
         // Build a temporary HNSW index.
         // hnsw_rs uses DistCosine which returns (1 - cosine_similarity),
         // so we convert back to similarity.
-        let hnsw: Hnsw<f32, DistCosine> =
-            Hnsw::new(HNSW_MAX_NB_CONN, self.embeddings.len().max(1), HNSW_NB_LAYER, HNSW_EF_SEARCH, DistCosine);
+        let hnsw: Hnsw<f32, DistCosine> = Hnsw::new(
+            HNSW_MAX_NB_CONN,
+            self.embeddings.len().max(1),
+            HNSW_NB_LAYER,
+            HNSW_EF_SEARCH,
+            DistCosine,
+        );
 
         // Insert all embeddings in index order
         let ordered_data: Vec<(&Vec<f32>, usize)> = self

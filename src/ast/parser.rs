@@ -4,8 +4,8 @@
 // from Python, Rust, TypeScript, JavaScript, and Go source files.
 // Each extracted symbol is emitted to the graph mutation ledger.
 
-use tree_sitter::{Parser, Language, Node};
-use super::symbol::{Symbol, SymbolType, ParseResult};
+use super::symbol::{ParseResult, Symbol, SymbolType};
+use tree_sitter::{Language, Node, Parser};
 
 /// Supported languages for AST parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,11 +55,7 @@ impl SourceLanguage {
 }
 
 /// Parse a source file and extract all symbols.
-pub fn parse_file(
-    source_code: &str,
-    file_path: &str,
-    language: SourceLanguage,
-) -> ParseResult {
+pub fn parse_file(source_code: &str, file_path: &str, language: SourceLanguage) -> ParseResult {
     let mut parser = Parser::new();
     let ts_lang = language.tree_sitter_language();
     if parser.set_language(&ts_lang).is_err() {
@@ -74,13 +70,15 @@ pub fn parse_file(
 
     let tree = match parser.parse(source_code, None) {
         Some(t) => t,
-        None => return ParseResult {
-            file_path: file_path.to_string(),
-            language: language.name().to_string(),
-            symbols: vec![],
-            import_graph: vec![],
-            errors: vec!["Failed to parse source code".to_string()],
-        },
+        None => {
+            return ParseResult {
+                file_path: file_path.to_string(),
+                language: language.name().to_string(),
+                symbols: vec![],
+                import_graph: vec![],
+                errors: vec!["Failed to parse source code".to_string()],
+            }
+        }
     };
 
     let mut symbols = Vec::new();
@@ -120,18 +118,40 @@ fn extract_symbols(
     let kind = node.kind();
 
     match language {
-        SourceLanguage::Python => extract_python_symbol(node, source, file_path, kind, symbols, import_graph),
-        SourceLanguage::Rust => extract_rust_symbol(node, source, file_path, kind, symbols, import_graph),
-        SourceLanguage::TypeScript | SourceLanguage::JavaScript => {
-            extract_js_ts_symbol(node, source, file_path, kind, language, symbols, import_graph);
+        SourceLanguage::Python => {
+            extract_python_symbol(node, source, file_path, kind, symbols, import_graph)
         }
-        SourceLanguage::Go => extract_go_symbol(node, source, file_path, kind, symbols, import_graph),
+        SourceLanguage::Rust => {
+            extract_rust_symbol(node, source, file_path, kind, symbols, import_graph)
+        }
+        SourceLanguage::TypeScript | SourceLanguage::JavaScript => {
+            extract_js_ts_symbol(
+                node,
+                source,
+                file_path,
+                kind,
+                language,
+                symbols,
+                import_graph,
+            );
+        }
+        SourceLanguage::Go => {
+            extract_go_symbol(node, source, file_path, kind, symbols, import_graph)
+        }
     }
 
     // Recurse into children
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        extract_symbols(&child, source, file_path, language, symbols, import_graph, errors);
+        extract_symbols(
+            &child,
+            source,
+            file_path,
+            language,
+            symbols,
+            import_graph,
+            errors,
+        );
     }
 }
 
@@ -187,7 +207,11 @@ fn extract_python_symbol(
         symbols.push(Symbol {
             id,
             name: name.clone(),
-            qualified_name: format!("{}.{}", file_path.replace('/', ".").trim_end_matches(".py"), name),
+            qualified_name: format!(
+                "{}.{}",
+                file_path.replace('/', ".").trim_end_matches(".py"),
+                name
+            ),
             symbol_type,
             file_path: file_path.to_string(),
             line_start: node.start_position().row as u32 + 1,
@@ -235,7 +259,11 @@ fn extract_rust_symbol(
         symbols.push(Symbol {
             id,
             name: name.clone(),
-            qualified_name: format!("{}::{}", file_path.replace('/', "::").trim_end_matches(".rs"), name),
+            qualified_name: format!(
+                "{}::{}",
+                file_path.replace('/', "::").trim_end_matches(".rs"),
+                name
+            ),
             symbol_type,
             file_path: file_path.to_string(),
             line_start: node.start_position().row as u32 + 1,
@@ -356,7 +384,7 @@ fn node_text<'a>(node: &Node<'a>, source: &'a str) -> String {
 }
 
 fn compute_ast_hash(node: &Node, source: &str) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let text = &source[node.start_byte()..node.end_byte()];
     let hash = Sha256::digest(text.as_bytes());
     hex::encode(&hash[..16])

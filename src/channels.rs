@@ -186,7 +186,10 @@ impl ChannelManager {
             .get_mut(channel_id)
             .ok_or_else(|| format!("Channel '{}' not found", channel_id))?;
         if !channel.members.contains(sender) {
-            return Err(format!("Agent '{}' is not a member of channel '{}'", sender, channel_id));
+            return Err(format!(
+                "Agent '{}' is not a member of channel '{}'",
+                sender, channel_id
+            ));
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -201,13 +204,25 @@ impl ChannelManager {
     }
 
     /// Get messages from a channel.
-    pub fn get_messages(&self, channel_id: &str, limit: Option<usize>) -> Result<Vec<&ChannelMessage>, String> {
+    pub fn get_messages(
+        &self,
+        channel_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<&ChannelMessage>, String> {
         let channel = self
             .channels
             .get(channel_id)
             .ok_or_else(|| format!("Channel '{}' not found", channel_id))?;
         let msgs = match limit {
-            Some(n) => channel.messages.iter().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect(),
+            Some(n) => channel
+                .messages
+                .iter()
+                .rev()
+                .take(n)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect(),
             None => channel.messages.iter().collect(),
         };
         Ok(msgs)
@@ -308,7 +323,10 @@ mod tests {
             .unwrap();
         mgr.send_message("ch", "a", "msg1").unwrap();
 
-        let imprint = mgr.close_channel("ch", None, Some("test topic".into())).unwrap().unwrap();
+        let imprint = mgr
+            .close_channel("ch", None, Some("test topic".into()))
+            .unwrap()
+            .unwrap();
         assert_eq!(imprint.message_count, 1);
         assert_eq!(imprint.topic_metadata, Some("test topic".into()));
         assert!(mgr.list_channels().is_empty());
@@ -327,7 +345,8 @@ mod tests {
     #[test]
     fn test_drain_imprints() {
         let mut mgr = ChannelManager::new();
-        mgr.create_channel("ch", ChannelType::Group, "a", vec![]).unwrap();
+        mgr.create_channel("ch", ChannelType::Group, "a", vec![])
+            .unwrap();
         mgr.close_channel("ch", None, None).unwrap();
         let imprints = mgr.drain_imprints();
         assert_eq!(imprints.len(), 1);
