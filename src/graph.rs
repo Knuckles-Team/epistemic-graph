@@ -101,21 +101,11 @@ impl GraphCore {
     ) -> Result<(), String> {
         let source_idx = match self.node_map.get(&source_id) {
             Some(&idx) => idx,
-            None => {
-                return Err(format!(
-                    "Source node '{}' not found",
-                    source_id
-                ))
-            }
+            None => return Err(format!("Source node '{}' not found", source_id)),
         };
         let target_idx = match self.node_map.get(&target_id) {
             Some(&idx) => idx,
-            None => {
-                return Err(format!(
-                    "Target node '{}' not found",
-                    target_id
-                ))
-            }
+            None => return Err(format!("Target node '{}' not found", target_id)),
         };
 
         self.graph.add_edge(
@@ -127,7 +117,12 @@ impl GraphCore {
             .entry((source_id.clone(), target_id.clone()))
             .or_default()
             .push(properties_msgpack.clone());
-        let log = format!("ADD_EDGE|{}|{}|{}", source_id, target_id, hex::encode(&properties_msgpack));
+        let log = format!(
+            "ADD_EDGE|{}|{}|{}",
+            source_id,
+            target_id,
+            hex::encode(&properties_msgpack)
+        );
         self.ledger.push(log);
         if self.ledger.len() > 100_000 {
             self.ledger.drain(0..50_000);
@@ -185,9 +180,10 @@ impl GraphCore {
 
     /// In-degree count for a specific node.
     pub fn in_degree(&self, node_id: &str) -> Result<usize, String> {
-        let idx = self.node_map.get(node_id).ok_or_else(|| {
-            format!("Node '{}' not found", node_id)
-        })?;
+        let idx = self
+            .node_map
+            .get(node_id)
+            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
         Ok(self
             .graph
             .edges_directed(*idx, petgraph::Direction::Incoming)
@@ -196,9 +192,10 @@ impl GraphCore {
 
     /// Out-degree count for a specific node.
     pub fn out_degree(&self, node_id: &str) -> Result<usize, String> {
-        let idx = self.node_map.get(node_id).ok_or_else(|| {
-            format!("Node '{}' not found", node_id)
-        })?;
+        let idx = self
+            .node_map
+            .get(node_id)
+            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
         Ok(self
             .graph
             .edges_directed(*idx, petgraph::Direction::Outgoing)
@@ -209,9 +206,10 @@ impl GraphCore {
 
     /// Incoming neighbors (predecessors).
     pub fn get_predecessors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let idx = self.node_map.get(node_id).ok_or_else(|| {
-            format!("Node '{}' not found", node_id)
-        })?;
+        let idx = self
+            .node_map
+            .get(node_id)
+            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
         let preds: Vec<String> = self
             .graph
             .edges_directed(*idx, petgraph::Direction::Incoming)
@@ -222,9 +220,10 @@ impl GraphCore {
 
     /// Outgoing neighbors (successors).
     pub fn get_successors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let idx = self.node_map.get(node_id).ok_or_else(|| {
-            format!("Node '{}' not found", node_id)
-        })?;
+        let idx = self
+            .node_map
+            .get(node_id)
+            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
         let succs: Vec<String> = self
             .graph
             .edges_directed(*idx, petgraph::Direction::Outgoing)
@@ -235,14 +234,21 @@ impl GraphCore {
 
     /// All neighbors (both directions, deduplicated).
     pub fn get_neighbors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let idx = self.node_map.get(node_id).ok_or_else(|| {
-            format!("Node '{}' not found", node_id)
-        })?;
+        let idx = self
+            .node_map
+            .get(node_id)
+            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
         let mut neighbors = std::collections::HashSet::new();
-        for e in self.graph.edges_directed(*idx, petgraph::Direction::Incoming) {
+        for e in self
+            .graph
+            .edges_directed(*idx, petgraph::Direction::Incoming)
+        {
             neighbors.insert(self.graph[e.source()].clone());
         }
-        for e in self.graph.edges_directed(*idx, petgraph::Direction::Outgoing) {
+        for e in self
+            .graph
+            .edges_directed(*idx, petgraph::Direction::Outgoing)
+        {
             neighbors.insert(self.graph[e.target()].clone());
         }
         Ok(neighbors.into_iter().collect())
@@ -264,13 +270,11 @@ impl GraphCore {
         );
         graph_map.insert(
             "ledger".to_string(),
-            serde_json::to_value(&self.ledger)
-                .map_err(|e| e.to_string())?,
+            serde_json::to_value(&self.ledger).map_err(|e| e.to_string())?,
         );
         graph_map.insert(
             "semantic_store".to_string(),
-            serde_json::to_value(&self.semantic_store)
-                .map_err(|e| e.to_string())?,
+            serde_json::to_value(&self.semantic_store).map_err(|e| e.to_string())?,
         );
 
         rmp_serde::to_vec_named(&graph_map).map_err(|e| e.to_string())
@@ -297,8 +301,8 @@ impl GraphCore {
         self.ledger.clear();
 
         if let Some(nodes_val) = graph_map.get("nodes") {
-            let nodes: Vec<(String, Vec<u8>)> = serde_json::from_value(nodes_val.clone())
-                .map_err(|e| e.to_string())?;
+            let nodes: Vec<(String, Vec<u8>)> =
+                serde_json::from_value(nodes_val.clone()).map_err(|e| e.to_string())?;
             for (node_id, props) in nodes {
                 self.add_node(node_id, props);
             }
@@ -306,23 +310,21 @@ impl GraphCore {
 
         if let Some(edges_val) = graph_map.get("edges") {
             let edges: Vec<(String, String, Vec<u8>)> =
-                serde_json::from_value(edges_val.clone())
-                    .map_err(|e| e.to_string())?;
+                serde_json::from_value(edges_val.clone()).map_err(|e| e.to_string())?;
             for (src, tgt, props) in edges {
                 let _ = self.add_edge(src, tgt, props);
             }
         }
 
         if let Some(ledger_val) = graph_map.get("ledger") {
-            let ledger: Vec<String> = serde_json::from_value(ledger_val.clone())
-                .map_err(|e| e.to_string())?;
+            let ledger: Vec<String> =
+                serde_json::from_value(ledger_val.clone()).map_err(|e| e.to_string())?;
             self.ledger = ledger;
         }
 
         if let Some(store_val) = graph_map.get("semantic_store") {
             let store: crate::compute::semantic::SemanticStore =
-                serde_json::from_value(store_val.clone())
-                    .map_err(|e| e.to_string())?;
+                serde_json::from_value(store_val.clone()).map_err(|e| e.to_string())?;
             self.semantic_store = store;
         }
 
@@ -392,6 +394,42 @@ impl GraphCore {
         }
 
         sub
+    }
+
+    // ── Read-Only Compute Snapshots (CONCEPT:KG-2.51) ────────────────────
+    // CPU-heavy read-only algorithms must not run while holding the per-graph
+    // RwLock — they would starve every writer on that graph for the whole
+    // computation. These snapshots take a cheap O(V+E) structural memcpy under
+    // the read lock so the algorithm can run on the blocking pool with the
+    // lock already released. The ledger and embedding store are never copied —
+    // the graph algorithms do not read them.
+
+    /// Topology-only snapshot: petgraph structure + id↔index map. For
+    /// algorithms that read only the graph shape (PageRank, betweenness
+    /// centrality, community detection, graph coloring, …).
+    pub fn topology_snapshot(&self) -> GraphCore {
+        GraphCore {
+            graph: self.graph.clone(),
+            node_map: self.node_map.clone(),
+            node_properties: HashMap::new(),
+            edge_properties: HashMap::new(),
+            ledger: Vec::new(),
+            semantic_store: crate::compute::semantic::SemanticStore::new(),
+        }
+    }
+
+    /// Topology + property-blob snapshot (still no ledger / embedding store).
+    /// For algorithms that also read node/edge property blobs: MST edge
+    /// weights, VF2 matching, similarity edges, lifecycle metrics.
+    pub fn analysis_snapshot(&self) -> GraphCore {
+        GraphCore {
+            graph: self.graph.clone(),
+            node_map: self.node_map.clone(),
+            node_properties: self.node_properties.clone(),
+            edge_properties: self.edge_properties.clone(),
+            ledger: Vec::new(),
+            semantic_store: crate::compute::semantic::SemanticStore::new(),
+        }
     }
 
     // ── Graph Forking ────────────────────────────────────────────────────
@@ -481,10 +519,7 @@ impl GraphCore {
     pub fn parse_repository(&mut self, root_path: &str) -> Result<(), String> {
         let root = std::path::Path::new(root_path);
         if !root.exists() {
-            return Err(format!(
-                "Path '{}' does not exist",
-                root_path
-            ));
+            return Err(format!("Path '{}' does not exist", root_path));
         }
         let mut files = Vec::new();
         walk_dir_recursive(root, &mut files);
@@ -616,11 +651,8 @@ impl GraphCore {
 
         // Collect node IDs to evict — nodes with the lowest NodeIndex values
         // were inserted earliest, so they approximate LRU.
-        let mut indexed: Vec<(String, NodeIndex)> = self
-            .node_map
-            .iter()
-            .map(|(k, &v)| (k.clone(), v))
-            .collect();
+        let mut indexed: Vec<(String, NodeIndex)> =
+            self.node_map.iter().map(|(k, &v)| (k.clone(), v)).collect();
         indexed.sort_by_key(|(_, idx)| *idx);
 
         let evict_ids: Vec<String> = indexed
@@ -759,7 +791,10 @@ fn apply_decay(
     now: u64,
     default_half_life: f64,
 ) -> (f64, bool) {
-    let confidence = obj.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let confidence = obj
+        .get("confidence")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0);
     let last_access = obj
         .get("last_access")
         .and_then(|v| v.as_u64())
@@ -797,8 +832,14 @@ pub fn walk_dir_recursive(dir: &std::path::Path, files: &mut Vec<std::path::Path
                 }
             } else {
                 let ext = path.extension().unwrap_or_default().to_string_lossy();
-                if ext == "py" || ext == "js" || ext == "ts" || ext == "rs"
-                    || ext == "go" || ext == "tsx" || ext == "jsx" || ext == "mjs"
+                if ext == "py"
+                    || ext == "js"
+                    || ext == "ts"
+                    || ext == "rs"
+                    || ext == "go"
+                    || ext == "tsx"
+                    || ext == "jsx"
+                    || ext == "mjs"
                 {
                     files.push(path);
                 }
