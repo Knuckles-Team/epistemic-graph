@@ -26,7 +26,13 @@ const MANIFEST: &str = "manifest.json";
 /// Map a logical graph name (which may contain `:` / `/`) to a safe filename.
 fn sanitize(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -44,6 +50,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// per-graph read lock is held during each graph's snapshot — so checkpoints do
 /// not block concurrent reads/writes to other graphs.
 pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+    let start = std::time::Instant::now();
     let (dir, entries) = {
         let s = state.read().await;
         let dir = match &s.persist_dir {
@@ -78,6 +85,7 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
     }
     let manifest_bytes = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
     atomic_write(&Path::new(&dir).join(MANIFEST), &manifest_bytes)?;
+    crate::metrics::checkpoint_completed(start.elapsed().as_secs_f64());
     info!("Checkpoint wrote {} graphs to {}", count, dir);
     Ok(count)
 }
@@ -96,7 +104,11 @@ pub async fn decay_all(
 ) -> crate::types::DecayStats {
     let entries: Vec<Arc<RwLock<GraphCore>>> = {
         let s = state.read().await;
-        s.registry.all_entries().iter().map(|e| e.core.clone()).collect()
+        s.registry
+            .all_entries()
+            .iter()
+            .map(|e| e.core.clone())
+            .collect()
     };
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

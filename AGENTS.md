@@ -5,7 +5,7 @@
 
 > **Project Name**: `epistemic-graph`
 > **Ecosystem Prefix**: `EG` / `EPG`
-> **Key Concepts**: `CONCEPT:KG-2.16` (High-Performance Graph Compute Engine), `CONCEPT:KG-2.19` (Tokio Service Layer), `CONCEPT:KG-2.20` (Rust-Native Finance), `CONCEPT:KG-2.22` (Data Science Primitives), `CONCEPT:KG-2.23` (Rust-Accelerated Reasoning)
+> **Key Concepts**: `CONCEPT:KG-2.16` (High-Performance Graph Compute Engine), `CONCEPT:KG-2.19` (Tokio Service Layer), `CONCEPT:KG-2.20` (Rust-Native Finance), `CONCEPT:KG-2.22` (Data Science Primitives), `CONCEPT:KG-2.23` (Rust-Accelerated Reasoning), `CONCEPT:KG-2.51` (Lock-Free Compute + Engine Observability)
 
 ---
 
@@ -148,11 +148,12 @@ round-trip), never a per-row loop. See `docs/RUST_COMPUTE_GUIDE.md`.
 
 ```toml
 [features]
-default     = []
+default     = ["graph", "algorithms", "metrics"]
 ast         = [ ... ]          # Multi-language tree-sitter AST parser
 finance     = []               # Pure-Rust quant finance engine
 datascience = []               # Pure-Rust ML primitives
 reasoning   = []               # OWL/Datalog inference
+metrics     = [ ... ]          # Prometheus observability (/metrics listener); on by default
 compute     = ["finance", "datascience", "reasoning"]
 server      = ["tokio/full", "hmac", ... ]   # Tokio UDS/TCP service (build with this)
 full        = ["compute", "server", "ast"]
@@ -172,6 +173,10 @@ src/
 │                    #   global in-flight Semaphore -> BUSY (EPISTEMIC_GRAPH_MAX_INFLIGHT), Health/Shutdown/Ping
 ├── protocol.rs      # Length-prefixed MessagePack: Request/Response/Method + ResultPayload enum
 ├── graph.rs         # GraphCore: petgraph-backed graph with ledger
+│                    #   + topology_snapshot/analysis_snapshot (KG-2.51: heavy read-only
+│                    #     compute runs on the blocking pool, never under the graph lock)
+├── metrics.rs       # KG-2.51: Prometheus metrics + /metrics HTTP listener
+│                    #   (--metrics-addr / GRAPH_SERVICE_METRICS_ADDR; feature `metrics`)
 ├── algorithms.rs    # PageRank, centrality, BFS/DFS, components, MST
 ├── finance/         # optimizer.rs (incl. black_litterman via nalgebra), risk.rs, regime.rs, signals.rs, exchange.rs
 ├── datascience/     # primitives.rs (OLS, K-means, PCA)
@@ -201,6 +206,7 @@ docs/benchmarks.md   # measured p50/p99 latency
 | `GRAPH_SERVICE_SOCKET` | Path to the UDS socket |
 | `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints for the Python `ShardRouter` |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess → `BUSY` |
+| `GRAPH_SERVICE_METRICS_ADDR` | Prometheus `/metrics` HTTP listener address (alias of `--metrics-addr`, e.g. `127.0.0.1:9101`). Disabled when unset; requires the `metrics` cargo feature (on by default) |
 | `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
 ---

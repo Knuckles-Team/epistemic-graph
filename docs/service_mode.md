@@ -59,6 +59,35 @@ epistemic-graph-service graphs list
 | `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | None | Checkpoint directory |
 | `--checkpoint-interval` | — | `300` | Auto-checkpoint interval (seconds) |
 | `--persist-on-shutdown` | — | `true` | Serialize on SIGTERM |
+| `--metrics-addr` | `GRAPH_SERVICE_METRICS_ADDR` | None (disabled) | Prometheus `/metrics` HTTP listener (e.g. `127.0.0.1:9101`) |
+
+## Prometheus metrics
+
+With the `metrics` cargo feature (on by default) and `--metrics-addr` /
+`GRAPH_SERVICE_METRICS_ADDR` set, the server exposes Prometheus text-format
+metrics over a minimal HTTP listener (`src/metrics.rs`, CONCEPT:KG-2.51). The
+listener is completely separate from the MessagePack RPC transports, serves
+the full registry on any path, and stays disabled unless an address is
+configured — so multiple shards never collide on a default port. Recommended
+bind: `127.0.0.1:9101` (one port per shard).
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `epistemic_graph_requests_total` | counter | `op` | Requests dispatched, per protocol operation |
+| `epistemic_graph_request_duration_seconds` | histogram | `op` | Dispatch latency (100 µs – 30 s buckets) |
+| `epistemic_graph_in_flight_requests` | gauge | — | Requests currently holding an admission permit |
+| `epistemic_graph_inflight_permits_available` | gauge | — | Admission-semaphore permits remaining. Admission is try-acquire — nothing queues; excess is shed as `BUSY` (so there is no "waiting" series) |
+| `epistemic_graph_busy_rejections_total` | counter | — | Requests shed with `BUSY` |
+| `epistemic_graph_graph_ops_total` | counter | `graph` | Graph-targeted ops admitted past the ACL |
+| `epistemic_graph_graph_nodes` / `_edges` | gauge | `graph` | Per-graph size, refreshed on mutation (O(1) counts) |
+| `epistemic_graph_checkpoint_duration_seconds` | histogram | — | Full-registry checkpoint wall time |
+| `epistemic_graph_checkpoint_last_success_timestamp_seconds` | gauge | — | Unix time of the last successful checkpoint |
+| `epistemic_graph_auth_failures_total` | counter | — | HMAC authentication rejections |
+| `epistemic_graph_access_denied_total` | counter | — | Isolation-ACL denials |
+
+The `graph` label is capped at 128 distinct names; graphs beyond the cap
+aggregate under `__overflow__` (deleting a graph frees its slot), so an
+unbounded tenant namespace cannot explode time-series cardinality.
 
 ## Snapshot persistence
 
