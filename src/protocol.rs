@@ -450,6 +450,9 @@ pub enum Method {
         #[serde(default = "default_split_seed")]
         seed: u64,
     },
+    // These two variants embed `datascience` domain types, so they are gated with
+    // the feature — a slim server without `datascience` simply doesn't know them.
+    #[cfg(feature = "datascience")]
     DsFitEstimator {
         estimator: String,
         x: Vec<Vec<f64>>,
@@ -457,6 +460,7 @@ pub enum Method {
         #[serde(default)]
         params: crate::datascience::estimators::EstimatorParams,
     },
+    #[cfg(feature = "datascience")]
     DsPredictEstimator {
         model: crate::datascience::estimators::FittedModel,
         x: Vec<Vec<f64>>,
@@ -617,6 +621,8 @@ pub enum Method {
         prices_b: Vec<f64>,
         lookback: usize,
     },
+    // Embeds a `finance` domain type → gated with the feature.
+    #[cfg(feature = "finance")]
     FinanceMatchOrders {
         orders: Vec<crate::finance::exchange::Order>,
     },
@@ -738,6 +744,8 @@ pub enum Method {
     },
 
     // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────────
+    // Embeds `finance` domain types → gated with the feature.
+    #[cfg(feature = "finance")]
     FinanceForensicReport {
         this_year: crate::finance::forensic::YearData,
         prior_year: crate::finance::forensic::YearData,

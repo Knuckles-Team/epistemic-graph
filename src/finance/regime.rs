@@ -292,15 +292,9 @@ mod tests {
     #[test]
     fn test_regime_detection_two_states() {
         // Generate synthetic two-regime data
-        let mut obs = Vec::new();
-        // Bull regime
-        for _ in 0..50 {
-            obs.push(0.01);
-        }
-        // Bear regime
-        for _ in 0..50 {
-            obs.push(-0.02);
-        }
+        // Bull regime (50 obs) then bear regime (50 obs).
+        let mut obs = vec![0.01; 50];
+        obs.extend(std::iter::repeat_n(-0.02, 50));
 
         let result = detect_regimes(&obs, 2, 100, 1e-6);
         assert_eq!(result.states.len(), 100);
