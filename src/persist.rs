@@ -37,10 +37,29 @@ pub(crate) fn sanitize(name: &str) -> String {
 }
 
 /// Atomically write `bytes` to `path` (temp file in the same dir + rename).
+///
+/// The tmp file's contents are `fsync`'d BEFORE the rename: a rename is only
+/// crash-safe if the data it will point at is already durable, otherwise a power
+/// loss can land a rename onto a zero-length/partial snapshot (silent corruption
+/// the atomicity was meant to prevent). The parent directory is `fsync`'d AFTER
+/// the rename so the directory entry change itself survives power loss too.
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    {
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(bytes).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        // Best-effort: not all filesystems require/allow a dir fsync; failures
+        // here don't undo the rename, so don't fail the checkpoint on them.
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    Ok(())
 }
 
 /// Serialize every registered graph to the configured persist dir.
@@ -54,31 +73,27 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// ingest "freeze"). (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
 pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let start = std::time::Instant::now();
-    let (dir, entries) = {
+    let (dir, wal_service, entries) = {
         let s = state.read().await;
         let dir = match &s.persist_dir {
             Some(d) => d.clone(),
             None => return Ok(0),
         };
-        let entries: Vec<(
-            String,
-            GraphType,
-            Arc<GraphCore>,
-            crate::registry::WalHandle,
-        )> = s
+        let wal_service = s.wal_service.clone();
+        let entries: Vec<(String, GraphType, Arc<GraphCore>)> = s
             .registry
             .all_entries()
             .iter()
-            .map(|e| (e.name.clone(), e.graph_type, e.core.clone(), e.wal.clone()))
+            .map(|e| (e.name.clone(), e.graph_type, e.core.clone()))
             .collect();
-        (dir, entries)
+        (dir, wal_service, entries)
     };
 
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut manifest = serde_json::Map::new();
     let mut count = 0usize;
     let mut skipped = 0usize;
-    for (name, gtype, core, wal) in entries {
+    for (name, gtype, core) in entries {
         let fname = sanitize(&name);
         let path = Path::new(&dir).join(format!("{fname}.mp"));
         // Incremental checkpointing (Phase C-C): atomically clear-and-test the dirty
@@ -98,8 +113,13 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         }
         // WAL position the snapshot will cover. Captured BEFORE the snapshot so the
         // truncation is loss-free: any op appended during this checkpoint lands at
-        // an offset ≥ this position and survives the prefix truncation. (Phase B2)
-        let wal_pos = wal.lock().as_ref().map(|w| w.position());
+        // an offset ≥ this position and survives the prefix truncation. The service
+        // processes Position in-order with appends, so it reflects exactly the ops
+        // enqueued before now. 0 ⇒ nothing logged ⇒ no truncation. (Phase B3)
+        let wal_pos = wal_service
+            .as_ref()
+            .map(|svc| svc.position(&fname))
+            .filter(|&p| p > 0);
         // snapshot() takes the topology read lock internally for a consistent
         // point-in-time copy, then releases it; the encode below runs off-lock.
         let snapshot = core.snapshot();
@@ -108,11 +128,9 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         let bytes = snapshot.to_msgpack()?;
         atomic_write(&path, &bytes)?;
         // Snapshot is durable on disk → drop the WAL prefix it superseded.
-        if let Some(pos) = wal_pos {
-            if let Some(w) = wal.lock().as_mut() {
-                if let Err(e) = w.truncate_prefix(pos) {
-                    tracing::warn!("WAL truncate failed for '{}': {}", name, e);
-                }
+        if let (Some(svc), Some(pos)) = (&wal_service, wal_pos) {
+            if let Err(e) = svc.truncate(&fname, pos) {
+                tracing::warn!("WAL truncate failed for '{}': {}", name, e);
             }
         }
         manifest.insert(
@@ -171,8 +189,51 @@ pub async fn decay_all(
 /// Returns the number of graphs loaded. No-op (Ok(0)) when no persist dir is
 /// configured. Loads each graph's snapshot (from the manifest) and replays its WAL
 /// tail on top. ALSO replays any orphan WAL — a graph mutated but crashed before
-/// its first checkpoint (so it has no manifest entry / snapshot), e.g. `__bus__`
+/// its first checkpoint (so it has no manifest entry / snapshot), e.g. `__commons__`
 /// after a hard kill — so the WAL is loss-free even with no prior checkpoint.
+/// One-time data migration: the shared commons graph was renamed `__bus__` →
+/// `__commons__`. Rewrite any on-disk legacy artifacts (snapshot, WAL, manifest
+/// entry incl. the old `"Bus"` graph_type) so an engine that persisted the old
+/// name loads cleanly under the new one — after which the old files are gone. This
+/// is the *persisted-state* exception to No-Legacy: a one-time read-old→write-new,
+/// not a permanent dual-name reader.
+fn migrate_legacy_commons(dir: &str) {
+    let base = Path::new(dir);
+    let mut migrated = false;
+    for (old, new) in [
+        ("__bus__.mp", "__commons__.mp"),
+        ("__bus__.wal", "__commons__.wal"),
+    ] {
+        let (old_p, new_p) = (base.join(old), base.join(new));
+        if old_p.exists() && !new_p.exists() && std::fs::rename(&old_p, &new_p).is_ok() {
+            migrated = true;
+        }
+    }
+    let manifest_path = base.join(MANIFEST);
+    if let Ok(bytes) = std::fs::read(&manifest_path) {
+        if let Ok(mut m) =
+            serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&bytes)
+        {
+            if let Some(mut entry) = m.remove("__bus__") {
+                if let Some(obj) = entry.as_object_mut() {
+                    obj.insert("name".into(), serde_json::json!("__commons__"));
+                    if obj.get("graph_type").and_then(|v| v.as_str()) == Some("Bus") {
+                        obj.insert("graph_type".into(), serde_json::json!("Commons"));
+                    }
+                }
+                m.insert("__commons__".into(), entry);
+                if let Ok(out) = serde_json::to_vec(&m) {
+                    let _ = atomic_write(&manifest_path, &out);
+                }
+                migrated = true;
+            }
+        }
+    }
+    if migrated {
+        info!("Migrated legacy '__bus__' commons graph → '__commons__'");
+    }
+}
+
 pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let dir = {
         let s = state.read().await;
@@ -181,6 +242,9 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
             None => return Ok(0),
         }
     };
+    // One-time rename of the legacy `__bus__` commons graph to `__commons__` before
+    // anything is read, so the rest of load runs purely on the new name.
+    migrate_legacy_commons(&dir);
     let manifest_path = Path::new(&dir).join(MANIFEST);
     // Missing manifest is NOT an early return: a graph may have a WAL but no
     // snapshot yet (crashed before the first checkpoint). Fall through with an
@@ -239,8 +303,8 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
 
     // Orphan-WAL recovery (Phase B2): replay any `*.wal` whose graph had no snapshot
     // in the manifest — mutated but crashed before its first checkpoint. The graph
-    // name is the `.wal` file stem (exact for `__bus__` and tenant names without
-    // filename-sanitized characters); `__bus__` already exists in the registry, so
+    // name is the `.wal` file stem (exact for `__commons__` and tenant names without
+    // filename-sanitized characters); `__commons__` already exists in the registry, so
     // its WAL replays into the live core.
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for ent in rd.flatten() {

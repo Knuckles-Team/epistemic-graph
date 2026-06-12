@@ -187,7 +187,7 @@ print("Inferred:", result["inferred_count"], "triples")
   (`client.consensus.register_identity`), every graph-targeted operation is
   checked by the isolation layer (`src/isolation.rs`): peer agent graphs are
   denied, managers reach subordinate graphs, team graphs are member-read /
-  manager-write, `global:` graphs are read-only, and `__bus__` stays open to
+  manager-write, `global:` graphs are read-only, and `__commons__` stays open to
   all authenticated agents. Callers identify themselves with the optional
   `agent_id` field (`EpistemicGraphClient.connect(..., agent_id="worker1")`).
   With **zero registered identities nothing is checked** — single-tenant
@@ -225,12 +225,6 @@ Capabilities living in the binary beyond the headline features:
   dependency-free HTTP listener on `--metrics-addr` /
   `GRAPH_SERVICE_METRICS_ADDR` (disabled when unset; e.g. `127.0.0.1:9101`),
   entirely separate from the MessagePack RPC transports.
-- **Kafka event bus** (`src/event_bus.rs`, opt-in feature `kafka`) — a
-  background consumer that subscribes to `kg.mutations` (brokers from
-  `KAFKA_BOOTSTRAP_SERVERS`) and dispatches `ApplyMutation` requests into the
-  registry, letting external producers stream graph mutations without holding
-  a socket connection. Excluded from the default wheel because `rdkafka`
-  doesn't build on every wheel target; build with `--features kafka` or `full`.
 - **Parser symbol metadata** (`src/parser/tree_sitter.rs`) — beyond raw
   symbols, each parse extracts per-symbol metadata (name, kind, line,
   docstring, argument list) plus import edges, and stamps every symbol with a

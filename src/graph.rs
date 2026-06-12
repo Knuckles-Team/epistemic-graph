@@ -1359,7 +1359,7 @@ mod tests {
     fn from_msgpack_reads_legacy_serde_json_value_format() {
         // Backward compat: reproduce the PRE-A3 on-disk shape (values round-tripped
         // through serde_json::Value before rmp encoding) and assert from_msgpack
-        // still loads it — so existing __bus__.mp snapshots keep loading.
+        // still loads it — so existing __commons__.mp snapshots keep loading.
         let g = GraphCore::new();
         let p = props(serde_json::json!({"type": "Code", "v": 42}));
         g.add_node("a".to_string(), p.clone());

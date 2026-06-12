@@ -17,12 +17,21 @@ use crate::protocol::{Method, Request, Response, ResultPayload};
 use crate::registry::GraphRegistry;
 
 /// Shared server state behind Arc<RwLock<>>.
+/// Upper bound on ids/edges accepted by a single batch read op. Oversize batches
+/// are rejected (not truncated) so a runaway request can't allocate a multi-GB
+/// response and OOM the shared process.
+pub const MAX_BATCH_IDS: usize = 100_000;
+
 pub struct ServerState {
     pub registry: GraphRegistry,
     pub isolation: IsolationLayer,
     pub channels: ChannelManager,
     pub auth_secret: String,
     pub persist_dir: Option<String>,
+    /// Off-reactor WAL writer (Phase B3). `Some` when a persist dir is configured.
+    /// Durable mutations enqueue their append here instead of doing blocking file
+    /// I/O on a Tokio worker; the writer thread group-commits fsyncs.
+    pub wal_service: Option<Arc<crate::wal_service::WalService>>,
     /// Global backpressure: caps concurrent in-flight requests across all
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
@@ -37,8 +46,8 @@ pub struct ServerState {
 }
 
 /// Compute the HMAC-SHA256 hex token for a request id. Shared by `verify_auth`
-/// and trusted in-process callers (Kafka event bus, tests) that dispatch
-/// requests without going through a socket client.
+/// and trusted in-process callers (tests) that dispatch requests without going
+/// through a socket client.
 pub fn compute_auth_token(secret: &str, request_id: u64) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
@@ -100,7 +109,7 @@ fn requires_write(method: &Method) -> bool {
 /// rules and everything is allowed (single-tenant deployments are unchanged).
 /// Once rules exist, `check_access` decides: peer agent graphs are denied,
 /// managers reach subordinate graphs, team graphs are member-read/manager-write,
-/// the `__bus__` stays open to all authenticated agents.
+/// the `__commons__` stays open to all authenticated agents.
 fn check_graph_access(
     isolation: &IsolationLayer,
     caller: Option<&str>,
@@ -583,15 +592,14 @@ async fn dispatch_graph_op(
     }
 
     let core = entry.core.clone();
-    // WAL (Phase B2): capture the per-graph log handle + persist dir under the
-    // registry lock so a durable mutation can be appended after it applies, with
-    // no extra locking. Only durable DATA mutations are logged, only when a
-    // persist dir is configured.
-    let wal_handle = entry.wal.clone();
-    let persist_dir = s.persist_dir.clone();
+    // WAL (Phase B3): clone the off-reactor writer handle under the registry lock
+    // so a durable mutation can enqueue its append after it applies, with no extra
+    // locking and no file I/O on this Tokio worker. Only durable DATA mutations are
+    // logged, and only when the WAL service is running (i.e. a persist dir is set).
+    let wal_service = s.wal_service.clone();
     drop(s); // Release registry lock before graph lock.
 
-    let wal_method = match (&persist_dir, crate::wal::is_durable_mutation(&method)) {
+    let wal_method = match (&wal_service, crate::wal::is_durable_mutation(&method)) {
         (Some(_), true) => Some(method.clone()),
         _ => None,
     };
@@ -636,6 +644,45 @@ async fn dispatch_graph_op(
                 None => ResultPayload::Json(serde_json::Value::Null),
             };
             Response::ok(req_id, val)
+        }
+        Method::GetNodePropertiesBatch { node_ids } => {
+            if node_ids.len() > MAX_BATCH_IDS {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "batch too large: {} ids (max {})",
+                        node_ids.len(),
+                        MAX_BATCH_IDS
+                    ),
+                );
+            }
+            let g = &*core;
+            // [id, properties_msgpack | nil] in input order — one round-trip for N
+            // nodes; nil preserves which ids were absent. serde_bytes keeps the
+            // property blobs as MessagePack `bin`, not int arrays.
+            let out: Vec<(String, Option<serde_bytes::ByteBuf>)> = node_ids
+                .into_iter()
+                .map(|id| {
+                    let props = g.get_node_properties(&id).map(serde_bytes::ByteBuf::from);
+                    (id, props)
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::raw(&out))
+        }
+        Method::HasNodesBatch { node_ids } => {
+            if node_ids.len() > MAX_BATCH_IDS {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "batch too large: {} ids (max {})",
+                        node_ids.len(),
+                        MAX_BATCH_IDS
+                    ),
+                );
+            }
+            let g = &*core;
+            let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
+            Response::ok(req_id, ResultPayload::raw(&out))
         }
         Method::NodeCount => {
             let g = &*core;
@@ -1535,6 +1582,32 @@ async fn dispatch_graph_op(
                 .collect();
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
         }
+        Method::GetEdgePropertiesBatch { edges } => {
+            if edges.len() > MAX_BATCH_IDS {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "batch too large: {} edges (max {})",
+                        edges.len(),
+                        MAX_BATCH_IDS
+                    ),
+                );
+            }
+            let g = &*core;
+            // One round-trip for N edges. Each entry is the list of property blobs
+            // for that (src, tgt) pair (a pair may have multiple edges), in input
+            // order; an empty inner list ⇒ no such edge.
+            let out: Vec<Vec<serde_bytes::ByteBuf>> = edges
+                .into_iter()
+                .map(|(src, tgt)| {
+                    g.get_edge_properties(&src, &tgt)
+                        .into_iter()
+                        .map(serde_bytes::ByteBuf::from)
+                        .collect()
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::raw(&out))
+        }
         Method::ClearGraph => {
             let g = &*core;
             g.clear();
@@ -2155,40 +2228,37 @@ async fn dispatch_graph_op(
         core.mark_dirty();
     }
 
-    // Append to the WAL after a SUCCESSFUL durable mutation (write-behind; pggraph
-    // is the durable system-of-record, this is the fast local crash-consistency
-    // layer that closes the between-checkpoint loss window). (CONCEPT:KG-2.8 / B2)
-    if let (Some(m), Some(dir)) = (wal_method, persist_dir.as_deref()) {
+    // Enqueue the WAL append after a SUCCESSFUL durable mutation (write-behind; the
+    // durable backend is the system-of-record, this is the fast local crash-
+    // consistency layer that closes the between-checkpoint loss window). The append
+    // is serialized here (cheap CPU) and handed to the off-reactor writer thread so
+    // no file I/O runs on this Tokio worker. (CONCEPT:KG-2.8 / Phase B3)
+    if let (Some(m), Some(svc)) = (wal_method, wal_service) {
         if response.error.is_none() {
-            append_wal(&wal_handle, dir, graph_name, &m);
+            match rmp_serde::to_vec_named(&m) {
+                Ok(bytes) => svc.append(crate::persist::sanitize(graph_name), bytes),
+                Err(e) => tracing::warn!("WAL serialize failed for '{}': {}", graph_name, e),
+            }
         }
     }
     response
 }
 
-/// Lazily open (first call) and append one durable mutation to a graph's WAL.
-/// Best-effort: a WAL I/O error is logged but never fails the mutation (the data
-/// is already applied in memory + checkpointed; the WAL only narrows crash loss).
-fn append_wal(
-    wal: &crate::registry::WalHandle,
-    persist_dir: &str,
-    graph_name: &str,
-    method: &crate::protocol::Method,
-) {
-    let mut guard = wal.lock();
-    if guard.is_none() {
-        let fname = crate::persist::sanitize(graph_name);
-        match crate::wal::WalWriter::open(&crate::wal::wal_path(persist_dir, &fname)) {
-            Ok(w) => *guard = Some(w),
-            Err(e) => {
-                tracing::warn!("WAL open failed for graph '{}': {}", graph_name, e);
-                return;
-            }
-        }
-    }
-    if let Some(w) = guard.as_mut() {
-        if let Err(e) = w.append(method) {
-            tracing::warn!("WAL append failed for graph '{}': {}", graph_name, e);
+/// Serialize a response to a length-prefixable frame. On the (essentially
+/// impossible) event that encoding fails, emit a VALID error frame rather than an
+/// empty one — a 0-length frame would be read by the client as a zero-byte
+/// response and desync the stream. Replaces a previous `unwrap_or_default()` that
+/// silently produced exactly that empty frame.
+fn encode_response(resp: &Response) -> Vec<u8> {
+    match rmp_serde::to_vec_named(resp) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("response encode failed (id={}): {}", resp.id, e);
+            rmp_serde::to_vec_named(&Response::err(
+                resp.id,
+                "internal: response serialization failed",
+            ))
+            .unwrap_or_default()
         }
     }
 }
@@ -2226,7 +2296,7 @@ where
             Ok(r) => r,
             Err(e) => {
                 let resp = Response::err(0, format!("Invalid request MsgPack: {}", e));
-                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out = encode_response(&resp);
                 let out_len = out.len() as u32;
                 let _ = stream.write_all(&out_len.to_be_bytes()).await;
                 let _ = stream.write_all(&out).await;
@@ -2242,7 +2312,7 @@ where
             Err(_) => {
                 crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
-                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out = encode_response(&resp);
                 let out_len = out.len() as u32;
                 if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
                     break;
@@ -2267,7 +2337,7 @@ where
                 drop(_permit);
                 crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: graph at capacity, retry with backoff");
-                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out = encode_response(&resp);
                 let out_len = out.len() as u32;
                 if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
                     break;
@@ -2284,7 +2354,7 @@ where
         drop(_permit);
         crate::metrics::connection_request_finished(sem.available_permits());
 
-        let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+        let out = encode_response(&resp);
         let out_len = out.len() as u32;
         if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
             break;
@@ -2360,6 +2430,7 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
+            wal_service: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
@@ -2437,7 +2508,7 @@ mod tests {
     #[tokio::test]
     async fn test_bad_auth_token_rejected() {
         let state = test_state();
-        let mut req = request(1, "__bus__", None, Method::Ping);
+        let mut req = request(1, "__commons__", None, Method::Ping);
         req.auth_token = "bogus".to_string();
         let resp = dispatch(&state, req).await;
         assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
@@ -2455,23 +2526,222 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string_lossy().to_string()),
+            wal_service: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
         }));
 
-        // __bus__ starts dirty → the first checkpoint writes exactly it.
+        // __commons__ starts dirty → the first checkpoint writes exactly it.
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
         // Nothing changed → the next checkpoint writes nothing (all clean/skipped).
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
 
         // A successful write through dispatch marks the graph dirty (no isolation
         // rules registered → back-compat permits the write).
-        assert_ok(&dispatch(&state, request(1, "__bus__", None, add_node("x"))).await);
+        assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn wal_service_logs_dispatch_then_checkpoint_truncates() {
+        // Phase B3 end-to-end: a durable mutation dispatched through the server is
+        // appended to the WAL by the OFF-REACTOR writer (no file I/O on this task),
+        // replays into a fresh graph, and a checkpoint truncates the WAL prefix it
+        // supersedes.
+        let dir = std::env::temp_dir().join(format!("eg-b3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_s = dir.to_string_lossy().to_string();
+        let svc = crate::wal_service::WalService::spawn(
+            dir_s.clone(),
+            crate::wal_service::FsyncPolicy::Each,
+            64,
+        );
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: Some(dir_s.clone()),
+            wal_service: Some(svc.clone()),
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
+        }));
+
+        assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
+        // position() is processed in-order AFTER the append by the single writer
+        // thread, so a non-zero result proves the off-reactor append landed.
+        assert!(
+            svc.position("__commons__") > 0,
+            "dispatch should have logged to WAL"
+        );
+        assert_eq!(svc.dropped(), 0);
+
+        // The WAL alone recovers the mutation into a fresh graph.
+        let fresh = crate::graph::GraphCore::new();
+        let replayed = crate::wal::replay(&fresh, &crate::wal::wal_path(&dir_s, "__commons__"));
+        assert_eq!(replayed, 1);
+        assert!(fresh.get_node_properties("x").is_some());
+
+        // Checkpoint writes the snapshot and truncates the WAL prefix it covers.
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        assert_eq!(
+            svc.position("__commons__"),
+            0,
+            "WAL truncated after checkpoint"
+        );
+        assert!(std::path::Path::new(&dir_s).join("__commons__.mp").exists());
+
+        svc.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn legacy_bus_snapshot_migrates_to_commons() {
+        // C3: an engine that persisted the old `__bus__` commons graph must load it
+        // under the new `__commons__` name via the one-time on-disk migration.
+        let dir = std::env::temp_dir().join(format!("eg-busmig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_s = dir.to_string_lossy().to_string();
+
+        // Forge a legacy snapshot: a `__bus__.mp` + a manifest naming it `__bus__`
+        // with the old `"Bus"` graph_type.
+        let legacy = crate::graph::GraphCore::new();
+        legacy.add_node(
+            "legacy_node".into(),
+            rmp_serde::to_vec_named(&serde_json::json!({"type": "Code"})).unwrap(),
+        );
+        let bytes = legacy.snapshot().to_msgpack().unwrap();
+        std::fs::write(dir.join("__bus__.mp"), &bytes).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            br#"{"__bus__":{"name":"__bus__","graph_type":"Bus"}}"#,
+        )
+        .unwrap();
+
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: Some(dir_s.clone()),
+            wal_service: None,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
+        }));
+
+        crate::persist::load_all(&state).await.unwrap();
+
+        // The legacy data now lives under __commons__; the old files are gone.
+        let resp = dispatch(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                Method::HasNode {
+                    node_id: "legacy_node".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(resp.result, Some(ResultPayload::Bool(true))),
+            "legacy node must be present under __commons__: {:?}",
+            resp.error
+        );
+        assert!(
+            !dir.join("__bus__.mp").exists(),
+            "legacy snapshot renamed away"
+        );
+        assert!(
+            dir.join("__commons__.mp").exists(),
+            "migrated snapshot present"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn batch_node_reads_collapse_round_trips() {
+        // A2: GetNodePropertiesBatch / HasNodesBatch fetch N nodes in one request.
+        let state = test_state();
+        for (id, k) in [("a", 1), ("b", 2)] {
+            let m = Method::AddNode {
+                node_id: id.into(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({ "k": k }))
+                    .unwrap(),
+            };
+            assert_ok(&dispatch(&state, request(1, "__commons__", None, m)).await);
+        }
+
+        let resp = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::GetNodePropertiesBatch {
+                    node_ids: vec!["a".into(), "missing".into(), "b".into()],
+                },
+            ),
+        )
+        .await;
+        let raw = match resp.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?} (err={:?})", resp.error),
+        };
+        let rows: Vec<(String, Option<serde_bytes::ByteBuf>)> =
+            rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].0, "a");
+        assert!(rows[0].1.is_some(), "present node returns properties");
+        assert_eq!(rows[1].0, "missing");
+        assert!(rows[1].1.is_none(), "absent id returns nil");
+        let a_props: serde_json::Value =
+            rmp_serde::from_slice(rows[0].1.as_ref().unwrap()).unwrap();
+        assert_eq!(a_props["k"], 1);
+
+        let resp = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::HasNodesBatch {
+                    node_ids: vec!["a".into(), "missing".into()],
+                },
+            ),
+        )
+        .await;
+        let raw = match resp.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?}"),
+        };
+        let flags: Vec<bool> = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(flags, vec![true, false]);
+
+        // Oversize batches are rejected, not truncated (OOM guard).
+        let resp = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::GetNodePropertiesBatch {
+                    node_ids: vec!["x".to_string(); MAX_BATCH_IDS + 1],
+                },
+            ),
+        )
+        .await;
+        assert!(resp.error.is_some(), "oversize batch must be rejected");
     }
 
     #[tokio::test]
@@ -2501,6 +2771,7 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
+            wal_service: None,
             max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot
@@ -2657,7 +2928,7 @@ mod tests {
         for (id, agent) in [(1, Some("worker1")), (2, Some("worker2")), (3, None)] {
             let resp = dispatch(
                 &state,
-                request(id, "__bus__", agent, add_node(&format!("n{}", id))),
+                request(id, "__commons__", agent, add_node(&format!("n{}", id))),
             )
             .await;
             assert_ok(&resp);
@@ -2671,7 +2942,7 @@ mod tests {
             &state,
             request(
                 1,
-                "__bus__",
+                "__commons__",
                 Some("worker2"),
                 Method::CreateGraph {
                     graph_name: "agent:worker2".to_string(),
@@ -2709,9 +2980,9 @@ mod tests {
         let del = || Method::DeleteGraph {
             graph_name: "agent:worker1".to_string(),
         };
-        let resp = dispatch(&state, request(1, "__bus__", Some("worker2"), del())).await;
+        let resp = dispatch(&state, request(1, "__commons__", Some("worker2"), del())).await;
         assert_denied(&resp);
-        let resp = dispatch(&state, request(2, "__bus__", Some("worker1"), del())).await;
+        let resp = dispatch(&state, request(2, "__commons__", Some("worker1"), del())).await;
         assert_ok(&resp);
     }
 
@@ -2722,7 +2993,7 @@ mod tests {
             &state,
             request(
                 1,
-                "__bus__",
+                "__commons__",
                 Some("worker1"),
                 Method::CreateChannel {
                     channel_id: "channel:p2p:worker1:worker2".to_string(),
@@ -2738,7 +3009,7 @@ mod tests {
             &state,
             request(
                 2,
-                "__bus__",
+                "__commons__",
                 Some("worker2"),
                 Method::SendMessage {
                     channel_id: "channel:p2p:worker1:worker2".to_string(),

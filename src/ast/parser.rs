@@ -4,6 +4,12 @@
 // from Python, Rust, TypeScript, JavaScript, and Go source files.
 // Each extracted symbol is emitted to the graph mutation ledger.
 
+// `extract_symbols` threads an `errors` accumulator through the recursion for
+// per-node parse-error capture; the recursive arms don't write it today but the
+// seam is intentional. Explicit index loops are also clearer for the fixed-arity
+// child walks below.
+#![allow(clippy::only_used_in_recursion, clippy::needless_range_loop)]
+
 use super::symbol::{ParseResult, Symbol, SymbolType};
 use tree_sitter::{Language, Node, Parser};
 
@@ -32,6 +38,11 @@ impl SourceLanguage {
 
     /// Get the tree-sitter language for this source language.
     fn tree_sitter_language(&self) -> Language {
+        // SAFETY: each `tree_sitter_<lang>()` is a generated extern "C" fn that
+        // returns an owned `Language` handle by value with no preconditions; the
+        // grammar crates are ABI-pinned in Cargo.toml. This is the crate's only
+        // unsafe (enforced by #![deny(unsafe_code)] in lib.rs).
+        #[allow(unsafe_code)]
         unsafe {
             match self {
                 SourceLanguage::Python => tree_sitter_python(),
@@ -354,7 +365,7 @@ fn extract_go_symbol(
         let id = Symbol::generate_id(file_path, &name, node.start_position().row as u32 + 1);
 
         // Go: exported if first char is uppercase
-        let is_exported = name.chars().next().map_or(false, |c| c.is_uppercase());
+        let is_exported = name.chars().next().is_some_and(|c| c.is_uppercase());
 
         symbols.push(Symbol {
             id,
@@ -394,7 +405,9 @@ fn extract_python_docstring(node: &Node, source: &str) -> String {
     // Look for expression_statement > string as first child of body
     if let Some(body) = node.child_by_field_name("body") {
         let mut cursor = body.walk();
-        for child in body.children(&mut cursor) {
+        // Only the first statement of the body can be a docstring.
+        let first_child = body.children(&mut cursor).next();
+        if let Some(child) = first_child {
             if child.kind() == "expression_statement" {
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
@@ -404,7 +417,6 @@ fn extract_python_docstring(node: &Node, source: &str) -> String {
                     }
                 }
             }
-            break; // Only check first statement
         }
     }
     String::new()

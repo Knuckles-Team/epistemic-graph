@@ -29,13 +29,8 @@ ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep
 datascience = []
 reasoning = []
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
-# Opt-in Kafka event bus. rdkafka's bundled librdkafka does not build cleanly on
-# every wheel target (Windows MSVC ./configure; manylinux cmake curl include), so
-# it is kept OUT of the default/server wheel and enabled only where the event bus
-# is deployed (linux server: build with `--features kafka` or `full`).
-kafka = ["dep:rdkafka", "dep:tokio"]
 compute = ["finance", "ast", "datascience", "reasoning"]
-full = ["compute", "server", "kafka"]
+full = ["compute", "server"]
 all = ["full"]
 
 [dependencies]
@@ -55,12 +50,18 @@ nalgebra = { version = "0.32", features = ["serde"] }
 rand_chacha = "0.3"
 rand_distr = "0.4"
 
-# Optional Server
-tokio = { version = "1.38", features = ["full"], optional = true }
+# Optional Server. Explicit minimal feature set (not "full"): the binary uses an
+# explicitly-built multi-thread runtime + UDS/TCP listeners + sync primitives +
+# timers, and nothing from process/signal/fs. Tests pull dev-dependencies' "full"
+# tokio, so #[tokio::test]/duplex still work. Trims compile time + binary surface.
+tokio = { version = "1.38", features = [
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "sync",
+    "time",
+], optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
-# Only pulled in by the opt-in `kafka` feature (linux server deployments). The
-# default bundled ./configure build with minimal features works on linux/macOS.
-rdkafka = { version = "0.36.0", optional = true, default-features = false, features = ["tokio"] }
 tracing-subscriber = { version = "0.3", optional = true }
 
 # Optional Prometheus observability (feature `metrics`, on by default).

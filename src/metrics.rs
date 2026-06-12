@@ -106,6 +106,12 @@ mod imp {
             "epistemic_graph_busy_rejections_total",
             "Requests shed with BUSY because the admission semaphore was exhausted",
         );
+        static ref WAL_APPEND_DROPPED: IntCounter = counter(
+            "epistemic_graph_wal_append_dropped_total",
+            "Durable mutations whose WAL append was dropped because the off-reactor \
+             WAL writer channel was saturated (data is still in memory + checkpointed; \
+             the crash-recovery window widened — investigate disk/throughput)",
+        );
         static ref GRAPH_OPS: IntCounterVec = counter_vec(
             "epistemic_graph_graph_ops_total",
             "Graph-targeted operations admitted past the ACL, by graph (bounded cardinality)",
@@ -216,6 +222,10 @@ mod imp {
         ACCESS_DENIED.inc();
     }
 
+    pub fn wal_append_dropped() {
+        WAL_APPEND_DROPPED.inc();
+    }
+
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
         let encoder = TextEncoder::new();
@@ -244,6 +254,7 @@ mod imp {
     pub fn checkpoint_completed(_seconds: f64) {}
     pub fn auth_failure() {}
     pub fn access_denied() {}
+    pub fn wal_append_dropped() {}
     pub fn render() -> String {
         String::new()
     }
@@ -285,8 +296,16 @@ pub async fn serve(listener: tokio::net::TcpListener) {
 mod tests {
     use super::*;
 
+    // The Prometheus REGISTRY and the bounded graph-label cap (SEEN_GRAPHS) are
+    // process-global singletons. Tests that depend on the labelled-series set must
+    // not run concurrently with the cardinality test that saturates the 128-slot
+    // cap (which would aggregate their graph into `__overflow__` and drop the
+    // labelled needle). Serialize those tests on this lock.
+    static GLOBAL_LABEL_STATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_render_contains_recorded_series() {
+        let _guard = GLOBAL_LABEL_STATE.lock().unwrap_or_else(|e| e.into_inner());
         record_request("Ping", 0.0007);
         graph_op("agent:metrics-test");
         set_graph_size("agent:metrics-test", 3, 2);
@@ -314,6 +333,7 @@ mod tests {
 
     #[test]
     fn test_graph_label_cardinality_is_bounded() {
+        let _guard = GLOBAL_LABEL_STATE.lock().unwrap_or_else(|e| e.into_inner());
         // Saturate the label space, then confirm new names aggregate.
         for i in 0..200 {
             graph_op(&format!("agent:cardinality-{i}"));

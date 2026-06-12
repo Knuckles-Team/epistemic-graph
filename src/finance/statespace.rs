@@ -69,14 +69,14 @@ pub fn kalman_filter_1d(
     let (mut x, mut p) = (x0, p0);
     for t in 0..n {
         // predict
-        x = f * x;
+        x *= f;
         p = f * p * f + q;
         // update
         let y = observations[t] - h * x;
         let s = h * p * h + r;
         let k = if s.abs() > 1e-18 { p * h / s } else { 0.0 };
         x += k * y;
-        p = (1.0 - k * h) * p;
+        p *= 1.0 - k * h;
         states[t] = x;
         variances[t] = p;
     }
@@ -107,7 +107,7 @@ pub fn kalman_beta(
         let s = h * p * h + r;
         let k = if s.abs() > 1e-18 { p * h / s } else { 0.0 };
         beta += k * y;
-        p = (1.0 - k * h) * p;
+        p *= 1.0 - k * h;
         betas[t] = beta;
         variances[t] = p;
     }
@@ -145,7 +145,7 @@ pub fn kalman_volatility(
         let s = p + r;
         let k = if s.abs() > 1e-18 { p / s } else { 0.0 };
         log_var += k * y;
-        p = (1.0 - k) * p;
+        p *= 1.0 - k;
         out[t] = (log_var.exp() * annualization).sqrt();
     }
     out

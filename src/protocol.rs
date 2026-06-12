@@ -48,7 +48,7 @@ fn default_decay_half_life() -> f64 {
 pub struct Request {
     /// Monotonically increasing request ID for correlation.
     pub id: u64,
-    /// Target graph name (e.g., "agent:planner", "__bus__", "channel:p2p:a:b").
+    /// Target graph name (e.g., "agent:planner", "__commons__", "channel:p2p:a:b").
     pub graph: String,
     /// HMAC-SHA256 hex digest for authentication.
     pub auth_token: String,
@@ -88,6 +88,17 @@ pub enum Method {
     GetNodeProperties {
         node_id: String,
     },
+    /// Batch property read: fetch properties for many nodes in ONE round-trip
+    /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
+    /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the
+    /// caller learns which ids were missing. Bounded by `MAX_BATCH_IDS`.
+    GetNodePropertiesBatch {
+        node_ids: Vec<String>,
+    },
+    /// Batch existence check: `Raw` list of bools in input order.
+    HasNodesBatch {
+        node_ids: Vec<String>,
+    },
     NodeCount,
     NodeIds,
 
@@ -116,6 +127,11 @@ pub enum Method {
     GetEdgeProperties {
         source_id: String,
         target_id: String,
+    },
+    /// Batch edge property read: `Raw` list of `properties_msgpack | nil` in input
+    /// order (nil ⇒ no such edge). Bounded by `MAX_BATCH_IDS`.
+    GetEdgePropertiesBatch {
+        edges: Vec<(String, String)>,
     },
     EdgeCount,
 
@@ -871,7 +887,7 @@ pub enum GraphType {
     Agent,
     Team,
     Global,
-    Bus,
+    Commons,
 }
 
 /// Channel type for dynamic communication.
@@ -984,7 +1000,7 @@ mod tests {
     fn test_request_roundtrip_create_channel() {
         let req = Request {
             id: 42,
-            graph: "__bus__".to_string(),
+            graph: "__commons__".to_string(),
             auth_token: "tok".to_string(),
             agent_id: Some("agent:a".to_string()),
             method: Method::CreateChannel {
@@ -1026,7 +1042,7 @@ mod tests {
             GraphType::Agent,
             GraphType::Team,
             GraphType::Global,
-            GraphType::Bus,
+            GraphType::Commons,
         ] {
             let json = serde_json::to_string(&gt).unwrap();
             let parsed: GraphType = serde_json::from_str(&json).unwrap();
