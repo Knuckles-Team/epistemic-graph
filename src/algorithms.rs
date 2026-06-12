@@ -10,11 +10,10 @@ use std::time::{Duration, Instant};
 
 use crate::graph::{GraphCore, GraphView};
 
-/// Hard wall-clock budget for one [`community_detection`] call. Label
-/// propagation is already iteration-capped, but a very large or adversarial
-/// call graph can make each pass expensive; this deadline guarantees the call
-/// always returns a valid partition in bounded time instead of appearing to
-/// hang. (CONCEPT:KG-2.16)
+/// Hard wall-clock budget for one [`community_detection`] call. Louvain is
+/// pass- and level-capped, but a very large or adversarial graph can make each
+/// pass expensive; this deadline guarantees the call always returns a valid
+/// partition in bounded time instead of appearing to hang. (CONCEPT:KG-2.16)
 const COMMUNITY_DETECTION_BUDGET: Duration = Duration::from_secs(15);
 
 // ── Traversal Algorithms ─────────────────────────────────────────────────
