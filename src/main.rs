@@ -184,7 +184,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(1024);
-    info!("Backpressure: max in-flight requests = {}", max_in_flight);
+    // Per-graph fairness cap (Phase C-D): default to a quarter of the global pool
+    // so any one hot graph holds at most 25% of capacity and ~4 graphs can saturate
+    // the server, instead of a single tenant monopolizing all in-flight slots.
+    let per_graph_inflight_limit = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT_PER_GRAPH")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or_else(|| (max_in_flight / 4).max(1));
+    info!(
+        "Backpressure: max in-flight = {} (per-graph cap = {})",
+        max_in_flight, per_graph_inflight_limit
+    );
 
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
@@ -193,6 +204,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
+        per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
+        per_graph_inflight_limit,
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────

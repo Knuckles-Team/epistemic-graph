@@ -3,6 +3,7 @@
 // Long-running Tokio server that holds the GraphRegistry in memory
 // and serves requests over UDS or TCP with HMAC-SHA256 authentication.
 
+use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 #[cfg(unix)]
@@ -26,6 +27,13 @@ pub struct ServerState {
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
     pub max_in_flight: Arc<Semaphore>,
+    /// Per-graph backpressure (Phase C-D — multi-tenant fairness). A lazily
+    /// created semaphore per graph caps how many of the GLOBAL in-flight slots
+    /// any single graph may hold at once, so one hot tenant flooding requests
+    /// cannot starve every other tenant. Lock-free on the hot path.
+    pub per_graph_inflight: Arc<DashMap<String, Arc<Semaphore>>>,
+    /// Max concurrent in-flight requests any single graph may hold.
+    pub per_graph_inflight_limit: usize,
 }
 
 /// Compute the HMAC-SHA256 hex token for a request id. Shared by `verify_auth`
@@ -595,21 +603,21 @@ async fn dispatch_graph_op(
             node_id,
             properties_msgpack,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.add_node(node_id, properties_msgpack);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::RemoveNode { node_id } => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.remove_node(node_id);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::HasNode { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
         }
         Method::GetNodes => {
-            let g = core.read().await;
+            let g = &*core;
             let nodes: Vec<(String, serde_json::Value)> = g
                 .get_nodes()
                 .into_iter()
@@ -622,7 +630,7 @@ async fn dispatch_graph_op(
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
         Method::GetNodeProperties { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             let val = match g.get_node_properties(&node_id) {
                 Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
                 None => ResultPayload::Json(serde_json::Value::Null),
@@ -630,42 +638,38 @@ async fn dispatch_graph_op(
             Response::ok(req_id, val)
         }
         Method::NodeCount => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
         }
         Method::NodeIds => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
         }
         Method::AddEmbedding { node_id, embedding } => {
-            let mut g = core.write().await;
-            g.semantic_store.add_embedding(node_id, embedding);
+            core.semantic_store
+                .write()
+                .add_embedding(node_id, embedding);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::SemanticSearch {
             query_embedding,
             n_results,
         } => {
-            // CONCEPT:KG-2.51 — never run heavy compute under the graph lock.
-            // The ANN search (the HNSW path rebuilds its index per query) and
-            // the per-candidate Ebbinghaus decay scoring both run on the
-            // blocking pool; the read lock is held only to memcpy the
-            // embedding store, then briefly again to fetch the ~2·n candidate
-            // property blobs. A large search no longer stalls writers.
-            let store = { core.read().await.semantic_store.clone() };
-            // Fetch more results initially to account for filtered out nodes
-            let raw_results = match compute_off_lock(req_id, move || {
-                store.semantic_search(&query_embedding, n_results * 2)
-            })
-            .await
-            {
-                Ok(r) => r,
-                Err(resp) => return resp,
+            // CONCEPT:KG-2.51 / Phase C-D — the HNSW index is now maintained
+            // incrementally, so the ANN query is O(log n): hold the embedding read
+            // lock only for the query itself (no whole-store clone, no per-query
+            // index rebuild — at most a one-time lazy rebuild after load). The
+            // per-candidate Ebbinghaus decay scoring still runs off-lock below.
+            // Fetch more results initially to account for filtered-out nodes.
+            let raw_results = {
+                core.semantic_store
+                    .read()
+                    .semantic_search(&query_embedding, n_results * 2)
             };
 
             // Bounded candidate-metadata fetch: only the hit ids, not the graph.
             let candidates: Vec<(String, f32, Option<Vec<u8>>)> = {
-                let g = core.read().await;
+                let g = &*core;
                 raw_results
                     .into_iter()
                     .map(|(id, sim)| {
@@ -685,10 +689,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(weighted_results) => Response::ok(
-                    req_id,
-                    ResultPayload::Json(serde_json::json!(weighted_results)),
-                ),
+                Ok(weighted_results) => Response::ok(req_id, ResultPayload::raw(&weighted_results)),
                 Err(resp) => resp,
             }
         }
@@ -916,7 +917,7 @@ async fn dispatch_graph_op(
         }
         Method::FinanceDrawdownSeries { returns } => {
             let v = crate::finance::risk::drawdown_series(&returns);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceDownsideDeviation { returns, target } => {
             let v = crate::finance::risk::downside_deviation(&returns, target);
@@ -950,7 +951,7 @@ async fn dispatch_graph_op(
                 &cov_matrix,
                 &shock_factors,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Extended Finance: Regime detection (HMM) ──────────────────
@@ -968,31 +969,31 @@ async fn dispatch_graph_op(
         // ── Extended Finance: Signals / alpha ─────────────────────────
         Method::FinanceRollingZscore { values, window } => {
             let v = crate::finance::signals::rolling_zscore(&values, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceEwma { values, span } => {
             let v = crate::finance::signals::ewma_signal(&values, span);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceSignalDecay { signal, half_life } => {
             let v = crate::finance::signals::signal_decay(&signal, half_life);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceCombineAlphas { signals, weights } => {
             let v = crate::finance::signals::combine_alphas(&signals, &weights);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceCrossSectionalRank { cross_section } => {
             let v = crate::finance::signals::cross_sectional_rank(&cross_section);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMomentum { prices, lookback } => {
             let v = crate::finance::signals::momentum(&prices, lookback);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMeanReversion { values, window } => {
             let v = crate::finance::signals::mean_reversion(&values, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceInformationCoefficient {
             signal,
@@ -1015,7 +1016,7 @@ async fn dispatch_graph_op(
                 start_time,
                 interval_secs,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceVwap {
             total_quantity,
@@ -1029,7 +1030,7 @@ async fn dispatch_graph_op(
                 start_time,
                 interval_secs,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMarketImpact {
             daily_volatility,
@@ -1051,11 +1052,11 @@ async fn dispatch_graph_op(
             lookback,
         } => {
             let v = crate::finance::exchange::pairs_trading_signal(&prices_a, &prices_b, lookback);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMatchOrders { orders } => {
             let v = crate::finance::exchange::match_orders(&orders);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────
@@ -1069,7 +1070,7 @@ async fn dispatch_graph_op(
         } => {
             let v =
                 crate::finance::quant::avellaneda_stoikov(mid, inventory, sigma, gamma, kappa, tau);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceGltQuotes {
             mid,
@@ -1080,7 +1081,7 @@ async fn dispatch_graph_op(
             a,
         } => {
             let v = crate::finance::quant::glt_quotes(mid, inventory, sigma, gamma, kappa, a);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceLogitQuotes {
             p_mid,
@@ -1094,7 +1095,7 @@ async fn dispatch_graph_op(
             let v = crate::finance::quant::logit_space_quotes(
                 p_mid, inventory, sigma, gamma, kappa, tau, boundary_m,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceGlostenMilgromSpread { alpha, p } => {
             let v = crate::finance::quant::glosten_milgrom_spread(alpha, p);
@@ -1132,7 +1133,7 @@ async fn dispatch_graph_op(
                 &ask_sz,
                 window_secs,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMicropriceSeries {
             bid_px,
@@ -1141,7 +1142,7 @@ async fn dispatch_graph_op(
             ask_sz,
         } => {
             let v = crate::finance::quant::microprice_series(&bid_px, &bid_sz, &ask_px, &ask_sz);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceVpinPm {
             buy_vol,
@@ -1157,7 +1158,7 @@ async fn dispatch_graph_op(
             max_iter,
         } => {
             let v = crate::finance::quant::hawkes_mle(&times, t_horizon, max_iter);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceHardimanBouchaud {
             times,
@@ -1207,7 +1208,7 @@ async fn dispatch_graph_op(
                 purge_window,
                 embargo,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceDeflatedSharpe {
             observed_sr,
@@ -1228,7 +1229,7 @@ async fn dispatch_graph_op(
             h,
         } => {
             let v = crate::finance::quant::diebold_mariano(&losses_a, &losses_b, h);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────
@@ -1237,7 +1238,7 @@ async fn dispatch_graph_op(
             prior_year,
         } => {
             let v = crate::finance::forensic::forensic_report(&this_year, &prior_year);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────
@@ -1251,7 +1252,7 @@ async fn dispatch_graph_op(
             p0,
         } => {
             let v = crate::finance::statespace::kalman_filter_1d(&observations, f, q, h, r, x0, p0);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceKalmanBeta {
             market_returns,
@@ -1269,7 +1270,7 @@ async fn dispatch_graph_op(
                 beta0,
                 p0,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceKalmanVolatility {
             returns,
@@ -1287,15 +1288,15 @@ async fn dispatch_graph_op(
                 p0,
                 annualization,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceAdfTest { series, max_lag } => {
             let v = crate::finance::statespace::adf_test(&series, max_lag);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceOuCalibrate { spread, dt } => {
             let v = crate::finance::statespace::ou_calibrate(&spread, dt);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceOuOptimalThresholds {
             theta,
@@ -1316,17 +1317,17 @@ async fn dispatch_graph_op(
                 },
             };
             let v = crate::finance::statespace::ou_optimal_thresholds(&params, cost);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMarkovTransitionMatrix { states, n_states } => {
             let v = crate::finance::statespace::markov_transition_matrix(&states, n_states);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Signal Combination / Sizing / Calibration (CONCEPT:KG-2.20i) ──
         Method::FinanceOrderBookImbalance { v_bid, v_ask } => {
             let v = crate::finance::quant::order_book_imbalance(&v_bid, &v_ask);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceQueueImbalance {
             bid_q,
@@ -1335,11 +1336,11 @@ async fn dispatch_graph_op(
             ask_rate,
         } => {
             let v = crate::finance::quant::queue_imbalance(&bid_q, &ask_q, &bid_rate, &ask_rate);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceRealizedVolTick { mid, window } => {
             let v = crate::finance::quant::realized_vol_tick(&mid, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceSpreadReversion {
             bid_px,
@@ -1347,7 +1348,7 @@ async fn dispatch_graph_op(
             window,
         } => {
             let v = crate::finance::quant::spread_reversion(&bid_px, &ask_px, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceInformationRatio { ic, n_independent } => {
             let v = crate::finance::quant::information_ratio(ic, n_independent);
@@ -1362,7 +1363,7 @@ async fn dispatch_graph_op(
             lookback,
         } => {
             let v = crate::finance::quant::alpha_combination_engine(&returns_matrix, lookback);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceBrierScore {
             forecasts,
@@ -1378,7 +1379,7 @@ async fn dispatch_graph_op(
         } => {
             let v =
                 crate::finance::quant::convergence_gate(&strengths, strong_threshold, min_agree);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceEmpiricalKelly {
             p,
@@ -1420,7 +1421,7 @@ async fn dispatch_graph_op(
             nu,
         } => {
             let v = crate::finance::derivatives::sabr_smile(f, &strikes, t, alpha, beta, rho, nu);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceSabrCalibrate {
             f,
@@ -1430,7 +1431,7 @@ async fn dispatch_graph_op(
             beta,
         } => {
             let v = crate::finance::derivatives::sabr_calibrate(f, t, &strikes, &market_vols, beta);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FindSimilarPairs {
             embeddings: _,
@@ -1449,7 +1450,7 @@ async fn dispatch_graph_op(
             target_id,
             properties_msgpack,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.add_edge(source_id, target_id, properties_msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1459,7 +1460,7 @@ async fn dispatch_graph_op(
             source_id,
             target_id,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.remove_edge(source_id, target_id);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
@@ -1467,21 +1468,21 @@ async fn dispatch_graph_op(
             source_id,
             target_id,
         } => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(
                 req_id,
                 ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
             )
         }
         Method::GetEdges => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
         Method::GetEdgeProperties {
             source_id,
             target_id,
         } => {
-            let g = core.read().await;
+            let g = &*core;
             let props = g.get_edge_properties(&source_id, &target_id);
             let val: Vec<serde_json::Value> = props
                 .into_iter()
@@ -1490,27 +1491,27 @@ async fn dispatch_graph_op(
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
         }
         Method::ClearGraph => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.clear();
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::EdgeCount => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
         }
         // TopologicalSort / FindCycle / GetShortestPath / components / blast
-        // radius / degree centrality stay under the read lock intentionally
-        // (CONCEPT:KG-2.51): they are single-pass O(V+E), so a structural
-        // snapshot would cost as much as the computation itself.
+        // radius / degree centrality are single-pass O(V+E); they run on a cheap
+        // topology snapshot (Phase C-B: the read algorithms take an unlocked
+        // GraphView, so the structural copy replaces the held read lock).
         Method::TopologicalSort => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             match crate::algorithms::topological_sort(&g) {
-                Ok(order) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(order))),
+                Ok(order) => Response::ok(req_id, ResultPayload::raw(&order)),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::FindCycle => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
@@ -1520,7 +1521,7 @@ async fn dispatch_graph_op(
             source_id,
             target_id,
         } => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
@@ -1533,18 +1534,18 @@ async fn dispatch_graph_op(
             iterations,
         } => {
             // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::pagerank(&snap, damping, iterations)
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
         Method::ConnectedComponents => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::connected_components(
@@ -1553,7 +1554,7 @@ async fn dispatch_graph_op(
             )
         }
         Method::StronglyConnectedComponents => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(
@@ -1564,13 +1565,13 @@ async fn dispatch_graph_op(
         Method::MinimumSpanningTree => {
             // O(E log E) + per-edge JSON weight parsing — snapshot (incl. the
             // edge property blobs it reads), compute off-lock (KG-2.51).
-            let snap = { core.read().await.analysis_snapshot() };
+            let snap = { core.analysis_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::minimum_spanning_tree(&snap)
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1580,8 +1581,8 @@ async fn dispatch_graph_op(
             // ledger is not snapshotted; capture its length for the
             // total_mutations field before releasing the lock.
             let (snap, ledger_len) = {
-                let g = core.read().await;
-                (g.analysis_snapshot(), g.ledger.len() as u64)
+                let g = &*core;
+                (g.analysis_snapshot(), g.ledger.lock().len() as u64)
             };
             let m = match compute_off_lock(req_id, move || {
                 let mut m = crate::algorithms::compute_metrics(&snap);
@@ -1599,7 +1600,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::EvictLRU { max_nodes } => {
-            let mut g = core.write().await;
+            let g = &*core;
             let evicted = g.evict_lru(max_nodes);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
         }
@@ -1612,7 +1613,7 @@ async fn dispatch_graph_op(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let mut g = core.write().await;
+            let g = &*core;
             let stats = g.decay_sweep(now, half_life_secs, floor, prune);
             match serde_json::to_value(&stats) {
                 Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
@@ -1624,19 +1625,19 @@ async fn dispatch_graph_op(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let mut g = core.write().await;
+            let g = &*core;
             let touched = g.touch_nodes(&node_ids, now);
             Response::ok(req_id, ResultPayload::Count(touched as u64))
         }
         Method::ToMsgpack => {
-            let g = core.read().await;
+            let g = &*core;
             match g.to_msgpack() {
                 Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::FromMsgpack { msgpack } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.from_msgpack(&msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1646,14 +1647,14 @@ async fn dispatch_graph_op(
             graph_name: _,
             msgpack,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.from_msgpack(&msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("reconciled".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::ApplyMutation { event_type, query } => {
-            let mut g = core.write().await;
+            let g = &*core;
 
             // Very rudimentary parsing to apply SPARQL changes to petgraph
             // In a production system, a full SPARQL AST parser would be used here.
@@ -1713,11 +1714,11 @@ async fn dispatch_graph_op(
             range_rules,
             property_chains,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
 
             match crate::reasoning::run_datalog_reasoning(
-                &mut g,
+                g,
                 subclass_relations,
                 subproperty_relations,
                 symmetric_properties,
@@ -1730,17 +1731,14 @@ async fn dispatch_graph_op(
 
             if !domain_rules.is_empty() || !range_rules.is_empty() {
                 all_inferred.extend(crate::reasoning::infer_domain_range(
-                    &mut g,
+                    g,
                     domain_rules,
                     range_rules,
                 ));
             }
 
             if !property_chains.is_empty() {
-                all_inferred.extend(crate::reasoning::infer_property_chains(
-                    &mut g,
-                    property_chains,
-                ));
+                all_inferred.extend(crate::reasoning::infer_property_chains(g, property_chains));
             }
 
             Response::ok(
@@ -1752,42 +1750,42 @@ async fn dispatch_graph_op(
             )
         }
         Method::InDegree { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.in_degree(&node_id) {
                 Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::OutDegree { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.out_degree(&node_id) {
                 Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetPredecessors { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.get_predecessors(&node_id) {
                 Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetSuccessors { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.get_successors(&node_id) {
                 Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetNeighbors { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.get_neighbors(&node_id) {
                 Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetBlastRadius { node_id, max_depth } => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
@@ -1796,14 +1794,14 @@ async fn dispatch_graph_op(
             )
         }
         Method::DegreeCentrality { node_id } => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             match crate::algorithms::compute_degree_centrality(&g, &node_id) {
                 Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::DegreeCentralityAll => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(
@@ -1813,13 +1811,13 @@ async fn dispatch_graph_op(
         }
         Method::BetweennessCentrality => {
             // O(V·E) Brandes — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::betweenness_centrality(&snap)
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1829,13 +1827,13 @@ async fn dispatch_graph_op(
             iterations,
         } => {
             // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::personalized_pagerank(&snap, &seed_nodes, damping, iterations)
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1844,13 +1842,13 @@ async fn dispatch_graph_op(
             // budget used to burn entirely UNDER the read lock, stalling every
             // writer on the graph. Snapshot topology, compute off-lock
             // (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::community_detection(&snap, resolution)
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1865,26 +1863,25 @@ async fn dispatch_graph_op(
             resolution,
         } => {
             match compute_off_lock(req_id, move || {
-                let mut g = crate::graph::GraphCore::new();
+                let g = crate::graph::GraphCore::new();
                 for id in &node_ids {
                     g.add_node(id.clone(), Vec::new());
                 }
                 for (s, t) in &edges {
                     let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
                 }
-                crate::algorithms::community_detection(&g, resolution)
+                crate::algorithms::community_detection(&g.analysis_snapshot(), resolution)
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
-        // GraphColoring stays under the read lock intentionally (KG-2.51):
-        // greedy coloring is a single O(V+E) sweep, so a snapshot would cost
-        // as much as the computation.
+        // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
+        // topology snapshot (Phase C-B: read algorithms take an unlocked view).
         Method::GraphColoring => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
@@ -1894,13 +1891,13 @@ async fn dispatch_graph_op(
             // O(V²·d) all-pairs cosine on rayon — must never run under the
             // graph lock OR on the tokio runtime threads. Snapshot the
             // property blobs it reads, compute off-lock (KG-2.51).
-            let snap = { core.read().await.analysis_snapshot() };
+            let snap = { core.analysis_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::compute_similarity_edges(&snap, threshold)
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1908,8 +1905,7 @@ async fn dispatch_graph_op(
             max_age_secs,
             min_score,
         } => {
-            let mut g = core.write().await;
-            let stats = crate::algorithms::prune_by_lifecycle(&mut g, max_age_secs, min_score);
+            let stats = crate::algorithms::prune_by_lifecycle(&core, max_age_secs, min_score);
             match serde_json::to_value(&stats) {
                 Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1919,7 +1915,7 @@ async fn dispatch_graph_op(
             agent_id,
             max_tokens,
         } => {
-            let g = core.read().await;
+            let g = core.analysis_snapshot();
             let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
             match serde_json::to_value(&view) {
                 Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
@@ -1927,8 +1923,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::BatchUpdate { operations_msgpack } => {
-            let mut g = core.write().await;
-            match crate::algorithms::batch_update(&mut g, &operations_msgpack) {
+            match crate::algorithms::batch_update(&core, &operations_msgpack) {
                 Ok(res) => match rmp_serde::from_slice::<serde_json::Value>(&res) {
                     Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, format!("Invalid batch result: {}", e)),
@@ -1937,7 +1932,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::ParseRepository { root_path } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.parse_repository(&root_path) {
                 Ok(_) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1967,10 +1962,12 @@ async fn dispatch_graph_op(
                 // Exponential-worst-case matching never runs under either
                 // graph's lock: snapshot pattern then host SEQUENTIALLY (no
                 // nested cross-graph locks), compute off-lock (KG-2.51).
-                let p_snap = { p_core.read().await.analysis_snapshot() };
-                let g_snap = { core.read().await.analysis_snapshot() };
-                match compute_off_lock(req_id, move || g_snap.vf2_subgraph_match(&p_snap)).await {
-                    Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                let p_snap = p_core.analysis_snapshot();
+                // vf2_subgraph_match snapshots the host internally, so the
+                // exponential-worst-case matching runs entirely off-lock.
+                let host = core.clone();
+                match compute_off_lock(req_id, move || host.vf2_subgraph_match(&p_snap)).await {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                     Err(resp) => resp,
                 }
             } else {
@@ -1981,7 +1978,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::GetLedger => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(g.get_ledger())),
@@ -1989,12 +1986,12 @@ async fn dispatch_graph_op(
         }
 
         Method::ClearLedger => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.clear_ledger();
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::ApplyLedger { transactions } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.apply_ledger(transactions) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e),
@@ -2005,7 +2002,7 @@ async fn dispatch_graph_op(
             // properties) and the edges among them in ONE round-trip, so callers
             // never loop per-node `GetNodeProperties` or pull the whole edge set.
             // (Previously serialized to msgpack then mis-parsed as JSON → error.)
-            let g = core.read().await;
+            let g = &*core;
             let sub = g.get_subgraph(&node_ids);
             let mut nodes = Vec::with_capacity(sub.node_properties.len());
             for (id, blob) in &sub.node_properties {
@@ -2032,7 +2029,7 @@ async fn dispatch_graph_op(
             // Cannot return the forked GraphCore directly because it needs to be registered.
             // A true fork method in the registry might be better.
             // For now, we return the JSON representation of the fork.
-            let g = core.read().await;
+            let g = &*core;
             let sub = g.fork();
             match sub.to_msgpack() {
                 Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
@@ -2072,8 +2069,8 @@ async fn dispatch_graph_op(
             // concurrent opposite-direction diffs plus a queued writer can
             // deadlock a write-preferring RwLock). The diff itself is a
             // single O(V+E) comparison, so it stays under-lock (KG-2.51).
-            let other_snap = { other_core.read().await.analysis_snapshot() };
-            let g1 = core.read().await;
+            let other_snap = { other_core.analysis_snapshot() };
+            let g1 = &*core;
             let diff_str = g1.diff_against(&other_snap);
             match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
                 Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
@@ -2084,7 +2081,7 @@ async fn dispatch_graph_op(
             node_type,
             threshold,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             let removed = g.compact_nodes_by_type(&node_type, threshold);
             Response::ok(
                 req_id,
@@ -2099,12 +2096,18 @@ async fn dispatch_graph_op(
     // counts are O(1), so this adds no meaningful write-path cost.
     #[cfg(feature = "metrics")]
     if matches!(access, AccessLevel::Write) {
-        let g = core.read().await;
+        let topo = core.topo.read();
         crate::metrics::set_graph_size(
             graph_name,
-            g.graph.node_count() as i64,
-            g.graph.edge_count() as i64,
+            topo.graph.node_count() as i64,
+            topo.graph.edge_count() as i64,
         );
+    }
+
+    // Mark the graph dirty after any successful write so the next checkpoint
+    // rewrites it; clean graphs are skipped (Phase C-C — incremental checkpoint).
+    if matches!(access, AccessLevel::Write) && response.error.is_none() {
+        core.mark_dirty();
     }
 
     // Append to the WAL after a SUCCESSFUL durable mutation (write-behind; pggraph
@@ -2152,8 +2155,15 @@ where
 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    // Snapshot the shared backpressure semaphore once per connection.
-    let sem = { state.read().await.max_in_flight.clone() };
+    // Snapshot the shared backpressure handles once per connection.
+    let (sem, pg_map, pg_limit) = {
+        let s = state.read().await;
+        (
+            s.max_in_flight.clone(),
+            s.per_graph_inflight.clone(),
+            s.per_graph_inflight_limit,
+        )
+    };
 
     loop {
         let mut len_buf = [0u8; 4];
@@ -2181,7 +2191,7 @@ where
 
         let is_shutdown = matches!(req.method, Method::Shutdown);
 
-        // Backpressure: acquire an in-flight permit, or shed load with BUSY.
+        // Global backpressure: acquire an in-flight permit, or shed load with BUSY.
         let _permit = match sem.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
@@ -2198,8 +2208,34 @@ where
                 continue;
             }
         };
+
+        // Per-graph fairness (Phase C-D): cap how many of the global slots this one
+        // graph may hold. On exhaustion, shed THIS graph's load with BUSY and
+        // release the global permit so other tenants keep flowing.
+        let pg_sem = pg_map
+            .entry(req.graph.clone())
+            .or_insert_with(|| Arc::new(Semaphore::new(pg_limit)))
+            .clone();
+        let _pg_permit = match pg_sem.try_acquire_owned() {
+            Ok(p) => p,
+            Err(_) => {
+                drop(_permit);
+                crate::metrics::busy_rejected();
+                let resp = Response::err(req.id, "BUSY: graph at capacity, retry with backoff");
+                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out_len = out.len() as u32;
+                if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
+                    break;
+                }
+                if stream.write_all(&out).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+        };
         crate::metrics::connection_request_started(sem.available_permits());
         let resp = dispatch(&state, req).await;
+        drop(_pg_permit);
         drop(_permit);
         crate::metrics::connection_request_finished(sem.available_permits());
 
@@ -2280,6 +2316,8 @@ mod tests {
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
         }))
     }
 
@@ -2358,6 +2396,107 @@ mod tests {
         req.auth_token = "bogus".to_string();
         let resp = dispatch(&state, req).await;
         assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
+    }
+
+    #[tokio::test]
+    async fn incremental_checkpoint_skips_clean_graphs() {
+        // Phase C-C: checkpoint_all rewrites only graphs dirtied since the last
+        // checkpoint. Return value is the number WRITTEN (clean graphs skipped).
+        let dir = std::env::temp_dir().join(format!("eg-cc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: Some(dir.to_string_lossy().to_string()),
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
+        }));
+
+        // __bus__ starts dirty → the first checkpoint writes exactly it.
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        // Nothing changed → the next checkpoint writes nothing (all clean/skipped).
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
+
+        // A successful write through dispatch marks the graph dirty (no isolation
+        // rules registered → back-compat permits the write).
+        assert_ok(&dispatch(&state, request(1, "__bus__", None, add_node("x"))).await);
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn per_graph_backpressure_isolates_tenants() {
+        // Phase C-D: a hot graph that has exhausted its per-graph in-flight cap is
+        // shed with BUSY, but OTHER graphs keep being served from the (ample) global
+        // pool — one tenant cannot starve the rest.
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        async fn round_trip(s: &mut tokio::io::DuplexStream, req: &Request) -> Response {
+            let payload = rmp_serde::to_vec_named(req).unwrap();
+            s.write_all(&(payload.len() as u32).to_be_bytes())
+                .await
+                .unwrap();
+            s.write_all(&payload).await.unwrap();
+            let mut lb = [0u8; 4];
+            s.read_exact(&mut lb).await.unwrap();
+            let n = u32::from_be_bytes(lb) as usize;
+            let mut buf = vec![0u8; n];
+            s.read_exact(&mut buf).await.unwrap();
+            rmp_serde::from_slice(&buf).unwrap()
+        }
+
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 1, // any one graph: a single slot
+        }));
+
+        // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
+        // an op already in flight on that graph.
+        let hot_sem = Arc::new(Semaphore::new(1));
+        state
+            .read()
+            .await
+            .per_graph_inflight
+            .insert("g_hot".into(), hot_sem.clone());
+        let _held = hot_sem.try_acquire_owned().unwrap();
+
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        let st = state.clone();
+        let handle = tokio::spawn(async move { handle_connection(server, st).await });
+
+        // g_hot is saturated → BUSY at the graph level.
+        let r_hot = round_trip(&mut client, &request(1, "g_hot", None, Method::Ping)).await;
+        assert!(
+            r_hot
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("graph at capacity"),
+            "hot graph must be shed, got {:?}",
+            r_hot
+        );
+
+        // g_cold is independent → served normally despite g_hot being saturated.
+        let r_cold = round_trip(&mut client, &request(2, "g_cold", None, Method::Ping)).await;
+        assert!(
+            r_cold.error.is_none(),
+            "cold graph must NOT be starved by the hot graph, got {:?}",
+            r_cold
+        );
+
+        drop(client);
+        let _ = handle.await;
     }
 
     #[tokio::test]
@@ -2643,7 +2782,7 @@ mod tests {
             let s = state.read().await;
             let core = s.registry.get("agent:busy").unwrap().core.clone();
             drop(s);
-            let mut g = core.write().await;
+            let g = &*core;
             for i in 0..2_000u32 {
                 let id = format!("n{}", i);
                 g.add_node(
@@ -2651,7 +2790,7 @@ mod tests {
                     rmp_serde::to_vec(&serde_json::json!({})).unwrap(),
                 );
                 let emb: Vec<f32> = (0..64).map(|d| ((i + d) % 97) as f32 / 97.0).collect();
-                g.semantic_store.add_embedding(id, emb);
+                g.semantic_store.write().add_embedding(id, emb);
             }
         }
 
@@ -2690,7 +2829,8 @@ mod tests {
 
         let resp = search.await.expect("search task panicked");
         assert_ok(&resp);
-        assert!(matches!(resp.result, Some(ResultPayload::Json(_))));
+        // Compact encoding (Phase C-D): the weighted result is a Raw msgpack blob.
+        assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
     }
 
     #[tokio::test]
@@ -2742,10 +2882,13 @@ mod tests {
         )
         .await;
         assert_ok(&pagerank);
-        let Some(ResultPayload::Json(scores)) = pagerank.result else {
-            panic!("expected JSON pagerank result");
+        // Compact encoding (Phase C-D): pagerank returns a Raw msgpack blob that
+        // decodes to the exact same typed result.
+        let Some(ResultPayload::Raw(bytes)) = pagerank.result else {
+            panic!("expected Raw pagerank result");
         };
-        assert_eq!(scores.as_array().map(|a| a.len()), Some(3));
+        let scores: Vec<(String, f64)> = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(scores.len(), 3);
 
         let communities = dispatch(
             &state,
