@@ -36,3 +36,5 @@ pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod types;
+#[cfg(feature = "server")]
+pub mod wal;
