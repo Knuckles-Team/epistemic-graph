@@ -425,17 +425,25 @@ async fn dispatch_graph_op(
         // Pure-compute domains (stateless: no graph core / lock) route first; a
         // method that isn't theirs is handed back via Err and falls through to the
         // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
+        // Feature-gated: in a slim build the line is absent and the method flows
+        // straight through to graph_ops (whose catch-all reports "not available").
+        #[cfg(feature = "finance")]
         let method = match handlers::finance::try_handle(req_id, method) {
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
+        #[cfg(feature = "datascience")]
         let method = match handlers::datascience::try_handle(req_id, method) {
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
         // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
         // re-enter the registry via `state`). Owns the catch-all, returns a Response.
-        handlers::graph_ops::try_handle(state, req_id, caller, core.clone(), method).await
+        // Bind then `break` (not a tail expr) so the `'dispatch` label stays used
+        // even when both compute-routing lines above are feature-gated out.
+        let resp =
+            handlers::graph_ops::try_handle(state, req_id, caller, core.clone(), method).await;
+        break 'dispatch resp;
     };
 
     // Refresh the per-graph size gauges after mutations — both petgraph

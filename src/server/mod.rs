@@ -21,7 +21,6 @@ pub use transport::{handle_connection, serve_tcp, serve_uds};
 
 #[cfg(test)]
 mod tests {
-    use super::access::requires_write;
     use super::compute::weight_semantic_results;
     use super::*;
     use crate::channels::ChannelManager;

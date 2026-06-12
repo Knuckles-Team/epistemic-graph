@@ -19,7 +19,9 @@ pub mod ast;
 #[cfg(feature = "server")]
 pub mod channels;
 pub mod compute;
+#[cfg(feature = "datascience")]
 pub mod datascience;
+#[cfg(feature = "finance")]
 pub mod finance;
 pub mod graph;
 #[cfg(feature = "server")]
@@ -32,6 +34,7 @@ pub mod persist;
 pub mod persist_lock;
 #[cfg(feature = "server")]
 pub mod protocol;
+#[cfg(feature = "reasoning")]
 mod reasoning;
 #[cfg(feature = "server")]
 pub mod registry;

@@ -514,6 +514,9 @@ pub(crate) async fn try_handle(
         // Intentionally under the write lock (KG-2.51): reasoning MUTATES the
         // graph as it infers, so it cannot run on a snapshot — materialising
         // on a clone and merging back would cost more than the inference.
+        // Feature-gated: excluded from a slim (no `reasoning`) build, where the
+        // variant falls to the catch-all "not available in this build" error.
+        #[cfg(feature = "reasoning")]
         Method::RunDatalogReasoning {
             subclass_relations,
             subproperty_relations,
@@ -898,7 +901,12 @@ pub(crate) async fn try_handle(
                 ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })),
             )
         }
-        // Catch-all for methods not yet fully dispatched.
-        _ => Response::err(req_id, "Method not yet implemented for graph dispatch"),
+        // Catch-all: an unknown graph method, OR a compute method whose feature
+        // (finance / datascience / reasoning) was not built into this server.
+        _ => Response::err(
+            req_id,
+            "Method not available in this server build (unknown method, or a \
+             compute feature — finance/datascience/reasoning — not enabled)",
+        ),
     }
 }
