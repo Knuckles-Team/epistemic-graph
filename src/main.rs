@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![deny(unsafe_code)]
 // CONCEPT:KG-2.19 — Epistemic Graph Service Binary
 //
 // Entry point for the long-running Tokio service process.
