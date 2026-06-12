@@ -8,19 +8,18 @@ use petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-use crate::graph::GraphCore;
+use crate::graph::{GraphCore, GraphView};
 
-/// Hard wall-clock budget for one [`community_detection`] call. Label
-/// propagation is already iteration-capped, but a very large or adversarial
-/// call graph can make each pass expensive; this deadline guarantees the call
-/// always returns a valid partition in bounded time instead of appearing to
-/// hang. (CONCEPT:KG-2.16)
+/// Hard wall-clock budget for one [`community_detection`] call. Louvain is
+/// pass- and level-capped, but a very large or adversarial graph can make each
+/// pass expensive; this deadline guarantees the call always returns a valid
+/// partition in bounded time instead of appearing to hang. (CONCEPT:KG-2.16)
 const COMMUNITY_DETECTION_BUDGET: Duration = Duration::from_secs(15);
 
 // ── Traversal Algorithms ─────────────────────────────────────────────────
 
 /// Topological sort of the graph. Returns PyErr if cycles exist.
-pub fn topological_sort(core: &GraphCore) -> Result<Vec<String>, String> {
+pub fn topological_sort(core: &GraphView) -> Result<Vec<String>, String> {
     match petgraph::algo::toposort(&core.graph, None) {
         Ok(indices) => {
             let sorted: Vec<String> = indices.iter().map(|&idx| core.graph[idx].clone()).collect();
@@ -31,7 +30,7 @@ pub fn topological_sort(core: &GraphCore) -> Result<Vec<String>, String> {
 }
 
 /// Detect a cycle via DFS coloring. Returns the cycle path if found.
-pub fn find_cycle(core: &GraphCore) -> Option<Vec<String>> {
+pub fn find_cycle(core: &GraphView) -> Option<Vec<String>> {
     let mut visited: HashMap<NodeIndex, i32> = HashMap::new();
     let mut parent: HashMap<NodeIndex, NodeIndex> = HashMap::new();
 
@@ -51,7 +50,7 @@ pub fn find_cycle(core: &GraphCore) -> Option<Vec<String>> {
 }
 
 fn dfs_find_cycle(
-    core: &GraphCore,
+    core: &GraphView,
     node: NodeIndex,
     visited: &mut HashMap<NodeIndex, i32>,
     parent: &mut HashMap<NodeIndex, NodeIndex>,
@@ -88,7 +87,7 @@ fn dfs_find_cycle(
 
 /// BFS shortest path between two nodes.
 pub fn get_shortest_path(
-    core: &GraphCore,
+    core: &GraphView,
     source_id: &str,
     target_id: &str,
 ) -> Option<Vec<String>> {
@@ -125,7 +124,7 @@ pub fn get_shortest_path(
 }
 
 /// BFS blast radius — all nodes reachable within `max_depth` hops.
-pub fn get_blast_radius(core: &GraphCore, node_id: &str, max_depth: usize) -> Vec<String> {
+pub fn get_blast_radius(core: &GraphView, node_id: &str, max_depth: usize) -> Vec<String> {
     let start_idx = match core.node_map.get(node_id) {
         Some(&idx) => idx,
         None => return Vec::new(),
@@ -157,7 +156,7 @@ pub fn get_blast_radius(core: &GraphCore, node_id: &str, max_depth: usize) -> Ve
 // ── Centrality Algorithms ────────────────────────────────────────────────
 
 /// Degree centrality for a single node: (in + out) / (n - 1).
-pub fn compute_degree_centrality(core: &GraphCore, node_id: &str) -> Result<f64, String> {
+pub fn compute_degree_centrality(core: &GraphView, node_id: &str) -> Result<f64, String> {
     let idx = core
         .node_map
         .get(node_id)
@@ -178,7 +177,7 @@ pub fn compute_degree_centrality(core: &GraphCore, node_id: &str) -> Result<f64,
 }
 
 /// Degree centrality for ALL nodes. Returns Vec<(node_id, centrality)>.
-pub fn degree_centrality_all(core: &GraphCore) -> Vec<(String, f64)> {
+pub fn degree_centrality_all(core: &GraphView) -> Vec<(String, f64)> {
     let n = core.node_map.len();
     if n <= 1 {
         return core.node_map.keys().map(|k| (k.clone(), 0.0)).collect();
@@ -202,15 +201,21 @@ pub fn degree_centrality_all(core: &GraphCore) -> Vec<(String, f64)> {
 }
 
 /// Betweenness centrality via Brandes' algorithm.
-pub fn betweenness_centrality(core: &GraphCore) -> Vec<(String, f64)> {
+///
+/// Brandes accumulates an independent single-source contribution per node, so the
+/// expensive O(V·E) outer loop is parallelized across source nodes with rayon
+/// (Phase C-D). Each source's contribution is computed in parallel; the partials
+/// are then summed back in SOURCE ORDER, so the floating-point result is bit-for-bit
+/// identical to the sequential version (determinism preserved).
+pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
+    use rayon::prelude::*;
+
     let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
     let n = nodes.len();
-    let mut centrality: HashMap<NodeIndex, f64> = HashMap::new();
-    for &node in &nodes {
-        centrality.insert(node, 0.0);
-    }
 
-    for &source in &nodes {
+    // One independent single-source dependency accumulation. Returns (w, delta[w])
+    // for every w != source — the partial betweenness this source contributes.
+    let source_contribution = |source: NodeIndex| -> Vec<(NodeIndex, f64)> {
         let mut stack = Vec::new();
         let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
         let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
@@ -252,6 +257,7 @@ pub fn betweenness_centrality(core: &GraphCore) -> Vec<(String, f64)> {
             delta.insert(v, 0.0);
         }
 
+        let mut contrib = Vec::new();
         while let Some(w) = stack.pop() {
             if sigma[&w] > 0.0 {
                 for &v in &predecessors[&w] {
@@ -261,10 +267,25 @@ pub fn betweenness_centrality(core: &GraphCore) -> Vec<(String, f64)> {
                     }
                 }
             }
-            if w != source {
-                if let Some(c) = centrality.get_mut(&w) {
-                    *c += delta[&w];
-                }
+            if w != source && delta[&w] != 0.0 {
+                contrib.push((w, delta[&w]));
+            }
+        }
+        contrib
+    };
+
+    // Compute every source's contribution in parallel; collect preserves source
+    // order so the sequential reduction below is order-stable.
+    let partials: Vec<Vec<(NodeIndex, f64)>> = nodes
+        .par_iter()
+        .map(|&source| source_contribution(source))
+        .collect();
+
+    let mut centrality: HashMap<NodeIndex, f64> = nodes.iter().map(|&v| (v, 0.0)).collect();
+    for partial in &partials {
+        for &(w, dw) in partial {
+            if let Some(c) = centrality.get_mut(&w) {
+                *c += dw;
             }
         }
     }
@@ -283,7 +304,7 @@ pub fn betweenness_centrality(core: &GraphCore) -> Vec<(String, f64)> {
 }
 
 /// PageRank via power iteration method.
-pub fn pagerank(core: &GraphCore, damping: f64, iterations: usize) -> Vec<(String, f64)> {
+pub fn pagerank(core: &GraphView, damping: f64, iterations: usize) -> Vec<(String, f64)> {
     let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
     let n = nodes.len();
     if n == 0 {
@@ -339,7 +360,7 @@ pub fn pagerank(core: &GraphCore, damping: f64, iterations: usize) -> Vec<(Strin
 // ── Component / Community Algorithms ─────────────────────────────────────
 
 /// Weakly connected components (treats directed edges as undirected).
-pub fn connected_components(core: &GraphCore) -> Vec<Vec<String>> {
+pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
     let mut visited: HashSet<NodeIndex> = HashSet::new();
     let mut components: Vec<Vec<String>> = Vec::new();
 
@@ -388,7 +409,7 @@ pub fn connected_components(core: &GraphCore) -> Vec<Vec<String>> {
 /// undirected, SCC respects edge direction. Two nodes are in the same SCC iff
 /// there is a directed path from each to the other. This is critical for
 /// belief cluster detection where causal direction matters.
-pub fn strongly_connected_components(core: &GraphCore) -> Vec<Vec<String>> {
+pub fn strongly_connected_components(core: &GraphView) -> Vec<Vec<String>> {
     let sccs = petgraph::algo::tarjan_scc(&core.graph);
     sccs.into_iter()
         .map(|component| {
@@ -406,7 +427,7 @@ pub fn strongly_connected_components(core: &GraphCore) -> Vec<Vec<String>> {
 /// Edge weights are extracted from the `weight` field of edge properties JSON.
 /// Edges without a weight field default to 1.0. Useful for argument coherence
 /// analysis — the MST reveals the minimum-cost skeleton connecting all beliefs.
-pub fn minimum_spanning_tree(core: &GraphCore) -> Vec<(String, String, f64)> {
+pub fn minimum_spanning_tree(core: &GraphView) -> Vec<(String, String, f64)> {
     use petgraph::data::FromElements;
     use petgraph::stable_graph::StableGraph;
 
@@ -457,95 +478,81 @@ pub fn minimum_spanning_tree(core: &GraphCore) -> Vec<(String, String, f64)> {
         .collect()
 }
 
-/// Simple community detection via label propagation (Louvain-inspired).
+/// Community detection via **coloring-parallel, multi-level modularity
+/// optimization** (Louvain) — Phase C-D.
 ///
-/// Each node starts with its own label. Iteratively, each node adopts the
-/// most common label among its neighbors. `resolution` controls sensitivity
-/// (higher = more communities). Converges when no labels change.
-pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String>> {
-    // Deterministic node order. The previous version iterated `node_map`'s
-    // HashMap keys in arbitrary order and broke label ties via `max_by_key`
-    // (also order-dependent), so the algorithm could *oscillate* between
-    // equivalent labelings and never reach the `changed == false` early-exit —
-    // burning all 100 iterations every run and producing a different result
-    // each time. Sorting both the node sweep and the tie-break makes
-    // propagation stable (reproducible) and lets it converge early.
-    let mut nodes: Vec<String> = core.node_map.keys().cloned().collect();
-    if nodes.is_empty() {
+/// This replaces the previous label-propagation heuristic with a parallel,
+/// deterministic, modularity-optimizing algorithm — strictly better on all three
+/// axes:
+///
+/// * **Parallel** without the oscillation hazard. The classic obstacle to parallel
+///   community detection is that two *adjacent* nodes moving community in the same
+///   round can race/oscillate (the reason naive synchronous label propagation is
+///   unstable). We dissolve it with **graph coloring**: color the graph so adjacent
+///   nodes differ, then move one color class at a time. Within a class every node
+///   is mutually non-adjacent, so their moves are independent — safe to evaluate in
+///   parallel (rayon) with no interaction. This is the established parallel-Louvain
+///   approach (Grappolo / NetworKit PLM).
+/// * **Deterministic.** Fixed node order, fixed color order, and a smallest-
+///   community-id tie-break make every run bit-identical (the determinism the
+///   regression tests assert).
+/// * **Higher quality.** Greedy modularity gain + multi-level aggregation finds the
+///   community structure Louvain is known for, not LPA's coarse approximation.
+///
+/// `resolution` (γ) scales the modularity null model (higher ⇒ more, smaller
+/// communities). Bounded by a wall-clock deadline so it always returns in bounded
+/// time (CONCEPT:KG-2.16).
+pub fn community_detection(core: &GraphView, resolution: f64) -> Vec<Vec<String>> {
+    let resolution = if resolution > 0.0 { resolution } else { 1.0 };
+
+    // Stable node order → deterministic compact indexing.
+    let mut node_ids: Vec<String> = core.node_map.keys().cloned().collect();
+    if node_ids.is_empty() {
         return Vec::new();
     }
-    nodes.sort_unstable();
+    node_ids.sort_unstable();
+    let n = node_ids.len();
+    let index: HashMap<&str, usize> = node_ids
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
 
-    // Initialize: each node is its own community
-    let mut labels: HashMap<String, usize> = HashMap::new();
-    for (i, node_id) in nodes.iter().enumerate() {
-        labels.insert(node_id.clone(), i);
+    // Build an undirected weighted adjacency: parallel edges and the two directions
+    // of each edge sum into a single symmetric weight; self-loops kept once.
+    let mut maps: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
+    for e in core.graph.edge_references() {
+        let s = core.graph[e.source()].as_str();
+        let t = core.graph[e.target()].as_str();
+        if let (Some(&si), Some(&ti)) = (index.get(s), index.get(t)) {
+            if si == ti {
+                *maps[si].entry(si).or_insert(0.0) += 1.0;
+            } else {
+                *maps[si].entry(ti).or_insert(0.0) += 1.0;
+                *maps[ti].entry(si).or_insert(0.0) += 1.0;
+            }
+        }
     }
+    let adjacency: Vec<Vec<(usize, f64)>> = maps
+        .into_iter()
+        .map(|m| {
+            let mut v: Vec<(usize, f64)> = m.into_iter().collect();
+            v.sort_unstable_by_key(|x| x.0);
+            v
+        })
+        .collect();
 
-    // Bounded by BOTH an iteration cap and a wall-clock deadline, so a large or
-    // adversarial graph can never make this call hang (CONCEPT:KG-2.16).
-    let max_iterations = 100;
     let deadline = Instant::now() + COMMUNITY_DETECTION_BUDGET;
-    for _ in 0..max_iterations {
-        if Instant::now() >= deadline {
-            break;
-        }
-        let mut changed = false;
+    let node_to_comm = louvain(&adjacency, resolution, deadline);
 
-        for node_id in &nodes {
-            let idx = match core.node_map.get(node_id) {
-                Some(&i) => i,
-                None => continue,
-            };
-
-            // Count neighbor labels
-            let mut label_counts: HashMap<usize, usize> = HashMap::new();
-            for edge in core
-                .graph
-                .edges_directed(idx, petgraph::Direction::Outgoing)
-            {
-                let neighbor_id = &core.graph[edge.target()];
-                if let Some(&lbl) = labels.get(neighbor_id) {
-                    *label_counts.entry(lbl).or_insert(0) += 1;
-                }
-            }
-            for edge in core
-                .graph
-                .edges_directed(idx, petgraph::Direction::Incoming)
-            {
-                let neighbor_id = &core.graph[edge.source()];
-                if let Some(&lbl) = labels.get(neighbor_id) {
-                    *label_counts.entry(lbl).or_insert(0) += 1;
-                }
-            }
-
-            // Most common neighbor label; break ties deterministically toward
-            // the SMALLEST label so propagation is stable and convergent.
-            let best = label_counts
-                .iter()
-                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
-                .map(|(&lbl, _)| lbl);
-            if let Some(best_label) = best {
-                let current = labels[node_id];
-                if best_label != current {
-                    labels.insert(node_id.clone(), best_label);
-                    changed = true;
-                }
-            }
-        }
-
-        if !changed {
-            break;
-        }
+    // Group by community, deterministic order (members sorted; communities by their
+    // smallest member) so callers + tests are stable.
+    let mut groups: std::collections::BTreeMap<usize, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (i, id) in node_ids.into_iter().enumerate() {
+        groups.entry(node_to_comm[i]).or_default().push(id);
     }
-
-    // Group nodes by label, returning a deterministic order (communities sorted
-    // by their smallest member; members sorted) so callers + tests are stable.
-    let mut communities: HashMap<usize, Vec<String>> = HashMap::new();
-    for (node_id, label) in &labels {
-        communities.entry(*label).or_default().push(node_id.clone());
-    }
-    let mut out: Vec<Vec<String>> = communities
+    let mut out: Vec<Vec<String>> = groups
         .into_values()
         .map(|mut members| {
             members.sort_unstable();
@@ -554,6 +561,210 @@ pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String
         .collect();
     out.sort_unstable_by(|a, b| a[0].cmp(&b[0]));
     out
+}
+
+/// Weighted degree of each node (a self-loop counts twice, per the modularity
+/// convention), and `2m = Σ degrees`.
+fn weighted_degrees(adjacency: &[Vec<(usize, f64)>]) -> Vec<f64> {
+    adjacency
+        .iter()
+        .enumerate()
+        .map(|(i, nbrs)| {
+            nbrs.iter()
+                .map(|&(j, w)| if j == i { 2.0 * w } else { w })
+                .sum()
+        })
+        .collect()
+}
+
+/// Multi-level Louvain: local-move → aggregate → repeat until no community merges
+/// or the deadline hits. Returns, for each ORIGINAL node, its final community id.
+fn louvain(adjacency0: &[Vec<(usize, f64)>], resolution: f64, deadline: Instant) -> Vec<usize> {
+    let n0 = adjacency0.len();
+    let mut node_to_comm: Vec<usize> = (0..n0).collect();
+    let mut adjacency: Vec<Vec<(usize, f64)>> = adjacency0.to_vec();
+
+    loop {
+        let n = adjacency.len();
+        let degrees = weighted_degrees(&adjacency);
+        let two_m: f64 = degrees.iter().sum();
+        if two_m <= 0.0 {
+            break;
+        }
+
+        let raw = local_moving(&adjacency, &degrees, two_m, resolution, deadline);
+        let (local, k) = renumber(&raw);
+
+        // Lift the original-node mapping through this level's relabeling.
+        for c in node_to_comm.iter_mut() {
+            *c = local[*c];
+        }
+
+        // No community merged this level (k == n) → modularity converged.
+        if k == n {
+            break;
+        }
+        adjacency = aggregate(&adjacency, &local, k);
+        if Instant::now() >= deadline {
+            break;
+        }
+    }
+    node_to_comm
+}
+
+/// One Louvain local-moving phase, parallelized by graph coloring. Returns the
+/// (sparse) community label per node.
+fn local_moving(
+    adjacency: &[Vec<(usize, f64)>],
+    degrees: &[f64],
+    two_m: f64,
+    resolution: f64,
+    deadline: Instant,
+) -> Vec<usize> {
+    use rayon::prelude::*;
+
+    let n = adjacency.len();
+    let mut comm: Vec<usize> = (0..n).collect();
+    let mut comm_tot: Vec<f64> = degrees.to_vec();
+    let color_classes = color_classes(adjacency);
+
+    // Each color class is an independent set, so the best move of every node in it
+    // is computed from the SAME frozen (comm, comm_tot) with no cross-interaction —
+    // evaluate the class in parallel, then apply the decided moves in node order.
+    let max_passes = 50;
+    for _ in 0..max_passes {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let mut changed = false;
+        for class in &color_classes {
+            let moves: Vec<(usize, usize)> = class
+                .par_iter()
+                .map(|&i| {
+                    (
+                        i,
+                        best_community(i, adjacency, degrees, &comm, &comm_tot, two_m, resolution),
+                    )
+                })
+                .collect();
+            for (i, target) in moves {
+                if target != comm[i] {
+                    comm_tot[comm[i]] -= degrees[i];
+                    comm_tot[target] += degrees[i];
+                    comm[i] = target;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    comm
+}
+
+/// Best community for node `i` by modularity gain: remove `i` from its community,
+/// then pick the neighboring community maximizing `w(i,C) - γ·Σtot(C)·k_i/2m`.
+/// Only a STRICT improvement over staying moves it (convergence); ties resolve to
+/// the smallest community id (determinism).
+fn best_community(
+    i: usize,
+    adjacency: &[Vec<(usize, f64)>],
+    degrees: &[f64],
+    comm: &[usize],
+    comm_tot: &[f64],
+    two_m: f64,
+    resolution: f64,
+) -> usize {
+    let ci = comm[i];
+    let ki = degrees[i];
+
+    // Weight from i to each neighboring community (self-loop excluded).
+    let mut w_to: HashMap<usize, f64> = HashMap::new();
+    for &(j, w) in &adjacency[i] {
+        if j != i {
+            *w_to.entry(comm[j]).or_insert(0.0) += w;
+        }
+    }
+
+    // Baseline: re-adding i to its own community (Σtot already had i removed).
+    let stay_gain =
+        w_to.get(&ci).copied().unwrap_or(0.0) - resolution * (comm_tot[ci] - ki) * ki / two_m;
+
+    let mut best_c = ci;
+    let mut best_gain = stay_gain;
+    let mut cands: Vec<usize> = w_to.keys().copied().collect();
+    cands.sort_unstable(); // smallest-id tie-break
+    for c in cands {
+        if c == ci {
+            continue;
+        }
+        let gain = w_to[&c] - resolution * comm_tot[c] * ki / two_m;
+        if gain > best_gain + 1e-12 {
+            best_gain = gain;
+            best_c = c;
+        }
+    }
+    best_c
+}
+
+/// Greedy proper coloring (smallest available color, fixed node order) → the
+/// color classes (independent sets), in ascending color order.
+fn color_classes(adjacency: &[Vec<(usize, f64)>]) -> Vec<Vec<usize>> {
+    let n = adjacency.len();
+    let mut color = vec![usize::MAX; n];
+    let mut max_color = 0;
+    for i in 0..n {
+        let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for &(j, _) in &adjacency[i] {
+            if j != i && color[j] != usize::MAX {
+                used.insert(color[j]);
+            }
+        }
+        let mut c = 0;
+        while used.contains(&c) {
+            c += 1;
+        }
+        color[i] = c;
+        max_color = max_color.max(c);
+    }
+    let mut classes: Vec<Vec<usize>> = vec![Vec::new(); max_color + 1];
+    for (i, &c) in color.iter().enumerate() {
+        classes[c].push(i);
+    }
+    classes
+}
+
+/// Compact a sparse labeling to dense `0..k` (first-seen order). Returns the dense
+/// labels and `k`.
+fn renumber(comm: &[usize]) -> (Vec<usize>, usize) {
+    let mut map: HashMap<usize, usize> = HashMap::new();
+    let mut dense = Vec::with_capacity(comm.len());
+    for &c in comm {
+        let next = map.len();
+        dense.push(*map.entry(c).or_insert(next));
+    }
+    let k = map.len();
+    (dense, k)
+}
+
+/// Contract each community (dense label `0..k`) into a super-node; inter-community
+/// edge weights sum, intra-community edges become the super-node's self-loop.
+fn aggregate(adjacency: &[Vec<(usize, f64)>], comm: &[usize], k: usize) -> Vec<Vec<(usize, f64)>> {
+    let mut maps: Vec<HashMap<usize, f64>> = vec![HashMap::new(); k];
+    for (i, nbrs) in adjacency.iter().enumerate() {
+        let ci = comm[i];
+        for &(j, w) in nbrs {
+            *maps[ci].entry(comm[j]).or_insert(0.0) += w;
+        }
+    }
+    maps.into_iter()
+        .map(|m| {
+            let mut v: Vec<(usize, f64)> = m.into_iter().collect();
+            v.sort_unstable_by_key(|x| x.0);
+            v
+        })
+        .collect()
 }
 
 // ── Quant epistemic-graph Algorithms ─────────────────────────────────────────────────
@@ -690,7 +901,7 @@ fn window_stats(values: &[f64], i: usize, window: usize) -> (f64, f64) {
 ///
 /// Uses a sequential greedy algorithm. The number of colors used is at most
 /// Δ(G) + 1 where Δ is the maximum degree.
-pub fn graph_coloring(core: &GraphCore) -> Vec<(String, usize)> {
+pub fn graph_coloring(core: &GraphView) -> Vec<(String, usize)> {
     let nodes: Vec<String> = core.node_map.keys().cloned().collect();
     let mut colors: HashMap<String, usize> = HashMap::new();
 
@@ -736,7 +947,7 @@ pub fn graph_coloring(core: &GraphCore) -> Vec<(String, usize)> {
 ///
 /// Only considers nodes that have embeddings stored in their properties JSON
 /// as an "embedding" field. Uses rayon for parallel pairwise comparison.
-pub fn compute_similarity_edges(core: &GraphCore, threshold: f64) -> Vec<(String, String, f64)> {
+pub fn compute_similarity_edges(core: &GraphView, threshold: f64) -> Vec<(String, String, f64)> {
     use rayon::prelude::*;
 
     // Extract nodes with embeddings
@@ -796,7 +1007,7 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
 /// Examines node properties for `created_at` (epoch seconds) and `score` fields.
 /// Nodes older than `max_age_secs` or with score below `min_score` are removed.
 pub fn prune_by_lifecycle(
-    core: &mut GraphCore,
+    core: &GraphCore,
     max_age_secs: u64,
     min_score: f64,
 ) -> crate::types::PruneStats {
@@ -808,8 +1019,9 @@ pub fn prune_by_lifecycle(
     let mut to_remove: Vec<String> = Vec::new();
     let mut archived = 0usize;
 
-    for (node_id, props_json) in &core.node_properties {
-        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&props_json) {
+    for entry in core.node_properties.iter() {
+        let (node_id, props_json) = (entry.key(), entry.value());
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json.as_slice()) {
             let created_at = val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
             let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
             let lifecycle = val
@@ -838,9 +1050,9 @@ pub fn prune_by_lifecycle(
         // Count edges that will be removed
         let edge_keys: Vec<(String, String)> = core
             .edge_properties
-            .keys()
+            .iter()
+            .map(|e| e.key().clone())
             .filter(|(src, tgt)| src == node_id || tgt == node_id)
-            .cloned()
             .collect();
         edges_removed += edge_keys.len();
         core.remove_node(node_id.clone());
@@ -858,7 +1070,7 @@ pub fn prune_by_lifecycle(
 /// Traverses the graph from the agent node via BFS, collecting relevant
 /// nodes and edges up to the token budget (estimated at ~4 chars per token).
 pub fn get_context_view(
-    core: &GraphCore,
+    core: &GraphView,
     agent_id: &str,
     max_tokens: u32,
 ) -> crate::types::ContextView {
@@ -946,9 +1158,14 @@ pub fn get_context_view(
 /// - {"op": "remove_node", "id": "..."}
 /// - {"op": "add_edge", "source": "...", "target": "...", "properties": "..."}
 /// - {"op": "remove_edge", "source": "...", "target": "..."}
-pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
+pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
     let ops: Vec<serde_json::Value> = rmp_serde::from_slice(operations_msgpack)
         .map_err(|e| format!("[EpistemicGraph::batch_update] invalid MsgPack: {e}"))?;
+
+    // The whole batch runs under ONE write transaction so it is atomic w.r.t.
+    // concurrent readers/writers — no other operation observes a half-applied
+    // batch (CONCEPT:KG-2.16, Phase C-B).
+    let mut txn = core.txn();
 
     let mut added_nodes = 0u32;
     let mut removed_nodes = 0u32;
@@ -972,14 +1189,14 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
                         .cloned()
                         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
                     let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
-                    core.add_node(id.to_string(), props_mp);
+                    txn.add_node(id.to_string(), props_mp);
                     added_nodes += 1;
                 }
             }
             "remove_node" => {
                 let id = op.get("id").and_then(|v| v.as_str()).unwrap_or("");
                 if !id.is_empty() {
-                    core.remove_node(id.to_string());
+                    txn.remove_node(id.to_string());
                     removed_nodes += 1;
                 }
             }
@@ -993,7 +1210,7 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
                         .cloned()
                         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
                     let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
-                    if let Err(e) = core.add_edge(src.to_string(), tgt.to_string(), props_mp) {
+                    if let Err(e) = txn.add_edge(src.to_string(), tgt.to_string(), props_mp) {
                         errors.push(format!("op[{i}]: {e}"));
                     } else {
                         added_edges += 1;
@@ -1004,7 +1221,7 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
                 let src = op.get("source").and_then(|v| v.as_str()).unwrap_or("");
                 let tgt = op.get("target").and_then(|v| v.as_str()).unwrap_or("");
                 if !src.is_empty() && !tgt.is_empty() {
-                    core.remove_edge(src.to_string(), tgt.to_string());
+                    txn.remove_edge(src.to_string(), tgt.to_string());
                     removed_edges += 1;
                 }
             }
@@ -1025,13 +1242,13 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
 }
 
 /// Compute runtime metrics for observability.
-pub fn compute_metrics(core: &GraphCore) -> crate::types::GraphMetrics {
+pub fn compute_metrics(core: &GraphView) -> crate::types::GraphMetrics {
     let mut active = 0usize;
     let mut compacted = 0usize;
     let mut archived = 0usize;
 
     for props_json in core.node_properties.values() {
-        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&props_json) {
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json) {
             match val
                 .get("lifecycle_state")
                 .and_then(|v| v.as_str())
@@ -1049,7 +1266,9 @@ pub fn compute_metrics(core: &GraphCore) -> crate::types::GraphMetrics {
     crate::types::GraphMetrics {
         node_count: core.node_map.len(),
         edge_count: core.edge_properties.values().map(|v| v.len()).sum(),
-        total_mutations: core.ledger.len() as u64,
+        // The ledger is not part of the read view; the caller (server Metrics
+        // handler) captures the live ledger length and overwrites this field.
+        total_mutations: 0,
         last_prune_removed: 0,
         active_nodes: active,
         compacted_nodes: compacted,
@@ -1062,7 +1281,7 @@ pub fn compute_metrics(core: &GraphCore) -> crate::types::GraphMetrics {
 /// Similar to standard PageRank but the random walker teleports to seed
 /// nodes weighted by their seed score instead of uniformly.
 pub fn personalized_pagerank(
-    core: &GraphCore,
+    core: &GraphView,
     seed_nodes: &[(String, f64)],
     damping: f64,
     iterations: usize,
@@ -1144,15 +1363,15 @@ mod community_tests {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "Code"})).unwrap()
     }
 
-    fn build(nodes: &[&str], edges: &[(&str, &str)]) -> GraphCore {
-        let mut g = GraphCore::new();
+    fn build(nodes: &[&str], edges: &[(&str, &str)]) -> GraphView {
+        let g = GraphCore::new();
         for n in nodes {
             g.add_node((*n).to_string(), p());
         }
         for (s, t) in edges {
             g.add_edge((*s).to_string(), (*t).to_string(), p()).unwrap();
         }
-        g
+        g.analysis_snapshot()
     }
 
     #[test]
@@ -1182,7 +1401,7 @@ mod community_tests {
 
     #[test]
     fn empty_graph_returns_empty() {
-        let g = GraphCore::new();
+        let g = GraphCore::new().analysis_snapshot();
         assert!(community_detection(&g, 1.0).is_empty());
     }
 
@@ -1243,7 +1462,7 @@ mod community_tests {
         // wall-clock budget + deterministic tie-break it must finish well under
         // the budget and partition all nodes.
         let ids: Vec<String> = (0..120).map(|i| format!("n{i:03}")).collect();
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         for id in &ids {
             g.add_node(id.clone(), p());
         }
@@ -1252,8 +1471,9 @@ mod community_tests {
                 g.add_edge(ids[i].clone(), ids[j].clone(), p()).unwrap();
             }
         }
+        let view = g.analysis_snapshot();
         let start = Instant::now();
-        let communities = community_detection(&g, 1.0);
+        let communities = community_detection(&view, 1.0);
         assert!(
             start.elapsed() < COMMUNITY_DETECTION_BUDGET + Duration::from_secs(2),
             "must respect the wall-clock budget"
@@ -1266,14 +1486,14 @@ mod community_tests {
     fn batch_update_stores_msgpack_readable_properties() {
         // Regression: batch_update used to store JSON-string bytes, which the
         // read path (msgpack) couldn't decode → batch-written nodes looked empty.
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let ops = serde_json::json!([
             {"op": "add_node", "id": "code:A", "properties": {"type": "Code", "language": "java", "name": "Widget"}},
             {"op": "add_node", "id": "code:B", "properties": {"type": "Code", "language": "rust"}},
             {"op": "add_edge", "source": "code:A", "target": "code:B", "properties": {"rel_type": "CALLS"}},
         ]);
         let ops_mp = rmp_serde::to_vec_named(&ops).unwrap();
-        let res_mp = batch_update(&mut g, &ops_mp).unwrap();
+        let res_mp = batch_update(&g, &ops_mp).unwrap();
         let res: serde_json::Value = rmp_serde::from_slice(&res_mp).unwrap();
         assert_eq!(res["added_nodes"], 2);
         assert_eq!(res["added_edges"], 1);
@@ -1285,5 +1505,80 @@ mod community_tests {
         let props: serde_json::Value = rmp_serde::from_slice(&raw).expect("props are msgpack");
         assert_eq!(props["language"], "java");
         assert_eq!(props["name"], "Widget");
+    }
+
+    #[test]
+    fn louvain_splits_connected_graph_at_weak_bridge_deterministically() {
+        // Two 5-cliques joined by a SINGLE bridge edge — a connected graph. Naive
+        // label propagation tends to collapse this into one community; modularity
+        // optimization (Phase C-D) keeps each dense clique whole and cuts the weak
+        // bridge → exactly two communities, identically across many parallel runs.
+        let mut node_strs: Vec<String> = Vec::new();
+        for c in 0..2 {
+            for i in 0..5 {
+                node_strs.push(format!("c{c}n{i}"));
+            }
+        }
+        let node_refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+
+        let mut edge_strs: Vec<(String, String)> = Vec::new();
+        for c in 0..2 {
+            for i in 0..5 {
+                for j in (i + 1)..5 {
+                    edge_strs.push((format!("c{c}n{i}"), format!("c{c}n{j}")));
+                }
+            }
+        }
+        edge_strs.push(("c0n0".to_string(), "c1n0".to_string())); // the lone bridge
+        let edge_refs: Vec<(&str, &str)> = edge_strs
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+
+        let g = build(&node_refs, &edge_refs);
+        let first = community_detection(&g, 1.0);
+        assert_eq!(
+            first.len(),
+            2,
+            "two cliques + one bridge must yield 2 communities, got {first:?}"
+        );
+        // Each community is exactly one clique (5 members).
+        assert!(first.iter().all(|c| c.len() == 5), "got {first:?}");
+        // Coloring-parallel result is deterministic across runs.
+        for _ in 0..10 {
+            assert_eq!(community_detection(&g, 1.0), first);
+        }
+    }
+
+    #[test]
+    fn parallel_betweenness_is_deterministic_and_finds_cut_vertex() {
+        // Phase C-D: Brandes parallelized over source nodes. On the path
+        // b—a—hub—d—e the centre "hub" lies on the most shortest paths, so it must
+        // have the maximum betweenness — and the parallel result must be identical
+        // across runs (source-ordered reduction preserves the sequential value).
+        let g = build(
+            &["a", "b", "hub", "d", "e"],
+            &[
+                ("a", "b"),
+                ("b", "a"),
+                ("a", "hub"),
+                ("hub", "a"),
+                ("hub", "d"),
+                ("d", "hub"),
+                ("d", "e"),
+                ("e", "d"),
+            ],
+        );
+        let mut r1 = betweenness_centrality(&g);
+        let mut r2 = betweenness_centrality(&g);
+        r1.sort_by(|a, b| a.0.cmp(&b.0));
+        r2.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(r1, r2, "parallel betweenness must be deterministic");
+
+        let top = r1
+            .iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .unwrap();
+        assert_eq!(top.0, "hub", "the cut vertex must have the max betweenness");
     }
 }
