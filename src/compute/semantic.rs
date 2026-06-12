@@ -18,20 +18,31 @@ const HNSW_NB_LAYER: usize = 16;
 const HNSW_EF_SEARCH: usize = 64;
 /// Threshold below which we use brute-force (HNSW overhead not worth it).
 const BRUTE_FORCE_THRESHOLD: usize = 32;
+/// Rebuild the index once tombstoned (superseded) points exceed this percent of
+/// total inserts. hnsw_rs cannot remove a point, so an overwrite leaves the old
+/// vector in the graph; rather than rebuild on every overwrite (the old O(n)
+/// thrash), we tombstone + incrementally insert and rebuild only past this ratio,
+/// which also bounds the recall drag from dead neighbors polluting the traversal.
+const COMPACT_TOMBSTONE_PCT: usize = 30;
 
 /// The lazily-built, incrementally-maintained HNSW index plus its idx→id map.
 /// Held behind a `RwLock` inside `SemanticStore` for interior mutability so a
 /// `&self` search can rebuild it once after load. NEVER serialized — reconstructed
-/// from `embeddings`. (Phase C-D — HNSW-incremental.)
+/// from `embeddings`. (Phase C-D — HNSW-incremental; Phase B3 — tombstones.)
 struct HnswIndex {
-    /// The live index. `None` until first built / after an in-place update
-    /// invalidates it (hnsw_rs has no point removal, so an embedding overwrite
-    /// forces one lazy rebuild). `'static` is sound because `insert` copies the
-    /// data into an owned `Vec` (the crate's lifetime is for mmap-backed points).
+    /// The live index. `None` until first built / after a compaction invalidates
+    /// it. `'static` is sound because `insert` copies the data into an owned `Vec`
+    /// (the crate's lifetime is for mmap-backed points).
     hnsw: Option<Hnsw<'static, f32, DistCosine>>,
-    /// HNSW internal id → node id. The internal id is the insertion ordinal.
+    /// HNSW internal id → node id. The internal id is the insertion ordinal;
+    /// append-only, so it includes superseded (tombstoned) slots.
     order: Vec<String>,
-    /// Number of embeddings the current index reflects (append staleness check).
+    /// node id → its CURRENT live internal id (the latest insert for that node).
+    id_to_internal: HashMap<String, usize>,
+    /// Superseded internal ids (an overwrite re-inserts the node at a new id and
+    /// tombstones the old one). Filtered out of search results.
+    tombstones: std::collections::HashSet<usize>,
+    /// Number of LIVE embeddings the current index reflects (staleness check).
     built_len: usize,
     /// Embedding dimensionality the index was built for.
     dim: usize,
@@ -42,6 +53,8 @@ impl HnswIndex {
         Self {
             hnsw: None,
             order: Vec::new(),
+            id_to_internal: HashMap::new(),
+            tombstones: std::collections::HashSet::new(),
             built_len: 0,
             dim: 0,
         }
@@ -100,6 +113,12 @@ impl<'de> Deserialize<'de> for SemanticStore {
     }
 }
 
+impl Default for SemanticStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticStore {
     pub fn new() -> Self {
         Self {
@@ -111,27 +130,49 @@ impl SemanticStore {
     pub fn add_embedding(&mut self, node_id: String, embedding: Vec<f32>) {
         let is_update = self.embeddings.contains_key(&node_id);
         self.embeddings.insert(node_id.clone(), embedding.clone());
-        let len = self.embeddings.len();
+        let live_len = self.embeddings.len();
 
         let mut idx = self.index.write();
+        if idx.hnsw.is_none() {
+            return; // not built yet → built lazily on next search
+        }
+        if embedding.len() != idx.dim {
+            idx.hnsw = None; // dimension drift → rebuild on next search
+            return;
+        }
+        // Incremental insert at a fresh internal id (append-only).
+        let internal = idx.order.len();
+        idx.hnsw
+            .as_ref()
+            .unwrap()
+            .insert((&embedding[..], internal));
+        idx.order.push(node_id.clone());
         if is_update {
-            // hnsw_rs cannot remove/replace a point → invalidate; the next search
-            // rebuilds a clean index. (Pure-append ingest never hits this path.)
-            idx.hnsw = None;
-        } else if idx.hnsw.is_some() {
-            if embedding.len() == idx.dim {
-                let internal = idx.order.len();
-                idx.hnsw
-                    .as_ref()
-                    .unwrap()
-                    .insert((&embedding[..], internal));
-                idx.order.push(node_id);
-                idx.built_len = len;
-            } else {
-                idx.hnsw = None; // dimension drift → rebuild
+            // Overwrite: tombstone the node's previous internal id (hnsw_rs can't
+            // remove it) so search filters the stale vector — no full rebuild.
+            if let Some(&old) = idx.id_to_internal.get(&node_id) {
+                idx.tombstones.insert(old);
             }
         }
-        // hnsw == None (not yet built): leave it; built lazily on next search.
+        idx.id_to_internal.insert(node_id, internal);
+        idx.built_len = live_len;
+
+        // Deferred compaction: once dead points exceed COMPACT_TOMBSTONE_PCT of all
+        // inserts, drop the index so the next search rebuilds a clean one — O(n)
+        // amortized across many overwrites instead of per overwrite.
+        if idx.order.len() >= BRUTE_FORCE_THRESHOLD
+            && idx.tombstones.len() * 100 >= idx.order.len() * COMPACT_TOMBSTONE_PCT
+        {
+            idx.hnsw = None;
+        }
+    }
+
+    /// Force a clean rebuild that drops all tombstones (ops/maintenance hook).
+    pub fn force_compact(&self) {
+        let mut idx = self.index.write();
+        if idx.hnsw.is_some() {
+            self.rebuild(&mut idx);
+        }
     }
 
     pub fn semantic_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
@@ -174,14 +215,19 @@ impl SemanticStore {
             DistCosine,
         );
         let mut order = Vec::with_capacity(self.embeddings.len());
+        let mut id_to_internal = HashMap::with_capacity(self.embeddings.len());
         for (id, emb) in &self.embeddings {
             if emb.len() == dim {
-                hnsw.insert((&emb[..], order.len()));
+                let internal = order.len();
+                hnsw.insert((&emb[..], internal));
                 order.push(id.clone());
+                id_to_internal.insert(id.clone(), internal);
             }
         }
         idx.hnsw = Some(hnsw);
         idx.order = order;
+        idx.id_to_internal = id_to_internal;
+        idx.tombstones.clear();
         idx.dim = dim;
         idx.built_len = self.embeddings.len();
     }
@@ -198,13 +244,23 @@ impl SemanticStore {
             Some(h) => h,
             None => return Vec::new(),
         };
-        hnsw.search(query_embedding, n_results, HNSW_EF_SEARCH)
+        // Over-fetch to absorb tombstoned hits — dead points are still traversed by
+        // hnsw_rs and can appear in the raw result list. Bounded (compaction caps
+        // the tombstone ratio), so this stays a small constant-factor over-fetch.
+        let want = if idx.tombstones.is_empty() {
+            n_results
+        } else {
+            (n_results * 2).max(n_results + 16).min(idx.order.len())
+        };
+        hnsw.search(query_embedding, want, HNSW_EF_SEARCH)
             .iter()
+            .filter(|nb| !idx.tombstones.contains(&nb.d_id))
             .filter_map(|nb| {
                 idx.order
                     .get(nb.d_id)
                     .map(|id| (id.clone(), 1.0 - nb.distance))
             })
+            .take(n_results)
             .collect()
     }
 
@@ -315,6 +371,48 @@ mod tests {
             "HNSW search must work after restore (index rebuilt lazily)"
         );
         assert!(results.len() <= 5);
+    }
+
+    #[test]
+    fn overwrite_tombstones_reflect_latest_and_compact() {
+        // Phase B3: an embedding overwrite must (a) be reflected in search (the
+        // NEW vector wins, the stale one is tombstoned) and (b) NOT trigger a full
+        // rebuild every time — many overwrites stay correct as compaction kicks in.
+        let mut store = SemanticStore::new();
+        for i in 0..40 {
+            let mut emb = vec![0.1f32; 8];
+            emb[i % 8] = (i as f32) / 40.0;
+            store.add_embedding(format!("n{i}"), emb);
+        }
+        let _ = store.semantic_search(&[0.1; 8], 5); // build the index
+
+        // Overwrite n0 toward a brand-new direction → the NEW n0 is searchable.
+        // (HNSW is approximate, so assert top-k membership, not exact rank.)
+        let newdir = vec![5.0f32; 8];
+        store.add_embedding("n0".into(), newdir.clone());
+        let res = store.semantic_search(&newdir, 10);
+        assert!(
+            res.iter().any(|(id, _)| id == "n0"),
+            "overwrite must be reflected in search: {res:?}"
+        );
+
+        // Hammer one node with overwrites to exceed the compaction ratio; results
+        // must stay correct (latest embedding searchable) and free of dupes.
+        for k in 0..40 {
+            store.add_embedding("n1".into(), vec![k as f32 + 10.0; 8]);
+        }
+        let target = vec![49.0f32; 8];
+        let res = store.semantic_search(&target, 10);
+        assert!(
+            res.iter().any(|(id, _)| id == "n1"),
+            "latest overwrite must be searchable after compaction: {res:?}"
+        );
+        // A tombstoned id must never surface as a duplicate of its live node.
+        let mut ids: Vec<&String> = res.iter().map(|(id, _)| id).collect();
+        let before = ids.len();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(before, ids.len(), "tombstoned dupes must not appear");
     }
 
     #[test]

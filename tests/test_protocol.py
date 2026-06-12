@@ -29,7 +29,7 @@ def test_request_create_channel_roundtrip():
     """Test CreateChannel request serializes correctly."""
     req = {
         "id": 42,
-        "graph": "__bus__",
+        "graph": "__commons__",
         "auth_token": "tok",
         "method": "CreateChannel",
         "params": {
@@ -103,7 +103,7 @@ def test_all_method_names_are_strings():
         "Reconcile",
     ]
     for m in methods:
-        req = {"id": 0, "graph": "__bus__", "auth_token": "", "method": m}
+        req = {"id": 0, "graph": "__commons__", "auth_token": "", "method": m}
         assert json.loads(json.dumps(req))["method"] == m
 
 

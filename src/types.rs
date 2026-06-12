@@ -9,18 +9,13 @@ use serde::{Deserialize, Serialize};
 // ── Node Types ───────────────────────────────────────────────────────────
 
 /// Lifecycle state for graph nodes — drives pruning and compaction.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LifecycleState {
+    #[default]
     Active,
     Compacted,
     Archived,
     PendingDeletion,
-}
-
-impl Default for LifecycleState {
-    fn default() -> Self {
-        LifecycleState::Active
-    }
 }
 
 impl std::fmt::Display for LifecycleState {

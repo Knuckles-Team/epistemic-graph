@@ -92,6 +92,33 @@ async def test_frame_handling_and_pool():
 
 
 @pytest.mark.asyncio
+async def test_rpc_timeout_is_bounded_and_connection_fatal():
+    # CONCEPT:KG-2.19 (B1) — a server that accepts the connection but never replies.
+    # Pre-B1 the client awaited the read forever; now every RPC is bounded and a
+    # timeout is connection-fatal (the stream is desynced, so it must reconnect).
+    async def silent_handler(reader, writer):
+        try:
+            await reader.read()  # drain forever; never write a reply
+        except Exception:  # noqa: BLE001
+            pass
+
+    server = await asyncio.start_server(silent_handler, "127.0.0.1", 9120)
+    try:
+        client = await EpistemicGraphClient.connect(
+            tcp_addr="127.0.0.1:9120",
+            auth_secret="s",
+            timeout=0.2,
+            heavy_timeout=0.2,
+        )
+        with pytest.raises(TimeoutError):
+            await client.ping()
+        assert client._closed is True, "timeout must close the desynced connection"
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_shard_stickiness():
     router = ShardRouter([
         "tcp://127.0.0.1:9101",

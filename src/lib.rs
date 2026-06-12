@@ -1,5 +1,9 @@
 #![allow(non_local_definitions)]
 #![allow(dead_code)]
+// No unsafe anywhere except the single tree-sitter FFI block (ast/parser.rs),
+// which carries a scoped #[allow(unsafe_code)] with a soundness note. Any new
+// unsafe is a compile error until it is explicitly justified the same way.
+#![deny(unsafe_code)]
 
 // CONCEPT:KG-2.16 - High-Performance Graph Compute Engine
 // CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
@@ -16,8 +20,6 @@ pub mod ast;
 pub mod channels;
 pub mod compute;
 pub mod datascience;
-#[cfg(feature = "kafka")]
-pub mod event_bus;
 pub mod finance;
 pub mod graph;
 #[cfg(feature = "server")]
@@ -38,3 +40,5 @@ pub mod server;
 pub mod types;
 #[cfg(feature = "server")]
 pub mod wal;
+#[cfg(feature = "server")]
+pub mod wal_service;
