@@ -5,3 +5,4 @@
 
 pub(crate) mod datascience;
 pub(crate) mod finance;
+pub(crate) mod graph_ops;
