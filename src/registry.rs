@@ -1,7 +1,9 @@
 // CONCEPT:KG-2.19 — Multi-Tenant Graph Registry
 //
-// Manages named graphs with lifecycle operations. The `__bus__` graph
-// is always present as the shared message bus.
+// Manages named graphs with lifecycle operations. The `__commons__` graph
+// is always present as the shared, world-readable/writable commons graph
+// (every authenticated agent can read/write it). It is NOT a message bus —
+// it is a default shared graph; see isolation.rs.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,14 +36,14 @@ impl Default for GraphRegistry {
 }
 
 impl GraphRegistry {
-    /// Create a new registry with the `__bus__` graph pre-created.
+    /// Create a new registry with the `__commons__` graph pre-created.
     pub fn new() -> Self {
         let mut graphs = HashMap::new();
         graphs.insert(
-            "__bus__".to_string(),
+            "__commons__".to_string(),
             GraphEntry {
-                name: "__bus__".to_string(),
-                graph_type: GraphType::Bus,
+                name: "__commons__".to_string(),
+                graph_type: GraphType::Commons,
                 core: Arc::new(GraphCore::new()),
                 owner: None,
             },
@@ -71,10 +73,10 @@ impl GraphRegistry {
         Ok(())
     }
 
-    /// Delete a named graph. Cannot delete `__bus__`.
+    /// Delete a named graph. Cannot delete `__commons__`.
     pub fn delete_graph(&mut self, name: &str) -> Result<(), String> {
-        if name == "__bus__" {
-            return Err("Cannot delete the __bus__ graph".to_string());
+        if name == "__commons__" {
+            return Err("Cannot delete the __commons__ graph".to_string());
         }
         self.graphs
             .remove(name)
@@ -118,7 +120,7 @@ mod tests {
     #[test]
     fn test_bus_exists_on_creation() {
         let reg = GraphRegistry::new();
-        assert!(reg.exists("__bus__"));
+        assert!(reg.exists("__commons__"));
         assert_eq!(reg.list().len(), 1);
     }
 
@@ -137,7 +139,7 @@ mod tests {
     #[test]
     fn test_cannot_delete_bus() {
         let mut reg = GraphRegistry::new();
-        assert!(reg.delete_graph("__bus__").is_err());
+        assert!(reg.delete_graph("__commons__").is_err());
     }
 
     #[test]

@@ -39,7 +39,7 @@ def isolation_server(tmp_path_factory):
     proc.wait(timeout=10)
 
 
-def _client(sock, agent_id=None, graph_name="__bus__"):
+def _client(sock, agent_id=None, graph_name="__commons__"):
     return SyncEpistemicGraphClient.connect(
         socket_path=sock,
         auth_secret=SECRET,
@@ -90,7 +90,7 @@ def test_acl_enforced_once_identities_registered(isolation_server):
         assert manager.nodes.has("n1") is True
         manager.nodes.add("n2", {"by": "manager"})
 
-        # The __bus__ stays open to everyone (channels keep working).
+        # The __commons__ stays open to everyone (channels keep working).
         bus = _client(sock, agent_id="worker2")
         try:
             assert bus.ping() == "pong"
