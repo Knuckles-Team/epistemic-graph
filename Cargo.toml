@@ -50,8 +50,17 @@ nalgebra = { version = "0.32", features = ["serde"] }
 rand_chacha = "0.3"
 rand_distr = "0.4"
 
-# Optional Server
-tokio = { version = "1.38", features = ["full"], optional = true }
+# Optional Server. Explicit minimal feature set (not "full"): the binary uses an
+# explicitly-built multi-thread runtime + UDS/TCP listeners + sync primitives +
+# timers, and nothing from process/signal/fs. Tests pull dev-dependencies' "full"
+# tokio, so #[tokio::test]/duplex still work. Trims compile time + binary surface.
+tokio = { version = "1.38", features = [
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "sync",
+    "time",
+], optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 

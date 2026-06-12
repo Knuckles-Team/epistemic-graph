@@ -38,6 +38,11 @@ impl SourceLanguage {
 
     /// Get the tree-sitter language for this source language.
     fn tree_sitter_language(&self) -> Language {
+        // SAFETY: each `tree_sitter_<lang>()` is a generated extern "C" fn that
+        // returns an owned `Language` handle by value with no preconditions; the
+        // grammar crates are ABI-pinned in Cargo.toml. This is the crate's only
+        // unsafe (enforced by #![deny(unsafe_code)] in lib.rs).
+        #[allow(unsafe_code)]
         unsafe {
             match self {
                 SourceLanguage::Python => tree_sitter_python(),

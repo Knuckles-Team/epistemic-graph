@@ -2244,6 +2244,25 @@ async fn dispatch_graph_op(
     response
 }
 
+/// Serialize a response to a length-prefixable frame. On the (essentially
+/// impossible) event that encoding fails, emit a VALID error frame rather than an
+/// empty one — a 0-length frame would be read by the client as a zero-byte
+/// response and desync the stream. Replaces a previous `unwrap_or_default()` that
+/// silently produced exactly that empty frame.
+fn encode_response(resp: &Response) -> Vec<u8> {
+    match rmp_serde::to_vec_named(resp) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("response encode failed (id={}): {}", resp.id, e);
+            rmp_serde::to_vec_named(&Response::err(
+                resp.id,
+                "internal: response serialization failed",
+            ))
+            .unwrap_or_default()
+        }
+    }
+}
+
 /// Handle a single client connection (UDS or TCP).
 pub async fn handle_connection<S>(mut stream: S, state: Arc<RwLock<ServerState>>)
 where
@@ -2277,7 +2296,7 @@ where
             Ok(r) => r,
             Err(e) => {
                 let resp = Response::err(0, format!("Invalid request MsgPack: {}", e));
-                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out = encode_response(&resp);
                 let out_len = out.len() as u32;
                 let _ = stream.write_all(&out_len.to_be_bytes()).await;
                 let _ = stream.write_all(&out).await;
@@ -2293,7 +2312,7 @@ where
             Err(_) => {
                 crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
-                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out = encode_response(&resp);
                 let out_len = out.len() as u32;
                 if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
                     break;
@@ -2318,7 +2337,7 @@ where
                 drop(_permit);
                 crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: graph at capacity, retry with backoff");
-                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out = encode_response(&resp);
                 let out_len = out.len() as u32;
                 if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
                     break;
@@ -2335,7 +2354,7 @@ where
         drop(_permit);
         crate::metrics::connection_request_finished(sem.available_permits());
 
-        let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+        let out = encode_response(&resp);
         let out_len = out.len() as u32;
         if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
             break;
