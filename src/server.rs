@@ -46,8 +46,8 @@ pub struct ServerState {
 }
 
 /// Compute the HMAC-SHA256 hex token for a request id. Shared by `verify_auth`
-/// and trusted in-process callers (Kafka event bus, tests) that dispatch
-/// requests without going through a socket client.
+/// and trusted in-process callers (tests) that dispatch requests without going
+/// through a socket client.
 pub fn compute_auth_token(secret: &str, request_id: u64) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
