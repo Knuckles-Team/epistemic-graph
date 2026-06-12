@@ -17,6 +17,11 @@ use crate::protocol::{Method, Request, Response, ResultPayload};
 use crate::registry::GraphRegistry;
 
 /// Shared server state behind Arc<RwLock<>>.
+/// Upper bound on ids/edges accepted by a single batch read op. Oversize batches
+/// are rejected (not truncated) so a runaway request can't allocate a multi-GB
+/// response and OOM the shared process.
+pub const MAX_BATCH_IDS: usize = 100_000;
+
 pub struct ServerState {
     pub registry: GraphRegistry,
     pub isolation: IsolationLayer,
@@ -639,6 +644,45 @@ async fn dispatch_graph_op(
                 None => ResultPayload::Json(serde_json::Value::Null),
             };
             Response::ok(req_id, val)
+        }
+        Method::GetNodePropertiesBatch { node_ids } => {
+            if node_ids.len() > MAX_BATCH_IDS {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "batch too large: {} ids (max {})",
+                        node_ids.len(),
+                        MAX_BATCH_IDS
+                    ),
+                );
+            }
+            let g = &*core;
+            // [id, properties_msgpack | nil] in input order — one round-trip for N
+            // nodes; nil preserves which ids were absent. serde_bytes keeps the
+            // property blobs as MessagePack `bin`, not int arrays.
+            let out: Vec<(String, Option<serde_bytes::ByteBuf>)> = node_ids
+                .into_iter()
+                .map(|id| {
+                    let props = g.get_node_properties(&id).map(serde_bytes::ByteBuf::from);
+                    (id, props)
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::raw(&out))
+        }
+        Method::HasNodesBatch { node_ids } => {
+            if node_ids.len() > MAX_BATCH_IDS {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "batch too large: {} ids (max {})",
+                        node_ids.len(),
+                        MAX_BATCH_IDS
+                    ),
+                );
+            }
+            let g = &*core;
+            let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
+            Response::ok(req_id, ResultPayload::raw(&out))
         }
         Method::NodeCount => {
             let g = &*core;
@@ -1537,6 +1581,32 @@ async fn dispatch_graph_op(
                 .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
                 .collect();
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
+        }
+        Method::GetEdgePropertiesBatch { edges } => {
+            if edges.len() > MAX_BATCH_IDS {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "batch too large: {} edges (max {})",
+                        edges.len(),
+                        MAX_BATCH_IDS
+                    ),
+                );
+            }
+            let g = &*core;
+            // One round-trip for N edges. Each entry is the list of property blobs
+            // for that (src, tgt) pair (a pair may have multiple edges), in input
+            // order; an empty inner list ⇒ no such edge.
+            let out: Vec<Vec<serde_bytes::ByteBuf>> = edges
+                .into_iter()
+                .map(|(src, tgt)| {
+                    g.get_edge_properties(&src, &tgt)
+                        .into_iter()
+                        .map(serde_bytes::ByteBuf::from)
+                        .collect()
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::raw(&out))
         }
         Method::ClearGraph => {
             let g = &*core;
@@ -2506,6 +2576,81 @@ mod tests {
 
         svc.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn batch_node_reads_collapse_round_trips() {
+        // A2: GetNodePropertiesBatch / HasNodesBatch fetch N nodes in one request.
+        let state = test_state();
+        for (id, k) in [("a", 1), ("b", 2)] {
+            let m = Method::AddNode {
+                node_id: id.into(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({ "k": k }))
+                    .unwrap(),
+            };
+            assert_ok(&dispatch(&state, request(1, "__bus__", None, m)).await);
+        }
+
+        let resp = dispatch(
+            &state,
+            request(
+                2,
+                "__bus__",
+                None,
+                Method::GetNodePropertiesBatch {
+                    node_ids: vec!["a".into(), "missing".into(), "b".into()],
+                },
+            ),
+        )
+        .await;
+        let raw = match resp.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?} (err={:?})", resp.error),
+        };
+        let rows: Vec<(String, Option<serde_bytes::ByteBuf>)> =
+            rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].0, "a");
+        assert!(rows[0].1.is_some(), "present node returns properties");
+        assert_eq!(rows[1].0, "missing");
+        assert!(rows[1].1.is_none(), "absent id returns nil");
+        let a_props: serde_json::Value =
+            rmp_serde::from_slice(rows[0].1.as_ref().unwrap()).unwrap();
+        assert_eq!(a_props["k"], 1);
+
+        let resp = dispatch(
+            &state,
+            request(
+                3,
+                "__bus__",
+                None,
+                Method::HasNodesBatch {
+                    node_ids: vec!["a".into(), "missing".into()],
+                },
+            ),
+        )
+        .await;
+        let raw = match resp.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?}"),
+        };
+        let flags: Vec<bool> = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(flags, vec![true, false]);
+
+        // Oversize batches are rejected, not truncated (OOM guard).
+        let resp = dispatch(
+            &state,
+            request(
+                4,
+                "__bus__",
+                None,
+                Method::GetNodePropertiesBatch {
+                    node_ids: vec!["x".to_string(); MAX_BATCH_IDS + 1],
+                },
+            ),
+        )
+        .await;
+        assert!(resp.error.is_some(), "oversize batch must be rejected");
     }
 
     #[tokio::test]

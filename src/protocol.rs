@@ -88,6 +88,17 @@ pub enum Method {
     GetNodeProperties {
         node_id: String,
     },
+    /// Batch property read: fetch properties for many nodes in ONE round-trip
+    /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
+    /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the
+    /// caller learns which ids were missing. Bounded by `MAX_BATCH_IDS`.
+    GetNodePropertiesBatch {
+        node_ids: Vec<String>,
+    },
+    /// Batch existence check: `Raw` list of bools in input order.
+    HasNodesBatch {
+        node_ids: Vec<String>,
+    },
     NodeCount,
     NodeIds,
 
@@ -116,6 +127,11 @@ pub enum Method {
     GetEdgeProperties {
         source_id: String,
         target_id: String,
+    },
+    /// Batch edge property read: `Raw` list of `properties_msgpack | nil` in input
+    /// order (nil ⇒ no such edge). Bounded by `MAX_BATCH_IDS`.
+    GetEdgePropertiesBatch {
+        edges: Vec<(String, String)>,
     },
     EdgeCount,
 
