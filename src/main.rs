@@ -300,6 +300,42 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── Per-graph memory cap (CONCEPT:KG-2.8) — degrade, don't OOM ─────────
+    // The engine is a rebuildable cache over the durable backend, so a graph that
+    // exceeds EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
+    // — the backstop that makes a shard shed working set instead of OOM-killing
+    // every tenant. Off by default (0 = unbounded). The sweep is periodic so it
+    // never touches the write hot path.
+    let max_nodes_per_graph = std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    if max_nodes_per_graph > 0 {
+        let cap_state = state.clone();
+        let cap_interval = std::env::var("EPISTEMIC_GRAPH_MEMCAP_INTERVAL")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(10);
+        info!(
+            "Memory cap: per-graph max {} nodes, swept every {}s (LRU eviction)",
+            max_nodes_per_graph, cap_interval
+        );
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(cap_interval));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                let evicted =
+                    epistemic_graph::persist::evict_oversized_all(&cap_state, max_nodes_per_graph)
+                        .await;
+                if evicted > 0 {
+                    tracing::info!("Memory cap: evicted {} LRU node(s) over cap", evicted);
+                }
+            }
+        });
+    }
+
     // ── Transport ───────────────────────────────────────────────────────
     // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,
     // so TCP is the main (and only) transport there.

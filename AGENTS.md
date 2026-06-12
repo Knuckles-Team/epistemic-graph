@@ -47,6 +47,24 @@ Two rules follow, and they shape every integration:
 There is no GIL coupling and no shared address space — design for a network boundary,
 because that is exactly what it is.
 
+## Durability model — the engine is a rebuildable cache, NOT the source of truth
+
+The durable system-of-record is the **abstracted backend** agent-utilities writes
+through (Postgres/pggraph, neo4j, falkordb, or ladybug). This engine is the **fast
+in-memory cache + compute layer** over it:
+
+- The local RDB snapshot (`.mp`) + WAL exist purely for **fast warm restart** —
+  they bound how much a restart has to recompute, not whether data survives.
+- A crashed shard is a **latency event, not data loss**: it re-hydrates from the
+  durable backend (or replays its snapshot + WAL). Run the engine under a
+  supervisor (systemd / the Python host daemon) that auto-restarts it; restart is
+  sub-second for typical shards, so the RTO is small.
+- Consequently there is **no in-engine replication or consensus** — that would
+  duplicate the durable backend's job. Horizontal scale is client-side HRW
+  sharding over independent single-process shards, and per-graph memory is bounded
+  by `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (LRU eviction back to the durable tier)
+  so a shard **degrades instead of OOM-killing every tenant** on it.
+
 ---
 
 ## Commands for AI Agents
