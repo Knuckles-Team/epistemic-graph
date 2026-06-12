@@ -655,21 +655,16 @@ async fn dispatch_graph_op(
             query_embedding,
             n_results,
         } => {
-            // CONCEPT:KG-2.51 — never run heavy compute under the graph lock.
-            // The ANN search (the HNSW path rebuilds its index per query) and
-            // the per-candidate Ebbinghaus decay scoring both run on the
-            // blocking pool; the read lock is held only to memcpy the
-            // embedding store, then briefly again to fetch the ~2·n candidate
-            // property blobs. A large search no longer stalls writers.
-            let store = { core.semantic_store.read().clone() };
-            // Fetch more results initially to account for filtered out nodes
-            let raw_results = match compute_off_lock(req_id, move || {
-                store.semantic_search(&query_embedding, n_results * 2)
-            })
-            .await
-            {
-                Ok(r) => r,
-                Err(resp) => return resp,
+            // CONCEPT:KG-2.51 / Phase C-D — the HNSW index is now maintained
+            // incrementally, so the ANN query is O(log n): hold the embedding read
+            // lock only for the query itself (no whole-store clone, no per-query
+            // index rebuild — at most a one-time lazy rebuild after load). The
+            // per-candidate Ebbinghaus decay scoring still runs off-lock below.
+            // Fetch more results initially to account for filtered-out nodes.
+            let raw_results = {
+                core.semantic_store
+                    .read()
+                    .semantic_search(&query_embedding, n_results * 2)
             };
 
             // Bounded candidate-metadata fetch: only the hit ids, not the graph.
