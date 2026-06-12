@@ -202,15 +202,21 @@ pub fn degree_centrality_all(core: &GraphView) -> Vec<(String, f64)> {
 }
 
 /// Betweenness centrality via Brandes' algorithm.
+///
+/// Brandes accumulates an independent single-source contribution per node, so the
+/// expensive O(V·E) outer loop is parallelized across source nodes with rayon
+/// (Phase C-D). Each source's contribution is computed in parallel; the partials
+/// are then summed back in SOURCE ORDER, so the floating-point result is bit-for-bit
+/// identical to the sequential version (determinism preserved).
 pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
+    use rayon::prelude::*;
+
     let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
     let n = nodes.len();
-    let mut centrality: HashMap<NodeIndex, f64> = HashMap::new();
-    for &node in &nodes {
-        centrality.insert(node, 0.0);
-    }
 
-    for &source in &nodes {
+    // One independent single-source dependency accumulation. Returns (w, delta[w])
+    // for every w != source — the partial betweenness this source contributes.
+    let source_contribution = |source: NodeIndex| -> Vec<(NodeIndex, f64)> {
         let mut stack = Vec::new();
         let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
         let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
@@ -252,6 +258,7 @@ pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
             delta.insert(v, 0.0);
         }
 
+        let mut contrib = Vec::new();
         while let Some(w) = stack.pop() {
             if sigma[&w] > 0.0 {
                 for &v in &predecessors[&w] {
@@ -261,10 +268,25 @@ pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
                     }
                 }
             }
-            if w != source {
-                if let Some(c) = centrality.get_mut(&w) {
-                    *c += delta[&w];
-                }
+            if w != source && delta[&w] != 0.0 {
+                contrib.push((w, delta[&w]));
+            }
+        }
+        contrib
+    };
+
+    // Compute every source's contribution in parallel; collect preserves source
+    // order so the sequential reduction below is order-stable.
+    let partials: Vec<Vec<(NodeIndex, f64)>> = nodes
+        .par_iter()
+        .map(|&source| source_contribution(source))
+        .collect();
+
+    let mut centrality: HashMap<NodeIndex, f64> = nodes.iter().map(|&v| (v, 0.0)).collect();
+    for partial in &partials {
+        for &(w, dw) in partial {
+            if let Some(c) = centrality.get_mut(&w) {
+                *c += dw;
             }
         }
     }
@@ -1294,5 +1316,37 @@ mod community_tests {
         let props: serde_json::Value = rmp_serde::from_slice(&raw).expect("props are msgpack");
         assert_eq!(props["language"], "java");
         assert_eq!(props["name"], "Widget");
+    }
+
+    #[test]
+    fn parallel_betweenness_is_deterministic_and_finds_cut_vertex() {
+        // Phase C-D: Brandes parallelized over source nodes. On the path
+        // b—a—hub—d—e the centre "hub" lies on the most shortest paths, so it must
+        // have the maximum betweenness — and the parallel result must be identical
+        // across runs (source-ordered reduction preserves the sequential value).
+        let g = build(
+            &["a", "b", "hub", "d", "e"],
+            &[
+                ("a", "b"),
+                ("b", "a"),
+                ("a", "hub"),
+                ("hub", "a"),
+                ("hub", "d"),
+                ("d", "hub"),
+                ("d", "e"),
+                ("e", "d"),
+            ],
+        );
+        let mut r1 = betweenness_centrality(&g);
+        let mut r2 = betweenness_centrality(&g);
+        r1.sort_by(|a, b| a.0.cmp(&b.0));
+        r2.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(r1, r2, "parallel betweenness must be deterministic");
+
+        let top = r1
+            .iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .unwrap();
+        assert_eq!(top.0, "hub", "the cut vertex must have the max betweenness");
     }
 }
