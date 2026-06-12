@@ -74,6 +74,12 @@ pub struct ChannelManager {
     pub imprints: Vec<ChannelImprint>,
 }
 
+impl Default for ChannelManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChannelManager {
     pub fn new() -> Self {
         ChannelManager {

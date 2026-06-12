@@ -31,6 +31,12 @@ pub struct GraphRegistry {
     graphs: HashMap<String, GraphEntry>,
 }
 
+impl Default for GraphRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GraphRegistry {
     /// Create a new registry with the `__bus__` graph pre-created.
     pub fn new() -> Self {

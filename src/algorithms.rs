@@ -437,7 +437,7 @@ pub fn minimum_spanning_tree(core: &GraphView) -> Vec<(String, String, f64)> {
 
     // Map node indices from core to undirected graph
     let mut idx_map: HashMap<NodeIndex, petgraph::graph::NodeIndex> = HashMap::new();
-    for (&ref _id, &idx) in &core.node_map {
+    for &idx in core.node_map.values() {
         let new_idx = undirected.add_node(core.graph[idx].clone());
         idx_map.insert(idx, new_idx);
     }
@@ -955,7 +955,7 @@ pub fn compute_similarity_edges(core: &GraphView, threshold: f64) -> Vec<(String
         .node_properties
         .iter()
         .filter_map(|(node_id, props_json)| {
-            let val: serde_json::Value = serde_json::from_slice(&props_json).ok()?;
+            let val: serde_json::Value = serde_json::from_slice(props_json).ok()?;
             let emb = val.get("embedding")?;
             let vec: Vec<f64> = serde_json::from_value(emb.clone()).ok()?;
             if vec.is_empty() {

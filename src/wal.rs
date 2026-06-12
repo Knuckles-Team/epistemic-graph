@@ -60,6 +60,10 @@ impl WalWriter {
     pub fn open(path: &Path) -> std::io::Result<Self> {
         let mut file = OpenOptions::new()
             .create(true)
+            // Never truncate on open: an existing WAL must be preserved for
+            // replay. We position at EOF below and track `len` for position-based
+            // prefix truncation after a checkpoint.
+            .truncate(false)
             .read(true)
             .write(true)
             .open(path)?;
