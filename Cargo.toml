@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types"]
+members = ["crates/eg-types", "crates/eg-core"]
 
 [package]
 name = "epistemic-graph"
@@ -38,6 +38,7 @@ all = ["full"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
+eg-core = { path = "crates/eg-core" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
