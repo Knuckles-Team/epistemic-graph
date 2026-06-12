@@ -58,6 +58,11 @@ pub struct GraphCore {
     pub edge_properties: DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     pub ledger: Mutex<Vec<String>>,
     pub semantic_store: RwLock<crate::compute::semantic::SemanticStore>,
+    /// Has this graph been mutated since its last checkpoint? (Phase C-C —
+    /// incremental checkpointing.) Starts `true` so a freshly created or freshly
+    /// loaded graph is snapshotted once; thereafter `checkpoint_all` skips graphs
+    /// that are still clean, so an idle tenant costs no checkpoint I/O.
+    pub dirty: std::sync::atomic::AtomicBool,
 }
 
 impl Default for GraphCore {
@@ -220,7 +225,21 @@ impl GraphCore {
             edge_properties: DashMap::new(),
             ledger: Mutex::new(Vec::new()),
             semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
+            dirty: std::sync::atomic::AtomicBool::new(true),
         }
+    }
+
+    /// Mark this graph as changed since its last checkpoint (Phase C-C). Called by
+    /// the dispatch after any successful write op and by the background decay sweep.
+    pub fn mark_dirty(&self) {
+        self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Atomically read-and-clear the dirty flag. The checkpoint calls this BEFORE
+    /// snapshotting, so a mutation that races the checkpoint re-marks the graph
+    /// dirty and is captured by the NEXT checkpoint rather than being lost.
+    pub fn take_dirty(&self) -> bool {
+        self.dirty.swap(false, std::sync::atomic::Ordering::AcqRel)
     }
 
     /// Open a write transaction: acquires the topology write lock and borrows the
@@ -651,6 +670,7 @@ impl GraphCore {
                 .collect(),
             ledger: Mutex::new(self.ledger.lock().clone()),
             semantic_store: RwLock::new(self.semantic_store.read().clone()),
+            dirty: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -989,6 +1009,16 @@ impl GraphCore {
         for nid in &node_prune {
             self.remove_node(nid.clone());
             stats.nodes_pruned += 1;
+        }
+        // Decay/prune mutated persistent state → the next checkpoint must rewrite
+        // this graph (Phase C-C). The background sweep does not go through dispatch,
+        // so it marks dirty here directly.
+        if stats.nodes_decayed > 0
+            || stats.edges_decayed > 0
+            || stats.nodes_pruned > 0
+            || stats.edges_pruned > 0
+        {
+            self.mark_dirty();
         }
         stats
     }
@@ -1404,6 +1434,34 @@ mod tests {
         let stats = g.decay_sweep(now, 100.0, 0.1, true);
         assert_eq!(stats.nodes_pruned, 1);
         assert!(!g.has_node("n1"));
+    }
+
+    #[test]
+    fn dirty_flag_mechanics_drive_incremental_checkpoint() {
+        use std::sync::atomic::Ordering;
+        let g = GraphCore::new();
+        // A fresh graph starts dirty so it is checkpointed once (Phase C-C).
+        assert!(g.dirty.load(Ordering::Relaxed));
+        // take_dirty atomically reports-and-clears.
+        assert!(g.take_dirty());
+        assert!(!g.dirty.load(Ordering::Relaxed));
+        assert!(!g.take_dirty());
+
+        // A no-op decay (fresh node, no time elapsed) must NOT re-dirty the graph.
+        let now = 1000u64;
+        g.add_node(
+            "n1".to_string(),
+            props(serde_json::json!({"type": "Fact", "confidence": 1.0, "last_access": now})),
+        );
+        g.take_dirty(); // ignore any earlier state
+        assert_eq!(g.decay_sweep(now, 100.0, 0.0, false).nodes_decayed, 0);
+        assert!(!g.dirty.load(Ordering::Relaxed), "no-op decay must stay clean");
+
+        // A decay that actually changes confidence marks the graph dirty so the
+        // background sweep's writes are captured by the next checkpoint.
+        let later = now + 100;
+        assert_eq!(g.decay_sweep(later, 100.0, 0.0, false).nodes_decayed, 1);
+        assert!(g.dirty.load(Ordering::Relaxed), "real decay must mark dirty");
     }
 }
 
