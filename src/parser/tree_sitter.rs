@@ -160,11 +160,7 @@ fn collect_calls(node: Node, source: &[u8], out: &mut Vec<String>) {
         "call" | "call_expression" => {
             if let Some(f) = node.child_by_field_name("function") {
                 let text = get_node_text(f, source);
-                let name = text
-                    .rsplit(|c| c == '.' || c == ':')
-                    .next()
-                    .unwrap_or(&text)
-                    .trim();
+                let name = text.rsplit(['.', ':']).next().unwrap_or(&text).trim();
                 if !name.is_empty() {
                     out.push(name.to_string());
                 }

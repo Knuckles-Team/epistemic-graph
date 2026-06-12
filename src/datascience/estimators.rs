@@ -782,8 +782,8 @@ fn fit_svr(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) -> FittedModel {
             let ei = f(&beta, bias, i, &k) - y[i];
             let ej = f(&beta, bias, j, &k) - y[j];
             // Subgradient including epsilon tube (push toward reducing |e|-eps).
-            let gi = ei + epsilon * beta[i].signum().max(-1.0).min(1.0);
-            let gj = ej + epsilon * beta[j].signum().max(-1.0).min(1.0);
+            let gi = ei + epsilon * beta[i].signum().clamp(-1.0, 1.0);
+            let gj = ej + epsilon * beta[j].signum().clamp(-1.0, 1.0);
             let eta = k[i][i] + k[j][j] - 2.0 * k[i][j];
             if eta <= 1e-12 {
                 continue;
