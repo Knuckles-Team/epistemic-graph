@@ -63,7 +63,7 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         let entries: Vec<(
             String,
             GraphType,
-            Arc<RwLock<GraphCore>>,
+            Arc<GraphCore>,
             crate::registry::WalHandle,
         )> = s
             .registry
@@ -82,11 +82,9 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         // truncation is loss-free: any op appended during this checkpoint lands at
         // an offset ≥ this position and survives the prefix truncation. (Phase B2)
         let wal_pos = wal.lock().as_ref().map(|w| w.position());
-        // Brief lock: clone the serializable state, then release immediately.
-        let snapshot = {
-            let g = core.read().await;
-            g.snapshot()
-        };
+        // snapshot() takes the topology read lock internally for a consistent
+        // point-in-time copy, then releases it; the encode below runs off-lock.
+        let snapshot = core.snapshot();
         // Slow path (MessagePack encode of the cloned snapshot) runs OFF the lock,
         // so concurrent writers to this graph are not blocked during the encode.
         let bytes = snapshot.to_msgpack()?;
@@ -126,7 +124,7 @@ pub async fn decay_all(
     floor: f64,
     prune: bool,
 ) -> crate::types::DecayStats {
-    let entries: Vec<Arc<RwLock<GraphCore>>> = {
+    let entries: Vec<Arc<GraphCore>> = {
         let s = state.read().await;
         s.registry
             .all_entries()
@@ -140,8 +138,7 @@ pub async fn decay_all(
         .as_secs();
     let mut total = crate::types::DecayStats::default();
     for core in entries {
-        let mut g = core.write().await;
-        let s = g.decay_sweep(now, half_life_secs, floor, prune);
+        let s = core.decay_sweep(now, half_life_secs, floor, prune);
         total.nodes_decayed += s.nodes_decayed;
         total.edges_decayed += s.edges_decayed;
         total.nodes_pruned += s.nodes_pruned;
@@ -203,14 +200,13 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
             s.registry.get_mut(&name).map(|e| e.core.clone())
         };
         if let Some(core) = core {
-            let mut g = core.write().await;
-            g.from_msgpack(&bytes)?;
+            core.from_msgpack(&bytes)?;
             // Replay the WAL tail on top of the snapshot (Phase B2): recovers every
             // durable mutation since the last checkpoint, so warm restart loses
             // nothing the WAL captured rather than everything since the checkpoint.
             let wal_file = crate::wal::wal_path(&dir, &fname);
             if wal_file.exists() {
-                let replayed = crate::wal::replay(&mut g, &wal_file);
+                let replayed = crate::wal::replay(&core, &wal_file);
                 if replayed > 0 {
                     info!(
                         "WAL replay: {} op(s) recovered for graph '{}'",
@@ -248,8 +244,7 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
                 s.registry.get_mut(&fname).map(|e| e.core.clone())
             };
             if let Some(core) = core {
-                let mut g = core.write().await;
-                let n = crate::wal::replay(&mut g, &p);
+                let n = crate::wal::replay(&core, &p);
                 if n > 0 {
                     info!(
                         "WAL-only recovery: {} op(s) for graph '{}' (no prior snapshot)",

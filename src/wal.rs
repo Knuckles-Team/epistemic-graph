@@ -110,7 +110,7 @@ impl WalWriter {
 
 /// Apply one logged method to a graph (replay). Mirrors the dispatch mutation
 /// handlers for exactly the `is_durable_mutation` set.
-fn apply(core: &mut GraphCore, m: &Method) {
+fn apply(core: &GraphCore, m: &Method) {
     match m {
         Method::AddNode {
             node_id,
@@ -143,7 +143,7 @@ fn apply(core: &mut GraphCore, m: &Method) {
 /// Replay a WAL file into `core` (after the snapshot is loaded). Returns the
 /// number of ops applied. A torn trailing record (partial op from a crash mid
 /// append) ends replay cleanly rather than erroring.
-pub fn replay(core: &mut GraphCore, path: &Path) -> usize {
+pub fn replay(core: &GraphCore, path: &Path) -> usize {
     let mut buf = Vec::new();
     if File::open(path)
         .and_then(|mut f| f.read_to_end(&mut buf))
@@ -215,8 +215,8 @@ mod tests {
             .unwrap();
         }
         // Fresh graph + replay == the mutation sequence applied in order.
-        let mut g = GraphCore::new();
-        let n = replay(&mut g, &path);
+        let g = GraphCore::new();
+        let n = replay(&g, &path);
         assert_eq!(n, 4);
         assert_eq!(g.node_count(), 1); // b was removed
         assert_eq!(g.get_node_properties("a"), Some(pa));
@@ -243,8 +243,8 @@ mod tests {
             f.write_all(&(9999u32).to_le_bytes()).unwrap();
             f.write_all(b"partial").unwrap();
         }
-        let mut g = GraphCore::new();
-        let n = replay(&mut g, &path); // must not panic; applies the one good record
+        let g = GraphCore::new();
+        let n = replay(&g, &path); // must not panic; applies the one good record
         assert_eq!(n, 1);
         assert_eq!(g.node_count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
@@ -262,8 +262,8 @@ mod tests {
         })
         .unwrap();
         w.truncate_prefix(w.position()).unwrap();
-        let mut g = GraphCore::new();
-        assert_eq!(replay(&mut g, &path), 0);
+        let g = GraphCore::new();
+        assert_eq!(replay(&g, &path), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -290,8 +290,8 @@ mod tests {
         w.truncate_prefix(pos).unwrap(); // op#1 superseded by snapshot, op#2 kept
         drop(w);
 
-        let mut g = GraphCore::new();
-        let n = replay(&mut g, &path);
+        let g = GraphCore::new();
+        let n = replay(&g, &path);
         assert_eq!(n, 1, "only the post-checkpoint op should remain");
         assert!(g.get_node_properties("after_checkpoint").is_some());
         assert!(g.get_node_properties("in_snapshot").is_none());

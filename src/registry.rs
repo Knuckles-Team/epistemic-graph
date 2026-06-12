@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
 use crate::protocol::GraphType;
@@ -21,7 +20,7 @@ pub type WalHandle = Arc<parking_lot::Mutex<Option<crate::wal::WalWriter>>>;
 pub struct GraphEntry {
     pub name: String,
     pub graph_type: GraphType,
-    pub core: Arc<RwLock<GraphCore>>,
+    pub core: Arc<GraphCore>,
     pub owner: Option<String>,
     #[cfg(feature = "server")]
     pub wal: WalHandle,
@@ -41,7 +40,7 @@ impl GraphRegistry {
             GraphEntry {
                 name: "__bus__".to_string(),
                 graph_type: GraphType::Bus,
-                core: Arc::new(RwLock::new(GraphCore::new())),
+                core: Arc::new(GraphCore::new()),
                 owner: None,
                 #[cfg(feature = "server")]
                 wal: Arc::new(parking_lot::Mutex::new(None)),
@@ -65,7 +64,7 @@ impl GraphRegistry {
             GraphEntry {
                 name: name.to_string(),
                 graph_type,
-                core: Arc::new(RwLock::new(GraphCore::new())),
+                core: Arc::new(GraphCore::new()),
                 owner,
                 #[cfg(feature = "server")]
                 wal: Arc::new(parking_lot::Mutex::new(None)),

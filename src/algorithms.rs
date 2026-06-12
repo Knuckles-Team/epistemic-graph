@@ -8,7 +8,7 @@ use petgraph::visit::{Bfs, EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-use crate::graph::GraphCore;
+use crate::graph::{GraphCore, GraphView};
 
 /// Hard wall-clock budget for one [`community_detection`] call. Label
 /// propagation is already iteration-capped, but a very large or adversarial
@@ -20,7 +20,7 @@ const COMMUNITY_DETECTION_BUDGET: Duration = Duration::from_secs(15);
 // ── Traversal Algorithms ─────────────────────────────────────────────────
 
 /// Topological sort of the graph. Returns PyErr if cycles exist.
-pub fn topological_sort(core: &GraphCore) -> Result<Vec<String>, String> {
+pub fn topological_sort(core: &GraphView) -> Result<Vec<String>, String> {
     match petgraph::algo::toposort(&core.graph, None) {
         Ok(indices) => {
             let sorted: Vec<String> = indices.iter().map(|&idx| core.graph[idx].clone()).collect();
@@ -31,7 +31,7 @@ pub fn topological_sort(core: &GraphCore) -> Result<Vec<String>, String> {
 }
 
 /// Detect a cycle via DFS coloring. Returns the cycle path if found.
-pub fn find_cycle(core: &GraphCore) -> Option<Vec<String>> {
+pub fn find_cycle(core: &GraphView) -> Option<Vec<String>> {
     let mut visited: HashMap<NodeIndex, i32> = HashMap::new();
     let mut parent: HashMap<NodeIndex, NodeIndex> = HashMap::new();
 
@@ -51,7 +51,7 @@ pub fn find_cycle(core: &GraphCore) -> Option<Vec<String>> {
 }
 
 fn dfs_find_cycle(
-    core: &GraphCore,
+    core: &GraphView,
     node: NodeIndex,
     visited: &mut HashMap<NodeIndex, i32>,
     parent: &mut HashMap<NodeIndex, NodeIndex>,
@@ -88,7 +88,7 @@ fn dfs_find_cycle(
 
 /// BFS shortest path between two nodes.
 pub fn get_shortest_path(
-    core: &GraphCore,
+    core: &GraphView,
     source_id: &str,
     target_id: &str,
 ) -> Option<Vec<String>> {
@@ -125,7 +125,7 @@ pub fn get_shortest_path(
 }
 
 /// BFS blast radius — all nodes reachable within `max_depth` hops.
-pub fn get_blast_radius(core: &GraphCore, node_id: &str, max_depth: usize) -> Vec<String> {
+pub fn get_blast_radius(core: &GraphView, node_id: &str, max_depth: usize) -> Vec<String> {
     let start_idx = match core.node_map.get(node_id) {
         Some(&idx) => idx,
         None => return Vec::new(),
@@ -157,7 +157,7 @@ pub fn get_blast_radius(core: &GraphCore, node_id: &str, max_depth: usize) -> Ve
 // ── Centrality Algorithms ────────────────────────────────────────────────
 
 /// Degree centrality for a single node: (in + out) / (n - 1).
-pub fn compute_degree_centrality(core: &GraphCore, node_id: &str) -> Result<f64, String> {
+pub fn compute_degree_centrality(core: &GraphView, node_id: &str) -> Result<f64, String> {
     let idx = core
         .node_map
         .get(node_id)
@@ -178,7 +178,7 @@ pub fn compute_degree_centrality(core: &GraphCore, node_id: &str) -> Result<f64,
 }
 
 /// Degree centrality for ALL nodes. Returns Vec<(node_id, centrality)>.
-pub fn degree_centrality_all(core: &GraphCore) -> Vec<(String, f64)> {
+pub fn degree_centrality_all(core: &GraphView) -> Vec<(String, f64)> {
     let n = core.node_map.len();
     if n <= 1 {
         return core.node_map.keys().map(|k| (k.clone(), 0.0)).collect();
@@ -202,7 +202,7 @@ pub fn degree_centrality_all(core: &GraphCore) -> Vec<(String, f64)> {
 }
 
 /// Betweenness centrality via Brandes' algorithm.
-pub fn betweenness_centrality(core: &GraphCore) -> Vec<(String, f64)> {
+pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
     let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
     let n = nodes.len();
     let mut centrality: HashMap<NodeIndex, f64> = HashMap::new();
@@ -283,7 +283,7 @@ pub fn betweenness_centrality(core: &GraphCore) -> Vec<(String, f64)> {
 }
 
 /// PageRank via power iteration method.
-pub fn pagerank(core: &GraphCore, damping: f64, iterations: usize) -> Vec<(String, f64)> {
+pub fn pagerank(core: &GraphView, damping: f64, iterations: usize) -> Vec<(String, f64)> {
     let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
     let n = nodes.len();
     if n == 0 {
@@ -339,7 +339,7 @@ pub fn pagerank(core: &GraphCore, damping: f64, iterations: usize) -> Vec<(Strin
 // ── Component / Community Algorithms ─────────────────────────────────────
 
 /// Weakly connected components (treats directed edges as undirected).
-pub fn connected_components(core: &GraphCore) -> Vec<Vec<String>> {
+pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
     let mut visited: HashSet<NodeIndex> = HashSet::new();
     let mut components: Vec<Vec<String>> = Vec::new();
 
@@ -388,7 +388,7 @@ pub fn connected_components(core: &GraphCore) -> Vec<Vec<String>> {
 /// undirected, SCC respects edge direction. Two nodes are in the same SCC iff
 /// there is a directed path from each to the other. This is critical for
 /// belief cluster detection where causal direction matters.
-pub fn strongly_connected_components(core: &GraphCore) -> Vec<Vec<String>> {
+pub fn strongly_connected_components(core: &GraphView) -> Vec<Vec<String>> {
     let sccs = petgraph::algo::tarjan_scc(&core.graph);
     sccs.into_iter()
         .map(|component| {
@@ -406,7 +406,7 @@ pub fn strongly_connected_components(core: &GraphCore) -> Vec<Vec<String>> {
 /// Edge weights are extracted from the `weight` field of edge properties JSON.
 /// Edges without a weight field default to 1.0. Useful for argument coherence
 /// analysis — the MST reveals the minimum-cost skeleton connecting all beliefs.
-pub fn minimum_spanning_tree(core: &GraphCore) -> Vec<(String, String, f64)> {
+pub fn minimum_spanning_tree(core: &GraphView) -> Vec<(String, String, f64)> {
     use petgraph::data::FromElements;
     use petgraph::stable_graph::StableGraph;
 
@@ -462,7 +462,7 @@ pub fn minimum_spanning_tree(core: &GraphCore) -> Vec<(String, String, f64)> {
 /// Each node starts with its own label. Iteratively, each node adopts the
 /// most common label among its neighbors. `resolution` controls sensitivity
 /// (higher = more communities). Converges when no labels change.
-pub fn community_detection(core: &GraphCore, _resolution: f64) -> Vec<Vec<String>> {
+pub fn community_detection(core: &GraphView, _resolution: f64) -> Vec<Vec<String>> {
     // Deterministic node order. The previous version iterated `node_map`'s
     // HashMap keys in arbitrary order and broke label ties via `max_by_key`
     // (also order-dependent), so the algorithm could *oscillate* between
@@ -690,7 +690,7 @@ fn window_stats(values: &[f64], i: usize, window: usize) -> (f64, f64) {
 ///
 /// Uses a sequential greedy algorithm. The number of colors used is at most
 /// Δ(G) + 1 where Δ is the maximum degree.
-pub fn graph_coloring(core: &GraphCore) -> Vec<(String, usize)> {
+pub fn graph_coloring(core: &GraphView) -> Vec<(String, usize)> {
     let nodes: Vec<String> = core.node_map.keys().cloned().collect();
     let mut colors: HashMap<String, usize> = HashMap::new();
 
@@ -736,7 +736,7 @@ pub fn graph_coloring(core: &GraphCore) -> Vec<(String, usize)> {
 ///
 /// Only considers nodes that have embeddings stored in their properties JSON
 /// as an "embedding" field. Uses rayon for parallel pairwise comparison.
-pub fn compute_similarity_edges(core: &GraphCore, threshold: f64) -> Vec<(String, String, f64)> {
+pub fn compute_similarity_edges(core: &GraphView, threshold: f64) -> Vec<(String, String, f64)> {
     use rayon::prelude::*;
 
     // Extract nodes with embeddings
@@ -796,7 +796,7 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
 /// Examines node properties for `created_at` (epoch seconds) and `score` fields.
 /// Nodes older than `max_age_secs` or with score below `min_score` are removed.
 pub fn prune_by_lifecycle(
-    core: &mut GraphCore,
+    core: &GraphCore,
     max_age_secs: u64,
     min_score: f64,
 ) -> crate::types::PruneStats {
@@ -808,8 +808,9 @@ pub fn prune_by_lifecycle(
     let mut to_remove: Vec<String> = Vec::new();
     let mut archived = 0usize;
 
-    for (node_id, props_json) in &core.node_properties {
-        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&props_json) {
+    for entry in core.node_properties.iter() {
+        let (node_id, props_json) = (entry.key(), entry.value());
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json.as_slice()) {
             let created_at = val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
             let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
             let lifecycle = val
@@ -838,9 +839,9 @@ pub fn prune_by_lifecycle(
         // Count edges that will be removed
         let edge_keys: Vec<(String, String)> = core
             .edge_properties
-            .keys()
+            .iter()
+            .map(|e| e.key().clone())
             .filter(|(src, tgt)| src == node_id || tgt == node_id)
-            .cloned()
             .collect();
         edges_removed += edge_keys.len();
         core.remove_node(node_id.clone());
@@ -858,7 +859,7 @@ pub fn prune_by_lifecycle(
 /// Traverses the graph from the agent node via BFS, collecting relevant
 /// nodes and edges up to the token budget (estimated at ~4 chars per token).
 pub fn get_context_view(
-    core: &GraphCore,
+    core: &GraphView,
     agent_id: &str,
     max_tokens: u32,
 ) -> crate::types::ContextView {
@@ -946,9 +947,14 @@ pub fn get_context_view(
 /// - {"op": "remove_node", "id": "..."}
 /// - {"op": "add_edge", "source": "...", "target": "...", "properties": "..."}
 /// - {"op": "remove_edge", "source": "...", "target": "..."}
-pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
+pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
     let ops: Vec<serde_json::Value> = rmp_serde::from_slice(operations_msgpack)
         .map_err(|e| format!("[EpistemicGraph::batch_update] invalid MsgPack: {e}"))?;
+
+    // The whole batch runs under ONE write transaction so it is atomic w.r.t.
+    // concurrent readers/writers — no other operation observes a half-applied
+    // batch (CONCEPT:KG-2.16, Phase C-B).
+    let mut txn = core.txn();
 
     let mut added_nodes = 0u32;
     let mut removed_nodes = 0u32;
@@ -972,14 +978,14 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
                         .cloned()
                         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
                     let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
-                    core.add_node(id.to_string(), props_mp);
+                    txn.add_node(id.to_string(), props_mp);
                     added_nodes += 1;
                 }
             }
             "remove_node" => {
                 let id = op.get("id").and_then(|v| v.as_str()).unwrap_or("");
                 if !id.is_empty() {
-                    core.remove_node(id.to_string());
+                    txn.remove_node(id.to_string());
                     removed_nodes += 1;
                 }
             }
@@ -993,7 +999,7 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
                         .cloned()
                         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
                     let props_mp = rmp_serde::to_vec_named(&props_val).unwrap_or_default();
-                    if let Err(e) = core.add_edge(src.to_string(), tgt.to_string(), props_mp) {
+                    if let Err(e) = txn.add_edge(src.to_string(), tgt.to_string(), props_mp) {
                         errors.push(format!("op[{i}]: {e}"));
                     } else {
                         added_edges += 1;
@@ -1004,7 +1010,7 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
                 let src = op.get("source").and_then(|v| v.as_str()).unwrap_or("");
                 let tgt = op.get("target").and_then(|v| v.as_str()).unwrap_or("");
                 if !src.is_empty() && !tgt.is_empty() {
-                    core.remove_edge(src.to_string(), tgt.to_string());
+                    txn.remove_edge(src.to_string(), tgt.to_string());
                     removed_edges += 1;
                 }
             }
@@ -1025,13 +1031,13 @@ pub fn batch_update(core: &mut GraphCore, operations_msgpack: &[u8]) -> Result<V
 }
 
 /// Compute runtime metrics for observability.
-pub fn compute_metrics(core: &GraphCore) -> crate::types::GraphMetrics {
+pub fn compute_metrics(core: &GraphView) -> crate::types::GraphMetrics {
     let mut active = 0usize;
     let mut compacted = 0usize;
     let mut archived = 0usize;
 
     for props_json in core.node_properties.values() {
-        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&props_json) {
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json) {
             match val
                 .get("lifecycle_state")
                 .and_then(|v| v.as_str())
@@ -1049,7 +1055,9 @@ pub fn compute_metrics(core: &GraphCore) -> crate::types::GraphMetrics {
     crate::types::GraphMetrics {
         node_count: core.node_map.len(),
         edge_count: core.edge_properties.values().map(|v| v.len()).sum(),
-        total_mutations: core.ledger.len() as u64,
+        // The ledger is not part of the read view; the caller (server Metrics
+        // handler) captures the live ledger length and overwrites this field.
+        total_mutations: 0,
         last_prune_removed: 0,
         active_nodes: active,
         compacted_nodes: compacted,
@@ -1062,7 +1070,7 @@ pub fn compute_metrics(core: &GraphCore) -> crate::types::GraphMetrics {
 /// Similar to standard PageRank but the random walker teleports to seed
 /// nodes weighted by their seed score instead of uniformly.
 pub fn personalized_pagerank(
-    core: &GraphCore,
+    core: &GraphView,
     seed_nodes: &[(String, f64)],
     damping: f64,
     iterations: usize,
@@ -1144,15 +1152,15 @@ mod community_tests {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "Code"})).unwrap()
     }
 
-    fn build(nodes: &[&str], edges: &[(&str, &str)]) -> GraphCore {
-        let mut g = GraphCore::new();
+    fn build(nodes: &[&str], edges: &[(&str, &str)]) -> GraphView {
+        let g = GraphCore::new();
         for n in nodes {
             g.add_node((*n).to_string(), p());
         }
         for (s, t) in edges {
             g.add_edge((*s).to_string(), (*t).to_string(), p()).unwrap();
         }
-        g
+        g.analysis_snapshot()
     }
 
     #[test]
@@ -1182,7 +1190,7 @@ mod community_tests {
 
     #[test]
     fn empty_graph_returns_empty() {
-        let g = GraphCore::new();
+        let g = GraphCore::new().analysis_snapshot();
         assert!(community_detection(&g, 1.0).is_empty());
     }
 
@@ -1243,7 +1251,7 @@ mod community_tests {
         // wall-clock budget + deterministic tie-break it must finish well under
         // the budget and partition all nodes.
         let ids: Vec<String> = (0..120).map(|i| format!("n{i:03}")).collect();
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         for id in &ids {
             g.add_node(id.clone(), p());
         }
@@ -1252,8 +1260,9 @@ mod community_tests {
                 g.add_edge(ids[i].clone(), ids[j].clone(), p()).unwrap();
             }
         }
+        let view = g.analysis_snapshot();
         let start = Instant::now();
-        let communities = community_detection(&g, 1.0);
+        let communities = community_detection(&view, 1.0);
         assert!(
             start.elapsed() < COMMUNITY_DETECTION_BUDGET + Duration::from_secs(2),
             "must respect the wall-clock budget"
@@ -1266,14 +1275,14 @@ mod community_tests {
     fn batch_update_stores_msgpack_readable_properties() {
         // Regression: batch_update used to store JSON-string bytes, which the
         // read path (msgpack) couldn't decode → batch-written nodes looked empty.
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let ops = serde_json::json!([
             {"op": "add_node", "id": "code:A", "properties": {"type": "Code", "language": "java", "name": "Widget"}},
             {"op": "add_node", "id": "code:B", "properties": {"type": "Code", "language": "rust"}},
             {"op": "add_edge", "source": "code:A", "target": "code:B", "properties": {"rel_type": "CALLS"}},
         ]);
         let ops_mp = rmp_serde::to_vec_named(&ops).unwrap();
-        let res_mp = batch_update(&mut g, &ops_mp).unwrap();
+        let res_mp = batch_update(&g, &ops_mp).unwrap();
         let res: serde_json::Value = rmp_serde::from_slice(&res_mp).unwrap();
         assert_eq!(res["added_nodes"], 2);
         assert_eq!(res["added_edges"], 1);

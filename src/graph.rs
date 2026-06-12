@@ -3,30 +3,80 @@
 // Core petgraph DiGraph CRUD operations, node/edge storage,
 // serialization, ledger, and repository parsing.
 
+use dashmap::DashMap;
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
-/// Core graph storage — encapsulates petgraph and all CRUD operations.
-///
-/// This struct is NOT exposed to Python directly. `EpistemicGraph` in `lib.rs`
-/// wraps it and delegates through ``.
-#[derive(Debug)]
-pub struct GraphCore {
+/// The graph TOPOLOGY — the petgraph structure + the id→index map. Mutated only
+/// under `GraphCore::topo` write lock, read under its read lock. Kept separate
+/// from properties so that property reads/writes (the common hot path) never
+/// contend on the structural lock. (Phase C-B)
+#[derive(Debug, Default, Clone)]
+pub struct Topology {
     pub graph: StableDiGraph<String, String>,
     pub node_map: HashMap<String, NodeIndex>,
-    // Properties are reference-counted (Phase C-A): the snapshot/checkpoint clones
-    // Arc POINTERS (µs) instead of deep-copying the whole ~450MB property set (the
-    // A1-residual ~3s lock-held clone) and with no transient memory doubling. Arc
-    // is also the natural value type for the concurrent store (C-B): it moves into
-    // and out of the lock-free maps without copying the bytes. `Arc<Vec<u8>>`
-    // serializes identically to `Vec<u8>`, so the on-disk format is unchanged.
+}
+
+/// An owned, consistent, UNLOCKED read view of a graph (topology + properties),
+/// produced by `GraphCore::*_snapshot`. The read-only graph algorithms operate on
+/// a `GraphView` (never on the live, locked `GraphCore`), so a long O(V·E)
+/// computation runs entirely off the graph's locks. (Phase C-B)
+#[derive(Debug, Default, Clone)]
+pub struct GraphView {
+    pub graph: StableDiGraph<String, String>,
+    pub node_map: HashMap<String, NodeIndex>,
     pub node_properties: HashMap<String, Arc<Vec<u8>>>,
     pub edge_properties: HashMap<(String, String), Vec<Arc<Vec<u8>>>>,
-    pub ledger: Vec<String>,
-    pub semantic_store: crate::compute::semantic::SemanticStore,
+}
+
+/// Concurrent graph storage (Phase C-B — enterprise multi-write concurrency).
+///
+/// The store is split across independent locks so same-graph operations no longer
+/// serialize behind one big lock:
+/// * `topo` (RwLock) — structural changes (add/remove node/edge) take the write
+///   lock; graph-traversal reads take the read lock. Structural edits never dangle
+///   edges because the topology mutates atomically under one guard.
+/// * `node_properties` / `edge_properties` (DashMap) — property reads and writes
+///   are lock-free per key and DO NOT touch `topo`, so they run concurrently with
+///   each other AND with topology writers/readers.
+/// * `ledger` (Mutex), `semantic_store` (RwLock) — their own locks.
+///
+/// Mutations go through an explicit [`GraphTxn`] (holds `topo.write()` for its
+/// duration), so multi-step atomic operations (a whole `batch_update`, the 3-pass
+/// reasoning) hold ONE guard — the atomicity is visible in the code, not implied by
+/// an outer lock. Single-op convenience methods open a one-shot txn. Properties are
+/// `Arc<Vec<u8>>` (Phase C-A) so they move into/out of the DashMap and snapshots
+/// without copying the bytes.
+#[derive(Debug)]
+pub struct GraphCore {
+    pub topo: RwLock<Topology>,
+    pub node_properties: DashMap<String, Arc<Vec<u8>>>,
+    pub edge_properties: DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+    pub ledger: Mutex<Vec<String>>,
+    pub semantic_store: RwLock<crate::compute::semantic::SemanticStore>,
+}
+
+impl Default for GraphCore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Write transaction over a [`GraphCore`]: holds the topology write lock for its
+/// lifetime and borrows the property maps + ledger. All mutations run through it,
+/// so a sequence of mutations under one `txn()` is atomic w.r.t. other topology
+/// writers (and excludes graph-traversal readers) for the transaction's duration.
+/// Property writes still go through the DashMap (lock-free per key) but are ordered
+/// by the held topology guard for structural consistency. (Phase C-B)
+pub struct GraphTxn<'a> {
+    pub topo: RwLockWriteGuard<'a, Topology>,
+    node_properties: &'a DashMap<String, Arc<Vec<u8>>>,
+    edge_properties: &'a DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+    ledger: &'a Mutex<Vec<String>>,
 }
 
 /// Owned, serializable persistent state of a graph — exactly what a snapshot file
@@ -61,85 +111,55 @@ impl GraphSnapshot {
     }
 }
 
-impl GraphCore {
-    pub fn new() -> Self {
-        GraphCore {
-            graph: StableDiGraph::new(),
-            node_map: HashMap::new(),
-            node_properties: HashMap::new(),
-            edge_properties: HashMap::new(),
-            ledger: Vec::new(),
-            semantic_store: crate::compute::semantic::SemanticStore::new(),
+impl GraphView {
+    /// Does a directed edge source→target exist in this view? (Used by VF2
+    /// subgraph matching, which runs on a snapshot.)
+    pub fn has_edge(&self, source_id: &str, target_id: &str) -> bool {
+        if let (Some(&s), Some(&t)) = (self.node_map.get(source_id), self.node_map.get(target_id)) {
+            self.graph.find_edge(s, t).is_some()
+        } else {
+            false
         }
     }
+}
 
-    // ── Node CRUD ────────────────────────────────────────────────────────
+/// Cap the ledger in place, dropping the oldest half once it exceeds the bound.
+/// Shared by every mutation so the trim policy lives in one spot.
+fn push_ledger(ledger: &mut Vec<String>, entry: String) {
+    ledger.push(entry);
+    if ledger.len() > 100_000 {
+        ledger.drain(0..50_000);
+    }
+}
+
+impl<'a> GraphTxn<'a> {
+    // ── Node CRUD (under the held topology write guard) ──────────────────
 
     pub fn add_node(&mut self, node_id: String, properties_msgpack: Vec<u8>) {
-        let _idx = if let Some(&existing_idx) = self.node_map.get(&node_id) {
-            existing_idx
-        } else {
-            let new_idx = self.graph.add_node(node_id.clone());
-            self.node_map.insert(node_id.clone(), new_idx);
-            new_idx
-        };
+        if !self.topo.node_map.contains_key(&node_id) {
+            let new_idx = self.topo.graph.add_node(node_id.clone());
+            self.topo.node_map.insert(node_id.clone(), new_idx);
+        }
         let log = format!("ADD_NODE|{}|{}", node_id, hex::encode(&properties_msgpack));
         self.node_properties
             .insert(node_id.clone(), Arc::new(properties_msgpack));
-        self.ledger.push(log);
-        if self.ledger.len() > 100_000 {
-            self.ledger.drain(0..50_000);
-        }
+        push_ledger(&mut self.ledger.lock(), log);
     }
 
     pub fn remove_node(&mut self, node_id: String) {
-        if let Some(idx) = self.node_map.remove(&node_id) {
-            self.graph.remove_node(idx);
+        if let Some(idx) = self.topo.node_map.remove(&node_id) {
+            // Properties first, then topology: a crash mid-remove can never leave
+            // a live node index whose properties already vanished (which on reload
+            // would resurrect a half-deleted node). Topology is the source of truth.
             self.node_properties.remove(&node_id);
             self.edge_properties
-                .retain(|(src, tgt), _| src != &node_id && tgt != &node_id);
-            let log = format!("REMOVE_NODE|{}", node_id);
-            self.ledger.push(log);
-            if self.ledger.len() > 100_000 {
-                self.ledger.drain(0..50_000);
-            }
+                .retain(|k, _| k.0 != node_id && k.1 != node_id);
+            self.topo.graph.remove_node(idx);
+            push_ledger(&mut self.ledger.lock(), format!("REMOVE_NODE|{}", node_id));
         }
     }
 
-    pub fn has_node(&self, node_id: &str) -> bool {
-        self.node_map.contains_key(node_id)
-    }
-
-    pub fn get_nodes(&self) -> Vec<(String, Vec<u8>)> {
-        self.node_properties
-            .iter()
-            .map(|(k, v)| (k.clone(), (**v).clone()))
-            .collect()
-    }
-
-    /// Like `get_nodes` but clones the Arc POINTERS, not the bytes — used by the
-    /// snapshot/checkpoint hot path (Phase C-A zero-copy).
-    pub fn get_nodes_arc(&self) -> Vec<(String, Arc<Vec<u8>>)> {
-        self.node_properties
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    }
-
-    pub fn get_node_properties(&self, node_id: &str) -> Option<Vec<u8>> {
-        self.node_properties.get(node_id).map(|a| (**a).clone())
-    }
-
-    pub fn node_count(&self) -> usize {
-        self.node_map.len()
-    }
-
-    /// Return all node IDs without properties (lightweight enumeration).
-    pub fn node_ids(&self) -> Vec<String> {
-        self.node_map.keys().cloned().collect()
-    }
-
-    // ── Edge CRUD ────────────────────────────────────────────────────────
+    // ── Edge CRUD (under the held topology write guard) ──────────────────
 
     pub fn add_edge(
         &mut self,
@@ -147,16 +167,15 @@ impl GraphCore {
         target_id: String,
         properties_msgpack: Vec<u8>,
     ) -> Result<(), String> {
-        let source_idx = match self.node_map.get(&source_id) {
+        let source_idx = match self.topo.node_map.get(&source_id) {
             Some(&idx) => idx,
             None => return Err(format!("Source node '{}' not found", source_id)),
         };
-        let target_idx = match self.node_map.get(&target_id) {
+        let target_idx = match self.topo.node_map.get(&target_id) {
             Some(&idx) => idx,
             None => return Err(format!("Target node '{}' not found", target_id)),
         };
-
-        self.graph.add_edge(
+        self.topo.graph.add_edge(
             source_idx,
             target_idx,
             format!("{}:{}", source_id, target_id),
@@ -171,35 +190,120 @@ impl GraphCore {
             .entry((source_id.clone(), target_id.clone()))
             .or_default()
             .push(Arc::new(properties_msgpack));
-        self.ledger.push(log);
-        if self.ledger.len() > 100_000 {
-            self.ledger.drain(0..50_000);
-        }
+        push_ledger(&mut self.ledger.lock(), log);
         Ok(())
     }
 
     pub fn remove_edge(&mut self, source_id: String, target_id: String) {
-        if let (Some(&src_idx), Some(&tgt_idx)) =
-            (self.node_map.get(&source_id), self.node_map.get(&target_id))
-        {
-            if let Some(edge_idx) = self.graph.find_edge(src_idx, tgt_idx) {
-                self.graph.remove_edge(edge_idx);
+        if let (Some(&src_idx), Some(&tgt_idx)) = (
+            self.topo.node_map.get(&source_id),
+            self.topo.node_map.get(&target_id),
+        ) {
+            if let Some(edge_idx) = self.topo.graph.find_edge(src_idx, tgt_idx) {
+                self.topo.graph.remove_edge(edge_idx);
             }
             self.edge_properties
                 .remove(&(source_id.clone(), target_id.clone()));
-            let log = format!("REMOVE_EDGE|{}|{}", source_id, target_id);
-            self.ledger.push(log);
-            if self.ledger.len() > 100_000 {
-                self.ledger.drain(0..50_000);
-            }
+            push_ledger(
+                &mut self.ledger.lock(),
+                format!("REMOVE_EDGE|{}|{}", source_id, target_id),
+            );
+        }
+    }
+}
+
+impl GraphCore {
+    pub fn new() -> Self {
+        GraphCore {
+            topo: RwLock::new(Topology::default()),
+            node_properties: DashMap::new(),
+            edge_properties: DashMap::new(),
+            ledger: Mutex::new(Vec::new()),
+            semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
         }
     }
 
+    /// Open a write transaction: acquires the topology write lock and borrows the
+    /// property maps + ledger. A sequence of mutations under one txn is atomic
+    /// w.r.t. other writers (and excludes graph-traversal readers) until it drops.
+    /// Single-op convenience methods below open a one-shot txn; multi-op callers
+    /// (batch_update, reasoning) hold one txn so the whole batch is atomic.
+    pub fn txn(&self) -> GraphTxn<'_> {
+        GraphTxn {
+            topo: self.topo.write(),
+            node_properties: &self.node_properties,
+            edge_properties: &self.edge_properties,
+            ledger: &self.ledger,
+        }
+    }
+
+    // ── Node CRUD (one-shot convenience over `txn`) ──────────────────────
+
+    pub fn add_node(&self, node_id: String, properties_msgpack: Vec<u8>) {
+        self.txn().add_node(node_id, properties_msgpack);
+    }
+
+    pub fn remove_node(&self, node_id: String) {
+        self.txn().remove_node(node_id);
+    }
+
+    pub fn has_node(&self, node_id: &str) -> bool {
+        self.topo.read().node_map.contains_key(node_id)
+    }
+
+    pub fn get_nodes(&self) -> Vec<(String, Vec<u8>)> {
+        self.node_properties
+            .iter()
+            .map(|e| (e.key().clone(), (**e.value()).clone()))
+            .collect()
+    }
+
+    /// Like `get_nodes` but clones the Arc POINTERS, not the bytes — used by the
+    /// snapshot/checkpoint hot path (Phase C-A zero-copy).
+    pub fn get_nodes_arc(&self) -> Vec<(String, Arc<Vec<u8>>)> {
+        self.node_properties
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect()
+    }
+
+    pub fn get_node_properties(&self, node_id: &str) -> Option<Vec<u8>> {
+        self.node_properties.get(node_id).map(|a| (**a).clone())
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.topo.read().node_map.len()
+    }
+
+    /// Return all node IDs without properties (lightweight enumeration).
+    pub fn node_ids(&self) -> Vec<String> {
+        self.topo.read().node_map.keys().cloned().collect()
+    }
+
+    // ── Edge CRUD ────────────────────────────────────────────────────────
+
+    // ── Edge CRUD (one-shot convenience over `txn`) ──────────────────────
+
+    pub fn add_edge(
+        &self,
+        source_id: String,
+        target_id: String,
+        properties_msgpack: Vec<u8>,
+    ) -> Result<(), String> {
+        self.txn()
+            .add_edge(source_id, target_id, properties_msgpack)
+    }
+
+    pub fn remove_edge(&self, source_id: String, target_id: String) {
+        self.txn().remove_edge(source_id, target_id);
+    }
+
     pub fn has_edge(&self, source_id: &str, target_id: &str) -> bool {
+        let topo = self.topo.read();
         if let (Some(&src_idx), Some(&tgt_idx)) =
-            (self.node_map.get(source_id), self.node_map.get(target_id))
+            (topo.node_map.get(source_id), topo.node_map.get(target_id))
         {
-            self.graph.find_edge(src_idx, tgt_idx).is_some()
+            topo.graph.find_edge(src_idx, tgt_idx).is_some()
         } else {
             false
         }
@@ -207,8 +311,9 @@ impl GraphCore {
 
     pub fn get_edges(&self) -> Vec<(String, String, Vec<u8>)> {
         let mut res = Vec::new();
-        for ((src, tgt), props_list) in &self.edge_properties {
-            for props in props_list {
+        for entry in self.edge_properties.iter() {
+            let (src, tgt) = entry.key();
+            for props in entry.value() {
                 res.push((src.clone(), tgt.clone(), (**props).clone()));
             }
         }
@@ -218,8 +323,9 @@ impl GraphCore {
     /// Like `get_edges` but clones the Arc pointers — snapshot hot path (C-A).
     pub fn get_edges_arc(&self) -> Vec<(String, String, Arc<Vec<u8>>)> {
         let mut res = Vec::new();
-        for ((src, tgt), props_list) in &self.edge_properties {
-            for props in props_list {
+        for entry in self.edge_properties.iter() {
+            let (src, tgt) = entry.key();
+            for props in entry.value() {
                 res.push((src.clone(), tgt.clone(), props.clone()));
             }
         }
@@ -234,16 +340,17 @@ impl GraphCore {
     }
 
     pub fn edge_count(&self) -> usize {
-        self.edge_properties.values().map(|v| v.len()).sum()
+        self.edge_properties.iter().map(|e| e.value().len()).sum()
     }
 
     /// In-degree count for a specific node.
     pub fn in_degree(&self, node_id: &str) -> Result<usize, String> {
-        let idx = self
+        let topo = self.topo.read();
+        let idx = topo
             .node_map
             .get(node_id)
             .ok_or_else(|| format!("Node '{}' not found", node_id))?;
-        Ok(self
+        Ok(topo
             .graph
             .edges_directed(*idx, petgraph::Direction::Incoming)
             .count())
@@ -251,11 +358,12 @@ impl GraphCore {
 
     /// Out-degree count for a specific node.
     pub fn out_degree(&self, node_id: &str) -> Result<usize, String> {
-        let idx = self
+        let topo = self.topo.read();
+        let idx = topo
             .node_map
             .get(node_id)
             .ok_or_else(|| format!("Node '{}' not found", node_id))?;
-        Ok(self
+        Ok(topo
             .graph
             .edges_directed(*idx, petgraph::Direction::Outgoing)
             .count())
@@ -265,50 +373,53 @@ impl GraphCore {
 
     /// Incoming neighbors (predecessors).
     pub fn get_predecessors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let idx = self
+        let topo = self.topo.read();
+        let idx = topo
             .node_map
             .get(node_id)
             .ok_or_else(|| format!("Node '{}' not found", node_id))?;
-        let preds: Vec<String> = self
+        let preds: Vec<String> = topo
             .graph
             .edges_directed(*idx, petgraph::Direction::Incoming)
-            .map(|e| self.graph[e.source()].clone())
+            .map(|e| topo.graph[e.source()].clone())
             .collect();
         Ok(preds)
     }
 
     /// Outgoing neighbors (successors).
     pub fn get_successors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let idx = self
+        let topo = self.topo.read();
+        let idx = topo
             .node_map
             .get(node_id)
             .ok_or_else(|| format!("Node '{}' not found", node_id))?;
-        let succs: Vec<String> = self
+        let succs: Vec<String> = topo
             .graph
             .edges_directed(*idx, petgraph::Direction::Outgoing)
-            .map(|e| self.graph[e.target()].clone())
+            .map(|e| topo.graph[e.target()].clone())
             .collect();
         Ok(succs)
     }
 
     /// All neighbors (both directions, deduplicated).
     pub fn get_neighbors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let idx = self
+        let topo = self.topo.read();
+        let idx = topo
             .node_map
             .get(node_id)
             .ok_or_else(|| format!("Node '{}' not found", node_id))?;
         let mut neighbors = std::collections::HashSet::new();
-        for e in self
+        for e in topo
             .graph
             .edges_directed(*idx, petgraph::Direction::Incoming)
         {
-            neighbors.insert(self.graph[e.source()].clone());
+            neighbors.insert(topo.graph[e.source()].clone());
         }
-        for e in self
+        for e in topo
             .graph
             .edges_directed(*idx, petgraph::Direction::Outgoing)
         {
-            neighbors.insert(self.graph[e.target()].clone());
+            neighbors.insert(topo.graph[e.target()].clone());
         }
         Ok(neighbors.into_iter().collect())
     }
@@ -320,14 +431,18 @@ impl GraphCore {
     /// checkpoint takes it under a BRIEF lock and serializes OFF the lock.
     /// (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
     pub fn snapshot(&self) -> GraphSnapshot {
+        // Hold the topology read lock for the duration: every mutation goes through
+        // a write txn (topo.write()), so a read guard excludes all writers and the
+        // node/edge/ledger views below are a single consistent point-in-time.
+        let _topo = self.topo.read();
         // Zero-copy (Phase C-A): clone the Arc POINTERS, not the property bytes —
         // turns the A1-residual ~3s lock-held deep clone of a 450MB graph into a
         // ~µs pointer copy, and removes the transient memory doubling.
         GraphSnapshot {
             nodes: self.get_nodes_arc(),
             edges: self.get_edges_arc(),
-            ledger: self.ledger.clone(),
-            semantic_store: self.semantic_store.clone(),
+            ledger: self.ledger.lock().clone(),
+            semantic_store: self.semantic_store.read().clone(),
         }
     }
 
@@ -339,31 +454,37 @@ impl GraphCore {
         self.snapshot().to_msgpack()
     }
 
-    pub fn clear(&mut self) {
-        self.graph.clear();
-        self.node_map.clear();
+    pub fn clear(&self) {
+        // One write txn freezes structure; properties cleared under it so no reader
+        // sees a half-cleared graph.
+        let mut topo = self.topo.write();
+        topo.graph.clear();
+        topo.node_map.clear();
         self.node_properties.clear();
         self.edge_properties.clear();
-        self.ledger.clear();
-        self.semantic_store = crate::compute::semantic::SemanticStore::new();
+        self.ledger.lock().clear();
+        *self.semantic_store.write() = crate::compute::semantic::SemanticStore::new();
     }
 
-    pub fn from_msgpack(&mut self, msgpack: &[u8]) -> Result<(), String> {
+    pub fn from_msgpack(&self, msgpack: &[u8]) -> Result<(), String> {
         let graph_map: HashMap<String, serde_json::Value> =
             rmp_serde::from_slice(msgpack).map_err(|e| e.to_string())?;
 
-        // Reset state
-        self.graph.clear();
-        self.node_map.clear();
+        // Reset + reload under ONE write txn — the whole load is atomic w.r.t. any
+        // concurrent reader/writer, and replaying through the txn avoids re-locking
+        // per node/edge.
+        let mut txn = self.txn();
+        txn.topo.graph.clear();
+        txn.topo.node_map.clear();
         self.node_properties.clear();
         self.edge_properties.clear();
-        self.ledger.clear();
+        self.ledger.lock().clear();
 
         if let Some(nodes_val) = graph_map.get("nodes") {
             let nodes: Vec<(String, Vec<u8>)> =
                 serde_json::from_value(nodes_val.clone()).map_err(|e| e.to_string())?;
             for (node_id, props) in nodes {
-                self.add_node(node_id, props);
+                txn.add_node(node_id, props);
             }
         }
 
@@ -371,20 +492,20 @@ impl GraphCore {
             let edges: Vec<(String, String, Vec<u8>)> =
                 serde_json::from_value(edges_val.clone()).map_err(|e| e.to_string())?;
             for (src, tgt, props) in edges {
-                let _ = self.add_edge(src, tgt, props);
+                let _ = txn.add_edge(src, tgt, props);
             }
         }
 
         if let Some(ledger_val) = graph_map.get("ledger") {
             let ledger: Vec<String> =
                 serde_json::from_value(ledger_val.clone()).map_err(|e| e.to_string())?;
-            self.ledger = ledger;
+            *self.ledger.lock() = ledger;
         }
 
         if let Some(store_val) = graph_map.get("semantic_store") {
             let store: crate::compute::semantic::SemanticStore =
                 serde_json::from_value(store_val.clone()).map_err(|e| e.to_string())?;
-            self.semantic_store = store;
+            *self.semantic_store.write() = store;
         }
 
         Ok(())
@@ -393,14 +514,16 @@ impl GraphCore {
     // ── Ledger Operations ────────────────────────────────────────────────
 
     pub fn get_ledger(&self) -> Vec<String> {
-        self.ledger.clone()
+        self.ledger.lock().clone()
     }
 
-    pub fn clear_ledger(&mut self) {
-        self.ledger.clear();
+    pub fn clear_ledger(&self) {
+        self.ledger.lock().clear();
     }
 
-    pub fn apply_ledger(&mut self, transactions: Vec<String>) -> Result<(), String> {
+    pub fn apply_ledger(&self, transactions: Vec<String>) -> Result<(), String> {
+        // Replay the whole batch under one write txn (atomic + no per-op re-lock).
+        let mut txn = self.txn();
         for tx in transactions {
             let parts: Vec<&str> = tx.split('|').collect();
             if parts.is_empty() {
@@ -408,20 +531,20 @@ impl GraphCore {
             }
             match parts[0] {
                 "ADD_NODE" if parts.len() >= 3 => {
-                    self.add_node(parts[1].to_string(), parts[2].as_bytes().to_vec());
+                    txn.add_node(parts[1].to_string(), parts[2].as_bytes().to_vec());
                 }
                 "ADD_EDGE" if parts.len() >= 4 => {
-                    let _ = self.add_edge(
+                    let _ = txn.add_edge(
                         parts[1].to_string(),
                         parts[2].to_string(),
                         parts[3].as_bytes().to_vec(),
                     );
                 }
                 "REMOVE_NODE" if parts.len() >= 2 => {
-                    self.remove_node(parts[1].to_string());
+                    txn.remove_node(parts[1].to_string());
                 }
                 "REMOVE_EDGE" if parts.len() >= 3 => {
-                    self.remove_edge(parts[1].to_string(), parts[2].to_string());
+                    txn.remove_edge(parts[1].to_string(), parts[2].to_string());
                 }
                 _ => {}
             }
@@ -431,81 +554,109 @@ impl GraphCore {
 
     // ── Subgraph Extraction ──────────────────────────────────────────────
 
-    /// Extract a subgraph containing only the specified node IDs.
-    pub fn get_subgraph(&self, node_ids: &[String]) -> GraphCore {
-        let mut sub = GraphCore::new();
+    /// Extract a subgraph (read view) containing only the specified node IDs.
+    pub fn get_subgraph(&self, node_ids: &[String]) -> GraphView {
+        let topo = self.topo.read();
+        let mut view = GraphView::default();
         let id_set: std::collections::HashSet<&String> = node_ids.iter().collect();
 
-        // Copy matching nodes
+        // Copy matching nodes (those that actually exist).
         for nid in node_ids {
-            if let Some(props) = self.node_properties.get(nid) {
-                sub.add_node(nid.clone(), (**props).clone());
-            }
-        }
-
-        // Copy edges where both endpoints are in the subgraph
-        for ((src, tgt), props_list) in &self.edge_properties {
-            if id_set.contains(src) && id_set.contains(tgt) {
-                for props in props_list {
-                    let _ = sub.add_edge(src.clone(), tgt.clone(), (**props).clone());
+            if topo.node_map.contains_key(nid) {
+                let new_idx = view.graph.add_node(nid.clone());
+                view.node_map.insert(nid.clone(), new_idx);
+                if let Some(props) = self.node_properties.get(nid) {
+                    view.node_properties.insert(nid.clone(), props.clone());
                 }
             }
         }
 
-        sub
+        // Copy edges where both endpoints made it into the subgraph.
+        for entry in self.edge_properties.iter() {
+            let (src, tgt) = entry.key();
+            if id_set.contains(src) && id_set.contains(tgt) {
+                if let (Some(&s), Some(&t)) = (view.node_map.get(src), view.node_map.get(tgt)) {
+                    for props in entry.value() {
+                        view.graph.add_edge(s, t, format!("{}:{}", src, tgt));
+                        view.edge_properties
+                            .entry((src.clone(), tgt.clone()))
+                            .or_default()
+                            .push(props.clone());
+                    }
+                }
+            }
+        }
+
+        view
     }
 
     // ── Read-Only Compute Snapshots (CONCEPT:KG-2.51) ────────────────────
-    // CPU-heavy read-only algorithms must not run while holding the per-graph
-    // RwLock — they would starve every writer on that graph for the whole
-    // computation. These snapshots take a cheap O(V+E) structural memcpy under
-    // the read lock so the algorithm can run on the blocking pool with the
-    // lock already released. The ledger and embedding store are never copied —
-    // the graph algorithms do not read them.
+    // CPU-heavy read-only algorithms must not run while holding a graph lock —
+    // they would starve writers for the whole computation. These snapshots take a
+    // cheap O(V+E) structural copy under the topology READ lock (concurrent with
+    // other readers; excludes only structural writers) into an unlocked
+    // `GraphView`, so the algorithm runs on the blocking pool with no lock held.
+    // The ledger and embedding store are never copied — algorithms don't read them.
 
-    /// Topology-only snapshot: petgraph structure + id↔index map. For
-    /// algorithms that read only the graph shape (PageRank, betweenness
-    /// centrality, community detection, graph coloring, …).
-    pub fn topology_snapshot(&self) -> GraphCore {
-        GraphCore {
-            graph: self.graph.clone(),
-            node_map: self.node_map.clone(),
+    /// Topology-only snapshot: petgraph structure + id↔index map. For algorithms
+    /// that read only the graph shape (PageRank, betweenness, community detection,
+    /// graph coloring, …).
+    pub fn topology_snapshot(&self) -> GraphView {
+        let topo = self.topo.read();
+        GraphView {
+            graph: topo.graph.clone(),
+            node_map: topo.node_map.clone(),
             node_properties: HashMap::new(),
             edge_properties: HashMap::new(),
-            ledger: Vec::new(),
-            semantic_store: crate::compute::semantic::SemanticStore::new(),
         }
     }
 
-    /// Topology + property-blob snapshot (still no ledger / embedding store).
-    /// For algorithms that also read node/edge property blobs: MST edge
-    /// weights, VF2 matching, similarity edges, lifecycle metrics.
-    pub fn analysis_snapshot(&self) -> GraphCore {
-        GraphCore {
-            graph: self.graph.clone(),
-            node_map: self.node_map.clone(),
-            node_properties: self.node_properties.clone(),
-            edge_properties: self.edge_properties.clone(),
-            ledger: Vec::new(),
-            semantic_store: crate::compute::semantic::SemanticStore::new(),
+    /// Topology + property-blob snapshot (still no ledger / embedding store). For
+    /// algorithms that also read node/edge property blobs: MST edge weights, VF2
+    /// matching, similarity edges, lifecycle metrics.
+    pub fn analysis_snapshot(&self) -> GraphView {
+        let topo = self.topo.read();
+        GraphView {
+            graph: topo.graph.clone(),
+            node_map: topo.node_map.clone(),
+            node_properties: self
+                .node_properties
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect(),
+            edge_properties: self
+                .edge_properties
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect(),
         }
     }
 
     // ── Graph Forking ────────────────────────────────────────────────────
 
+    /// Deep-clone into a new, independent LIVE graph (fresh locks).
     pub fn fork(&self) -> GraphCore {
+        let topo = self.topo.read();
         GraphCore {
-            graph: self.graph.clone(),
-            node_map: self.node_map.clone(),
-            node_properties: self.node_properties.clone(),
-            edge_properties: self.edge_properties.clone(),
-            ledger: self.ledger.clone(),
-            semantic_store: self.semantic_store.clone(),
+            topo: RwLock::new(topo.clone()),
+            node_properties: self
+                .node_properties
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect(),
+            edge_properties: self
+                .edge_properties
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect(),
+            ledger: Mutex::new(self.ledger.lock().clone()),
+            semantic_store: RwLock::new(self.semantic_store.read().clone()),
         }
     }
 
-    pub fn diff_against(&self, other: &GraphCore) -> String {
-        let self_nodes: std::collections::HashSet<&String> = self.node_map.keys().collect();
+    pub fn diff_against(&self, other: &GraphView) -> String {
+        let topo = self.topo.read();
+        let self_nodes: std::collections::HashSet<&String> = topo.node_map.keys().collect();
         let other_nodes: std::collections::HashSet<&String> = other.node_map.keys().collect();
 
         let added: Vec<&String> = other_nodes.difference(&self_nodes).cloned().collect();
@@ -513,21 +664,29 @@ impl GraphCore {
 
         let mut modified: Vec<&String> = Vec::new();
         for node_id in self_nodes.intersection(&other_nodes) {
-            let self_props = self.node_properties.get(*node_id);
-            let other_props = other.node_properties.get(*node_id);
+            let self_props = self.node_properties.get(*node_id).map(|a| a.clone());
+            let other_props = other.node_properties.get(*node_id).cloned();
             if self_props != other_props {
                 modified.push(node_id);
             }
         }
 
-        let self_edges: std::collections::HashSet<&(String, String)> =
-            self.edge_properties.keys().collect();
+        let self_edges: std::collections::HashSet<(String, String)> = self
+            .edge_properties
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
         let other_edges: std::collections::HashSet<&(String, String)> =
             other.edge_properties.keys().collect();
-        let edges_added: Vec<&(String, String)> =
-            other_edges.difference(&self_edges).cloned().collect();
-        let edges_removed: Vec<&(String, String)> =
-            self_edges.difference(&other_edges).cloned().collect();
+        let edges_added: Vec<&(String, String)> = other_edges
+            .iter()
+            .filter(|k| !self_edges.contains(**k))
+            .cloned()
+            .collect();
+        let edges_removed: Vec<&(String, String)> = self_edges
+            .iter()
+            .filter(|k| !other_edges.contains(k))
+            .collect();
 
         let diff = serde_json::json!({
             "nodes_added": added,
@@ -541,10 +700,11 @@ impl GraphCore {
 
     // ── Compaction ───────────────────────────────────────────────────────
 
-    pub fn compact_nodes_by_type(&mut self, node_type: &str, threshold: usize) -> Vec<String> {
+    pub fn compact_nodes_by_type(&self, node_type: &str, threshold: usize) -> Vec<String> {
         let mut candidates: Vec<String> = Vec::new();
-        for (node_id, props_json) in &self.node_properties {
-            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json) {
+        for entry in self.node_properties.iter() {
+            let (node_id, props_json) = (entry.key(), entry.value());
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json.as_slice()) {
                 if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
                     if t == node_type {
                         candidates.push(node_id.clone());
@@ -575,7 +735,7 @@ impl GraphCore {
 
     // ── Repository Parsing ───────────────────────────────────────────────
 
-    pub fn parse_repository(&mut self, root_path: &str) -> Result<(), String> {
+    pub fn parse_repository(&self, root_path: &str) -> Result<(), String> {
         let root = std::path::Path::new(root_path);
         if !root.exists() {
             return Err(format!("Path '{}' does not exist", root_path));
@@ -605,7 +765,7 @@ impl GraphCore {
         Ok(())
     }
 
-    fn parse_code_line(&mut self, trimmed: &str, rel_str: &str, line_num: usize) {
+    fn parse_code_line(&self, trimmed: &str, rel_str: &str, line_num: usize) {
         // Python/JS class definition
         if trimmed.starts_with("class ") {
             if let Some(class_name) = trimmed.split_whitespace().nth(1) {
@@ -674,7 +834,10 @@ impl GraphCore {
 
     // ── VF2 Subgraph Matching ────────────────────────────────────────────
 
-    pub fn vf2_subgraph_match(&self, pattern: &GraphCore) -> Vec<HashMap<String, String>> {
+    pub fn vf2_subgraph_match(&self, pattern: &GraphView) -> Vec<HashMap<String, String>> {
+        // Match against a consistent read view so the O(V·E) backtracking never
+        // holds a live lock.
+        let host = self.analysis_snapshot();
         let mut matches = Vec::new();
         let pattern_nodes: Vec<String> = pattern.node_map.keys().cloned().collect();
         if pattern_nodes.is_empty() {
@@ -684,7 +847,7 @@ impl GraphCore {
         let mut mapped_targets = std::collections::HashSet::new();
 
         backtrack_match(
-            self,
+            &host,
             0,
             &pattern_nodes,
             &mut current_mapping,
@@ -701,17 +864,18 @@ impl GraphCore {
     /// grows beyond `max_nodes`, this method removes the oldest nodes (by
     /// insertion order in `node_map`) until the count is at or below the cap.
     /// Returns the number of evicted nodes.
-    pub fn evict_lru(&mut self, max_nodes: usize) -> usize {
-        let current = self.node_map.len();
-        if current <= max_nodes {
-            return 0;
-        }
-        let to_evict = current - max_nodes;
+    pub fn evict_lru(&self, max_nodes: usize) -> usize {
+        // Snapshot the id↔index map under the read lock, then remove off-lock.
+        let mut indexed: Vec<(String, NodeIndex)> = {
+            let topo = self.topo.read();
+            if topo.node_map.len() <= max_nodes {
+                return 0;
+            }
+            topo.node_map.iter().map(|(k, &v)| (k.clone(), v)).collect()
+        };
+        let to_evict = indexed.len() - max_nodes;
 
-        // Collect node IDs to evict — nodes with the lowest NodeIndex values
-        // were inserted earliest, so they approximate LRU.
-        let mut indexed: Vec<(String, NodeIndex)> =
-            self.node_map.iter().map(|(k, &v)| (k.clone(), v)).collect();
+        // Nodes with the lowest NodeIndex were inserted earliest → approximate LRU.
         indexed.sort_by_key(|(_, idx)| *idx);
 
         let evict_ids: Vec<String> = indexed
@@ -741,65 +905,83 @@ impl GraphCore {
     /// and positive. Properties are read/written as MessagePack (the wire/storage
     /// format produced by `client.nodes.add`).
     pub fn decay_sweep(
-        &mut self,
+        &self,
         now: u64,
         default_half_life: f64,
         floor: f64,
         prune: bool,
     ) -> crate::types::DecayStats {
         let mut stats = crate::types::DecayStats::default();
-
-        // ── Nodes ──
-        let node_ids: Vec<String> = self.node_properties.keys().cloned().collect();
         let mut node_prune: Vec<String> = Vec::new();
-        for nid in node_ids {
-            if let Some(bytes) = self.node_properties.get(&nid).cloned() {
-                if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(&bytes) {
-                    if let Some(obj) = val.as_object_mut() {
-                        let (new_conf, changed) = apply_decay(obj, now, default_half_life);
-                        if changed {
-                            stats.nodes_decayed += 1;
-                            if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                self.node_properties.insert(nid.clone(), Arc::new(reenc));
-                            }
-                        }
-                        if prune && new_conf < floor {
-                            node_prune.push(nid.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Edges ── (edge_properties: (src,tgt) -> Vec<Vec<u8>> parallel edges)
-        let edge_keys: Vec<(String, String)> = self.edge_properties.keys().cloned().collect();
         let mut edge_prune: Vec<(String, String)> = Vec::new();
-        for key in edge_keys {
-            let mut min_conf = 1.0f64;
-            if let Some(blobs) = self.edge_properties.get_mut(&key) {
-                for b in blobs.iter_mut() {
-                    if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(b.as_slice()) {
+
+        // The property re-encode runs under the topology READ lock: it excludes
+        // structural writers (add/remove go through a write txn), so a node can't
+        // be concurrently removed while we re-insert its decayed properties (which
+        // would resurrect it). Reads/other property updates still proceed.
+        {
+            let _topo = self.topo.read();
+
+            // ── Nodes ──
+            let node_ids: Vec<String> = self
+                .node_properties
+                .iter()
+                .map(|e| e.key().clone())
+                .collect();
+            for nid in node_ids {
+                if let Some(bytes) = self.node_properties.get(&nid).map(|r| r.value().clone()) {
+                    if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(&bytes) {
                         if let Some(obj) = val.as_object_mut() {
                             let (new_conf, changed) = apply_decay(obj, now, default_half_life);
                             if changed {
-                                stats.edges_decayed += 1;
+                                stats.nodes_decayed += 1;
                                 if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                    *b = Arc::new(reenc);
+                                    self.node_properties.insert(nid.clone(), Arc::new(reenc));
                                 }
                             }
-                            if new_conf < min_conf {
-                                min_conf = new_conf;
+                            if prune && new_conf < floor {
+                                node_prune.push(nid.clone());
                             }
                         }
                     }
                 }
             }
-            if prune && min_conf < floor {
-                edge_prune.push(key);
+
+            // ── Edges ── (edge_properties: (src,tgt) -> Vec<Vec<u8>> parallel edges)
+            let edge_keys: Vec<(String, String)> = self
+                .edge_properties
+                .iter()
+                .map(|e| e.key().clone())
+                .collect();
+            for key in edge_keys {
+                let mut min_conf = 1.0f64;
+                if let Some(mut blobs) = self.edge_properties.get_mut(&key) {
+                    for b in blobs.iter_mut() {
+                        if let Ok(mut val) =
+                            rmp_serde::from_slice::<serde_json::Value>(b.as_slice())
+                        {
+                            if let Some(obj) = val.as_object_mut() {
+                                let (new_conf, changed) = apply_decay(obj, now, default_half_life);
+                                if changed {
+                                    stats.edges_decayed += 1;
+                                    if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                                        *b = Arc::new(reenc);
+                                    }
+                                }
+                                if new_conf < min_conf {
+                                    min_conf = new_conf;
+                                }
+                            }
+                        }
+                    }
+                }
+                if prune && min_conf < floor {
+                    edge_prune.push(key);
+                }
             }
         }
 
-        // ── Prune below floor ──
+        // ── Prune below floor (each removal takes its own write txn) ──
         for (s, t) in &edge_prune {
             self.remove_edge(s.clone(), t.clone());
             stats.edges_pruned += 1;
@@ -815,7 +997,8 @@ impl GraphCore {
     /// `last_access = now` and restore `confidence = 1.0` so the forgetting
     /// clock restarts. Call when an agent actually reads/uses a fact. Returns
     /// the number of nodes touched.
-    pub fn touch_nodes(&mut self, node_ids: &[String], now: u64) -> usize {
+    pub fn touch_nodes(&self, node_ids: &[String], now: u64) -> usize {
+        let _topo = self.topo.read();
         let mut touched = 0usize;
         for nid in node_ids {
             if let Some(bytes) = self.node_properties.get(nid).map(|a| (**a).clone()) {
@@ -908,12 +1091,12 @@ pub fn walk_dir_recursive(dir: &std::path::Path, files: &mut Vec<std::path::Path
 }
 
 fn backtrack_match(
-    host: &GraphCore,
+    host: &GraphView,
     pattern_node_idx: usize,
     pattern_nodes: &[String],
     current_mapping: &mut HashMap<String, String>,
     mapped_targets: &mut std::collections::HashSet<String>,
-    pattern: &GraphCore,
+    pattern: &GraphView,
     matches: &mut Vec<HashMap<String, String>>,
 ) {
     if pattern_node_idx == pattern_nodes.len() {
@@ -949,11 +1132,11 @@ fn backtrack_match(
 }
 
 fn check_match(
-    host: &GraphCore,
+    host: &GraphView,
     p_node: &str,
     t_node: &str,
     current_mapping: &HashMap<String, String>,
-    pattern: &GraphCore,
+    pattern: &GraphView,
 ) -> bool {
     let p_props = pattern
         .node_properties
@@ -1011,8 +1194,8 @@ fn check_match(
 }
 
 fn check_edge_props(
-    host: &GraphCore,
-    pattern: &GraphCore,
+    host: &GraphView,
+    pattern: &GraphView,
     p_src: &str,
     p_tgt: &str,
     t_src: &str,
@@ -1089,7 +1272,7 @@ mod tests {
 
     #[test]
     fn decay_halves_confidence_at_one_half_life() {
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let now = 1_000_000u64;
         g.add_node(
             "n1".to_string(),
@@ -1103,7 +1286,7 @@ mod tests {
 
     #[test]
     fn fresh_node_does_not_decay() {
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let now = 1_000_000u64;
         g.add_node(
             "n1".to_string(),
@@ -1118,7 +1301,7 @@ mod tests {
     fn msgpack_roundtrip_preserves_nodes_edges_props() {
         // A3: to_msgpack now encodes the typed snapshot directly. Round-trip must
         // preserve node/edge property BYTES exactly (they are opaque msgpack blobs).
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let p1 = props(serde_json::json!({"type": "Code", "language": "java", "n": 7}));
         let p2 = props(serde_json::json!({"type": "Code", "language": "rust"}));
         g.add_node("a".to_string(), p1.clone());
@@ -1128,18 +1311,18 @@ mod tests {
             "b".to_string(),
             props(serde_json::json!({"type": "CALLS"})),
         );
-        g.ledger.push("evt1".to_string());
-        let expected_ledger = g.ledger.clone(); // includes auto ADD_NODE/ADD_EDGE entries
+        g.ledger.lock().push("evt1".to_string());
+        let expected_ledger = g.get_ledger(); // includes auto ADD_NODE/ADD_EDGE entries
 
         let bytes = g.to_msgpack().unwrap();
-        let mut g2 = GraphCore::new();
+        let g2 = GraphCore::new();
         g2.from_msgpack(&bytes).unwrap();
 
         assert_eq!(g2.node_count(), 2);
         assert_eq!(g2.get_node_properties("a"), Some(p1));
         assert_eq!(g2.get_node_properties("b"), Some(p2));
         assert_eq!(g2.get_edge_properties("a", "b").len(), 1);
-        assert_eq!(g2.ledger, expected_ledger);
+        assert_eq!(g2.get_ledger(), expected_ledger);
     }
 
     #[test]
@@ -1147,7 +1330,7 @@ mod tests {
         // Backward compat: reproduce the PRE-A3 on-disk shape (values round-tripped
         // through serde_json::Value before rmp encoding) and assert from_msgpack
         // still loads it — so existing __bus__.mp snapshots keep loading.
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let p = props(serde_json::json!({"type": "Code", "v": 42}));
         g.add_node("a".to_string(), p.clone());
         let _ = g.add_edge(
@@ -1167,15 +1350,15 @@ mod tests {
         );
         legacy.insert(
             "ledger".to_string(),
-            serde_json::to_value(&g.ledger).unwrap(),
+            serde_json::to_value(g.get_ledger()).unwrap(),
         );
         legacy.insert(
             "semantic_store".to_string(),
-            serde_json::to_value(&g.semantic_store).unwrap(),
+            serde_json::to_value(&*g.semantic_store.read()).unwrap(),
         );
         let legacy_bytes = rmp_serde::to_vec_named(&legacy).unwrap();
 
-        let mut g2 = GraphCore::new();
+        let g2 = GraphCore::new();
         g2.from_msgpack(&legacy_bytes).unwrap();
         assert_eq!(g2.node_count(), 1);
         assert_eq!(g2.get_node_properties("a"), Some(p));
@@ -1184,7 +1367,7 @@ mod tests {
     #[test]
     fn decay_compounds_across_sweeps() {
         // R(Δt₁)·R(Δt₂) must equal R(Δt₁+Δt₂): two one-half-life sweeps → 0.25.
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         g.add_node(
             "n1".to_string(),
             props(serde_json::json!({"type": "Fact", "confidence": 1.0, "last_access": 1000u64})),
@@ -1197,7 +1380,7 @@ mod tests {
 
     #[test]
     fn touch_resets_confidence_and_clock() {
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let now = 5000u64;
         g.add_node(
             "n1".to_string(),
@@ -1211,7 +1394,7 @@ mod tests {
 
     #[test]
     fn prune_removes_below_floor() {
-        let mut g = GraphCore::new();
+        let g = GraphCore::new();
         let now = 1_000_000u64;
         // ~4 half-lives elapsed → retention ≈ 0.0625, below the 0.1 floor.
         g.add_node(
@@ -1221,5 +1404,166 @@ mod tests {
         let stats = g.decay_sweep(now, 100.0, 0.1, true);
         assert_eq!(stats.nodes_pruned, 1);
         assert!(!g.has_node("n1"));
+    }
+}
+
+#[cfg(test)]
+mod concurrency_tests {
+    // Phase C-B: the split-lock store exists FOR multi-writer concurrency, so it
+    // must be validated under real thread contention (not just the single-threaded
+    // correctness tests above). These tests run many writers/readers against ONE
+    // `Arc<GraphCore>` and assert the core invariants hold: no panic/deadlock,
+    // every write lands, and topology membership always agrees with the property
+    // maps (each mutation is atomic under the topology write guard).
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+
+    fn pbytes(i: usize) -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({"type": "Code", "i": i})).unwrap()
+    }
+
+    #[test]
+    fn concurrent_add_nodes_all_land() {
+        let core = Arc::new(GraphCore::new());
+        let (writers, per) = (8usize, 500usize);
+        let mut handles = Vec::new();
+        for w in 0..writers {
+            let c = core.clone();
+            handles.push(thread::spawn(move || {
+                for k in 0..per {
+                    c.add_node(format!("w{w}_n{k}"), pbytes(k));
+                }
+            }));
+        }
+        // Readers hammer the topology + property maps concurrently with writers —
+        // property reads take no topology lock, so they must never deadlock or
+        // observe a torn map.
+        for _ in 0..4 {
+            let c = core.clone();
+            handles.push(thread::spawn(move || {
+                for _ in 0..2000 {
+                    let _ = c.node_count();
+                    let _ = c.get_nodes_arc().len();
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(core.node_count(), writers * per);
+        // node_map (topology) and node_properties (DashMap) agree on cardinality.
+        assert_eq!(core.get_nodes_arc().len(), writers * per);
+    }
+
+    #[test]
+    fn concurrent_add_edges_and_snapshot_consistent() {
+        let core = Arc::new(GraphCore::new());
+        let n = 200usize;
+        for i in 0..n {
+            core.add_node(format!("n{i}"), pbytes(i));
+        }
+        let threads = 8usize;
+        let mut handles = Vec::new();
+        for t in 0..threads {
+            let c = core.clone();
+            handles.push(thread::spawn(move || {
+                for i in 0..n - 1 {
+                    if i % threads == t {
+                        let _ = c.add_edge(format!("n{i}"), format!("n{}", i + 1), pbytes(i));
+                    }
+                }
+            }));
+        }
+        // A snapshotter runs concurrently: snapshot() holds the topology read lock,
+        // so every snapshot it produces is an internally consistent point-in-time.
+        let c = core.clone();
+        let snapper = thread::spawn(move || {
+            for _ in 0..100 {
+                let s = c.snapshot();
+                assert!(s.nodes.len() <= n);
+            }
+        });
+        for h in handles {
+            h.join().unwrap();
+        }
+        snapper.join().unwrap();
+        assert_eq!(core.edge_count(), n - 1);
+    }
+
+    #[test]
+    fn concurrent_remove_add_keeps_membership_consistent() {
+        // The classic resurrection/dangle hazard: interleaved add+remove of the
+        // SAME id. Each op is atomic under the topology write guard, so at
+        // quiescence topology membership must equal property membership — never a
+        // live node index without properties, nor an orphan property.
+        let core = Arc::new(GraphCore::new());
+        core.add_node("x".into(), pbytes(0));
+        let mut handles = Vec::new();
+        for t in 0..6usize {
+            let c = core.clone();
+            handles.push(thread::spawn(move || {
+                for k in 0..1000usize {
+                    if (t + k) % 2 == 0 {
+                        c.add_node("x".into(), pbytes(k));
+                    } else {
+                        c.remove_node("x".into());
+                    }
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(
+            core.has_node("x"),
+            core.get_node_properties("x").is_some(),
+            "topology and property membership must agree at quiescence"
+        );
+    }
+
+    #[test]
+    fn concurrent_property_reads_during_topology_writes() {
+        // Property reads (DashMap, no topology lock) must run concurrently with
+        // structural writers without deadlock and only ever see whole values.
+        let core = Arc::new(GraphCore::new());
+        for i in 0..100usize {
+            core.add_node(format!("n{i}"), pbytes(i));
+        }
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut handles = Vec::new();
+        // Structural churn: add/remove a moving id set.
+        {
+            let c = core.clone();
+            let s = stop.clone();
+            handles.push(thread::spawn(move || {
+                let mut k = 1000usize;
+                while !s.load(std::sync::atomic::Ordering::Relaxed) {
+                    c.add_node(format!("n{k}"), pbytes(k));
+                    c.remove_node(format!("n{}", k - 1));
+                    k += 1;
+                }
+            }));
+        }
+        // Readers decode whatever they find — a torn blob would fail to decode.
+        for _ in 0..6 {
+            let c = core.clone();
+            handles.push(thread::spawn(move || {
+                for _ in 0..5000 {
+                    for i in 0..100usize {
+                        if let Some(b) = c.get_node_properties(&format!("n{i}")) {
+                            assert!(rmp_serde::from_slice::<serde_json::Value>(&b).is_ok());
+                        }
+                    }
+                }
+            }));
+        }
+        for _ in 0..2 {
+            handles.pop().unwrap().join().unwrap();
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for h in handles {
+            h.join().unwrap();
+        }
     }
 }
