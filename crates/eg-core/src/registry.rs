@@ -14,7 +14,7 @@ use crate::protocol::GraphType;
 /// Metadata for a registered graph.
 ///
 /// The write-ahead log is NOT held here: WAL file I/O is owned by the single
-/// off-reactor [`crate::wal_service::WalService`], keyed by the graph's sanitized
+/// off-reactor `WalService` (in `eg-server`), keyed by the graph's sanitized
 /// file name, so durable mutations append without any per-entry lock (Phase B3).
 #[derive(Debug, Clone)]
 pub struct GraphEntry {

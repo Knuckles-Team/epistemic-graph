@@ -324,6 +324,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-core"
+version = "0.27.0"
+dependencies = [
+ "dashmap",
+ "eg-types",
+ "hex",
+ "hnsw_rs",
+ "parking_lot",
+ "petgraph",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-types"
 version = "0.27.0"
 dependencies = [
@@ -383,6 +398,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dashmap",
+ "eg-core",
  "eg-types",
  "fs4",
  "hex",
