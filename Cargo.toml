@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/eg-types"]
+
 [package]
 name = "epistemic-graph"
 version = "0.27.0"
@@ -23,10 +26,10 @@ algorithms = []
 # Prometheus observability: request/latency/in-flight counters, per-graph
 # gauges and a /metrics HTTP listener (--metrics-addr). ON by default; opt out
 # with --no-default-features for a leaner lib-only build.
-metrics = ["dep:prometheus", "dep:strum"]
-finance = ["dep:nalgebra"]
+metrics = ["dep:prometheus", "eg-types/metrics"]
+finance = ["dep:nalgebra", "eg-types/finance"]
 ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-javascript", "dep:tree-sitter-go", "dep:tree-sitter-java", "dep:tree-sitter-c", "dep:tree-sitter-cpp", "dep:tree-sitter-c-sharp"]
-datascience = ["dep:nalgebra", "dep:rand_chacha", "dep:rand_distr"]
+datascience = ["dep:nalgebra", "dep:rand_chacha", "dep:rand_distr", "eg-types/datascience"]
 reasoning = []
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
 compute = ["finance", "ast", "datascience", "reasoning"]
@@ -34,6 +37,7 @@ full = ["compute", "server"]
 all = ["full"]
 
 [dependencies]
+eg-types = { path = "crates/eg-types" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
@@ -70,7 +74,6 @@ tracing-subscriber = { version = "0.3", optional = true }
 # Optional Prometheus observability (feature `metrics`, on by default).
 # default-features = false drops the protobuf encoder — text exposition only.
 prometheus = { version = "0.14", optional = true, default-features = false }
-strum = { version = "0.27", features = ["derive"], optional = true }
 hmac = "0.12"
 hex = "0.4"
 rmp-serde = "1.3"

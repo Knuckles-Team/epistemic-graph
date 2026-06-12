@@ -1,0 +1,145 @@
+//! Wire DTOs embedded in feature-gated `protocol::Method` variants. They live in
+//! eg-types (the bottom of the DAG) so the protocol enum can name them without
+//! depending on eg-compute. The `finance` / `datascience` modules re-export them
+//! (`pub use eg_types::wire::Order;` etc.) so their algorithm code is untouched.
+//!
+//! Each type is gated by the same feature as the Method variant that carries it,
+//! so a build that omits a compute domain drops its wire types from the enum too.
+
+#[cfg(any(feature = "finance", feature = "datascience"))]
+use serde::{Deserialize, Serialize};
+
+// ── finance ────────────────────────────────────────────────────────────────
+
+/// A single order in the book (matched by `eg-compute::finance::exchange`).
+#[cfg(feature = "finance")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Order {
+    pub id: String,
+    pub side: String, // "buy" or "sell"
+    pub price: f64,
+    pub quantity: f64,
+    pub timestamp: u64,
+}
+
+/// One fiscal year of standardized financial-statement inputs (forensic scores).
+#[cfg(feature = "finance")]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct YearData {
+    pub sales: f64,
+    pub cogs: f64,
+    pub sga: f64,
+    pub net_income: f64,
+    pub cfo: f64, // operating cash flow
+    pub receivables: f64,
+    pub current_assets: f64,
+    pub current_liabilities: f64,
+    pub ppe_net: f64,
+    pub depreciation: f64,
+    pub total_assets: f64,
+    pub total_liabilities: f64,
+    pub long_term_debt: f64,
+    pub retained_earnings: f64,
+    pub ebit: f64,
+    pub market_cap: f64,
+    pub shares: f64,
+}
+
+// ── datascience ──────────────────────────────────────────────────────────────
+
+/// Hyperparameters for the estimators. All optional; per-estimator defaults are
+/// applied at fit time to mirror scikit-learn's defaults.
+#[cfg(feature = "datascience")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EstimatorParams {
+    pub alpha: Option<f64>,
+    pub l1_ratio: Option<f64>,
+    pub max_depth: Option<usize>,
+    pub min_samples_split: Option<usize>,
+    pub min_samples_leaf: Option<usize>,
+    pub n_estimators: Option<usize>,
+    pub learning_rate: Option<f64>,
+    pub max_features: Option<usize>,
+    pub subsample: Option<f64>,
+    pub random_state: Option<u64>,
+    // SVR
+    #[serde(rename = "C")]
+    pub c: Option<f64>,
+    pub epsilon: Option<f64>,
+    pub gamma: Option<f64>,
+    pub kernel: Option<String>,
+    pub max_iter: Option<usize>,
+    pub tol: Option<f64>,
+}
+
+/// A flat regression tree: node `i` is a leaf when `feature < 0`.
+#[cfg(feature = "datascience")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreeNode {
+    pub feature: i64,
+    pub threshold: f64,
+    pub left: i64,
+    pub right: i64,
+    pub value: f64,
+}
+
+#[cfg(feature = "datascience")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionTree {
+    pub nodes: Vec<TreeNode>,
+}
+
+#[cfg(feature = "datascience")]
+impl DecisionTree {
+    /// Walk the flat tree to the leaf for one feature row. `pub` so the estimator
+    /// code in `eg-compute::datascience` can drive prediction across the crate
+    /// boundary (the data lives here; the fit/predict logic stays upstream).
+    pub fn predict_one(&self, x: &[f64]) -> f64 {
+        if self.nodes.is_empty() {
+            return 0.0;
+        }
+        let mut idx = 0usize;
+        loop {
+            let node = &self.nodes[idx];
+            if node.feature < 0 {
+                return node.value;
+            }
+            idx = if x[node.feature as usize] <= node.threshold {
+                node.left as usize
+            } else {
+                node.right as usize
+            };
+        }
+    }
+}
+
+/// Serializable fitted model returned by `fit_estimator`.
+#[cfg(feature = "datascience")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "model")]
+pub enum FittedModel {
+    Linear {
+        coefficients: Vec<f64>,
+        intercept: f64,
+    },
+    Tree(DecisionTree),
+    Forest {
+        trees: Vec<DecisionTree>,
+    },
+    GradientBoosting {
+        init: f64,
+        learning_rate: f64,
+        trees: Vec<DecisionTree>,
+    },
+    AdaBoost {
+        trees: Vec<DecisionTree>,
+        weights: Vec<f64>,
+    },
+    Svr {
+        support_vectors: Vec<Vec<f64>>,
+        dual_coef: Vec<f64>,
+        intercept: f64,
+        kernel: String,
+        gamma: f64,
+    },
+}

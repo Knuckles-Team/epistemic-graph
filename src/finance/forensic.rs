@@ -7,27 +7,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One fiscal year of standardized financial-statement inputs.
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct YearData {
-    pub sales: f64,
-    pub cogs: f64,
-    pub sga: f64,
-    pub net_income: f64,
-    pub cfo: f64, // operating cash flow
-    pub receivables: f64,
-    pub current_assets: f64,
-    pub current_liabilities: f64,
-    pub ppe_net: f64,
-    pub depreciation: f64,
-    pub total_assets: f64,
-    pub total_liabilities: f64,
-    pub long_term_debt: f64,
-    pub retained_earnings: f64,
-    pub ebit: f64,
-    pub market_cap: f64,
-    pub shares: f64,
-}
+/// One fiscal year of standardized financial-statement inputs. Defined in
+/// `eg-types::wire` (the `protocol` enum embeds it); re-exported here so the
+/// scoring code below is unchanged.
+pub use crate::wire::YearData;
 
 #[inline]
 fn d(a: f64, b: f64) -> f64 {

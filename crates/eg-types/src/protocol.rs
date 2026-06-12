@@ -458,11 +458,11 @@ pub enum Method {
         x: Vec<Vec<f64>>,
         y: Vec<f64>,
         #[serde(default)]
-        params: crate::datascience::estimators::EstimatorParams,
+        params: crate::wire::EstimatorParams,
     },
     #[cfg(feature = "datascience")]
     DsPredictEstimator {
-        model: crate::datascience::estimators::FittedModel,
+        model: crate::wire::FittedModel,
         x: Vec<Vec<f64>>,
     },
 
@@ -624,7 +624,7 @@ pub enum Method {
     // Embeds a `finance` domain type → gated with the feature.
     #[cfg(feature = "finance")]
     FinanceMatchOrders {
-        orders: Vec<crate::finance::exchange::Order>,
+        orders: Vec<crate::wire::Order>,
     },
 
     // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────────
@@ -747,8 +747,8 @@ pub enum Method {
     // Embeds `finance` domain types → gated with the feature.
     #[cfg(feature = "finance")]
     FinanceForensicReport {
-        this_year: crate::finance::forensic::YearData,
-        prior_year: crate::finance::forensic::YearData,
+        this_year: crate::wire::YearData,
+        prior_year: crate::wire::YearData,
     },
 
     // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────────
@@ -875,7 +875,7 @@ pub enum Method {
     // ── Zero-Trust Consensus ─────────────────────────────────────────
     RegisterIdentity {
         agent_id: String,
-        role: crate::isolation::AgentRole,
+        role: crate::acl::AgentRole,
         teams: Vec<String>,
         signature: String,
     },
