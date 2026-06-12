@@ -370,7 +370,6 @@ version = "0.27.0"
 dependencies = [
  "ahash",
  "anyhow",
- "bincode",
  "clap",
  "dashmap",
  "fs4",
