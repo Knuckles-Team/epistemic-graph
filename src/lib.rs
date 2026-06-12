@@ -14,6 +14,11 @@
 // Service-layer modules (protocol, registry, isolation, channels, server)
 // are used by the epistemic-graph-server binary.
 
+// Bottom-of-DAG wire types live in the `eg-types` crate; re-export them under the
+// historical `crate::` paths so every module's `crate::protocol::` / `crate::types::`
+// / `crate::wire::` / `crate::acl::` reference resolves unchanged.
+pub use eg_types::{acl, protocol, types, wire};
+
 pub mod algorithms;
 pub mod ast;
 #[cfg(feature = "server")]
@@ -32,15 +37,12 @@ pub mod parser;
 pub mod persist;
 #[cfg(feature = "server")]
 pub mod persist_lock;
-#[cfg(feature = "server")]
-pub mod protocol;
 #[cfg(feature = "reasoning")]
 mod reasoning;
 #[cfg(feature = "server")]
 pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
-pub mod types;
 #[cfg(feature = "server")]
 pub mod wal;
 #[cfg(feature = "server")]

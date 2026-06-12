@@ -8,7 +8,6 @@
 // 5. Global read-only: System-managed, agent-readable
 
 use crate::protocol::GraphType;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 /// Access level for a graph operation.
@@ -18,25 +17,11 @@ pub enum AccessLevel {
     Write,
 }
 
-/// Role of an agent in the system hierarchy.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AgentRole {
-    /// System-level (can do anything).
-    System,
-    /// Manager agent with subordinates.
-    Manager { subordinates: Vec<String> },
-    /// Regular agent.
-    Agent,
-}
-
-/// Agent identity for ACL checks.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentIdentity {
-    pub agent_id: String,
-    pub role: AgentRole,
-    /// Teams this agent belongs to.
-    pub teams: Vec<String>,
-}
+/// `AgentRole` / `AgentIdentity` are defined in `eg-types::acl` (the `protocol`
+/// enum's `RegisterIdentity` carries `AgentRole` over the wire, and `protocol`
+/// sits below `isolation` in the DAG); re-exported here so `IsolationLayer` and
+/// every call site reference `crate::isolation::AgentRole` unchanged.
+pub use crate::acl::{AgentIdentity, AgentRole};
 
 /// Isolation policy engine.
 pub struct IsolationLayer {
