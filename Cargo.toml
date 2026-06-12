@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-core"]
+members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute"]
 
 [package]
 name = "epistemic-graph"
@@ -27,10 +27,10 @@ algorithms = []
 # gauges and a /metrics HTTP listener (--metrics-addr). ON by default; opt out
 # with --no-default-features for a leaner lib-only build.
 metrics = ["dep:prometheus", "eg-types/metrics"]
-finance = ["dep:nalgebra", "eg-types/finance"]
-ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-javascript", "dep:tree-sitter-go", "dep:tree-sitter-java", "dep:tree-sitter-c", "dep:tree-sitter-cpp", "dep:tree-sitter-c-sharp"]
-datascience = ["dep:rand_chacha", "eg-types/datascience"]
-reasoning = []
+finance = ["eg-compute/finance", "eg-types/finance"]
+ast = ["eg-compute/ast"]
+datascience = ["eg-compute/datascience", "eg-types/datascience"]
+reasoning = ["eg-compute/reasoning"]
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
 compute = ["finance", "ast", "datascience", "reasoning"]
 full = ["compute", "server"]
@@ -39,6 +39,10 @@ all = ["full"]
 [dependencies]
 eg-types = { path = "crates/eg-types" }
 eg-core = { path = "crates/eg-core" }
+# Compute domains (always linked for `algorithms`, used by the graph-op handlers);
+# the heavy finance/datascience/ast/reasoning code + deps are gated behind the
+# facade features that pass through to eg-compute's matching features.
+eg-compute = { path = "crates/eg-compute" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
@@ -50,13 +54,6 @@ uuid = { version = "1.8", features = ["v4"] }
 thiserror = "1.0"
 anyhow = "1.0"
 tracing = "0.1"
-# Linear-algebra / sampling deps used ONLY by the feature-gated compute domains:
-# nalgebra by `finance` (optimizer/statespace/quant), rand_chacha by `datascience`
-# (estimator seeding). Optional so a slim `--features server` build genuinely
-# excludes them — pulled in via the feature lists above, mirroring the `ast`
-# precedent.
-nalgebra = { version = "0.32", features = ["serde"], optional = true }
-rand_chacha = { version = "0.3", optional = true }
 
 # Optional Server. Explicit minimal feature set (not "full"): the binary uses an
 # explicitly-built multi-thread runtime + UDS/TCP listeners + sync primitives +
@@ -86,20 +83,6 @@ hnsw_rs = "0.3"
 # exactly one engine may own a persist dir, closing the split-brain/orphan class
 # at the engine level (complements the Python-side spawn guard).
 fs4 = "0.8"
-
-# Optional AST
-tree-sitter = { version = "0.23", optional = true }
-tree-sitter-python = { version = "0.23", optional = true }
-tree-sitter-rust = { version = "0.23", optional = true }
-tree-sitter-typescript = { version = "0.23", optional = true }
-tree-sitter-javascript = { version = "0.23", optional = true }
-tree-sitter-go = { version = "0.23", optional = true }
-tree-sitter-java = { version = "0.23", optional = true }
-tree-sitter-c = { version = "0.23", optional = true }
-tree-sitter-cpp = { version = "0.23", optional = true }
-# Pinned to an ABI-14 grammar: 0.23.5 was regenerated with tree-sitter ABI 15,
-# which the 0.23 core runtime rejects ("Incompatible language version 15").
-tree-sitter-c-sharp = { version = "=0.23.1", optional = true }
 serde_bytes = "0.11.19"
 
 
