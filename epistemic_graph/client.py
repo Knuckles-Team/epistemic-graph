@@ -55,6 +55,32 @@ class NodeClient:
             return msgpack.unpackb(raw_val, raw=False)
         return raw_val
 
+    async def properties_batch(
+        self, node_ids: builtins.list[str]
+    ) -> dict[str, dict[str, Any] | None]:
+        """Fetch properties for many nodes in ONE round-trip (CONCEPT:KG-2.16).
+
+        Returns a mapping ``node_id -> properties`` (``None`` for ids absent from
+        the graph). Collapses what would be N ``properties()`` calls — and N
+        network round-trips — into a single request.
+        """
+        rows = await self._client._send(
+            "GetNodePropertiesBatch", {"node_ids": list(node_ids)}
+        )
+        out: dict[str, dict[str, Any] | None] = {}
+        for entry in rows or []:
+            nid, blob = entry[0], entry[1]
+            out[nid] = (
+                msgpack.unpackb(blob, raw=False) if blob is not None else None
+            )
+        return out
+
+    async def has_batch(self, node_ids: builtins.list[str]) -> dict[str, bool]:
+        """Existence check for many nodes in one round-trip."""
+        ids = list(node_ids)
+        flags = await self._client._send("HasNodesBatch", {"node_ids": ids})
+        return dict(zip(ids, flags or []))
+
     async def count(self) -> int:
         return await self._client._send("NodeCount")
 
@@ -119,6 +145,24 @@ class EdgeClient:
 
             return msgpack.unpackb(raw_val, raw=False)
         return raw_val
+
+    async def properties_batch(
+        self, edges: builtins.list[tuple[str, str]]
+    ) -> builtins.list[builtins.list[dict[str, Any]]]:
+        """Fetch properties for many edges in ONE round-trip (CONCEPT:KG-2.16).
+
+        Returns a list parallel to ``edges``; each element is the list of property
+        dicts for that ``(source, target)`` pair (a pair may carry multiple edges;
+        an empty list means no such edge).
+        """
+        pairs = [list(e) for e in edges]
+        rows = await self._client._send("GetEdgePropertiesBatch", {"edges": pairs})
+        out: builtins.list[builtins.list[dict[str, Any]]] = []
+        for per_edge in rows or []:
+            out.append(
+                [msgpack.unpackb(blob, raw=False) for blob in per_edge if blob is not None]
+            )
+        return out
 
     async def count(self) -> int:
         return await self._client._send("EdgeCount")
