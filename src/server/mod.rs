@@ -3,7 +3,6 @@
 // Long-running Tokio server that holds the GraphRegistry in memory
 // and serves requests over UDS or TCP with HMAC-SHA256 authentication.
 
-use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 #[cfg(unix)]
@@ -11,196 +10,22 @@ use tokio::net::UnixListener;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info};
 
-use crate::channels::ChannelManager;
-use crate::isolation::{AccessLevel, IsolationLayer};
+use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Request, Response, ResultPayload};
-use crate::registry::GraphRegistry;
 
-/// Shared server state behind Arc<RwLock<>>.
-/// Upper bound on ids/edges accepted by a single batch read op. Oversize batches
-/// are rejected (not truncated) so a runaway request can't allocate a multi-GB
-/// response and OOM the shared process.
-pub const MAX_BATCH_IDS: usize = 100_000;
+mod access;
+mod auth;
+mod compute;
+mod state;
 
-pub struct ServerState {
-    pub registry: GraphRegistry,
-    pub isolation: IsolationLayer,
-    pub channels: ChannelManager,
-    pub auth_secret: String,
-    pub persist_dir: Option<String>,
-    /// Off-reactor WAL writer (Phase B3). `Some` when a persist dir is configured.
-    /// Durable mutations enqueue their append here instead of doing blocking file
-    /// I/O on a Tokio worker; the writer thread group-commits fsyncs.
-    pub wal_service: Option<Arc<crate::wal_service::WalService>>,
-    /// Global backpressure: caps concurrent in-flight requests across all
-    /// connections. Exhaustion yields a `BUSY` response so clients retry with
-    /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
-    pub max_in_flight: Arc<Semaphore>,
-    /// Per-graph backpressure (Phase C-D — multi-tenant fairness). A lazily
-    /// created semaphore per graph caps how many of the GLOBAL in-flight slots
-    /// any single graph may hold at once, so one hot tenant flooding requests
-    /// cannot starve every other tenant. Lock-free on the hot path.
-    pub per_graph_inflight: Arc<DashMap<String, Arc<Semaphore>>>,
-    /// Max concurrent in-flight requests any single graph may hold.
-    pub per_graph_inflight_limit: usize,
-}
-
-/// Compute the HMAC-SHA256 hex token for a request id. Shared by `verify_auth`
-/// and trusted in-process callers (tests) that dispatch requests without going
-/// through a socket client.
-pub fn compute_auth_token(secret: &str, request_id: u64) -> String {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-
-    type HmacSha256 = Hmac<Sha256>;
-
-    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
-        return String::new();
-    };
-    mac.update(request_id.to_string().as_bytes());
-    hex::encode(mac.finalize().into_bytes())
-}
-
-/// Verify HMAC-SHA256 authentication token.
-///
-/// An empty secret accepts everything — the binary only allows that
-/// configuration behind the explicit insecure opt-out enforced at startup
-/// (`--allow-insecure` / `EPISTEMIC_GRAPH_ALLOW_INSECURE=1`, see `main.rs`).
-fn verify_auth(secret: &str, request_id: u64, token: &str) -> bool {
-    if secret.is_empty() {
-        return true; // Explicitly opted-out of authentication at startup.
-    }
-    token == compute_auth_token(secret, request_id)
-}
-
-/// Whether a graph-targeted method mutates the target graph (Write) or only
-/// reads from it (Read). Pure-compute methods (finance, datascience, parse)
-/// never touch graph state and classify as Read.
-fn requires_write(method: &Method) -> bool {
-    matches!(
-        method,
-        Method::AddNode { .. }
-            | Method::RemoveNode { .. }
-            | Method::AddEdge { .. }
-            | Method::RemoveEdge { .. }
-            | Method::ClearGraph
-            | Method::AddEmbedding { .. }
-            | Method::PruneByLifecycle { .. }
-            | Method::BatchUpdate { .. }
-            | Method::EvictLRU { .. }
-            | Method::DecaySweep { .. }
-            | Method::TouchNodes { .. }
-            | Method::FromMsgpack { .. }
-            | Method::ClearLedger
-            | Method::ApplyLedger { .. }
-            | Method::CompactNodesByType { .. }
-            | Method::RunDatalogReasoning { .. }
-            | Method::Reconcile { .. }
-            | Method::ApplyMutation { .. }
-            | Method::ApplyMultisigMutation { .. }
-            | Method::ParseRepository { .. }
-            | Method::DeleteGraph { .. }
-    )
-}
-
-/// Enforce the isolation ACL for a graph-targeted operation.
-///
-/// Back-compat invariant: while no identities are registered the layer has no
-/// rules and everything is allowed (single-tenant deployments are unchanged).
-/// Once rules exist, `check_access` decides: peer agent graphs are denied,
-/// managers reach subordinate graphs, team graphs are member-read/manager-write,
-/// the `__commons__` stays open to all authenticated agents.
-fn check_graph_access(
-    isolation: &IsolationLayer,
-    caller: Option<&str>,
-    graph_name: &str,
-    graph_type: crate::protocol::GraphType,
-    graph_owner: Option<&str>,
-    access: AccessLevel,
-) -> Result<(), String> {
-    if !isolation.has_rules() {
-        return Ok(());
-    }
-    let agent = caller.unwrap_or("");
-    if isolation.check_access(agent, graph_name, graph_type, graph_owner, access) {
-        Ok(())
-    } else {
-        crate::metrics::access_denied();
-        Err(format!(
-            "ACCESS_DENIED: agent '{}' lacks {:?} access to graph '{}'",
-            if agent.is_empty() {
-                "<anonymous>"
-            } else {
-                agent
-            },
-            access,
-            graph_name
-        ))
-    }
-}
-
-/// Run a CPU-heavy, read-only computation on the blocking thread pool
-/// (CONCEPT:KG-2.51). Callers snapshot whatever graph state the computation
-/// needs under a short read lock, drop the lock, then hand the owned snapshot
-/// here — so the tokio runtime threads and the per-graph RwLock are never
-/// held across O(V·E)-class work.
-async fn compute_off_lock<T, F>(req_id: u64, f: F) -> Result<T, Response>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    tokio::task::spawn_blocking(f)
-        .await
-        .map_err(|e| Response::err(req_id, format!("Blocking compute task failed: {}", e)))
-}
-
-/// Confidence-weight raw semantic-search hits (CONCEPT:KG-2.51): drop
-/// strictly-stale facts (validity window closed), apply Ebbinghaus temporal
-/// decay (30-day half-life) to each hit's confidence, re-rank by the
-/// decay-weighted similarity and truncate to `n_results`. Pure function —
-/// runs on the blocking pool, never under the graph lock.
-fn weight_semantic_results(
-    candidates: Vec<(String, f32, Option<Vec<u8>>)>,
-    now: u64,
-    n_results: usize,
-) -> Vec<(String, f32)> {
-    let mut weighted_results = Vec::new();
-    for (node_id, mut similarity, props) in candidates {
-        if let Some(props_bytes) = props {
-            if let Ok(json_str) = String::from_utf8(props_bytes) {
-                let node_data = crate::types::NodeData::from_json_props(node_id.clone(), &json_str);
-
-                // Filter out strictly stale facts where the validity window has closed
-                if let Some(vu) = node_data.valid_until {
-                    if now > vu {
-                        continue;
-                    }
-                }
-
-                // Apply temporal decay to confidence (Ebbinghaus Forgetting Curve)
-                let mut current_confidence = node_data.confidence;
-                if let Some(vf) = node_data.valid_from {
-                    if now > vf {
-                        let age_secs = now - vf;
-                        let age_days = age_secs as f64 / 86400.0;
-                        // Half-life of 30 days (decay rate lambda = ln(2) / 30)
-                        let decay_rate = std::f64::consts::LN_2 / 30.0;
-                        current_confidence *= (-decay_rate * age_days).exp();
-                    }
-                }
-
-                // Adjust similarity by current confidence (salience)
-                similarity *= current_confidence as f32;
-            }
-        }
-        weighted_results.push((node_id, similarity));
-    }
-
-    // Re-sort descending based on the new confidence-weighted similarity
-    weighted_results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    weighted_results.truncate(n_results);
-    weighted_results
-}
+// Preserve the external path surface: `server::ServerState`, `server::MAX_BATCH_IDS`,
+// `server::compute_auth_token` are used by main.rs / persist.rs / tests.
+pub use auth::compute_auth_token;
+pub use state::{ServerState, MAX_BATCH_IDS};
+// Crate-internal helpers used by the dispatch + transport code below.
+use access::{check_graph_access, requires_write};
+use auth::verify_auth;
+use compute::{compute_off_lock, weight_semantic_results};
 
 /// Dispatch a single request to the appropriate handler, recording
 /// per-operation request counters and latency (CONCEPT:KG-2.51).
@@ -2418,8 +2243,11 @@ pub async fn serve_tcp(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::isolation::{AgentIdentity, AgentRole};
+    use crate::channels::ChannelManager;
+    use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
     use crate::protocol::GraphType;
+    use crate::registry::GraphRegistry;
+    use dashmap::DashMap;
 
     const SECRET: &str = "dispatch-test-secret";
 
