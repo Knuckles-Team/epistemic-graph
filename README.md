@@ -187,7 +187,7 @@ print("Inferred:", result["inferred_count"], "triples")
   (`client.consensus.register_identity`), every graph-targeted operation is
   checked by the isolation layer (`src/isolation.rs`): peer agent graphs are
   denied, managers reach subordinate graphs, team graphs are member-read /
-  manager-write, `global:` graphs are read-only, and `__bus__` stays open to
+  manager-write, `global:` graphs are read-only, and `__commons__` stays open to
   all authenticated agents. Callers identify themselves with the optional
   `agent_id` field (`EpistemicGraphClient.connect(..., agent_id="worker1")`).
   With **zero registered identities nothing is checked** — single-tenant

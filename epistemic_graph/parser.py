@@ -133,7 +133,7 @@ class RustASTParser:
             # bytes are serialized as binary bytes.
             request = {
                 "id": req_id,
-                "graph": "__bus__",
+                "graph": "__commons__",
                 "auth_token": self._compute_token(req_id),
                 "method": "ParseFile",
                 "params": {

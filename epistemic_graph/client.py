@@ -1721,7 +1721,7 @@ class EpistemicGraphClient:
         socket_path: str | None = None,
         tcp_addr: str | None = None,
         auth_secret: str | None = None,
-        graph_name: str = "__bus__",
+        graph_name: str = "__commons__",
         agent_id: str | None = None,
         timeout: float | None = _DEFAULT_RPC_TIMEOUT,
         heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,

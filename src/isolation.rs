@@ -3,7 +3,7 @@
 // Enforces ACL rules for multi-tenant graph access:
 // 1. Peer isolation: Agent graphs invisible to peer agents
 // 2. Hierarchical access: Managers have full access to subordinate graphs
-// 3. Bus is public: __bus__ readable/writable by all authenticated agents
+// 3. Commons is public: __commons__ readable/writable by all authenticated agents
 // 4. Team scoping: Read for members, R/W for manager
 // 5. Global read-only: System-managed, agent-readable
 
@@ -92,7 +92,7 @@ impl IsolationLayer {
 
         match graph_type {
             // Bus: all authenticated agents have full access.
-            GraphType::Bus => true,
+            GraphType::Commons => true,
 
             // Global: read-only for all agents.
             GraphType::Global => access == AccessLevel::Read,
@@ -151,7 +151,7 @@ impl IsolationLayer {
     /// Get all agent IDs that a given agent can access.
     pub fn accessible_graphs(&self, agent_id: &str) -> HashSet<String> {
         let mut accessible = HashSet::new();
-        accessible.insert("__bus__".to_string());
+        accessible.insert("__commons__".to_string());
 
         if let Some(identity) = self.agents.get(agent_id) {
             // Own agent graph.
@@ -205,15 +205,15 @@ mod tests {
         let layer = setup();
         assert!(layer.check_access(
             "worker1",
-            "__bus__",
-            GraphType::Bus,
+            "__commons__",
+            GraphType::Commons,
             None,
             AccessLevel::Write
         ));
         assert!(layer.check_access(
             "manager",
-            "__bus__",
-            GraphType::Bus,
+            "__commons__",
+            GraphType::Commons,
             None,
             AccessLevel::Read
         ));

@@ -48,7 +48,7 @@ fn default_decay_half_life() -> f64 {
 pub struct Request {
     /// Monotonically increasing request ID for correlation.
     pub id: u64,
-    /// Target graph name (e.g., "agent:planner", "__bus__", "channel:p2p:a:b").
+    /// Target graph name (e.g., "agent:planner", "__commons__", "channel:p2p:a:b").
     pub graph: String,
     /// HMAC-SHA256 hex digest for authentication.
     pub auth_token: String,
@@ -887,7 +887,7 @@ pub enum GraphType {
     Agent,
     Team,
     Global,
-    Bus,
+    Commons,
 }
 
 /// Channel type for dynamic communication.
@@ -1000,7 +1000,7 @@ mod tests {
     fn test_request_roundtrip_create_channel() {
         let req = Request {
             id: 42,
-            graph: "__bus__".to_string(),
+            graph: "__commons__".to_string(),
             auth_token: "tok".to_string(),
             agent_id: Some("agent:a".to_string()),
             method: Method::CreateChannel {
@@ -1042,7 +1042,7 @@ mod tests {
             GraphType::Agent,
             GraphType::Team,
             GraphType::Global,
-            GraphType::Bus,
+            GraphType::Commons,
         ] {
             let json = serde_json::to_string(&gt).unwrap();
             let parsed: GraphType = serde_json::from_str(&json).unwrap();
