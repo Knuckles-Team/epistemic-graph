@@ -7,6 +7,7 @@ use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use std::io::Read;
+use std::sync::Arc;
 
 /// Core graph storage — encapsulates petgraph and all CRUD operations.
 ///
@@ -16,8 +17,14 @@ use std::io::Read;
 pub struct GraphCore {
     pub graph: StableDiGraph<String, String>,
     pub node_map: HashMap<String, NodeIndex>,
-    pub node_properties: HashMap<String, Vec<u8>>,
-    pub edge_properties: HashMap<(String, String), Vec<Vec<u8>>>,
+    // Properties are reference-counted (Phase C-A): the snapshot/checkpoint clones
+    // Arc POINTERS (µs) instead of deep-copying the whole ~450MB property set (the
+    // A1-residual ~3s lock-held clone) and with no transient memory doubling. Arc
+    // is also the natural value type for the concurrent store (C-B): it moves into
+    // and out of the lock-free maps without copying the bytes. `Arc<Vec<u8>>`
+    // serializes identically to `Vec<u8>`, so the on-disk format is unchanged.
+    pub node_properties: HashMap<String, Arc<Vec<u8>>>,
+    pub edge_properties: HashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     pub ledger: Vec<String>,
     pub semantic_store: crate::compute::semantic::SemanticStore,
 }
@@ -38,8 +45,11 @@ pub struct GraphCore {
 ///   unchanged, so `from_msgpack` reads both pre- and post-change snapshot files.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct GraphSnapshot {
-    pub nodes: Vec<(String, Vec<u8>)>,
-    pub edges: Vec<(String, String, Vec<u8>)>,
+    // Arc-valued (Phase C-A): building a snapshot clones Arc pointers, not the
+    // property bytes. `Arc<Vec<u8>>` serializes byte-for-byte the same as
+    // `Vec<u8>`, so old and new snapshot files remain interchangeable.
+    pub nodes: Vec<(String, Arc<Vec<u8>>)>,
+    pub edges: Vec<(String, String, Arc<Vec<u8>>)>,
     pub ledger: Vec<String>,
     pub semantic_store: crate::compute::semantic::SemanticStore,
 }
@@ -73,9 +83,9 @@ impl GraphCore {
             self.node_map.insert(node_id.clone(), new_idx);
             new_idx
         };
-        self.node_properties
-            .insert(node_id.clone(), properties_msgpack.clone());
         let log = format!("ADD_NODE|{}|{}", node_id, hex::encode(&properties_msgpack));
+        self.node_properties
+            .insert(node_id.clone(), Arc::new(properties_msgpack));
         self.ledger.push(log);
         if self.ledger.len() > 100_000 {
             self.ledger.drain(0..50_000);
@@ -103,12 +113,21 @@ impl GraphCore {
     pub fn get_nodes(&self) -> Vec<(String, Vec<u8>)> {
         self.node_properties
             .iter()
+            .map(|(k, v)| (k.clone(), (**v).clone()))
+            .collect()
+    }
+
+    /// Like `get_nodes` but clones the Arc POINTERS, not the bytes — used by the
+    /// snapshot/checkpoint hot path (Phase C-A zero-copy).
+    pub fn get_nodes_arc(&self) -> Vec<(String, Arc<Vec<u8>>)> {
+        self.node_properties
+            .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
 
     pub fn get_node_properties(&self, node_id: &str) -> Option<Vec<u8>> {
-        self.node_properties.get(node_id).cloned()
+        self.node_properties.get(node_id).map(|a| (**a).clone())
     }
 
     pub fn node_count(&self) -> usize {
@@ -142,16 +161,16 @@ impl GraphCore {
             target_idx,
             format!("{}:{}", source_id, target_id),
         );
-        self.edge_properties
-            .entry((source_id.clone(), target_id.clone()))
-            .or_default()
-            .push(properties_msgpack.clone());
         let log = format!(
             "ADD_EDGE|{}|{}|{}",
             source_id,
             target_id,
             hex::encode(&properties_msgpack)
         );
+        self.edge_properties
+            .entry((source_id.clone(), target_id.clone()))
+            .or_default()
+            .push(Arc::new(properties_msgpack));
         self.ledger.push(log);
         if self.ledger.len() > 100_000 {
             self.ledger.drain(0..50_000);
@@ -190,6 +209,17 @@ impl GraphCore {
         let mut res = Vec::new();
         for ((src, tgt), props_list) in &self.edge_properties {
             for props in props_list {
+                res.push((src.clone(), tgt.clone(), (**props).clone()));
+            }
+        }
+        res
+    }
+
+    /// Like `get_edges` but clones the Arc pointers — snapshot hot path (C-A).
+    pub fn get_edges_arc(&self) -> Vec<(String, String, Arc<Vec<u8>>)> {
+        let mut res = Vec::new();
+        for ((src, tgt), props_list) in &self.edge_properties {
+            for props in props_list {
                 res.push((src.clone(), tgt.clone(), props.clone()));
             }
         }
@@ -199,7 +229,7 @@ impl GraphCore {
     pub fn get_edge_properties(&self, source_id: &str, target_id: &str) -> Vec<Vec<u8>> {
         self.edge_properties
             .get(&(source_id.to_string(), target_id.to_string()))
-            .cloned()
+            .map(|v| v.iter().map(|a| (**a).clone()).collect())
             .unwrap_or_default()
     }
 
@@ -290,9 +320,12 @@ impl GraphCore {
     /// checkpoint takes it under a BRIEF lock and serializes OFF the lock.
     /// (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
     pub fn snapshot(&self) -> GraphSnapshot {
+        // Zero-copy (Phase C-A): clone the Arc POINTERS, not the property bytes —
+        // turns the A1-residual ~3s lock-held deep clone of a 450MB graph into a
+        // ~µs pointer copy, and removes the transient memory doubling.
         GraphSnapshot {
-            nodes: self.get_nodes(),
-            edges: self.get_edges(),
+            nodes: self.get_nodes_arc(),
+            edges: self.get_edges_arc(),
             ledger: self.ledger.clone(),
             semantic_store: self.semantic_store.clone(),
         }
@@ -406,7 +439,7 @@ impl GraphCore {
         // Copy matching nodes
         for nid in node_ids {
             if let Some(props) = self.node_properties.get(nid) {
-                sub.add_node(nid.clone(), props.clone());
+                sub.add_node(nid.clone(), (**props).clone());
             }
         }
 
@@ -414,7 +447,7 @@ impl GraphCore {
         for ((src, tgt), props_list) in &self.edge_properties {
             if id_set.contains(src) && id_set.contains(tgt) {
                 for props in props_list {
-                    let _ = sub.add_edge(src.clone(), tgt.clone(), props.clone());
+                    let _ = sub.add_edge(src.clone(), tgt.clone(), (**props).clone());
                 }
             }
         }
@@ -727,7 +760,7 @@ impl GraphCore {
                         if changed {
                             stats.nodes_decayed += 1;
                             if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                self.node_properties.insert(nid.clone(), reenc);
+                                self.node_properties.insert(nid.clone(), Arc::new(reenc));
                             }
                         }
                         if prune && new_conf < floor {
@@ -745,13 +778,13 @@ impl GraphCore {
             let mut min_conf = 1.0f64;
             if let Some(blobs) = self.edge_properties.get_mut(&key) {
                 for b in blobs.iter_mut() {
-                    if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(b) {
+                    if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(b.as_slice()) {
                         if let Some(obj) = val.as_object_mut() {
                             let (new_conf, changed) = apply_decay(obj, now, default_half_life);
                             if changed {
                                 stats.edges_decayed += 1;
                                 if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                    *b = reenc;
+                                    *b = Arc::new(reenc);
                                 }
                             }
                             if new_conf < min_conf {
@@ -785,13 +818,13 @@ impl GraphCore {
     pub fn touch_nodes(&mut self, node_ids: &[String], now: u64) -> usize {
         let mut touched = 0usize;
         for nid in node_ids {
-            if let Some(bytes) = self.node_properties.get(nid).cloned() {
+            if let Some(bytes) = self.node_properties.get(nid).map(|a| (**a).clone()) {
                 if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(&bytes) {
                     if let Some(obj) = val.as_object_mut() {
                         obj.insert("last_access".to_string(), serde_json::json!(now));
                         obj.insert("confidence".to_string(), serde_json::json!(1.0_f64));
                         if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                            self.node_properties.insert(nid.clone(), reenc);
+                            self.node_properties.insert(nid.clone(), Arc::new(reenc));
                             touched += 1;
                         }
                     }
