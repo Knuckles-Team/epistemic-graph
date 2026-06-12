@@ -1156,6 +1156,31 @@ mod community_tests {
     }
 
     #[test]
+    fn community_detection_separates_two_blocks() {
+        // Mirrors the CommunityDetectEphemeral handler: build a graph from inline
+        // nodes+edges (two dense triangles joined by one bridge) and assert
+        // detection separates them into distinct communities.
+        let nodes: Vec<String> = (0..8).map(|i| format!("n{i}")).collect();
+        let node_refs: Vec<&str> = nodes.iter().map(|s| s.as_str()).collect();
+        let edges = [
+            ("n0", "n1"),
+            ("n1", "n2"),
+            ("n2", "n0"),
+            ("n4", "n5"),
+            ("n5", "n6"),
+            ("n6", "n4"),
+            ("n2", "n4"), // single bridge between the two blocks
+        ];
+        let g = build(&node_refs, &edges);
+        let comms = community_detection(&g, 1.0);
+        assert!(
+            comms.len() >= 2,
+            "expected >=2 communities for two bridged blocks, got {}",
+            comms.len()
+        );
+    }
+
+    #[test]
     fn empty_graph_returns_empty() {
         let g = GraphCore::new();
         assert!(community_detection(&g, 1.0).is_empty());
