@@ -2829,8 +2829,9 @@ mod tests {
 
         let resp = search.await.expect("search task panicked");
         assert_ok(&resp);
-        // Compact encoding (Phase C-D): the weighted result is a Raw msgpack blob.
-        assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
+        // Default (Raw gate off) → Json; with EPISTEMIC_GRAPH_RAW_RESULTS=1 it would
+        // be a Raw blob (covered by the protocol-level encode_result test).
+        assert!(matches!(resp.result, Some(ResultPayload::Json(_))));
     }
 
     #[tokio::test]
@@ -2882,13 +2883,12 @@ mod tests {
         )
         .await;
         assert_ok(&pagerank);
-        // Compact encoding (Phase C-D): pagerank returns a Raw msgpack blob that
-        // decodes to the exact same typed result the JSON path produced.
-        let Some(ResultPayload::Raw(bytes)) = pagerank.result else {
-            panic!("expected Raw pagerank result");
+        // Default (Raw gate off) → Json; the typed value is identical to what the
+        // Raw path decodes to (the protocol encode_result test covers Raw).
+        let Some(ResultPayload::Json(scores)) = pagerank.result else {
+            panic!("expected JSON pagerank result");
         };
-        let scores: Vec<(String, f64)> = rmp_serde::from_slice(&bytes).unwrap();
-        assert_eq!(scores.len(), 3);
+        assert_eq!(scores.as_array().map(|a| a.len()), Some(3));
 
         let communities = dispatch(
             &state,
