@@ -893,7 +893,25 @@ pub enum ResultPayload {
     EdgeList(Vec<(String, String, Vec<u8>)>),
     PropertiesMsgpack(#[serde(with = "serde_bytes")] Vec<u8>),
     Rows(Vec<Vec<u8>>),
+    /// A typed result serialized STRAIGHT to MessagePack (Phase C-D — compact
+    /// result encoding). Skips building a `serde_json::Value` tree on the server —
+    /// the dominant allocator for large algorithm results (PageRank/centrality/
+    /// communities over the whole graph). On the wire it is a MessagePack `bin`
+    /// (identical shape to `PropertiesMsgpack`); the Python client decodes any
+    /// top-level `bytes` result with a second `unpackb`, recovering the exact same
+    /// structure the `Json` path produced. Lives after `PropertiesMsgpack` so the
+    /// untagged decoder is unaffected.
+    Raw(#[serde(with = "serde_bytes")] Vec<u8>),
     Json(serde_json::Value),
+}
+
+impl ResultPayload {
+    /// Encode a typed value directly to MessagePack as a [`ResultPayload::Raw`],
+    /// bypassing the `serde_json::Value` intermediate. Falls back to an empty blob
+    /// on the (practically impossible) encode error for these plain data types.
+    pub fn raw<T: Serialize>(value: &T) -> Self {
+        ResultPayload::Raw(rmp_serde::to_vec_named(value).unwrap_or_default())
+    }
 }
 
 /// Response envelope sent back to the Python client.
@@ -1035,6 +1053,26 @@ mod tests {
         } else {
             panic!("Wrong method");
         }
+    }
+
+    #[test]
+    fn raw_result_payload_decodes_to_typed_value() {
+        // Phase C-D compact encoding: a Raw payload carries the typed result as a
+        // MessagePack bin. Over the wire it round-trips as a bin and decodes back
+        // to the EXACT typed value the JSON path produced — what the Python client
+        // does on any top-level `bytes` result.
+        let scores: Vec<(String, f64)> = vec![("a".into(), 0.5), ("b".into(), 0.25)];
+        let resp = Response::ok(7, ResultPayload::raw(&scores));
+        let wire = rmp_serde::to_vec_named(&resp).unwrap();
+        let decoded: Response = rmp_serde::from_slice(&wire).unwrap();
+        // Untagged: a bin result decodes as the first bin-shaped variant; the inner
+        // bytes are identical regardless of the variant name.
+        let inner = match decoded.result {
+            Some(ResultPayload::Raw(b)) | Some(ResultPayload::PropertiesMsgpack(b)) => b,
+            other => panic!("expected a bin result payload, got {:?}", other),
+        };
+        let back: Vec<(String, f64)> = rmp_serde::from_slice(&inner).unwrap();
+        assert_eq!(back, scores);
     }
 
     #[test]
