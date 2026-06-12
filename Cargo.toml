@@ -29,7 +29,7 @@ algorithms = []
 metrics = ["dep:prometheus", "eg-types/metrics"]
 finance = ["dep:nalgebra", "eg-types/finance"]
 ast = ["dep:tree-sitter", "dep:tree-sitter-python", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-javascript", "dep:tree-sitter-go", "dep:tree-sitter-java", "dep:tree-sitter-c", "dep:tree-sitter-cpp", "dep:tree-sitter-c-sharp"]
-datascience = ["dep:nalgebra", "dep:rand_chacha", "dep:rand_distr", "eg-types/datascience"]
+datascience = ["dep:rand_chacha", "eg-types/datascience"]
 reasoning = []
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
 compute = ["finance", "ast", "datascience", "reasoning"]
@@ -49,13 +49,13 @@ uuid = { version = "1.8", features = ["v4"] }
 thiserror = "1.0"
 anyhow = "1.0"
 tracing = "0.1"
-# Linear-algebra / sampling deps used ONLY by the feature-gated compute domains
-# (finance optimizer; datascience estimators + compute/hypergraph). Optional so a
-# slim `--features server` build genuinely excludes them — they are pulled in via
-# the `finance` / `datascience` feature lists below, mirroring the `ast` precedent.
+# Linear-algebra / sampling deps used ONLY by the feature-gated compute domains:
+# nalgebra by `finance` (optimizer/statespace/quant), rand_chacha by `datascience`
+# (estimator seeding). Optional so a slim `--features server` build genuinely
+# excludes them — pulled in via the feature lists above, mirroring the `ast`
+# precedent.
 nalgebra = { version = "0.32", features = ["serde"], optional = true }
 rand_chacha = { version = "0.3", optional = true }
-rand_distr = { version = "0.4", optional = true }
 
 # Optional Server. Explicit minimal feature set (not "full"): the binary uses an
 # explicitly-built multi-thread runtime + UDS/TCP listeners + sync primitives +
