@@ -6,15 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A single order in the book.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Order {
-    pub id: String,
-    pub side: String, // "buy" or "sell"
-    pub price: f64,
-    pub quantity: f64,
-    pub timestamp: u64,
-}
+/// A single order in the book. Defined in `eg-types::wire` (the `protocol`
+/// enum embeds it); re-exported here so the matching code below is unchanged.
+pub use crate::wire::Order;
 
 /// Fill result from order matching.
 #[derive(Serialize, Deserialize, Debug, Clone)]

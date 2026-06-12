@@ -324,6 +324,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-types"
+version = "0.27.0"
+dependencies = [
+ "rmp-serde",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "strum",
+]
+
+[[package]]
 name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -372,6 +383,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dashmap",
+ "eg-types",
  "fs4",
  "hex",
  "hmac",
@@ -390,7 +402,6 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "sha2",
- "strum",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
