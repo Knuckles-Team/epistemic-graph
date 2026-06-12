@@ -124,6 +124,36 @@ mod tests {
         assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
     }
 
+    /// Feature-gating contract: a gated-out domain's Method variant still exists
+    /// in the wire enum, but with the feature off its handler arm is compiled
+    /// away — the request must hit the explicit "not available in this build"
+    /// catch-all, never panic or silently route elsewhere. `reasoning` is off in
+    /// this build, so `RunDatalogReasoning` exercises the gate. (Compiled out
+    /// when `reasoning` is enabled, where the real handler answers instead.)
+    #[cfg(not(feature = "reasoning"))]
+    #[tokio::test]
+    async fn test_gated_out_method_returns_not_built() {
+        let state = multi_tenant_state().await;
+        let method = Method::RunDatalogReasoning {
+            subclass_relations: vec![],
+            subproperty_relations: vec![],
+            symmetric_properties: vec![],
+            transitive_properties: vec![],
+            inverse_properties: vec![],
+            domain_rules: vec![],
+            range_rules: vec![],
+            property_chains: vec![],
+        };
+        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
     #[tokio::test]
     async fn incremental_checkpoint_skips_clean_graphs() {
         // Phase C-C: checkpoint_all rewrites only graphs dirtied since the last
