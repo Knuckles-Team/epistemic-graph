@@ -1854,6 +1854,32 @@ async fn dispatch_graph_op(
                 Err(resp) => resp,
             }
         }
+        // Stateless community detection over an inline call graph — no tenant load,
+        // no persistence, no graph lock. Builds a throwaway in-memory graph from the
+        // passed nodes/edges and runs detection off-reactor. Replaces the prior
+        // "bulk-load ~160k edges into a scratch tenant, detect, delete tenant"
+        // round-trip (the dominant ingest community cost + the tenant-sprawl source).
+        Method::CommunityDetectEphemeral {
+            node_ids,
+            edges,
+            resolution,
+        } => {
+            match compute_off_lock(req_id, move || {
+                let mut g = crate::graph::GraphCore::new();
+                for id in &node_ids {
+                    g.add_node(id.clone(), Vec::new());
+                }
+                for (s, t) in &edges {
+                    let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
+                }
+                crate::algorithms::community_detection(&g, resolution)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
+        }
         // GraphColoring stays under the read lock intentionally (KG-2.51):
         // greedy coloring is a single O(V+E) sweep, so a snapshot would cost
         // as much as the computation.
