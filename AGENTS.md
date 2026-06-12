@@ -154,9 +154,11 @@ finance     = []               # Pure-Rust quant finance engine
 datascience = []               # Pure-Rust ML primitives
 reasoning   = []               # OWL/Datalog inference
 metrics     = [ ... ]          # Prometheus observability (/metrics listener); on by default
-compute     = ["finance", "datascience", "reasoning"]
-server      = ["tokio/full", "hmac", ... ]   # Tokio UDS/TCP service (build with this)
-full        = ["compute", "server", "ast"]
+compute     = ["finance", "ast", "datascience", "reasoning"]
+# Tokio service (UDS/TCP). tokio is pinned to the minimal feature set actually
+# used (rt-multi-thread, net, io-util, sync, time) — NOT "full".
+server      = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
+full        = ["compute", "server"]
 ```
 
 `Cargo.toml` declares `crate-type = ["rlib"]` (no `cdylib`/pyo3).
@@ -254,6 +256,27 @@ judgment; the bias here is correctness over speed.
   "fix the bug" → "write a failing test that reproduces it, then make it pass"; "add
   validation" → "tests for the invalid inputs pass". For multi-step work, state the short
   plan and the check for each step, then loop until the checks pass.
+
+## No Legacy — no back-compat, update every consumer, delete the old path
+
+**We own every consumer.** Everything that calls this engine lives under
+`agent-packages/*` (the `epistemic_graph` Python client, agent-utilities,
+data-science-mcp, the `agents/*` connectors). There is no external caller pinned
+to an old version, so we **do not carry backward compatibility**: no deprecated
+protocol methods, no client-API aliases, no `*_legacy`/`*_compat` symbols, no
+fallback branches, no "kept for existing deployments" code.
+
+When you change a shared contract — a `Method`/`ResultPayload` wire shape, the
+client API, an env/flag name, a feature set — make it **atomic across the
+ecosystem**: grep every consumer under `agent-packages/`, update them in the same
+change, and **delete the old path** (a left-behind legacy reference is a bug, not
+compatibility). No deprecation window — this is the aggressive form of
+strangler-then-delete: skip the strangle, migrate-and-delete in one commit.
+
+**The one exception is persisted on-disk state** (snapshots `.mp`, the WAL,
+`manifest.json`): a format change may need a **one-time data migration**
+(read-old → write-new), after which the old-format reader is removed. That is data
+migration, not API back-compat — never a permanent dual-format reader.
 
 ## Quality Bar — Leave the Codebase Clean (REQUIRED)
 
