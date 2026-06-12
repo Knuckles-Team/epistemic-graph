@@ -162,6 +162,15 @@ pub enum Method {
     CommunityDetection {
         resolution: f64,
     },
+    /// Stateless community detection over a call graph passed inline — NO tenant
+    /// load, NO persistence. The ingest path previously bulk-loaded ~160k edges
+    /// into a throwaway tenant just to run this, then deleted the tenant; passing
+    /// the edges directly removes that whole round-trip + the tenant sprawl.
+    CommunityDetectEphemeral {
+        node_ids: Vec<String>,
+        edges: Vec<(String, String)>,
+        resolution: f64,
+    },
     GraphColoring,
     ComputeSimilarityEdges {
         threshold: f64,

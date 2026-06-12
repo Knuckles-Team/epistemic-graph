@@ -575,7 +575,18 @@ async fn dispatch_graph_op(
     }
 
     let core = entry.core.clone();
+    // WAL (Phase B2): capture the per-graph log handle + persist dir under the
+    // registry lock so a durable mutation can be appended after it applies, with
+    // no extra locking. Only durable DATA mutations are logged, only when a
+    // persist dir is configured.
+    let wal_handle = entry.wal.clone();
+    let persist_dir = s.persist_dir.clone();
     drop(s); // Release registry lock before graph lock.
+
+    let wal_method = match (&persist_dir, crate::wal::is_durable_mutation(&method)) {
+        (Some(_), true) => Some(method.clone()),
+        _ => None,
+    };
 
     crate::metrics::graph_op(graph_name);
 
@@ -1843,6 +1854,32 @@ async fn dispatch_graph_op(
                 Err(resp) => resp,
             }
         }
+        // Stateless community detection over an inline call graph — no tenant load,
+        // no persistence, no graph lock. Builds a throwaway in-memory graph from the
+        // passed nodes/edges and runs detection off-reactor. Replaces the prior
+        // "bulk-load ~160k edges into a scratch tenant, detect, delete tenant"
+        // round-trip (the dominant ingest community cost + the tenant-sprawl source).
+        Method::CommunityDetectEphemeral {
+            node_ids,
+            edges,
+            resolution,
+        } => {
+            match compute_off_lock(req_id, move || {
+                let mut g = crate::graph::GraphCore::new();
+                for id in &node_ids {
+                    g.add_node(id.clone(), Vec::new());
+                }
+                for (s, t) in &edges {
+                    let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
+                }
+                crate::algorithms::community_detection(&g, resolution)
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Err(resp) => resp,
+            }
+        }
         // GraphColoring stays under the read lock intentionally (KG-2.51):
         // greedy coloring is a single O(V+E) sweep, so a snapshot would cost
         // as much as the computation.
@@ -2070,7 +2107,42 @@ async fn dispatch_graph_op(
         );
     }
 
+    // Append to the WAL after a SUCCESSFUL durable mutation (write-behind; pggraph
+    // is the durable system-of-record, this is the fast local crash-consistency
+    // layer that closes the between-checkpoint loss window). (CONCEPT:KG-2.8 / B2)
+    if let (Some(m), Some(dir)) = (wal_method, persist_dir.as_deref()) {
+        if response.error.is_none() {
+            append_wal(&wal_handle, dir, graph_name, &m);
+        }
+    }
     response
+}
+
+/// Lazily open (first call) and append one durable mutation to a graph's WAL.
+/// Best-effort: a WAL I/O error is logged but never fails the mutation (the data
+/// is already applied in memory + checkpointed; the WAL only narrows crash loss).
+fn append_wal(
+    wal: &crate::registry::WalHandle,
+    persist_dir: &str,
+    graph_name: &str,
+    method: &crate::protocol::Method,
+) {
+    let mut guard = wal.lock();
+    if guard.is_none() {
+        let fname = crate::persist::sanitize(graph_name);
+        match crate::wal::WalWriter::open(&crate::wal::wal_path(persist_dir, &fname)) {
+            Ok(w) => *guard = Some(w),
+            Err(e) => {
+                tracing::warn!("WAL open failed for graph '{}': {}", graph_name, e);
+                return;
+            }
+        }
+    }
+    if let Some(w) = guard.as_mut() {
+        if let Err(e) = w.append(method) {
+            tracing::warn!("WAL append failed for graph '{}': {}", graph_name, e);
+        }
+    }
 }
 
 /// Handle a single client connection (UDS or TCP).

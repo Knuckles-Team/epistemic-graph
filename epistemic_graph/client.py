@@ -272,6 +272,23 @@ class GraphOperationsClient:
             "CommunityDetection", {"resolution": resolution}
         )
 
+    async def community_detect_ephemeral(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str]],
+        resolution: float = 1.0,
+    ) -> list[list[str]]:
+        """Stateless community detection over an inline call graph (Phase: holistic).
+
+        Runs detection on the passed nodes/edges WITHOUT loading them into a tenant
+        — no bulk-load round-trip, no throwaway tenant, no persistence. Replaces the
+        load-tenant-then-detect pattern for the ingest community pass.
+        """
+        return await self._client._send(
+            "CommunityDetectEphemeral",
+            {"node_ids": node_ids, "edges": edges, "resolution": resolution},
+        )
+
     async def graph_coloring(self) -> list[tuple[str, int]]:
         return await self._client._send("GraphColoring")
 
