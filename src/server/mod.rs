@@ -13,6 +13,7 @@ use crate::protocol::{Method, Request, Response, ResultPayload};
 mod access;
 mod auth;
 mod compute;
+mod handlers;
 mod state;
 mod transport;
 
@@ -431,1608 +432,904 @@ async fn dispatch_graph_op(
 
     crate::metrics::graph_op(graph_name);
 
-    let response = match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            let g = &*core;
-            g.add_node(node_id, properties_msgpack);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::RemoveNode { node_id } => {
-            let g = &*core;
-            g.remove_node(node_id);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::HasNode { node_id } => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
-        }
-        Method::GetNodes => {
-            let g = &*core;
-            let nodes: Vec<(String, serde_json::Value)> = g
-                .get_nodes()
-                .into_iter()
-                .map(|(k, p)| {
-                    let val = rmp_serde::from_slice::<serde_json::Value>(&p)
-                        .unwrap_or(serde_json::json!({}));
-                    (k, val)
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::NodeList(nodes))
-        }
-        Method::GetNodeProperties { node_id } => {
-            let g = &*core;
-            let val = match g.get_node_properties(&node_id) {
-                Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
-                None => ResultPayload::Json(serde_json::Value::Null),
-            };
-            Response::ok(req_id, val)
-        }
-        Method::GetNodePropertiesBatch { node_ids } => {
-            if node_ids.len() > MAX_BATCH_IDS {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "batch too large: {} ids (max {})",
-                        node_ids.len(),
-                        MAX_BATCH_IDS
-                    ),
-                );
-            }
-            let g = &*core;
-            // [id, properties_msgpack | nil] in input order — one round-trip for N
-            // nodes; nil preserves which ids were absent. serde_bytes keeps the
-            // property blobs as MessagePack `bin`, not int arrays.
-            let out: Vec<(String, Option<serde_bytes::ByteBuf>)> = node_ids
-                .into_iter()
-                .map(|id| {
-                    let props = g.get_node_properties(&id).map(serde_bytes::ByteBuf::from);
-                    (id, props)
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::raw(&out))
-        }
-        Method::HasNodesBatch { node_ids } => {
-            if node_ids.len() > MAX_BATCH_IDS {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "batch too large: {} ids (max {})",
-                        node_ids.len(),
-                        MAX_BATCH_IDS
-                    ),
-                );
-            }
-            let g = &*core;
-            let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
-            Response::ok(req_id, ResultPayload::raw(&out))
-        }
-        Method::NodeCount => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
-        }
-        Method::NodeIds => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
-        }
-        Method::AddEmbedding { node_id, embedding } => {
-            core.semantic_store
-                .write()
-                .add_embedding(node_id, embedding);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::SemanticSearch {
-            query_embedding,
-            n_results,
-        } => {
-            // CONCEPT:KG-2.51 / Phase C-D — the HNSW index is now maintained
-            // incrementally, so the ANN query is O(log n): hold the embedding read
-            // lock only for the query itself (no whole-store clone, no per-query
-            // index rebuild — at most a one-time lazy rebuild after load). The
-            // per-candidate Ebbinghaus decay scoring still runs off-lock below.
-            // Fetch more results initially to account for filtered-out nodes.
-            let raw_results = {
-                core.semantic_store
-                    .read()
-                    .semantic_search(&query_embedding, n_results * 2)
-            };
-
-            // Bounded candidate-metadata fetch: only the hit ids, not the graph.
-            let candidates: Vec<(String, f32, Option<Vec<u8>>)> = {
+    let response = 'dispatch: {
+        // Pure-compute domains (stateless: no graph core / lock) route first; a
+        // method that isn't theirs is handed back via Err and falls through to the
+        // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
+        let method = match handlers::finance::try_handle(req_id, method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
+        let method = match handlers::datascience::try_handle(req_id, method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
+        match method {
+            Method::AddNode {
+                node_id,
+                properties_msgpack,
+            } => {
                 let g = &*core;
-                raw_results
+                g.add_node(node_id, properties_msgpack);
+                Response::ok(req_id, ResultPayload::String("ok".to_string()))
+            }
+            Method::RemoveNode { node_id } => {
+                let g = &*core;
+                g.remove_node(node_id);
+                Response::ok(req_id, ResultPayload::String("ok".to_string()))
+            }
+            Method::HasNode { node_id } => {
+                let g = &*core;
+                Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
+            }
+            Method::GetNodes => {
+                let g = &*core;
+                let nodes: Vec<(String, serde_json::Value)> = g
+                    .get_nodes()
                     .into_iter()
-                    .map(|(id, sim)| {
-                        let props = g.get_node_properties(&id);
-                        (id, sim, props)
+                    .map(|(k, p)| {
+                        let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                            .unwrap_or(serde_json::json!({}));
+                        (k, val)
                     })
-                    .collect()
-            };
-
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
-            match compute_off_lock(req_id, move || {
-                weight_semantic_results(candidates, now, n_results)
-            })
-            .await
-            {
-                Ok(weighted_results) => Response::ok(req_id, ResultPayload::raw(&weighted_results)),
-                Err(resp) => resp,
+                    .collect();
+                Response::ok(req_id, ResultPayload::NodeList(nodes))
             }
-        }
-        Method::SpectralCluster {
-            vectors: _,
-            max_k: _,
-            domain: _,
-        } => Response::err(
-            req_id,
-            "SpectralCluster is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::HypergraphEncodeInteraction {
-            pos_a: _,
-            pos_b: _,
-            pos_dim: _,
-            hidden_dim: _,
-            out_dim: _,
-            seed: _,
-        } => Response::err(
-            req_id,
-            "HypergraphEncodeInteraction is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::BatchCosineSimilarity {
-            query: _,
-            targets: _,
-        } => Response::err(
-            req_id,
-            "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::FinanceOptimizePortfolio {
-            expected_returns,
-            cov_matrix,
-            risk_free_rate,
-            min_weight,
-            max_weight,
-        } => {
-            let result = crate::finance::optimizer::mean_variance_optimization(
-                &expected_returns,
-                &cov_matrix,
-                risk_free_rate,
-                min_weight,
-                max_weight,
-            );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::FinanceRiskParity { cov_matrix } => {
-            let result = crate::finance::optimizer::risk_parity(&cov_matrix);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::FinanceBlackLitterman {
-            market_weights,
-            cov_matrix,
-            views,
-            pick_matrix,
-            tau,
-            risk_aversion,
-        } => {
-            let result = crate::finance::optimizer::black_litterman(
-                &market_weights,
-                &cov_matrix,
-                &views,
-                &pick_matrix,
-                tau,
-                risk_aversion,
-            );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::FinanceEfficientFrontier {
-            expected_returns,
-            cov_matrix,
-            target_return,
-        } => {
-            let result = crate::finance::optimizer::efficient_frontier_target(
-                &expected_returns,
-                &cov_matrix,
-                target_return,
-            );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-
-        // ── Data Science Primitives (CONCEPT:KG-2.22) ─────────────────
-        Method::DsLinearRegression { x, y } => {
-            let result = crate::datascience::primitives::linear_regression(&x, &y);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::DsKMeans { data, k, max_iter } => {
-            let result = crate::datascience::primitives::kmeans(&data, k, max_iter);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::DsPca { data, n_components } => {
-            let result = crate::datascience::primitives::pca(&data, n_components);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::DsComputeStats { data } => {
-            let result = crate::datascience::primitives::compute_stats(&data);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::DsTrainTestSplit {
-            data,
-            labels,
-            test_ratio,
-            shuffle,
-            seed,
-        } => {
-            let (x_train, x_test, y_train, y_test) =
-                crate::datascience::primitives::train_test_split(
-                    &data, &labels, test_ratio, shuffle, seed,
-                );
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "x_train": x_train,
-                    "x_test": x_test,
-                    "y_train": y_train,
-                    "y_test": y_test,
-                })),
-            )
-        }
-        Method::DsFitEstimator {
-            estimator,
-            x,
-            y,
-            params,
-        } => match crate::datascience::estimators::fit_estimator(&estimator, &x, &y, &params) {
-            Ok(model) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(model))),
-            Err(e) => Response::err(req_id, e),
-        },
-        Method::DsPredictEstimator { model, x } => {
-            let preds = crate::datascience::estimators::predict(&model, &x);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(preds)))
-        }
-
-        // ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ────────
-        Method::DsSoftmax {
-            logits,
-            temperature,
-        } => {
-            let r = crate::datascience::training::softmax(&logits, temperature);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
-        }
-        Method::DsLogSoftmax { logits } => {
-            let r = crate::datascience::training::log_softmax(&logits);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
-        }
-        Method::DsCrossEntropy { logits, labels } => {
-            let r = crate::datascience::training::cross_entropy(&logits, &labels);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
-        }
-        Method::DsDpoLoss {
-            policy_chosen,
-            policy_rejected,
-            ref_chosen,
-            ref_rejected,
-            beta,
-        } => {
-            let r = crate::datascience::training::dpo_loss(
-                &policy_chosen,
-                &policy_rejected,
-                &ref_chosen,
-                &ref_rejected,
-                beta,
-            );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
-        }
-        Method::DsGrpoSurrogate {
-            logprob,
-            old_logprob,
-            advantage,
-            clip_eps,
-        } => {
-            let r = crate::datascience::training::grpo_surrogate(
-                &logprob,
-                &old_logprob,
-                &advantage,
-                clip_eps,
-            );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
-        }
-        Method::DsKlDivergence {
-            logprob,
-            ref_logprob,
-        } => {
-            let r = crate::datascience::training::kl_divergence(&logprob, &ref_logprob);
-            Response::ok(req_id, ResultPayload::Float(r))
-        }
-        Method::DsAdamStep {
-            params,
-            grads,
-            m,
-            v,
-            lr,
-            beta1,
-            beta2,
-            eps,
-            t,
-        } => {
-            let r = crate::datascience::training::adam_step(
-                &params, &grads, &m, &v, lr, beta1, beta2, eps, t,
-            );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
-        }
-        Method::DsSgdStep { params, grads, lr } => {
-            let r = crate::datascience::training::sgd_step(&params, &grads, lr);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
-        }
-
-        // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────
-        Method::FinanceVar {
-            returns,
-            confidence,
-        } => {
-            let v = crate::finance::risk::historical_var(&returns, confidence);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceCvar {
-            returns,
-            confidence,
-        } => {
-            let v = crate::finance::risk::historical_cvar(&returns, confidence);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceMaxDrawdown { returns } => {
-            let v = crate::finance::risk::max_drawdown(&returns);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceDrawdownSeries { returns } => {
-            let v = crate::finance::risk::drawdown_series(&returns);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceDownsideDeviation { returns, target } => {
-            let v = crate::finance::risk::downside_deviation(&returns, target);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceRiskMetrics {
-            returns,
-            risk_free_rate,
-        } => {
-            let result = crate::finance::risk::compute_risk_metrics(&returns, risk_free_rate);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-        Method::FinanceMonteCarloVar {
-            mean,
-            std_dev,
-            n_simulations,
-            confidence,
-        } => {
-            let v = crate::finance::risk::monte_carlo_var(mean, std_dev, n_simulations, confidence);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceStressTest {
-            weights,
-            expected_returns,
-            cov_matrix,
-            shock_factors,
-        } => {
-            let v = crate::finance::risk::stress_test(
-                &weights,
-                &expected_returns,
-                &cov_matrix,
-                &shock_factors,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-
-        // ── Extended Finance: Regime detection (HMM) ──────────────────
-        Method::FinanceDetectRegimes {
-            observations,
-            n_states,
-            max_iter,
-            tol,
-        } => {
-            let result =
-                crate::finance::regime::detect_regimes(&observations, n_states, max_iter, tol);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
-        }
-
-        // ── Extended Finance: Signals / alpha ─────────────────────────
-        Method::FinanceRollingZscore { values, window } => {
-            let v = crate::finance::signals::rolling_zscore(&values, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceEwma { values, span } => {
-            let v = crate::finance::signals::ewma_signal(&values, span);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceSignalDecay { signal, half_life } => {
-            let v = crate::finance::signals::signal_decay(&signal, half_life);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceCombineAlphas { signals, weights } => {
-            let v = crate::finance::signals::combine_alphas(&signals, &weights);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceCrossSectionalRank { cross_section } => {
-            let v = crate::finance::signals::cross_sectional_rank(&cross_section);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceMomentum { prices, lookback } => {
-            let v = crate::finance::signals::momentum(&prices, lookback);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceMeanReversion { values, window } => {
-            let v = crate::finance::signals::mean_reversion(&values, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceInformationCoefficient {
-            signal,
-            forward_returns,
-        } => {
-            let v = crate::finance::signals::information_coefficient(&signal, &forward_returns);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-
-        // ── Extended Finance: Execution / microstructure ──────────────
-        Method::FinanceTwap {
-            total_quantity,
-            n_slices,
-            start_time,
-            interval_secs,
-        } => {
-            let v = crate::finance::exchange::twap_schedule(
-                total_quantity,
-                n_slices,
-                start_time,
-                interval_secs,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceVwap {
-            total_quantity,
-            volume_profile,
-            start_time,
-            interval_secs,
-        } => {
-            let v = crate::finance::exchange::vwap_schedule(
-                total_quantity,
-                &volume_profile,
-                start_time,
-                interval_secs,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceMarketImpact {
-            daily_volatility,
-            order_quantity,
-            average_daily_volume,
-            impact_coefficient,
-        } => {
-            let v = crate::finance::exchange::estimate_market_impact(
-                daily_volatility,
-                order_quantity,
-                average_daily_volume,
-                impact_coefficient,
-            );
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinancePairsTrading {
-            prices_a,
-            prices_b,
-            lookback,
-        } => {
-            let v = crate::finance::exchange::pairs_trading_signal(&prices_a, &prices_b, lookback);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceMatchOrders { orders } => {
-            let v = crate::finance::exchange::match_orders(&orders);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-
-        // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────
-        Method::FinanceAvellanedaStoikov {
-            mid,
-            inventory,
-            sigma,
-            gamma,
-            kappa,
-            tau,
-        } => {
-            let v =
-                crate::finance::quant::avellaneda_stoikov(mid, inventory, sigma, gamma, kappa, tau);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceGltQuotes {
-            mid,
-            inventory,
-            sigma,
-            gamma,
-            kappa,
-            a,
-        } => {
-            let v = crate::finance::quant::glt_quotes(mid, inventory, sigma, gamma, kappa, a);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceLogitQuotes {
-            p_mid,
-            inventory,
-            sigma,
-            gamma,
-            kappa,
-            tau,
-            boundary_m,
-        } => {
-            let v = crate::finance::quant::logit_space_quotes(
-                p_mid, inventory, sigma, gamma, kappa, tau, boundary_m,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceGlostenMilgromSpread { alpha, p } => {
-            let v = crate::finance::quant::glosten_milgrom_spread(alpha, p);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceExpectedPnlRate {
-            delta,
-            a,
-            kappa,
-            alpha,
-            p,
-            v_h,
-            v_l,
-        } => {
-            let v = crate::finance::quant::expected_pnl_rate(delta, a, kappa, alpha, p, v_h, v_l);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceBreakevenAlpha { delta, p, v_h, v_l } => {
-            let v = crate::finance::quant::breakeven_alpha(delta, p, v_h, v_l);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceOfiSeries {
-            ts,
-            bid_px,
-            bid_sz,
-            ask_px,
-            ask_sz,
-            window_secs,
-        } => {
-            let v = crate::finance::quant::ofi_series(
-                &ts,
-                &bid_px,
-                &bid_sz,
-                &ask_px,
-                &ask_sz,
-                window_secs,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceMicropriceSeries {
-            bid_px,
-            bid_sz,
-            ask_px,
-            ask_sz,
-        } => {
-            let v = crate::finance::quant::microprice_series(&bid_px, &bid_sz, &ask_px, &ask_sz);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceVpinPm {
-            buy_vol,
-            sell_vol,
-            p_mean,
-        } => {
-            let v = crate::finance::quant::vpin_pm(&buy_vol, &sell_vol, &p_mean);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceHawkesMle {
-            times,
-            t_horizon,
-            max_iter,
-        } => {
-            let v = crate::finance::quant::hawkes_mle(&times, t_horizon, max_iter);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceHardimanBouchaud {
-            times,
-            t_horizon,
-            n_windows,
-        } => {
-            let v = crate::finance::quant::hardiman_bouchaud_branching_ratio(
-                &times, t_horizon, n_windows,
-            );
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-
-        // ── Position Sizing (CONCEPT:KG-2.20f) ────────────────────────
-        Method::FinanceKellyFraction { q, c, fraction } => {
-            let v = crate::finance::quant::kelly_fraction(q, c, fraction);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceBayesianKelly {
-            alpha,
-            beta,
-            c,
-            n_quadrature,
-        } => {
-            let v = crate::finance::quant::bayesian_kelly_fraction(alpha, beta, c, n_quadrature);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinancePosteriorCredibleInterval { alpha, beta, level } => {
-            let (lo, hi) = crate::finance::quant::posterior_credible_interval(alpha, beta, level);
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({"lower": lo, "upper": hi})),
-            )
-        }
-
-        // ── Backtest Validation (CONCEPT:KG-2.20f) ────────────────────
-        Method::FinancePurgedCpcv {
-            n_samples,
-            n_groups,
-            n_test_groups,
-            purge_window,
-            embargo,
-        } => {
-            let v = crate::finance::quant::purged_cpcv_splits(
-                n_samples,
-                n_groups,
-                n_test_groups,
-                purge_window,
-                embargo,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceDeflatedSharpe {
-            observed_sr,
-            n_trials,
-            sr_returns,
-        } => {
-            let v =
-                crate::finance::quant::deflated_sharpe_ratio(observed_sr, n_trials, &sr_returns);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceProbabilityBacktestOverfit { insample, oos } => {
-            let v = crate::finance::quant::probability_of_backtest_overfit(&insample, &oos);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceDieboldMariano {
-            losses_a,
-            losses_b,
-            h,
-        } => {
-            let v = crate::finance::quant::diebold_mariano(&losses_a, &losses_b, h);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-
-        // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────
-        Method::FinanceForensicReport {
-            this_year,
-            prior_year,
-        } => {
-            let v = crate::finance::forensic::forensic_report(&this_year, &prior_year);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-
-        // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────
-        Method::FinanceKalmanFilter1d {
-            observations,
-            f,
-            q,
-            h,
-            r,
-            x0,
-            p0,
-        } => {
-            let v = crate::finance::statespace::kalman_filter_1d(&observations, f, q, h, r, x0, p0);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceKalmanBeta {
-            market_returns,
-            asset_returns,
-            q,
-            r,
-            beta0,
-            p0,
-        } => {
-            let v = crate::finance::statespace::kalman_beta(
-                &market_returns,
-                &asset_returns,
-                q,
-                r,
-                beta0,
-                p0,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceKalmanVolatility {
-            returns,
-            q,
-            r,
-            log_var0,
-            p0,
-            annualization,
-        } => {
-            let v = crate::finance::statespace::kalman_volatility(
-                &returns,
-                q,
-                r,
-                log_var0,
-                p0,
-                annualization,
-            );
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceAdfTest { series, max_lag } => {
-            let v = crate::finance::statespace::adf_test(&series, max_lag);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceOuCalibrate { spread, dt } => {
-            let v = crate::finance::statespace::ou_calibrate(&spread, dt);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceOuOptimalThresholds {
-            theta,
-            mu,
-            sigma,
-            sigma_eq,
-            cost,
-        } => {
-            let params = crate::finance::statespace::OuParams {
-                theta,
-                mu,
-                sigma,
-                sigma_eq,
-                half_life: if theta > 1e-12 {
-                    std::f64::consts::LN_2 / theta
-                } else {
-                    f64::INFINITY
-                },
-            };
-            let v = crate::finance::statespace::ou_optimal_thresholds(&params, cost);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceMarkovTransitionMatrix { states, n_states } => {
-            let v = crate::finance::statespace::markov_transition_matrix(&states, n_states);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-
-        // ── Signal Combination / Sizing / Calibration (CONCEPT:KG-2.20i) ──
-        Method::FinanceOrderBookImbalance { v_bid, v_ask } => {
-            let v = crate::finance::quant::order_book_imbalance(&v_bid, &v_ask);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceQueueImbalance {
-            bid_q,
-            ask_q,
-            bid_rate,
-            ask_rate,
-        } => {
-            let v = crate::finance::quant::queue_imbalance(&bid_q, &ask_q, &bid_rate, &ask_rate);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceRealizedVolTick { mid, window } => {
-            let v = crate::finance::quant::realized_vol_tick(&mid, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceSpreadReversion {
-            bid_px,
-            ask_px,
-            window,
-        } => {
-            let v = crate::finance::quant::spread_reversion(&bid_px, &ask_px, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceInformationRatio { ic, n_independent } => {
-            let v = crate::finance::quant::information_ratio(ic, n_independent);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceEffectiveIndependentN { returns_matrix } => {
-            let v = crate::finance::quant::effective_independent_n(&returns_matrix);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceAlphaCombinationEngine {
-            returns_matrix,
-            lookback,
-        } => {
-            let v = crate::finance::quant::alpha_combination_engine(&returns_matrix, lookback);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceBrierScore {
-            forecasts,
-            outcomes,
-        } => {
-            let v = crate::finance::quant::brier_score(&forecasts, &outcomes);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceConvergenceGate {
-            strengths,
-            strong_threshold,
-            min_agree,
-        } => {
-            let v =
-                crate::finance::quant::convergence_gate(&strengths, strong_threshold, min_agree);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceEmpiricalKelly {
-            p,
-            b,
-            historical_returns,
-            n_simulations,
-            seed,
-        } => {
-            let v = crate::finance::quant::empirical_kelly(
-                p,
-                b,
-                &historical_returns,
-                n_simulations,
-                seed,
-            );
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-
-        // ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ────
-        Method::FinanceSabrImpliedVol {
-            f,
-            k,
-            t,
-            alpha,
-            beta,
-            rho,
-            nu,
-        } => {
-            let v = crate::finance::derivatives::sabr_implied_vol(f, k, t, alpha, beta, rho, nu);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinanceSabrSmile {
-            f,
-            strikes,
-            t,
-            alpha,
-            beta,
-            rho,
-            nu,
-        } => {
-            let v = crate::finance::derivatives::sabr_smile(f, &strikes, t, alpha, beta, rho, nu);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FinanceSabrCalibrate {
-            f,
-            t,
-            strikes,
-            market_vols,
-            beta,
-        } => {
-            let v = crate::finance::derivatives::sabr_calibrate(f, t, &strikes, &market_vols, beta);
-            Response::ok(req_id, ResultPayload::raw(&v))
-        }
-        Method::FindSimilarPairs {
-            embeddings: _,
-            ids: _,
-            threshold: _,
-            use_lsh: _,
-            lsh_num_tables: _,
-            lsh_hash_size: _,
-            seed: _,
-        } => Response::err(
-            req_id,
-            "FindSimilarPairs is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => {
-            let g = &*core;
-            match g.add_edge(source_id, target_id, properties_msgpack) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
+            Method::GetNodeProperties { node_id } => {
+                let g = &*core;
+                let val = match g.get_node_properties(&node_id) {
+                    Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
+                    None => ResultPayload::Json(serde_json::Value::Null),
+                };
+                Response::ok(req_id, val)
             }
-        }
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => {
-            let g = &*core;
-            g.remove_edge(source_id, target_id);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::HasEdge {
-            source_id,
-            target_id,
-        } => {
-            let g = &*core;
-            Response::ok(
-                req_id,
-                ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
-            )
-        }
-        Method::GetEdges => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
-        }
-        Method::GetTriples => {
-            // Bulk RDF-triple export for local SPARQL materialization
-            // (CONCEPT:KG-2.7). One call instead of per-node round-trips.
-            let g = &*core;
-            let mut triples: Vec<[String; 3]> = Vec::new();
-            // Edges → (subject, predicate=rel_type, object).
-            for (src, tgt, props) in g.get_edges() {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
-                let rel = v
-                    .get("type")
-                    .and_then(|x| x.as_str())
-                    .or_else(|| v.get("rel_type").and_then(|x| x.as_str()))
-                    .unwrap_or("RELATED_TO")
-                    .to_string();
-                triples.push([src, rel, tgt]);
+            Method::GetNodePropertiesBatch { node_ids } => {
+                if node_ids.len() > MAX_BATCH_IDS {
+                    return Response::err(
+                        req_id,
+                        format!(
+                            "batch too large: {} ids (max {})",
+                            node_ids.len(),
+                            MAX_BATCH_IDS
+                        ),
+                    );
+                }
+                let g = &*core;
+                // [id, properties_msgpack | nil] in input order — one round-trip for N
+                // nodes; nil preserves which ids were absent. serde_bytes keeps the
+                // property blobs as MessagePack `bin`, not int arrays.
+                let out: Vec<(String, Option<serde_bytes::ByteBuf>)> = node_ids
+                    .into_iter()
+                    .map(|id| {
+                        let props = g.get_node_properties(&id).map(serde_bytes::ByteBuf::from);
+                        (id, props)
+                    })
+                    .collect();
+                Response::ok(req_id, ResultPayload::raw(&out))
             }
-            // Nodes → (id, rdf:type, node_type) + scalar properties as literals.
-            for (id, props) in g.get_nodes() {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
-                if let Some(obj) = v.as_object() {
-                    if let Some(nt) = obj
-                        .get("type")
-                        .or_else(|| obj.get("node_type"))
-                        .and_then(|x| x.as_str())
-                    {
-                        triples.push([id.clone(), "rdf:type".to_string(), nt.to_string()]);
+            Method::HasNodesBatch { node_ids } => {
+                if node_ids.len() > MAX_BATCH_IDS {
+                    return Response::err(
+                        req_id,
+                        format!(
+                            "batch too large: {} ids (max {})",
+                            node_ids.len(),
+                            MAX_BATCH_IDS
+                        ),
+                    );
+                }
+                let g = &*core;
+                let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
+                Response::ok(req_id, ResultPayload::raw(&out))
+            }
+            Method::NodeCount => {
+                let g = &*core;
+                Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
+            }
+            Method::NodeIds => {
+                let g = &*core;
+                Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
+            }
+            Method::AddEmbedding { node_id, embedding } => {
+                core.semantic_store
+                    .write()
+                    .add_embedding(node_id, embedding);
+                Response::ok(req_id, ResultPayload::String("ok".to_string()))
+            }
+            Method::SemanticSearch {
+                query_embedding,
+                n_results,
+            } => {
+                // CONCEPT:KG-2.51 / Phase C-D — the HNSW index is now maintained
+                // incrementally, so the ANN query is O(log n): hold the embedding read
+                // lock only for the query itself (no whole-store clone, no per-query
+                // index rebuild — at most a one-time lazy rebuild after load). The
+                // per-candidate Ebbinghaus decay scoring still runs off-lock below.
+                // Fetch more results initially to account for filtered-out nodes.
+                let raw_results = {
+                    core.semantic_store
+                        .read()
+                        .semantic_search(&query_embedding, n_results * 2)
+                };
+
+                // Bounded candidate-metadata fetch: only the hit ids, not the graph.
+                let candidates: Vec<(String, f32, Option<Vec<u8>>)> = {
+                    let g = &*core;
+                    raw_results
+                        .into_iter()
+                        .map(|(id, sim)| {
+                            let props = g.get_node_properties(&id);
+                            (id, sim, props)
+                        })
+                        .collect()
+                };
+
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                match compute_off_lock(req_id, move || {
+                    weight_semantic_results(candidates, now, n_results)
+                })
+                .await
+                {
+                    Ok(weighted_results) => {
+                        Response::ok(req_id, ResultPayload::raw(&weighted_results))
                     }
-                    for (k, val) in obj {
-                        if k == "type" || k == "node_type" || k == "embedding" {
-                            continue;
-                        }
-                        let lit = match val {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Number(n) => n.to_string(),
-                            serde_json::Value::Bool(b) => b.to_string(),
-                            _ => continue, // skip arrays/objects/null
-                        };
-                        triples.push([id.clone(), k.clone(), lit]);
-                    }
+                    Err(resp) => resp,
                 }
             }
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(triples)))
-        }
-        Method::GetEdgeProperties {
-            source_id,
-            target_id,
-        } => {
-            let g = &*core;
-            let props = g.get_edge_properties(&source_id, &target_id);
-            let val: Vec<serde_json::Value> = props
-                .into_iter()
-                .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
-                .collect();
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
-        }
-        Method::GetEdgePropertiesBatch { edges } => {
-            if edges.len() > MAX_BATCH_IDS {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "batch too large: {} edges (max {})",
-                        edges.len(),
-                        MAX_BATCH_IDS
-                    ),
-                );
-            }
-            let g = &*core;
-            // One round-trip for N edges. Each entry is the list of property blobs
-            // for that (src, tgt) pair (a pair may have multiple edges), in input
-            // order; an empty inner list ⇒ no such edge.
-            let out: Vec<Vec<serde_bytes::ByteBuf>> = edges
-                .into_iter()
-                .map(|(src, tgt)| {
-                    g.get_edge_properties(&src, &tgt)
-                        .into_iter()
-                        .map(serde_bytes::ByteBuf::from)
-                        .collect()
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::raw(&out))
-        }
-        Method::ClearGraph => {
-            let g = &*core;
-            g.clear();
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::EdgeCount => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
-        }
-        // TopologicalSort / FindCycle / GetShortestPath / components / blast
-        // radius / degree centrality are single-pass O(V+E); they run on a cheap
-        // topology snapshot (Phase C-B: the read algorithms take an unlocked
-        // GraphView, so the structural copy replaces the held read lock).
-        Method::TopologicalSort => {
-            let g = core.topology_snapshot();
-            match crate::algorithms::topological_sort(&g) {
-                Ok(order) => Response::ok(req_id, ResultPayload::raw(&order)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::FindCycle => {
-            let g = core.topology_snapshot();
-            Response::ok(
+            Method::SpectralCluster {
+                vectors: _,
+                max_k: _,
+                domain: _,
+            } => Response::err(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
-            )
-        }
-        Method::GetShortestPath {
-            source_id,
-            target_id,
-        } => {
-            let g = core.topology_snapshot();
-            Response::ok(
+                "SpectralCluster is deprecated. Use datascience primitives.".to_string(),
+            ),
+            Method::HypergraphEncodeInteraction {
+                pos_a: _,
+                pos_b: _,
+                pos_dim: _,
+                hidden_dim: _,
+                out_dim: _,
+                seed: _,
+            } => Response::err(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
-                    &g, &source_id, &target_id
-                ))),
-            )
-        }
-        Method::PageRank {
-            damping,
-            iterations,
-        } => {
-            // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::pagerank(&snap, damping, iterations)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
-        Method::ConnectedComponents => {
-            let g = core.topology_snapshot();
-            Response::ok(
+                "HypergraphEncodeInteraction is deprecated. Use datascience primitives."
+                    .to_string(),
+            ),
+            Method::BatchCosineSimilarity {
+                query: _,
+                targets: _,
+            } => Response::err(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::connected_components(
-                    &g
-                ))),
-            )
-        }
-        Method::StronglyConnectedComponents => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(
-                    crate::algorithms::strongly_connected_components(&g)
-                )),
-            )
-        }
-        Method::MinimumSpanningTree => {
-            // O(E log E) + per-edge JSON weight parsing — snapshot (incl. the
-            // edge property blobs it reads), compute off-lock (KG-2.51).
-            let snap = { core.analysis_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::minimum_spanning_tree(&snap)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
-        Method::Metrics => {
-            // Parses every node's property JSON — memcpy snapshot under the
-            // lock is cheaper than O(V) JSON parsing under it (KG-2.51). The
-            // ledger is not snapshotted; capture its length for the
-            // total_mutations field before releasing the lock.
-            let (snap, ledger_len) = {
+                "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
+            ),
+            Method::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+            } => {
                 let g = &*core;
-                (g.analysis_snapshot(), g.ledger.lock().len() as u64)
-            };
-            let m = match compute_off_lock(req_id, move || {
-                let mut m = crate::algorithms::compute_metrics(&snap);
-                m.total_mutations = ledger_len;
-                m
-            })
-            .await
-            {
-                Ok(m) => m,
-                Err(resp) => return resp,
-            };
-            match serde_json::to_value(&m) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
+                match g.add_edge(source_id, target_id, properties_msgpack) {
+                    Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
             }
-        }
-        Method::EvictLRU { max_nodes } => {
-            let g = &*core;
-            let evicted = g.evict_lru(max_nodes);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
-        }
-        Method::DecaySweep {
-            half_life_secs,
-            floor,
-            prune,
-        } => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let g = &*core;
-            let stats = g.decay_sweep(now, half_life_secs, floor, prune);
-            match serde_json::to_value(&stats) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
+            Method::RemoveEdge {
+                source_id,
+                target_id,
+            } => {
+                let g = &*core;
+                g.remove_edge(source_id, target_id);
+                Response::ok(req_id, ResultPayload::String("ok".to_string()))
             }
-        }
-        Method::TouchNodes { node_ids } => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let g = &*core;
-            let touched = g.touch_nodes(&node_ids, now);
-            Response::ok(req_id, ResultPayload::Count(touched as u64))
-        }
-        Method::ToMsgpack => {
-            let g = &*core;
-            match g.to_msgpack() {
-                Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
-                Err(e) => Response::err(req_id, e.to_string()),
+            Method::HasEdge {
+                source_id,
+                target_id,
+            } => {
+                let g = &*core;
+                Response::ok(
+                    req_id,
+                    ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
+                )
             }
-        }
-        Method::FromMsgpack { msgpack } => {
-            let g = &*core;
-            match g.from_msgpack(&msgpack) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
+            Method::GetEdges => {
+                let g = &*core;
+                Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
             }
-        }
-        Method::Reconcile {
-            graph_name: _,
-            msgpack,
-        } => {
-            let g = &*core;
-            match g.from_msgpack(&msgpack) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("reconciled".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
+            Method::GetTriples => {
+                // Bulk RDF-triple export for local SPARQL materialization
+                // (CONCEPT:KG-2.7). One call instead of per-node round-trips.
+                let g = &*core;
+                let mut triples: Vec<[String; 3]> = Vec::new();
+                // Edges → (subject, predicate=rel_type, object).
+                for (src, tgt, props) in g.get_edges() {
+                    let v: serde_json::Value =
+                        rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
+                    let rel = v
+                        .get("type")
+                        .and_then(|x| x.as_str())
+                        .or_else(|| v.get("rel_type").and_then(|x| x.as_str()))
+                        .unwrap_or("RELATED_TO")
+                        .to_string();
+                    triples.push([src, rel, tgt]);
+                }
+                // Nodes → (id, rdf:type, node_type) + scalar properties as literals.
+                for (id, props) in g.get_nodes() {
+                    let v: serde_json::Value =
+                        rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
+                    if let Some(obj) = v.as_object() {
+                        if let Some(nt) = obj
+                            .get("type")
+                            .or_else(|| obj.get("node_type"))
+                            .and_then(|x| x.as_str())
+                        {
+                            triples.push([id.clone(), "rdf:type".to_string(), nt.to_string()]);
+                        }
+                        for (k, val) in obj {
+                            if k == "type" || k == "node_type" || k == "embedding" {
+                                continue;
+                            }
+                            let lit = match val {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Number(n) => n.to_string(),
+                                serde_json::Value::Bool(b) => b.to_string(),
+                                _ => continue, // skip arrays/objects/null
+                            };
+                            triples.push([id.clone(), k.clone(), lit]);
+                        }
+                    }
+                }
+                Response::ok(req_id, ResultPayload::Json(serde_json::json!(triples)))
             }
-        }
-        Method::ApplyMutation { event_type, query } => {
-            let g = &*core;
+            Method::GetEdgeProperties {
+                source_id,
+                target_id,
+            } => {
+                let g = &*core;
+                let props = g.get_edge_properties(&source_id, &target_id);
+                let val: Vec<serde_json::Value> = props
+                    .into_iter()
+                    .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
+                    .collect();
+                Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
+            }
+            Method::GetEdgePropertiesBatch { edges } => {
+                if edges.len() > MAX_BATCH_IDS {
+                    return Response::err(
+                        req_id,
+                        format!(
+                            "batch too large: {} edges (max {})",
+                            edges.len(),
+                            MAX_BATCH_IDS
+                        ),
+                    );
+                }
+                let g = &*core;
+                // One round-trip for N edges. Each entry is the list of property blobs
+                // for that (src, tgt) pair (a pair may have multiple edges), in input
+                // order; an empty inner list ⇒ no such edge.
+                let out: Vec<Vec<serde_bytes::ByteBuf>> = edges
+                    .into_iter()
+                    .map(|(src, tgt)| {
+                        g.get_edge_properties(&src, &tgt)
+                            .into_iter()
+                            .map(serde_bytes::ByteBuf::from)
+                            .collect()
+                    })
+                    .collect();
+                Response::ok(req_id, ResultPayload::raw(&out))
+            }
+            Method::ClearGraph => {
+                let g = &*core;
+                g.clear();
+                Response::ok(req_id, ResultPayload::String("ok".to_string()))
+            }
+            Method::EdgeCount => {
+                let g = &*core;
+                Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
+            }
+            // TopologicalSort / FindCycle / GetShortestPath / components / blast
+            // radius / degree centrality are single-pass O(V+E); they run on a cheap
+            // topology snapshot (Phase C-B: the read algorithms take an unlocked
+            // GraphView, so the structural copy replaces the held read lock).
+            Method::TopologicalSort => {
+                let g = core.topology_snapshot();
+                match crate::algorithms::topological_sort(&g) {
+                    Ok(order) => Response::ok(req_id, ResultPayload::raw(&order)),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::FindCycle => {
+                let g = core.topology_snapshot();
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
+                )
+            }
+            Method::GetShortestPath {
+                source_id,
+                target_id,
+            } => {
+                let g = core.topology_snapshot();
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
+                        &g, &source_id, &target_id
+                    ))),
+                )
+            }
+            Method::PageRank {
+                damping,
+                iterations,
+            } => {
+                // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
+                let snap = { core.topology_snapshot() };
+                match compute_off_lock(req_id, move || {
+                    crate::algorithms::pagerank(&snap, damping, iterations)
+                })
+                .await
+                {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                    Err(resp) => resp,
+                }
+            }
+            Method::ConnectedComponents => {
+                let g = core.topology_snapshot();
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(
+                        crate::algorithms::connected_components(&g)
+                    )),
+                )
+            }
+            Method::StronglyConnectedComponents => {
+                let g = core.topology_snapshot();
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(
+                        crate::algorithms::strongly_connected_components(&g)
+                    )),
+                )
+            }
+            Method::MinimumSpanningTree => {
+                // O(E log E) + per-edge JSON weight parsing — snapshot (incl. the
+                // edge property blobs it reads), compute off-lock (KG-2.51).
+                let snap = { core.analysis_snapshot() };
+                match compute_off_lock(req_id, move || {
+                    crate::algorithms::minimum_spanning_tree(&snap)
+                })
+                .await
+                {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                    Err(resp) => resp,
+                }
+            }
+            Method::Metrics => {
+                // Parses every node's property JSON — memcpy snapshot under the
+                // lock is cheaper than O(V) JSON parsing under it (KG-2.51). The
+                // ledger is not snapshotted; capture its length for the
+                // total_mutations field before releasing the lock.
+                let (snap, ledger_len) = {
+                    let g = &*core;
+                    (g.analysis_snapshot(), g.ledger.lock().len() as u64)
+                };
+                let m = match compute_off_lock(req_id, move || {
+                    let mut m = crate::algorithms::compute_metrics(&snap);
+                    m.total_mutations = ledger_len;
+                    m
+                })
+                .await
+                {
+                    Ok(m) => m,
+                    Err(resp) => return resp,
+                };
+                match serde_json::to_value(&m) {
+                    Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::EvictLRU { max_nodes } => {
+                let g = &*core;
+                let evicted = g.evict_lru(max_nodes);
+                Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
+            }
+            Method::DecaySweep {
+                half_life_secs,
+                floor,
+                prune,
+            } => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let g = &*core;
+                let stats = g.decay_sweep(now, half_life_secs, floor, prune);
+                match serde_json::to_value(&stats) {
+                    Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::TouchNodes { node_ids } => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let g = &*core;
+                let touched = g.touch_nodes(&node_ids, now);
+                Response::ok(req_id, ResultPayload::Count(touched as u64))
+            }
+            Method::ToMsgpack => {
+                let g = &*core;
+                match g.to_msgpack() {
+                    Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::FromMsgpack { msgpack } => {
+                let g = &*core;
+                match g.from_msgpack(&msgpack) {
+                    Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::Reconcile {
+                graph_name: _,
+                msgpack,
+            } => {
+                let g = &*core;
+                match g.from_msgpack(&msgpack) {
+                    Ok(()) => Response::ok(req_id, ResultPayload::String("reconciled".to_string())),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::ApplyMutation { event_type, query } => {
+                let g = &*core;
 
-            // Very rudimentary parsing to apply SPARQL changes to petgraph
-            // In a production system, a full SPARQL AST parser would be used here.
-            let is_insert = event_type == "TRIPLE_INSERT";
+                // Very rudimentary parsing to apply SPARQL changes to petgraph
+                // In a production system, a full SPARQL AST parser would be used here.
+                let is_insert = event_type == "TRIPLE_INSERT";
 
-            // Extract triples from "INSERT DATA { <A> <B> <C> }" using naive string splitting
-            // Format assumed: <s1> <p1> <o1> . <s2> <p2> <o2>
-            if let Some(brace_start) = query.find('{') {
-                if let Some(brace_end) = query.rfind('}') {
-                    let inner = &query[brace_start + 1..brace_end];
-                    let triples = inner.split('.');
-                    for t in triples {
-                        let tokens: Vec<&str> = t.split_whitespace().collect();
-                        if tokens.len() >= 3 {
-                            let s = tokens[0].trim_matches(|c| c == '<' || c == '>');
-                            let p = tokens[1].trim_matches(|c| c == '<' || c == '>');
-                            let o = tokens[2].trim_matches(|c| c == '<' || c == '>');
+                // Extract triples from "INSERT DATA { <A> <B> <C> }" using naive string splitting
+                // Format assumed: <s1> <p1> <o1> . <s2> <p2> <o2>
+                if let Some(brace_start) = query.find('{') {
+                    if let Some(brace_end) = query.rfind('}') {
+                        let inner = &query[brace_start + 1..brace_end];
+                        let triples = inner.split('.');
+                        for t in triples {
+                            let tokens: Vec<&str> = t.split_whitespace().collect();
+                            if tokens.len() >= 3 {
+                                let s = tokens[0].trim_matches(|c| c == '<' || c == '>');
+                                let p = tokens[1].trim_matches(|c| c == '<' || c == '>');
+                                let o = tokens[2].trim_matches(|c| c == '<' || c == '>');
 
-                            if is_insert {
-                                g.add_node(s.to_string(), "{}".to_string().into_bytes());
-                                g.add_node(o.to_string(), "{}".to_string().into_bytes());
-                                let _ = g.add_edge(
-                                    s.to_string(),
-                                    o.to_string(),
-                                    format!("{{\"predicate\": \"{}\"}}", p).into_bytes(),
-                                );
-                            } else {
-                                // For delete, we just remove the edge matching the predicate
-                                g.remove_edge(s.to_string(), o.to_string());
+                                if is_insert {
+                                    g.add_node(s.to_string(), "{}".to_string().into_bytes());
+                                    g.add_node(o.to_string(), "{}".to_string().into_bytes());
+                                    let _ = g.add_edge(
+                                        s.to_string(),
+                                        o.to_string(),
+                                        format!("{{\"predicate\": \"{}\"}}", p).into_bytes(),
+                                    );
+                                } else {
+                                    // For delete, we just remove the edge matching the predicate
+                                    g.remove_edge(s.to_string(), o.to_string());
+                                }
                             }
                         }
                     }
                 }
+                Response::ok(
+                    req_id,
+                    ResultPayload::String("mutation_applied".to_string()),
+                )
             }
-            Response::ok(
-                req_id,
-                ResultPayload::String("mutation_applied".to_string()),
-            )
-        }
-        // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. Forward-chaining
-        // OWL/RDFS inference over the target graph. Runs Datalog reasoning
-        // (subclass / subproperty / symmetric / transitive / inverse) and,
-        // when supplied, domain/range and property-chain inference. All
-        // inferred edges and type annotations are materialised in-place and
-        // the inferred triples are returned to the caller.
-        //
-        // Intentionally under the write lock (KG-2.51): reasoning MUTATES the
-        // graph as it infers, so it cannot run on a snapshot — materialising
-        // on a clone and merging back would cost more than the inference.
-        Method::RunDatalogReasoning {
-            subclass_relations,
-            subproperty_relations,
-            symmetric_properties,
-            transitive_properties,
-            inverse_properties,
-            domain_rules,
-            range_rules,
-            property_chains,
-        } => {
-            let g = &*core;
-            let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
-
-            match crate::reasoning::run_datalog_reasoning(
-                g,
+            // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. Forward-chaining
+            // OWL/RDFS inference over the target graph. Runs Datalog reasoning
+            // (subclass / subproperty / symmetric / transitive / inverse) and,
+            // when supplied, domain/range and property-chain inference. All
+            // inferred edges and type annotations are materialised in-place and
+            // the inferred triples are returned to the caller.
+            //
+            // Intentionally under the write lock (KG-2.51): reasoning MUTATES the
+            // graph as it infers, so it cannot run on a snapshot — materialising
+            // on a clone and merging back would cost more than the inference.
+            Method::RunDatalogReasoning {
                 subclass_relations,
                 subproperty_relations,
                 symmetric_properties,
                 transitive_properties,
                 inverse_properties,
-            ) {
-                Ok(triples) => all_inferred.extend(triples),
-                Err(e) => return Response::err(req_id, e),
-            }
+                domain_rules,
+                range_rules,
+                property_chains,
+            } => {
+                let g = &*core;
+                let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
 
-            if !domain_rules.is_empty() || !range_rules.is_empty() {
-                all_inferred.extend(crate::reasoning::infer_domain_range(
+                match crate::reasoning::run_datalog_reasoning(
                     g,
-                    domain_rules,
-                    range_rules,
-                ));
+                    subclass_relations,
+                    subproperty_relations,
+                    symmetric_properties,
+                    transitive_properties,
+                    inverse_properties,
+                ) {
+                    Ok(triples) => all_inferred.extend(triples),
+                    Err(e) => return Response::err(req_id, e),
+                }
+
+                if !domain_rules.is_empty() || !range_rules.is_empty() {
+                    all_inferred.extend(crate::reasoning::infer_domain_range(
+                        g,
+                        domain_rules,
+                        range_rules,
+                    ));
+                }
+
+                if !property_chains.is_empty() {
+                    all_inferred
+                        .extend(crate::reasoning::infer_property_chains(g, property_chains));
+                }
+
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({
+                        "inferred_count": all_inferred.len(),
+                        "inferred_triples": all_inferred,
+                    })),
+                )
+            }
+            Method::InDegree { node_id } => {
+                let g = &*core;
+                match g.in_degree(&node_id) {
+                    Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
+                    Err(e) => Response::err(req_id, e),
+                }
+            }
+            Method::OutDegree { node_id } => {
+                let g = &*core;
+                match g.out_degree(&node_id) {
+                    Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
+                    Err(e) => Response::err(req_id, e),
+                }
+            }
+            Method::GetPredecessors { node_id } => {
+                let g = &*core;
+                match g.get_predecessors(&node_id) {
+                    Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
+                    Err(e) => Response::err(req_id, e),
+                }
+            }
+            Method::GetSuccessors { node_id } => {
+                let g = &*core;
+                match g.get_successors(&node_id) {
+                    Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
+                    Err(e) => Response::err(req_id, e),
+                }
+            }
+            Method::GetNeighbors { node_id } => {
+                let g = &*core;
+                match g.get_neighbors(&node_id) {
+                    Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
+                    Err(e) => Response::err(req_id, e),
+                }
+            }
+            Method::GetBlastRadius { node_id, max_depth } => {
+                let g = core.topology_snapshot();
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
+                        &g, &node_id, max_depth
+                    ))),
+                )
+            }
+            Method::DegreeCentrality { node_id } => {
+                let g = core.topology_snapshot();
+                match crate::algorithms::compute_degree_centrality(&g, &node_id) {
+                    Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
+                    Err(e) => Response::err(req_id, e),
+                }
+            }
+            Method::DegreeCentralityAll => {
+                let g = core.topology_snapshot();
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(
+                        crate::algorithms::degree_centrality_all(&g)
+                    )),
+                )
+            }
+            Method::BetweennessCentrality => {
+                // O(V·E) Brandes — snapshot topology, compute off-lock (KG-2.51).
+                let snap = { core.topology_snapshot() };
+                match compute_off_lock(req_id, move || {
+                    crate::algorithms::betweenness_centrality(&snap)
+                })
+                .await
+                {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                    Err(resp) => resp,
+                }
+            }
+            Method::PersonalizedPageRank {
+                seed_nodes,
+                damping,
+                iterations,
+            } => {
+                // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
+                let snap = { core.topology_snapshot() };
+                match compute_off_lock(req_id, move || {
+                    crate::algorithms::personalized_pagerank(
+                        &snap,
+                        &seed_nodes,
+                        damping,
+                        iterations,
+                    )
+                })
+                .await
+                {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                    Err(resp) => resp,
+                }
+            }
+            Method::CommunityDetection { resolution } => {
+                // Label propagation has an internal 15s wall-clock budget — that
+                // budget used to burn entirely UNDER the read lock, stalling every
+                // writer on the graph. Snapshot topology, compute off-lock
+                // (KG-2.51).
+                let snap = { core.topology_snapshot() };
+                match compute_off_lock(req_id, move || {
+                    crate::algorithms::community_detection(&snap, resolution)
+                })
+                .await
+                {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                    Err(resp) => resp,
+                }
+            }
+            // Stateless community detection over an inline call graph — no tenant load,
+            // no persistence, no graph lock. Builds a throwaway in-memory graph from the
+            // passed nodes/edges and runs detection off-reactor. Replaces the prior
+            // "bulk-load ~160k edges into a scratch tenant, detect, delete tenant"
+            // round-trip (the dominant ingest community cost + the tenant-sprawl source).
+            Method::CommunityDetectEphemeral {
+                node_ids,
+                edges,
+                resolution,
+            } => {
+                match compute_off_lock(req_id, move || {
+                    let g = crate::graph::GraphCore::new();
+                    for id in &node_ids {
+                        g.add_node(id.clone(), Vec::new());
+                    }
+                    for (s, t) in &edges {
+                        let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
+                    }
+                    crate::algorithms::community_detection(&g.analysis_snapshot(), resolution)
+                })
+                .await
+                {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                    Err(resp) => resp,
+                }
+            }
+            // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
+            // topology snapshot (Phase C-B: read algorithms take an unlocked view).
+            Method::GraphColoring => {
+                let g = core.topology_snapshot();
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
+                )
+            }
+            Method::ComputeSimilarityEdges { threshold } => {
+                // O(V²·d) all-pairs cosine on rayon — must never run under the
+                // graph lock OR on the tokio runtime threads. Snapshot the
+                // property blobs it reads, compute off-lock (KG-2.51).
+                let snap = { core.analysis_snapshot() };
+                match compute_off_lock(req_id, move || {
+                    crate::algorithms::compute_similarity_edges(&snap, threshold)
+                })
+                .await
+                {
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                    Err(resp) => resp,
+                }
+            }
+            Method::PruneByLifecycle {
+                max_age_secs,
+                min_score,
+            } => {
+                let stats = crate::algorithms::prune_by_lifecycle(&core, max_age_secs, min_score);
+                match serde_json::to_value(&stats) {
+                    Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::GetContextView {
+                agent_id,
+                max_tokens,
+            } => {
+                let g = core.analysis_snapshot();
+                let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
+                match serde_json::to_value(&view) {
+                    Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::BatchUpdate { operations_msgpack } => {
+                match crate::algorithms::batch_update(&core, &operations_msgpack) {
+                    Ok(res) => match rmp_serde::from_slice::<serde_json::Value>(&res) {
+                        Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
+                        Err(e) => Response::err(req_id, format!("Invalid batch result: {}", e)),
+                    },
+                    Err(e) => Response::err(req_id, e),
+                }
+            }
+            Method::ParseRepository { root_path } => {
+                let g = &*core;
+                match g.parse_repository(&root_path) {
+                    Ok(_) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                    Err(e) => Response::err(req_id, e.to_string()),
+                }
+            }
+            Method::Vf2SubgraphMatch { pattern_graph_name } => {
+                let s = state.read().await;
+                // The pattern graph is read too — gate it like any other read.
+                if let Some(entry) = s.registry.get(&pattern_graph_name) {
+                    if let Err(denied) = check_graph_access(
+                        &s.isolation,
+                        caller,
+                        &pattern_graph_name,
+                        entry.graph_type,
+                        entry.owner.as_deref(),
+                        AccessLevel::Read,
+                    ) {
+                        return Response::err(req_id, denied);
+                    }
+                }
+                let pattern_core = s
+                    .registry
+                    .get(&pattern_graph_name)
+                    .map(|entry| entry.core.clone());
+                drop(s);
+                if let Some(p_core) = pattern_core {
+                    // Exponential-worst-case matching never runs under either
+                    // graph's lock: snapshot pattern then host SEQUENTIALLY (no
+                    // nested cross-graph locks), compute off-lock (KG-2.51).
+                    let p_snap = p_core.analysis_snapshot();
+                    // vf2_subgraph_match snapshots the host internally, so the
+                    // exponential-worst-case matching runs entirely off-lock.
+                    let host = core.clone();
+                    match compute_off_lock(req_id, move || host.vf2_subgraph_match(&p_snap)).await {
+                        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                        Err(resp) => resp,
+                    }
+                } else {
+                    Response::err(
+                        req_id,
+                        format!("Pattern graph '{}' not found", pattern_graph_name),
+                    )
+                }
+            }
+            Method::GetLedger => {
+                let g = &*core;
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!(g.get_ledger())),
+                )
             }
 
-            if !property_chains.is_empty() {
-                all_inferred.extend(crate::reasoning::infer_property_chains(g, property_chains));
+            Method::ClearLedger => {
+                let g = &*core;
+                g.clear_ledger();
+                Response::ok(req_id, ResultPayload::String("ok".to_string()))
             }
-
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "inferred_count": all_inferred.len(),
-                    "inferred_triples": all_inferred,
-                })),
-            )
-        }
-        Method::InDegree { node_id } => {
-            let g = &*core;
-            match g.in_degree(&node_id) {
-                Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::OutDegree { node_id } => {
-            let g = &*core;
-            match g.out_degree(&node_id) {
-                Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetPredecessors { node_id } => {
-            let g = &*core;
-            match g.get_predecessors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetSuccessors { node_id } => {
-            let g = &*core;
-            match g.get_successors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetNeighbors { node_id } => {
-            let g = &*core;
-            match g.get_neighbors(&node_id) {
-                Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetBlastRadius { node_id, max_depth } => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
-                    &g, &node_id, max_depth
-                ))),
-            )
-        }
-        Method::DegreeCentrality { node_id } => {
-            let g = core.topology_snapshot();
-            match crate::algorithms::compute_degree_centrality(&g, &node_id) {
-                Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::DegreeCentralityAll => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(
-                    &g
-                ))),
-            )
-        }
-        Method::BetweennessCentrality => {
-            // O(V·E) Brandes — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::betweenness_centrality(&snap)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
-        Method::PersonalizedPageRank {
-            seed_nodes,
-            damping,
-            iterations,
-        } => {
-            // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::personalized_pagerank(&snap, &seed_nodes, damping, iterations)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
-        Method::CommunityDetection { resolution } => {
-            // Label propagation has an internal 15s wall-clock budget — that
-            // budget used to burn entirely UNDER the read lock, stalling every
-            // writer on the graph. Snapshot topology, compute off-lock
-            // (KG-2.51).
-            let snap = { core.topology_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::community_detection(&snap, resolution)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
-            }
-        }
-        // Stateless community detection over an inline call graph — no tenant load,
-        // no persistence, no graph lock. Builds a throwaway in-memory graph from the
-        // passed nodes/edges and runs detection off-reactor. Replaces the prior
-        // "bulk-load ~160k edges into a scratch tenant, detect, delete tenant"
-        // round-trip (the dominant ingest community cost + the tenant-sprawl source).
-        Method::CommunityDetectEphemeral {
-            node_ids,
-            edges,
-            resolution,
-        } => {
-            match compute_off_lock(req_id, move || {
-                let g = crate::graph::GraphCore::new();
-                for id in &node_ids {
-                    g.add_node(id.clone(), Vec::new());
+            Method::ApplyLedger { transactions } => {
+                let g = &*core;
+                match g.apply_ledger(transactions) {
+                    Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                    Err(e) => Response::err(req_id, e),
                 }
-                for (s, t) in &edges {
-                    let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
+            }
+            Method::GetSubgraph { node_ids } => {
+                // Batched subgraph read: return the induced nodes (with DECODED
+                // properties) and the edges among them in ONE round-trip, so callers
+                // never loop per-node `GetNodeProperties` or pull the whole edge set.
+                // (Previously serialized to msgpack then mis-parsed as JSON → error.)
+                let g = &*core;
+                let sub = g.get_subgraph(&node_ids);
+                let mut nodes = Vec::with_capacity(sub.node_properties.len());
+                for (id, blob) in &sub.node_properties {
+                    let props: serde_json::Value =
+                        rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                    nodes.push(serde_json::json!({ "id": id, "properties": props }));
                 }
-                crate::algorithms::community_detection(&g.analysis_snapshot(), resolution)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
+                let mut edges = Vec::new();
+                for ((src, tgt), blobs) in &sub.edge_properties {
+                    for blob in blobs {
+                        let props: serde_json::Value =
+                            rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                        edges.push(serde_json::json!({
+                            "source": src, "target": tgt, "properties": props
+                        }));
+                    }
+                }
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({ "nodes": nodes, "edges": edges })),
+                )
             }
-        }
-        // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
-        // topology snapshot (Phase C-B: read algorithms take an unlocked view).
-        Method::GraphColoring => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
-            )
-        }
-        Method::ComputeSimilarityEdges { threshold } => {
-            // O(V²·d) all-pairs cosine on rayon — must never run under the
-            // graph lock OR on the tokio runtime threads. Snapshot the
-            // property blobs it reads, compute off-lock (KG-2.51).
-            let snap = { core.analysis_snapshot() };
-            match compute_off_lock(req_id, move || {
-                crate::algorithms::compute_similarity_edges(&snap, threshold)
-            })
-            .await
-            {
-                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                Err(resp) => resp,
+            Method::Fork => {
+                // Cannot return the forked GraphCore directly because it needs to be registered.
+                // A true fork method in the registry might be better.
+                // For now, we return the JSON representation of the fork.
+                let g = &*core;
+                let sub = g.fork();
+                match sub.to_msgpack() {
+                    Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
+                        Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
+                        Err(e) => Response::err(req_id, e.to_string()),
+                    },
+                    Err(e) => Response::err(req_id, e),
+                }
             }
-        }
-        Method::PruneByLifecycle {
-            max_age_secs,
-            min_score,
-        } => {
-            let stats = crate::algorithms::prune_by_lifecycle(&core, max_age_secs, min_score);
-            match serde_json::to_value(&stats) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::GetContextView {
-            agent_id,
-            max_tokens,
-        } => {
-            let g = core.analysis_snapshot();
-            let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
-            match serde_json::to_value(&view) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::BatchUpdate { operations_msgpack } => {
-            match crate::algorithms::batch_update(&core, &operations_msgpack) {
-                Ok(res) => match rmp_serde::from_slice::<serde_json::Value>(&res) {
-                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                    Err(e) => Response::err(req_id, format!("Invalid batch result: {}", e)),
-                },
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::ParseRepository { root_path } => {
-            let g = &*core;
-            match g.parse_repository(&root_path) {
-                Ok(_) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::Vf2SubgraphMatch { pattern_graph_name } => {
-            let s = state.read().await;
-            // The pattern graph is read too — gate it like any other read.
-            if let Some(entry) = s.registry.get(&pattern_graph_name) {
+            Method::DiffAgainst { other_graph } => {
+                let s_lock = state.read().await;
+                let other_entry = match s_lock.registry.get(&other_graph) {
+                    Some(e) => e,
+                    None => {
+                        return Response::err(
+                            req_id,
+                            format!("Other graph '{}' not found", other_graph),
+                        )
+                    }
+                };
+                // Diffing reads the other graph's content — gate it as a read.
                 if let Err(denied) = check_graph_access(
-                    &s.isolation,
+                    &s_lock.isolation,
                     caller,
-                    &pattern_graph_name,
-                    entry.graph_type,
-                    entry.owner.as_deref(),
+                    &other_graph,
+                    other_entry.graph_type,
+                    other_entry.owner.as_deref(),
                     AccessLevel::Read,
                 ) {
                     return Response::err(req_id, denied);
                 }
-            }
-            let pattern_core = s
-                .registry
-                .get(&pattern_graph_name)
-                .map(|entry| entry.core.clone());
-            drop(s);
-            if let Some(p_core) = pattern_core {
-                // Exponential-worst-case matching never runs under either
-                // graph's lock: snapshot pattern then host SEQUENTIALLY (no
-                // nested cross-graph locks), compute off-lock (KG-2.51).
-                let p_snap = p_core.analysis_snapshot();
-                // vf2_subgraph_match snapshots the host internally, so the
-                // exponential-worst-case matching runs entirely off-lock.
-                let host = core.clone();
-                match compute_off_lock(req_id, move || host.vf2_subgraph_match(&p_snap)).await {
-                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
-                    Err(resp) => resp,
-                }
-            } else {
-                Response::err(
-                    req_id,
-                    format!("Pattern graph '{}' not found", pattern_graph_name),
-                )
-            }
-        }
-        Method::GetLedger => {
-            let g = &*core;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(g.get_ledger())),
-            )
-        }
+                let other_core = other_entry.core.clone();
+                drop(s_lock);
 
-        Method::ClearLedger => {
-            let g = &*core;
-            g.clear_ledger();
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::ApplyLedger { transactions } => {
-            let g = &*core;
-            match g.apply_ledger(transactions) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::GetSubgraph { node_ids } => {
-            // Batched subgraph read: return the induced nodes (with DECODED
-            // properties) and the edges among them in ONE round-trip, so callers
-            // never loop per-node `GetNodeProperties` or pull the whole edge set.
-            // (Previously serialized to msgpack then mis-parsed as JSON → error.)
-            let g = &*core;
-            let sub = g.get_subgraph(&node_ids);
-            let mut nodes = Vec::with_capacity(sub.node_properties.len());
-            for (id, blob) in &sub.node_properties {
-                let props: serde_json::Value =
-                    rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
-                nodes.push(serde_json::json!({ "id": id, "properties": props }));
-            }
-            let mut edges = Vec::new();
-            for ((src, tgt), blobs) in &sub.edge_properties {
-                for blob in blobs {
-                    let props: serde_json::Value =
-                        rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
-                    edges.push(serde_json::json!({
-                        "source": src, "target": tgt, "properties": props
-                    }));
-                }
-            }
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({ "nodes": nodes, "edges": edges })),
-            )
-        }
-        Method::Fork => {
-            // Cannot return the forked GraphCore directly because it needs to be registered.
-            // A true fork method in the registry might be better.
-            // For now, we return the JSON representation of the fork.
-            let g = &*core;
-            let sub = g.fork();
-            match sub.to_msgpack() {
-                Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
+                // Snapshot the other graph first, then diff under only THIS
+                // graph's lock — never hold two graph locks at once (two
+                // concurrent opposite-direction diffs plus a queued writer can
+                // deadlock a write-preferring RwLock). The diff itself is a
+                // single O(V+E) comparison, so it stays under-lock (KG-2.51).
+                let other_snap = { other_core.analysis_snapshot() };
+                let g1 = &*core;
+                let diff_str = g1.diff_against(&other_snap);
+                match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
                     Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, e.to_string()),
-                },
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::DiffAgainst { other_graph } => {
-            let s_lock = state.read().await;
-            let other_entry = match s_lock.registry.get(&other_graph) {
-                Some(e) => e,
-                None => {
-                    return Response::err(
-                        req_id,
-                        format!("Other graph '{}' not found", other_graph),
-                    )
                 }
-            };
-            // Diffing reads the other graph's content — gate it as a read.
-            if let Err(denied) = check_graph_access(
-                &s_lock.isolation,
-                caller,
-                &other_graph,
-                other_entry.graph_type,
-                other_entry.owner.as_deref(),
-                AccessLevel::Read,
-            ) {
-                return Response::err(req_id, denied);
             }
-            let other_core = other_entry.core.clone();
-            drop(s_lock);
-
-            // Snapshot the other graph first, then diff under only THIS
-            // graph's lock — never hold two graph locks at once (two
-            // concurrent opposite-direction diffs plus a queued writer can
-            // deadlock a write-preferring RwLock). The diff itself is a
-            // single O(V+E) comparison, so it stays under-lock (KG-2.51).
-            let other_snap = { other_core.analysis_snapshot() };
-            let g1 = &*core;
-            let diff_str = g1.diff_against(&other_snap);
-            match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
-                Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                Err(e) => Response::err(req_id, e.to_string()),
+            Method::CompactNodesByType {
+                node_type,
+                threshold,
+            } => {
+                let g = &*core;
+                let removed = g.compact_nodes_by_type(&node_type, threshold);
+                Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })),
+                )
             }
+            // Catch-all for methods not yet fully dispatched.
+            _ => Response::err(req_id, "Method not yet implemented for graph dispatch"),
         }
-        Method::CompactNodesByType {
-            node_type,
-            threshold,
-        } => {
-            let g = &*core;
-            let removed = g.compact_nodes_by_type(&node_type, threshold);
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })),
-            )
-        }
-        // Catch-all for methods not yet fully dispatched.
-        _ => Response::err(req_id, "Method not yet implemented for graph dispatch"),
     };
 
     // Refresh the per-graph size gauges after mutations — both petgraph
