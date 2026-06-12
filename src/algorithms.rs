@@ -911,7 +911,7 @@ pub fn get_context_view(
                 .edge_properties
                 .get(&(node_id.clone(), target_id.clone()))
                 .and_then(|v| v.first())
-                .cloned()
+                .map(|a| (**a).clone())
                 .unwrap_or_default();
             edges.push((node_id.clone(), target_id.clone(), edge_props));
 

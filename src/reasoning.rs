@@ -207,14 +207,16 @@ pub fn run_datalog_reasoning(
         inferred_triples.push(fact);
 
         if let Some(props_msgpack) = core.node_properties.get_mut(node_id) {
-            if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
+            if let Ok(mut val) =
+                rmp_serde::from_slice::<serde_json::Value>(props_msgpack.as_slice())
+            {
                 if let Some(obj) = val.as_object_mut() {
                     obj.insert(
                         "inferred_type".to_string(),
                         serde_json::Value::String(new_type.clone()),
                     );
                     if let Ok(updated) = rmp_serde::to_vec_named(&val) {
-                        *props_msgpack = updated;
+                        *props_msgpack = std::sync::Arc::new(updated);
                     }
                 }
             }
@@ -245,7 +247,7 @@ pub fn run_datalog_reasoning(
             core.edge_properties
                 .entry((src.clone(), tgt.clone()))
                 .or_default()
-                .push(props_msgpack);
+                .push(std::sync::Arc::new(props_msgpack));
         }
     }
 
@@ -327,7 +329,9 @@ pub fn infer_domain_range(
     // Apply inferred types to graph
     for (node_id, new_type) in &new_types {
         if let Some(props_msgpack) = core.node_properties.get_mut(node_id) {
-            if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
+            if let Ok(mut val) =
+                rmp_serde::from_slice::<serde_json::Value>(props_msgpack.as_slice())
+            {
                 if let Some(obj) = val.as_object_mut() {
                     // Append to inferred_types array
                     let arr = obj
@@ -340,7 +344,7 @@ pub fn infer_domain_range(
                         }
                     }
                     if let Ok(updated) = rmp_serde::to_vec_named(&val) {
-                        *props_msgpack = updated;
+                        *props_msgpack = std::sync::Arc::new(updated);
                     }
                 }
             }
@@ -440,7 +444,7 @@ pub fn infer_property_chains(
             core.edge_properties
                 .entry((src.clone(), tgt.clone()))
                 .or_default()
-                .push(props_msgpack);
+                .push(std::sync::Arc::new(props_msgpack));
         }
     }
 
