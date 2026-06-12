@@ -3,6 +3,7 @@
 // Long-running Tokio server that holds the GraphRegistry in memory
 // and serves requests over UDS or TCP with HMAC-SHA256 authentication.
 
+use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 #[cfg(unix)]
@@ -26,6 +27,13 @@ pub struct ServerState {
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
     pub max_in_flight: Arc<Semaphore>,
+    /// Per-graph backpressure (Phase C-D — multi-tenant fairness). A lazily
+    /// created semaphore per graph caps how many of the GLOBAL in-flight slots
+    /// any single graph may hold at once, so one hot tenant flooding requests
+    /// cannot starve every other tenant. Lock-free on the hot path.
+    pub per_graph_inflight: Arc<DashMap<String, Arc<Semaphore>>>,
+    /// Max concurrent in-flight requests any single graph may hold.
+    pub per_graph_inflight_limit: usize,
 }
 
 /// Compute the HMAC-SHA256 hex token for a request id. Shared by `verify_auth`
@@ -2155,8 +2163,15 @@ where
 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    // Snapshot the shared backpressure semaphore once per connection.
-    let sem = { state.read().await.max_in_flight.clone() };
+    // Snapshot the shared backpressure handles once per connection.
+    let (sem, pg_map, pg_limit) = {
+        let s = state.read().await;
+        (
+            s.max_in_flight.clone(),
+            s.per_graph_inflight.clone(),
+            s.per_graph_inflight_limit,
+        )
+    };
 
     loop {
         let mut len_buf = [0u8; 4];
@@ -2184,7 +2199,7 @@ where
 
         let is_shutdown = matches!(req.method, Method::Shutdown);
 
-        // Backpressure: acquire an in-flight permit, or shed load with BUSY.
+        // Global backpressure: acquire an in-flight permit, or shed load with BUSY.
         let _permit = match sem.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
@@ -2201,8 +2216,34 @@ where
                 continue;
             }
         };
+
+        // Per-graph fairness (Phase C-D): cap how many of the global slots this one
+        // graph may hold. On exhaustion, shed THIS graph's load with BUSY and
+        // release the global permit so other tenants keep flowing.
+        let pg_sem = pg_map
+            .entry(req.graph.clone())
+            .or_insert_with(|| Arc::new(Semaphore::new(pg_limit)))
+            .clone();
+        let _pg_permit = match pg_sem.try_acquire_owned() {
+            Ok(p) => p,
+            Err(_) => {
+                drop(_permit);
+                crate::metrics::busy_rejected();
+                let resp = Response::err(req.id, "BUSY: graph at capacity, retry with backoff");
+                let out = rmp_serde::to_vec_named(&resp).unwrap_or_default();
+                let out_len = out.len() as u32;
+                if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
+                    break;
+                }
+                if stream.write_all(&out).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+        };
         crate::metrics::connection_request_started(sem.available_permits());
         let resp = dispatch(&state, req).await;
+        drop(_pg_permit);
         drop(_permit);
         crate::metrics::connection_request_finished(sem.available_permits());
 
@@ -2283,6 +2324,8 @@ mod tests {
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
         }))
     }
 
@@ -2376,6 +2419,8 @@ mod tests {
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string_lossy().to_string()),
             max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
         }));
 
         // __bus__ starts dirty → the first checkpoint writes exactly it.
@@ -2390,6 +2435,76 @@ mod tests {
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn per_graph_backpressure_isolates_tenants() {
+        // Phase C-D: a hot graph that has exhausted its per-graph in-flight cap is
+        // shed with BUSY, but OTHER graphs keep being served from the (ample) global
+        // pool — one tenant cannot starve the rest.
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        async fn round_trip(s: &mut tokio::io::DuplexStream, req: &Request) -> Response {
+            let payload = rmp_serde::to_vec_named(req).unwrap();
+            s.write_all(&(payload.len() as u32).to_be_bytes())
+                .await
+                .unwrap();
+            s.write_all(&payload).await.unwrap();
+            let mut lb = [0u8; 4];
+            s.read_exact(&mut lb).await.unwrap();
+            let n = u32::from_be_bytes(lb) as usize;
+            let mut buf = vec![0u8; n];
+            s.read_exact(&mut buf).await.unwrap();
+            rmp_serde::from_slice(&buf).unwrap()
+        }
+
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 1, // any one graph: a single slot
+        }));
+
+        // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
+        // an op already in flight on that graph.
+        let hot_sem = Arc::new(Semaphore::new(1));
+        state
+            .read()
+            .await
+            .per_graph_inflight
+            .insert("g_hot".into(), hot_sem.clone());
+        let _held = hot_sem.try_acquire_owned().unwrap();
+
+        let (mut client, server) = tokio::io::duplex(64 * 1024);
+        let st = state.clone();
+        let handle = tokio::spawn(async move { handle_connection(server, st).await });
+
+        // g_hot is saturated → BUSY at the graph level.
+        let r_hot = round_trip(&mut client, &request(1, "g_hot", None, Method::Ping)).await;
+        assert!(
+            r_hot
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("graph at capacity"),
+            "hot graph must be shed, got {:?}",
+            r_hot
+        );
+
+        // g_cold is independent → served normally despite g_hot being saturated.
+        let r_cold = round_trip(&mut client, &request(2, "g_cold", None, Method::Ping)).await;
+        assert!(
+            r_cold.error.is_none(),
+            "cold graph must NOT be starved by the hot graph, got {:?}",
+            r_cold
+        );
+
+        drop(client);
+        let _ = handle.await;
     }
 
     #[tokio::test]
