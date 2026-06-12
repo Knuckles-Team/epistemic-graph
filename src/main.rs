@@ -11,8 +11,6 @@ use tokio::sync::RwLock;
 use tracing::{info, Level};
 
 use epistemic_graph::channels::ChannelManager;
-#[cfg(feature = "kafka")]
-use epistemic_graph::event_bus;
 use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{self, ServerState};
@@ -315,23 +313,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     tracing::error!("TCP server error: {}", e);
                 }
             });
-        }
-
-        // Kafka consumer — opt-in `kafka` feature (linux deployments only).
-        #[cfg(feature = "kafka")]
-        if let Ok(brokers) = std::env::var("KAFKA_BOOTSTRAP_SERVERS") {
-            if !brokers.is_empty() {
-                let kafka_state = state.clone();
-                tokio::spawn(async move {
-                    event_bus::start_kafka_consumer(
-                        &brokers,
-                        "epistemic-graph-consumer",
-                        "kg.mutations",
-                        kafka_state,
-                    )
-                    .await;
-                });
-            }
         }
 
         // UDS listener (main loop).

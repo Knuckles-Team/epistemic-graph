@@ -16,8 +16,6 @@ pub mod ast;
 pub mod channels;
 pub mod compute;
 pub mod datascience;
-#[cfg(feature = "kafka")]
-pub mod event_bus;
 pub mod finance;
 pub mod graph;
 #[cfg(feature = "server")]
