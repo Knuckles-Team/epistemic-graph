@@ -595,21 +595,21 @@ async fn dispatch_graph_op(
             node_id,
             properties_msgpack,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.add_node(node_id, properties_msgpack);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::RemoveNode { node_id } => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.remove_node(node_id);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::HasNode { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
         }
         Method::GetNodes => {
-            let g = core.read().await;
+            let g = &*core;
             let nodes: Vec<(String, serde_json::Value)> = g
                 .get_nodes()
                 .into_iter()
@@ -622,7 +622,7 @@ async fn dispatch_graph_op(
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
         Method::GetNodeProperties { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             let val = match g.get_node_properties(&node_id) {
                 Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
                 None => ResultPayload::Json(serde_json::Value::Null),
@@ -630,16 +630,17 @@ async fn dispatch_graph_op(
             Response::ok(req_id, val)
         }
         Method::NodeCount => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
         }
         Method::NodeIds => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
         }
         Method::AddEmbedding { node_id, embedding } => {
-            let mut g = core.write().await;
-            g.semantic_store.add_embedding(node_id, embedding);
+            core.semantic_store
+                .write()
+                .add_embedding(node_id, embedding);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::SemanticSearch {
@@ -652,7 +653,7 @@ async fn dispatch_graph_op(
             // blocking pool; the read lock is held only to memcpy the
             // embedding store, then briefly again to fetch the ~2·n candidate
             // property blobs. A large search no longer stalls writers.
-            let store = { core.read().await.semantic_store.clone() };
+            let store = { core.semantic_store.read().clone() };
             // Fetch more results initially to account for filtered out nodes
             let raw_results = match compute_off_lock(req_id, move || {
                 store.semantic_search(&query_embedding, n_results * 2)
@@ -665,7 +666,7 @@ async fn dispatch_graph_op(
 
             // Bounded candidate-metadata fetch: only the hit ids, not the graph.
             let candidates: Vec<(String, f32, Option<Vec<u8>>)> = {
-                let g = core.read().await;
+                let g = &*core;
                 raw_results
                     .into_iter()
                     .map(|(id, sim)| {
@@ -1449,7 +1450,7 @@ async fn dispatch_graph_op(
             target_id,
             properties_msgpack,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.add_edge(source_id, target_id, properties_msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1459,7 +1460,7 @@ async fn dispatch_graph_op(
             source_id,
             target_id,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.remove_edge(source_id, target_id);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
@@ -1467,21 +1468,21 @@ async fn dispatch_graph_op(
             source_id,
             target_id,
         } => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(
                 req_id,
                 ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
             )
         }
         Method::GetEdges => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
         Method::GetEdgeProperties {
             source_id,
             target_id,
         } => {
-            let g = core.read().await;
+            let g = &*core;
             let props = g.get_edge_properties(&source_id, &target_id);
             let val: Vec<serde_json::Value> = props
                 .into_iter()
@@ -1490,27 +1491,27 @@ async fn dispatch_graph_op(
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
         }
         Method::ClearGraph => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.clear();
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::EdgeCount => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
         }
         // TopologicalSort / FindCycle / GetShortestPath / components / blast
-        // radius / degree centrality stay under the read lock intentionally
-        // (CONCEPT:KG-2.51): they are single-pass O(V+E), so a structural
-        // snapshot would cost as much as the computation itself.
+        // radius / degree centrality are single-pass O(V+E); they run on a cheap
+        // topology snapshot (Phase C-B: the read algorithms take an unlocked
+        // GraphView, so the structural copy replaces the held read lock).
         Method::TopologicalSort => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             match crate::algorithms::topological_sort(&g) {
                 Ok(order) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(order))),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::FindCycle => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
@@ -1520,7 +1521,7 @@ async fn dispatch_graph_op(
             source_id,
             target_id,
         } => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
@@ -1533,7 +1534,7 @@ async fn dispatch_graph_op(
             iterations,
         } => {
             // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::pagerank(&snap, damping, iterations)
             })
@@ -1544,7 +1545,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::ConnectedComponents => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::connected_components(
@@ -1553,7 +1554,7 @@ async fn dispatch_graph_op(
             )
         }
         Method::StronglyConnectedComponents => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(
@@ -1564,7 +1565,7 @@ async fn dispatch_graph_op(
         Method::MinimumSpanningTree => {
             // O(E log E) + per-edge JSON weight parsing — snapshot (incl. the
             // edge property blobs it reads), compute off-lock (KG-2.51).
-            let snap = { core.read().await.analysis_snapshot() };
+            let snap = { core.analysis_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::minimum_spanning_tree(&snap)
             })
@@ -1580,8 +1581,8 @@ async fn dispatch_graph_op(
             // ledger is not snapshotted; capture its length for the
             // total_mutations field before releasing the lock.
             let (snap, ledger_len) = {
-                let g = core.read().await;
-                (g.analysis_snapshot(), g.ledger.len() as u64)
+                let g = &*core;
+                (g.analysis_snapshot(), g.ledger.lock().len() as u64)
             };
             let m = match compute_off_lock(req_id, move || {
                 let mut m = crate::algorithms::compute_metrics(&snap);
@@ -1599,7 +1600,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::EvictLRU { max_nodes } => {
-            let mut g = core.write().await;
+            let g = &*core;
             let evicted = g.evict_lru(max_nodes);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
         }
@@ -1612,7 +1613,7 @@ async fn dispatch_graph_op(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let mut g = core.write().await;
+            let g = &*core;
             let stats = g.decay_sweep(now, half_life_secs, floor, prune);
             match serde_json::to_value(&stats) {
                 Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
@@ -1624,19 +1625,19 @@ async fn dispatch_graph_op(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let mut g = core.write().await;
+            let g = &*core;
             let touched = g.touch_nodes(&node_ids, now);
             Response::ok(req_id, ResultPayload::Count(touched as u64))
         }
         Method::ToMsgpack => {
-            let g = core.read().await;
+            let g = &*core;
             match g.to_msgpack() {
                 Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::FromMsgpack { msgpack } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.from_msgpack(&msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1646,14 +1647,14 @@ async fn dispatch_graph_op(
             graph_name: _,
             msgpack,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.from_msgpack(&msgpack) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("reconciled".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
         Method::ApplyMutation { event_type, query } => {
-            let mut g = core.write().await;
+            let g = &*core;
 
             // Very rudimentary parsing to apply SPARQL changes to petgraph
             // In a production system, a full SPARQL AST parser would be used here.
@@ -1713,11 +1714,11 @@ async fn dispatch_graph_op(
             range_rules,
             property_chains,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
 
             match crate::reasoning::run_datalog_reasoning(
-                &mut g,
+                g,
                 subclass_relations,
                 subproperty_relations,
                 symmetric_properties,
@@ -1730,17 +1731,14 @@ async fn dispatch_graph_op(
 
             if !domain_rules.is_empty() || !range_rules.is_empty() {
                 all_inferred.extend(crate::reasoning::infer_domain_range(
-                    &mut g,
+                    g,
                     domain_rules,
                     range_rules,
                 ));
             }
 
             if !property_chains.is_empty() {
-                all_inferred.extend(crate::reasoning::infer_property_chains(
-                    &mut g,
-                    property_chains,
-                ));
+                all_inferred.extend(crate::reasoning::infer_property_chains(g, property_chains));
             }
 
             Response::ok(
@@ -1752,42 +1750,42 @@ async fn dispatch_graph_op(
             )
         }
         Method::InDegree { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.in_degree(&node_id) {
                 Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::OutDegree { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.out_degree(&node_id) {
                 Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetPredecessors { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.get_predecessors(&node_id) {
                 Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetSuccessors { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.get_successors(&node_id) {
                 Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetNeighbors { node_id } => {
-            let g = core.read().await;
+            let g = &*core;
             match g.get_neighbors(&node_id) {
                 Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::GetBlastRadius { node_id, max_depth } => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
@@ -1796,14 +1794,14 @@ async fn dispatch_graph_op(
             )
         }
         Method::DegreeCentrality { node_id } => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             match crate::algorithms::compute_degree_centrality(&g, &node_id) {
                 Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
                 Err(e) => Response::err(req_id, e),
             }
         }
         Method::DegreeCentralityAll => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(
@@ -1813,7 +1811,7 @@ async fn dispatch_graph_op(
         }
         Method::BetweennessCentrality => {
             // O(V·E) Brandes — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::betweenness_centrality(&snap)
             })
@@ -1829,7 +1827,7 @@ async fn dispatch_graph_op(
             iterations,
         } => {
             // O(iterations·E) — snapshot topology, compute off-lock (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::personalized_pagerank(&snap, &seed_nodes, damping, iterations)
             })
@@ -1844,7 +1842,7 @@ async fn dispatch_graph_op(
             // budget used to burn entirely UNDER the read lock, stalling every
             // writer on the graph. Snapshot topology, compute off-lock
             // (KG-2.51).
-            let snap = { core.read().await.topology_snapshot() };
+            let snap = { core.topology_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::community_detection(&snap, resolution)
             })
@@ -1865,14 +1863,14 @@ async fn dispatch_graph_op(
             resolution,
         } => {
             match compute_off_lock(req_id, move || {
-                let mut g = crate::graph::GraphCore::new();
+                let g = crate::graph::GraphCore::new();
                 for id in &node_ids {
                     g.add_node(id.clone(), Vec::new());
                 }
                 for (s, t) in &edges {
                     let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
                 }
-                crate::algorithms::community_detection(&g, resolution)
+                crate::algorithms::community_detection(&g.analysis_snapshot(), resolution)
             })
             .await
             {
@@ -1880,11 +1878,10 @@ async fn dispatch_graph_op(
                 Err(resp) => resp,
             }
         }
-        // GraphColoring stays under the read lock intentionally (KG-2.51):
-        // greedy coloring is a single O(V+E) sweep, so a snapshot would cost
-        // as much as the computation.
+        // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
+        // topology snapshot (Phase C-B: read algorithms take an unlocked view).
         Method::GraphColoring => {
-            let g = core.read().await;
+            let g = core.topology_snapshot();
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
@@ -1894,7 +1891,7 @@ async fn dispatch_graph_op(
             // O(V²·d) all-pairs cosine on rayon — must never run under the
             // graph lock OR on the tokio runtime threads. Snapshot the
             // property blobs it reads, compute off-lock (KG-2.51).
-            let snap = { core.read().await.analysis_snapshot() };
+            let snap = { core.analysis_snapshot() };
             match compute_off_lock(req_id, move || {
                 crate::algorithms::compute_similarity_edges(&snap, threshold)
             })
@@ -1908,8 +1905,7 @@ async fn dispatch_graph_op(
             max_age_secs,
             min_score,
         } => {
-            let mut g = core.write().await;
-            let stats = crate::algorithms::prune_by_lifecycle(&mut g, max_age_secs, min_score);
+            let stats = crate::algorithms::prune_by_lifecycle(&core, max_age_secs, min_score);
             match serde_json::to_value(&stats) {
                 Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1919,7 +1915,7 @@ async fn dispatch_graph_op(
             agent_id,
             max_tokens,
         } => {
-            let g = core.read().await;
+            let g = core.analysis_snapshot();
             let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
             match serde_json::to_value(&view) {
                 Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
@@ -1927,8 +1923,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::BatchUpdate { operations_msgpack } => {
-            let mut g = core.write().await;
-            match crate::algorithms::batch_update(&mut g, &operations_msgpack) {
+            match crate::algorithms::batch_update(&core, &operations_msgpack) {
                 Ok(res) => match rmp_serde::from_slice::<serde_json::Value>(&res) {
                     Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, format!("Invalid batch result: {}", e)),
@@ -1937,7 +1932,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::ParseRepository { root_path } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.parse_repository(&root_path) {
                 Ok(_) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e.to_string()),
@@ -1967,9 +1962,11 @@ async fn dispatch_graph_op(
                 // Exponential-worst-case matching never runs under either
                 // graph's lock: snapshot pattern then host SEQUENTIALLY (no
                 // nested cross-graph locks), compute off-lock (KG-2.51).
-                let p_snap = { p_core.read().await.analysis_snapshot() };
-                let g_snap = { core.read().await.analysis_snapshot() };
-                match compute_off_lock(req_id, move || g_snap.vf2_subgraph_match(&p_snap)).await {
+                let p_snap = p_core.analysis_snapshot();
+                // vf2_subgraph_match snapshots the host internally, so the
+                // exponential-worst-case matching runs entirely off-lock.
+                let host = core.clone();
+                match compute_off_lock(req_id, move || host.vf2_subgraph_match(&p_snap)).await {
                     Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
                     Err(resp) => resp,
                 }
@@ -1981,7 +1978,7 @@ async fn dispatch_graph_op(
             }
         }
         Method::GetLedger => {
-            let g = core.read().await;
+            let g = &*core;
             Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!(g.get_ledger())),
@@ -1989,12 +1986,12 @@ async fn dispatch_graph_op(
         }
 
         Method::ClearLedger => {
-            let mut g = core.write().await;
+            let g = &*core;
             g.clear_ledger();
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
         Method::ApplyLedger { transactions } => {
-            let mut g = core.write().await;
+            let g = &*core;
             match g.apply_ledger(transactions) {
                 Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
                 Err(e) => Response::err(req_id, e),
@@ -2005,7 +2002,7 @@ async fn dispatch_graph_op(
             // properties) and the edges among them in ONE round-trip, so callers
             // never loop per-node `GetNodeProperties` or pull the whole edge set.
             // (Previously serialized to msgpack then mis-parsed as JSON → error.)
-            let g = core.read().await;
+            let g = &*core;
             let sub = g.get_subgraph(&node_ids);
             let mut nodes = Vec::with_capacity(sub.node_properties.len());
             for (id, blob) in &sub.node_properties {
@@ -2032,7 +2029,7 @@ async fn dispatch_graph_op(
             // Cannot return the forked GraphCore directly because it needs to be registered.
             // A true fork method in the registry might be better.
             // For now, we return the JSON representation of the fork.
-            let g = core.read().await;
+            let g = &*core;
             let sub = g.fork();
             match sub.to_msgpack() {
                 Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
@@ -2072,8 +2069,8 @@ async fn dispatch_graph_op(
             // concurrent opposite-direction diffs plus a queued writer can
             // deadlock a write-preferring RwLock). The diff itself is a
             // single O(V+E) comparison, so it stays under-lock (KG-2.51).
-            let other_snap = { other_core.read().await.analysis_snapshot() };
-            let g1 = core.read().await;
+            let other_snap = { other_core.analysis_snapshot() };
+            let g1 = &*core;
             let diff_str = g1.diff_against(&other_snap);
             match serde_json::from_slice::<serde_json::Value>(diff_str.as_bytes()) {
                 Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
@@ -2084,7 +2081,7 @@ async fn dispatch_graph_op(
             node_type,
             threshold,
         } => {
-            let mut g = core.write().await;
+            let g = &*core;
             let removed = g.compact_nodes_by_type(&node_type, threshold);
             Response::ok(
                 req_id,
@@ -2099,11 +2096,11 @@ async fn dispatch_graph_op(
     // counts are O(1), so this adds no meaningful write-path cost.
     #[cfg(feature = "metrics")]
     if matches!(access, AccessLevel::Write) {
-        let g = core.read().await;
+        let topo = core.topo.read();
         crate::metrics::set_graph_size(
             graph_name,
-            g.graph.node_count() as i64,
-            g.graph.edge_count() as i64,
+            topo.graph.node_count() as i64,
+            topo.graph.edge_count() as i64,
         );
     }
 
@@ -2643,7 +2640,7 @@ mod tests {
             let s = state.read().await;
             let core = s.registry.get("agent:busy").unwrap().core.clone();
             drop(s);
-            let mut g = core.write().await;
+            let g = &*core;
             for i in 0..2_000u32 {
                 let id = format!("n{}", i);
                 g.add_node(
@@ -2651,7 +2648,7 @@ mod tests {
                     rmp_serde::to_vec(&serde_json::json!({})).unwrap(),
                 );
                 let emb: Vec<f32> = (0..64).map(|d| ((i + d) % 97) as f32 / 97.0).collect();
-                g.semantic_store.add_embedding(id, emb);
+                g.semantic_store.write().add_embedding(id, emb);
             }
         }
 

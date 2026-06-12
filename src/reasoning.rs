@@ -20,7 +20,7 @@ use crate::graph::GraphCore;
 ///
 /// Also mutates the graph in-place by adding inferred edges and type annotations.
 pub fn run_datalog_reasoning(
-    core: &mut GraphCore,
+    core: &GraphCore,
     subclass_relations: Vec<(String, String)>,
     subproperty_relations: Vec<(String, String)>,
     symmetric_properties: Vec<String>,
@@ -61,7 +61,8 @@ pub fn run_datalog_reasoning(
 
     // 2. Extract current type and property facts
     let mut current_node_types: HashMap<String, HashSet<String>> = HashMap::new();
-    for (node_id, props_msgpack) in &core.node_properties {
+    for entry in core.node_properties.iter() {
+        let (node_id, props_msgpack) = (entry.key(), entry.value());
         if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
             if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
                 current_node_types
@@ -73,7 +74,8 @@ pub fn run_datalog_reasoning(
     }
 
     let mut current_edge_types: HashMap<(String, String), HashSet<String>> = HashMap::new();
-    for ((src, tgt), props_msgpack_list) in &core.edge_properties {
+    for entry in core.edge_properties.iter() {
+        let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
         for props_msgpack in props_msgpack_list {
             if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
                 if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
@@ -206,7 +208,7 @@ pub fn run_datalog_reasoning(
         fact.insert("inference_type".to_string(), "rust_datalog".to_string());
         inferred_triples.push(fact);
 
-        if let Some(props_msgpack) = core.node_properties.get_mut(node_id) {
+        if let Some(mut props_msgpack) = core.node_properties.get_mut(node_id) {
             if let Ok(mut val) =
                 rmp_serde::from_slice::<serde_json::Value>(props_msgpack.as_slice())
             {
@@ -223,31 +225,40 @@ pub fn run_datalog_reasoning(
         }
     }
 
-    for (src, tgt, new_prop) in &new_edges_to_add {
-        let mut fact = HashMap::new();
-        fact.insert("subject".to_string(), src.clone());
-        fact.insert("predicate".to_string(), new_prop.clone());
-        fact.insert("object".to_string(), tgt.clone());
-        fact.insert("inference_type".to_string(), "rust_datalog".to_string());
-        inferred_triples.push(fact);
+    // Topology edits run under one write txn (the inferred-edge additions are
+    // atomic w.r.t. concurrent readers); the parallel edge_properties push goes
+    // through the same DashMap (interior-mutable, ordered by the held topo guard).
+    {
+        let mut txn = core.txn();
+        for (src, tgt, new_prop) in &new_edges_to_add {
+            let mut fact = HashMap::new();
+            fact.insert("subject".to_string(), src.clone());
+            fact.insert("predicate".to_string(), new_prop.clone());
+            fact.insert("object".to_string(), tgt.clone());
+            fact.insert("inference_type".to_string(), "rust_datalog".to_string());
+            inferred_triples.push(fact);
 
-        // Safe access — only add edge if both nodes exist
-        if let (Some(&src_idx), Some(&tgt_idx)) = (core.node_map.get(src), core.node_map.get(tgt)) {
-            if core.graph.find_edge(src_idx, tgt_idx).is_none() {
-                core.graph
-                    .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
+            // Safe access — only add edge if both nodes exist
+            if let (Some(&src_idx), Some(&tgt_idx)) =
+                (txn.topo.node_map.get(src), txn.topo.node_map.get(tgt))
+            {
+                if txn.topo.graph.find_edge(src_idx, tgt_idx).is_none() {
+                    txn.topo
+                        .graph
+                        .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
+                }
             }
-        }
 
-        let val = serde_json::json!({
-            "type": new_prop.clone(),
-            "inferred": true
-        });
-        if let Ok(props_msgpack) = rmp_serde::to_vec_named(&val) {
-            core.edge_properties
-                .entry((src.clone(), tgt.clone()))
-                .or_default()
-                .push(std::sync::Arc::new(props_msgpack));
+            let val = serde_json::json!({
+                "type": new_prop.clone(),
+                "inferred": true
+            });
+            if let Ok(props_msgpack) = rmp_serde::to_vec_named(&val) {
+                core.edge_properties
+                    .entry((src.clone(), tgt.clone()))
+                    .or_default()
+                    .push(std::sync::Arc::new(props_msgpack));
+            }
         }
     }
 
@@ -261,7 +272,7 @@ pub fn run_datalog_reasoning(
 ///
 /// Returns inferred type triples.
 pub fn infer_domain_range(
-    core: &mut GraphCore,
+    core: &GraphCore,
     domain_rules: Vec<(String, String)>, // (property, domain_type)
     range_rules: Vec<(String, String)>,  // (property, range_type)
 ) -> Vec<HashMap<String, String>> {
@@ -286,7 +297,8 @@ pub fn infer_domain_range(
             });
 
     // Scan all edges
-    for ((src, tgt), props_msgpack_list) in &core.edge_properties {
+    for entry in core.edge_properties.iter() {
+        let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
         for props_msgpack in props_msgpack_list {
             if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
                 if let Some(edge_type) = val.get("type").and_then(|v| v.as_str()) {
@@ -328,7 +340,7 @@ pub fn infer_domain_range(
 
     // Apply inferred types to graph
     for (node_id, new_type) in &new_types {
-        if let Some(props_msgpack) = core.node_properties.get_mut(node_id) {
+        if let Some(mut props_msgpack) = core.node_properties.get_mut(node_id) {
             if let Ok(mut val) =
                 rmp_serde::from_slice::<serde_json::Value>(props_msgpack.as_slice())
             {
@@ -361,7 +373,7 @@ pub fn infer_domain_range(
 ///
 /// chain: (prop1, prop2, inferred_prop) — if (a, prop1, b) and (b, prop2, c), then (a, inferred_prop, c)
 pub fn infer_property_chains(
-    core: &mut GraphCore,
+    core: &GraphCore,
     chains: Vec<(String, String, String)>,
 ) -> Vec<HashMap<String, String>> {
     let mut inferred = Vec::new();
@@ -369,7 +381,8 @@ pub fn infer_property_chains(
 
     // Index edges by type for fast lookup
     let mut edges_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for ((src, tgt), props_msgpack_list) in &core.edge_properties {
+    for entry in core.edge_properties.iter() {
+        let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
         for props_msgpack in props_msgpack_list {
             if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
                 if let Some(edge_type) = val.get("type").and_then(|v| v.as_str()) {
@@ -427,11 +440,16 @@ pub fn infer_property_chains(
         }
     }
 
-    // Apply inferred edges to graph
+    // Apply inferred edges to graph under one write txn (atomic topology edits;
+    // edge_properties push via the interior-mutable DashMap).
+    let mut txn = core.txn();
     for (src, tgt, prop) in &new_edges {
-        if let (Some(&src_idx), Some(&tgt_idx)) = (core.node_map.get(src), core.node_map.get(tgt)) {
-            if core.graph.find_edge(src_idx, tgt_idx).is_none() {
-                core.graph
+        if let (Some(&src_idx), Some(&tgt_idx)) =
+            (txn.topo.node_map.get(src), txn.topo.node_map.get(tgt))
+        {
+            if txn.topo.graph.find_edge(src_idx, tgt_idx).is_none() {
+                txn.topo
+                    .graph
                     .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
             }
         }
@@ -462,7 +480,7 @@ mod tests {
 
     #[test]
     fn transitive_closure_infers_indirect_edge() {
-        let mut core = GraphCore::new();
+        let core = GraphCore::new();
         core.add_node("a".into(), props(serde_json::json!({"type": "Person"})));
         core.add_node("b".into(), props(serde_json::json!({"type": "Person"})));
         core.add_node("c".into(), props(serde_json::json!({"type": "Person"})));
@@ -480,7 +498,7 @@ mod tests {
         .unwrap();
 
         let inferred = run_datalog_reasoning(
-            &mut core,
+            &core,
             vec![],
             vec![],
             vec![],
@@ -495,11 +513,11 @@ mod tests {
 
     #[test]
     fn subclass_inheritance_infers_supertype() {
-        let mut core = GraphCore::new();
+        let core = GraphCore::new();
         core.add_node("rex".into(), props(serde_json::json!({"type": "Dog"})));
 
         let inferred = run_datalog_reasoning(
-            &mut core,
+            &core,
             vec![("Dog".into(), "Animal".into())],
             vec![],
             vec![],
