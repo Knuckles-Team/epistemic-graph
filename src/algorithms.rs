@@ -479,95 +479,81 @@ pub fn minimum_spanning_tree(core: &GraphView) -> Vec<(String, String, f64)> {
         .collect()
 }
 
-/// Simple community detection via label propagation (Louvain-inspired).
+/// Community detection via **coloring-parallel, multi-level modularity
+/// optimization** (Louvain) — Phase C-D.
 ///
-/// Each node starts with its own label. Iteratively, each node adopts the
-/// most common label among its neighbors. `resolution` controls sensitivity
-/// (higher = more communities). Converges when no labels change.
-pub fn community_detection(core: &GraphView, _resolution: f64) -> Vec<Vec<String>> {
-    // Deterministic node order. The previous version iterated `node_map`'s
-    // HashMap keys in arbitrary order and broke label ties via `max_by_key`
-    // (also order-dependent), so the algorithm could *oscillate* between
-    // equivalent labelings and never reach the `changed == false` early-exit —
-    // burning all 100 iterations every run and producing a different result
-    // each time. Sorting both the node sweep and the tie-break makes
-    // propagation stable (reproducible) and lets it converge early.
-    let mut nodes: Vec<String> = core.node_map.keys().cloned().collect();
-    if nodes.is_empty() {
+/// This replaces the previous label-propagation heuristic with a parallel,
+/// deterministic, modularity-optimizing algorithm — strictly better on all three
+/// axes:
+///
+/// * **Parallel** without the oscillation hazard. The classic obstacle to parallel
+///   community detection is that two *adjacent* nodes moving community in the same
+///   round can race/oscillate (the reason naive synchronous label propagation is
+///   unstable). We dissolve it with **graph coloring**: color the graph so adjacent
+///   nodes differ, then move one color class at a time. Within a class every node
+///   is mutually non-adjacent, so their moves are independent — safe to evaluate in
+///   parallel (rayon) with no interaction. This is the established parallel-Louvain
+///   approach (Grappolo / NetworKit PLM).
+/// * **Deterministic.** Fixed node order, fixed color order, and a smallest-
+///   community-id tie-break make every run bit-identical (the determinism the
+///   regression tests assert).
+/// * **Higher quality.** Greedy modularity gain + multi-level aggregation finds the
+///   community structure Louvain is known for, not LPA's coarse approximation.
+///
+/// `resolution` (γ) scales the modularity null model (higher ⇒ more, smaller
+/// communities). Bounded by a wall-clock deadline so it always returns in bounded
+/// time (CONCEPT:KG-2.16).
+pub fn community_detection(core: &GraphView, resolution: f64) -> Vec<Vec<String>> {
+    let resolution = if resolution > 0.0 { resolution } else { 1.0 };
+
+    // Stable node order → deterministic compact indexing.
+    let mut node_ids: Vec<String> = core.node_map.keys().cloned().collect();
+    if node_ids.is_empty() {
         return Vec::new();
     }
-    nodes.sort_unstable();
+    node_ids.sort_unstable();
+    let n = node_ids.len();
+    let index: HashMap<&str, usize> = node_ids
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
 
-    // Initialize: each node is its own community
-    let mut labels: HashMap<String, usize> = HashMap::new();
-    for (i, node_id) in nodes.iter().enumerate() {
-        labels.insert(node_id.clone(), i);
+    // Build an undirected weighted adjacency: parallel edges and the two directions
+    // of each edge sum into a single symmetric weight; self-loops kept once.
+    let mut maps: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
+    for e in core.graph.edge_references() {
+        let s = core.graph[e.source()].as_str();
+        let t = core.graph[e.target()].as_str();
+        if let (Some(&si), Some(&ti)) = (index.get(s), index.get(t)) {
+            if si == ti {
+                *maps[si].entry(si).or_insert(0.0) += 1.0;
+            } else {
+                *maps[si].entry(ti).or_insert(0.0) += 1.0;
+                *maps[ti].entry(si).or_insert(0.0) += 1.0;
+            }
+        }
     }
+    let adjacency: Vec<Vec<(usize, f64)>> = maps
+        .into_iter()
+        .map(|m| {
+            let mut v: Vec<(usize, f64)> = m.into_iter().collect();
+            v.sort_unstable_by_key(|x| x.0);
+            v
+        })
+        .collect();
 
-    // Bounded by BOTH an iteration cap and a wall-clock deadline, so a large or
-    // adversarial graph can never make this call hang (CONCEPT:KG-2.16).
-    let max_iterations = 100;
     let deadline = Instant::now() + COMMUNITY_DETECTION_BUDGET;
-    for _ in 0..max_iterations {
-        if Instant::now() >= deadline {
-            break;
-        }
-        let mut changed = false;
+    let node_to_comm = louvain(&adjacency, resolution, deadline);
 
-        for node_id in &nodes {
-            let idx = match core.node_map.get(node_id) {
-                Some(&i) => i,
-                None => continue,
-            };
-
-            // Count neighbor labels
-            let mut label_counts: HashMap<usize, usize> = HashMap::new();
-            for edge in core
-                .graph
-                .edges_directed(idx, petgraph::Direction::Outgoing)
-            {
-                let neighbor_id = &core.graph[edge.target()];
-                if let Some(&lbl) = labels.get(neighbor_id) {
-                    *label_counts.entry(lbl).or_insert(0) += 1;
-                }
-            }
-            for edge in core
-                .graph
-                .edges_directed(idx, petgraph::Direction::Incoming)
-            {
-                let neighbor_id = &core.graph[edge.source()];
-                if let Some(&lbl) = labels.get(neighbor_id) {
-                    *label_counts.entry(lbl).or_insert(0) += 1;
-                }
-            }
-
-            // Most common neighbor label; break ties deterministically toward
-            // the SMALLEST label so propagation is stable and convergent.
-            let best = label_counts
-                .iter()
-                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
-                .map(|(&lbl, _)| lbl);
-            if let Some(best_label) = best {
-                let current = labels[node_id];
-                if best_label != current {
-                    labels.insert(node_id.clone(), best_label);
-                    changed = true;
-                }
-            }
-        }
-
-        if !changed {
-            break;
-        }
+    // Group by community, deterministic order (members sorted; communities by their
+    // smallest member) so callers + tests are stable.
+    let mut groups: std::collections::BTreeMap<usize, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (i, id) in node_ids.into_iter().enumerate() {
+        groups.entry(node_to_comm[i]).or_default().push(id);
     }
-
-    // Group nodes by label, returning a deterministic order (communities sorted
-    // by their smallest member; members sorted) so callers + tests are stable.
-    let mut communities: HashMap<usize, Vec<String>> = HashMap::new();
-    for (node_id, label) in &labels {
-        communities.entry(*label).or_default().push(node_id.clone());
-    }
-    let mut out: Vec<Vec<String>> = communities
+    let mut out: Vec<Vec<String>> = groups
         .into_values()
         .map(|mut members| {
             members.sort_unstable();
@@ -576,6 +562,210 @@ pub fn community_detection(core: &GraphView, _resolution: f64) -> Vec<Vec<String
         .collect();
     out.sort_unstable_by(|a, b| a[0].cmp(&b[0]));
     out
+}
+
+/// Weighted degree of each node (a self-loop counts twice, per the modularity
+/// convention), and `2m = Σ degrees`.
+fn weighted_degrees(adjacency: &[Vec<(usize, f64)>]) -> Vec<f64> {
+    adjacency
+        .iter()
+        .enumerate()
+        .map(|(i, nbrs)| {
+            nbrs.iter()
+                .map(|&(j, w)| if j == i { 2.0 * w } else { w })
+                .sum()
+        })
+        .collect()
+}
+
+/// Multi-level Louvain: local-move → aggregate → repeat until no community merges
+/// or the deadline hits. Returns, for each ORIGINAL node, its final community id.
+fn louvain(adjacency0: &[Vec<(usize, f64)>], resolution: f64, deadline: Instant) -> Vec<usize> {
+    let n0 = adjacency0.len();
+    let mut node_to_comm: Vec<usize> = (0..n0).collect();
+    let mut adjacency: Vec<Vec<(usize, f64)>> = adjacency0.to_vec();
+
+    loop {
+        let n = adjacency.len();
+        let degrees = weighted_degrees(&adjacency);
+        let two_m: f64 = degrees.iter().sum();
+        if two_m <= 0.0 {
+            break;
+        }
+
+        let raw = local_moving(&adjacency, &degrees, two_m, resolution, deadline);
+        let (local, k) = renumber(&raw);
+
+        // Lift the original-node mapping through this level's relabeling.
+        for c in node_to_comm.iter_mut() {
+            *c = local[*c];
+        }
+
+        // No community merged this level (k == n) → modularity converged.
+        if k == n {
+            break;
+        }
+        adjacency = aggregate(&adjacency, &local, k);
+        if Instant::now() >= deadline {
+            break;
+        }
+    }
+    node_to_comm
+}
+
+/// One Louvain local-moving phase, parallelized by graph coloring. Returns the
+/// (sparse) community label per node.
+fn local_moving(
+    adjacency: &[Vec<(usize, f64)>],
+    degrees: &[f64],
+    two_m: f64,
+    resolution: f64,
+    deadline: Instant,
+) -> Vec<usize> {
+    use rayon::prelude::*;
+
+    let n = adjacency.len();
+    let mut comm: Vec<usize> = (0..n).collect();
+    let mut comm_tot: Vec<f64> = degrees.to_vec();
+    let color_classes = color_classes(adjacency);
+
+    // Each color class is an independent set, so the best move of every node in it
+    // is computed from the SAME frozen (comm, comm_tot) with no cross-interaction —
+    // evaluate the class in parallel, then apply the decided moves in node order.
+    let max_passes = 50;
+    for _ in 0..max_passes {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let mut changed = false;
+        for class in &color_classes {
+            let moves: Vec<(usize, usize)> = class
+                .par_iter()
+                .map(|&i| {
+                    (
+                        i,
+                        best_community(i, adjacency, degrees, &comm, &comm_tot, two_m, resolution),
+                    )
+                })
+                .collect();
+            for (i, target) in moves {
+                if target != comm[i] {
+                    comm_tot[comm[i]] -= degrees[i];
+                    comm_tot[target] += degrees[i];
+                    comm[i] = target;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    comm
+}
+
+/// Best community for node `i` by modularity gain: remove `i` from its community,
+/// then pick the neighboring community maximizing `w(i,C) - γ·Σtot(C)·k_i/2m`.
+/// Only a STRICT improvement over staying moves it (convergence); ties resolve to
+/// the smallest community id (determinism).
+fn best_community(
+    i: usize,
+    adjacency: &[Vec<(usize, f64)>],
+    degrees: &[f64],
+    comm: &[usize],
+    comm_tot: &[f64],
+    two_m: f64,
+    resolution: f64,
+) -> usize {
+    let ci = comm[i];
+    let ki = degrees[i];
+
+    // Weight from i to each neighboring community (self-loop excluded).
+    let mut w_to: HashMap<usize, f64> = HashMap::new();
+    for &(j, w) in &adjacency[i] {
+        if j != i {
+            *w_to.entry(comm[j]).or_insert(0.0) += w;
+        }
+    }
+
+    // Baseline: re-adding i to its own community (Σtot already had i removed).
+    let stay_gain =
+        w_to.get(&ci).copied().unwrap_or(0.0) - resolution * (comm_tot[ci] - ki) * ki / two_m;
+
+    let mut best_c = ci;
+    let mut best_gain = stay_gain;
+    let mut cands: Vec<usize> = w_to.keys().copied().collect();
+    cands.sort_unstable(); // smallest-id tie-break
+    for c in cands {
+        if c == ci {
+            continue;
+        }
+        let gain = w_to[&c] - resolution * comm_tot[c] * ki / two_m;
+        if gain > best_gain + 1e-12 {
+            best_gain = gain;
+            best_c = c;
+        }
+    }
+    best_c
+}
+
+/// Greedy proper coloring (smallest available color, fixed node order) → the
+/// color classes (independent sets), in ascending color order.
+fn color_classes(adjacency: &[Vec<(usize, f64)>]) -> Vec<Vec<usize>> {
+    let n = adjacency.len();
+    let mut color = vec![usize::MAX; n];
+    let mut max_color = 0;
+    for i in 0..n {
+        let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for &(j, _) in &adjacency[i] {
+            if j != i && color[j] != usize::MAX {
+                used.insert(color[j]);
+            }
+        }
+        let mut c = 0;
+        while used.contains(&c) {
+            c += 1;
+        }
+        color[i] = c;
+        max_color = max_color.max(c);
+    }
+    let mut classes: Vec<Vec<usize>> = vec![Vec::new(); max_color + 1];
+    for (i, &c) in color.iter().enumerate() {
+        classes[c].push(i);
+    }
+    classes
+}
+
+/// Compact a sparse labeling to dense `0..k` (first-seen order). Returns the dense
+/// labels and `k`.
+fn renumber(comm: &[usize]) -> (Vec<usize>, usize) {
+    let mut map: HashMap<usize, usize> = HashMap::new();
+    let mut dense = Vec::with_capacity(comm.len());
+    for &c in comm {
+        let next = map.len();
+        dense.push(*map.entry(c).or_insert(next));
+    }
+    let k = map.len();
+    (dense, k)
+}
+
+/// Contract each community (dense label `0..k`) into a super-node; inter-community
+/// edge weights sum, intra-community edges become the super-node's self-loop.
+fn aggregate(adjacency: &[Vec<(usize, f64)>], comm: &[usize], k: usize) -> Vec<Vec<(usize, f64)>> {
+    let mut maps: Vec<HashMap<usize, f64>> = vec![HashMap::new(); k];
+    for (i, nbrs) in adjacency.iter().enumerate() {
+        let ci = comm[i];
+        for &(j, w) in nbrs {
+            *maps[ci].entry(comm[j]).or_insert(0.0) += w;
+        }
+    }
+    maps.into_iter()
+        .map(|m| {
+            let mut v: Vec<(usize, f64)> = m.into_iter().collect();
+            v.sort_unstable_by_key(|x| x.0);
+            v
+        })
+        .collect()
 }
 
 // ── Quant epistemic-graph Algorithms ─────────────────────────────────────────────────
@@ -1316,6 +1506,49 @@ mod community_tests {
         let props: serde_json::Value = rmp_serde::from_slice(&raw).expect("props are msgpack");
         assert_eq!(props["language"], "java");
         assert_eq!(props["name"], "Widget");
+    }
+
+    #[test]
+    fn louvain_splits_connected_graph_at_weak_bridge_deterministically() {
+        // Two 5-cliques joined by a SINGLE bridge edge — a connected graph. Naive
+        // label propagation tends to collapse this into one community; modularity
+        // optimization (Phase C-D) keeps each dense clique whole and cuts the weak
+        // bridge → exactly two communities, identically across many parallel runs.
+        let mut node_strs: Vec<String> = Vec::new();
+        for c in 0..2 {
+            for i in 0..5 {
+                node_strs.push(format!("c{c}n{i}"));
+            }
+        }
+        let node_refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+
+        let mut edge_strs: Vec<(String, String)> = Vec::new();
+        for c in 0..2 {
+            for i in 0..5 {
+                for j in (i + 1)..5 {
+                    edge_strs.push((format!("c{c}n{i}"), format!("c{c}n{j}")));
+                }
+            }
+        }
+        edge_strs.push(("c0n0".to_string(), "c1n0".to_string())); // the lone bridge
+        let edge_refs: Vec<(&str, &str)> = edge_strs
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.as_str()))
+            .collect();
+
+        let g = build(&node_refs, &edge_refs);
+        let first = community_detection(&g, 1.0);
+        assert_eq!(
+            first.len(),
+            2,
+            "two cliques + one bridge must yield 2 communities, got {first:?}"
+        );
+        // Each community is exactly one clique (5 members).
+        assert!(first.iter().all(|c| c.len() == 5), "got {first:?}");
+        // Coloring-parallel result is deterministic across runs.
+        for _ in 0..10 {
+            assert_eq!(community_detection(&g, 1.0), first);
+        }
     }
 
     #[test]
