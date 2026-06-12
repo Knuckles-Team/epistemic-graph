@@ -197,12 +197,36 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         max_in_flight, per_graph_inflight_limit
     );
 
+    // ── Off-reactor WAL writer (CONCEPT:KG-2.8, Phase B3) ────────────────
+    // When persisting, all WAL file I/O runs on one dedicated thread so durable
+    // mutations never block a Tokio worker; fsync is group-committed per
+    // EPISTEMIC_GRAPH_WAL_FSYNC (off | each | <ms> | interval, default 100ms).
+    // The bounded channel (EPISTEMIC_GRAPH_WAL_QUEUE, default 8192) sheds — loudly
+    // — rather than stalling the reactor under a saturated disk.
+    let wal_service = args.persist_dir.as_ref().map(|dir| {
+        let policy = epistemic_graph::wal_service::FsyncPolicy::from_env(
+            std::env::var("EPISTEMIC_GRAPH_WAL_FSYNC").ok().as_deref(),
+        );
+        let capacity = std::env::var("EPISTEMIC_GRAPH_WAL_QUEUE")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(8192);
+        info!(
+            "WAL: off-reactor writer (fsync {:?}, queue {})",
+            policy, capacity
+        );
+        epistemic_graph::wal_service::WalService::spawn(dir.clone(), policy, capacity)
+    });
+    let wal_service_shutdown = wal_service.clone();
+
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
+        wal_service,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
@@ -326,5 +350,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         server::serve_tcp(&addr, state).await?;
     }
 
+    // Graceful shutdown: flush + fsync any buffered WAL appends before exit.
+    if let Some(svc) = wal_service_shutdown {
+        svc.shutdown();
+    }
     Ok(())
 }

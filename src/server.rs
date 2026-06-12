@@ -23,6 +23,10 @@ pub struct ServerState {
     pub channels: ChannelManager,
     pub auth_secret: String,
     pub persist_dir: Option<String>,
+    /// Off-reactor WAL writer (Phase B3). `Some` when a persist dir is configured.
+    /// Durable mutations enqueue their append here instead of doing blocking file
+    /// I/O on a Tokio worker; the writer thread group-commits fsyncs.
+    pub wal_service: Option<Arc<crate::wal_service::WalService>>,
     /// Global backpressure: caps concurrent in-flight requests across all
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
@@ -583,15 +587,14 @@ async fn dispatch_graph_op(
     }
 
     let core = entry.core.clone();
-    // WAL (Phase B2): capture the per-graph log handle + persist dir under the
-    // registry lock so a durable mutation can be appended after it applies, with
-    // no extra locking. Only durable DATA mutations are logged, only when a
-    // persist dir is configured.
-    let wal_handle = entry.wal.clone();
-    let persist_dir = s.persist_dir.clone();
+    // WAL (Phase B3): clone the off-reactor writer handle under the registry lock
+    // so a durable mutation can enqueue its append after it applies, with no extra
+    // locking and no file I/O on this Tokio worker. Only durable DATA mutations are
+    // logged, and only when the WAL service is running (i.e. a persist dir is set).
+    let wal_service = s.wal_service.clone();
     drop(s); // Release registry lock before graph lock.
 
-    let wal_method = match (&persist_dir, crate::wal::is_durable_mutation(&method)) {
+    let wal_method = match (&wal_service, crate::wal::is_durable_mutation(&method)) {
         (Some(_), true) => Some(method.clone()),
         _ => None,
     };
@@ -2155,42 +2158,20 @@ async fn dispatch_graph_op(
         core.mark_dirty();
     }
 
-    // Append to the WAL after a SUCCESSFUL durable mutation (write-behind; pggraph
-    // is the durable system-of-record, this is the fast local crash-consistency
-    // layer that closes the between-checkpoint loss window). (CONCEPT:KG-2.8 / B2)
-    if let (Some(m), Some(dir)) = (wal_method, persist_dir.as_deref()) {
+    // Enqueue the WAL append after a SUCCESSFUL durable mutation (write-behind; the
+    // durable backend is the system-of-record, this is the fast local crash-
+    // consistency layer that closes the between-checkpoint loss window). The append
+    // is serialized here (cheap CPU) and handed to the off-reactor writer thread so
+    // no file I/O runs on this Tokio worker. (CONCEPT:KG-2.8 / Phase B3)
+    if let (Some(m), Some(svc)) = (wal_method, wal_service) {
         if response.error.is_none() {
-            append_wal(&wal_handle, dir, graph_name, &m);
-        }
-    }
-    response
-}
-
-/// Lazily open (first call) and append one durable mutation to a graph's WAL.
-/// Best-effort: a WAL I/O error is logged but never fails the mutation (the data
-/// is already applied in memory + checkpointed; the WAL only narrows crash loss).
-fn append_wal(
-    wal: &crate::registry::WalHandle,
-    persist_dir: &str,
-    graph_name: &str,
-    method: &crate::protocol::Method,
-) {
-    let mut guard = wal.lock();
-    if guard.is_none() {
-        let fname = crate::persist::sanitize(graph_name);
-        match crate::wal::WalWriter::open(&crate::wal::wal_path(persist_dir, &fname)) {
-            Ok(w) => *guard = Some(w),
-            Err(e) => {
-                tracing::warn!("WAL open failed for graph '{}': {}", graph_name, e);
-                return;
+            match rmp_serde::to_vec_named(&m) {
+                Ok(bytes) => svc.append(crate::persist::sanitize(graph_name), bytes),
+                Err(e) => tracing::warn!("WAL serialize failed for '{}': {}", graph_name, e),
             }
         }
     }
-    if let Some(w) = guard.as_mut() {
-        if let Err(e) = w.append(method) {
-            tracing::warn!("WAL append failed for graph '{}': {}", graph_name, e);
-        }
-    }
+    response
 }
 
 /// Handle a single client connection (UDS or TCP).
@@ -2360,6 +2341,7 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
+            wal_service: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
@@ -2455,6 +2437,7 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string_lossy().to_string()),
+            wal_service: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
@@ -2471,6 +2454,57 @@ mod tests {
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn wal_service_logs_dispatch_then_checkpoint_truncates() {
+        // Phase B3 end-to-end: a durable mutation dispatched through the server is
+        // appended to the WAL by the OFF-REACTOR writer (no file I/O on this task),
+        // replays into a fresh graph, and a checkpoint truncates the WAL prefix it
+        // supersedes.
+        let dir = std::env::temp_dir().join(format!("eg-b3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_s = dir.to_string_lossy().to_string();
+        let svc = crate::wal_service::WalService::spawn(
+            dir_s.clone(),
+            crate::wal_service::FsyncPolicy::Each,
+            64,
+        );
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: Some(dir_s.clone()),
+            wal_service: Some(svc.clone()),
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
+        }));
+
+        assert_ok(&dispatch(&state, request(1, "__bus__", None, add_node("x"))).await);
+        // position() is processed in-order AFTER the append by the single writer
+        // thread, so a non-zero result proves the off-reactor append landed.
+        assert!(
+            svc.position("__bus__") > 0,
+            "dispatch should have logged to WAL"
+        );
+        assert_eq!(svc.dropped(), 0);
+
+        // The WAL alone recovers the mutation into a fresh graph.
+        let fresh = crate::graph::GraphCore::new();
+        let replayed = crate::wal::replay(&fresh, &crate::wal::wal_path(&dir_s, "__bus__"));
+        assert_eq!(replayed, 1);
+        assert!(fresh.get_node_properties("x").is_some());
+
+        // Checkpoint writes the snapshot and truncates the WAL prefix it covers.
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        assert_eq!(svc.position("__bus__"), 0, "WAL truncated after checkpoint");
+        assert!(std::path::Path::new(&dir_s).join("__bus__.mp").exists());
+
+        svc.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2501,6 +2535,7 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
+            wal_service: None,
             max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot

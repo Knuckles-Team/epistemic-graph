@@ -38,3 +38,5 @@ pub mod server;
 pub mod types;
 #[cfg(feature = "server")]
 pub mod wal;
+#[cfg(feature = "server")]
+pub mod wal_service;
