@@ -1455,13 +1455,19 @@ mod tests {
         );
         g.take_dirty(); // ignore any earlier state
         assert_eq!(g.decay_sweep(now, 100.0, 0.0, false).nodes_decayed, 0);
-        assert!(!g.dirty.load(Ordering::Relaxed), "no-op decay must stay clean");
+        assert!(
+            !g.dirty.load(Ordering::Relaxed),
+            "no-op decay must stay clean"
+        );
 
         // A decay that actually changes confidence marks the graph dirty so the
         // background sweep's writes are captured by the next checkpoint.
         let later = now + 100;
         assert_eq!(g.decay_sweep(later, 100.0, 0.0, false).nodes_decayed, 1);
-        assert!(g.dirty.load(Ordering::Relaxed), "real decay must mark dirty");
+        assert!(
+            g.dirty.load(Ordering::Relaxed),
+            "real decay must mark dirty"
+        );
     }
 }
 
