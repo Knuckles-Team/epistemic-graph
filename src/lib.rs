@@ -23,13 +23,13 @@ pub use eg_types::{acl, protocol, types, wire};
 // Compute domains live in `eg-compute`; re-export under the historical `crate::`
 // paths. algorithms/ast/parser are always present; the feature-gated domains are
 // re-exported only when their facade feature (→ eg-compute feature) is on.
-pub use eg_compute::{algorithms, ast, parser};
 #[cfg(feature = "datascience")]
 pub use eg_compute::datascience;
 #[cfg(feature = "finance")]
 pub use eg_compute::finance;
 #[cfg(feature = "reasoning")]
 pub use eg_compute::reasoning;
+pub use eg_compute::{algorithms, ast, parser};
 
 #[cfg(feature = "server")]
 pub mod channels;
