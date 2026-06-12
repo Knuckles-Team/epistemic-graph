@@ -1,0 +1,60 @@
+[package]
+name = "eg-compute"
+version = "0.27.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Compute domains (graph algorithms, finance, datascience, reasoning, AST) for the epistemic-graph engine"
+license = "MIT"
+
+[lib]
+name = "eg_compute"
+
+[features]
+# `algorithms`, `ast`, and `parser` are always compiled (algorithms is used by
+# the always-on graph-op handlers); the heavy domains are gated so a slim build
+# links neither their code nor their deps. Mirrors the facade feature names 1:1.
+# finance/datascience also turn on the matching eg-types feature so the wire
+# DTOs they re-export (`eg_types::wire::{Order, FittedModel, ...}`) exist.
+finance = ["dep:nalgebra", "eg-types/finance"]
+datascience = ["dep:rand_chacha", "eg-types/datascience"]
+reasoning = []
+ast = [
+    "dep:tree-sitter",
+    "dep:tree-sitter-python",
+    "dep:tree-sitter-rust",
+    "dep:tree-sitter-typescript",
+    "dep:tree-sitter-javascript",
+    "dep:tree-sitter-go",
+    "dep:tree-sitter-java",
+    "dep:tree-sitter-c",
+    "dep:tree-sitter-cpp",
+    "dep:tree-sitter-c-sharp",
+]
+
+[dependencies]
+eg-types = { path = "../eg-types" }
+eg-core = { path = "../eg-core" }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+petgraph = { version = "0.6.4", features = ["serde-1"] }
+rayon = "1.10"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+# Optional, domain-gated heavy deps.
+nalgebra = { version = "0.32", features = ["serde"], optional = true }
+rand_chacha = { version = "0.3", optional = true }
+tree-sitter = { version = "0.23", optional = true }
+tree-sitter-python = { version = "0.23", optional = true }
+tree-sitter-rust = { version = "0.23", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-javascript = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.23", optional = true }
+tree-sitter-java = { version = "0.23", optional = true }
+tree-sitter-c = { version = "0.23", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+# Pinned to an ABI-14 grammar: 0.23.5 was regenerated with tree-sitter ABI 15,
+# which the 0.23 core runtime rejects ("Incompatible language version 15").
+tree-sitter-c-sharp = { version = "=0.23.1", optional = true }

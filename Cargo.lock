@@ -324,6 +324,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-compute"
+version = "0.27.0"
+dependencies = [
+ "eg-core",
+ "eg-types",
+ "hex",
+ "nalgebra",
+ "petgraph",
+ "rand 0.8.6",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tree-sitter",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
+ "tree-sitter-go",
+ "tree-sitter-java",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+]
+
+[[package]]
 name = "eg-core"
 version = "0.27.0"
 dependencies = [
@@ -398,6 +426,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dashmap",
+ "eg-compute",
  "eg-core",
  "eg-types",
  "fs4",
@@ -405,12 +434,10 @@ dependencies = [
  "hmac",
  "hnsw_rs",
  "lazy_static",
- "nalgebra",
  "parking_lot",
  "petgraph",
  "prometheus",
  "rand 0.8.6",
- "rand_chacha 0.3.1",
  "rayon",
  "rmp-serde",
  "serde",
@@ -421,16 +448,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-c",
- "tree-sitter-c-sharp",
- "tree-sitter-cpp",
- "tree-sitter-go",
- "tree-sitter-java",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
  "uuid",
 ]
 

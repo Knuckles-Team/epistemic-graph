@@ -20,23 +20,24 @@
 // `crate::graph::` / `crate::registry::` reference resolves unchanged.
 pub use eg_core::{compute, graph, isolation, registry};
 pub use eg_types::{acl, protocol, types, wire};
+// Compute domains live in `eg-compute`; re-export under the historical `crate::`
+// paths. algorithms/ast/parser are always present; the feature-gated domains are
+// re-exported only when their facade feature (→ eg-compute feature) is on.
+pub use eg_compute::{algorithms, ast, parser};
+#[cfg(feature = "datascience")]
+pub use eg_compute::datascience;
+#[cfg(feature = "finance")]
+pub use eg_compute::finance;
+#[cfg(feature = "reasoning")]
+pub use eg_compute::reasoning;
 
-pub mod algorithms;
-pub mod ast;
 #[cfg(feature = "server")]
 pub mod channels;
-#[cfg(feature = "datascience")]
-pub mod datascience;
-#[cfg(feature = "finance")]
-pub mod finance;
 pub mod metrics;
-pub mod parser;
 #[cfg(feature = "server")]
 pub mod persist;
 #[cfg(feature = "server")]
 pub mod persist_lock;
-#[cfg(feature = "reasoning")]
-mod reasoning;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "server")]
