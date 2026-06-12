@@ -164,14 +164,21 @@ round-trip), never a per-row loop. See `docs/RUST_COMPUTE_GUIDE.md`.
 
 ## Cargo Feature Flags
 
+The facade's features are **real** — each passes through to the crate that owns
+the code + its heavy deps, so a slim build genuinely drops them (verified by
+`cargo tree`: a `--features server` build links neither nalgebra nor tree-sitter).
+
 ```toml
+# facade epistemic-graph/Cargo.toml
 [features]
 default     = ["graph", "algorithms", "metrics"]
-ast         = [ ... ]          # Multi-language tree-sitter AST parser
-finance     = []               # Pure-Rust quant finance engine
-datascience = []               # Pure-Rust ML primitives
-reasoning   = []               # OWL/Datalog inference
-metrics     = [ ... ]          # Prometheus observability (/metrics listener); on by default
+graph       = []                                      # no-op marker (graph core is always linked via eg-core)
+algorithms  = []                                      # no-op marker (always linked via eg-compute)
+metrics     = ["dep:prometheus", "eg-types/metrics"]  # Prometheus /metrics listener; on by default
+finance     = ["eg-compute/finance", "eg-types/finance"]   # → nalgebra; wire DTOs in eg-types
+datascience = ["eg-compute/datascience", "eg-types/datascience"]  # → rand_chacha
+reasoning   = ["eg-compute/reasoning"]                # OWL/Datalog inference
+ast         = ["eg-compute/ast"]                      # → tree-sitter grammars
 compute     = ["finance", "ast", "datascience", "reasoning"]
 # Tokio service (UDS/TCP). tokio is pinned to the minimal feature set actually
 # used (rt-multi-thread, net, io-util, sync, time) — NOT "full".
@@ -179,33 +186,51 @@ server      = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
 full        = ["compute", "server"]
 ```
 
-`Cargo.toml` declares `crate-type = ["rlib"]` (no `cdylib`/pyo3).
+`eg-compute` is a non-optional dep (its `algorithms` is used by the always-on
+graph-op handlers); only its heavy domains + their deps are feature-gated.
+The facade declares `crate-type = ["rlib"]` (no `cdylib`/pyo3; maturin
+`bindings = "bin"`).
 
 ---
 
-## Module Structure
+## Module Structure — a Cargo workspace along the dependency DAG
+
+The engine is a **4-crate workspace**; member crates map 1:1 to the acyclic
+dependency DAG `eg-types → eg-core → eg-compute → epistemic-graph`. A crate may
+only `use` crates to its left; a cycle won't compile, which is the enforcement.
 
 ```
-src/
-├── lib.rs           # CONCEPT:KG-2.19 — Tokio service layer (MessagePack RPC); delegates to modules
-├── main.rs          # epistemic-graph-server entrypoint; builds ServerState (incl. backpressure semaphore)
-├── server.rs        # Tokio UDS/TCP server: HMAC auth, length-prefixed framing,
-│                    #   global in-flight Semaphore -> BUSY (EPISTEMIC_GRAPH_MAX_INFLIGHT), Health/Shutdown/Ping
-├── protocol.rs      # Length-prefixed MessagePack: Request/Response/Method + ResultPayload enum
-├── graph.rs         # GraphCore: petgraph-backed graph with ledger
-│                    #   + topology_snapshot/analysis_snapshot (KG-2.51: heavy read-only
-│                    #     compute runs on the blocking pool, never under the graph lock)
-├── metrics.rs       # KG-2.51: Prometheus metrics + /metrics HTTP listener
-│                    #   (--metrics-addr / GRAPH_SERVICE_METRICS_ADDR; feature `metrics`)
-├── algorithms.rs    # PageRank, centrality, BFS/DFS, components, MST
-├── finance/         # optimizer.rs (incl. black_litterman via nalgebra), risk.rs, regime.rs, signals.rs, exchange.rs
-├── datascience/     # primitives.rs (OLS, K-means, PCA)
-├── reasoning.rs     # Datalog closure: transitive, symmetric, inverse, domain/range, chains
-├── ast/             # tree-sitter multi-language parser -> KG symbols
-├── compute/semantic.rs   # SemanticStore (Vec<f32> cosine + HNSW)
-├── registry.rs      # Multi-tenant graph registry
-├── channels.rs      # Agent communication channels
-└── isolation.rs     # Zero-trust agent isolation
+crates/
+├── eg-types/        # lib eg_types — BOTTOM of the DAG; deps = serde family only
+│   ├── protocol.rs  #   Length-prefixed MessagePack: Request/Response/Method + ResultPayload
+│   ├── types.rs     #   Typed node/edge data model (lifecycle, embeddings, metadata)
+│   ├── wire.rs      #   Pure-data DTOs the protocol embeds: Order/YearData (finance),
+│   │                #     EstimatorParams/FittedModel/DecisionTree/TreeNode (datascience) — feature-gated
+│   └── acl.rs       #   AgentRole/AgentIdentity (RegisterIdentity carries them over the wire)
+├── eg-core/         # lib eg_core — graph engine core; depends on eg-types
+│   ├── graph.rs     #   GraphCore: petgraph-backed graph + ledger; topology/analysis snapshots
+│   │                #     (heavy read-only compute runs off the graph lock)
+│   ├── registry.rs  #   Multi-tenant graph registry
+│   ├── isolation.rs #   Zero-trust agent isolation / ACL
+│   └── compute/semantic.rs  # SemanticStore (Vec<f32> cosine + HNSW)
+├── eg-compute/      # lib eg_compute — compute domains; depends on eg-types + eg-core
+│   ├── algorithms.rs     # PageRank, centrality, BFS/DFS, components, MST (ALWAYS compiled)
+│   ├── ast/ + parser/    # tree-sitter multi-language parser → KG symbols (feature `ast`)
+│   ├── finance/          # optimizer (black_litterman via nalgebra), risk, regime, signals, exchange (feature `finance`)
+│   ├── datascience/      # estimators + primitives: OLS/Ridge/Lasso/trees/SVR (feature `datascience`)
+│   └── reasoning.rs      # Datalog closure: transitive/symmetric/inverse/domain-range/chains (feature `reasoning`)
+└── (workspace root = the facade)
+
+src/                 # the `epistemic-graph` FACADE crate (lib epistemic_graph) — TOP of the DAG:
+├── lib.rs           #   re-exports eg-{types,core,compute} under the historical crate:: paths,
+│                    #     then declares the server-side modules below (server feature)
+├── main.rs          #   epistemic-graph-server entrypoint (the maturin bindings="bin" wheel target)
+├── server/          #   Tokio UDS/TCP server, DECOMPOSED (see dispatch conventions below):
+│                    #     dispatch.rs (thin routing table) + handlers/{graph_ops,finance,datascience}.rs
+│                    #     + state/auth/access/compute/transport.rs
+├── metrics.rs       #   Prometheus metrics + /metrics listener (feature `metrics`)
+├── channels.rs      #   Agent communication channels
+├── persist.rs · persist_lock.rs · wal.rs · wal_service.rs   # durable WAL + checkpoints + single-writer lock
 
 epistemic_graph/     # pure-Python client package
 ├── client.py        # EpistemicGraphClient / SyncEpistemicGraphClient (framed MessagePack + HMAC)
@@ -214,6 +239,62 @@ epistemic_graph/     # pure-Python client package
 scripts/             # check_no_pyo3.sh, run_shards.sh, bench_transport.py
 docs/benchmarks.md   # measured p50/p99 latency
 ```
+
+> The server lib + the bin are 1:1 (the bin only exists with the `server`
+> feature), so they deliberately share the facade crate rather than splitting an
+> `eg-server` crate — a boundary that would carry no consumer and only entangle
+> the `server`/`metrics` features across crates. `[profile.release]` lives on the
+> **workspace root** `Cargo.toml` (it is only honored there).
+
+---
+
+## Workspace & server dispatch conventions
+
+These are the rules that keep the engine from re-forming into a monolith as it
+grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment).
+
+1. **Crates mirror the DAG** `eg-types → eg-core → eg-compute → epistemic-graph`.
+   A new shared/wire type → `eg-types`; a new graph-core capability → `eg-core`; a
+   new compute domain → `eg-compute`. Imports point left only — never make a lower
+   crate depend on a higher one. *Gate:* the workspace graph (a cycle won't build).
+
+2. **Dispatch is a thin routing table.** `src/server/dispatch.rs` is a labeled
+   `'dispatch` block that routes each `Method` to a `handlers::<domain>::try_handle`
+   (`Ok(resp)` = handled, `Err(method)` = not mine, fall through). The post-match
+   write side-effects (in-flight gauge, `mark_dirty`, WAL enqueue) stay
+   **centralized in the shell** so every write handler gets durability for free and
+   it cannot drift per-domain. **No business logic in a routing arm** — logic lives
+   in `handlers::<domain>`. *Gate:* clippy + the handler tests.
+
+3. **One handler module per domain**, 1:1 with the `// ── <domain> ──` sections in
+   `protocol.rs`. A new domain ⇒ a new `handlers/<domain>.rs`, not another arm in an
+   existing file.
+
+4. **Feature-gating gates three sites** (the `ast` precedent): the crate/feature
+   wiring (`eg-compute/<domain>` + `eg-types/<domain>` if it has wire DTOs), the
+   handler `mod` (`#[cfg(feature=…)] pub(crate) mod <domain>;`), and the dispatch
+   routing. A gated-out method's variant stays in the enum and **must** fall to the
+   explicit "not available in this server build" catch-all — never a panic, never a
+   silent mis-route. *Gate:* `test_gated_out_method_returns_not_built` (slim-server row).
+
+5. **Wire DTOs live in `eg-types`, behavior lives upstream.** When the protocol
+   enum must embed a compute type, the pure-data struct/enum goes in
+   `eg-types::wire` (feature-gated) and the domain module re-exports it
+   (`pub use eg_types::wire::Order;`) — the data sits at the bottom of the DAG, the
+   algorithm stays in `eg-compute`. Do **not** pull a heavy dep (nalgebra,
+   tree-sitter) into a default build to satisfy a type: gate it.
+
+6. **Adding a capability (5 steps):** (1) implement it in the `eg-compute`/`eg-core`
+   domain module; (2) add the `Method` variant in the matching `protocol.rs` section
+   (eg-types), cfg-gated if the domain is feature-gated; (3) add the handler fn in
+   `handlers/<domain>.rs`; (4) add the **one-liner** routing arm in `dispatch.rs`
+   (with the not-built fallback if gated); (5) add the `epistemic_graph/client.py`
+   method + a `tests/` round-trip and a co-located `#[cfg(test)]` dispatch test.
+
+7. **The protocol enum stays flat + section-commented.** Nesting into
+   `Method::Finance(FinanceMethod)` is wire-breaking (the Python client mirrors flat
+   method-name strings) — defer it behind a hard trigger (protocol.rs > ~2000 lines
+   AND a protocol-v2 client cutover already in scope).
 
 ---
 
