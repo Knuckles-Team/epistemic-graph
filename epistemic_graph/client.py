@@ -1621,6 +1621,44 @@ class DataScienceClient:
         )
 
 
+# Per-RPC timeouts (CONCEPT:KG-2.19). A wedged or overloaded engine must never
+# hang a caller forever — every request is bounded. Normal CRUD uses the short
+# default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
+# budget so a legitimately long job is not aborted. Both are overridable per
+# client or via env; set the timeout to 0/None to disable (not recommended).
+_DEFAULT_RPC_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_RPC_TIMEOUT", "60") or 60)
+_HEAVY_RPC_TIMEOUT = float(
+    os.environ.get("GRAPH_SERVICE_HEAVY_RPC_TIMEOUT", "1200") or 1200
+)
+#: Methods whose work is O(graph) / batch-sized and may legitimately run long.
+_HEAVY_RPC_METHODS = frozenset(
+    {
+        "ParseFile",
+        "ParseFiles",
+        "ParseRepository",
+        "CommunityDetection",
+        "CommunityDetectEphemeral",
+        "ComputeSimilarityEdges",
+        "BatchCosineSimilarity",
+        "FindSimilarPairs",
+        "SpectralCluster",
+        "Vf2SubgraphMatch",
+        "BetweennessCentrality",
+        "PageRank",
+        "PersonalizedPagerank",
+        "BatchUpdate",
+        "FromMsgpack",
+        "ToMsgpack",
+        "GetTriples",
+        "Reconcile",
+        "RunDatalogReasoning",
+        "GetSubgraph",
+        "GetNodes",
+        "GetEdges",
+    }
+)
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -1645,11 +1683,16 @@ class EpistemicGraphClient:
         auth_secret: str,
         graph_name: str,
         agent_id: str | None = None,
+        timeout: float | None = _DEFAULT_RPC_TIMEOUT,
+        heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
     ) -> None:
         self._reader = reader
         self._writer = writer
         self._auth_secret = auth_secret
         self._graph_name = graph_name
+        # Per-RPC read timeouts (0/None disables). Heavy ops use heavy_timeout.
+        self._timeout = timeout if timeout else None
+        self._heavy_timeout = heavy_timeout if heavy_timeout else None
         # Caller identity for server-side ACL enforcement (isolation layer).
         # Optional: single-tenant deployments never need it; once identities
         # are registered server-side, requests carry it for check_access().
@@ -1680,6 +1723,8 @@ class EpistemicGraphClient:
         auth_secret: str | None = None,
         graph_name: str = "__bus__",
         agent_id: str | None = None,
+        timeout: float | None = _DEFAULT_RPC_TIMEOUT,
+        heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
 
@@ -1702,7 +1747,15 @@ class EpistemicGraphClient:
             reader, writer = await asyncio.open_unix_connection(_socket)
             logger.info("Connected to epistemic-graph service via UDS: %s", _socket)
 
-        return cls(reader, writer, _secret, graph_name, agent_id=agent_id)
+        return cls(
+            reader,
+            writer,
+            _secret,
+            graph_name,
+            agent_id=agent_id,
+            timeout=timeout,
+            heavy_timeout=heavy_timeout,
+        )
 
     # ── Internal ──────────────────────────────────────────────────────────
 
@@ -1740,17 +1793,36 @@ class EpistemicGraphClient:
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
 
+        # Heavy ops (full-graph parse/scan/algorithms) get the longer budget.
+        timeout = self._heavy_timeout if method in _HEAVY_RPC_METHODS else self._timeout
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
 
             try:
-                len_buf = await self._reader.readexactly(4)
+                len_buf = await asyncio.wait_for(self._reader.readexactly(4), timeout)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
-                resp_bytes = await self._reader.readexactly(msg_len)
+                resp_bytes = await asyncio.wait_for(
+                    self._reader.readexactly(msg_len), timeout
+                )
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
+            except (asyncio.TimeoutError, TimeoutError) as e:
+                # The read timed out mid-frame: the stream is now desynced (a late
+                # reply would be misread as the NEXT request's response). Treat the
+                # timeout as connection-fatal — close so the pool/breaker reconnects
+                # on a clean stream rather than reusing a poisoned one.
+                self._closed = True
+                try:
+                    self._writer.close()
+                except Exception:  # noqa: BLE001 — best-effort teardown
+                    pass
+                raise TimeoutError(
+                    f"epistemic-graph RPC {method!r} timed out after {timeout}s "
+                    "(connection closed; retry will reconnect)"
+                ) from e
 
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
