@@ -2670,6 +2670,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn memory_cap_evicts_graphs_over_cap() {
+        // E3: a graph above the per-graph cap is evicted (LRU) back down to it;
+        // under the cap, or cap 0, is a no-op.
+        let state = test_state();
+        for i in 0..6 {
+            assert_ok(
+                &dispatch(
+                    &state,
+                    request(1, "__commons__", None, add_node(&format!("n{i}"))),
+                )
+                .await,
+            );
+        }
+        assert_eq!(
+            crate::persist::evict_oversized_all(&state, 4).await,
+            2,
+            "6 nodes capped at 4 -> evict 2"
+        );
+        assert_eq!(crate::persist::evict_oversized_all(&state, 4).await, 0);
+        assert_eq!(crate::persist::evict_oversized_all(&state, 100).await, 0);
+        assert_eq!(crate::persist::evict_oversized_all(&state, 0).await, 0);
+    }
+
+    #[tokio::test]
     async fn batch_node_reads_collapse_round_trips() {
         // A2: GetNodePropertiesBatch / HasNodesBatch fetch N nodes in one request.
         let state = test_state();

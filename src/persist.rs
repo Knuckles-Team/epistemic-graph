@@ -184,6 +184,33 @@ pub async fn decay_all(
     total
 }
 
+/// Evict any graph above `max_nodes` back down to it (LRU), returning the number
+/// of nodes evicted across all graphs. The engine is a rebuildable cache over the
+/// durable backend (see AGENTS.md), so evicted nodes are not lost — they re-hydrate
+/// on next access. This is the memory backstop that makes a shard DEGRADE under
+/// pressure instead of OOM-killing every tenant on it. Mirrors `decay_all`'s lock
+/// discipline (global registry lock released before the per-graph evictions).
+pub async fn evict_oversized_all(state: &Arc<RwLock<ServerState>>, max_nodes: usize) -> usize {
+    if max_nodes == 0 {
+        return 0;
+    }
+    let entries: Vec<Arc<GraphCore>> = {
+        let s = state.read().await;
+        s.registry
+            .all_entries()
+            .iter()
+            .map(|e| e.core.clone())
+            .collect()
+    };
+    let mut evicted = 0usize;
+    for core in entries {
+        if core.node_count() > max_nodes {
+            evicted += core.evict_lru(max_nodes);
+        }
+    }
+    evicted
+}
+
 /// Reconstruct the registry from the persist dir on startup.
 ///
 /// Returns the number of graphs loaded. No-op (Ok(0)) when no persist dir is
