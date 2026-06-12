@@ -37,10 +37,29 @@ pub(crate) fn sanitize(name: &str) -> String {
 }
 
 /// Atomically write `bytes` to `path` (temp file in the same dir + rename).
+///
+/// The tmp file's contents are `fsync`'d BEFORE the rename: a rename is only
+/// crash-safe if the data it will point at is already durable, otherwise a power
+/// loss can land a rename onto a zero-length/partial snapshot (silent corruption
+/// the atomicity was meant to prevent). The parent directory is `fsync`'d AFTER
+/// the rename so the directory entry change itself survives power loss too.
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    {
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(bytes).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    if let Some(parent) = path.parent() {
+        // Best-effort: not all filesystems require/allow a dir fsync; failures
+        // here don't undo the rename, so don't fail the checkpoint on them.
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    Ok(())
 }
 
 /// Serialize every registered graph to the configured persist dir.
@@ -54,31 +73,27 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// ingest "freeze"). (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
 pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let start = std::time::Instant::now();
-    let (dir, entries) = {
+    let (dir, wal_service, entries) = {
         let s = state.read().await;
         let dir = match &s.persist_dir {
             Some(d) => d.clone(),
             None => return Ok(0),
         };
-        let entries: Vec<(
-            String,
-            GraphType,
-            Arc<GraphCore>,
-            crate::registry::WalHandle,
-        )> = s
+        let wal_service = s.wal_service.clone();
+        let entries: Vec<(String, GraphType, Arc<GraphCore>)> = s
             .registry
             .all_entries()
             .iter()
-            .map(|e| (e.name.clone(), e.graph_type, e.core.clone(), e.wal.clone()))
+            .map(|e| (e.name.clone(), e.graph_type, e.core.clone()))
             .collect();
-        (dir, entries)
+        (dir, wal_service, entries)
     };
 
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut manifest = serde_json::Map::new();
     let mut count = 0usize;
     let mut skipped = 0usize;
-    for (name, gtype, core, wal) in entries {
+    for (name, gtype, core) in entries {
         let fname = sanitize(&name);
         let path = Path::new(&dir).join(format!("{fname}.mp"));
         // Incremental checkpointing (Phase C-C): atomically clear-and-test the dirty
@@ -98,8 +113,13 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         }
         // WAL position the snapshot will cover. Captured BEFORE the snapshot so the
         // truncation is loss-free: any op appended during this checkpoint lands at
-        // an offset ≥ this position and survives the prefix truncation. (Phase B2)
-        let wal_pos = wal.lock().as_ref().map(|w| w.position());
+        // an offset ≥ this position and survives the prefix truncation. The service
+        // processes Position in-order with appends, so it reflects exactly the ops
+        // enqueued before now. 0 ⇒ nothing logged ⇒ no truncation. (Phase B3)
+        let wal_pos = wal_service
+            .as_ref()
+            .map(|svc| svc.position(&fname))
+            .filter(|&p| p > 0);
         // snapshot() takes the topology read lock internally for a consistent
         // point-in-time copy, then releases it; the encode below runs off-lock.
         let snapshot = core.snapshot();
@@ -108,11 +128,9 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         let bytes = snapshot.to_msgpack()?;
         atomic_write(&path, &bytes)?;
         // Snapshot is durable on disk → drop the WAL prefix it superseded.
-        if let Some(pos) = wal_pos {
-            if let Some(w) = wal.lock().as_mut() {
-                if let Err(e) = w.truncate_prefix(pos) {
-                    tracing::warn!("WAL truncate failed for '{}': {}", name, e);
-                }
+        if let (Some(svc), Some(pos)) = (&wal_service, wal_pos) {
+            if let Err(e) = svc.truncate(&fname, pos) {
+                tracing::warn!("WAL truncate failed for '{}': {}", name, e);
             }
         }
         manifest.insert(

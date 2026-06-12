@@ -76,11 +76,23 @@ impl WalWriter {
     pub fn append(&mut self, method: &Method) -> std::io::Result<()> {
         let bytes = rmp_serde::to_vec_named(method)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        self.append_bytes(&bytes)
+    }
+
+    /// Append a pre-serialized MessagePack record (length-prefixed). Lets the
+    /// caller do the (cheap, CPU-only) serialization off the WAL writer thread —
+    /// used by [`crate::wal_service`] so file I/O is the only work on that thread.
+    pub fn append_bytes(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         let prefix = (bytes.len() as u32).to_le_bytes();
         self.file.write_all(&prefix)?;
-        self.file.write_all(&bytes)?;
+        self.file.write_all(bytes)?;
         self.len += prefix.len() as u64 + bytes.len() as u64;
         Ok(())
+    }
+
+    /// fsync the WAL file (group-commit durability point).
+    pub fn sync(&mut self) -> std::io::Result<()> {
+        self.file.sync_all()
     }
 
     /// Current logical end position — captured at checkpoint snapshot time and
