@@ -109,7 +109,7 @@ fn requires_write(method: &Method) -> bool {
 /// rules and everything is allowed (single-tenant deployments are unchanged).
 /// Once rules exist, `check_access` decides: peer agent graphs are denied,
 /// managers reach subordinate graphs, team graphs are member-read/manager-write,
-/// the `__bus__` stays open to all authenticated agents.
+/// the `__commons__` stays open to all authenticated agents.
 fn check_graph_access(
     isolation: &IsolationLayer,
     caller: Option<&str>,
@@ -2508,7 +2508,7 @@ mod tests {
     #[tokio::test]
     async fn test_bad_auth_token_rejected() {
         let state = test_state();
-        let mut req = request(1, "__bus__", None, Method::Ping);
+        let mut req = request(1, "__commons__", None, Method::Ping);
         req.auth_token = "bogus".to_string();
         let resp = dispatch(&state, req).await;
         assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
@@ -2532,14 +2532,14 @@ mod tests {
             per_graph_inflight_limit: 8,
         }));
 
-        // __bus__ starts dirty → the first checkpoint writes exactly it.
+        // __commons__ starts dirty → the first checkpoint writes exactly it.
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
         // Nothing changed → the next checkpoint writes nothing (all clean/skipped).
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
 
         // A successful write through dispatch marks the graph dirty (no isolation
         // rules registered → back-compat permits the write).
-        assert_ok(&dispatch(&state, request(1, "__bus__", None, add_node("x"))).await);
+        assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
 
@@ -2573,27 +2573,99 @@ mod tests {
             per_graph_inflight_limit: 8,
         }));
 
-        assert_ok(&dispatch(&state, request(1, "__bus__", None, add_node("x"))).await);
+        assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
         // position() is processed in-order AFTER the append by the single writer
         // thread, so a non-zero result proves the off-reactor append landed.
         assert!(
-            svc.position("__bus__") > 0,
+            svc.position("__commons__") > 0,
             "dispatch should have logged to WAL"
         );
         assert_eq!(svc.dropped(), 0);
 
         // The WAL alone recovers the mutation into a fresh graph.
         let fresh = crate::graph::GraphCore::new();
-        let replayed = crate::wal::replay(&fresh, &crate::wal::wal_path(&dir_s, "__bus__"));
+        let replayed = crate::wal::replay(&fresh, &crate::wal::wal_path(&dir_s, "__commons__"));
         assert_eq!(replayed, 1);
         assert!(fresh.get_node_properties("x").is_some());
 
         // Checkpoint writes the snapshot and truncates the WAL prefix it covers.
         assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
-        assert_eq!(svc.position("__bus__"), 0, "WAL truncated after checkpoint");
-        assert!(std::path::Path::new(&dir_s).join("__bus__.mp").exists());
+        assert_eq!(
+            svc.position("__commons__"),
+            0,
+            "WAL truncated after checkpoint"
+        );
+        assert!(std::path::Path::new(&dir_s).join("__commons__.mp").exists());
 
         svc.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn legacy_bus_snapshot_migrates_to_commons() {
+        // C3: an engine that persisted the old `__bus__` commons graph must load it
+        // under the new `__commons__` name via the one-time on-disk migration.
+        let dir = std::env::temp_dir().join(format!("eg-busmig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_s = dir.to_string_lossy().to_string();
+
+        // Forge a legacy snapshot: a `__bus__.mp` + a manifest naming it `__bus__`
+        // with the old `"Bus"` graph_type.
+        let legacy = crate::graph::GraphCore::new();
+        legacy.add_node(
+            "legacy_node".into(),
+            rmp_serde::to_vec_named(&serde_json::json!({"type": "Code"})).unwrap(),
+        );
+        let bytes = legacy.snapshot().to_msgpack().unwrap();
+        std::fs::write(dir.join("__bus__.mp"), &bytes).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            br#"{"__bus__":{"name":"__bus__","graph_type":"Bus"}}"#,
+        )
+        .unwrap();
+
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: Some(dir_s.clone()),
+            wal_service: None,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
+            per_graph_inflight_limit: 8,
+        }));
+
+        crate::persist::load_all(&state).await.unwrap();
+
+        // The legacy data now lives under __commons__; the old files are gone.
+        let resp = dispatch(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                Method::HasNode {
+                    node_id: "legacy_node".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(resp.result, Some(ResultPayload::Bool(true))),
+            "legacy node must be present under __commons__: {:?}",
+            resp.error
+        );
+        assert!(
+            !dir.join("__bus__.mp").exists(),
+            "legacy snapshot renamed away"
+        );
+        assert!(
+            dir.join("__commons__.mp").exists(),
+            "migrated snapshot present"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2607,14 +2679,14 @@ mod tests {
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({ "k": k }))
                     .unwrap(),
             };
-            assert_ok(&dispatch(&state, request(1, "__bus__", None, m)).await);
+            assert_ok(&dispatch(&state, request(1, "__commons__", None, m)).await);
         }
 
         let resp = dispatch(
             &state,
             request(
                 2,
-                "__bus__",
+                "__commons__",
                 None,
                 Method::GetNodePropertiesBatch {
                     node_ids: vec!["a".into(), "missing".into(), "b".into()],
@@ -2641,7 +2713,7 @@ mod tests {
             &state,
             request(
                 3,
-                "__bus__",
+                "__commons__",
                 None,
                 Method::HasNodesBatch {
                     node_ids: vec!["a".into(), "missing".into()],
@@ -2661,7 +2733,7 @@ mod tests {
             &state,
             request(
                 4,
-                "__bus__",
+                "__commons__",
                 None,
                 Method::GetNodePropertiesBatch {
                     node_ids: vec!["x".to_string(); MAX_BATCH_IDS + 1],
@@ -2856,7 +2928,7 @@ mod tests {
         for (id, agent) in [(1, Some("worker1")), (2, Some("worker2")), (3, None)] {
             let resp = dispatch(
                 &state,
-                request(id, "__bus__", agent, add_node(&format!("n{}", id))),
+                request(id, "__commons__", agent, add_node(&format!("n{}", id))),
             )
             .await;
             assert_ok(&resp);
@@ -2870,7 +2942,7 @@ mod tests {
             &state,
             request(
                 1,
-                "__bus__",
+                "__commons__",
                 Some("worker2"),
                 Method::CreateGraph {
                     graph_name: "agent:worker2".to_string(),
@@ -2908,9 +2980,9 @@ mod tests {
         let del = || Method::DeleteGraph {
             graph_name: "agent:worker1".to_string(),
         };
-        let resp = dispatch(&state, request(1, "__bus__", Some("worker2"), del())).await;
+        let resp = dispatch(&state, request(1, "__commons__", Some("worker2"), del())).await;
         assert_denied(&resp);
-        let resp = dispatch(&state, request(2, "__bus__", Some("worker1"), del())).await;
+        let resp = dispatch(&state, request(2, "__commons__", Some("worker1"), del())).await;
         assert_ok(&resp);
     }
 
@@ -2921,7 +2993,7 @@ mod tests {
             &state,
             request(
                 1,
-                "__bus__",
+                "__commons__",
                 Some("worker1"),
                 Method::CreateChannel {
                     channel_id: "channel:p2p:worker1:worker2".to_string(),
@@ -2937,7 +3009,7 @@ mod tests {
             &state,
             request(
                 2,
-                "__bus__",
+                "__commons__",
                 Some("worker2"),
                 Method::SendMessage {
                     channel_id: "channel:p2p:worker1:worker2".to_string(),

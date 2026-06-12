@@ -189,8 +189,51 @@ pub async fn decay_all(
 /// Returns the number of graphs loaded. No-op (Ok(0)) when no persist dir is
 /// configured. Loads each graph's snapshot (from the manifest) and replays its WAL
 /// tail on top. ALSO replays any orphan WAL — a graph mutated but crashed before
-/// its first checkpoint (so it has no manifest entry / snapshot), e.g. `__bus__`
+/// its first checkpoint (so it has no manifest entry / snapshot), e.g. `__commons__`
 /// after a hard kill — so the WAL is loss-free even with no prior checkpoint.
+/// One-time data migration: the shared commons graph was renamed `__bus__` →
+/// `__commons__`. Rewrite any on-disk legacy artifacts (snapshot, WAL, manifest
+/// entry incl. the old `"Bus"` graph_type) so an engine that persisted the old
+/// name loads cleanly under the new one — after which the old files are gone. This
+/// is the *persisted-state* exception to No-Legacy: a one-time read-old→write-new,
+/// not a permanent dual-name reader.
+fn migrate_legacy_commons(dir: &str) {
+    let base = Path::new(dir);
+    let mut migrated = false;
+    for (old, new) in [
+        ("__bus__.mp", "__commons__.mp"),
+        ("__bus__.wal", "__commons__.wal"),
+    ] {
+        let (old_p, new_p) = (base.join(old), base.join(new));
+        if old_p.exists() && !new_p.exists() && std::fs::rename(&old_p, &new_p).is_ok() {
+            migrated = true;
+        }
+    }
+    let manifest_path = base.join(MANIFEST);
+    if let Ok(bytes) = std::fs::read(&manifest_path) {
+        if let Ok(mut m) =
+            serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(&bytes)
+        {
+            if let Some(mut entry) = m.remove("__bus__") {
+                if let Some(obj) = entry.as_object_mut() {
+                    obj.insert("name".into(), serde_json::json!("__commons__"));
+                    if obj.get("graph_type").and_then(|v| v.as_str()) == Some("Bus") {
+                        obj.insert("graph_type".into(), serde_json::json!("Commons"));
+                    }
+                }
+                m.insert("__commons__".into(), entry);
+                if let Ok(out) = serde_json::to_vec(&m) {
+                    let _ = atomic_write(&manifest_path, &out);
+                }
+                migrated = true;
+            }
+        }
+    }
+    if migrated {
+        info!("Migrated legacy '__bus__' commons graph → '__commons__'");
+    }
+}
+
 pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let dir = {
         let s = state.read().await;
@@ -199,6 +242,9 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
             None => return Ok(0),
         }
     };
+    // One-time rename of the legacy `__bus__` commons graph to `__commons__` before
+    // anything is read, so the rest of load runs purely on the new name.
+    migrate_legacy_commons(&dir);
     let manifest_path = Path::new(&dir).join(MANIFEST);
     // Missing manifest is NOT an early return: a graph may have a WAL but no
     // snapshot yet (crashed before the first checkpoint). Fall through with an
@@ -257,8 +303,8 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
 
     // Orphan-WAL recovery (Phase B2): replay any `*.wal` whose graph had no snapshot
     // in the manifest — mutated but crashed before its first checkpoint. The graph
-    // name is the `.wal` file stem (exact for `__bus__` and tenant names without
-    // filename-sanitized characters); `__bus__` already exists in the registry, so
+    // name is the `.wal` file stem (exact for `__commons__` and tenant names without
+    // filename-sanitized characters); `__commons__` already exists in the registry, so
     // its WAL replays into the live core.
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for ent in rd.flatten() {
