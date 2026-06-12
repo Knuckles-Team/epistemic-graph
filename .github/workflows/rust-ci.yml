@@ -1,0 +1,80 @@
+name: Rust CI
+
+# Engine quality gate: lint + test + a feature-matrix build so the slim
+# (lib-only) and full builds can never silently bit-rot — a `use crate::finance`
+# leaking into a default-built module would break the slim build, and this is the
+# job that catches it. Kept separate from the maturin publish pipeline so it runs
+# on every push and PR, not just release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-ci.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/rust-ci.yml'
+
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      # Lint each gated build so warnings can't accumulate. `-D warnings` makes
+      # clippy fail the job on any lint. Numeric matrix modules carry scoped
+      # `#![allow(clippy::needless_range_loop)]` where explicit indices are clearer.
+      - name: Clippy (slim lib)
+        run: cargo clippy --no-default-features --features graph,algorithms -- -D warnings
+      - name: Clippy (default)
+        run: cargo clippy -- -D warnings
+      - name: Clippy (compute + server)
+        run: cargo clippy --features compute,server -- -D warnings
+
+      - name: Test (compute + server)
+        run: cargo test --features compute,server
+
+  feature-matrix:
+    # Build-only across the feature combinations we ship, to guard feature-gate
+    # bitrot. (kafka is excluded: its bundled librdkafka build is environment-
+    # sensitive and the in-engine event bus is slated for removal.)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - { name: 'slim-lib',       flags: '--no-default-features --features graph,algorithms' }
+          - { name: 'default',        flags: '' }
+          - { name: 'minimal-server', flags: '--features server' }
+          - { name: 'compute',        flags: '--features compute' }
+          - { name: 'full-no-kafka',  flags: '--features compute,server,metrics' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.features.name }}
+      - name: Build ${{ matrix.features.name }}
+        run: cargo build ${{ matrix.features.flags }}

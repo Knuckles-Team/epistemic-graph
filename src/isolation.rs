@@ -44,6 +44,12 @@ pub struct IsolationLayer {
     agents: HashMap<String, AgentIdentity>,
 }
 
+impl Default for IsolationLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IsolationLayer {
     pub fn new() -> Self {
         IsolationLayer {

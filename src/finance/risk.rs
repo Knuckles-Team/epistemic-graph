@@ -40,8 +40,7 @@ fn inv_norm(p: f64) -> f64 {
     let d2 = 0.189269;
     let d3 = 0.001308;
 
-    let z = t - (c0 + c1 * t + c2 * t * t) / (1.0 + d1 * t + d2 * t * t + d3 * t * t * t);
-    z
+    t - (c0 + c1 * t + c2 * t * t) / (1.0 + d1 * t + d2 * t * t + d3 * t * t * t)
 }
 
 /// Historical VaR — sort returns and pick the percentile.

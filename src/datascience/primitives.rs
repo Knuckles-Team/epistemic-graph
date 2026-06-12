@@ -380,6 +380,9 @@ pub fn compute_stats(data: &[Vec<f64>]) -> DatasetStats {
 
 /// Train-test split. When `shuffle` is true the rows are permuted with a
 /// `seed`-seeded Fisher–Yates shuffle before splitting (matching scikit-learn's
+/// `(x_train, x_test, y_train, y_test)` produced by [`train_test_split`].
+pub type TrainTestSplit = (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<f64>, Vec<f64>);
+
 /// shuffle-by-default behavior and avoiding pure-extrapolation test folds on
 /// ordered data); when false the split is deterministic and contiguous.
 pub fn train_test_split(
@@ -388,7 +391,7 @@ pub fn train_test_split(
     test_ratio: f64,
     shuffle: bool,
     seed: u64,
-) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<f64>, Vec<f64>) {
+) -> TrainTestSplit {
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 

@@ -100,6 +100,12 @@ impl<'de> Deserialize<'de> for SemanticStore {
     }
 }
 
+impl Default for SemanticStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticStore {
     pub fn new() -> Self {
         Self {
