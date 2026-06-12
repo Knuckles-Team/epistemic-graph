@@ -1478,6 +1478,51 @@ async fn dispatch_graph_op(
             let g = &*core;
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
+        Method::GetTriples => {
+            // Bulk RDF-triple export for local SPARQL materialization
+            // (CONCEPT:KG-2.7). One call instead of per-node round-trips.
+            let g = &*core;
+            let mut triples: Vec<[String; 3]> = Vec::new();
+            // Edges → (subject, predicate=rel_type, object).
+            for (src, tgt, props) in g.get_edges() {
+                let v: serde_json::Value =
+                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
+                let rel = v
+                    .get("type")
+                    .and_then(|x| x.as_str())
+                    .or_else(|| v.get("rel_type").and_then(|x| x.as_str()))
+                    .unwrap_or("RELATED_TO")
+                    .to_string();
+                triples.push([src, rel, tgt]);
+            }
+            // Nodes → (id, rdf:type, node_type) + scalar properties as literals.
+            for (id, props) in g.get_nodes() {
+                let v: serde_json::Value =
+                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
+                if let Some(obj) = v.as_object() {
+                    if let Some(nt) = obj
+                        .get("type")
+                        .or_else(|| obj.get("node_type"))
+                        .and_then(|x| x.as_str())
+                    {
+                        triples.push([id.clone(), "rdf:type".to_string(), nt.to_string()]);
+                    }
+                    for (k, val) in obj {
+                        if k == "type" || k == "node_type" || k == "embedding" {
+                            continue;
+                        }
+                        let lit = match val {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Number(n) => n.to_string(),
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            _ => continue, // skip arrays/objects/null
+                        };
+                        triples.push([id.clone(), k.clone(), lit]);
+                    }
+                }
+            }
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(triples)))
+        }
         Method::GetEdgeProperties {
             source_id,
             target_id,
