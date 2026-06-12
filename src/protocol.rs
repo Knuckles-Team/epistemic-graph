@@ -905,12 +905,44 @@ pub enum ResultPayload {
     Json(serde_json::Value),
 }
 
+/// Is the compact `Raw` result encoding enabled? A wire-protocol change must not
+/// outrun the client fleet: the engine emits `Raw` (compact MessagePack) ONLY when
+/// every client is known to decode a top-level `bytes` result, otherwise it falls
+/// back to `Json`, which every existing client already understands. Gated by
+/// `EPISTEMIC_GRAPH_RAW_RESULTS=1` (read once), so the engine can deploy ahead of a
+/// coordinated client rollout and the optimization is flipped on afterward.
+/// Default OFF = backward-compatible. (Phase C-D)
+fn raw_results_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("EPISTEMIC_GRAPH_RAW_RESULTS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
 impl ResultPayload {
-    /// Encode a typed value directly to MessagePack as a [`ResultPayload::Raw`],
-    /// bypassing the `serde_json::Value` intermediate. Falls back to an empty blob
-    /// on the (practically impossible) encode error for these plain data types.
+    /// Encode a typed value for the result payload, honoring the wire-compat gate:
+    /// the compact [`ResultPayload::Raw`] (MessagePack, no `serde_json::Value` tree)
+    /// when `EPISTEMIC_GRAPH_RAW_RESULTS=1`, else the universally-understood
+    /// [`ResultPayload::Json`].
     pub fn raw<T: Serialize>(value: &T) -> Self {
-        ResultPayload::Raw(rmp_serde::to_vec_named(value).unwrap_or_default())
+        Self::encode_result(value, raw_results_enabled())
+    }
+
+    /// Gate-explicit form (used by tests to exercise both paths without touching
+    /// process-global env).
+    pub fn encode_result<T: Serialize>(value: &T, raw_enabled: bool) -> Self {
+        if raw_enabled {
+            ResultPayload::Raw(rmp_serde::to_vec_named(value).unwrap_or_default())
+        } else {
+            match serde_json::to_value(value) {
+                Ok(v) => ResultPayload::Json(v),
+                Err(_) => {
+                    ResultPayload::Raw(rmp_serde::to_vec_named(value).unwrap_or_default())
+                }
+            }
+        }
     }
 }
 
@@ -1062,7 +1094,13 @@ mod tests {
         // to the EXACT typed value the JSON path produced — what the Python client
         // does on any top-level `bytes` result.
         let scores: Vec<(String, f64)> = vec![("a".into(), 0.5), ("b".into(), 0.25)];
-        let resp = Response::ok(7, ResultPayload::raw(&scores));
+        // Gate ON → compact Raw payload.
+        let resp = Response::ok(7, ResultPayload::encode_result(&scores, true));
+        // Gate OFF → falls back to the universally-understood Json payload.
+        assert!(matches!(
+            ResultPayload::encode_result(&scores, false),
+            ResultPayload::Json(_)
+        ));
         let wire = rmp_serde::to_vec_named(&resp).unwrap();
         let decoded: Response = rmp_serde::from_slice(&wire).unwrap();
         // Untagged: a bin result decodes as the first bin-shaped variant; the inner
