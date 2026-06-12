@@ -1712,7 +1712,16 @@ class EpistemicGraphClient:
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
             raise RuntimeError(err_msg)
-        return resp.get("result")
+        result = resp.get("result")
+        # Compact result encoding (engine Phase C-D): heavy algorithm results and
+        # node/edge property blobs come back as a top-level MessagePack `bin` (the
+        # `Raw`/`PropertiesMsgpack` payloads) — the server skips building a JSON
+        # tree. Decode that second layer here so callers get the same structure the
+        # old JSON path produced. (Per-call sites that already self-decoded bytes
+        # now receive the decoded value and pass it straight through.)
+        if isinstance(result, (bytes, bytearray)):
+            result = msgpack.unpackb(result, raw=False)
+        return result
 
     # ── Connection Management ─────────────────────────────────────────────
 
