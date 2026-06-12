@@ -689,10 +689,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(weighted_results) => Response::ok(
-                    req_id,
-                    ResultPayload::Json(serde_json::json!(weighted_results)),
-                ),
+                Ok(weighted_results) => Response::ok(req_id, ResultPayload::raw(&weighted_results)),
                 Err(resp) => resp,
             }
         }
@@ -920,7 +917,7 @@ async fn dispatch_graph_op(
         }
         Method::FinanceDrawdownSeries { returns } => {
             let v = crate::finance::risk::drawdown_series(&returns);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceDownsideDeviation { returns, target } => {
             let v = crate::finance::risk::downside_deviation(&returns, target);
@@ -954,7 +951,7 @@ async fn dispatch_graph_op(
                 &cov_matrix,
                 &shock_factors,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Extended Finance: Regime detection (HMM) ──────────────────
@@ -972,31 +969,31 @@ async fn dispatch_graph_op(
         // ── Extended Finance: Signals / alpha ─────────────────────────
         Method::FinanceRollingZscore { values, window } => {
             let v = crate::finance::signals::rolling_zscore(&values, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceEwma { values, span } => {
             let v = crate::finance::signals::ewma_signal(&values, span);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceSignalDecay { signal, half_life } => {
             let v = crate::finance::signals::signal_decay(&signal, half_life);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceCombineAlphas { signals, weights } => {
             let v = crate::finance::signals::combine_alphas(&signals, &weights);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceCrossSectionalRank { cross_section } => {
             let v = crate::finance::signals::cross_sectional_rank(&cross_section);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMomentum { prices, lookback } => {
             let v = crate::finance::signals::momentum(&prices, lookback);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMeanReversion { values, window } => {
             let v = crate::finance::signals::mean_reversion(&values, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceInformationCoefficient {
             signal,
@@ -1019,7 +1016,7 @@ async fn dispatch_graph_op(
                 start_time,
                 interval_secs,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceVwap {
             total_quantity,
@@ -1033,7 +1030,7 @@ async fn dispatch_graph_op(
                 start_time,
                 interval_secs,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMarketImpact {
             daily_volatility,
@@ -1055,11 +1052,11 @@ async fn dispatch_graph_op(
             lookback,
         } => {
             let v = crate::finance::exchange::pairs_trading_signal(&prices_a, &prices_b, lookback);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMatchOrders { orders } => {
             let v = crate::finance::exchange::match_orders(&orders);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────
@@ -1073,7 +1070,7 @@ async fn dispatch_graph_op(
         } => {
             let v =
                 crate::finance::quant::avellaneda_stoikov(mid, inventory, sigma, gamma, kappa, tau);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceGltQuotes {
             mid,
@@ -1084,7 +1081,7 @@ async fn dispatch_graph_op(
             a,
         } => {
             let v = crate::finance::quant::glt_quotes(mid, inventory, sigma, gamma, kappa, a);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceLogitQuotes {
             p_mid,
@@ -1098,7 +1095,7 @@ async fn dispatch_graph_op(
             let v = crate::finance::quant::logit_space_quotes(
                 p_mid, inventory, sigma, gamma, kappa, tau, boundary_m,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceGlostenMilgromSpread { alpha, p } => {
             let v = crate::finance::quant::glosten_milgrom_spread(alpha, p);
@@ -1136,7 +1133,7 @@ async fn dispatch_graph_op(
                 &ask_sz,
                 window_secs,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMicropriceSeries {
             bid_px,
@@ -1145,7 +1142,7 @@ async fn dispatch_graph_op(
             ask_sz,
         } => {
             let v = crate::finance::quant::microprice_series(&bid_px, &bid_sz, &ask_px, &ask_sz);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceVpinPm {
             buy_vol,
@@ -1161,7 +1158,7 @@ async fn dispatch_graph_op(
             max_iter,
         } => {
             let v = crate::finance::quant::hawkes_mle(&times, t_horizon, max_iter);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceHardimanBouchaud {
             times,
@@ -1211,7 +1208,7 @@ async fn dispatch_graph_op(
                 purge_window,
                 embargo,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceDeflatedSharpe {
             observed_sr,
@@ -1232,7 +1229,7 @@ async fn dispatch_graph_op(
             h,
         } => {
             let v = crate::finance::quant::diebold_mariano(&losses_a, &losses_b, h);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────
@@ -1241,7 +1238,7 @@ async fn dispatch_graph_op(
             prior_year,
         } => {
             let v = crate::finance::forensic::forensic_report(&this_year, &prior_year);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────
@@ -1255,7 +1252,7 @@ async fn dispatch_graph_op(
             p0,
         } => {
             let v = crate::finance::statespace::kalman_filter_1d(&observations, f, q, h, r, x0, p0);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceKalmanBeta {
             market_returns,
@@ -1273,7 +1270,7 @@ async fn dispatch_graph_op(
                 beta0,
                 p0,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceKalmanVolatility {
             returns,
@@ -1291,15 +1288,15 @@ async fn dispatch_graph_op(
                 p0,
                 annualization,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceAdfTest { series, max_lag } => {
             let v = crate::finance::statespace::adf_test(&series, max_lag);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceOuCalibrate { spread, dt } => {
             let v = crate::finance::statespace::ou_calibrate(&spread, dt);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceOuOptimalThresholds {
             theta,
@@ -1320,17 +1317,17 @@ async fn dispatch_graph_op(
                 },
             };
             let v = crate::finance::statespace::ou_optimal_thresholds(&params, cost);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceMarkovTransitionMatrix { states, n_states } => {
             let v = crate::finance::statespace::markov_transition_matrix(&states, n_states);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
 
         // ── Signal Combination / Sizing / Calibration (CONCEPT:KG-2.20i) ──
         Method::FinanceOrderBookImbalance { v_bid, v_ask } => {
             let v = crate::finance::quant::order_book_imbalance(&v_bid, &v_ask);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceQueueImbalance {
             bid_q,
@@ -1339,11 +1336,11 @@ async fn dispatch_graph_op(
             ask_rate,
         } => {
             let v = crate::finance::quant::queue_imbalance(&bid_q, &ask_q, &bid_rate, &ask_rate);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceRealizedVolTick { mid, window } => {
             let v = crate::finance::quant::realized_vol_tick(&mid, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceSpreadReversion {
             bid_px,
@@ -1351,7 +1348,7 @@ async fn dispatch_graph_op(
             window,
         } => {
             let v = crate::finance::quant::spread_reversion(&bid_px, &ask_px, window);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceInformationRatio { ic, n_independent } => {
             let v = crate::finance::quant::information_ratio(ic, n_independent);
@@ -1366,7 +1363,7 @@ async fn dispatch_graph_op(
             lookback,
         } => {
             let v = crate::finance::quant::alpha_combination_engine(&returns_matrix, lookback);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceBrierScore {
             forecasts,
@@ -1382,7 +1379,7 @@ async fn dispatch_graph_op(
         } => {
             let v =
                 crate::finance::quant::convergence_gate(&strengths, strong_threshold, min_agree);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceEmpiricalKelly {
             p,
@@ -1424,7 +1421,7 @@ async fn dispatch_graph_op(
             nu,
         } => {
             let v = crate::finance::derivatives::sabr_smile(f, &strikes, t, alpha, beta, rho, nu);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FinanceSabrCalibrate {
             f,
@@ -1434,7 +1431,7 @@ async fn dispatch_graph_op(
             beta,
         } => {
             let v = crate::finance::derivatives::sabr_calibrate(f, t, &strikes, &market_vols, beta);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(v)))
+            Response::ok(req_id, ResultPayload::raw(&v))
         }
         Method::FindSimilarPairs {
             embeddings: _,
@@ -1509,7 +1506,7 @@ async fn dispatch_graph_op(
         Method::TopologicalSort => {
             let g = core.topology_snapshot();
             match crate::algorithms::topological_sort(&g) {
-                Ok(order) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(order))),
+                Ok(order) => Response::ok(req_id, ResultPayload::raw(&order)),
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
@@ -1543,7 +1540,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1574,7 +1571,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1820,7 +1817,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1836,7 +1833,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1851,7 +1848,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1877,7 +1874,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1900,7 +1897,7 @@ async fn dispatch_graph_op(
             })
             .await
             {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                 Err(resp) => resp,
             }
         }
@@ -1970,7 +1967,7 @@ async fn dispatch_graph_op(
                 // exponential-worst-case matching runs entirely off-lock.
                 let host = core.clone();
                 match compute_off_lock(req_id, move || host.vf2_subgraph_match(&p_snap)).await {
-                    Ok(v) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(v))),
+                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
                     Err(resp) => resp,
                 }
             } else {
@@ -2832,7 +2829,8 @@ mod tests {
 
         let resp = search.await.expect("search task panicked");
         assert_ok(&resp);
-        assert!(matches!(resp.result, Some(ResultPayload::Json(_))));
+        // Compact encoding (Phase C-D): the weighted result is a Raw msgpack blob.
+        assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
     }
 
     #[tokio::test]
@@ -2884,10 +2882,13 @@ mod tests {
         )
         .await;
         assert_ok(&pagerank);
-        let Some(ResultPayload::Json(scores)) = pagerank.result else {
-            panic!("expected JSON pagerank result");
+        // Compact encoding (Phase C-D): pagerank returns a Raw msgpack blob that
+        // decodes to the exact same typed result the JSON path produced.
+        let Some(ResultPayload::Raw(bytes)) = pagerank.result else {
+            panic!("expected Raw pagerank result");
         };
-        assert_eq!(scores.as_array().map(|a| a.len()), Some(3));
+        let scores: Vec<(String, f64)> = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(scores.len(), 3);
 
         let communities = dispatch(
             &state,
