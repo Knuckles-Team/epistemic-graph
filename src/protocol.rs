@@ -107,6 +107,11 @@ pub enum Method {
         target_id: String,
     },
     GetEdges,
+    /// Bulk-export the graph as RDF triples ``[subject, predicate, object]`` in a
+    /// single call — the fast path for local SPARQL materialization (CONCEPT:KG-2.7):
+    /// edges → (src, rel_type, tgt), node type → (id, "rdf:type", node_type), and
+    /// scalar node properties → (id, prop, literal). Avoids per-node round-trips.
+    GetTriples,
     ClearGraph,
     GetEdgeProperties {
         source_id: String,
