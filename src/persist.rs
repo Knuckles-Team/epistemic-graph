@@ -77,7 +77,25 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut manifest = serde_json::Map::new();
     let mut count = 0usize;
+    let mut skipped = 0usize;
     for (name, gtype, core, wal) in entries {
+        let fname = sanitize(&name);
+        let path = Path::new(&dir).join(format!("{fname}.mp"));
+        // Incremental checkpointing (Phase C-C): atomically clear-and-test the dirty
+        // flag BEFORE snapshotting, so a write that races this checkpoint re-marks
+        // the graph dirty and is captured by the NEXT checkpoint (never lost). A
+        // clean graph whose `.mp` already exists is skipped entirely — its on-disk
+        // snapshot is still current — but it stays in the manifest so restore loads
+        // it. An idle tenant therefore costs zero checkpoint encode/I/O.
+        let was_dirty = core.take_dirty();
+        if !was_dirty && path.exists() {
+            manifest.insert(
+                fname,
+                serde_json::json!({ "name": name, "graph_type": gtype }),
+            );
+            skipped += 1;
+            continue;
+        }
         // WAL position the snapshot will cover. Captured BEFORE the snapshot so the
         // truncation is loss-free: any op appended during this checkpoint lands at
         // an offset ≥ this position and survives the prefix truncation. (Phase B2)
@@ -88,8 +106,6 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         // Slow path (MessagePack encode of the cloned snapshot) runs OFF the lock,
         // so concurrent writers to this graph are not blocked during the encode.
         let bytes = snapshot.to_msgpack()?;
-        let fname = sanitize(&name);
-        let path = Path::new(&dir).join(format!("{fname}.mp"));
         atomic_write(&path, &bytes)?;
         // Snapshot is durable on disk → drop the WAL prefix it superseded.
         if let Some(pos) = wal_pos {
@@ -108,7 +124,10 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
     let manifest_bytes = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
     atomic_write(&Path::new(&dir).join(MANIFEST), &manifest_bytes)?;
     crate::metrics::checkpoint_completed(start.elapsed().as_secs_f64());
-    info!("Checkpoint wrote {} graphs to {}", count, dir);
+    info!(
+        "Checkpoint wrote {} graph(s), skipped {} clean, to {}",
+        count, skipped, dir
+    );
     Ok(count)
 }
 

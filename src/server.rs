@@ -2104,6 +2104,12 @@ async fn dispatch_graph_op(
         );
     }
 
+    // Mark the graph dirty after any successful write so the next checkpoint
+    // rewrites it; clean graphs are skipped (Phase C-C — incremental checkpoint).
+    if matches!(access, AccessLevel::Write) && response.error.is_none() {
+        core.mark_dirty();
+    }
+
     // Append to the WAL after a SUCCESSFUL durable mutation (write-behind; pggraph
     // is the durable system-of-record, this is the fast local crash-consistency
     // layer that closes the between-checkpoint loss window). (CONCEPT:KG-2.8 / B2)
@@ -2355,6 +2361,35 @@ mod tests {
         req.auth_token = "bogus".to_string();
         let resp = dispatch(&state, req).await;
         assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
+    }
+
+    #[tokio::test]
+    async fn incremental_checkpoint_skips_clean_graphs() {
+        // Phase C-C: checkpoint_all rewrites only graphs dirtied since the last
+        // checkpoint. Return value is the number WRITTEN (clean graphs skipped).
+        let dir = std::env::temp_dir().join(format!("eg-cc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: Some(dir.to_string_lossy().to_string()),
+            max_in_flight: Arc::new(Semaphore::new(16)),
+        }));
+
+        // __bus__ starts dirty → the first checkpoint writes exactly it.
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        // Nothing changed → the next checkpoint writes nothing (all clean/skipped).
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
+
+        // A successful write through dispatch marks the graph dirty (no isolation
+        // rules registered → back-compat permits the write).
+        assert_ok(&dispatch(&state, request(1, "__bus__", None, add_node("x"))).await);
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
