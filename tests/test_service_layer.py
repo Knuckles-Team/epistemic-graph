@@ -70,7 +70,7 @@ def client_factory(service):
 
     clients = []
 
-    async def _make(graph_name="__bus__"):
+    async def _make(graph_name="__commons__"):
         c = await EpistemicGraphClient.connect(
             socket_path=service["socket_path"],
             auth_secret=service["auth_secret"],
@@ -147,7 +147,7 @@ def test_service_multi_graph(service, client_factory):
         await client.tenants.create("agent:test-worker", "Agent")
         graphs = await client.tenants.list()
         names = [g["name"] for g in graphs]
-        assert "__bus__" in names
+        assert "__commons__" in names
         assert "agent:test-worker" in names
 
         await client.tenants.delete("agent:test-worker")
@@ -208,7 +208,7 @@ def test_service_auth_required(service):
         client = await EpistemicGraphClient.connect(
             socket_path=service["socket_path"],
             auth_secret="wrong-secret",
-            graph_name="__bus__",
+            graph_name="__commons__",
         )
         with pytest.raises(RuntimeError, match="Authentication failed"):
             await client.ping()

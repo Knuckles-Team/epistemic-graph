@@ -55,6 +55,32 @@ class NodeClient:
             return msgpack.unpackb(raw_val, raw=False)
         return raw_val
 
+    async def properties_batch(
+        self, node_ids: builtins.list[str]
+    ) -> dict[str, dict[str, Any] | None]:
+        """Fetch properties for many nodes in ONE round-trip (CONCEPT:KG-2.16).
+
+        Returns a mapping ``node_id -> properties`` (``None`` for ids absent from
+        the graph). Collapses what would be N ``properties()`` calls — and N
+        network round-trips — into a single request.
+        """
+        rows = await self._client._send(
+            "GetNodePropertiesBatch", {"node_ids": list(node_ids)}
+        )
+        out: dict[str, dict[str, Any] | None] = {}
+        for entry in rows or []:
+            nid, blob = entry[0], entry[1]
+            out[nid] = (
+                msgpack.unpackb(blob, raw=False) if blob is not None else None
+            )
+        return out
+
+    async def has_batch(self, node_ids: builtins.list[str]) -> dict[str, bool]:
+        """Existence check for many nodes in one round-trip."""
+        ids = list(node_ids)
+        flags = await self._client._send("HasNodesBatch", {"node_ids": ids})
+        return dict(zip(ids, flags or []))
+
     async def count(self) -> int:
         return await self._client._send("NodeCount")
 
@@ -119,6 +145,24 @@ class EdgeClient:
 
             return msgpack.unpackb(raw_val, raw=False)
         return raw_val
+
+    async def properties_batch(
+        self, edges: builtins.list[tuple[str, str]]
+    ) -> builtins.list[builtins.list[dict[str, Any]]]:
+        """Fetch properties for many edges in ONE round-trip (CONCEPT:KG-2.16).
+
+        Returns a list parallel to ``edges``; each element is the list of property
+        dicts for that ``(source, target)`` pair (a pair may carry multiple edges;
+        an empty list means no such edge).
+        """
+        pairs = [list(e) for e in edges]
+        rows = await self._client._send("GetEdgePropertiesBatch", {"edges": pairs})
+        out: builtins.list[builtins.list[dict[str, Any]]] = []
+        for per_edge in rows or []:
+            out.append(
+                [msgpack.unpackb(blob, raw=False) for blob in per_edge if blob is not None]
+            )
+        return out
 
     async def count(self) -> int:
         return await self._client._send("EdgeCount")
@@ -1577,6 +1621,44 @@ class DataScienceClient:
         )
 
 
+# Per-RPC timeouts (CONCEPT:KG-2.19). A wedged or overloaded engine must never
+# hang a caller forever — every request is bounded. Normal CRUD uses the short
+# default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
+# budget so a legitimately long job is not aborted. Both are overridable per
+# client or via env; set the timeout to 0/None to disable (not recommended).
+_DEFAULT_RPC_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_RPC_TIMEOUT", "60") or 60)
+_HEAVY_RPC_TIMEOUT = float(
+    os.environ.get("GRAPH_SERVICE_HEAVY_RPC_TIMEOUT", "1200") or 1200
+)
+#: Methods whose work is O(graph) / batch-sized and may legitimately run long.
+_HEAVY_RPC_METHODS = frozenset(
+    {
+        "ParseFile",
+        "ParseFiles",
+        "ParseRepository",
+        "CommunityDetection",
+        "CommunityDetectEphemeral",
+        "ComputeSimilarityEdges",
+        "BatchCosineSimilarity",
+        "FindSimilarPairs",
+        "SpectralCluster",
+        "Vf2SubgraphMatch",
+        "BetweennessCentrality",
+        "PageRank",
+        "PersonalizedPagerank",
+        "BatchUpdate",
+        "FromMsgpack",
+        "ToMsgpack",
+        "GetTriples",
+        "Reconcile",
+        "RunDatalogReasoning",
+        "GetSubgraph",
+        "GetNodes",
+        "GetEdges",
+    }
+)
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -1601,11 +1683,16 @@ class EpistemicGraphClient:
         auth_secret: str,
         graph_name: str,
         agent_id: str | None = None,
+        timeout: float | None = _DEFAULT_RPC_TIMEOUT,
+        heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
     ) -> None:
         self._reader = reader
         self._writer = writer
         self._auth_secret = auth_secret
         self._graph_name = graph_name
+        # Per-RPC read timeouts (0/None disables). Heavy ops use heavy_timeout.
+        self._timeout = timeout if timeout else None
+        self._heavy_timeout = heavy_timeout if heavy_timeout else None
         # Caller identity for server-side ACL enforcement (isolation layer).
         # Optional: single-tenant deployments never need it; once identities
         # are registered server-side, requests carry it for check_access().
@@ -1634,8 +1721,10 @@ class EpistemicGraphClient:
         socket_path: str | None = None,
         tcp_addr: str | None = None,
         auth_secret: str | None = None,
-        graph_name: str = "__bus__",
+        graph_name: str = "__commons__",
         agent_id: str | None = None,
+        timeout: float | None = _DEFAULT_RPC_TIMEOUT,
+        heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
 
@@ -1658,7 +1747,15 @@ class EpistemicGraphClient:
             reader, writer = await asyncio.open_unix_connection(_socket)
             logger.info("Connected to epistemic-graph service via UDS: %s", _socket)
 
-        return cls(reader, writer, _secret, graph_name, agent_id=agent_id)
+        return cls(
+            reader,
+            writer,
+            _secret,
+            graph_name,
+            agent_id=agent_id,
+            timeout=timeout,
+            heavy_timeout=heavy_timeout,
+        )
 
     # ── Internal ──────────────────────────────────────────────────────────
 
@@ -1696,17 +1793,36 @@ class EpistemicGraphClient:
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
 
+        # Heavy ops (full-graph parse/scan/algorithms) get the longer budget.
+        timeout = self._heavy_timeout if method in _HEAVY_RPC_METHODS else self._timeout
+
         async with self._lock:
             self._writer.write(length_prefix)
             self._writer.write(payload)
             await self._writer.drain()
 
             try:
-                len_buf = await self._reader.readexactly(4)
+                len_buf = await asyncio.wait_for(self._reader.readexactly(4), timeout)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
-                resp_bytes = await self._reader.readexactly(msg_len)
+                resp_bytes = await asyncio.wait_for(
+                    self._reader.readexactly(msg_len), timeout
+                )
             except asyncio.IncompleteReadError as e:
                 raise ConnectionError("Connection closed by server") from e
+            except (asyncio.TimeoutError, TimeoutError) as e:
+                # The read timed out mid-frame: the stream is now desynced (a late
+                # reply would be misread as the NEXT request's response). Treat the
+                # timeout as connection-fatal — close so the pool/breaker reconnects
+                # on a clean stream rather than reusing a poisoned one.
+                self._closed = True
+                try:
+                    self._writer.close()
+                except Exception:  # noqa: BLE001 — best-effort teardown
+                    pass
+                raise TimeoutError(
+                    f"epistemic-graph RPC {method!r} timed out after {timeout}s "
+                    "(connection closed; retry will reconnect)"
+                ) from e
 
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:

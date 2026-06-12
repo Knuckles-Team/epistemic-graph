@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![deny(unsafe_code)]
 // CONCEPT:KG-2.19 — Epistemic Graph Service Binary
 //
 // Entry point for the long-running Tokio service process.
@@ -11,8 +12,6 @@ use tokio::sync::RwLock;
 use tracing::{info, Level};
 
 use epistemic_graph::channels::ChannelManager;
-#[cfg(feature = "kafka")]
-use epistemic_graph::event_bus;
 use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{self, ServerState};
@@ -197,12 +196,36 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         max_in_flight, per_graph_inflight_limit
     );
 
+    // ── Off-reactor WAL writer (CONCEPT:KG-2.8, Phase B3) ────────────────
+    // When persisting, all WAL file I/O runs on one dedicated thread so durable
+    // mutations never block a Tokio worker; fsync is group-committed per
+    // EPISTEMIC_GRAPH_WAL_FSYNC (off | each | <ms> | interval, default 100ms).
+    // The bounded channel (EPISTEMIC_GRAPH_WAL_QUEUE, default 8192) sheds — loudly
+    // — rather than stalling the reactor under a saturated disk.
+    let wal_service = args.persist_dir.as_ref().map(|dir| {
+        let policy = epistemic_graph::wal_service::FsyncPolicy::from_env(
+            std::env::var("EPISTEMIC_GRAPH_WAL_FSYNC").ok().as_deref(),
+        );
+        let capacity = std::env::var("EPISTEMIC_GRAPH_WAL_QUEUE")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(8192);
+        info!(
+            "WAL: off-reactor writer (fsync {:?}, queue {})",
+            policy, capacity
+        );
+        epistemic_graph::wal_service::WalService::spawn(dir.clone(), policy, capacity)
+    });
+    let wal_service_shutdown = wal_service.clone();
+
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
+        wal_service,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
@@ -293,23 +316,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
 
-        // Kafka consumer — opt-in `kafka` feature (linux deployments only).
-        #[cfg(feature = "kafka")]
-        if let Ok(brokers) = std::env::var("KAFKA_BOOTSTRAP_SERVERS") {
-            if !brokers.is_empty() {
-                let kafka_state = state.clone();
-                tokio::spawn(async move {
-                    event_bus::start_kafka_consumer(
-                        &brokers,
-                        "epistemic-graph-consumer",
-                        "kg.mutations",
-                        kafka_state,
-                    )
-                    .await;
-                });
-            }
-        }
-
         // UDS listener (main loop).
         server::serve_uds(&socket_path, state).await?;
     }
@@ -326,5 +332,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         server::serve_tcp(&addr, state).await?;
     }
 
+    // Graceful shutdown: flush + fsync any buffered WAL appends before exit.
+    if let Some(svc) = wal_service_shutdown {
+        svc.shutdown();
+    }
     Ok(())
 }
