@@ -24,7 +24,7 @@ use crate::server::ServerState;
 const MANIFEST: &str = "manifest.json";
 
 /// Map a logical graph name (which may contain `:` / `/`) to a safe filename.
-fn sanitize(name: &str) -> String {
+pub(crate) fn sanitize(name: &str) -> String {
     name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
@@ -60,11 +60,16 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
             Some(d) => d.clone(),
             None => return Ok(0),
         };
-        let entries: Vec<(String, GraphType, Arc<RwLock<GraphCore>>)> = s
+        let entries: Vec<(
+            String,
+            GraphType,
+            Arc<RwLock<GraphCore>>,
+            crate::registry::WalHandle,
+        )> = s
             .registry
             .all_entries()
             .iter()
-            .map(|e| (e.name.clone(), e.graph_type, e.core.clone()))
+            .map(|e| (e.name.clone(), e.graph_type, e.core.clone(), e.wal.clone()))
             .collect();
         (dir, entries)
     };
@@ -72,7 +77,11 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut manifest = serde_json::Map::new();
     let mut count = 0usize;
-    for (name, gtype, core) in entries {
+    for (name, gtype, core, wal) in entries {
+        // WAL position the snapshot will cover. Captured BEFORE the snapshot so the
+        // truncation is loss-free: any op appended during this checkpoint lands at
+        // an offset ≥ this position and survives the prefix truncation. (Phase B2)
+        let wal_pos = wal.lock().as_ref().map(|w| w.position());
         // Brief lock: clone the serializable state, then release immediately.
         let snapshot = {
             let g = core.read().await;
@@ -84,6 +93,14 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         let fname = sanitize(&name);
         let path = Path::new(&dir).join(format!("{fname}.mp"));
         atomic_write(&path, &bytes)?;
+        // Snapshot is durable on disk → drop the WAL prefix it superseded.
+        if let Some(pos) = wal_pos {
+            if let Some(w) = wal.lock().as_mut() {
+                if let Err(e) = w.truncate_prefix(pos) {
+                    tracing::warn!("WAL truncate failed for '{}': {}", name, e);
+                }
+            }
+        }
         manifest.insert(
             fname,
             serde_json::json!({ "name": name, "graph_type": gtype }),
@@ -135,9 +152,11 @@ pub async fn decay_all(
 
 /// Reconstruct the registry from the persist dir on startup.
 ///
-/// Returns the number of graphs loaded. No-op (Ok(0)) when no persist dir or no
-/// manifest is present (fresh start). Graphs absent from the live registry are
-/// created with their recorded type; existing ones (e.g. `__bus__`) are filled.
+/// Returns the number of graphs loaded. No-op (Ok(0)) when no persist dir is
+/// configured. Loads each graph's snapshot (from the manifest) and replays its WAL
+/// tail on top. ALSO replays any orphan WAL — a graph mutated but crashed before
+/// its first checkpoint (so it has no manifest entry / snapshot), e.g. `__bus__`
+/// after a hard kill — so the WAL is loss-free even with no prior checkpoint.
 pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let dir = {
         let s = state.read().await;
@@ -147,15 +166,20 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
         }
     };
     let manifest_path = Path::new(&dir).join(MANIFEST);
-    if !manifest_path.exists() {
-        return Ok(0);
-    }
-    let manifest: serde_json::Map<String, serde_json::Value> =
+    // Missing manifest is NOT an early return: a graph may have a WAL but no
+    // snapshot yet (crashed before the first checkpoint). Fall through with an
+    // empty manifest so the orphan-WAL recovery below still runs.
+    let manifest: serde_json::Map<String, serde_json::Value> = if manifest_path.exists() {
         serde_json::from_slice(&std::fs::read(&manifest_path).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+    } else {
+        serde_json::Map::new()
+    };
 
     let mut count = 0usize;
+    let mut recovered_fnames: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (fname, meta) in manifest {
+        recovered_fnames.insert(fname.clone());
         let name = meta
             .get("name")
             .and_then(|v| v.as_str())
@@ -181,7 +205,59 @@ pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String>
         if let Some(core) = core {
             let mut g = core.write().await;
             g.from_msgpack(&bytes)?;
+            // Replay the WAL tail on top of the snapshot (Phase B2): recovers every
+            // durable mutation since the last checkpoint, so warm restart loses
+            // nothing the WAL captured rather than everything since the checkpoint.
+            let wal_file = crate::wal::wal_path(&dir, &fname);
+            if wal_file.exists() {
+                let replayed = crate::wal::replay(&mut g, &wal_file);
+                if replayed > 0 {
+                    info!(
+                        "WAL replay: {} op(s) recovered for graph '{}'",
+                        replayed, name
+                    );
+                }
+            }
             count += 1;
+        }
+    }
+
+    // Orphan-WAL recovery (Phase B2): replay any `*.wal` whose graph had no snapshot
+    // in the manifest — mutated but crashed before its first checkpoint. The graph
+    // name is the `.wal` file stem (exact for `__bus__` and tenant names without
+    // filename-sanitized characters); `__bus__` already exists in the registry, so
+    // its WAL replays into the live core.
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for ent in rd.flatten() {
+            let p = ent.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("wal") {
+                continue;
+            }
+            let fname = match p.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            if recovered_fnames.contains(&fname) {
+                continue; // already handled with its snapshot above
+            }
+            let core = {
+                let mut s = state.write().await;
+                if !s.registry.exists(&fname) {
+                    let _ = s.registry.create_graph(&fname, GraphType::Global, None);
+                }
+                s.registry.get_mut(&fname).map(|e| e.core.clone())
+            };
+            if let Some(core) = core {
+                let mut g = core.write().await;
+                let n = crate::wal::replay(&mut g, &p);
+                if n > 0 {
+                    info!(
+                        "WAL-only recovery: {} op(s) for graph '{}' (no prior snapshot)",
+                        n, fname
+                    );
+                    count += 1;
+                }
+            }
         }
     }
     info!("Loaded {} graphs from {}", count, dir);

@@ -10,6 +10,12 @@ use tokio::sync::RwLock;
 use crate::graph::GraphCore;
 use crate::protocol::GraphType;
 
+/// Per-graph write-ahead log handle (Phase B2). Lazily opened on the first durable
+/// mutation; lives with its graph so the dispatch can append without the global
+/// registry lock. Server-only (the WAL module is gated behind `server`).
+#[cfg(feature = "server")]
+pub type WalHandle = Arc<parking_lot::Mutex<Option<crate::wal::WalWriter>>>;
+
 /// Metadata for a registered graph.
 #[derive(Debug, Clone)]
 pub struct GraphEntry {
@@ -17,6 +23,8 @@ pub struct GraphEntry {
     pub graph_type: GraphType,
     pub core: Arc<RwLock<GraphCore>>,
     pub owner: Option<String>,
+    #[cfg(feature = "server")]
+    pub wal: WalHandle,
 }
 
 /// Multi-tenant graph registry.
@@ -35,6 +43,8 @@ impl GraphRegistry {
                 graph_type: GraphType::Bus,
                 core: Arc::new(RwLock::new(GraphCore::new())),
                 owner: None,
+                #[cfg(feature = "server")]
+                wal: Arc::new(parking_lot::Mutex::new(None)),
             },
         );
         GraphRegistry { graphs }
@@ -57,6 +67,8 @@ impl GraphRegistry {
                 graph_type,
                 core: Arc::new(RwLock::new(GraphCore::new())),
                 owner,
+                #[cfg(feature = "server")]
+                wal: Arc::new(parking_lot::Mutex::new(None)),
             },
         );
         Ok(())
