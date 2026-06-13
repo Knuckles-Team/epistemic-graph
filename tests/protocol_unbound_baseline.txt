@@ -1,0 +1,10 @@
+# Rust `Method` variants intentionally NOT bound in the thin epistemic_graph
+# Python client (see tests/test_protocol_parity.py). Each line is a variant name.
+# A variant belongs here only if it is reached some other way (e.g. GetTriples
+# is issued from agent-utilities' SPARQL fast path, not this client) or is an
+# engine-internal/maintenance op. Adding a NEW Method variant forces a choice:
+# bind it in client.py, or add it here with a reason — the gate fails otherwise.
+CompactNodesByType
+DiffAgainst
+Fork
+GetTriples
