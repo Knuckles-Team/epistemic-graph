@@ -33,6 +33,13 @@ enforces the absence of PyO3 in source and built wheels.
 - The engine can be restarted, replaced, or scaled independently of the Python
   process; many clients (MCP server, CLI, UIs, ingestion) share one engine,
   eliminating embedded-DB file-lock contention.
+- Because there is no PyO3/codegen, the Python client hand-mirrors the `Method`
+  enum by sending variant names as strings — a silent-drift risk. A CI gate
+  (`tests/test_protocol_parity.py`, run in `rust-ci.yml`) closes it: it parses
+  the `Method` enum and the client's `_send(...)` calls and asserts the two stay
+  in lockstep (no client method without a Rust variant; unbound variants ratcheted
+  against a committed baseline). This is the FFI-free equivalent of a generated
+  binding's compile-time check.
 
 ## Tiered-backend reality (correcting a related assumption)
 

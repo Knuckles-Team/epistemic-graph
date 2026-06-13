@@ -12,6 +12,7 @@ on:
       - 'src/**'
       - 'crates/**'
       - 'tests/**'
+      - 'epistemic_graph/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rust-ci.yml'
@@ -20,6 +21,7 @@ on:
       - 'src/**'
       - 'crates/**'
       - 'tests/**'
+      - 'epistemic_graph/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/rust-ci.yml'
@@ -63,6 +65,23 @@ jobs:
         run: cargo test -p epistemic-graph --features full
       - name: Test (slim server — gated-out methods return the not-built error)
         run: cargo test -p epistemic-graph --no-default-features --features server
+
+  protocol-parity:
+    # The Python client mirrors the Rust `Method` enum by sending variant names
+    # as strings over MessagePack (no PyO3/codegen). This gate asserts the two
+    # stay in lockstep — see tests/test_protocol_parity.py. Pure stdlib text
+    # parse, so no wheel build or package install is needed (`--noconftest`
+    # skips the package-importing conftest).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: pip install pytest
+      - name: Protocol parity (Python client ⇄ Rust Method enum)
+        run: python -m pytest tests/test_protocol_parity.py --noconftest -q
 
   feature-matrix:
     # Build-only across the feature combinations we ship, to guard feature-gate
