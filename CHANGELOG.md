@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **Protocol drift gate (CONCEPT:KG-2.19)** — `tests/test_protocol_parity.py` asserts the
+  hand-written Python client and the Rust `Method` enum (165 variants) stay in lockstep across the
+  PyO3-free MessagePack boundary: no client `_send("X")` without a matching variant, and the set of
+  variants with no client binding is ratcheted against `tests/protocol_unbound_baseline.txt`. Wired
+  into `rust-ci.yml` as a fast `--noconftest` job (no wheel build). Documented in
+  `docs/transport_boundary_adr.md`.
+
 - **`ParseFiles` batch AST op (CONCEPT:KG-2.16)** — parse N files in ONE round-trip instead of N
   per-file `ParseFile` calls. `Method::ParseFiles { files_msgpack }` (a MessagePack
   `Vec<(path, source)>`) → `parser::tree_sitter::parse_files`, which fans the files across rayon
