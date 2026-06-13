@@ -3,7 +3,7 @@ members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute"]
 
 [package]
 name = "epistemic-graph"
-version = "0.28.0"
+version = "0.29.0"
 edition = "2021"
 authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
 description = "High-performance Rust graph compute engine for AI agents"
