@@ -17,7 +17,12 @@ mod transport;
 pub use auth::compute_auth_token;
 pub use dispatch::dispatch;
 pub use state::{ServerState, MAX_BATCH_IDS};
-pub use transport::{handle_connection, serve_tcp, serve_uds};
+pub use transport::{handle_connection, serve_tcp};
+// serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
+// so gate the re-export to keep the windows-msvc wheel building (main.rs already
+// guards its serve_uds call with #[cfg(unix)]).
+#[cfg(unix)]
+pub use transport::serve_uds;
 
 #[cfg(test)]
 mod tests {
