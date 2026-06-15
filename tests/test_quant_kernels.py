@@ -47,6 +47,25 @@ def test_microprice_and_vpin_roundtrip(clean_graph):
     assert toxic > balanced
 
 
+def test_kyle_lambda_and_surveillance_roundtrip(clean_graph):
+    # price change = 0.5 * signed flow ⇒ Kyle λ ≈ 0.5
+    flow = [float(i) for i in range(1, 21)]
+    dp = [0.5 * q for q in flow]
+    assert math.isclose(clean_graph.finance.kyle_lambda(dp, flow), 0.5, abs_tol=1e-6)
+    # toxic one-sided flow scores higher legal risk than benign balanced flow
+    toxic = clean_graph.finance.surveillance_risk(
+        buy_vol=[500.0, 500.0, 500.0], sell_vol=[5.0, 5.0, 5.0], p_mean=[0.5, 0.5, 0.5],
+        signed_flow=[8.0, 9.0, 10.0], price_changes=[0.4, 0.45, 0.5], baseline_sigma=1.0,
+    )
+    benign = clean_graph.finance.surveillance_risk(
+        buy_vol=[110.0, 110.0, 110.0], sell_vol=[100.0, 100.0, 100.0], p_mean=[0.5, 0.5, 0.5],
+        signed_flow=[1.0, -1.0, 1.0], price_changes=[0.01, -0.01, 0.01], baseline_sigma=1.0,
+    )
+    assert 0.0 <= benign["legal_risk_score"] <= 1.0
+    assert toxic["legal_risk_score"] > benign["legal_risk_score"]
+    assert toxic["detection_hazard"] > benign["detection_hazard"]
+
+
 def test_ofi_and_breakeven_roundtrip(clean_graph):
     ofi = clean_graph.finance.ofi_series(
         ts=[0.0, 0.5, 1.0], bid_px=[0.49, 0.49, 0.50], bid_sz=[100.0, 120.0, 130.0],

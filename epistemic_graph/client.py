@@ -1050,6 +1050,44 @@ class FinanceClient:
             {"times": times, "t_horizon": t_horizon, "n_windows": n_windows},
         )
 
+    # ── Kyle insider/stealth surveillance (CONCEPT:KG-2.20k) ───────────
+    async def kyle_lambda(
+        self, price_changes: list[float], signed_order_flow: list[float]
+    ) -> float:
+        """Empirical Kyle's λ — price impact (depth) per unit signed net order flow."""
+        return await self._client._send(
+            "FinanceKyleLambda",
+            {"price_changes": price_changes, "signed_order_flow": signed_order_flow},
+        )
+
+    async def surveillance_risk(
+        self,
+        buy_vol: list[float],
+        sell_vol: list[float],
+        p_mean: list[float],
+        signed_flow: list[float],
+        price_changes: list[float],
+        baseline_sigma: float = 0.0,
+    ) -> dict[str, Any]:
+        """Kyle insider/stealth-trading surveillance scores (CONCEPT:KG-2.20k).
+
+        Returns ``kyle_lambda``, ``informed_share`` (VPIN α), ``detection_hazard``,
+        ``cumulative_suspicion``, ``stealth_ratio`` and ``legal_risk_score`` ∈ [0,1].
+        DEFENSIVE use: informed-flow detection + maker adverse-selection protection.
+        Pass ``baseline_sigma`` ≤ 0 to use the sample std of ``signed_flow``.
+        """
+        return await self._client._send(
+            "FinanceSurveillanceRisk",
+            {
+                "buy_vol": buy_vol,
+                "sell_vol": sell_vol,
+                "p_mean": p_mean,
+                "signed_flow": signed_flow,
+                "price_changes": price_changes,
+                "baseline_sigma": baseline_sigma,
+            },
+        )
+
     # ── Position sizing (CONCEPT:KG-2.20f) ─────────────────────────────
     async def kelly_fraction(self, q: float, c: float, fraction: float = 0.25) -> float:
         """Fractional Kelly for a YES contract: f* = (q−c)/(1−c), scaled."""
