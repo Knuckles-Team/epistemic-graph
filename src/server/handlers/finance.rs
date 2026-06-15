@@ -339,6 +339,33 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::Float(v))
         }
 
+        // ── Kyle insider/stealth surveillance (CONCEPT:KG-2.20k) ──────
+        Method::FinanceKyleLambda {
+            price_changes,
+            signed_order_flow,
+        } => {
+            let v = crate::finance::quant::kyle_lambda(&price_changes, &signed_order_flow);
+            Response::ok(req_id, ResultPayload::Float(v))
+        }
+        Method::FinanceSurveillanceRisk {
+            buy_vol,
+            sell_vol,
+            p_mean,
+            signed_flow,
+            price_changes,
+            baseline_sigma,
+        } => {
+            let v = crate::finance::quant::surveillance_risk(
+                &buy_vol,
+                &sell_vol,
+                &p_mean,
+                &signed_flow,
+                &price_changes,
+                baseline_sigma,
+            );
+            Response::ok(req_id, ResultPayload::raw(&v))
+        }
+
         // ── Position Sizing (CONCEPT:KG-2.20f) ────────────────────────
         Method::FinanceKellyFraction { q, c, fraction } => {
             let v = crate::finance::quant::kelly_fraction(q, c, fraction);
