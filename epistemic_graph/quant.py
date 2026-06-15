@@ -14,7 +14,7 @@ environment.
 
 from __future__ import annotations
 
-from math import sqrt
+from math import inf, log, sqrt
 
 
 def moving_average(values: list[float], window: int) -> list[float]:
@@ -175,3 +175,27 @@ def simulate_order_matching(
             new_bids.append((bid_price, bid_vol))
     ask_book = sorted(asks, key=lambda x: x[0])
     return new_bids, ask_book, trades
+
+
+def ucb1_scores(
+    values: list[float], counts: list[int], c: float, total: int
+) -> list[float]:
+    """UCB1 per-arm scores: ``mean + c*sqrt(ln(total)/count)``.
+
+    CONCEPT:AHE-3.33 — pure-Python reference for the online exploit/explore
+    bandit mirrored by agent-utilities' ``ExploreExploitRouter`` (DecentMem
+    online routing, arXiv:2605.22721). Kept here next to the other quant
+    primitives so the Python client and a future Rust kernel arm can be held to
+    one bit-for-bit contract (the ``group_relative_advantage`` parity pattern).
+
+    ``values`` are per-arm mean rewards, ``counts`` the per-arm play counts, and
+    ``total`` the sum of counts. An unplayed arm (``count <= 0``) or an empty
+    history (``total <= 0``) scores ``+inf`` so every arm is tried once first.
+    """
+    scores: list[float] = []
+    for i, n in enumerate(counts):
+        if n <= 0 or total <= 0:
+            scores.append(inf)
+        else:
+            scores.append(values[i] + c * sqrt(log(total) / n))
+    return scores
