@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **Kyle insider/stealth surveillance kernels (CONCEPT:KG-2.20k)** — `kyle_lambda`
+  (empirical Kyle's λ price impact, OLS of Δprice on signed net flow) and
+  `surveillance_risk` (informed-flow share via `vpin_pm`, detection hazard,
+  cumulative suspicion, stealth ratio, and a squashed `legal_risk_score` ∈ [0,1])
+  in `crates/eg-compute/src/finance/quant.rs`, wired across `protocol.rs`,
+  `handlers/finance.rs` and the Python client (`finance.kyle_lambda` /
+  `finance.surveillance_risk`). Distils arXiv:2605.27684; defensive
+  surveillance + maker adverse-selection protection only. Round-trip + unit
+  tests added.
 - **Protocol drift gate (CONCEPT:KG-2.19)** — `tests/test_protocol_parity.py` asserts the
   hand-written Python client and the Rust `Method` enum (165 variants) stay in lockstep across the
   PyO3-free MessagePack boundary: no client `_send("X")` without a matching variant, and the set of
