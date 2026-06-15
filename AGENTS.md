@@ -128,7 +128,11 @@ Engine capabilities served over the protocol:
   `glt_quotes`, `logit_quotes` (bounded prediction-market prices + boundary
   inventory cap), `glosten_milgrom_spread`, `expected_pnl_rate`,
   `breakeven_alpha`, `ofi_series`, `microprice_series`, `vpin_pm`, `hawkes_mle`
-  (+ `hardiman_bouchaud`); **sizing** `kelly_fraction`, `bayesian_kelly`,
+  (+ `hardiman_bouchaud`); **Kyle insider/stealth surveillance**
+  (`CONCEPT:KG-2.20k`, distils arXiv:2605.27684): `kyle_lambda` (empirical price
+  impact) + `surveillance_risk` (informed-flow share / detection hazard /
+  cumulative suspicion / stealth ratio / legal-risk score — defensive
+  adverse-selection protection); **sizing** `kelly_fraction`, `bayesian_kelly`,
   `posterior_credible_interval`; **backtest validation** `purged_cpcv`,
   `deflated_sharpe`, `probability_backtest_overfit`, `diebold_mariano`;
   **forensic accounting** (`CONCEPT:KG-2.20g`) `forensic_report` — Beneish M /
