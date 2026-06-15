@@ -70,16 +70,14 @@ class NodeClient:
         out: dict[str, dict[str, Any] | None] = {}
         for entry in rows or []:
             nid, blob = entry[0], entry[1]
-            out[nid] = (
-                msgpack.unpackb(blob, raw=False) if blob is not None else None
-            )
+            out[nid] = msgpack.unpackb(blob, raw=False) if blob is not None else None
         return out
 
     async def has_batch(self, node_ids: builtins.list[str]) -> dict[str, bool]:
         """Existence check for many nodes in one round-trip."""
         ids = list(node_ids)
         flags = await self._client._send("HasNodesBatch", {"node_ids": ids})
-        return dict(zip(ids, flags or []))
+        return dict(zip(ids, flags or [], strict=False))
 
     async def count(self) -> int:
         return await self._client._send("NodeCount")
@@ -160,7 +158,11 @@ class EdgeClient:
         out: builtins.list[builtins.list[dict[str, Any]]] = []
         for per_edge in rows or []:
             out.append(
-                [msgpack.unpackb(blob, raw=False) for blob in per_edge if blob is not None]
+                [
+                    msgpack.unpackb(blob, raw=False)
+                    for blob in per_edge
+                    if blob is not None
+                ]
             )
         return out
 
@@ -1668,6 +1670,15 @@ _DEFAULT_RPC_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_RPC_TIMEOUT", "60") o
 _HEAVY_RPC_TIMEOUT = float(
     os.environ.get("GRAPH_SERVICE_HEAVY_RPC_TIMEOUT", "1200") or 1200
 )
+#: Establishing the socket connection must also be bounded — a peer that accepts
+#: the connection but never completes the handshake would otherwise hang the
+#: caller forever (the connect path is outside the per-RPC read budget).
+_CONNECT_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_CONNECT_TIMEOUT", "10") or 10)
+#: Flushing a request must be bounded INDEPENDENTLY of (and no longer than) the
+#: read budget. A healthy engine drains a local socket in microseconds; a write
+#: that backs up means the engine has stopped reading (wedged) — detect that in
+#: seconds even for a "heavy" method whose *response* may legitimately take long.
+_WRITE_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_WRITE_TIMEOUT", "30") or 30)
 #: Methods whose work is O(graph) / batch-sized and may legitimately run long.
 _HEAVY_RPC_METHODS = frozenset(
     {
@@ -1763,12 +1774,21 @@ class EpistemicGraphClient:
         agent_id: str | None = None,
         timeout: float | None = _DEFAULT_RPC_TIMEOUT,
         heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
+        connect_timeout: float | None = _CONNECT_TIMEOUT,
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
 
+        _conn_to = connect_timeout if connect_timeout else None
         if tcp_addr:
             host, port_str = tcp_addr.rsplit(":", 1)
-            reader, writer = await asyncio.open_connection(host, int(port_str))
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, int(port_str)), _conn_to
+                )
+            except (asyncio.TimeoutError, TimeoutError) as e:
+                raise TimeoutError(
+                    f"epistemic-graph connect to {tcp_addr} timed out after {_conn_to}s"
+                ) from e
             logger.info("Connected to epistemic-graph service via TCP: %s", tcp_addr)
         else:
             _socket = socket_path or os.environ.get(
@@ -1782,7 +1802,14 @@ class EpistemicGraphClient:
                 _tmp_socket = "/tmp/epistemic-graph.sock"  # nosec B108
                 if os.path.exists(_tmp_socket):
                     _socket = _tmp_socket
-            reader, writer = await asyncio.open_unix_connection(_socket)
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_unix_connection(_socket), _conn_to
+                )
+            except (asyncio.TimeoutError, TimeoutError) as e:
+                raise TimeoutError(
+                    f"epistemic-graph connect to {_socket} timed out after {_conn_to}s"
+                ) from e
             logger.info("Connected to epistemic-graph service via UDS: %s", _socket)
 
         return cls(
@@ -1831,35 +1858,47 @@ class EpistemicGraphClient:
         payload = msgpack.packb(request)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
 
-        # Heavy ops (full-graph parse/scan/algorithms) get the longer budget.
+        # Heavy ops (full-graph parse/scan/algorithms) get the longer read budget.
         timeout = self._heavy_timeout if method in _HEAVY_RPC_METHODS else self._timeout
+        # The request flush is bounded separately and never longer than the read
+        # budget: a slow drain means the engine has stopped reading (wedged), and
+        # that is independent of how long its *response* may legitimately take.
+        write_timeout = _WRITE_TIMEOUT if _WRITE_TIMEOUT else None
+        if timeout is not None:
+            write_timeout = min(timeout, write_timeout) if write_timeout else timeout
 
         async with self._lock:
-            self._writer.write(length_prefix)
-            self._writer.write(payload)
-            await self._writer.drain()
-
             try:
+                self._writer.write(length_prefix)
+                self._writer.write(payload)
+                await asyncio.wait_for(self._writer.drain(), write_timeout)
                 len_buf = await asyncio.wait_for(self._reader.readexactly(4), timeout)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 resp_bytes = await asyncio.wait_for(
                     self._reader.readexactly(msg_len), timeout
                 )
             except asyncio.IncompleteReadError as e:
+                # Server closed the stream mid-frame — the connection is dead.
+                self._closed = True
+                try:
+                    self._writer.close()
+                except Exception:  # noqa: BLE001 — best-effort teardown
+                    pass
                 raise ConnectionError("Connection closed by server") from e
             except (asyncio.TimeoutError, TimeoutError) as e:
-                # The read timed out mid-frame: the stream is now desynced (a late
-                # reply would be misread as the NEXT request's response). Treat the
-                # timeout as connection-fatal — close so the pool/breaker reconnects
-                # on a clean stream rather than reusing a poisoned one.
+                # A write that never drained, or a read that timed out mid-frame,
+                # leaves the stream desynced (a late reply would be misread as the
+                # NEXT request's response). Treat the timeout as connection-fatal —
+                # close so the pool/breaker reconnects on a clean stream rather than
+                # reusing a poisoned one.
                 self._closed = True
                 try:
                     self._writer.close()
                 except Exception:  # noqa: BLE001 — best-effort teardown
                     pass
                 raise TimeoutError(
-                    f"epistemic-graph RPC {method!r} timed out after {timeout}s "
-                    "(connection closed; retry will reconnect)"
+                    f"epistemic-graph RPC {method!r} timed out (connection closed; "
+                    "retry will reconnect)"
                 ) from e
 
         resp = msgpack.unpackb(resp_bytes, raw=False)
