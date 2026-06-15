@@ -1361,6 +1361,121 @@ pub fn empirical_kelly(
     (f_kelly * (1.0 - cv)).clamp(0.0, 1.0)
 }
 
+// ════════════════════════════════════════════════════════════════════════
+//  Kyle insider/stealth-trading + dynamic legal risk (CONCEPT:KG-2.20k)
+//
+//  Distils Qiao & Xia (2026), "Insider and stealth trading with dynamic
+//  legal risk" (arXiv:2605.27684) — a continuous-time Kyle (1985)
+//  microstructure model where surveillance intensity rises with abnormal
+//  order flow and an accumulating hazard triggers prosecution. DEFENSIVE
+//  use only: informed-flow / stealth-trading SURVEILLANCE and maker
+//  adverse-selection protection — never trade concealment.
+// ════════════════════════════════════════════════════════════════════════
+
+/// Empirical Kyle's λ — price impact (depth) per unit signed net order flow.
+/// OLS slope of Δprice on signed flow (Kyle 1985: ΔP = λ·Q). Returns 0 when
+/// the flow has no variance or inputs are empty.
+pub fn kyle_lambda(price_changes: &[f64], signed_order_flow: &[f64]) -> f64 {
+    let n = price_changes.len().min(signed_order_flow.len());
+    if n == 0 {
+        return 0.0;
+    }
+    let mean_x = signed_order_flow[..n].iter().sum::<f64>() / n as f64;
+    let mean_y = price_changes[..n].iter().sum::<f64>() / n as f64;
+    let mut cov = 0.0;
+    let mut var = 0.0;
+    for i in 0..n {
+        let dx = signed_order_flow[i] - mean_x;
+        cov += dx * (price_changes[i] - mean_y);
+        var += dx * dx;
+    }
+    if var <= 0.0 {
+        0.0
+    } else {
+        cov / var
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SurveillanceRisk {
+    pub kyle_lambda: f64,
+    pub informed_share: f64,
+    pub detection_hazard: f64,
+    pub cumulative_suspicion: f64,
+    pub stealth_ratio: f64,
+    pub legal_risk_score: f64,
+}
+
+/// Continuous-time-Kyle surveillance estimator over a trailing book/flow
+/// window. Reuses the existing microstructure primitives and combines:
+/// - `kyle_lambda`: price impact (depth) from Δprice vs signed flow,
+/// - `informed_share` (α): `vpin_pm` toxicity over buy/sell buckets,
+/// - `detection_hazard`: mean |signed_flow| z-score vs a noise baseline σ
+///   (surveillance intensity rises with abnormal flow),
+/// - `cumulative_suspicion`: Σ max(0, z−1) — the paper's accumulating hazard,
+/// - `stealth_ratio`: noise/informed volume (camouflage effectiveness),
+/// - `legal_risk_score`: logistic squash of hazard·(1+α) ∈ [0,1] — the single
+///   scalar a maker's adverse-selection gate reads.
+///
+/// `baseline_sigma` is the expected (noise-trader) signed-flow scale; pass ≤0 to
+/// fall back to the sample std of `signed_flow`.
+pub fn surveillance_risk(
+    buy_vol: &[f64],
+    sell_vol: &[f64],
+    p_mean: &[f64],
+    signed_flow: &[f64],
+    price_changes: &[f64],
+    baseline_sigma: f64,
+) -> SurveillanceRisk {
+    let kyle_lambda = kyle_lambda(price_changes, signed_flow);
+    let informed_share = vpin_pm(buy_vol, sell_vol, p_mean);
+
+    let n = signed_flow.len();
+    let sigma = if baseline_sigma > 0.0 {
+        baseline_sigma
+    } else if n > 0 {
+        let m = signed_flow.iter().sum::<f64>() / n as f64;
+        (signed_flow.iter().map(|x| (x - m).powi(2)).sum::<f64>() / n as f64).sqrt()
+    } else {
+        0.0
+    };
+
+    let mut cumulative_suspicion = 0.0;
+    let mut hazard_sum = 0.0;
+    if sigma > 0.0 {
+        for &q in signed_flow {
+            let z = q.abs() / sigma;
+            hazard_sum += z;
+            cumulative_suspicion += (z - 1.0).max(0.0); // excess-over-noise
+        }
+    }
+    let detection_hazard = if n > 0 { hazard_sum / n as f64 } else { 0.0 };
+
+    let total_vol: f64 = buy_vol.iter().chain(sell_vol.iter()).sum();
+    let informed_vol = total_vol * informed_share;
+    let noise_vol = (total_vol - informed_vol).max(0.0);
+    let stealth_ratio = if informed_vol > 0.0 {
+        noise_vol / informed_vol
+    } else {
+        0.0
+    };
+
+    // Logistic squash: rises with detection hazard and informed share. The −2
+    // offset places benign noise-only flow (hazard≈0.8, α≈0) well below 0.5 and
+    // sustained toxic flow well above it.
+    let x = detection_hazard * (1.0 + informed_share) - 2.0;
+    let legal_risk_score = 1.0 / (1.0 + (-x).exp());
+
+    SurveillanceRisk {
+        kyle_lambda,
+        informed_share,
+        detection_hazard,
+        cumulative_suspicion,
+        stealth_ratio,
+        legal_risk_score,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1601,5 +1716,53 @@ mod tests {
         assert!(f_noisy <= f_stable, "stable={} noisy={}", f_stable, f_noisy);
         // negative EV ⇒ 0
         assert_eq!(empirical_kelly(0.4, 1.0, &stable, 100, 1), 0.0);
+    }
+
+    #[test]
+    fn test_kyle_lambda_recovers_slope() {
+        // price_change = 0.5 * signed_flow exactly ⇒ λ = 0.5
+        let flow: Vec<f64> = (1..=20).map(|i| i as f64).collect();
+        let dp: Vec<f64> = flow.iter().map(|q| 0.5 * q).collect();
+        assert!((kyle_lambda(&dp, &flow) - 0.5).abs() < 1e-9);
+        // no flow variance ⇒ 0 (no division blow-up)
+        assert_eq!(kyle_lambda(&[0.1, 0.2], &[3.0, 3.0]), 0.0);
+        assert_eq!(kyle_lambda(&[], &[]), 0.0);
+    }
+
+    #[test]
+    fn test_surveillance_risk_separates_toxic_from_benign() {
+        // Benign: near-balanced two-sided flow near σ ⇒ low hazard, low toxicity,
+        // mostly noise (high camouflage ratio).
+        let benign = surveillance_risk(
+            &[110.0, 110.0, 110.0],
+            &[100.0, 100.0, 100.0],
+            &[0.5, 0.5, 0.5],
+            &[1.0, -1.0, 1.0],
+            &[0.01, -0.01, 0.01],
+            1.0,
+        );
+        // Toxic: persistent one-sided buying far above the noise baseline.
+        let toxic = surveillance_risk(
+            &[500.0, 500.0, 500.0],
+            &[5.0, 5.0, 5.0],
+            &[0.5, 0.5, 0.5],
+            &[8.0, 9.0, 10.0],
+            &[0.4, 0.45, 0.5],
+            1.0,
+        );
+        for r in [&benign, &toxic] {
+            assert!((0.0..=1.0).contains(&r.legal_risk_score));
+            assert!(r.informed_share >= 0.0);
+        }
+        assert!(
+            toxic.legal_risk_score > benign.legal_risk_score,
+            "toxic={} benign={}",
+            toxic.legal_risk_score,
+            benign.legal_risk_score
+        );
+        assert!(toxic.detection_hazard > benign.detection_hazard);
+        assert!(toxic.cumulative_suspicion > benign.cumulative_suspicion);
+        // toxic flow is mostly informed ⇒ low camouflage; benign is mostly noise.
+        assert!(toxic.stealth_ratio < benign.stealth_ratio);
     }
 }

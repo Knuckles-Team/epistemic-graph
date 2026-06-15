@@ -702,6 +702,20 @@ pub enum Method {
         n_windows: usize,
     },
 
+    // ── Kyle insider/stealth surveillance (CONCEPT:KG-2.20k) ──────────
+    FinanceKyleLambda {
+        price_changes: Vec<f64>,
+        signed_order_flow: Vec<f64>,
+    },
+    FinanceSurveillanceRisk {
+        buy_vol: Vec<f64>,
+        sell_vol: Vec<f64>,
+        p_mean: Vec<f64>,
+        signed_flow: Vec<f64>,
+        price_changes: Vec<f64>,
+        baseline_sigma: f64,
+    },
+
     // ── Position Sizing (CONCEPT:KG-2.20f) ────────────────────────────
     FinanceKellyFraction {
         q: f64,
