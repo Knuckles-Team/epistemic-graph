@@ -9,6 +9,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`GetTriples` bulk RDF export op** — exports a graph as RDF triples in one round-trip, the
+  fast path backing local SPARQL over any durable backend (eliminates the per-node export loop).
+- **Per-graph memory cap (E1/E3)** — `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (0=off): a periodic
+  sweep (`EPISTEMIC_GRAPH_MEMCAP_INTERVAL`, default 10s) evicts any over-cap graph back to the cap
+  via the existing LRU, so a shard **degrades instead of OOM-killing every tenant on it** (evicted
+  nodes re-hydrate from the durable tier). Sweep never touches the write hot path. Also documents
+  the durability model in `AGENTS.md`: the engine is a **rebuildable cache** over the abstracted
+  durable backend (Postgres/neo4j/falkordb/ladybug), not the source of truth — hence no in-engine
+  replication/consensus.
+- **Rust CI gate (D1)** — `rust-ci.yml` runs `clippy -D warnings` + tests across the cargo feature
+  matrix, the mechanical gate keeping the workspace from re-forming into a monolith.
+
+### Changed
+- **Cargo workspace decomposition** — the engine is now a 4-crate workspace along an acyclic
+  dependency DAG `eg-types → eg-core → eg-compute → epistemic-graph` (imports point left only; a
+  cycle won't compile). The Tokio server is decomposed into a thin `server/dispatch.rs` routing
+  table over one `handlers/<domain>.rs` per protocol section, with write side-effects (in-flight
+  gauge / `mark_dirty` / WAL enqueue) centralized in the shell. Cargo feature flags are now **real**
+  (a slim `--features server` build links neither nalgebra nor tree-sitter), and a gated-out method
+  falls to an explicit "not available in this build" arm. Dead `compute`/`execution` modules deleted
+  (No-Legacy). `tokio` trimmed from `"full"` to its used feature set + `deny(unsafe_code)`.
+- **`__bus__` commons graph renamed to `__commons__` (C3)** — the default commons graph was never a
+  message bus; the misleading name is gone (atomic across every consumer, no alias kept).
+
+### Removed
+- **In-engine Kafka event bus (C1)** — deleted as dead code; event distribution is the durable
+  backend's job, not the cache layer's.
+
+### Fixed
+- **WAL append moved off the tokio reactor (A1/A5)** — the synchronous WAL write that stalled the
+  reactor is now off the hot path with group-commit fsync.
+- **Per-call RPC timeout in the Python client (B1)** — every client RPC is now bounded by a
+  per-call timeout; a hung shard no longer blocks the caller forever.
+- **Batched node/edge property reads (A2)** — property reads are batched into one round-trip
+  instead of per-element calls.
+- **HNSW tombstones + deferred compaction (A4)** — vector overwrites tombstone instead of rebuilding
+  the index per write, with compaction deferred.
 - **Kyle insider/stealth surveillance kernels (CONCEPT:KG-2.20k)** — `kyle_lambda`
   (empirical Kyle's λ price impact, OLS of Δprice on signed net flow) and
   `surveillance_risk` (informed-flow share via `vpin_pm`, detection hazard,
