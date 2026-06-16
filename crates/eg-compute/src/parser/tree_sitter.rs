@@ -60,16 +60,36 @@ fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
             (tree_sitter_cpp::LANGUAGE.into(), "cpp")
         }
         "cs" => (tree_sitter_c_sharp::LANGUAGE.into(), "csharp"),
-        _ => return None,
+        _ => return lang_for_path_extended(&ext),
     };
     Some(pair)
+}
+
+/// Extended-language tier (CONCEPT:KG-2.106), compiled only with `ast-extended`.
+/// Without the feature it resolves nothing, so a slim `ast` build stays lean.
+#[cfg(feature = "ast-extended")]
+fn lang_for_path_extended(ext: &str) -> Option<(Language, &'static str)> {
+    Some(match ext {
+        "rb" => (tree_sitter_ruby::LANGUAGE.into(), "ruby"),
+        "php" => (tree_sitter_php::LANGUAGE_PHP.into(), "php"),
+        "sh" | "bash" => (tree_sitter_bash::LANGUAGE.into(), "bash"),
+        "scala" | "sc" => (tree_sitter_scala::LANGUAGE.into(), "scala"),
+        "lua" => (tree_sitter_lua::LANGUAGE.into(), "lua"),
+        _ => return None,
+    })
+}
+
+#[cfg(not(feature = "ast-extended"))]
+fn lang_for_path_extended(_ext: &str) -> Option<(Language, &'static str)> {
+    None
 }
 
 /// Extensions the parser can ingest — kept in sync with [`lang_for_path`] and
 /// mirrored by the Python file-discovery walk.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "go", "rs", "java", "c",
-    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs",
+    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs", // extended tier (CONCEPT:KG-2.106):
+    "rb", "php", "sh", "bash", "scala", "sc", "lua",
 ];
 
 pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String> {
@@ -511,10 +531,15 @@ fn class_like_kind(kind: &str) -> Option<&'static str> {
         "interface_declaration" => "interface",
         "struct_specifier" | "struct_item" | "struct_declaration" => "struct",
         "enum_declaration" | "enum_item" | "enum_specifier" => "enum",
-        "trait_item" => "trait",
+        // `trait_item` Rust, `trait_definition` Scala, `trait_declaration` PHP.
+        "trait_item" | "trait_definition" | "trait_declaration" => "trait",
         "union_item" | "union_specifier" => "union",
         "record_declaration" | "record_struct_declaration" => "record",
         "namespace_definition" => "namespace",
+        // Ruby `class`/`module`; Scala `object_definition` (CONCEPT:KG-2.106).
+        "class" => "class",
+        "module" => "module",
+        "object_definition" => "object",
         // Go puts struct/interface names on the type_spec under a type_declaration.
         "type_spec" | "type_alias_declaration" => "type",
         _ => return None,
@@ -528,7 +553,8 @@ fn function_like_kind(kind: &str) -> Option<&'static str> {
         | "function_declaration"
         | "function_item"
         | "generator_function_declaration" => "function",
-        "method_definition" | "method_declaration" => "method",
+        // Ruby `method`/`singleton_method` (CONCEPT:KG-2.106).
+        "method_definition" | "method_declaration" | "method" | "singleton_method" => "method",
         "constructor_declaration" => "constructor",
         _ => return None,
     })
@@ -611,6 +637,13 @@ fn emit_symbol(
     );
     properties.insert("ast_hash".to_string(), content_hash);
     properties.insert("file_path".to_string(), file_path.to_string());
+    // CONCEPT:KG-2.101 — model-free similarity signature (MinHash over normalized
+    // AST leaf trigrams). The cross-file resolver LSH-bands these into `similar_to`
+    // edges; it is a resolution-only input and is stripped from the graph nodes.
+    properties.insert(
+        "minhash".to_string(),
+        encode_minhash(&symbol_minhash(node, source)),
+    );
     for (k, v) in extra {
         properties.insert(k, v);
     }
@@ -708,6 +741,16 @@ fn walk_node(
             // CONCEPT:KG-2.8 — native Python test-quality metrics on the symbol.
             if language == "python" {
                 let decorators = py_decorators(node, source);
+                // CONCEPT:KG-2.102 — keep the raw decorator strings so the route
+                // pass can detect HTTP route definitions (@app.route/@router.get…).
+                extra.insert(
+                    "decorators".to_string(),
+                    decorators
+                        .iter()
+                        .map(|d| d.trim_start_matches('@').to_string())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}"),
+                );
                 let marks = py_marks(&decorators);
                 let is_skipped = marks
                     .iter()
@@ -881,6 +924,137 @@ pub fn parse_files(files: &[(String, Vec<u8>)]) -> Vec<ParseResult> {
             })
         })
         .collect()
+}
+
+// ── CONCEPT:KG-2.101 — model-free code-similarity signature ──────────────────
+// A MinHash signature over a symbol's normalized AST-leaf trigrams. Identifiers/
+// strings/numbers/types are abstracted to class tokens (so a renamed-variable
+// clone still matches) while keywords/operators/punctuation are kept verbatim (so
+// structure is preserved). The cross-file resolver LSH-bands these signatures into
+// `similar_to` edges — model-free, so code similarity survives the embedder being
+// offline (the recurring GB10 502s).
+
+/// Number of MinHash permutations (signature width).
+pub(crate) const MINHASH_K: usize = 32;
+
+/// FNV-1a 64-bit hash of a shingle string (stable across processes, unlike the
+/// std hasher's randomized state).
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Map a leaf node to its normalized shingle token: identifiers/strings/numbers/
+/// types collapse to a class char; everything else (keywords, operators,
+/// punctuation) keeps its literal text. Comments/whitespace yield empty.
+fn normalize_leaf(node: Node, source: &[u8]) -> String {
+    match node.kind() {
+        "comment" | "line_comment" | "block_comment" => String::new(),
+        "identifier"
+        | "field_identifier"
+        | "property_identifier"
+        | "shorthand_property_identifier"
+        | "namespace_identifier" => "I".to_string(),
+        "type_identifier" | "primitive_type" => "T".to_string(),
+        "string"
+        | "string_literal"
+        | "string_content"
+        | "raw_string_literal"
+        | "interpreted_string_literal"
+        | "char_literal"
+        | "character_literal" => "S".to_string(),
+        "integer" | "float" | "number" | "integer_literal" | "float_literal"
+        | "numeric_literal" => "N".to_string(),
+        _ => get_node_text(node, source).trim().to_string(),
+    }
+}
+
+/// Collect a symbol subtree's leaf tokens (childless nodes) in source order.
+fn collect_leaf_tokens(node: Node, source: &[u8], out: &mut Vec<String>) {
+    let mut cursor = node.walk();
+    let mut has_child = false;
+    for child in node.children(&mut cursor) {
+        has_child = true;
+        collect_leaf_tokens(child, source, out);
+    }
+    if !has_child {
+        let t = normalize_leaf(node, source);
+        if !t.is_empty() {
+            out.push(t);
+        }
+    }
+}
+
+/// MinHash signature of a symbol's normalized AST-leaf trigrams. Empty/tiny
+/// symbols fall back to uni-/bi-grams so they still produce a signature.
+pub(crate) fn symbol_minhash(node: Node, source: &[u8]) -> [u32; MINHASH_K] {
+    let mut tokens: Vec<String> = Vec::new();
+    collect_leaf_tokens(node, source, &mut tokens);
+
+    let mut shingles: Vec<u64> = Vec::new();
+    if tokens.len() >= 3 {
+        for w in tokens.windows(3) {
+            shingles.push(fnv1a(&w.join("\u{1}")));
+        }
+    } else {
+        for t in &tokens {
+            shingles.push(fnv1a(t));
+        }
+    }
+
+    let mut sig = [u32::MAX; MINHASH_K];
+    for &h in &shingles {
+        for (i, slot) in sig.iter_mut().enumerate() {
+            // K independent linear permutations of the base hash (top 32 bits).
+            let a = ((i as u64) * 2 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let b = ((i as u64) + 1).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+            let v = (h.wrapping_mul(a).wrapping_add(b) >> 32) as u32;
+            if v < *slot {
+                *slot = v;
+            }
+        }
+    }
+    sig
+}
+
+/// Hex-encode a MinHash signature for storage as a node property.
+pub(crate) fn encode_minhash(sig: &[u32; MINHASH_K]) -> String {
+    let mut s = String::with_capacity(MINHASH_K * 8);
+    for v in sig {
+        s.push_str(&format!("{v:08x}"));
+    }
+    s
+}
+
+/// Decode a hex MinHash signature; `None` if malformed. Returns `None` for the
+/// all-empty signature (a symbol with no shingles is similar to nothing).
+pub(crate) fn decode_minhash(s: &str) -> Option<[u32; MINHASH_K]> {
+    if s.len() != MINHASH_K * 8 {
+        return None;
+    }
+    let mut sig = [0u32; MINHASH_K];
+    let mut all_max = true;
+    for (i, slot) in sig.iter_mut().enumerate() {
+        *slot = u32::from_str_radix(&s[i * 8..i * 8 + 8], 16).ok()?;
+        if *slot != u32::MAX {
+            all_max = false;
+        }
+    }
+    if all_max {
+        None
+    } else {
+        Some(sig)
+    }
+}
+
+/// Estimated Jaccard similarity = fraction of matching MinHash positions.
+pub(crate) fn minhash_jaccard(a: &[u32; MINHASH_K], b: &[u32; MINHASH_K]) -> f64 {
+    let matches = a.iter().zip(b.iter()).filter(|(x, y)| x == y).count();
+    matches as f64 / MINHASH_K as f64
 }
 
 #[cfg(test)]
@@ -1114,6 +1288,50 @@ namespace App {
         assert!(
             cg.contains(&"doThing".to_string()) && cg.contains(&"Println".to_string()),
             "{cg:?}"
+        );
+    }
+
+    #[cfg(feature = "ast-extended")]
+    #[test]
+    fn extended_languages_extract_symbols() {
+        // Ruby class + method.
+        let rb = sym(
+            "a.rb",
+            "class Widget\n  def run\n    1\n  end\nend\n",
+            "Widget",
+        );
+        assert_eq!(rb["symbol_type"], "Class");
+        assert_eq!(rb["language"], "ruby");
+        assert_eq!(
+            sym(
+                "a.rb",
+                "class Widget\n  def run\n    1\n  end\nend\n",
+                "run"
+            )["symbol_type"],
+            "Function"
+        );
+        // PHP function.
+        let php = sym(
+            "a.php",
+            "<?php\nfunction greet($n) { return $n; }\n",
+            "greet",
+        );
+        assert_eq!(php["symbol_type"], "Function");
+        assert_eq!(php["language"], "php");
+        // Bash function.
+        assert_eq!(
+            sym("a.sh", "deploy() {\n  echo hi\n}\n", "deploy")["symbol_type"],
+            "Function"
+        );
+        // Scala object + def.
+        assert_eq!(
+            sym("a.scala", "object App {\n  def run(): Int = 1\n}\n", "run")["symbol_type"],
+            "Function"
+        );
+        // Lua function.
+        assert_eq!(
+            sym("a.lua", "function compute(x)\n  return x\nend\n", "compute")["symbol_type"],
+            "Function"
         );
     }
 
