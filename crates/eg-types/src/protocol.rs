@@ -371,6 +371,17 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         files_msgpack: Vec<u8>,
     },
+    /// Parse a batch AND resolve cross-file call/import edges in one round-trip
+    /// (CONCEPT:KG-2.8r). The blob is the same MessagePack `Vec<(file_path,
+    /// source_bytes)>` as `ParseFiles`, but the batch is treated as one
+    /// resolution scope (a repository, or a delta set): the response is a SINGLE
+    /// resolved `IndexResult` whose `calls`/`depends_on` edges point at real node
+    /// ids, not bare names. Use this (not `ParseFiles`) to ingest a repo's symbol
+    /// graph; use `ParseFiles` only when per-file raw results are wanted.
+    IndexRepository {
+        #[serde(with = "serde_bytes")]
+        files_msgpack: Vec<u8>,
+    },
 
     // ── Semantic Compute ─────────────────────────────────────────────
     AddEmbedding {

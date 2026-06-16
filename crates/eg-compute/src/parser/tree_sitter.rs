@@ -560,16 +560,28 @@ fn walk_node(
                 properties,
             });
         }
-    } else if kind == "import_statement" || kind == "import_declaration" {
-        // Simplified import logic
-        let mut properties = HashMap::new();
-        properties.insert("raw".to_string(), "import".to_string());
-        result.edges.push(ExtractedEdge {
-            source: file_node_id.to_string(),
-            target: "import_target".to_string(),
-            edge_type: "depends_on_raw".to_string(),
-            properties,
-        });
+    } else if matches!(
+        kind,
+        "import_statement"
+            | "import_from_statement"
+            | "import_declaration"
+            | "import_spec"
+            | "use_declaration"
+            | "preproc_include"
+    ) {
+        // The raw module/path string (no longer an `"import_target"` placeholder):
+        // `resolve::resolve_import` maps it to the in-batch file that defines it
+        // to build a resolved `depends_on` edge. Unreadable imports emit nothing.
+        if let Some(module) = import_module(node, source) {
+            let mut properties = HashMap::new();
+            properties.insert("raw".to_string(), module.clone());
+            result.edges.push(ExtractedEdge {
+                source: file_node_id.to_string(),
+                target: module,
+                edge_type: "depends_on_raw".to_string(),
+                properties,
+            });
+        }
     }
 
     let mut cursor = node.walk();
@@ -581,6 +593,50 @@ fn walk_node(
 fn get_node_text(node: Node, source: &[u8]) -> String {
     let bytes = &source[node.start_byte()..node.end_byte()];
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Extract the imported module/path string from an import-like node across
+/// grammars, or `None` when it can't be read. Python `import a.b` /
+/// `from a.b import x`, JS/TS `import … from "src"`, Go `import_spec` path,
+/// Rust `use a::b`, Java `import a.b.C`, C/C++ `#include "x"`. The raw string is
+/// resolved to a file downstream in [`super::resolve::resolve_import`].
+fn import_module(node: Node, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        // Python `from <module_name> import …`.
+        "import_from_statement" => node
+            .child_by_field_name("module_name")
+            .map(|n| get_node_text(n, source)),
+        // `import_statement` is shared but differs structurally: JS/TS expose a
+        // `source` field (the string literal), Python a `name` field (dotted_name).
+        "import_statement" => node
+            .child_by_field_name("source")
+            .or_else(|| node.child_by_field_name("name"))
+            .map(|n| get_node_text(n, source)),
+        // Go `import_spec` carries the path string literal.
+        "import_spec" => node
+            .child_by_field_name("path")
+            .map(|n| get_node_text(n, source)),
+        // Rust `use a::b::c;`.
+        "use_declaration" => node
+            .child_by_field_name("argument")
+            .map(|n| get_node_text(n, source)),
+        // Java `import a.b.C;` — no named field; take the scoped identifier child.
+        // (Go's `import_declaration` wraps `import_spec`s with no such child, so it
+        // falls through to `None` here and resolves at the `import_spec` level.)
+        "import_declaration" => {
+            let mut cursor = node.walk();
+            let found = node
+                .children(&mut cursor)
+                .find(|c| c.kind() == "scoped_identifier" || c.kind() == "identifier")
+                .map(|c| get_node_text(c, source));
+            found
+        }
+        // C/C++ `#include "x"` or `<x>`.
+        "preproc_include" => node
+            .child_by_field_name("path")
+            .map(|n| get_node_text(n, source)),
+        _ => None,
+    }
 }
 
 /// Parse many files in one call (CONCEPT:KG-2.16 batch op). Files are parsed

@@ -19,8 +19,12 @@ def start_epistemic_graph_server():
         os.remove(socket_path)
 
     print("Starting epistemic-graph-server...")
+    # Build with `full` (= compute + server): the suite exercises the finance,
+    # datascience, reasoning AND ast (ParseFiles/IndexRepository) domains, which a
+    # `server`-only build compiles out — every such test would otherwise fail with
+    # "Method not available in this server build".
     subprocess.run(
-        ["cargo", "build", "--features", "server"], cwd=rust_dir, check=False
+        ["cargo", "build", "--features", "full"], cwd=rust_dir, check=False
     )
 
     process = subprocess.Popen(
@@ -28,7 +32,7 @@ def start_epistemic_graph_server():
             "cargo",
             "run",
             "--features",
-            "server",
+            "full",
             "--bin",
             "epistemic-graph-server",
             "--",
