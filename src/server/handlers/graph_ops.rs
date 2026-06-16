@@ -55,6 +55,19 @@ pub(crate) async fn try_handle(
                 .collect();
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
+        Method::GetNodesByLabel { label, limit } => {
+            let g = &*core;
+            let nodes: Vec<(String, serde_json::Value)> = g
+                .get_nodes_by_label(&label, limit)
+                .into_iter()
+                .map(|(k, p)| {
+                    let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                        .unwrap_or(serde_json::json!({}));
+                    (k, val)
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::NodeList(nodes))
+        }
         Method::GetNodeProperties { node_id } => {
             let g = &*core;
             let val = match g.get_node_properties(&node_id) {
