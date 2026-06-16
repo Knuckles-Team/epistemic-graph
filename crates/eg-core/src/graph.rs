@@ -277,6 +277,33 @@ impl GraphCore {
             .collect()
     }
 
+    /// Return at most `limit` nodes (id, properties) whose `type`/`label`/`labels`
+    /// matches `label`; `limit == 0` means no cap. Scans in-engine (cheap,
+    /// in-memory) but bounds the returned payload, so a `MATCH (n:Label) … LIMIT k`
+    /// caller no longer materializes every node's properties over the wire.
+    pub fn get_nodes_by_label(&self, label: &str, limit: usize) -> Vec<(String, Vec<u8>)> {
+        let mut out: Vec<(String, Vec<u8>)> = Vec::new();
+        for entry in self.node_properties.iter() {
+            if limit != 0 && out.len() >= limit {
+                break;
+            }
+            let props = entry.value();
+            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props.as_slice()) else {
+                continue;
+            };
+            let matches = val.get("type").and_then(|v| v.as_str()) == Some(label)
+                || val.get("label").and_then(|v| v.as_str()) == Some(label)
+                || val
+                    .get("labels")
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(label)));
+            if matches {
+                out.push((entry.key().clone(), (**props).clone()));
+            }
+        }
+        out
+    }
+
     /// Like `get_nodes` but clones the Arc POINTERS, not the bytes — used by the
     /// snapshot/checkpoint hot path (Phase C-A zero-copy).
     pub fn get_nodes_arc(&self) -> Vec<(String, Arc<Vec<u8>>)> {
@@ -1312,6 +1339,32 @@ mod tests {
         assert_eq!(stats.nodes_decayed, 1);
         let c = confidence_of(&g, "n1");
         assert!((c - 0.5).abs() < 1e-9, "expected ~0.5, got {c}");
+    }
+
+    #[test]
+    fn get_nodes_by_label_filters_and_limits() {
+        let g = GraphCore::new();
+        g.add_node(
+            "a1".to_string(),
+            props(serde_json::json!({"type": "Agent", "name": "A"})),
+        );
+        g.add_node(
+            "a2".to_string(),
+            props(serde_json::json!({"type": "Agent", "name": "B"})),
+        );
+        g.add_node("c1".to_string(), props(serde_json::json!({"type": "Code"})));
+        g.add_node(
+            "l1".to_string(),
+            props(serde_json::json!({"labels": ["Skill", "X"]})),
+        );
+
+        assert_eq!(g.get_nodes_by_label("Agent", 0).len(), 2); // type match, no cap
+        assert_eq!(g.get_nodes_by_label("Agent", 1).len(), 1); // limit bounds result
+        assert_eq!(g.get_nodes_by_label("Code", 0).len(), 1);
+        let skills = g.get_nodes_by_label("Skill", 0); // "labels" array membership
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].0, "l1");
+        assert!(g.get_nodes_by_label("Nonexistent", 0).is_empty());
     }
 
     #[test]

@@ -85,6 +85,15 @@ pub enum Method {
         node_id: String,
     },
     GetNodes,
+    /// Labeled + bounded node fetch: return at most `limit` nodes whose
+    /// `type`/`label`/`labels` matches `label` (limit 0 ⇒ no cap). Unlike
+    /// `GetNodes` (which materializes the WHOLE graph), this bounds the wire
+    /// payload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every
+    /// node's properties off the engine. (CONCEPT:KG-2.51)
+    GetNodesByLabel {
+        label: String,
+        limit: usize,
+    },
     GetNodeProperties {
         node_id: String,
     },
