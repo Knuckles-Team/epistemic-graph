@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import contextlib
 import hashlib
 import hmac
 import inspect
@@ -1890,10 +1891,8 @@ class EpistemicGraphClient:
             except asyncio.IncompleteReadError as e:
                 # Server closed the stream mid-frame — the connection is dead.
                 self._closed = True
-                try:
+                with contextlib.suppress(Exception):  # best-effort teardown
                     self._writer.close()
-                except Exception:  # noqa: BLE001 — best-effort teardown
-                    pass
                 raise ConnectionError("Connection closed by server") from e
             except (asyncio.TimeoutError, TimeoutError) as e:
                 # A write that never drained, or a read that timed out mid-frame,
@@ -1902,10 +1901,8 @@ class EpistemicGraphClient:
                 # close so the pool/breaker reconnects on a clean stream rather than
                 # reusing a poisoned one.
                 self._closed = True
-                try:
+                with contextlib.suppress(Exception):  # best-effort teardown
                     self._writer.close()
-                except Exception:  # noqa: BLE001 — best-effort teardown
-                    pass
                 raise TimeoutError(
                     f"epistemic-graph RPC {method!r} timed out (connection closed; "
                     "retry will reconnect)"

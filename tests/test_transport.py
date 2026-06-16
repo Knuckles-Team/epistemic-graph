@@ -1,4 +1,5 @@
 import asyncio
+from typing import cast
 
 import msgpack
 import pytest
@@ -162,8 +163,8 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
             await asyncio.sleep(3600)  # never reached; drain fails first
 
     client = EpistemicGraphClient(
-        _IdleReader(),
-        _HangingWriter(),
+        cast(asyncio.StreamReader, _IdleReader()),
+        cast(asyncio.StreamWriter, _HangingWriter()),
         auth_secret="s",
         graph_name="g",
         timeout=30,
