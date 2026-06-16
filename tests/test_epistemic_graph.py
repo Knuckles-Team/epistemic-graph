@@ -270,6 +270,54 @@ async def test_rust_ast_parser_fallback():
     assert "my_method" in symbols
 
 
+@pytest.mark.concept("CONCEPT:KG-2.8r")
+def test_index_repository_resolves_cross_file_edges(clean_graph):
+    """IndexRepository round-trip: a batch resolves a cross-file call (run→shared)
+    to a `calls` symbol→symbol edge and the import to a `depends_on` file→file
+    edge — the cross-file binding ParseFiles leaves raw."""
+    files = [
+        ("pkg/util.py", b"def shared():\n    return 1\n"),
+        (
+            "pkg/app.py",
+            b"from pkg.util import shared\n\ndef run():\n    return shared()\n",
+        ),
+    ]
+    try:
+        res = clean_graph.graph.index_repository(files)
+    except Exception as exc:  # noqa: BLE001 - capability probe
+        # The CI test server is built `--features server` (no `ast`); skip there.
+        if "AST feature not enabled" in str(exc):
+            pytest.skip("engine built without the `ast` feature")
+        raise
+
+    assert res["files_parsed"] == 2
+    assert res["calls_resolved"] >= 1
+    assert res["imports_resolved"] >= 1
+
+    # run → shared resolved to a symbol→symbol calls edge.
+    name_by_id = {
+        n["node_id"]: n["properties"].get("name")
+        for n in res["nodes"]
+        if n["node_type"] == "SYMBOL"
+    }
+    call_pairs = {
+        (name_by_id.get(e["source"]), name_by_id.get(e["target"]))
+        for e in res["edges"]
+        if e["edge_type"] == "calls"
+    }
+    assert ("run", "shared") in call_pairs
+
+    # Import resolved to a file→file depends_on edge.
+    assert any(
+        e["edge_type"] == "depends_on"
+        and e["source"] == "file:pkg/app.py"
+        and e["target"] == "file:pkg/util.py"
+        for e in res["edges"]
+    )
+    # No raw placeholder edges leak through the resolved result.
+    assert not any(e["edge_type"].endswith("_raw") for e in res["edges"])
+
+
 @pytest.mark.concept("CONCEPT:KG-2.0")
 def test_get_subgraph_batched(clean_graph):
     """Batched GetSubgraph returns decoded node properties + induced edges in
