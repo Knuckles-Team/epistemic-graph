@@ -715,6 +715,16 @@ fn walk_node(
             // CONCEPT:KG-2.8 — native Python test-quality metrics on the symbol.
             if language == "python" {
                 let decorators = py_decorators(node, source);
+                // CONCEPT:KG-2.102 — keep the raw decorator strings so the route
+                // pass can detect HTTP route definitions (@app.route/@router.get…).
+                extra.insert(
+                    "decorators".to_string(),
+                    decorators
+                        .iter()
+                        .map(|d| d.trim_start_matches('@').to_string())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}"),
+                );
                 let marks = py_marks(&decorators);
                 let is_skipped = marks
                     .iter()
