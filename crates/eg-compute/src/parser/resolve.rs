@@ -49,6 +49,8 @@ pub struct IndexResult {
     pub inherits_edges: usize,
     /// Class→interface `realizes` edges emitted.
     pub realizes_edges: usize,
+    /// Model-free `similar_to` edges emitted (CONCEPT:KG-2.101).
+    pub similar_edges: usize,
     /// Import statements bound to an in-batch file.
     pub imports_resolved: usize,
     /// Import statements seen but not bound (external packages, unknown layout).
@@ -284,14 +286,106 @@ pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexRes
         }
     }
 
-    // `call_sites` is a resolution-only input; don't leak it onto graph nodes.
+    // ── Model-free similarity: LSH-band the MinHash signatures (CONCEPT:KG-2.101) ──
+    out.similar_edges = similarity_edges(&out.nodes, &mut edges);
+
+    // `call_sites`/`minhash` are resolution-only inputs; don't leak them onto nodes.
     for n in &mut out.nodes {
         n.properties.remove("call_sites");
+        n.properties.remove("minhash");
     }
 
     out.edges = edges;
     out
 }
+
+/// LSH-band the per-symbol MinHash signatures into `similar_to` edges. Symbols
+/// whose signatures collide in any band become candidate pairs; a pair is linked
+/// when its estimated Jaccard ≥ [`SIMILAR_THRESHOLD`]. Edges are symmetric
+/// (emitted once with sorted endpoints), scored, and capped per node so a big
+/// clone family doesn't explode the edge set. Returns the edge count.
+fn similarity_edges(nodes: &[ExtractedNode], edges: &mut Vec<ExtractedEdge>) -> usize {
+    use super::tree_sitter::{decode_minhash, minhash_jaccard, MINHASH_K};
+
+    // (node_id, signature) for every code symbol with a usable signature.
+    let sigs: Vec<(&str, [u32; MINHASH_K])> = nodes
+        .iter()
+        .filter(|n| n.node_type == "SYMBOL")
+        .filter_map(|n| {
+            n.properties
+                .get("minhash")
+                .and_then(|s| decode_minhash(s))
+                .map(|sig| (n.node_id.as_str(), sig))
+        })
+        .collect();
+    if sigs.len() < 2 {
+        return 0;
+    }
+
+    // LSH banding: BANDS bands of ROWS rows (BANDS*ROWS == MINHASH_K).
+    const BANDS: usize = 8;
+    const ROWS: usize = MINHASH_K / BANDS;
+    let mut buckets: HashMap<(usize, u64), Vec<usize>> = HashMap::new();
+    for (idx, (_, sig)) in sigs.iter().enumerate() {
+        for band in 0..BANDS {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for row in 0..ROWS {
+                h ^= sig[band * ROWS + row] as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            buckets.entry((band, h)).or_default().push(idx);
+        }
+    }
+
+    // Candidate pairs (deduped) from co-bucketed symbols.
+    let mut candidates: HashSet<(usize, usize)> = HashSet::new();
+    for members in buckets.values() {
+        if members.len() < 2 || members.len() > 256 {
+            continue; // skip degenerate mega-buckets (all-identical tiny symbols)
+        }
+        for i in 0..members.len() {
+            for j in (i + 1)..members.len() {
+                let (a, b) = (members[i], members[j]);
+                candidates.insert((a.min(b), a.max(b)));
+            }
+        }
+    }
+
+    let mut per_node: HashMap<usize, usize> = HashMap::new();
+    let mut count = 0;
+    let mut scored: Vec<(usize, usize, f64)> = candidates
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let s = minhash_jaccard(&sigs[a].1, &sigs[b].1);
+            (s >= SIMILAR_THRESHOLD).then_some((a, b, s))
+        })
+        .collect();
+    // Strongest links first so the per-node cap keeps the best neighbours.
+    scored.sort_by(|x, y| y.2.partial_cmp(&x.2).unwrap_or(std::cmp::Ordering::Equal));
+
+    for (a, b, score) in scored {
+        if *per_node.get(&a).unwrap_or(&0) >= SIMILAR_CAP_PER_NODE
+            || *per_node.get(&b).unwrap_or(&0) >= SIMILAR_CAP_PER_NODE
+        {
+            continue;
+        }
+        *per_node.entry(a).or_default() += 1;
+        *per_node.entry(b).or_default() += 1;
+        edges.push(ExtractedEdge {
+            source: sigs[a].0.to_string(),
+            target: sigs[b].0.to_string(),
+            edge_type: "similar_to".to_string(),
+            properties: HashMap::from([("score".to_string(), format!("{score:.2}"))]),
+        });
+        count += 1;
+    }
+    count
+}
+
+/// Minimum estimated Jaccard for a `similar_to` edge.
+const SIMILAR_THRESHOLD: f64 = 0.5;
+/// Max `similar_to` edges per symbol (keeps a clone family bounded).
+const SIMILAR_CAP_PER_NODE: usize = 10;
 
 /// Bind one call site to a definition, most-specific signal first, tagging the
 /// strategy + confidence. Returns `None` (unresolved) rather than guessing an
@@ -744,6 +838,61 @@ mod tests {
             r.edges
         );
         assert!(r.realizes_edges >= 1);
+    }
+
+    #[test]
+    fn similar_functions_get_similar_to_edge() {
+        // Two structurally identical functions with different identifier names →
+        // a `similar_to` edge (renamed-variable clone); an unrelated one does not.
+        let r = index_repository(&files(&[
+            (
+                "a.py",
+                "def alpha(x):\n    total = 0\n    for i in x:\n        total = total + i\n    return total\n",
+            ),
+            (
+                "b.py",
+                "def beta(y):\n    acc = 0\n    for j in y:\n        acc = acc + j\n    return acc\n",
+            ),
+            ("c.py", "def unrelated():\n    print('hi')\n    return None\n"),
+        ]));
+        let name_of = |id: &str| -> String {
+            r.nodes
+                .iter()
+                .find(|n| n.node_id == id)
+                .and_then(|n| n.properties.get("name").cloned())
+                .unwrap_or_default()
+        };
+        let sim: Vec<(String, String)> = r
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == "similar_to")
+            .map(|e| {
+                let mut pair = [name_of(&e.source), name_of(&e.target)];
+                pair.sort();
+                let [a, b] = pair;
+                (a, b)
+            })
+            .collect();
+        assert!(r.similar_edges >= 1);
+        assert!(
+            sim.contains(&("alpha".to_string(), "beta".to_string())),
+            "alpha~beta clone expected, got {sim:?}"
+        );
+        assert!(
+            !sim.iter()
+                .any(|(a, b)| a == "unrelated" || b == "unrelated"),
+            "unrelated function must not be linked, got {sim:?}"
+        );
+        // Every similar_to edge carries a score; minhash is stripped from nodes.
+        assert!(r
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == "similar_to")
+            .all(|e| e.properties.contains_key("score")));
+        assert!(r
+            .nodes
+            .iter()
+            .all(|n| !n.properties.contains_key("minhash")));
     }
 
     #[test]
