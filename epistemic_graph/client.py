@@ -45,6 +45,16 @@ class NodeClient:
     async def list(self) -> builtins.list[tuple[str, str]]:
         return await self._client._send("GetNodes")
 
+    async def list_by_label(
+        self, label: str, limit: int = 0
+    ) -> builtins.list[tuple[str, Any]]:
+        """At most ``limit`` ``(id, properties)`` whose type/label matches ``label``
+        (``limit=0`` ⇒ no cap). Bounded-payload alternative to ``list()`` so a
+        ``MATCH (n:Label) … LIMIT k`` does not materialize the whole graph."""
+        return await self._client._send(
+            "GetNodesByLabel", {"label": label, "limit": int(limit)}
+        )
+
     async def properties(self, node_id: str) -> dict[str, Any] | None:
         raw_val = await self._client._send("GetNodeProperties", {"node_id": node_id})
         if raw_val is None:
