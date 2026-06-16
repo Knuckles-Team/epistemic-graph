@@ -611,6 +611,13 @@ fn emit_symbol(
     );
     properties.insert("ast_hash".to_string(), content_hash);
     properties.insert("file_path".to_string(), file_path.to_string());
+    // CONCEPT:KG-2.101 — model-free similarity signature (MinHash over normalized
+    // AST leaf trigrams). The cross-file resolver LSH-bands these into `similar_to`
+    // edges; it is a resolution-only input and is stripped from the graph nodes.
+    properties.insert(
+        "minhash".to_string(),
+        encode_minhash(&symbol_minhash(node, source)),
+    );
     for (k, v) in extra {
         properties.insert(k, v);
     }
@@ -881,6 +888,137 @@ pub fn parse_files(files: &[(String, Vec<u8>)]) -> Vec<ParseResult> {
             })
         })
         .collect()
+}
+
+// ── CONCEPT:KG-2.101 — model-free code-similarity signature ──────────────────
+// A MinHash signature over a symbol's normalized AST-leaf trigrams. Identifiers/
+// strings/numbers/types are abstracted to class tokens (so a renamed-variable
+// clone still matches) while keywords/operators/punctuation are kept verbatim (so
+// structure is preserved). The cross-file resolver LSH-bands these signatures into
+// `similar_to` edges — model-free, so code similarity survives the embedder being
+// offline (the recurring GB10 502s).
+
+/// Number of MinHash permutations (signature width).
+pub(crate) const MINHASH_K: usize = 32;
+
+/// FNV-1a 64-bit hash of a shingle string (stable across processes, unlike the
+/// std hasher's randomized state).
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Map a leaf node to its normalized shingle token: identifiers/strings/numbers/
+/// types collapse to a class char; everything else (keywords, operators,
+/// punctuation) keeps its literal text. Comments/whitespace yield empty.
+fn normalize_leaf(node: Node, source: &[u8]) -> String {
+    match node.kind() {
+        "comment" | "line_comment" | "block_comment" => String::new(),
+        "identifier"
+        | "field_identifier"
+        | "property_identifier"
+        | "shorthand_property_identifier"
+        | "namespace_identifier" => "I".to_string(),
+        "type_identifier" | "primitive_type" => "T".to_string(),
+        "string"
+        | "string_literal"
+        | "string_content"
+        | "raw_string_literal"
+        | "interpreted_string_literal"
+        | "char_literal"
+        | "character_literal" => "S".to_string(),
+        "integer" | "float" | "number" | "integer_literal" | "float_literal"
+        | "numeric_literal" => "N".to_string(),
+        _ => get_node_text(node, source).trim().to_string(),
+    }
+}
+
+/// Collect a symbol subtree's leaf tokens (childless nodes) in source order.
+fn collect_leaf_tokens(node: Node, source: &[u8], out: &mut Vec<String>) {
+    let mut cursor = node.walk();
+    let mut has_child = false;
+    for child in node.children(&mut cursor) {
+        has_child = true;
+        collect_leaf_tokens(child, source, out);
+    }
+    if !has_child {
+        let t = normalize_leaf(node, source);
+        if !t.is_empty() {
+            out.push(t);
+        }
+    }
+}
+
+/// MinHash signature of a symbol's normalized AST-leaf trigrams. Empty/tiny
+/// symbols fall back to uni-/bi-grams so they still produce a signature.
+pub(crate) fn symbol_minhash(node: Node, source: &[u8]) -> [u32; MINHASH_K] {
+    let mut tokens: Vec<String> = Vec::new();
+    collect_leaf_tokens(node, source, &mut tokens);
+
+    let mut shingles: Vec<u64> = Vec::new();
+    if tokens.len() >= 3 {
+        for w in tokens.windows(3) {
+            shingles.push(fnv1a(&w.join("\u{1}")));
+        }
+    } else {
+        for t in &tokens {
+            shingles.push(fnv1a(t));
+        }
+    }
+
+    let mut sig = [u32::MAX; MINHASH_K];
+    for &h in &shingles {
+        for (i, slot) in sig.iter_mut().enumerate() {
+            // K independent linear permutations of the base hash (top 32 bits).
+            let a = ((i as u64) * 2 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let b = ((i as u64) + 1).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+            let v = (h.wrapping_mul(a).wrapping_add(b) >> 32) as u32;
+            if v < *slot {
+                *slot = v;
+            }
+        }
+    }
+    sig
+}
+
+/// Hex-encode a MinHash signature for storage as a node property.
+pub(crate) fn encode_minhash(sig: &[u32; MINHASH_K]) -> String {
+    let mut s = String::with_capacity(MINHASH_K * 8);
+    for v in sig {
+        s.push_str(&format!("{v:08x}"));
+    }
+    s
+}
+
+/// Decode a hex MinHash signature; `None` if malformed. Returns `None` for the
+/// all-empty signature (a symbol with no shingles is similar to nothing).
+pub(crate) fn decode_minhash(s: &str) -> Option<[u32; MINHASH_K]> {
+    if s.len() != MINHASH_K * 8 {
+        return None;
+    }
+    let mut sig = [0u32; MINHASH_K];
+    let mut all_max = true;
+    for (i, slot) in sig.iter_mut().enumerate() {
+        *slot = u32::from_str_radix(&s[i * 8..i * 8 + 8], 16).ok()?;
+        if *slot != u32::MAX {
+            all_max = false;
+        }
+    }
+    if all_max {
+        None
+    } else {
+        Some(sig)
+    }
+}
+
+/// Estimated Jaccard similarity = fraction of matching MinHash positions.
+pub(crate) fn minhash_jaccard(a: &[u32; MINHASH_K], b: &[u32; MINHASH_K]) -> f64 {
+    let matches = a.iter().zip(b.iter()).filter(|(x, y)| x == y).count();
+    matches as f64 / MINHASH_K as f64
 }
 
 #[cfg(test)]
