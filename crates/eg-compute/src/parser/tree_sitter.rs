@@ -94,6 +94,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
         file_path,
         lang_label,
         &file_node_id,
+        "",
         &mut result,
     );
 
@@ -151,26 +152,79 @@ fn collect_test_metrics(node: Node, source: &[u8], m: &mut TestMetrics) {
     }
 }
 
-/// Collect callee names within a function/method body across languages: Python
-/// `call`, JS/TS/Go/Rust/C/C++ `call_expression`, Java `method_invocation`. The
-/// callee is the last dotted/`::` segment (`obj.method` → `method`, `a::b` → `b`)
-/// so name-based call-edge resolution matches the bare symbol name. (CONCEPT:KG-2.8)
-fn collect_calls(node: Node, source: &[u8], out: &mut Vec<String>) {
+// CONCEPT:KG-2.100 — Type/scope-resolved call graph. A call site carries the
+// receiver (`self`/`this`, a variable, or a Type for a static call — empty for a
+// bare call), the callee name (last dotted/`::` segment), and the argument count.
+// The cross-file resolver (`super::resolve`) binds these to the right *method on
+// the receiver's class* (scope) and disambiguates same-name overloads by arity,
+// instead of the old name-only match. Computed in Rust, shipped already-resolved.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct CallSite {
+    pub receiver: String,
+    pub callee: String,
+    pub argc: Option<usize>,
+}
+
+/// Split a callee expression's text into (receiver, callee) by its last dotted/
+/// `::` segment: `obj.method` → (`obj`,`method`), `a::b::run` → (`b`,`run`),
+/// `foo` → (``,`foo`).
+fn split_receiver_callee(text: &str) -> (String, String) {
+    let norm = text.replace("::", ".");
+    let mut segs: Vec<&str> = norm
+        .split('.')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let callee = segs.pop().unwrap_or("").to_string();
+    let receiver = segs.pop().unwrap_or("").to_string();
+    (receiver, callee)
+}
+
+/// Count the arguments at a call node (named children of its `arguments` /
+/// `argument_list`), or `None` when no argument list is present.
+fn count_args(node: Node) -> Option<usize> {
+    let args = node.child_by_field_name("arguments").or_else(|| {
+        let mut c = node.walk();
+        let found = node
+            .children(&mut c)
+            .find(|ch| matches!(ch.kind(), "argument_list" | "arguments"));
+        found
+    })?;
+    let mut c = args.walk();
+    Some(args.children(&mut c).filter(|ch| ch.is_named()).count())
+}
+
+/// Collect structured call sites within a function/method body across languages:
+/// Python `call`, JS/TS/Go/Rust/C/C++ `call_expression`, Java `method_invocation`.
+/// (CONCEPT:KG-2.100; supersedes the old name-only `collect_calls`.)
+fn collect_call_sites(node: Node, source: &[u8], out: &mut Vec<CallSite>) {
     match node.kind() {
         "call" | "call_expression" => {
             if let Some(f) = node.child_by_field_name("function") {
-                let text = get_node_text(f, source);
-                let name = text.rsplit(['.', ':']).next().unwrap_or(&text).trim();
-                if !name.is_empty() {
-                    out.push(name.to_string());
+                let (receiver, callee) = split_receiver_callee(&get_node_text(f, source));
+                if !callee.is_empty() {
+                    out.push(CallSite {
+                        receiver,
+                        callee,
+                        argc: count_args(node),
+                    });
                 }
             }
         }
         "method_invocation" => {
+            // Java `recv.name(args)`: `object` is the receiver, `name` the callee.
             if let Some(n) = node.child_by_field_name("name") {
-                let name = get_node_text(n, source).trim().to_string();
-                if !name.is_empty() {
-                    out.push(name);
+                let callee = get_node_text(n, source).trim().to_string();
+                if !callee.is_empty() {
+                    let receiver = node
+                        .child_by_field_name("object")
+                        .map(|o| split_receiver_callee(&get_node_text(o, source)).1)
+                        .unwrap_or_default();
+                    out.push(CallSite {
+                        receiver,
+                        callee,
+                        argc: count_args(node),
+                    });
                 }
             }
         }
@@ -178,7 +232,152 @@ fn collect_calls(node: Node, source: &[u8], out: &mut Vec<String>) {
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_calls(child, source, out);
+        collect_call_sites(child, source, out);
+    }
+}
+
+/// Serialize call sites onto a SYMBOL property: `recv:callee:argc` per site,
+/// joined by `;` (identifiers/digits only, so the delimiters never clash). The
+/// resolver decodes this with [`decode_call_sites`]; it is stripped from the
+/// graph nodes after resolution (purely a resolution input).
+pub(crate) fn encode_call_sites(sites: &[CallSite]) -> String {
+    sites
+        .iter()
+        .map(|s| {
+            let a = s.argc.map(|n| n.to_string()).unwrap_or_default();
+            format!("{}:{}:{}", s.receiver, s.callee, a)
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// A decoded call site (the resolver's view of [`encode_call_sites`]).
+pub(crate) struct DecodedSite {
+    pub receiver: String,
+    pub callee: String,
+    pub argc: Option<usize>,
+}
+
+/// Inverse of [`encode_call_sites`].
+pub(crate) fn decode_call_sites(s: &str) -> Vec<DecodedSite> {
+    s.split(';')
+        .filter(|x| !x.is_empty())
+        .filter_map(|site| {
+            let mut it = site.splitn(3, ':');
+            let receiver = it.next()?.to_string();
+            let callee = it.next()?.to_string();
+            let argc = it
+                .next()
+                .and_then(|a| if a.is_empty() { None } else { a.parse().ok() });
+            if callee.is_empty() {
+                None
+            } else {
+                Some(DecodedSite {
+                    receiver,
+                    callee,
+                    argc,
+                })
+            }
+        })
+        .collect()
+}
+
+/// Formal-parameter count for a callable across grammars (the def-side `arity`
+/// the resolver matches against a call's `argc`). Python excludes a leading
+/// `self`/`cls`; other grammars carry the receiver outside the parameter list
+/// (Go `receiver` field, Rust `self_parameter`), so a plain named-child count of
+/// the parameter list is the callee-visible arity.
+fn param_count(node: Node, source: &[u8], language: &str) -> usize {
+    if language == "python" {
+        return py_param_count(node, source);
+    }
+    let params = node.child_by_field_name("parameters").or_else(|| {
+        let mut c = node.walk();
+        let found = node.children(&mut c).find(|ch| {
+            matches!(
+                ch.kind(),
+                "formal_parameters" | "parameter_list" | "parameters"
+            )
+        });
+        found
+    });
+    let params = match params {
+        Some(p) => p,
+        None => return 0,
+    };
+    let mut c = params.walk();
+    params
+        .children(&mut c)
+        .filter(|ch| {
+            ch.is_named()
+                && !matches!(
+                    ch.kind(),
+                    "self_parameter" | "comment" | "line_comment" | "block_comment"
+                )
+        })
+        .count()
+}
+
+/// Collect the last segment of every type identifier under a node (e.g. a
+/// heritage clause), skipping generic type-argument lists so only the base
+/// type/interface names are returned. Best-effort and tolerant of grammar shape.
+fn collect_type_names(node: Node, source: &[u8], out: &mut Vec<String>) {
+    let k = node.kind();
+    if k.ends_with("type_identifier") || k == "identifier" {
+        let t = get_node_text(node, source);
+        let name = t.rsplit(['.', ':']).next().unwrap_or(&t).trim().to_string();
+        if !name.is_empty() && !out.contains(&name) {
+            out.push(name);
+        }
+        return;
+    }
+    if matches!(k, "type_arguments" | "type_parameters") {
+        return;
+    }
+    let mut c = node.walk();
+    for child in node.children(&mut c) {
+        collect_type_names(child, source, out);
+    }
+}
+
+/// Best-effort (inherits, realizes) base/interface names for a class-like node.
+/// Conservative and language-scoped: Python bases, Java `extends`/`implements`,
+/// TS/JS `extends`/`implements`. Rust trait impls and Go embedding need
+/// impl-block / embedding analysis and are deferred (return empty) — the
+/// resolver never emits a dangling edge, so an empty result is safe.
+fn class_relations(node: Node, source: &[u8], language: &str) -> (Vec<String>, Vec<String>) {
+    match language {
+        "python" => (py_class_bases(node, source), Vec::new()),
+        "java" => {
+            let mut inh = Vec::new();
+            let mut real = Vec::new();
+            if let Some(sc) = node.child_by_field_name("superclass") {
+                collect_type_names(sc, source, &mut inh);
+            }
+            if let Some(ifs) = node.child_by_field_name("interfaces") {
+                collect_type_names(ifs, source, &mut real);
+            }
+            (inh, real)
+        }
+        "typescript" | "javascript" => {
+            let mut inh = Vec::new();
+            let mut real = Vec::new();
+            let mut c = node.walk();
+            for ch in node.children(&mut c) {
+                if ch.kind() == "class_heritage" {
+                    let mut c2 = ch.walk();
+                    for clause in ch.children(&mut c2) {
+                        match clause.kind() {
+                            "extends_clause" => collect_type_names(clause, source, &mut inh),
+                            "implements_clause" => collect_type_names(clause, source, &mut real),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            (inh, real)
+        }
+        _ => (Vec::new(), Vec::new()),
     }
 }
 
@@ -430,25 +629,34 @@ fn emit_symbol(
     result.symbols_extracted += 1;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_node(
     node: Node,
     source: &[u8],
     file_path: &str,
     language: &str,
     file_node_id: &str,
+    scope: &str,
     result: &mut ParseResult,
 ) {
     let kind = node.kind();
+    // The enclosing-class name children inherit (CONCEPT:KG-2.100 scope tracking);
+    // defaults to propagating the current scope unless this node is a named class.
+    let mut descend_scope = scope.to_string();
 
     if let Some(detail) = class_like_kind(kind) {
         if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
             let mut extra = HashMap::new();
+            // CONCEPT:KG-2.100 — inheritance/realization facts across grammars.
+            let (inherits, realizes) = class_relations(node, source, language);
+            extra.insert("scope".to_string(), scope.to_string());
+            extra.insert("bases".to_string(), inherits.join(","));
+            extra.insert("interfaces".to_string(), realizes.join(","));
+            descend_scope = name.clone();
             // CONCEPT:KG-2.8 — Python structural facts for design-pattern detection.
             if language == "python" {
-                let bases = py_class_bases(node, source);
                 let (methods, has_abstract) = py_class_methods(node, source);
                 let decorators = py_decorators(node, source);
-                extra.insert("bases".to_string(), bases.join(","));
                 extra.insert("methods".to_string(), methods.join(","));
                 extra.insert(
                     "decorators".to_string(),
@@ -477,17 +685,25 @@ fn walk_node(
     } else if let Some(detail) = function_like_kind(kind) {
         if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
             let mut extra = HashMap::new();
-            // Callee names within the body — for EVERY language (call /
-            // call_expression / method_invocation), capped. This is the signal
-            // ``resolve_call_edges`` uses to build the call graph, which feature
-            // clustering runs over; without it non-Python repos formed 0 features.
-            // (CONCEPT:KG-2.8)
-            let mut calls = Vec::new();
-            collect_calls(node, source, &mut calls);
+            extra.insert("scope".to_string(), scope.to_string());
+            // Structured call sites (receiver/callee/argc) for type/scope-resolved
+            // call edges, plus the bare callee names kept as `calls` for the
+            // name-only fallback + COVERS. (CONCEPT:KG-2.100 / KG-2.8)
+            let mut sites = Vec::new();
+            collect_call_sites(node, source, &mut sites);
+            sites.sort();
+            sites.dedup();
+            sites.truncate(64);
+            let mut calls: Vec<String> = sites.iter().map(|s| s.callee.clone()).collect();
             calls.sort();
             calls.dedup();
             calls.truncate(64);
             extra.insert("calls".to_string(), calls.join(","));
+            extra.insert("call_sites".to_string(), encode_call_sites(&sites));
+            extra.insert(
+                "arity".to_string(),
+                param_count(node, source, language).to_string(),
+            );
 
             // CONCEPT:KG-2.8 — native Python test-quality metrics on the symbol.
             if language == "python" {
@@ -586,7 +802,15 @@ fn walk_node(
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        walk_node(child, source, file_path, language, file_node_id, result);
+        walk_node(
+            child,
+            source,
+            file_path,
+            language,
+            file_node_id,
+            &descend_scope,
+            result,
+        );
     }
 }
 
