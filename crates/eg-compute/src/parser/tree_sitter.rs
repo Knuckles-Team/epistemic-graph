@@ -60,16 +60,36 @@ fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
             (tree_sitter_cpp::LANGUAGE.into(), "cpp")
         }
         "cs" => (tree_sitter_c_sharp::LANGUAGE.into(), "csharp"),
-        _ => return None,
+        _ => return lang_for_path_extended(&ext),
     };
     Some(pair)
+}
+
+/// Extended-language tier (CONCEPT:KG-2.106), compiled only with `ast-extended`.
+/// Without the feature it resolves nothing, so a slim `ast` build stays lean.
+#[cfg(feature = "ast-extended")]
+fn lang_for_path_extended(ext: &str) -> Option<(Language, &'static str)> {
+    Some(match ext {
+        "rb" => (tree_sitter_ruby::LANGUAGE.into(), "ruby"),
+        "php" => (tree_sitter_php::LANGUAGE_PHP.into(), "php"),
+        "sh" | "bash" => (tree_sitter_bash::LANGUAGE.into(), "bash"),
+        "scala" | "sc" => (tree_sitter_scala::LANGUAGE.into(), "scala"),
+        "lua" => (tree_sitter_lua::LANGUAGE.into(), "lua"),
+        _ => return None,
+    })
+}
+
+#[cfg(not(feature = "ast-extended"))]
+fn lang_for_path_extended(_ext: &str) -> Option<(Language, &'static str)> {
+    None
 }
 
 /// Extensions the parser can ingest — kept in sync with [`lang_for_path`] and
 /// mirrored by the Python file-discovery walk.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "go", "rs", "java", "c",
-    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs",
+    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs", // extended tier (CONCEPT:KG-2.106):
+    "rb", "php", "sh", "bash", "scala", "sc", "lua",
 ];
 
 pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String> {
@@ -511,10 +531,15 @@ fn class_like_kind(kind: &str) -> Option<&'static str> {
         "interface_declaration" => "interface",
         "struct_specifier" | "struct_item" | "struct_declaration" => "struct",
         "enum_declaration" | "enum_item" | "enum_specifier" => "enum",
-        "trait_item" => "trait",
+        // `trait_item` Rust, `trait_definition` Scala, `trait_declaration` PHP.
+        "trait_item" | "trait_definition" | "trait_declaration" => "trait",
         "union_item" | "union_specifier" => "union",
         "record_declaration" | "record_struct_declaration" => "record",
         "namespace_definition" => "namespace",
+        // Ruby `class`/`module`; Scala `object_definition` (CONCEPT:KG-2.106).
+        "class" => "class",
+        "module" => "module",
+        "object_definition" => "object",
         // Go puts struct/interface names on the type_spec under a type_declaration.
         "type_spec" | "type_alias_declaration" => "type",
         _ => return None,
@@ -528,7 +553,8 @@ fn function_like_kind(kind: &str) -> Option<&'static str> {
         | "function_declaration"
         | "function_item"
         | "generator_function_declaration" => "function",
-        "method_definition" | "method_declaration" => "method",
+        // Ruby `method`/`singleton_method` (CONCEPT:KG-2.106).
+        "method_definition" | "method_declaration" | "method" | "singleton_method" => "method",
         "constructor_declaration" => "constructor",
         _ => return None,
     })
@@ -1262,6 +1288,50 @@ namespace App {
         assert!(
             cg.contains(&"doThing".to_string()) && cg.contains(&"Println".to_string()),
             "{cg:?}"
+        );
+    }
+
+    #[cfg(feature = "ast-extended")]
+    #[test]
+    fn extended_languages_extract_symbols() {
+        // Ruby class + method.
+        let rb = sym(
+            "a.rb",
+            "class Widget\n  def run\n    1\n  end\nend\n",
+            "Widget",
+        );
+        assert_eq!(rb["symbol_type"], "Class");
+        assert_eq!(rb["language"], "ruby");
+        assert_eq!(
+            sym(
+                "a.rb",
+                "class Widget\n  def run\n    1\n  end\nend\n",
+                "run"
+            )["symbol_type"],
+            "Function"
+        );
+        // PHP function.
+        let php = sym(
+            "a.php",
+            "<?php\nfunction greet($n) { return $n; }\n",
+            "greet",
+        );
+        assert_eq!(php["symbol_type"], "Function");
+        assert_eq!(php["language"], "php");
+        // Bash function.
+        assert_eq!(
+            sym("a.sh", "deploy() {\n  echo hi\n}\n", "deploy")["symbol_type"],
+            "Function"
+        );
+        // Scala object + def.
+        assert_eq!(
+            sym("a.scala", "object App {\n  def run(): Int = 1\n}\n", "run")["symbol_type"],
+            "Function"
+        );
+        // Lua function.
+        assert_eq!(
+            sym("a.lua", "function compute(x)\n  return x\nend\n", "compute")["symbol_type"],
+            "Function"
         );
     }
 
