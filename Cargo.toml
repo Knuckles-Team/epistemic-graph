@@ -29,10 +29,12 @@ algorithms = []
 metrics = ["dep:prometheus", "eg-types/metrics"]
 finance = ["eg-compute/finance", "eg-types/finance"]
 ast = ["eg-compute/ast"]
+# Extended-language grammar tier (CONCEPT:KG-2.106), folded into `full`.
+ast-extended = ["eg-compute/ast-extended"]
 datascience = ["eg-compute/datascience", "eg-types/datascience"]
 reasoning = ["eg-compute/reasoning"]
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
-compute = ["finance", "ast", "datascience", "reasoning"]
+compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 full = ["compute", "server"]
 all = ["full"]
 
