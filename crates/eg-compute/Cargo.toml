@@ -30,6 +30,16 @@ ast = [
     "dep:tree-sitter-cpp",
     "dep:tree-sitter-c-sharp",
 ]
+# CONCEPT:KG-2.106 — the extended-language tier. Feature-gated because each grammar
+# adds compile time + binary size; the `ast` core stays lean and `full` opts in.
+ast-extended = [
+    "ast",
+    "dep:tree-sitter-ruby",
+    "dep:tree-sitter-php",
+    "dep:tree-sitter-bash",
+    "dep:tree-sitter-scala",
+    "dep:tree-sitter-lua",
+]
 
 [dependencies]
 eg-types = { path = "../eg-types" }
@@ -58,3 +68,9 @@ tree-sitter-cpp = { version = "0.23", optional = true }
 # Pinned to an ABI-14 grammar: 0.23.5 was regenerated with tree-sitter ABI 15,
 # which the 0.23 core runtime rejects ("Incompatible language version 15").
 tree-sitter-c-sharp = { version = "=0.23.1", optional = true }
+# Extended-language tier (CONCEPT:KG-2.106), gated by `ast-extended`.
+tree-sitter-ruby = { version = "0.23", optional = true }
+tree-sitter-php = { version = "0.23", optional = true }
+tree-sitter-bash = { version = "0.23", optional = true }
+tree-sitter-scala = { version = "0.23", optional = true }
+tree-sitter-lua = { version = "0.2", optional = true }
