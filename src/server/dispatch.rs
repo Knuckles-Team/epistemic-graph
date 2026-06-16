@@ -60,7 +60,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                     "uptime_s": uptime_s,
                     "mem_bytes": mem_bytes,
                     "version": env!("CARGO_PKG_VERSION"),
-                    "ops": ["ParseFiles"]
+                    "ops": ["ParseFiles", "IndexRepository"]
                 })),
             )
         }
@@ -108,6 +108,42 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                     Err(resp) => return resp,
                 };
                 match serde_json::to_value(&results) {
+                    Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
+                    Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
+                }
+            }
+            #[cfg(not(feature = "ast"))]
+            {
+                let _ = files_msgpack;
+                Response::err(req.id, "AST feature not enabled".to_string())
+            }
+        }
+
+        Method::IndexRepository { files_msgpack } => {
+            #[cfg(feature = "ast")]
+            {
+                // Same blob shape as ParseFiles (`Vec<(file_path, source_bytes)>`),
+                // but parsed AND cross-file-resolved into a single IndexResult.
+                let files: Vec<(String, serde_bytes::ByteBuf)> =
+                    match rmp_serde::from_slice(&files_msgpack) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            return Response::err(req.id, format!("Invalid files_msgpack: {}", e));
+                        }
+                    };
+                let owned: Vec<(String, Vec<u8>)> =
+                    files.into_iter().map(|(p, b)| (p, b.into_vec())).collect();
+                // Off-reactor like ParseFiles: parse (rayon) + resolution are
+                // CPU-bound over the whole batch. (CONCEPT:KG-2.8r)
+                let result = match compute_off_lock(req.id, move || {
+                    crate::parser::resolve::index_repository(&owned)
+                })
+                .await
+                {
+                    Ok(r) => r,
+                    Err(resp) => return resp,
+                };
+                match serde_json::to_value(&result) {
                     Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
                 }
