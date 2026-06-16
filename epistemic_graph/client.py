@@ -209,6 +209,29 @@ class GraphOperationsClient:
         blob = msgpack.packb([[fp, src] for fp, src in files])
         return await self._client._send("ParseFiles", {"files_msgpack": blob})
 
+    async def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
+        """Parse a batch AND resolve cross-file edges in ONE round-trip
+        (CONCEPT:KG-2.8r).
+
+        ``files`` is a list of ``(file_path, source_bytes)`` — the SAME blob as
+        :meth:`parse_files`, but the batch is treated as one resolution scope (a
+        repository, or a delta set). Unlike :meth:`parse_files` (one raw result
+        per file), this returns a SINGLE merged ``IndexResult`` dict::
+
+            {"nodes": [...], "edges": [...],          # IMPLEMENTS + resolved
+             "symbols_extracted": int, "files_parsed": int,
+             "calls_resolved": int, "calls_unresolved": int,
+             "imports_resolved": int, "imports_unresolved": int}
+
+        ``edges`` carry resolved ``calls`` (symbol→symbol) and ``depends_on``
+        (file→file) edge types pointing at real node ids — the cross-file step
+        feature clustering / impact analysis run over. Use this to ingest a
+        repository's symbol graph; use :meth:`parse_files` only when per-file raw
+        results are wanted.
+        """
+        blob = msgpack.packb([[fp, src] for fp, src in files])
+        return await self._client._send("IndexRepository", {"files_msgpack": blob})
+
     async def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         await self._client._send(
             "AddEmbedding", {"node_id": node_id, "embedding": embedding}
@@ -1695,6 +1718,7 @@ _HEAVY_RPC_METHODS = frozenset(
     {
         "ParseFile",
         "ParseFiles",
+        "IndexRepository",
         "ParseRepository",
         "CommunityDetection",
         "CommunityDetectEphemeral",
