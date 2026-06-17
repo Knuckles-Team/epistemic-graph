@@ -291,7 +291,13 @@ impl GraphCore {
             let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props.as_slice()) else {
                 continue;
             };
+            // The label lives on `type` (canonical), `node_type` (the field the
+            // Python client writes — graph_compute normalises `type` ⇒ `node_type`
+            // on read-back, so the index MUST honour both or label-scoped MATCH
+            // silently under-returns every node_type-keyed node), `label`, or the
+            // multi-valued `labels` array.
             let matches = val.get("type").and_then(|v| v.as_str()) == Some(label)
+                || val.get("node_type").and_then(|v| v.as_str()) == Some(label)
                 || val.get("label").and_then(|v| v.as_str()) == Some(label)
                 || val
                     .get("labels")
@@ -1357,6 +1363,12 @@ mod tests {
             "l1".to_string(),
             props(serde_json::json!({"labels": ["Skill", "X"]})),
         );
+        // The Python client keys the label on `node_type`, not `type` — the index
+        // must find these too (else label-scoped MATCH under-returns).
+        g.add_node(
+            "nt1".to_string(),
+            props(serde_json::json!({"node_type": "Tool", "label": ""})),
+        );
 
         assert_eq!(g.get_nodes_by_label("Agent", 0).len(), 2); // type match, no cap
         assert_eq!(g.get_nodes_by_label("Agent", 1).len(), 1); // limit bounds result
@@ -1364,6 +1376,9 @@ mod tests {
         let skills = g.get_nodes_by_label("Skill", 0); // "labels" array membership
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].0, "l1");
+        let tools = g.get_nodes_by_label("Tool", 0); // `node_type` match
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].0, "nt1");
         assert!(g.get_nodes_by_label("Nonexistent", 0).is_empty());
     }
 
