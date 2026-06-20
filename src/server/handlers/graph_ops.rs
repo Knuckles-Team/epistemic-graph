@@ -123,6 +123,11 @@ pub(crate) async fn try_handle(
             let g = &*core;
             Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
         }
+        Method::MatchOntologyTerms { query } => {
+            // CONCEPT:EG-010 — lexical capability gate; cached aho-corasick scan.
+            let g = &*core;
+            Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
+        }
         Method::AddEmbedding { node_id, embedding } => {
             core.semantic_store
                 .write()
