@@ -54,13 +54,15 @@ pub struct GraphView {
 /// without copying the bytes.
 /// One capability term found in a query by the ontology lexical gate
 /// (CONCEPT:EG-010). `term` is the matched alias/name, `node_type` its capability
-/// class (Tool/Skill/MCPServer/…), `label` the owning node's display name, and
-/// `score` the matched term's character length (longer = more specific).
+/// class (Tool/Skill/MCPServer/…), `label` the owning node's display name,
+/// `mcp_server` the owning fleet server (so a caller can bind that server's
+/// toolset directly), and `score` the matched term's character length.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OntologyMatch {
     pub term: String,
     pub node_type: String,
     pub label: String,
+    pub mcp_server: String,
     pub score: f64,
 }
 
@@ -403,6 +405,12 @@ impl GraphCore {
                 continue;
             }
             let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            // The owning fleet server: a Tool carries `mcp_server`; an MCPServer node
+            // IS the server, so fall back to its own name.
+            let server = val
+                .get("mcp_server")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| if ntype == "MCPServer" { name } else { "" });
             let mut terms: Vec<&str> = Vec::new();
             if !name.is_empty() {
                 terms.push(name);
@@ -425,6 +433,7 @@ impl GraphCore {
                     term: term.to_string(),
                     node_type: ntype.to_string(),
                     label: name.to_string(),
+                    mcp_server: server.to_string(),
                     score: term.chars().count() as f64,
                 });
             }
@@ -1582,6 +1591,10 @@ mod tests {
         // The two validation cases (a product name, not a tool name).
         let hits = g.match_ontology_terms("Can you list the stacks I have on portainer?");
         assert!(hits.iter().any(|h| h.term == "portainer" && h.node_type == "Tool"));
+        // the match carries the owning fleet server so a caller can bind its toolset
+        assert!(hits
+            .iter()
+            .any(|h| h.term == "portainer" && h.mcp_server == "portainer-mcp"));
 
         let gh = g.match_ontology_terms("use the github mcp to fetch open issues");
         assert!(gh.iter().any(|h| h.term == "github"));
