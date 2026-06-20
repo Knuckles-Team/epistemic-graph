@@ -360,6 +360,7 @@ dependencies = [
 name = "eg-core"
 version = "0.27.0"
 dependencies = [
+ "aho-corasick",
  "dashmap",
  "eg-types",
  "hex",

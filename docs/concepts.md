@@ -15,6 +15,7 @@ These concepts are actively realized by the compiled Rust/Python Epistemic Graph
 | `CONCEPT:KG-2.18` | High-Performance Quant Epistemic-Graph Engine | Native-compiled quantitative metrics computation, portfolio optimization, regime detection, and order matching simulation engine (replacing Python `numpy`/`scipy`). |
 | `CONCEPT:KG-2.19` | Tokio Service Layer | High-performance Tokio async service exposing RPC endpoints over UDS/TCP for inter-agent communication. |
 | `CONCEPT:KG-2.51` | Lock-Free Compute + Engine Observability | Heavy read-only algorithms compute on structural snapshots via the blocking pool (writers never starved by analytics), plus Prometheus metrics (per-op rate/latency, admission, per-graph size, checkpoint, auth/ACL counters) on a `--metrics-addr` HTTP listener. |
+| `CONCEPT:EG-010` | Ontology Lexical Classification Gate | Embedding-free aho-corasick match of a query against capability-node names+synonyms (Tool/Skill/MCPServer/…), cached per node-count. The "free" (~µs) tier of chat-turn classification: a turn naming a real fleet capability escalates to the full graph without a vector search. `Method::MatchOntologyTerms` (read-only). |
 
 ## Cross-Project References (from agent-utilities)
 
