@@ -46,7 +46,9 @@ fi
 
 # Guard: the binary MUST carry the full method surface. A server-only build is
 # missing finance/quant and silently breaks emerald/quant callers at runtime.
-if ! strings "$SRC" | grep -q "FinanceAvellaneda"; then
+# (capture to a var: `strings | grep -q` trips `set -o pipefail` via SIGPIPE on a match)
+fin_syms=$(strings "$SRC" | grep -c "FinanceAvellaneda" || true)
+if [[ "${fin_syms:-0}" -eq 0 ]]; then
   echo "!! $SRC lacks finance symbols — was it built with --features $FEATURES? refusing."; exit 1
 fi
 
