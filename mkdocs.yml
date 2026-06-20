@@ -90,6 +90,7 @@ nav:
       - Technical Overview: overview.md
       - Service Mode: service_mode.md
       - Rust Compute Guide: RUST_COMPUTE_GUIDE.md
+      - Binary Promotion (deploy): deploy/binary-promotion.md
   - Performance:
       - Transport Benchmarks: benchmarks.md
   - Reference:
