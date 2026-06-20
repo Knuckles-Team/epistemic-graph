@@ -3,6 +3,7 @@
 // Core petgraph DiGraph CRUD operations, node/edge storage,
 // serialization, ledger, and repository parsing.
 
+use aho_corasick::{AhoCorasick, MatchKind};
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
@@ -51,6 +52,39 @@ pub struct GraphView {
 /// an outer lock. Single-op convenience methods open a one-shot txn. Properties are
 /// `Arc<Vec<u8>>` (Phase C-A) so they move into/out of the DashMap and snapshots
 /// without copying the bytes.
+/// One capability term found in a query by the ontology lexical gate
+/// (CONCEPT:EG-010). `term` is the matched alias/name, `node_type` its capability
+/// class (Tool/Skill/MCPServer/…), `label` the owning node's display name, and
+/// `score` the matched term's character length (longer = more specific).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OntologyMatch {
+    pub term: String,
+    pub node_type: String,
+    pub label: String,
+    pub score: f64,
+}
+
+/// A built aho-corasick automaton over capability terms plus the per-pattern
+/// metadata (parallel to the automaton's pattern ids). Cached on [`GraphCore`]
+/// and reused while `node_count` matches the live store (CONCEPT:EG-010).
+#[derive(Debug)]
+struct OntologyTermIndex {
+    node_count: usize,
+    ac: AhoCorasick,
+    metas: Vec<OntologyMatch>,
+}
+
+/// Capability node types whose names/synonyms form the lexical gate vocabulary.
+const CAPABILITY_NODE_TYPES: &[&str] = &[
+    "Tool",
+    "NativeTool",
+    "Skill",
+    "MCPServer",
+    "Server",
+    "BusinessCapability",
+    "Resource",
+];
+
 #[derive(Debug)]
 pub struct GraphCore {
     pub topo: RwLock<Topology>,
@@ -63,6 +97,11 @@ pub struct GraphCore {
     /// loaded graph is snapshotted once; thereafter `checkpoint_all` skips graphs
     /// that are still clean, so an idle tenant costs no checkpoint I/O.
     pub dirty: std::sync::atomic::AtomicBool,
+    /// Cached aho-corasick index of capability-node terms for the lexical
+    /// classification gate (CONCEPT:EG-010). Built lazily and reused while the
+    /// node count is unchanged, so `match_ontology_terms` is ~µs per query
+    /// instead of a full node scan. `None` until first use / after invalidation.
+    ontology_index: RwLock<Option<OntologyTermIndex>>,
 }
 
 impl Default for GraphCore {
@@ -226,6 +265,7 @@ impl GraphCore {
             ledger: Mutex::new(Vec::new()),
             semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
             dirty: std::sync::atomic::AtomicBool::new(true),
+            ontology_index: RwLock::new(None),
         }
     }
 
@@ -305,6 +345,133 @@ impl GraphCore {
                     .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(label)));
             if matches {
                 out.push((entry.key().clone(), (**props).clone()));
+            }
+        }
+        out
+    }
+
+    /// Lexical classification gate (CONCEPT:EG-010): find every capability term
+    /// (a `Tool`/`Skill`/`MCPServer`/… node's name or synonym) that appears as a
+    /// whole word in `query`. Embedding-free and backend-universal — the "free"
+    /// tier between structural routing and semantic `search_hybrid`: a chat turn
+    /// naming a real fleet capability ("list portainer stacks") escalates to the
+    /// full graph without paying for a vector search.
+    ///
+    /// The aho-corasick automaton over capability terms is cached and reused while
+    /// the node count is unchanged, so steady-state cost is ~µs per query.
+    pub fn match_ontology_terms(&self, query: &str) -> Vec<OntologyMatch> {
+        if query.trim().is_empty() {
+            return Vec::new();
+        }
+        let current_count = self.node_properties.len();
+        {
+            let guard = self.ontology_index.read();
+            if let Some(idx) = guard.as_ref() {
+                if idx.node_count == current_count {
+                    return Self::run_ontology_match(&idx.ac, &idx.metas, query);
+                }
+            }
+        }
+        let (ac, metas) = self.build_ontology_index();
+        let hits = Self::run_ontology_match(&ac, &metas, query);
+        *self.ontology_index.write() = Some(OntologyTermIndex {
+            node_count: current_count,
+            ac,
+            metas,
+        });
+        hits
+    }
+
+    /// Scan the node store once, collecting the deduped capability-term → metadata
+    /// map and compiling it into an aho-corasick automaton. Terms shorter than 3
+    /// chars are dropped (too noise-prone for whole-word matching).
+    fn build_ontology_index(&self) -> (AhoCorasick, Vec<OntologyMatch>) {
+        let mut dedup: HashMap<String, OntologyMatch> = HashMap::new();
+        for entry in self.node_properties.iter() {
+            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
+            else {
+                continue;
+            };
+            let Some(ntype) = val
+                .get("type")
+                .and_then(|v| v.as_str())
+                .or_else(|| val.get("node_type").and_then(|v| v.as_str()))
+            else {
+                continue;
+            };
+            if !CAPABILITY_NODE_TYPES.contains(&ntype) {
+                continue;
+            }
+            let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let mut terms: Vec<&str> = Vec::new();
+            if !name.is_empty() {
+                terms.push(name);
+            }
+            if let Some(arr) = val.get("synonyms").and_then(|v| v.as_array()) {
+                for s in arr {
+                    if let Some(ss) = s.as_str() {
+                        if !ss.is_empty() {
+                            terms.push(ss);
+                        }
+                    }
+                }
+            }
+            for term in terms {
+                let lc = term.to_lowercase();
+                if lc.chars().count() < 3 {
+                    continue;
+                }
+                dedup.entry(lc).or_insert_with(|| OntologyMatch {
+                    term: term.to_string(),
+                    node_type: ntype.to_string(),
+                    label: name.to_string(),
+                    score: term.chars().count() as f64,
+                });
+            }
+        }
+
+        let mut patterns: Vec<String> = Vec::with_capacity(dedup.len());
+        let mut metas: Vec<OntologyMatch> = Vec::with_capacity(dedup.len());
+        for (lc, meta) in dedup {
+            patterns.push(lc);
+            metas.push(meta);
+        }
+        let ac = AhoCorasick::builder()
+            .match_kind(MatchKind::LeftmostLongest)
+            .build(&patterns)
+            .unwrap_or_else(|_| {
+                AhoCorasick::new::<[&str; 0], _>([]).expect("empty aho-corasick")
+            });
+        (ac, metas)
+    }
+
+    /// Run a built automaton over `query`, returning the distinct capability terms
+    /// it contains. Matches are restricted to whole words (no alphanumeric char
+    /// abutting either end) so a short term never matches inside a larger word.
+    fn run_ontology_match(
+        ac: &AhoCorasick,
+        metas: &[OntologyMatch],
+        query: &str,
+    ) -> Vec<OntologyMatch> {
+        if metas.is_empty() {
+            return Vec::new();
+        }
+        let hay = query.to_lowercase();
+        let bytes = hay.as_bytes();
+        let mut out: Vec<OntologyMatch> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for m in ac.find_iter(hay.as_str()) {
+            let start = m.start();
+            let end = m.end();
+            let before_ok = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+            let after_ok = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric();
+            if !before_ok || !after_ok {
+                continue;
+            }
+            if let Some(meta) = metas.get(m.pattern().as_usize()) {
+                if seen.insert(meta.term.to_lowercase()) {
+                    out.push(meta.clone());
+                }
             }
         }
         out
@@ -704,6 +871,8 @@ impl GraphCore {
             ledger: Mutex::new(self.ledger.lock().clone()),
             semantic_store: RwLock::new(self.semantic_store.read().clone()),
             dirty: std::sync::atomic::AtomicBool::new(true),
+            // Fork starts with a cold gate index; rebuilt lazily on first use.
+            ontology_index: RwLock::new(None),
         }
     }
 
@@ -1380,6 +1549,76 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].0, "nt1");
         assert!(g.get_nodes_by_label("Nonexistent", 0).is_empty());
+    }
+
+    fn capability_graph() -> GraphCore {
+        let g = GraphCore::new();
+        // Fleet Tool nodes (KG-2.133 schema) — name + product synonyms.
+        g.add_node(
+            "tool_portainer-mcp_stack".to_string(),
+            props(serde_json::json!({
+                "type": "Tool", "name": "portainer_stack",
+                "synonyms": ["portainer", "portainer-mcp"], "mcp_server": "portainer-mcp"
+            })),
+        );
+        g.add_node(
+            "tool_github-mcp_issues".to_string(),
+            props(serde_json::json!({
+                "node_type": "Tool", "name": "github_issues",
+                "synonyms": ["github", "github-mcp"], "mcp_server": "github-mcp"
+            })),
+        );
+        // A non-capability node must never seed a term.
+        g.add_node(
+            "code1".to_string(),
+            props(serde_json::json!({"type": "Code", "name": "deploy"})),
+        );
+        g
+    }
+
+    #[test]
+    fn match_ontology_terms_hits_capability_by_synonym() {
+        let g = capability_graph();
+        // The two validation cases (a product name, not a tool name).
+        let hits = g.match_ontology_terms("Can you list the stacks I have on portainer?");
+        assert!(hits.iter().any(|h| h.term == "portainer" && h.node_type == "Tool"));
+
+        let gh = g.match_ontology_terms("use the github mcp to fetch open issues");
+        assert!(gh.iter().any(|h| h.term == "github"));
+        // also matches the exact tool name when spelled out
+        assert!(g
+            .match_ontology_terms("call github_issues now")
+            .iter()
+            .any(|h| h.term == "github_issues"));
+    }
+
+    #[test]
+    fn match_ontology_terms_is_whole_word_and_typed() {
+        let g = capability_graph();
+        // 'portainer' inside a larger word must NOT match (whole-word gate).
+        assert!(g.match_ontology_terms("teleportainerish gibberish").is_empty());
+        // trivial chat names no capability → no escalation signal.
+        assert!(g.match_ontology_terms("hey, how are you today?").is_empty());
+        // a non-capability node's name ("deploy") is never a term.
+        assert!(g.match_ontology_terms("please deploy it").is_empty());
+        assert!(g.match_ontology_terms("").is_empty());
+    }
+
+    #[test]
+    fn match_ontology_terms_cache_refreshes_on_node_change() {
+        let g = capability_graph();
+        assert!(g.match_ontology_terms("anything about gitlab?").is_empty());
+        // Add a new capability node; the index must rebuild on the changed count.
+        g.add_node(
+            "tool_gitlab-mcp_mr".to_string(),
+            props(serde_json::json!({
+                "type": "Tool", "name": "gitlab_mr", "synonyms": ["gitlab", "gitlab-mcp"]
+            })),
+        );
+        assert!(g
+            .match_ontology_terms("anything about gitlab?")
+            .iter()
+            .any(|h| h.term == "gitlab"));
     }
 
     #[test]

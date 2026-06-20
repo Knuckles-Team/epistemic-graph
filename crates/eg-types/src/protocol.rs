@@ -392,6 +392,12 @@ pub enum Method {
         query_embedding: Vec<f32>,
         n_results: usize,
     },
+    /// CONCEPT:EG-010 — embedding-free lexical classification gate: which
+    /// capability-node terms (Tool/Skill/MCPServer names+synonyms) appear in the
+    /// query. The "free" tier between structural routing and `SemanticSearch`.
+    MatchOntologyTerms {
+        query: String,
+    },
     SpectralCluster {
         vectors: Vec<Vec<f64>>,
         max_k: usize,

@@ -245,6 +245,20 @@ class GraphOperationsClient:
             {"query_embedding": query_embedding, "n_results": n_results},
         )
 
+    async def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
+        """CONCEPT:EG-010 — embedding-free lexical classification gate.
+
+        Returns the capability-node terms (Tool/Skill/MCPServer names+synonyms)
+        that appear as whole words in ``query``, each as
+        ``{term, node_type, label, score}``. The "free" tier between structural
+        routing and semantic search: a non-empty result means the turn names a
+        real fleet capability and should escalate to the full graph.
+        """
+        return await self._client._send(
+            "MatchOntologyTerms",
+            {"query": query},
+        )
+
     async def spectral_cluster(
         self, vectors: list[list[float]], max_k: int, domain: str
     ) -> list[dict[str, Any]]:
