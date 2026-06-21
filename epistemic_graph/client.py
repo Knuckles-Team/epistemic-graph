@@ -1817,6 +1817,15 @@ class EpistemicGraphClient:
         self._request_id = 0
         self._closed = False
         self._lock = asyncio.Lock()
+        # How we connected — remembered so a dropped connection can be
+        # transparently re-established on the next call (see _reconnect).
+        # Populated by connect(); a directly-constructed client cannot self-heal.
+        self._socket_path: str | None = None
+        self._tcp_addr: str | None = None
+        self._connect_timeout: float | None = _CONNECT_TIMEOUT
+        # Server capability set, negotiated lazily on first use (see supports());
+        # reset on reconnect so a fresh connection re-negotiates.
+        self._server_ops: set[str] | None = None
 
         # Namespaced Sub-Clients (Composition)
         self.nodes = NodeClient(self)
@@ -1832,6 +1841,54 @@ class EpistemicGraphClient:
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
 
+    @staticmethod
+    async def _open_streams(
+        socket_path: str | None,
+        tcp_addr: str | None,
+        connect_timeout: float | None,
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, str]:
+        """Dial a fresh reader/writer pair to the engine.
+
+        Returns ``(reader, writer, resolved_socket)`` — ``resolved_socket`` is the
+        UDS path actually used (so reconnects target the same socket), or ``""``
+        for a TCP endpoint. Shared by :meth:`connect` and :meth:`_reconnect`.
+        """
+        _conn_to = connect_timeout if connect_timeout else None
+        if tcp_addr:
+            host, port_str = tcp_addr.rsplit(":", 1)
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, int(port_str)), _conn_to
+                )
+            except (asyncio.TimeoutError, TimeoutError) as e:
+                raise TimeoutError(
+                    f"epistemic-graph connect to {tcp_addr} timed out after {_conn_to}s"
+                ) from e
+            logger.info("Connected to epistemic-graph service via TCP: %s", tcp_addr)
+            return reader, writer, ""
+
+        _socket = socket_path or os.environ.get(
+            "GRAPH_SERVICE_SOCKET",
+            os.path.join(
+                os.environ.get("XDG_RUNTIME_DIR", "/tmp"),  # nosec B108
+                "epistemic-graph.sock",
+            ),
+        )
+        if not os.path.exists(_socket):
+            _tmp_socket = "/tmp/epistemic-graph.sock"  # nosec B108
+            if os.path.exists(_tmp_socket):
+                _socket = _tmp_socket
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(_socket), _conn_to
+            )
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            raise TimeoutError(
+                f"epistemic-graph connect to {_socket} timed out after {_conn_to}s"
+            ) from e
+        logger.info("Connected to epistemic-graph service via UDS: %s", _socket)
+        return reader, writer, _socket
+
     @classmethod
     async def connect(
         cls,
@@ -1846,41 +1903,11 @@ class EpistemicGraphClient:
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
 
-        _conn_to = connect_timeout if connect_timeout else None
-        if tcp_addr:
-            host, port_str = tcp_addr.rsplit(":", 1)
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, int(port_str)), _conn_to
-                )
-            except (asyncio.TimeoutError, TimeoutError) as e:
-                raise TimeoutError(
-                    f"epistemic-graph connect to {tcp_addr} timed out after {_conn_to}s"
-                ) from e
-            logger.info("Connected to epistemic-graph service via TCP: %s", tcp_addr)
-        else:
-            _socket = socket_path or os.environ.get(
-                "GRAPH_SERVICE_SOCKET",
-                os.path.join(
-                    os.environ.get("XDG_RUNTIME_DIR", "/tmp"),  # nosec B108
-                    "epistemic-graph.sock",
-                ),
-            )
-            if not os.path.exists(_socket):
-                _tmp_socket = "/tmp/epistemic-graph.sock"  # nosec B108
-                if os.path.exists(_tmp_socket):
-                    _socket = _tmp_socket
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_unix_connection(_socket), _conn_to
-                )
-            except (asyncio.TimeoutError, TimeoutError) as e:
-                raise TimeoutError(
-                    f"epistemic-graph connect to {_socket} timed out after {_conn_to}s"
-                ) from e
-            logger.info("Connected to epistemic-graph service via UDS: %s", _socket)
+        reader, writer, resolved_socket = await cls._open_streams(
+            socket_path, tcp_addr, connect_timeout
+        )
 
-        return cls(
+        client = cls(
             reader,
             writer,
             _secret,
@@ -1889,6 +1916,30 @@ class EpistemicGraphClient:
             timeout=timeout,
             heavy_timeout=heavy_timeout,
         )
+        # Remember the endpoint so a dropped connection self-heals (KG-2.19).
+        client._socket_path = resolved_socket or socket_path
+        client._tcp_addr = tcp_addr
+        client._connect_timeout = connect_timeout
+        return client
+
+    async def _reconnect(self) -> None:
+        """Re-establish a dropped connection in place, on the same endpoint.
+
+        A long-lived client's connection can die between calls — engine
+        restart, an idle close, or a prior RPC that closed a poisoned stream
+        (see ``_send``). Without recovery the client is permanently broken and
+        the engine circuit breaker latches OPEN forever. Callers hold no
+        reference to the underlying reader/writer, so dialing a fresh stream and
+        swapping them in is transparent. Must be called with ``self._lock`` held.
+        """
+        with contextlib.suppress(Exception):  # discard the poisoned stream
+            self._writer.close()
+        self._reader, self._writer, _ = await self._open_streams(
+            self._socket_path, self._tcp_addr, self._connect_timeout
+        )
+        self._closed = False
+        # Re-negotiate capabilities against the fresh connection.
+        self._server_ops = None
 
     # ── Internal ──────────────────────────────────────────────────────────
 
@@ -1936,6 +1987,11 @@ class EpistemicGraphClient:
             write_timeout = min(timeout, write_timeout) if write_timeout else timeout
 
         async with self._lock:
+            # A prior call may have closed a poisoned/dead stream. Re-dial in
+            # place so this call succeeds instead of reusing a dead writer —
+            # otherwise the engine circuit breaker latches OPEN permanently.
+            if self._closed:
+                await self._reconnect()
             try:
                 self._writer.write(length_prefix)
                 self._writer.write(payload)
@@ -1964,6 +2020,16 @@ class EpistemicGraphClient:
                     f"epistemic-graph RPC {method!r} timed out (connection closed; "
                     "retry will reconnect)"
                 ) from e
+            except OSError:
+                # Any transport-level error during write/drain/read — broken pipe,
+                # connection reset, etc. (all OSError subclasses) — leaves the
+                # stream unusable. Mark it closed so the NEXT call reconnects
+                # instead of reusing a dead writer (which latched the breaker
+                # OPEN forever). Re-raise unchanged; it trips the breaker.
+                self._closed = True
+                with contextlib.suppress(Exception):  # best-effort teardown
+                    self._writer.close()
+                raise
 
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
