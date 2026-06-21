@@ -11,6 +11,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         method,
         Method::AddNode { .. }
             | Method::RemoveNode { .. }
+            | Method::CompareAndSetNodeFields { .. }
             | Method::AddEdge { .. }
             | Method::RemoveEdge { .. }
             | Method::ClearGraph
