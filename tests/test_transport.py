@@ -123,6 +123,57 @@ async def test_rpc_timeout_is_bounded_and_connection_fatal():
 
 
 @pytest.mark.asyncio
+async def test_send_reconnects_after_connection_drop():
+    # CONCEPT:KG-2.19 — a long-lived client whose connection is dropped (engine
+    # restart / idle close / a prior poisoned stream) MUST self-heal on the next
+    # call. Before the fix, _send set _closed=True but never re-dialed, so every
+    # subsequent call reused the dead writer and the engine circuit breaker
+    # latched OPEN forever (the host worker stalled with the queue backing up).
+    connections = {"n": 0}
+
+    async def handler(reader, writer):
+        connections["n"] += 1
+        drop_after_one = connections["n"] == 1
+        try:
+            while True:
+                len_buf = await reader.readexactly(4)
+                msg_len = int.from_bytes(len_buf, byteorder="big")
+                await reader.readexactly(msg_len)
+                resp_bytes = msgpack.packb({"result": "pong"})
+                writer.write(len(resp_bytes).to_bytes(4, byteorder="big"))
+                writer.write(resp_bytes)
+                await writer.drain()
+                if drop_after_one:
+                    writer.close()  # engine drops this connection after one reply
+                    return
+        except (asyncio.IncompleteReadError, ConnectionResetError):
+            pass
+
+    server = await asyncio.start_server(handler, "127.0.0.1", 9121)
+    try:
+        client = await EpistemicGraphClient.connect(
+            tcp_addr="127.0.0.1:9121", auth_secret="s", timeout=1.0
+        )
+        assert await client.ping() == "pong"  # served on the first connection
+
+        # The server has closed the first connection; the next call detects the
+        # dead stream and marks it closed (the unavoidable single failure).
+        with pytest.raises((ConnectionError, TimeoutError)):
+            await client.ping()
+        assert client._closed is True
+
+        # THE FIX: the following call transparently reconnects (new connection,
+        # connections["n"] == 2) and succeeds instead of failing forever.
+        assert await client.ping() == "pong"
+        assert client._closed is False
+        assert connections["n"] == 2
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
 async def test_shard_stickiness():
     router = ShardRouter(
         ["tcp://127.0.0.1:9101", "tcp://127.0.0.1:9102", "tcp://127.0.0.1:9103"]
