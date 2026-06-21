@@ -43,6 +43,25 @@ class NodeClient:
     async def has(self, node_id: str) -> bool:
         return await self._client._send("HasNode", {"node_id": node_id})
 
+    async def compare_and_set(
+        self, node_id: str, conditions: dict[str, Any], updates: dict[str, Any]
+    ) -> bool:
+        """Atomic compare-and-set on a node's property blob (CONCEPT:KG-2 backend-
+        agnostic atomic claim). If every ``(field, expected)`` in ``conditions``
+        matches the node's current value (a MISSING field reads as ``None``), the
+        ``updates`` are merged in and ``True`` is returned; otherwise (node absent,
+        any condition fails, or decode fails) the node is untouched and ``False``
+        is returned. The read-modify-write runs atomically in the engine, so this
+        is a backend-agnostic atomic claim for ``:Task``/``:Loop`` nodes."""
+        return await self._client._send(
+            "CompareAndSetNodeFields",
+            {
+                "node_id": node_id,
+                "conditions_msgpack": list(msgpack.packb(conditions)),
+                "updates_msgpack": list(msgpack.packb(updates)),
+            },
+        )
+
     async def list(self) -> builtins.list[tuple[str, str]]:
         return await self._client._send("GetNodes")
 

@@ -76,6 +76,29 @@ pub(crate) async fn try_handle(
             };
             Response::ok(req_id, val)
         }
+        Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } => {
+            // Decode the two msgpack blobs to JSON objects. A decode failure is a
+            // CAS failure (false), not a transport error — the node is untouched.
+            let conditions = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                &conditions_msgpack,
+            ) {
+                Ok(m) => m,
+                Err(_) => return Response::ok(req_id, ResultPayload::Bool(false)),
+            };
+            let updates = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                &updates_msgpack,
+            ) {
+                Ok(m) => m,
+                Err(_) => return Response::ok(req_id, ResultPayload::Bool(false)),
+            };
+            let g = &*core;
+            let ok = g.compare_and_set_fields(&node_id, &conditions, &updates);
+            Response::ok(req_id, ResultPayload::Bool(ok))
+        }
         Method::GetNodePropertiesBatch { node_ids } => {
             if node_ids.len() > MAX_BATCH_IDS {
                 return Response::err(
