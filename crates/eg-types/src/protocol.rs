@@ -97,6 +97,22 @@ pub enum Method {
     GetNodeProperties {
         node_id: String,
     },
+    /// Atomic compare-and-set on a node's property blob (CONCEPT:KG-2 backend-
+    /// agnostic atomic claim). `conditions_msgpack`/`updates_msgpack` are
+    /// MessagePack-encoded JSON objects (field→value maps, same encoding as
+    /// `properties_msgpack`). Under the topology write guard: if every condition
+    /// matches the node's current value (a MISSING field reads as `null`), the
+    /// updates are merged in and `true` is returned; otherwise (node absent, any
+    /// condition fails, or decode fails) the node is left untouched and `false`
+    /// is returned. One in-engine CAS suffices for all backends (the engine is
+    /// the authoritative store; mirrors follow).
+    CompareAndSetNodeFields {
+        node_id: String,
+        #[serde(with = "serde_bytes")]
+        conditions_msgpack: Vec<u8>,
+        #[serde(with = "serde_bytes")]
+        updates_msgpack: Vec<u8>,
+    },
     /// Batch property read: fetch properties for many nodes in ONE round-trip
     /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
     /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the

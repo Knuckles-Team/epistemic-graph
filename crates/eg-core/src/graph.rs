@@ -256,6 +256,56 @@ impl<'a> GraphTxn<'a> {
             );
         }
     }
+
+    /// Atomic compare-and-set on a node's property blob (CONCEPT:KG-2 backend-
+    /// agnostic atomic claim). Runs entirely under the held topology write guard
+    /// (decode → check → merge → re-encode → write), so the read-modify-write is
+    /// atomic w.r.t. other writers. For every `(field, expected)` in `conditions`
+    /// the node's current value must equal `expected`, treating a MISSING field as
+    /// `null` (so a condition of `null` means "absent or null"). If ALL conditions
+    /// hold, every `(field, value)` from `updates` is merged into the object and
+    /// `true` is returned. If the node is absent, any condition fails, or the
+    /// current blob fails to decode, the node is left untouched and `false` is
+    /// returned.
+    pub fn compare_and_set_fields(
+        &mut self,
+        node_id: &str,
+        conditions: &serde_json::Map<String, serde_json::Value>,
+        updates: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        let bytes = match self.node_properties.get(node_id) {
+            Some(b) => b.value().clone(),
+            None => return false,
+        };
+        let mut val = match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let obj = match val.as_object_mut() {
+            Some(o) => o,
+            None => return false,
+        };
+        // Check every condition against the current value (missing reads as null).
+        for (field, expected) in conditions {
+            let current = obj.get(field).unwrap_or(&serde_json::Value::Null);
+            if current != expected {
+                return false;
+            }
+        }
+        // All conditions held — merge updates and write the blob back.
+        for (field, value) in updates {
+            obj.insert(field.clone(), value.clone());
+        }
+        let reenc = match rmp_serde::to_vec_named(&val) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        let log = format!("CAS_NODE|{}|{}", node_id, hex::encode(&reenc));
+        self.node_properties
+            .insert(node_id.to_string(), Arc::new(reenc));
+        push_ledger(&mut self.ledger.lock(), log);
+        true
+    }
 }
 
 impl GraphCore {
@@ -306,6 +356,19 @@ impl GraphCore {
 
     pub fn remove_node(&self, node_id: String) {
         self.txn().remove_node(node_id);
+    }
+
+    /// One-shot atomic compare-and-set over a single `txn` (CONCEPT:KG-2 backend-
+    /// agnostic atomic claim). See [`GraphTxn::compare_and_set_fields`] for the
+    /// semantics; the whole read-modify-write runs under one topology write guard.
+    pub fn compare_and_set_fields(
+        &self,
+        node_id: &str,
+        conditions: &serde_json::Map<String, serde_json::Value>,
+        updates: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        self.txn()
+            .compare_and_set_fields(node_id, conditions, updates)
     }
 
     pub fn has_node(&self, node_id: &str) -> bool {
@@ -1509,6 +1572,107 @@ mod tests {
         let bytes = core.get_node_properties(id).expect("node exists");
         let v: serde_json::Value = rmp_serde::from_slice(&bytes).unwrap();
         v.get("confidence").and_then(|c| c.as_f64()).unwrap()
+    }
+
+    fn obj(map: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        map.as_object().unwrap().clone()
+    }
+
+    fn field_of(core: &GraphCore, id: &str, field: &str) -> Option<serde_json::Value> {
+        let bytes = core.get_node_properties(id)?;
+        let v: serde_json::Value = rmp_serde::from_slice(&bytes).ok()?;
+        v.get(field).cloned()
+    }
+
+    #[test]
+    fn cas_succeeds_when_condition_matches_and_merges_updates() {
+        let g = GraphCore::new();
+        g.add_node(
+            "task1".to_string(),
+            props(serde_json::json!({"type": "Task", "status": "pending"})),
+        );
+        let ok = g.compare_and_set_fields(
+            "task1",
+            &obj(serde_json::json!({"status": "pending"})),
+            &obj(serde_json::json!({"status": "claimed", "owner": "worker-7"})),
+        );
+        assert!(ok, "CAS should succeed when the condition matches");
+        assert_eq!(
+            field_of(&g, "task1", "status"),
+            Some(serde_json::json!("claimed"))
+        );
+        assert_eq!(
+            field_of(&g, "task1", "owner"),
+            Some(serde_json::json!("worker-7"))
+        );
+        // Untouched existing field is preserved.
+        assert_eq!(
+            field_of(&g, "task1", "type"),
+            Some(serde_json::json!("Task"))
+        );
+    }
+
+    #[test]
+    fn cas_fails_and_does_not_mutate_when_condition_mismatches() {
+        let g = GraphCore::new();
+        g.add_node(
+            "task2".to_string(),
+            props(serde_json::json!({"type": "Task", "status": "claimed"})),
+        );
+        let ok = g.compare_and_set_fields(
+            "task2",
+            &obj(serde_json::json!({"status": "pending"})),
+            &obj(serde_json::json!({"status": "claimed", "owner": "intruder"})),
+        );
+        assert!(!ok, "CAS should fail when the condition does not match");
+        assert_eq!(
+            field_of(&g, "task2", "status"),
+            Some(serde_json::json!("claimed"))
+        );
+        assert_eq!(field_of(&g, "task2", "owner"), None, "must not be mutated");
+    }
+
+    #[test]
+    fn cas_fails_when_node_missing() {
+        let g = GraphCore::new();
+        let ok = g.compare_and_set_fields(
+            "absent",
+            &obj(serde_json::json!({"status": "pending"})),
+            &obj(serde_json::json!({"status": "claimed"})),
+        );
+        assert!(!ok, "CAS on a missing node returns false");
+        assert!(g.get_node_properties("absent").is_none());
+    }
+
+    #[test]
+    fn cas_treats_missing_field_as_null() {
+        let g = GraphCore::new();
+        g.add_node(
+            "task3".to_string(),
+            props(serde_json::json!({"type": "Task"})),
+        );
+        // condition `owner: null` means "absent or null" — matches the absent field.
+        let ok = g.compare_and_set_fields(
+            "task3",
+            &obj(serde_json::json!({"owner": null})),
+            &obj(serde_json::json!({"owner": "worker-1"})),
+        );
+        assert!(ok, "null condition should match an absent field");
+        assert_eq!(
+            field_of(&g, "task3", "owner"),
+            Some(serde_json::json!("worker-1"))
+        );
+        // A second claim with the same null condition now fails (owner is set).
+        let ok2 = g.compare_and_set_fields(
+            "task3",
+            &obj(serde_json::json!({"owner": null})),
+            &obj(serde_json::json!({"owner": "worker-2"})),
+        );
+        assert!(!ok2, "owner already set — second claim must fail");
+        assert_eq!(
+            field_of(&g, "task3", "owner"),
+            Some(serde_json::json!("worker-1"))
+        );
     }
 
     #[test]
