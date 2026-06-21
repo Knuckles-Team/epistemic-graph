@@ -34,6 +34,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
         m,
         Method::AddNode { .. }
             | Method::RemoveNode { .. }
+            | Method::CompareAndSetNodeFields { .. }
             | Method::AddEdge { .. }
             | Method::RemoveEdge { .. }
             | Method::BatchUpdate { .. }
@@ -133,6 +134,24 @@ fn apply(core: &GraphCore, m: &Method) {
             properties_msgpack,
         } => core.add_node(node_id.clone(), properties_msgpack.clone()),
         Method::RemoveNode { node_id } => core.remove_node(node_id.clone()),
+        Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } => {
+            // Deterministic replay: decode the blobs and re-run the CAS. Replaying
+            // over the same pre-image yields the same outcome; the bool is ignored.
+            if let (Ok(conditions), Ok(updates)) = (
+                rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                    conditions_msgpack,
+                ),
+                rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                    updates_msgpack,
+                ),
+            ) {
+                let _ = core.compare_and_set_fields(node_id, &conditions, &updates);
+            }
+        }
         Method::AddEdge {
             source_id,
             target_id,
