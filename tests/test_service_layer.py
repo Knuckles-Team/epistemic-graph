@@ -123,6 +123,54 @@ def test_service_node_crud(service, client_factory):
 
 
 @pytest.mark.concept("CONCEPT:KG-2.0")
+def test_service_compare_and_set(service, client_factory):
+    """Backend-agnostic atomic claim via CompareAndSetNodeFields round-trip."""
+
+    async def _test():
+        client = await client_factory()
+        await client.nodes.add("cas:task1", {"type": "Task", "status": "pending"})
+
+        # Condition matches → claim succeeds and updates merge in.
+        ok = await client.nodes.compare_and_set(
+            "cas:task1",
+            {"status": "pending"},
+            {"status": "claimed", "owner": "worker-7"},
+        )
+        assert ok is True
+        props = await client.nodes.properties("cas:task1")
+        assert props["status"] == "claimed"
+        assert props["owner"] == "worker-7"
+        assert props["type"] == "Task"  # untouched field preserved
+
+        # Condition no longer matches → second claim fails, node unchanged.
+        ok2 = await client.nodes.compare_and_set(
+            "cas:task1",
+            {"status": "pending"},
+            {"owner": "intruder"},
+        )
+        assert ok2 is False
+        props2 = await client.nodes.properties("cas:task1")
+        assert props2["owner"] == "worker-7"
+
+        # Missing node → false.
+        assert (
+            await client.nodes.compare_and_set("cas:absent", {"x": None}, {"x": 1})
+            is False
+        )
+
+        # null condition means "absent or null" → matches an unset field.
+        await client.nodes.add("cas:task2", {"type": "Task"})
+        assert (
+            await client.nodes.compare_and_set(
+                "cas:task2", {"owner": None}, {"owner": "worker-1"}
+            )
+            is True
+        )
+
+    asyncio.run(_test())
+
+
+@pytest.mark.concept("CONCEPT:KG-2.0")
 def test_service_edge_crud(service, client_factory):
     """Test edge add/has/remove via the service."""
 
