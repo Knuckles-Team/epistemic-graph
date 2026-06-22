@@ -120,6 +120,127 @@ mod tests {
         );
     }
 
+    // ── Cross-graph union reads (CONCEPT:KG-2.171) ──────────────────────
+
+    #[tokio::test]
+    async fn test_union_read_across_graphs() {
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("__ingest__", GraphType::Global, None)
+                .unwrap();
+        }
+        // Node A lives in __commons__, node B lives ONLY in __ingest__.
+        let mk = |id: &str, name: &str| Method::AddNode {
+            node_id: id.to_string(),
+            properties_msgpack: rmp_serde::to_vec(
+                &serde_json::json!({"type": "Doc", "name": name}),
+            )
+            .unwrap(),
+        };
+        assert_ok(&dispatch(&state, request(1, "__commons__", None, mk("A", "alpha"))).await);
+        assert_ok(&dispatch(&state, request(2, "__ingest__", None, mk("B", "beta"))).await);
+
+        let graphs = vec!["__commons__".to_string(), "__ingest__".to_string()];
+
+        // A single-graph read of __commons__ does NOT see B (proves the union does work).
+        let single = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::GetNodeProperties {
+                    node_id: "B".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(
+                single.result,
+                Some(ResultPayload::Json(serde_json::Value::Null))
+            ),
+            "B must be absent from __commons__ alone, got {:?}",
+            single.result
+        );
+
+        // Union point read finds B (which lives only in __ingest__).
+        let up = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::UnionGetNodeProperties {
+                    graphs: graphs.clone(),
+                    node_id: "B".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&up);
+        assert!(
+            matches!(up.result, Some(ResultPayload::PropertiesMsgpack(_))),
+            "union point read must find B across graphs, got {:?}",
+            up.result
+        );
+
+        // Union label scan sees BOTH graphs, deduped by id.
+        let ul = dispatch(
+            &state,
+            request(
+                5,
+                "__commons__",
+                None,
+                Method::UnionGetNodesByLabel {
+                    graphs: graphs.clone(),
+                    label: "Doc".into(),
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&ul);
+        match ul.result {
+            Some(ResultPayload::NodeList(nodes)) => {
+                let ids: std::collections::HashSet<String> =
+                    nodes.iter().map(|(k, _)| k.clone()).collect();
+                assert!(
+                    ids.contains("A") && ids.contains("B"),
+                    "union label scan must union both graphs, got {:?}",
+                    ids
+                );
+            }
+            other => panic!("expected NodeList, got {:?}", other),
+        }
+
+        // A missing lane graph in the set is skipped (no error), still returns __commons__'s A.
+        let with_missing = vec![
+            "__commons__".to_string(),
+            "__ingest_does_not_exist__".to_string(),
+        ];
+        let um = dispatch(
+            &state,
+            request(
+                6,
+                "__commons__",
+                None,
+                Method::UnionGetNodeProperties {
+                    graphs: with_missing,
+                    node_id: "A".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&um);
+        assert!(matches!(
+            um.result,
+            Some(ResultPayload::PropertiesMsgpack(_))
+        ));
+    }
+
     #[tokio::test]
     async fn test_bad_auth_token_rejected() {
         let state = test_state();
