@@ -924,4 +924,61 @@ mod tests {
         .await;
         assert_denied(&resp);
     }
+
+    /// CONCEPT:KG-2.51 — Per-graph write isolation (parallel writers).
+    ///
+    /// Writers to DIFFERENT graphs must never serialize on a global/registry lock:
+    /// `dispatch_graph_op` only takes the global `ServerState` lock as a SHARED
+    /// reader, clones the target graph's `Arc<GraphCore>`, and releases it before
+    /// any mutation — so the only write lock taken is `GraphCore::topo`, which is
+    /// per-graph. This reproduces the starvation scenario: a long-running write
+    /// txn on graph A (a stand-in for sustained ingestion holding A's write lock)
+    /// must NOT block writers targeting graph B.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_writers_to_distinct_graphs_do_not_serialize() {
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("agent:ingest", GraphType::Agent, None)
+                .unwrap();
+            s.registry
+                .create_graph("agent:control", GraphType::Agent, None)
+                .unwrap();
+        }
+
+        // Grab graph A's core and open a write txn, HOLDING its topology write lock
+        // for the duration — exactly what sustained ingestion does to one graph.
+        let ingest_core = {
+            let s = state.read().await;
+            s.registry.get("agent:ingest").unwrap().core.clone()
+        };
+        let _held_txn = ingest_core.txn(); // holds agent:ingest topo.write()
+
+        // With A's write lock held, writers to B (the control plane) must still
+        // complete promptly. If anything serialized writes across graphs (a global
+        // write lock, or lazy-create under a registry write lock), every one of
+        // these would deadlock against `_held_txn` and the timeout would fire.
+        for i in 0..25u64 {
+            let resp = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                dispatch(
+                    &state,
+                    request(200 + i, "agent:control", None, add_node(&format!("c{}", i))),
+                ),
+            )
+            .await
+            .expect("control-plane writer starved by ingestion holding another graph's lock");
+            assert_ok(&resp);
+        }
+
+        // The held graph took no control-plane writes; the control graph took all.
+        drop(_held_txn);
+        assert_eq!(ingest_core.node_count(), 0);
+        let control_core = {
+            let s = state.read().await;
+            s.registry.get("agent:control").unwrap().core.clone()
+        };
+        assert_eq!(control_core.node_count(), 25);
+    }
 }
