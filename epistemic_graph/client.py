@@ -130,6 +130,43 @@ class NodeClient:
     async def neighbors(self, node_id: str) -> builtins.list[str]:
         return await self._client._send("GetNeighbors", {"node_id": node_id})
 
+    # ── Cross-graph union reads (CONCEPT:KG-2.171) ───────────────────────
+    # Read across a SET of content graphs as if one, so writes can be partitioned
+    # across per-graph write locks (each lane its own graph) while reads see the
+    # union. Missing lane graphs in the set are skipped engine-side.
+
+    async def properties_union(
+        self, node_id: str, graphs: builtins.list[str]
+    ) -> dict[str, Any] | None:
+        """First-found node properties across ``graphs`` (in order)."""
+        raw_val = await self._client._send(
+            "UnionGetNodeProperties", {"graphs": list(graphs), "node_id": node_id}
+        )
+        if raw_val is None:
+            return None
+        if isinstance(raw_val, bytes):
+            import msgpack
+
+            return msgpack.unpackb(raw_val, raw=False)
+        return raw_val
+
+    async def list_by_label_union(
+        self, label: str, graphs: builtins.list[str], limit: int = 0
+    ) -> builtins.list[tuple[str, Any]]:
+        """Label scan unioned + deduped by id across ``graphs`` (``limit=0`` ⇒ no cap)."""
+        return await self._client._send(
+            "UnionGetNodesByLabel",
+            {"graphs": list(graphs), "label": label, "limit": int(limit)},
+        )
+
+    async def neighbors_union(
+        self, node_id: str, graphs: builtins.list[str]
+    ) -> builtins.list[str]:
+        """Neighbour ids unioned + deduped across every graph that holds the anchor."""
+        return await self._client._send(
+            "UnionGetNeighbors", {"graphs": list(graphs), "node_id": node_id}
+        )
+
 
 class EdgeClient:
     """CONCEPT:KG-2.0 — Topology Edge Namespace"""
