@@ -15,6 +15,39 @@ use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 
+/// Resolve a cross-graph union read's graph set to their cores (CONCEPT:KG-2.171).
+///
+/// Access-checks each graph as Read, clones the `Arc<GraphCore>`s, and holds only
+/// the registry read lock for the resolution — the per-graph topology locks are
+/// NOT taken here; the caller reads each core sequentially after this returns, so
+/// two graph locks are never held at once (the cross-graph deadlock discipline).
+/// Missing graphs are skipped (a lane graph may not exist yet); one denied graph
+/// fails the whole union.
+async fn resolve_union_cores(
+    state: &Arc<RwLock<ServerState>>,
+    caller: Option<&str>,
+    graphs: &[String],
+) -> Result<Vec<Arc<GraphCore>>, String> {
+    let s = state.read().await;
+    let mut cores = Vec::with_capacity(graphs.len());
+    for name in graphs {
+        let entry = match s.registry.get(name) {
+            Some(e) => e,
+            None => continue,
+        };
+        check_graph_access(
+            &s.isolation,
+            caller,
+            name,
+            entry.graph_type,
+            entry.owner.as_deref(),
+            AccessLevel::Read,
+        )?;
+        cores.push(entry.core.clone());
+    }
+    Ok(cores)
+}
+
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
 /// chain (it owns the catch-all), so it returns a `Response` directly.
 pub(crate) async fn try_handle(
@@ -892,6 +925,63 @@ pub(crate) async fn try_handle(
                 },
                 Err(e) => Response::err(req_id, e),
             }
+        }
+        Method::UnionGetNodeProperties { graphs, node_id } => {
+            // First-found across the graph set (in order); point reads, no
+            // snapshot. Registry lock released before any per-core read.
+            let cores = match resolve_union_cores(state, caller, &graphs).await {
+                Ok(c) => c,
+                Err(denied) => return Response::err(req_id, denied),
+            };
+            for c in &cores {
+                if let Some(props) = c.get_node_properties(&node_id) {
+                    return Response::ok(req_id, ResultPayload::PropertiesMsgpack(props));
+                }
+            }
+            Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null))
+        }
+        Method::UnionGetNodesByLabel {
+            graphs,
+            label,
+            limit,
+        } => {
+            let cores = match resolve_union_cores(state, caller, &graphs).await {
+                Ok(c) => c,
+                Err(denied) => return Response::err(req_id, denied),
+            };
+            let mut seen = std::collections::HashSet::new();
+            let mut nodes: Vec<(String, serde_json::Value)> = Vec::new();
+            'outer: for c in &cores {
+                for (k, p) in c.get_nodes_by_label(&label, limit) {
+                    if seen.insert(k.clone()) {
+                        let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                            .unwrap_or(serde_json::json!({}));
+                        nodes.push((k, val));
+                        if limit != 0 && nodes.len() >= limit {
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+            Response::ok(req_id, ResultPayload::NodeList(nodes))
+        }
+        Method::UnionGetNeighbors { graphs, node_id } => {
+            let cores = match resolve_union_cores(state, caller, &graphs).await {
+                Ok(c) => c,
+                Err(denied) => return Response::err(req_id, denied),
+            };
+            let mut seen = std::collections::HashSet::new();
+            let mut out: Vec<String> = Vec::new();
+            for c in &cores {
+                if let Ok(ns) = c.get_neighbors(&node_id) {
+                    for n in ns {
+                        if seen.insert(n.clone()) {
+                            out.push(n);
+                        }
+                    }
+                }
+            }
+            Response::ok(req_id, ResultPayload::Ids(out))
         }
         Method::DiffAgainst { other_graph } => {
             let s_lock = state.read().await;

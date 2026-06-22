@@ -511,9 +511,7 @@ impl GraphCore {
         let ac = AhoCorasick::builder()
             .match_kind(MatchKind::LeftmostLongest)
             .build(&patterns)
-            .unwrap_or_else(|_| {
-                AhoCorasick::new::<[&str; 0], _>([]).expect("empty aho-corasick")
-            });
+            .unwrap_or_else(|_| AhoCorasick::new::<[&str; 0], _>([]).expect("empty aho-corasick"));
         (ac, metas)
     }
 
@@ -1754,7 +1752,9 @@ mod tests {
         let g = capability_graph();
         // The two validation cases (a product name, not a tool name).
         let hits = g.match_ontology_terms("Can you list the stacks I have on portainer?");
-        assert!(hits.iter().any(|h| h.term == "portainer" && h.node_type == "Tool"));
+        assert!(hits
+            .iter()
+            .any(|h| h.term == "portainer" && h.node_type == "Tool"));
         // the match carries the owning fleet server so a caller can bind its toolset
         assert!(hits
             .iter()
@@ -1773,7 +1773,9 @@ mod tests {
     fn match_ontology_terms_is_whole_word_and_typed() {
         let g = capability_graph();
         // 'portainer' inside a larger word must NOT match (whole-word gate).
-        assert!(g.match_ontology_terms("teleportainerish gibberish").is_empty());
+        assert!(g
+            .match_ontology_terms("teleportainerish gibberish")
+            .is_empty());
         // trivial chat names no capability → no escalation signal.
         assert!(g.match_ontology_terms("hey, how are you today?").is_empty());
         // a non-capability node's name ("deploy") is never a term.

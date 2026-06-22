@@ -177,6 +177,31 @@ pub enum Method {
         node_id: String,
     },
 
+    // ── Cross-graph union reads (CONCEPT:KG-2.171) ───────────────────
+    // Read across a SET of content graphs as if they were one, so writes can be
+    // partitioned across per-graph write locks (each lane its own graph/lock)
+    // while reads still see the union. Missing graphs in the set are skipped
+    // (a lane graph may not exist yet). Routed like the other cross-graph reads
+    // (DiffAgainst): the handler re-enters the registry, point-reads/snapshots
+    // each core off-lock, and merges — never holding two graph locks at once.
+    /// First-found node properties across `graphs` (in order); `Null` if absent
+    /// in every graph.
+    UnionGetNodeProperties {
+        graphs: Vec<String>,
+        node_id: String,
+    },
+    /// Label scan unioned + deduped by node id across `graphs` (limit 0 ⇒ no cap).
+    UnionGetNodesByLabel {
+        graphs: Vec<String>,
+        label: String,
+        limit: usize,
+    },
+    /// Neighbour ids unioned + deduped across every graph that contains the anchor.
+    UnionGetNeighbors {
+        graphs: Vec<String>,
+        node_id: String,
+    },
+
     // ── Graph Algorithms ─────────────────────────────────────────────
     TopologicalSort,
     FindCycle,
