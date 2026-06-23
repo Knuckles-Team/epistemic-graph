@@ -429,6 +429,30 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         } else if let Err(e) = p.load_all(&state).await {
             tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
         }
+
+        // Install the durable read-through (CONCEPT:KG-2.191) AFTER recovery, only
+        // under redb-authoritative mode. This is the single wiring point that lets
+        // the per-graph node cap resume EVICTING (memory bounded) without data loss:
+        // an evicted node's properties are served back from redb on a RAM miss. It
+        // attaches to every recovered graph and to every future one. In the default
+        // (rebuildable-cache) model the factory is never installed, so reads and
+        // eviction behave byte-for-byte as before.
+        if state.read().await.redb_authoritative {
+            let factory = std::sync::Arc::new(
+                epistemic_graph::server::persistence::read_through::BackendReadThroughFactory::new(
+                    p.clone(),
+                ),
+            );
+            state
+                .write()
+                .await
+                .registry
+                .set_read_through_factory(factory);
+            info!(
+                "redb authoritative: read-through-on-RAM-miss installed (CONCEPT:KG-2.191) — \
+                 per-graph node cap now EVICTS durable nodes (memory bounded, no data loss)"
+            );
+        }
     }
     if args.checkpoint_interval > 0 {
         if let Some(backend) = { state.read().await.persistence.clone() } {

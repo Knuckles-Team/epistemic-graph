@@ -30,6 +30,7 @@ use tokio::sync::RwLock;
 use crate::protocol::Method;
 use crate::server::ServerState;
 
+pub mod read_through;
 pub mod snapshot_wal;
 
 #[cfg(feature = "redb")]
@@ -101,6 +102,22 @@ pub trait PersistenceBackend: Send + Sync {
     /// it. Provided so a future read-through-on-eviction path has a backend seam
     /// without another trait revision; see the eviction note in `persist.rs`.
     async fn read_node(
+        &self,
+        _graph_fname: &str,
+        _node_id: &str,
+    ) -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
+    }
+
+    /// SYNC read-through of a single node's stored properties (CONCEPT:KG-2.191).
+    /// The eg-core read path (`GraphCore::get_node_properties`) is synchronous, so
+    /// the read-through it consults on a RAM miss must be sync too. The redb backend
+    /// already performs its point-read over a blocking channel to its off-reactor
+    /// writer thread, so a sync variant is natural and adds no async runtime to
+    /// eg-core. Returns `Ok(None)` for a non-authoritative / non-redb backend (no
+    /// read-through is ever attached to a graph in that case, so this is never hit
+    /// in the default model). Same return contract as [`read_node`].
+    fn read_node_blocking(
         &self,
         _graph_fname: &str,
         _node_id: &str,
