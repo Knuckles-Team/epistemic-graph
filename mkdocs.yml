@@ -93,5 +93,6 @@ nav:
       - Binary Promotion (deploy): deploy/binary-promotion.md
   - Performance:
       - Transport Benchmarks: benchmarks.md
+      - Per-Graph Write Coalescer: architecture/write-coalescer.md
   - Reference:
       - Concept Registry: concepts.md
