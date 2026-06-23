@@ -125,9 +125,15 @@ impl WalWriter {
     }
 }
 
-/// Apply one logged method to a graph (replay). Mirrors the dispatch mutation
+/// Apply one durable mutation to a graph core. Mirrors the dispatch mutation
 /// handlers for exactly the `is_durable_mutation` set.
-fn apply(core: &GraphCore, m: &Method) {
+///
+/// This is the single canonical "durable Method → GraphCore mutation" path: WAL
+/// replay (below) and the Raft state machine (CONCEPT:KG-2.188, `src/raft`) both
+/// call it, so a committed Raft log entry applies BYTE-IDENTICALLY to how a
+/// replayed WAL record does. Deterministic (replaying the same Method over the
+/// same pre-image yields the same state), which is the Raft state-machine contract.
+pub fn apply(core: &GraphCore, m: &Method) {
     match m {
         Method::AddNode {
             node_id,

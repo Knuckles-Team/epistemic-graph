@@ -61,6 +61,8 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "raft")]
+            raft: None,
         }))
     }
 
@@ -515,6 +517,8 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "raft")]
+            raft: None,
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -580,6 +584,8 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "raft")]
+            raft: None,
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -651,6 +657,8 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "raft")]
+            raft: None,
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -822,6 +830,8 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "raft")]
+            raft: None,
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating

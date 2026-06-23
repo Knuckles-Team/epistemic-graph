@@ -555,7 +555,52 @@ async fn dispatch_graph_op(
     // keyed by name — automatic per new graph/connector), collapsing N concurrent
     // topology-lock acquisitions into one per batch. Cheap Arc clone under the lock.
     let write_coalescer = s.write_coalescer.clone();
+    // In-engine Raft replication (CONCEPT:KG-2.188): if a cluster is active, capture
+    // the handle + the graph's type so a durable mutation can be routed through
+    // consensus. `None` ⇒ single-node ⇒ everything below is byte-for-byte unchanged.
+    #[cfg(feature = "raft")]
+    let raft = s.raft.clone();
+    #[cfg(feature = "raft")]
+    let graph_type = entry.graph_type;
     drop(s); // Release registry lock before graph lock.
+
+    // ── Raft write-routing barrier (CONCEPT:KG-2.188) ──────────────────────
+    // When a cluster is active, a durable mutation goes through Raft consensus
+    // (the leader's `client_write`) BEFORE it is applied+acked: the entry is
+    // replicated to a quorum and then APPLIED on every node by the Raft state
+    // machine (which runs the SAME apply path as below). So we replace the local
+    // apply/record here with `client_write` and return its outcome — the in-memory
+    // apply + M2 record happens inside `apply_to_state_machine`, not here. A
+    // follower returns a ForwardToLeader error which we surface so the client
+    // retries against the leader. This branch is the ONLY behavioral difference vs
+    // single-node, and it is taken only for durable mutations with Raft active.
+    #[cfg(feature = "raft")]
+    if let Some(handle) = raft {
+        if crate::wal::is_durable_mutation(&method) {
+            let req = crate::raft::RaftRequest {
+                graph_fname: crate::persist::sanitize(graph_name),
+                graph_name: graph_name.to_string(),
+                graph_type,
+                method,
+            };
+            return match handle.client_write(req).await {
+                Ok(_) => Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({"replicated": true})),
+                ),
+                Err(e) => {
+                    let leader = handle.current_leader().await;
+                    Response::err(
+                        req_id,
+                        match leader {
+                            Some(l) => format!("not leader; forward to node {l}: {e}"),
+                            None => format!("raft write failed (no leader): {e}"),
+                        },
+                    )
+                }
+            };
+        }
+    }
 
     let record_method = match (&persistence, crate::wal::is_durable_mutation(&method)) {
         (Some(_), true) => Some(method.clone()),
