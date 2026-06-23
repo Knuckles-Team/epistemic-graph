@@ -259,10 +259,18 @@ impl EngineBackend {
     }
 
     /// Apply a classified write through the engine's `GraphTxn` write path, so it
-    /// gets `mark_dirty` (checkpoint) + WAL durability for free — NOT DataFusion's
-    /// write planner. Returns the `CommandComplete` tag. First increment: INSERT
-    /// (node creation) only; UPDATE/DELETE are recognized but report a precise
-    /// follow-up error.
+    /// gets `mark_dirty` (checkpoint) + WAL/durable-backend durability — NOT
+    /// DataFusion's write planner. Returns the `CommandComplete` tag. First
+    /// increment: INSERT (node creation) only; UPDATE/DELETE are recognized but
+    /// report a precise follow-up error.
+    ///
+    /// Durability (CONCEPT:KG-2.190): a pgwire write applies to `GraphCore` exactly
+    /// like an `AddNode` dispatch, then runs the SAME post-write durable-record block
+    /// `dispatch::dispatch_request` runs (the source of truth) so the wire write
+    /// inherits identical semantics — write-behind `record()` by default, and
+    /// commit-before-ack `record_durable().await` under
+    /// `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` (a commit failure becomes an ERROR; the
+    /// CommandComplete is never sent for a write that did not durably land).
     async fn run_write(&self, graph: &str, kind: StatementKind) -> PgWireResult<Tag> {
         match kind {
             StatementKind::InsertNode(node) => {
@@ -271,12 +279,16 @@ impl EngineBackend {
                     .map_err(|e| user_err(format!("encode node properties: {e}")))?;
                 // One-shot GraphTxn (acquires the per-graph topology write lock,
                 // applies, releases) — the same write path AddNode dispatch uses.
-                core.add_node(node.node_id, blob);
+                let node_id = node.node_id.clone();
+                core.add_node(node.node_id, blob.clone());
                 core.mark_dirty();
-                // NOTE (follow-up): the in-process write applies + is captured by the
-                // next checkpoint via mark_dirty. Routing the pgwire write through the
-                // shared dispatch so the configured durable backend's WAL `record()`
-                // fires per-op is the documented integration follow-up.
+                // The durable Method this write corresponds to — byte-identical to
+                // the `Method::AddNode` a normal dispatch records.
+                let method = crate::protocol::Method::AddNode {
+                    node_id,
+                    properties_msgpack: blob,
+                };
+                self.record_durable_write(graph, &method).await?;
                 Ok(Tag::new("INSERT").with_rows(1))
             }
             StatementKind::Update => Err(user_err(
@@ -289,6 +301,64 @@ impl EngineBackend {
             )),
             StatementKind::Read => unreachable!("read routed to write path"),
         }
+    }
+
+    /// Record an applied pgwire DATA mutation durably — REPLICATES the post-write
+    /// durable-record block in `dispatch::dispatch_request` (the source of truth;
+    /// see `src/server/dispatch.rs`, the `record_method` / `redb_authoritative`
+    /// block). M8's original pgwire write path only did `add_node` + `mark_dirty`,
+    /// so under `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` a wire write was acked
+    /// (CommandComplete) before it durably committed → crash = silent loss. This
+    /// closes that gap by running the IDENTICAL two-regime logic dispatch uses:
+    ///
+    ///   * NOT authoritative (default): write-BEHIND — `record()` is fire-and-forget
+    ///     (hand to the off-reactor writer, no await). Byte-for-byte today's pgwire
+    ///     behavior plus the WAL/backend `record()` the M8 NOTE flagged as missing.
+    ///   * AUTHORITATIVE: commit-BEFORE-ACK — AWAIT `record_durable` (group-commit +
+    ///     fsync, coalescing with concurrent writers) BEFORE returning Ok. A durable
+    ///     commit FAILURE returns a pgwire error: the caller never gets a
+    ///     CommandComplete for a write that is not on disk.
+    ///
+    /// Reads `persistence` + `redb_authoritative` once under the same registry lock
+    /// dispatch reads them under. Only durable DATA mutations reach here (the only
+    /// implemented DML is INSERT → `Method::AddNode`, which `is_durable_mutation`).
+    async fn record_durable_write(
+        &self,
+        graph: &str,
+        method: &crate::protocol::Method,
+    ) -> PgWireResult<()> {
+        let (persistence, redb_authoritative) = {
+            let s = self.state.read().await;
+            (s.persistence.clone(), s.redb_authoritative)
+        };
+        // No durable backend configured (no persist dir) → in-memory only, nothing
+        // to record. Matches dispatch (`record_method` is None when persistence is
+        // None), so the cache-only default path is unchanged.
+        let Some(p) = persistence else {
+            return Ok(());
+        };
+        // Only durable DATA mutations are recorded — the same guard dispatch applies
+        // via `is_durable_mutation`.
+        if !crate::wal::is_durable_mutation(method) {
+            return Ok(());
+        }
+        let fname = crate::persist::sanitize(graph);
+        if redb_authoritative {
+            if let Err(e) = p.record_durable(&fname, method).await {
+                tracing::error!(
+                    "pgwire redb authoritative: durable commit FAILED for graph '{}': {} — \
+                     returning error (write not acked)",
+                    graph,
+                    e
+                );
+                return Err(user_err(format!(
+                    "durable commit failed (write not acknowledged): {e}"
+                )));
+            }
+        } else {
+            p.record(&fname, method);
+        }
+        Ok(())
     }
 }
 
