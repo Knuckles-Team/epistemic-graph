@@ -20,8 +20,8 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
-use datafusion::datasource::MemTable;
 use eg_core::graph::GraphView;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde_json::Value;
 
 /// Widening lattice for an inferred column type. `Null` means "seen only null /
@@ -80,9 +80,10 @@ struct DecodedNode<'a> {
     obj: Option<serde_json::Map<String, Value>>,
 }
 
-/// Build the in-memory `nodes` MemTable for `view`. Returns the table plus its
-/// schema (the caller registers it on the SessionContext).
-pub(crate) fn build_nodes_table(view: &GraphView) -> Result<MemTable, String> {
+/// Inferred (schema, single batch) for the `nodes` table over `view` — the
+/// schema-on-read scan. Split out from MemTable construction so the result can be
+/// cached and re-wrapped per query (CONCEPT:KG-2.184 version-keyed cache).
+pub(crate) fn infer_nodes(view: &GraphView) -> Result<(SchemaRef, RecordBatch), String> {
     // Pass 1: decode blobs and infer the per-key type union.
     let mut decoded: Vec<DecodedNode> = Vec::with_capacity(view.node_properties.len());
     // BTreeMap keeps a stable, deterministic column order.
@@ -121,7 +122,7 @@ pub(crate) fn build_nodes_table(view: &GraphView) -> Result<MemTable, String> {
     let schema: SchemaRef = Arc::new(Schema::new(fields));
 
     let batch = build_batch(&schema, &inferred, &decoded)?;
-    MemTable::try_new(schema, vec![vec![batch]]).map_err(|e| format!("mem table: {e}"))
+    Ok((schema, batch))
 }
 
 /// Materialize one RecordBatch column-by-column following `inferred`.
@@ -207,4 +208,115 @@ fn build_batch(
     columns.push(Arc::new(props_b.finish()));
 
     RecordBatch::try_new(schema.clone(), columns).map_err(|e| format!("record batch: {e}"))
+}
+
+// ── edges table (CONCEPT:KG-2.184) ────────────────────────────────────────
+
+/// The `edges` table schema: fixed columns over the petgraph topology.
+///   src:  Utf8   — source node id (the petgraph source node weight)
+///   dst:  Utf8   — target node id (the petgraph target node weight)
+///   rel:  Utf8   — the edge weight string (relationship/type), `StableDiGraph`'s
+///                  edge weight in `GraphView`
+///   props: Binary — the FIRST raw msgpack edge-property blob for `(src,dst)` if
+///                   one exists (the same escape hatch `nodes.props` provides),
+///                   else null
+/// Registered alongside `nodes`, so
+///   `SELECT … FROM nodes JOIN edges ON nodes.id = edges.src`
+/// joins a node row to its outgoing edges in DataFusion (a hash/merge join over the
+/// two MemTables), with `json_get*` reaching into either `props` column.
+fn edges_schema() -> SchemaRef {
+    Arc::new(Schema::new(vec![
+        Field::new("src", DataType::Utf8, false),
+        Field::new("dst", DataType::Utf8, false),
+        Field::new("rel", DataType::Utf8, false),
+        Field::new("props", DataType::Binary, true),
+    ]))
+}
+
+/// Inferred (schema, single batch) for the `edges` table over `view`. One row per
+/// petgraph edge; the edge weight string is `rel`. `props` is the first stored
+/// edge-property blob for the endpoint pair (msgpack), or null.
+pub(crate) fn infer_edges(view: &GraphView) -> Result<(SchemaRef, RecordBatch), String> {
+    let schema = edges_schema();
+
+    let edge_count = view.graph.edge_count();
+    let mut src_b = StringBuilder::new();
+    let mut dst_b = StringBuilder::new();
+    let mut rel_b = StringBuilder::new();
+    let mut props_b = BinaryBuilder::new();
+
+    for e in view.graph.edge_references() {
+        let src = &view.graph[e.source()];
+        let dst = &view.graph[e.target()];
+        src_b.append_value(src);
+        dst_b.append_value(dst);
+        rel_b.append_value(e.weight());
+        match view
+            .edge_properties
+            .get(&(src.clone(), dst.clone()))
+            .and_then(|blobs| blobs.first().cloned())
+        {
+            Some(blob) => props_b.append_value(blob.as_slice()),
+            None => props_b.append_null(),
+        }
+    }
+
+    let columns: Vec<ArrayRef> = vec![
+        Arc::new(src_b.finish()),
+        Arc::new(dst_b.finish()),
+        Arc::new(rel_b.finish()),
+        Arc::new(props_b.finish()),
+    ];
+    let _ = edge_count;
+    let batch =
+        RecordBatch::try_new(schema.clone(), columns).map_err(|e| format!("edges batch: {e}"))?;
+    Ok((schema, batch))
+}
+
+// ── version-keyed inferred-schema cache (CONCEPT:KG-2.184) ─────────────────
+
+/// One cached, version-stamped inference of the `nodes` and `edges` tables. The
+/// schema-on-read scan is O(V) (decode every node blob) + O(E); for a read-mostly
+/// graph that cost is wasted on every query because the snapshot is identical
+/// between writes. Caching it keyed by the GraphCore OCC `version()` (CONCEPT:KG-2.180)
+/// turns repeated queries into a cheap MemTable re-wrap of the already-built batches.
+#[derive(Clone)]
+pub(crate) struct CachedTables {
+    pub nodes: (SchemaRef, RecordBatch),
+    pub edges: (SchemaRef, RecordBatch),
+}
+
+/// A tiny version-keyed cache: holds the last `(version, CachedTables)`. A query
+/// with a matching version reuses the batches; a different version (any committed
+/// write bumped the counter) rebuilds and replaces the entry. Correctness rests on
+/// the monotonic `version()` — it changes on every committed mutation, so a stale
+/// entry can never be served after a write. Read-only, so a single `Mutex<Option<…>>`
+/// is enough; contention is a brief swap, never the scan itself.
+#[derive(Default)]
+pub struct SqlCache {
+    inner: std::sync::Mutex<Option<(u64, CachedTables)>>,
+}
+
+impl SqlCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the cached `(nodes, edges)` tables for `view` at `version`, rebuilding
+    /// (and replacing the cached entry) when the stored version differs or the cache
+    /// is cold. The build itself runs outside the lock so a concurrent reader of a
+    /// different version doesn't block on a long scan.
+    pub(crate) fn tables_at(&self, view: &GraphView, version: u64) -> Result<CachedTables, String> {
+        if let Some((v, tables)) = self.inner.lock().unwrap().as_ref() {
+            if *v == version {
+                return Ok(tables.clone());
+            }
+        }
+        let built = CachedTables {
+            nodes: infer_nodes(view)?,
+            edges: infer_edges(view)?,
+        };
+        *self.inner.lock().unwrap() = Some((version, built.clone()));
+        Ok(built)
+    }
 }
