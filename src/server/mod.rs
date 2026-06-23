@@ -9,6 +9,10 @@ mod compute;
 mod dispatch;
 mod handlers;
 pub mod persistence;
+// Postgres wire-protocol shim (CONCEPT:KG-2.189). Facade-only, behind the `pgwire`
+// cargo feature (cluster tier). Default/pi/node builds compile NONE of it.
+#[cfg(feature = "pgwire")]
+pub mod pgwire;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged

@@ -56,6 +56,13 @@ cypher = ["dep:eg-query", "eg-query/cypher"]
 # Activates only when built `--features raft` AND configured at runtime
 # (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
 raft = ["server", "redb", "dep:openraft"]
+# Postgres wire-protocol shim (CONCEPT:KG-2.189). A facade-only listener that lets
+# psql / BI tools / ORMs run SQL against a graph, reusing the eg-query DataFusion
+# path (so it IMPLIES `query`) over the Tokio server (`server`). Heavy (pgwire +
+# postgres-types) — OFF by default and kept OUT of `full` so `full` stays a lean
+# embeddable build; it ships only in the `cluster` tier. The listener only starts
+# when ALSO configured via EPISTEMIC_GRAPH_PGWIRE_ADDR.
+pgwire = ["dep:pgwire", "dep:futures", "query", "server"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).
@@ -72,7 +79,11 @@ all = ["full"]
 # an integration step unions them — keep the raft part here.
 pi = ["server", "graph", "algorithms", "redb", "cypher"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast"]
-cluster = ["node", "raft"]
+# `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
+# Postgres wire shim (CONCEPT:KG-2.189, M8). The two sibling tracks each extended
+# `cluster`; this integration unions both halves so the cluster tier links raft
+# AND pgwire (and transitively datafusion via `query`).
+cluster = ["node", "raft", "pgwire"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
@@ -119,6 +130,16 @@ redb = { version = "4.1", optional = true }
 # optional + only referenced under #[cfg(feature = "raft")], so a default/pi/full
 # build links no openraft (verified by `cargo tree`).
 openraft = { version = "0.9", features = ["serde"], optional = true }
+# Postgres wire-protocol shim (feature `pgwire`, CONCEPT:KG-2.189). `server-api`
+# is the server-side handler set; `_ring` selects the ring crypto backend for the
+# SCRAM/TLS machinery (we pass tls=None, but the feature must pick a backend to
+# build). default-features off keeps the client API + extra type codecs out.
+pgwire = { version = "0.40", optional = true, default-features = false, features = [
+    "server-api",
+    "_ring",
+] }
+# Stream/sink combinators for the pgwire DataRow result stream (feature `pgwire`).
+futures = { version = "0.3", optional = true }
 
 # Optional Prometheus observability (feature `metrics`, on by default).
 # default-features = false drops the protobuf encoder — text exposition only.
@@ -141,6 +162,9 @@ serde_bytes = "0.11.19"
 tokio = { version = "1.38", features = ["full", "test-util"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 tracing-subscriber = "0.3"
+# Real Postgres client for the pgwire wire round-trip integration test
+# (CONCEPT:KG-2.189). Only compiled for tests; never linked into the engine.
+tokio-postgres = "0.7"
 
 [profile.release]
 opt-level = 3
