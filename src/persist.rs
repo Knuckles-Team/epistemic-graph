@@ -23,6 +23,11 @@ use crate::server::ServerState;
 
 const MANIFEST: &str = "manifest.json";
 
+/// Emit a "loaded N/total graphs" progress line every this-many graphs during a
+/// multi-graph snapshot load — and only when the registry is larger than this, so
+/// the common small restart stays quiet (CONCEPT:KG-2.200).
+const PROGRESS_EVERY: usize = 500;
+
 /// Map a logical graph name (which may contain `:` / `/`) to a safe filename.
 pub(crate) fn sanitize(name: &str) -> String {
     name.chars()
@@ -351,9 +356,27 @@ pub async fn load_all(
     };
 
     let mut count = 0usize;
+    // Progress logging (CONCEPT:KG-2.200): a many-graph load (a homelab carries
+    // thousands of tenant graphs; the one-time redb migration replays every one) is
+    // otherwise a multi-second SILENT gap before the socket binds. Emit a periodic
+    // "N/total graphs loaded" so an operator can SEE it advancing and distinguish
+    // slow-but-working from hung. Cheap (a divisible-by check) and quiet for the
+    // common small-registry restart.
+    let total = manifest.len();
+    if total > PROGRESS_EVERY {
+        info!("Snapshot load: {} graph(s) to restore from {}", total, dir);
+    }
+    let mut processed = 0usize;
     let mut recovered_fnames: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (fname, meta) in manifest {
         recovered_fnames.insert(fname.clone());
+        processed += 1;
+        if total > PROGRESS_EVERY && processed.is_multiple_of(PROGRESS_EVERY) {
+            info!(
+                "Snapshot load progress: {}/{} graph(s) processed ({} restored)",
+                processed, total, count
+            );
+        }
         let name = meta
             .get("name")
             .and_then(|v| v.as_str())
@@ -377,7 +400,16 @@ pub async fn load_all(
             s.registry.get_mut(&name).map(|e| e.core.clone())
         };
         if let Some(core) = core {
-            core.from_msgpack(&bytes)?;
+            // A corrupt/unreadable snapshot for ONE graph must NOT abort the whole
+            // load (CONCEPT:KG-2.200). Aborting here would, under the redb migration,
+            // hand checkpoint_all a PARTIAL registry and seed redb with a TRUNCATED
+            // store that the next boot considers "already migrated" — silent data
+            // loss for every graph after the bad one. Skip the bad graph loudly and
+            // keep going; the original `.mp` stays on disk as a backstop.
+            if let Err(e) = core.from_msgpack(&bytes) {
+                tracing::warn!("snapshot load skipped for graph '{}': {}", name, e);
+                continue;
+            }
             // Replay the WAL tail on top of the snapshot (Phase B2): recovers every
             // durable mutation since the last checkpoint, so warm restart loses
             // nothing the WAL captured rather than everything since the checkpoint.
