@@ -1032,12 +1032,12 @@ pub(crate) async fn try_handle(
                 ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })),
             )
         }
-        // Catch-all: an unknown graph method, OR a compute method whose feature
-        // (finance / datascience / reasoning) was not built into this server.
+        // Catch-all: an unknown graph method, OR a feature-gated method whose
+        // feature (finance / datascience / reasoning / query) was not built in.
         _ => Response::err(
             req_id,
             "Method not available in this server build (unknown method, or a \
-             compute feature — finance/datascience/reasoning — not enabled)",
+             feature — finance/datascience/reasoning/query — not enabled)",
         ),
     }
 }

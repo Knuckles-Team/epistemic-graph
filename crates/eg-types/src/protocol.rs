@@ -966,9 +966,32 @@ pub enum Method {
         mutation_type: String,
         query: String,
     },
+
+    // ── Query (SQL + Cypher) ──────────────────────────────────────────
+    // Read-only relational query surface (CONCEPT:KG-2.178). `SELECT … FROM
+    // nodes …` over ONE graph via DataFusion, gated behind the facade `query`
+    // feature; in a slim build the variant falls to the not-built catch-all.
+    // `params_msgpack` is reserved for future bound parameters.
+    Sql {
+        query: String,
+        #[serde(default, with = "serde_bytes")]
+        params_msgpack: Vec<u8>,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
+
+/// Materialized result of a `Method::Sql` query (CONCEPT:KG-2.178). Returned via
+/// `ResultPayload::raw` — `rows[i]` is a MessagePack-encoded `Vec<serde_json::Value>`
+/// aligned to `columns`, so the Python client double-unpacks the top-level `Raw`
+/// blob then unpacks each row blob into a list of cells. Lives in eg-types (the
+/// wire-DTO crate) so the protocol can embed it; the query algorithm stays in
+/// eg-query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<u8>>,
+}
 
 /// Graph type for multi-tenant registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
