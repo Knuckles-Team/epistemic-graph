@@ -1144,6 +1144,7 @@ dependencies = [
  "eg-compute",
  "eg-core",
  "eg-types",
+ "petgraph",
  "rmp-serde",
  "serde",
  "serde_json",
