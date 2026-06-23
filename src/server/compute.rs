@@ -41,15 +41,16 @@ pub(crate) fn weight_semantic_results(
                     }
                 }
 
-                // Apply temporal decay to confidence (Ebbinghaus Forgetting Curve)
+                // Apply temporal decay to confidence using the ONE shared
+                // Ebbinghaus curve (CONCEPT:KG-2.211, `eg_core::decay`): the same
+                // half-life model the time-series `decay_weighted_mean` uses. Here
+                // the unit is DAYS with a 30-day half-life — identical numerics to
+                // the previously-inlined `(-ln2/30 * age_days).exp()`.
                 let mut current_confidence = node_data.confidence;
                 if let Some(vf) = node_data.valid_from {
                     if now > vf {
-                        let age_secs = now - vf;
-                        let age_days = age_secs as f64 / 86400.0;
-                        // Half-life of 30 days (decay rate lambda = ln(2) / 30)
-                        let decay_rate = std::f64::consts::LN_2 / 30.0;
-                        current_confidence *= (-decay_rate * age_days).exp();
+                        let age_days = (now - vf) as f64 / 86400.0;
+                        current_confidence *= crate::decay::ebbinghaus_weight(age_days, 30.0);
                     }
                 }
 

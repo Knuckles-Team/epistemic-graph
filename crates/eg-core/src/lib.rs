@@ -9,6 +9,7 @@
 pub use eg_types::{acl, protocol, types, wire};
 
 pub mod compute;
+pub mod decay;
 pub mod graph;
 pub mod isolation;
 pub mod read_through;
