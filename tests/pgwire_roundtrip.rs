@@ -171,6 +171,142 @@ async fn wire_insert_then_select_round_trip() {
     assert_eq!(ids, vec!["n9".to_string()]);
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Extended / prepared protocol (CONCEPT:KG-2.197) — real driver path.
+// `tokio-postgres`'s `prepare`/`query`/`execute` use the extended protocol
+// (Parse/Bind/Describe/Execute/Sync), which is what psycopg3/asyncpg/JDBC/sqlx/
+// SQLAlchemy use by DEFAULT. These prove a real driver's prepared+parameterized
+// round-trip works against the shim, not just raw `psql`.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Extended protocol: `client.prepare(...)` + a parameterized `query` with a
+/// typed param (`WHERE rank > $1`) returns the matching rows. Proves Parse/Bind/
+/// Describe/Execute + parameter binding through a real driver.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extended_prepared_parameterized_select() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    // prepare() issues Parse + Describe(statement) + Sync; query() issues Bind +
+    // Execute + Sync — the full extended flow.
+    let stmt = client
+        .prepare("SELECT id FROM nodes WHERE rank > $1 ORDER BY id")
+        .await
+        .expect("prepare");
+    let rows = client
+        .query(&stmt, &[&1i64])
+        .await
+        .expect("parameterized query");
+    let ids: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
+    assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
+
+    // A different bound value reuses the SAME prepared statement (new portal).
+    let rows2 = client.query(&stmt, &[&2i64]).await.expect("second bind");
+    let ids2: Vec<String> = rows2.iter().map(|r| r.get::<_, String>(0)).collect();
+    assert_eq!(ids2, vec!["n3".to_string()]);
+}
+
+/// Extended protocol DML: a parameterized `UPDATE … WHERE id = $1` applies, and a
+/// follow-up SELECT shows the change. Proves a parameterized write over the real
+/// driver path routes through the GraphTxn CAS write path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extended_parameterized_update_then_select() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    let affected = client
+        .execute("UPDATE nodes SET rank = $1 WHERE id = $2", &[&42i64, &"n1"])
+        .await
+        .expect("parameterized UPDATE");
+    assert_eq!(affected, 1, "one row updated");
+
+    let rows = client
+        .query("SELECT id FROM nodes WHERE rank = $1", &[&42i64])
+        .await
+        .expect("SELECT after update");
+    let ids: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
+    assert_eq!(ids, vec!["n1".to_string()]);
+}
+
+/// Extended protocol DML: a parameterized `DELETE … WHERE id = $1` removes the
+/// node; a follow-up SELECT shows it gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extended_parameterized_delete_then_select() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    let affected = client
+        .execute("DELETE FROM nodes WHERE id = $1", &[&"n2"])
+        .await
+        .expect("parameterized DELETE");
+    assert_eq!(affected, 1, "one row deleted");
+
+    let rows = client
+        .query("SELECT id FROM nodes WHERE id = $1", &[&"n2"])
+        .await
+        .expect("SELECT after delete");
+    assert_eq!(rows.len(), 0, "deleted node must be gone");
+}
+
+/// Multi-row INSERT (CONCEPT:KG-2.198): `INSERT … VALUES (…),(…),(…)` adds three
+/// nodes in one statement; a COUNT confirms all landed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn multi_row_insert_then_count() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    let affected = client
+        .execute(
+            "INSERT INTO nodes (id, type, rank) VALUES ('m1','Agent',10),('m2','Agent',11),('m3','Tool',12)",
+            &[],
+        )
+        .await
+        .expect("multi-row INSERT");
+    assert_eq!(affected, 3, "three rows inserted");
+
+    let rows = client
+        .query("SELECT count(*) AS c FROM nodes WHERE rank >= 10", &[])
+        .await
+        .expect("COUNT after multi-insert");
+    let c: i64 = rows[0].get("c");
+    assert_eq!(c, 3, "all three multi-insert rows present");
+}
+
+/// `INSERT … RETURNING id` (CONCEPT:KG-2.198): the write returns the affected row
+/// as a result set, not just a CommandComplete tag.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn insert_returning_row() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    let rows = client
+        .query(
+            "INSERT INTO nodes (id, type, rank) VALUES ('r1','Agent',55) RETURNING id",
+            &[],
+        )
+        .await
+        .expect("INSERT RETURNING");
+    assert_eq!(rows.len(), 1, "RETURNING yields one row");
+    assert_eq!(rows[0].get::<_, String>("id"), "r1".to_string());
+
+    // UPDATE … RETURNING surfaces the post-write value.
+    let urows = client
+        .query(
+            "UPDATE nodes SET rank = $1 WHERE id = $2 RETURNING id, rank",
+            &[&77i64, &"r1"],
+        )
+        .await
+        .expect("UPDATE RETURNING");
+    assert_eq!(urows.len(), 1);
+    assert_eq!(urows[0].get::<_, String>("id"), "r1".to_string());
+    assert_eq!(urows[0].get::<_, i64>("rank"), 77i64);
+}
+
 /// A recording `PersistenceBackend` that captures every `record()` / `record_durable`
 /// call. Lets the non-authoritative regression test assert a pgwire write is handed
 /// to the durable writer (write-behind) WITHOUT a real durable store — and that the
@@ -328,6 +464,79 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
         rmp_serde::from_slice(&stored.unwrap()).expect("decode stored node");
     assert_eq!(props.get("type").and_then(|v| v.as_str()), Some("Agent"));
     assert_eq!(props.get("rank").and_then(|v| v.as_i64()), Some(7));
+
+    reopened.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Extended-protocol durable-on-ack (CONCEPT:KG-2.197 + KG-2.198): a parameterized
+/// `UPDATE … WHERE id = $1` issued over the EXTENDED protocol under redb-authoritative
+/// mode is commit-before-ack — `record_durable` (a `CompareAndSetNodeFields` method)
+/// is AWAITED before the client's `execute()` returns. We prove the wire write is
+/// durable WITHOUT any checkpoint by reopening a FRESH redb backend on the same dir
+/// and reading the updated property back. This is the headline guarantee that a real
+/// driver's prepared write never acks before it lands on disk.
+#[cfg(feature = "redb")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extended_update_authoritative_is_durable_without_checkpoint() {
+    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    use epistemic_graph::wal_service::FsyncPolicy;
+
+    let dir = std::env::temp_dir().join(format!("eg-pgwire-ext-durable-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let dir_s = dir.to_string_lossy().to_string();
+
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(
+            dir_s.clone(),
+            FsyncPolicy::Interval(std::time::Duration::from_millis(20)),
+            64,
+        )
+        .expect("open redb backend"),
+    );
+    let state = state_with(Some(backend.clone()), true);
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    // Seed `n1` durably via a wire INSERT (also commit-before-ack), then UPDATE it
+    // over the extended/prepared protocol with a bound parameter.
+    client
+        .execute(
+            "INSERT INTO nodes (id, type, rank) VALUES ('n1','Agent',1)",
+            &[],
+        )
+        .await
+        .expect("seed INSERT");
+    let affected = client
+        .execute("UPDATE nodes SET rank = $1 WHERE id = $2", &[&99i64, &"n1"])
+        .await
+        .expect("extended UPDATE");
+    assert_eq!(affected, 1);
+
+    // The UPDATE was acked ⇒ (commit-before-ack) the CAS is on disk. Reopen a fresh
+    // backend on the same dir and confirm the updated value WITHOUT any checkpoint.
+    backend.shutdown();
+    let reopened = RedbBackend::open(
+        dir_s.clone(),
+        FsyncPolicy::Interval(std::time::Duration::from_millis(20)),
+        64,
+    )
+    .expect("reopen redb backend");
+    let stored = reopened
+        .read_node("__commons__", "n1")
+        .await
+        .expect("read_node");
+    assert!(
+        stored.is_some(),
+        "extended-protocol authoritative UPDATE must be durable in redb WITHOUT a checkpoint"
+    );
+    let props: serde_json::Value =
+        rmp_serde::from_slice(&stored.unwrap()).expect("decode stored node");
+    assert_eq!(
+        props.get("rank").and_then(|v| v.as_i64()),
+        Some(99),
+        "the UPDATE's new value must be the durably-committed one"
+    );
 
     reopened.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
