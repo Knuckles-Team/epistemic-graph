@@ -1226,24 +1226,7 @@ impl GraphCore {
         // Match against a consistent read view so the O(V·E) backtracking never
         // holds a live lock.
         let host = self.analysis_snapshot();
-        let mut matches = Vec::new();
-        let pattern_nodes: Vec<String> = pattern.node_map.keys().cloned().collect();
-        if pattern_nodes.is_empty() {
-            return matches;
-        }
-        let mut current_mapping = HashMap::new();
-        let mut mapped_targets = std::collections::HashSet::new();
-
-        backtrack_match(
-            &host,
-            0,
-            &pattern_nodes,
-            &mut current_mapping,
-            &mut mapped_targets,
-            pattern,
-            &mut matches,
-        );
-        matches
+        vf2_match_views(&host, pattern)
     }
 
     /// Evict nodes down to `max_nodes` by removing the least-recently-added.
@@ -1486,6 +1469,32 @@ pub fn walk_dir_recursive(dir: &std::path::Path, files: &mut Vec<std::path::Path
             }
         }
     }
+}
+
+/// VF2 subgraph match of `pattern` against an already-materialized `host`
+/// `GraphView` (vs [`GraphCore::vf2_subgraph_match`], which snapshots its own
+/// live graph first). Lets an off-lock caller — e.g. the Cypher exec
+/// (CONCEPT:KG-2.179), which already holds the `analysis_snapshot()` view — reuse
+/// the exact same matcher without re-snapshotting. Each result maps a pattern
+/// node id → the host node id it bound to.
+pub fn vf2_match_views(host: &GraphView, pattern: &GraphView) -> Vec<HashMap<String, String>> {
+    let mut matches = Vec::new();
+    let pattern_nodes: Vec<String> = pattern.node_map.keys().cloned().collect();
+    if pattern_nodes.is_empty() {
+        return matches;
+    }
+    let mut current_mapping = HashMap::new();
+    let mut mapped_targets = std::collections::HashSet::new();
+    backtrack_match(
+        host,
+        0,
+        &pattern_nodes,
+        &mut current_mapping,
+        &mut mapped_targets,
+        pattern,
+        &mut matches,
+    );
+    matches
 }
 
 fn backtrack_match(
