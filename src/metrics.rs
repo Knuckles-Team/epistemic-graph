@@ -153,6 +153,22 @@ mod imp {
             "epistemic_graph_access_denied_total",
             "Graph operations denied by the isolation ACL",
         );
+        // Per-graph write-coalescer observability (CONCEPT:KG-2.182). The win is
+        // visible as ops/batch > 1: BATCHES counts topology-lock acquisitions on the
+        // coalesced path, OPS counts the writes those acquisitions applied, so
+        // (OPS / BATCHES) is the lock-acquisitions-saved ratio per graph.
+        static ref WRITE_BATCHES: IntCounterVec = counter_vec(
+            "epistemic_graph_write_batches_total",
+            "Coalesced write batches committed (= topology-lock acquisitions on the \
+             coalesced path), by graph",
+            &["graph"],
+        );
+        static ref WRITE_BATCHED_OPS: IntCounterVec = counter_vec(
+            "epistemic_graph_write_batched_ops_total",
+            "Single-op writes applied via the coalescer, by graph. Divide by \
+             write_batches_total for the average batch size (ops per lock acquisition)",
+            &["graph"],
+        );
     }
 
     /// Map a graph name onto the bounded label space.
@@ -226,6 +242,16 @@ mod imp {
         WAL_APPEND_DROPPED.inc();
     }
 
+    /// Record one committed coalesced write batch of `ops` single-op writes against
+    /// `graph` (CONCEPT:KG-2.182): +1 lock acquisition, +`ops` applied writes.
+    pub fn write_batch_committed(graph: &str, ops: usize) {
+        let label = graph_label(graph);
+        WRITE_BATCHES.with_label_values(&[&label]).inc();
+        WRITE_BATCHED_OPS
+            .with_label_values(&[&label])
+            .inc_by(ops as u64);
+    }
+
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
         let encoder = TextEncoder::new();
@@ -255,6 +281,7 @@ mod imp {
     pub fn auth_failure() {}
     pub fn access_denied() {}
     pub fn wal_append_dropped() {}
+    pub fn write_batch_committed(_graph: &str, _ops: usize) {}
     pub fn render() -> String {
         String::new()
     }
