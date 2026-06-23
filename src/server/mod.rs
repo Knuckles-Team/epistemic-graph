@@ -243,6 +243,66 @@ mod tests {
         ));
     }
 
+    // ── SQL query surface (CONCEPT:KG-2.178) ────────────────────────────
+
+    /// End-to-end: add nodes, then route `Method::Sql` through the full dispatch
+    /// chain and decode the `Raw(QueryResult)` payload back to rows. Proves the
+    /// query handler is wired before graph_ops and returns rows. (query feature)
+    #[cfg(feature = "query")]
+    #[tokio::test]
+    async fn test_sql_select_returns_rows() {
+        let state = test_state();
+        let mk = |id: &str, ty: &str, rank: i64| Method::AddNode {
+            node_id: id.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(
+                &serde_json::json!({"type": ty, "rank": rank}),
+            )
+            .unwrap(),
+        };
+        for (i, (id, ty, rank)) in [("n1", "Agent", 1), ("n2", "Agent", 2), ("n3", "Tool", 3)]
+            .iter()
+            .enumerate()
+        {
+            assert_ok(
+                &dispatch(
+                    &state,
+                    request(i as u64 + 1, "__commons__", None, mk(id, ty, *rank)),
+                )
+                .await,
+            );
+        }
+
+        let resp = dispatch(
+            &state,
+            request(
+                10,
+                "__commons__",
+                None,
+                Method::Sql {
+                    query: "SELECT id FROM nodes WHERE rank >= 2 ORDER BY id LIMIT 5".into(),
+                    params_msgpack: Vec::new(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let raw = match resp.result {
+            Some(ResultPayload::Raw(bytes)) => bytes,
+            other => panic!("expected Raw(QueryResult), got {:?}", other),
+        };
+        let qr: crate::protocol::QueryResult = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(qr.columns, vec!["id".to_string()]);
+        let ids: Vec<String> = qr
+            .rows
+            .iter()
+            .map(|blob| {
+                let cells: Vec<serde_json::Value> = rmp_serde::from_slice(blob).unwrap();
+                cells[0].as_str().unwrap().to_string()
+            })
+            .collect();
+        assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
+    }
+
     #[tokio::test]
     async fn test_bad_auth_token_rejected() {
         let state = test_state();
@@ -273,6 +333,28 @@ mod tests {
             property_chains: vec![],
         };
         let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
+    /// Same feature-gating contract for the SQL surface (CONCEPT:KG-2.178): with
+    /// the `query` feature off, `Method::Sql`'s handler arm is compiled away and
+    /// the request must hit the not-built catch-all. (Compiled out when `query` is
+    /// on, where the real handler answers instead.)
+    #[cfg(not(feature = "query"))]
+    #[tokio::test]
+    async fn test_sql_gated_out_returns_not_built() {
+        let state = test_state();
+        let method = Method::Sql {
+            query: "SELECT id FROM nodes".into(),
+            params_msgpack: Vec::new(),
+        };
+        let resp = dispatch(&state, request(1, "__commons__", None, method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),
