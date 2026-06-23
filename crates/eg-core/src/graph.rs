@@ -122,6 +122,14 @@ pub struct GraphCore {
     /// use / after invalidation. A node appears under every label it carries
     /// across `type`/`node_type`/`label`/`labels` (mirrors `get_nodes_by_label`).
     label_index: RwLock<Option<HashMap<String, Vec<String>>>>,
+    /// Read-through into the durable tier on a RAM MISS (CONCEPT:KG-2.191). Set
+    /// only under redb-AUTHORITATIVE mode, where a node may have been evicted from
+    /// RAM once it is durable in redb. On a node-property miss the read path
+    /// consults this to serve the evicted node's stored blob, so eviction can bound
+    /// memory WITHOUT making the node unreadable. `None` (the default, and always
+    /// off authoritative mode) means a miss is a genuine absence — behavior is then
+    /// byte-for-byte unchanged. See `crate::read_through`.
+    read_through: RwLock<Option<Arc<dyn crate::read_through::ReadThrough>>>,
 }
 
 impl Default for GraphCore {
@@ -338,7 +346,16 @@ impl GraphCore {
             version: std::sync::atomic::AtomicU64::new(0),
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
+            read_through: RwLock::new(None),
         }
+    }
+
+    /// Attach a durable read-through (CONCEPT:KG-2.191). Called once at startup
+    /// (only under redb-authoritative mode) so a node evicted from RAM is still
+    /// served from redb on a RAM miss. A `GraphCore` with no read-through behaves
+    /// exactly as before — a miss is a genuine absence.
+    pub fn set_read_through(&self, rt: Arc<dyn crate::read_through::ReadThrough>) {
+        *self.read_through.write() = Some(rt);
     }
 
     /// Mark this graph as changed since its last checkpoint (Phase C-C). Called by
@@ -649,7 +666,27 @@ impl GraphCore {
     }
 
     pub fn get_node_properties(&self, node_id: &str) -> Option<Vec<u8>> {
-        self.node_properties.get(node_id).map(|a| (**a).clone())
+        if let Some(a) = self.node_properties.get(node_id) {
+            return Some((**a).clone());
+        }
+        // RAM miss. Under redb-authoritative mode a durable node may have been
+        // evicted from RAM to bound memory (CONCEPT:KG-2.191); fetch its stored
+        // blob from the durable tier so an evicted node still reads back correctly.
+        // The read-through is only ever set under authoritative mode, so this is a
+        // no-op (genuine absence) in the default model — behavior unchanged.
+        self.read_through_get(node_id)
+    }
+
+    /// Consult the durable read-through on a RAM miss (CONCEPT:KG-2.191). Returns
+    /// the node's stored property blob from the durable tier, or `None` when no
+    /// read-through is attached (default model) or the node is genuinely absent.
+    /// Kept lock-scoped: the read-through guard is cloned out and released BEFORE
+    /// the (possibly blocking) durable point-read so it never holds the lock across
+    /// I/O. Serve-only — it does NOT repopulate RAM, so a full scan over evicted
+    /// nodes cannot re-grow the resident set past the cap (memory stays bounded).
+    fn read_through_get(&self, node_id: &str) -> Option<Vec<u8>> {
+        let rt = self.read_through.read().clone()?;
+        rt.read_node_blob(node_id)
     }
 
     pub fn node_count(&self) -> usize {
@@ -1039,6 +1076,9 @@ impl GraphCore {
             // Fork starts with cold lazy indexes; rebuilt lazily on first use.
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
+            // A fork is a fresh, detached graph (not registered, not backed by the
+            // durable tier), so it carries no read-through (CONCEPT:KG-2.191).
+            read_through: RwLock::new(None),
         }
     }
 
@@ -1227,6 +1267,30 @@ impl GraphCore {
         // holds a live lock.
         let host = self.analysis_snapshot();
         vf2_match_views(&host, pattern)
+    }
+
+    /// The least-recently-added node ids that would be evicted to bring the graph
+    /// down to `max_nodes` — the same set (and order) `evict_lru` removes, but
+    /// WITHOUT dropping them (CONCEPT:KG-2.191). Used by the redb-authoritative
+    /// eviction path, which must confirm each candidate is durable in redb BEFORE
+    /// dropping it (commit-before-ack makes that the common case; the check is the
+    /// no-data-loss guarantee). Empty when the graph is at/under the cap.
+    pub fn lru_eviction_candidates(&self, max_nodes: usize) -> Vec<String> {
+        let mut indexed: Vec<(String, NodeIndex)> = {
+            let topo = self.topo.read();
+            if topo.node_map.len() <= max_nodes {
+                return Vec::new();
+            }
+            topo.node_map.iter().map(|(k, &v)| (k.clone(), v)).collect()
+        };
+        let to_evict = indexed.len() - max_nodes;
+        // Nodes with the lowest NodeIndex were inserted earliest → approximate LRU.
+        indexed.sort_by_key(|(_, idx)| *idx);
+        indexed
+            .into_iter()
+            .take(to_evict)
+            .map(|(id, _)| id)
+            .collect()
     }
 
     /// Evict nodes down to `max_nodes` by removing the least-recently-added.
@@ -1669,6 +1733,56 @@ mod tests {
 
     fn props(map: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&map).unwrap()
+    }
+
+    /// CONCEPT:KG-2.191 — the read-through seam, exercised purely in eg-core with a
+    /// stub backing store (no facade/redb needed): after a node is dropped from RAM
+    /// (eviction), `get_node_properties` serves it from the attached read-through;
+    /// without a read-through the same miss is a genuine absence (default model).
+    #[test]
+    fn read_through_serves_evicted_node() {
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+
+        #[derive(Debug, Default)]
+        struct StubStore {
+            rows: Mutex<HashMap<String, Vec<u8>>>,
+        }
+        impl crate::read_through::ReadThrough for StubStore {
+            fn read_node_blob(&self, node_id: &str) -> Option<Vec<u8>> {
+                self.rows.lock().unwrap().get(node_id).cloned()
+            }
+        }
+
+        let core = GraphCore::new();
+        // Resident node — read comes from RAM, never consults read-through.
+        core.add_node("hot".into(), props(serde_json::json!({"i": 1})));
+
+        // A durable store holding a node that is NOT resident in RAM (an evicted one).
+        let store = Arc::new(StubStore::default());
+        store
+            .rows
+            .lock()
+            .unwrap()
+            .insert("cold".into(), props(serde_json::json!({"i": 2})));
+
+        // Before attaching: a RAM miss is a genuine absence.
+        assert_eq!(core.get_node_properties("cold"), None);
+
+        core.set_read_through(store);
+
+        // After attaching: the resident node still reads from RAM…
+        assert_eq!(
+            core.get_node_properties("hot"),
+            Some(props(serde_json::json!({"i": 1})))
+        );
+        // …and the evicted node reads through to the durable store with fidelity.
+        assert_eq!(
+            core.get_node_properties("cold"),
+            Some(props(serde_json::json!({"i": 2})))
+        );
+        // A node in neither RAM nor the store is still absent.
+        assert_eq!(core.get_node_properties("absent"), None);
     }
 
     fn confidence_of(core: &GraphCore, id: &str) -> f64 {
