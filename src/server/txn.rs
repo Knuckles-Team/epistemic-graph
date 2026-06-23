@@ -16,6 +16,29 @@
 //! true rollback. The per-`GraphCore` write-version counter (`core.version()`) is
 //! the cheap coarse guard: if it is unchanged since begin, no write landed and the
 //! per-node re-check is skipped entirely.
+//!
+//! Isolation levels (CONCEPT:KG-2.183 — M6b). `BeginTxn` carries an
+//! `isolation: Option<String>` hint:
+//!   * `None` / `"snapshot"` — the default. Validation is exactly the per-NODE
+//!     fingerprint read-set above (catches write-write on touched nodes). This is
+//!     UNCHANGED by M6b and pays NO extra cost.
+//!   * `"serializable"` — additionally captures a PREDICATE/RANGE read-set the txn
+//!     relied on (a label scan) and re-evaluates it at commit, failing the commit
+//!     if the matched set changed (a phantom inserted/removed, or a matching node's
+//!     property changed). Because the protocol has no in-txn read op (and M6b adds
+//!     no wire change), the predicate is declared inline in the isolation hint:
+//!     `"serializable:label=<L>"` watches the label scan `get_nodes_by_label(<L>)`.
+//!     Plain `"serializable"` is accepted with an empty predicate read-set (it then
+//!     behaves like snapshot — there is simply nothing extra to protect).
+//!
+//! Any other isolation value is REJECTED at `BeginTxn`.
+//!
+//! PITR hook (CONCEPT:KG-2.183): point-in-time recovery would replay the
+//! append-only `ledger` table up to a target version/timestamp; the natural slot is
+//! the commit path in `handlers/txn.rs` right after `core.mark_dirty()` (each
+//! committed txn maps to a version bump that a PITR cursor can target). Not
+//! implemented here — it requires a ledger replay API that lives outside the txn
+//! subsystem.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -93,6 +116,101 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     h.finish()
 }
 
+/// Transaction isolation level (CONCEPT:KG-2.183). `Snapshot` is today's behavior
+/// (per-node OCC read-set only); `Serializable` additionally re-evaluates a captured
+/// predicate read-set at commit to reject phantom/range anomalies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IsolationLevel {
+    Snapshot,
+    Serializable,
+}
+
+/// Parse the `BeginTxn` `isolation` hint into a level plus an optional predicate to
+/// watch. Returns `Err(msg)` for an unknown value so `BeginTxn` can reject it.
+///
+/// Accepted forms (case-insensitive on the level keyword):
+///   * `None` / `""` / `"snapshot"`        → (Snapshot, None)
+///   * `"serializable"`                     → (Serializable, None)
+///   * `"serializable:label=<L>"`           → (Serializable, Some(Label(<L>)))
+pub(crate) fn parse_isolation(
+    hint: Option<&str>,
+) -> Result<(IsolationLevel, Option<PredicateRead>), String> {
+    let raw = hint.unwrap_or("").trim();
+    if raw.is_empty() {
+        return Ok((IsolationLevel::Snapshot, None));
+    }
+    // Split off an optional `:<predicate>` suffix from the level keyword.
+    let (level_kw, predicate) = match raw.split_once(':') {
+        Some((lvl, pred)) => (lvl.trim(), Some(pred.trim())),
+        None => (raw, None),
+    };
+    let level = match level_kw.to_ascii_lowercase().as_str() {
+        "snapshot" => IsolationLevel::Snapshot,
+        "serializable" => IsolationLevel::Serializable,
+        other => return Err(format!("unknown isolation level '{other}'")),
+    };
+    let predicate = match (level, predicate) {
+        // A predicate is only meaningful under serializable; snapshot has no
+        // predicate read-set, so a `snapshot:…` suffix is a malformed hint.
+        (IsolationLevel::Snapshot, Some(p)) if !p.is_empty() => {
+            return Err(format!(
+                "isolation predicate '{p}' is only valid with serializable"
+            ));
+        }
+        (IsolationLevel::Serializable, Some(p)) if !p.is_empty() => Some(PredicateRead::parse(p)?),
+        _ => None,
+    };
+    Ok((level, predicate))
+}
+
+/// A predicate/range read the txn relied on, captured at begin and re-evaluated at
+/// commit (CONCEPT:KG-2.183 serializable). Currently the one supported predicate is
+/// a label scan — the minimal staged-read primitive the txn subsystem can express
+/// without a protocol change.
+#[derive(Debug, Clone)]
+pub(crate) enum PredicateRead {
+    /// `get_nodes_by_label(label)` — the set of nodes carrying `label`.
+    Label(String),
+}
+
+impl PredicateRead {
+    /// Parse a predicate clause from the isolation hint suffix, e.g. `label=Doc`.
+    fn parse(clause: &str) -> Result<Self, String> {
+        match clause.split_once('=') {
+            Some(("label", lbl)) if !lbl.trim().is_empty() => {
+                Ok(PredicateRead::Label(lbl.trim().to_string()))
+            }
+            _ => Err(format!(
+                "unsupported isolation predicate '{clause}' (expected label=<L>)"
+            )),
+        }
+    }
+
+    /// Fingerprint the predicate's current result set: an order-independent hash over
+    /// each matching `(node_id, property-blob)` pair. A phantom inserted/removed
+    /// changes the id membership; a matching node's property change alters its blob —
+    /// either flips the fingerprint, which is exactly the serializable anomaly set.
+    fn fingerprint(&self, core: &GraphCore) -> u64 {
+        match self {
+            PredicateRead::Label(label) => {
+                // `0` = uncapped: serializability needs the FULL matched set, not a page.
+                let mut rows = core.get_nodes_by_label(label, 0);
+                // Sort by id so the fold is order-independent (the label index does
+                // not guarantee a stable order across rebuilds).
+                rows.sort_by(|a, b| a.0.cmp(&b.0));
+                let mut acc: u64 = 0xcbf2_9ce4_8422_2325; // FNV offset basis, as a seed.
+                for (id, props) in &rows {
+                    acc ^= hash_bytes(id.as_bytes());
+                    acc = acc.rotate_left(13);
+                    acc ^= hash_bytes(props);
+                    acc = acc.rotate_left(13);
+                }
+                acc
+            }
+        }
+    }
+}
+
 /// One open server-staged transaction (CONCEPT:KG-2.180). Holds the target graph
 /// name, the OCC begin-version, the staged durable-mutation write-set, and the
 /// per-node read-set fingerprints for conflict detection. Stored behind a `Mutex`
@@ -107,6 +225,13 @@ pub struct GraphTxnState {
     pub(crate) write_set: Vec<Method>,
     /// Per-node fingerprints captured when first referenced — the OCC read-set.
     pub(crate) read_set: HashMap<String, NodeFingerprint>,
+    /// Isolation level (CONCEPT:KG-2.183). `Snapshot` validates only `read_set`;
+    /// `Serializable` additionally re-checks `predicate_reads`.
+    pub(crate) isolation: IsolationLevel,
+    /// Predicate/range reads captured at begin and re-evaluated at commit under
+    /// serializable — each entry is `(predicate, fingerprint-at-begin)`. Empty under
+    /// snapshot (so snapshot pays no extra cost).
+    pub(crate) predicate_reads: Vec<(PredicateRead, u64)>,
     /// Owning agent (for the per-agent open-txn cap), or `""` when anonymous.
     pub(crate) agent: String,
     /// Monotonic ms timestamp of the last staged/begun activity, for TTL idle
@@ -115,12 +240,33 @@ pub struct GraphTxnState {
 }
 
 impl GraphTxnState {
-    pub(crate) fn new(graph: String, begin_version: u64, agent: String, now_ms: u64) -> Self {
+    /// Open a fresh staged transaction. Under `Serializable` with a declared
+    /// `predicate`, capture its result-set fingerprint NOW (the snapshot the txn
+    /// reads against) so commit can detect a phantom/range change. `core` is the
+    /// txn's target graph core (an off-lock read; nothing is held while staging).
+    pub(crate) fn new(
+        core: &GraphCore,
+        graph: String,
+        begin_version: u64,
+        isolation: IsolationLevel,
+        predicate: Option<PredicateRead>,
+        agent: String,
+        now_ms: u64,
+    ) -> Self {
+        let predicate_reads = match (isolation, predicate) {
+            (IsolationLevel::Serializable, Some(p)) => {
+                let fp = p.fingerprint(core);
+                vec![(p, fp)]
+            }
+            _ => Vec::new(),
+        };
         GraphTxnState {
             graph,
             begin_version,
             write_set: Vec::new(),
             read_set: HashMap::new(),
+            isolation,
+            predicate_reads,
             agent,
             last_active_ms: now_ms,
         }
@@ -164,16 +310,37 @@ impl GraphTxnState {
     }
 
     /// Validate the OCC read-set against `core` under the held commit guard. Cheap
-    /// path: if `core.version()` is unchanged since begin, no write landed and the
-    /// per-node re-check is skipped. Otherwise re-fingerprint each read-set node and
-    /// require equality. Returns `true` when the transaction may commit.
+    /// path: if `core.version()` is unchanged since begin, no write landed and BOTH
+    /// the per-node and the serializable predicate re-checks are skipped. Otherwise
+    /// re-fingerprint each read-set node and require equality; under `Serializable`
+    /// additionally re-evaluate each captured predicate read-set and require its
+    /// result-set fingerprint to be unchanged (rejects phantoms/range anomalies).
+    /// Returns `true` when the transaction may commit.
     pub(crate) fn validate(&self, core: &GraphCore) -> bool {
+        // Coarse guard: no write landed at all since begin → nothing to re-check
+        // (CONCEPT:KG-2.183 — serializable pays nothing when the graph is untouched).
         if core.version() == self.begin_version {
             return true;
         }
-        self.read_set
+        // Per-node read-set (snapshot isolation; always enforced).
+        let nodes_ok = self
+            .read_set
             .iter()
-            .all(|(node_id, fp)| &NodeFingerprint::capture(core, node_id) == fp)
+            .all(|(node_id, fp)| &NodeFingerprint::capture(core, node_id) == fp);
+        if !nodes_ok {
+            return false;
+        }
+        // Serializable: re-evaluate the predicate read-set. A changed result-set
+        // fingerprint = a phantom inserted/removed or a matching node's relevant
+        // property changed → not serializable → conflict.
+        if self.isolation == IsolationLevel::Serializable {
+            for (predicate, fp_at_begin) in &self.predicate_reads {
+                if predicate.fingerprint(core) != *fp_at_begin {
+                    return false;
+                }
+            }
+        }
+        true
     }
 }
 
