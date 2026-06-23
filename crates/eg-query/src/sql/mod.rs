@@ -8,10 +8,15 @@
 //! `betweenness()` table functions plus `var`/`cvar` aggregates (feature `finance`)
 //! bring graph + finance kernels into SQL.
 
+mod classify;
 mod exec;
 mod providers;
 mod tablefuncs;
 mod udfs;
 
-pub use exec::{exec_sql, exec_sql_cached, QueryResult};
+pub use classify::{classify, InsertNode, StatementKind};
+pub use exec::{
+    exec_sql, exec_sql_cached, exec_sql_typed, PgColType, QueryResult, TypedColumn,
+    TypedQueryResult,
+};
 pub use providers::SqlCache;
