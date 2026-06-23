@@ -276,6 +276,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
     let persistence_shutdown = persistence.clone();
 
+    // OCC ACID transaction limits (CONCEPT:KG-2.180).
+    let (txn_ttl_secs, txn_max_per_graph, txn_max_per_agent) =
+        epistemic_graph::server::txn_limits_from_env();
+
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
@@ -289,6 +293,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         write_coalescer: std::sync::Arc::new(
             epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
         ),
+        open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
+        txn_id_gen: std::sync::Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
+        txn_ttl_secs,
+        txn_max_per_graph,
+        txn_max_per_agent,
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
@@ -398,6 +407,33 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         .await;
                 if evicted > 0 {
                     tracing::info!("Memory cap: evicted {} LRU node(s) over cap", evicted);
+                }
+            }
+        });
+    }
+
+    // ── OCC transaction TTL sweep (CONCEPT:KG-2.180 safety rail) ─────────
+    // Auto-roll-back transactions idle past the TTL so an abandoned client never
+    // leaks a staged transaction forever. An abandoned txn never committed, so it
+    // applied nothing — reclaiming it just frees memory and never touches a graph
+    // lock. Sweeps at most every 30s (or sooner for a short TTL).
+    {
+        let sweep_state = state.clone();
+        let ttl = txn_ttl_secs;
+        let sweep_interval = ttl.clamp(5, 30);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(sweep_interval));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                let now = epistemic_graph::server::txn::now_ms();
+                let reclaimed =
+                    epistemic_graph::server::txn::sweep_expired_txns(&sweep_state, ttl, now);
+                if reclaimed > 0 {
+                    tracing::info!(
+                        "Txn TTL sweep: rolled back {} idle transaction(s)",
+                        reclaimed
+                    );
                 }
             }
         });
