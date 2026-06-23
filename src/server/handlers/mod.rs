@@ -12,3 +12,7 @@ pub(crate) mod datascience;
 #[cfg(feature = "finance")]
 pub(crate) mod finance;
 pub(crate) mod graph_ops;
+// Read-only SQL query surface (CONCEPT:KG-2.178). Slim builds omit it; the
+// Method::Sql variant then falls to the graph_ops "not available" catch-all.
+#[cfg(feature = "query")]
+pub(crate) mod query;

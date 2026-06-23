@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute"]
+members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute", "crates/eg-query"]
 
 [package]
 name = "epistemic-graph"
@@ -38,9 +38,23 @@ server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait"]
 # snapshot+WAL stays the shipped behavior; redb is opt-in via this feature AND
 # EPISTEMIC_GRAPH_PERSIST_BACKEND=redb at runtime.
 redb = ["server", "dep:redb"]
+# Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
+# — heavy, so it is OFF by default and folded only into full/all (never the slim
+# Raspberry-Pi build). A default build links no DataFusion.
+query = ["dep:eg-query", "eg-query/sql"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
-full = ["compute", "server"]
+full = ["compute", "server", "query"]
 all = ["full"]
+
+# ── Pi ↔ Cluster deployment tier bundles ──
+# Convenience feature sets spanning the deployment spectrum. `pi` is the lean
+# durable in-memory build with NO DataFusion (Raspberry-Pi contract); `node`
+# layers SQL + compute on top; `cluster` is `node` today (openraft/pgwire land
+# in a later milestone). Each references only features that exist now — `cypher`
+# is deliberately NOT exposed yet (eg-query carries a dep-free placeholder).
+pi = ["server", "graph", "algorithms", "redb"]
+node = ["pi", "query", "reasoning", "finance", "datascience", "ast"]
+cluster = ["node"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
@@ -49,6 +63,8 @@ eg-core = { path = "crates/eg-core" }
 # the heavy finance/datascience/ast/reasoning code + deps are gated behind the
 # facade features that pass through to eg-compute's matching features.
 eg-compute = { path = "crates/eg-compute" }
+# Optional SQL query surface (feature `query`); pulls DataFusion only when enabled.
+eg-query = { path = "crates/eg-query", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
