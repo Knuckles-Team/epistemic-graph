@@ -124,7 +124,7 @@ def _router_with_fakes(
     affinity: AffinityRegistry | None = None,
 ) -> ShardRouter:
     router = ShardRouter(endpoints, affinity=affinity)
-    router.pools = {ep: _FakePool(shards[ep]) for ep in endpoints}  # type: ignore[assignment]
+    router.pools = {ep: _FakePool(shards[ep]) for ep in endpoints}  # type: ignore[assignment,misc]
     return router
 
 
