@@ -58,6 +58,18 @@ const LEDGER: TableDefinition<(&str, u64), &str> = TableDefinition::new("ledger"
 const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("semantic_store");
 const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
 
+// Time-series tables (CONCEPT:KG-2.210). The CANONICAL `(series_id, bucket_start)`
+// chunk schema is declared once in the eg-tsdb crate (where the store/query logic
+// lives) and re-exported here so it sits WITH the durable tier's other table
+// definitions. They use the SAME redb composite-key range-scan idiom as
+// NODES/EDGES/LEDGER. The series store opens its OWN `series.redb` file (redb holds
+// an exclusive per-process file lock, so it cannot share this backend's `graph.redb`
+// handle) — these aliases document the schema beside the graph tables; the actual
+// open + I/O lives in `eg_tsdb::store::SeriesStore`.
+#[cfg(feature = "tsdb")]
+#[allow(unused_imports)]
+pub(crate) use eg_tsdb::store::{SERIES_CHUNKS, SERIES_META};
+
 /// One write command handed to the off-reactor thread. A `Mutation` carries the
 /// graph file-name + the applied method; the thread translates it into row writes
 /// inside the current group-commit transaction.
@@ -1017,6 +1029,8 @@ mod tests {
             txn_max_per_agent: 256,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
         }))
     }
 

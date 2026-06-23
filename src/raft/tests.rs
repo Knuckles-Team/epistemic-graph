@@ -52,6 +52,8 @@ async fn make_state(dir: &str) -> Arc<RwLock<ServerState>> {
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
         raft: None,
+        #[cfg(feature = "tsdb")]
+        tsdb_store: None,
     }))
 }
 

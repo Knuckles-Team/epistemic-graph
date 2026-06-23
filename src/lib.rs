@@ -18,7 +18,7 @@
 // isolation, semantic search) lives in `eg-core`. Re-export both under the
 // historical `crate::` paths so every module's `crate::protocol::` /
 // `crate::graph::` / `crate::registry::` reference resolves unchanged.
-pub use eg_core::{compute, graph, isolation, registry};
+pub use eg_core::{compute, decay, graph, isolation, registry};
 pub use eg_types::{acl, protocol, types, wire};
 // Compute domains live in `eg-compute`; re-export under the historical `crate::`
 // paths. algorithms/ast/parser are always present; the feature-gated domains are

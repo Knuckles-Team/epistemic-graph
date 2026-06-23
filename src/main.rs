@@ -358,6 +358,32 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (txn_ttl_secs, txn_max_per_graph, txn_max_per_agent) =
         epistemic_graph::server::txn_limits_from_env();
 
+    // Native time-series store (CONCEPT:KG-2.210, feature `tsdb`). A durable
+    // `series.redb` beside `graph.redb` when a persist dir is set; else a
+    // process-temp file (in-memory deployments). Built BEFORE `persist_dir` is moved
+    // into the struct. A store-open failure is fatal at boot (loud + early), same
+    // discipline as the persistence backend above.
+    #[cfg(feature = "tsdb")]
+    let tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>> = {
+        let path = match &args.persist_dir {
+            Some(dir) => std::path::Path::new(dir).join("series.redb"),
+            None => std::env::temp_dir().join(format!("eg-tsdb-{}.redb", std::process::id())),
+        };
+        match eg_tsdb::store::SeriesStore::open(&path) {
+            Ok(s) => {
+                info!("Time-series store (tsdb): {}", path.display());
+                Some(Arc::new(s))
+            }
+            Err(e) => {
+                tracing::error!(
+                    "failed to open time-series store at {}: {e}",
+                    path.display()
+                );
+                std::process::exit(1);
+            }
+        }
+    };
+
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
@@ -386,6 +412,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // so the dispatch write path is the single-node path, unchanged.
         #[cfg(feature = "raft")]
         raft: None,
+        #[cfg(feature = "tsdb")]
+        tsdb_store,
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
