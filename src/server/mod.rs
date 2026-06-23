@@ -312,6 +312,124 @@ mod tests {
         assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
     }
 
+    // ── Cypher query surface (CONCEPT:KG-2.179) ─────────────────────────
+
+    /// End-to-end: add nodes + a KNOWS edge, route `Method::CypherQuery` through
+    /// the FULL dispatch chain, and decode the `Raw(QueryResult)` rows. Proves the
+    /// dep-free Cypher handler is wired before graph_ops in a no-DataFusion build.
+    /// (cypher feature)
+    #[cfg(feature = "cypher")]
+    #[tokio::test]
+    async fn test_cypher_match_returns_rows() {
+        let state = test_state();
+        let add = |id: u64, node_id: &str, ty: &str, name: &str| {
+            request(
+                id,
+                "__commons__",
+                None,
+                Method::AddNode {
+                    node_id: node_id.to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"type": ty, "name": name}),
+                    )
+                    .unwrap(),
+                },
+            )
+        };
+        assert_ok(&dispatch(&state, add(1, "alice", "Person", "Alice")).await);
+        assert_ok(&dispatch(&state, add(2, "bob", "Person", "Bob")).await);
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    3,
+                    "__commons__",
+                    None,
+                    Method::AddEdge {
+                        source_id: "alice".into(),
+                        target_id: "bob".into(),
+                        properties_msgpack: rmp_serde::to_vec_named(
+                            &serde_json::json!({"relationship": "KNOWS"}),
+                        )
+                        .unwrap(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // Single-node label MATCH → label index.
+        let resp = dispatch(
+            &state,
+            request(
+                10,
+                "__commons__",
+                None,
+                Method::CypherQuery {
+                    query: "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let qr = match resp.result {
+            Some(ResultPayload::Raw(bytes)) => {
+                rmp_serde::from_slice::<crate::protocol::QueryResult>(&bytes).unwrap()
+            }
+            other => panic!("expected Raw(QueryResult), got {:?}", other),
+        };
+        assert_eq!(qr.columns, vec!["a".to_string()]);
+        let cells: Vec<serde_json::Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
+        assert_eq!(cells[0].as_str(), Some("alice"));
+
+        // 2-node typed-edge MATCH → VF2.
+        let resp2 = dispatch(
+            &state,
+            request(
+                11,
+                "__commons__",
+                None,
+                Method::CypherQuery {
+                    query: "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp2);
+        let qr2 = match resp2.result {
+            Some(ResultPayload::Raw(bytes)) => {
+                rmp_serde::from_slice::<crate::protocol::QueryResult>(&bytes).unwrap()
+            }
+            other => panic!("expected Raw(QueryResult), got {:?}", other),
+        };
+        assert_eq!(qr2.columns, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(qr2.rows.len(), 1);
+        let pair: Vec<serde_json::Value> = rmp_serde::from_slice(&qr2.rows[0]).unwrap();
+        assert_eq!(pair[0].as_str(), Some("alice"));
+        assert_eq!(pair[1].as_str(), Some("bob"));
+    }
+
+    /// Feature-gating contract for the Cypher surface (CONCEPT:KG-2.179): with the
+    /// `cypher` feature off, `Method::CypherQuery`'s handler arm is compiled away
+    /// and the request must hit the not-built catch-all. (Compiled out when
+    /// `cypher` is on, where the real handler answers instead.)
+    #[cfg(not(feature = "cypher"))]
+    #[tokio::test]
+    async fn test_cypher_gated_out_returns_not_built() {
+        let state = test_state();
+        let method = Method::CypherQuery {
+            query: "MATCH (a:Person) RETURN a".into(),
+        };
+        let resp = dispatch(&state, request(1, "__commons__", None, method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
     #[tokio::test]
     async fn test_bad_auth_token_rejected() {
         let state = test_state();
