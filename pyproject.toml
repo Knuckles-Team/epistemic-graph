@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "epistemic-graph"
-version = "0.32.0"
+version = "0.33.0"
 description = "Rust-based epistemic graph engine for agent-utilities"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -73,4 +73,10 @@ min_confidence = 95
 python-source = "."
 bindings = "bin"
 strip = true
-features = ["server"]
+# `ast-extended` (CONCEPT:KG-2.106) compiles the native tree-sitter parser + the full
+# grammar tier (python/js/ts/go/rust/java/c/cpp/c#/ruby/php/bash/scala/lua) into the
+# shipped wheel so the `ParseFiles`/`ParseFile` ops actually parse. This makes the engine
+# the ONE code-parsing implementation: agent-utilities delegates to it and ships no Python
+# tree-sitter wheels. The grammars add compile time + binary size but the engine wheel is
+# installed once (the `[engine]` extra), not per-connector.
+features = ["server", "ast-extended"]
