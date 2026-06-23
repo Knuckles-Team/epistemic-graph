@@ -71,22 +71,24 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// Previously the read lock was held through the whole encode, which on a 450MB
 /// graph blocks every concurrent writer for ~10s each checkpoint (the periodic
 /// ingest "freeze"). (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
-pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+pub async fn checkpoint_all(
+    state: &Arc<RwLock<ServerState>>,
+    wal_service: Option<&crate::wal_service::WalService>,
+) -> Result<usize, String> {
     let start = std::time::Instant::now();
-    let (dir, wal_service, entries) = {
+    let (dir, entries) = {
         let s = state.read().await;
         let dir = match &s.persist_dir {
             Some(d) => d.clone(),
             None => return Ok(0),
         };
-        let wal_service = s.wal_service.clone();
         let entries: Vec<(String, GraphType, Arc<GraphCore>)> = s
             .registry
             .all_entries()
             .iter()
             .map(|e| (e.name.clone(), e.graph_type, e.core.clone()))
             .collect();
-        (dir, wal_service, entries)
+        (dir, entries)
     };
 
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -117,7 +119,6 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         // processes Position in-order with appends, so it reflects exactly the ops
         // enqueued before now. 0 ⇒ nothing logged ⇒ no truncation. (Phase B3)
         let wal_pos = wal_service
-            .as_ref()
             .map(|svc| svc.position(&fname))
             .filter(|&p| p > 0);
         // snapshot() takes the topology read lock internally for a consistent
@@ -128,7 +129,7 @@ pub async fn checkpoint_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, S
         let bytes = snapshot.to_msgpack()?;
         atomic_write(&path, &bytes)?;
         // Snapshot is durable on disk → drop the WAL prefix it superseded.
-        if let (Some(svc), Some(pos)) = (&wal_service, wal_pos) {
+        if let (Some(svc), Some(pos)) = (wal_service, wal_pos) {
             if let Err(e) = svc.truncate(&fname, pos) {
                 tracing::warn!("WAL truncate failed for '{}': {}", name, e);
             }
@@ -261,7 +262,13 @@ fn migrate_legacy_commons(dir: &str) {
     }
 }
 
-pub async fn load_all(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+pub async fn load_all(
+    state: &Arc<RwLock<ServerState>>,
+    // The snapshot+WAL recovery replays WAL tails directly from disk
+    // (`crate::wal::replay`), so it does not consult the live writer handle; the
+    // parameter keeps `load_all`/`checkpoint_all` symmetric for the backend trait.
+    _wal_service: Option<&crate::wal_service::WalService>,
+) -> Result<usize, String> {
     let dir = {
         let s = state.read().await;
         match &s.persist_dir {

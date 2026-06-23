@@ -8,6 +8,7 @@ mod auth;
 mod compute;
 mod dispatch;
 mod handlers;
+pub mod persistence;
 mod state;
 mod transport;
 
@@ -16,6 +17,7 @@ mod transport;
 // `server::{handle_connection,serve_uds,serve_tcp}` — used by main.rs/persist.rs/tests.
 pub use auth::compute_auth_token;
 pub use dispatch::dispatch;
+pub use persistence::PersistenceBackend;
 pub use state::{ServerState, MAX_BATCH_IDS};
 pub use transport::{handle_connection, serve_tcp};
 // serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
@@ -45,7 +47,7 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
-            wal_service: None,
+            persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
@@ -292,22 +294,34 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string_lossy().to_string()),
-            wal_service: None,
+            persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
-        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        assert_eq!(
+            crate::persist::checkpoint_all(&state, None).await.unwrap(),
+            1
+        );
         // Nothing changed → the next checkpoint writes nothing (all clean/skipped).
-        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
+        assert_eq!(
+            crate::persist::checkpoint_all(&state, None).await.unwrap(),
+            0
+        );
 
         // A successful write through dispatch marks the graph dirty (no isolation
         // rules registered → back-compat permits the write).
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
-        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
-        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 0);
+        assert_eq!(
+            crate::persist::checkpoint_all(&state, None).await.unwrap(),
+            1
+        );
+        assert_eq!(
+            crate::persist::checkpoint_all(&state, None).await.unwrap(),
+            0
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -327,13 +341,18 @@ mod tests {
             crate::wal_service::FsyncPolicy::Each,
             64,
         );
+        // The default backend owns the WAL writer; keep a clone of `svc` here to
+        // assert directly on the off-reactor writer's position/dropped counters.
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
+            crate::server::persistence::snapshot_wal::SnapshotWalBackend::new(Some(svc.clone())),
+        );
         let state = Arc::new(RwLock::new(ServerState {
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir_s.clone()),
-            wal_service: Some(svc.clone()),
+            persistence: Some(backend.clone()),
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
@@ -355,7 +374,7 @@ mod tests {
         assert!(fresh.get_node_properties("x").is_some());
 
         // Checkpoint writes the snapshot and truncates the WAL prefix it covers.
-        assert_eq!(crate::persist::checkpoint_all(&state).await.unwrap(), 1);
+        assert_eq!(backend.checkpoint_all(&state).await.unwrap(), 1);
         assert_eq!(
             svc.position("__commons__"),
             0,
@@ -397,13 +416,13 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir_s.clone()),
-            wal_service: None,
+            persistence: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
         }));
 
-        crate::persist::load_all(&state).await.unwrap();
+        crate::persist::load_all(&state, None).await.unwrap();
 
         // The legacy data now lives under __commons__; the old files are gone.
         let resp = dispatch(
@@ -561,7 +580,7 @@ mod tests {
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
-            wal_service: None,
+            persistence: None,
             max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot

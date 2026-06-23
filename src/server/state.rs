@@ -20,10 +20,12 @@ pub struct ServerState {
     pub channels: ChannelManager,
     pub auth_secret: String,
     pub persist_dir: Option<String>,
-    /// Off-reactor WAL writer (Phase B3). `Some` when a persist dir is configured.
-    /// Durable mutations enqueue their append here instead of doing blocking file
-    /// I/O on a Tokio worker; the writer thread group-commits fsyncs.
-    pub wal_service: Option<Arc<crate::wal_service::WalService>>,
+    /// Pluggable durable persistence tier (CONCEPT:KG-2.177). `Some` when a
+    /// persist dir is configured. The dispatch write-side-effect block calls
+    /// `record` after every successful durable mutation; the chosen backend
+    /// (snapshot+WAL by default, redb write-through when selected) owns its own
+    /// off-reactor writer internally, so the WAL type no longer leaks here.
+    pub persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     /// Global backpressure: caps concurrent in-flight requests across all
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
