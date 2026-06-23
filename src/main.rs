@@ -84,6 +84,22 @@ fn resolve_socket_path(explicit: Option<String>) -> String {
     "/tmp/epistemic-graph.sock".to_string()
 }
 
+/// True if any legacy snapshot (`.mp`) or WAL (`.wal`) file exists in `dir` —
+/// the trigger for the one-time redb-authoritative migration (CONCEPT:KG-2.187).
+fn legacy_snapshots_present(dir: &str) -> bool {
+    std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok()).any(|e| {
+                let p = e.path();
+                matches!(
+                    p.extension().and_then(|x| x.to_str()),
+                    Some("mp") | Some("wal")
+                )
+            })
+        })
+        .unwrap_or(false)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Explicit, hardware-sized multi-thread runtime (CONCEPT:KG-2.8 — A4). The
     // default `#[tokio::main]` already spins one worker per core, but building the
@@ -219,6 +235,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .map(|s| s.trim().to_ascii_lowercase())
         .unwrap_or_else(|| "snapshot".to_string());
+    // redb-authoritative mode (CONCEPT:KG-2.187), read ONCE at startup. Default OFF
+    // → byte-for-byte today's behavior. Only meaningful with the redb backend
+    // selected; warn (don't fail) if set without it so a misconfig is loud but the
+    // engine still boots in safe write-through mode.
+    let redb_authoritative = std::env::var("EPISTEMIC_GRAPH_REDB_AUTHORITATIVE")
+        .ok()
+        .map(|s| {
+            let s = s.trim().to_ascii_lowercase();
+            s == "1" || s == "true" || s == "yes" || s == "on"
+        })
+        .unwrap_or(false);
+    if redb_authoritative && backend_kind != "redb" {
+        tracing::warn!(
+            "EPISTEMIC_GRAPH_REDB_AUTHORITATIVE is set but EPISTEMIC_GRAPH_PERSIST_BACKEND='{}' \
+             (not 'redb'); authoritative mode is IGNORED — it only applies to the redb backend",
+            backend_kind
+        );
+    }
+    if redb_authoritative && backend_kind == "redb" {
+        info!("redb AUTHORITATIVE mode ON (CONCEPT:KG-2.187): commit-before-ack, eviction gated, backpressure (no drop)");
+    }
     let persistence: Option<
         Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>,
     > = args.persist_dir.as_ref().map(|dir| {
@@ -287,6 +324,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
         persistence,
+        // Only honor authoritative mode when the redb backend is actually selected
+        // (its `record_durable`/`read_node` are the only real implementations); any
+        // other backend stays in safe write-through/no-op behavior.
+        redb_authoritative: redb_authoritative && backend_kind == "redb",
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
@@ -329,7 +370,41 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // (CONCEPT:KG-2.177). Both no-op when no persist dir is configured.
     let persistence_for_load = { state.read().await.persistence.clone() };
     if let Some(p) = &persistence_for_load {
-        if let Err(e) = p.load_all(&state).await {
+        // One-time legacy → redb migration (CONCEPT:KG-2.187). When authoritative and
+        // the redb store is EMPTY but legacy snapshot/WAL files exist (an engine that
+        // ran on snapshot+WAL before the flag flip), import them into redb FIRST so
+        // the authoritative store is seeded loss-free, then proceed. Precedent:
+        // persist.rs migrate_legacy_commons (AGENTS.md sanctions a one-time
+        // read-old→write-new). The old files are LEFT in place as a backstop.
+        let authoritative = { state.read().await.redb_authoritative };
+        if authoritative {
+            match p.load_all(&state).await {
+                Ok(0) => {
+                    if let Some(dir) = { state.read().await.persist_dir.clone() } {
+                        if legacy_snapshots_present(&dir) {
+                            info!(
+                                "redb authoritative: redb store empty but legacy snapshot/WAL \
+                                 present at {dir} — importing into redb (one-time migration)"
+                            );
+                            // Load the legacy snapshot+WAL into the live registry via the
+                            // snapshot recovery path, then checkpoint the registry into redb.
+                            if let Err(e) = epistemic_graph::persist::load_all(&state, None).await {
+                                tracing::warn!("legacy snapshot load failed: {e}");
+                            }
+                            match p.checkpoint_all(&state).await {
+                                Ok(n) => info!(
+                                    "redb authoritative migration: imported {n} graph(s) from \
+                                     legacy snapshot/WAL into redb (old files left as backstop)"
+                                ),
+                                Err(e) => tracing::warn!("redb migration checkpoint failed: {e}"),
+                            }
+                        }
+                    }
+                }
+                Ok(n) => info!("redb authoritative: loaded {n} graph(s) from redb"),
+                Err(e) => tracing::warn!("redb load failed (continuing fresh): {e}"),
+            }
+        } else if let Err(e) = p.load_all(&state).await {
             tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
         }
     }

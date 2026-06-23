@@ -56,6 +56,58 @@ pub trait PersistenceBackend: Send + Sync {
     /// file I/O on the calling Tokio worker. `graph_fname` is already sanitized.
     fn record(&self, graph_fname: &str, method: &Method);
 
+    /// Record a single applied DATA mutation AND await its durable commit
+    /// (CONCEPT:KG-2.187 commit-before-ack barrier). Used ONLY when redb is
+    /// authoritative: dispatch awaits this before acking the write to the client,
+    /// so a write is never acknowledged unless it is on disk. The enqueue must
+    /// still fold into the SAME group-commit batch as every other concurrent
+    /// awaiting writer (one fsync per batch, NOT one fsync per op) — it returns
+    /// only after the `WriteTransaction` carrying this op has committed. On a
+    /// durable-commit failure it returns `Err(_)`, and dispatch turns that into an
+    /// ERROR response (the write did NOT land).
+    ///
+    /// Backpressure (NOT drop): under authoritative mode a full writer queue must
+    /// block/await capacity or fail loudly — never silently discard the mutation.
+    ///
+    /// The default implementation falls back to the fire-and-forget `record`
+    /// (returning Ok immediately): backends with no durable-commit handshake
+    /// (e.g. snapshot+WAL) keep today's semantics. Only [`redb_backend`] overrides
+    /// it with a real awaited commit, and only redb may be made authoritative.
+    async fn record_durable(&self, graph_fname: &str, method: &Method) -> Result<(), String> {
+        self.record(graph_fname, method);
+        Ok(())
+    }
+
+    /// Durably register a graph's identity (CONCEPT:KG-2.187). Under authoritative
+    /// mode the per-mutation write path persists node/edge ROWS but not the graph's
+    /// name/type, yet `load_all` rebuilds the registry from a durable graph manifest
+    /// (redb `graph_meta`). So dispatch calls this when a graph is created (and it
+    /// must commit durably) so a `kill -9` between creation and the next checkpoint
+    /// still recovers the graph under its REAL name/type. Idempotent. Default no-op
+    /// for non-authoritative / non-redb backends.
+    async fn register_graph(
+        &self,
+        _graph_fname: &str,
+        _name: &str,
+        _graph_type: crate::protocol::GraphType,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Read a single node's stored properties back from the durable tier
+    /// (CONCEPT:KG-2.187 read-through). Returns `Ok(None)` when the node is not
+    /// present durably, `Ok(Some(props))` when it is. The default is `Ok(None)`
+    /// — only an authoritative backend that can serve a RAM-miss read implements
+    /// it. Provided so a future read-through-on-eviction path has a backend seam
+    /// without another trait revision; see the eviction note in `persist.rs`.
+    async fn read_node(
+        &self,
+        _graph_fname: &str,
+        _node_id: &str,
+    ) -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
+    }
+
     /// Flush and stop any background writer threads at graceful shutdown.
     /// Idempotent.
     fn shutdown(&self);
