@@ -8,6 +8,7 @@
 //! `betweenness()` table functions plus `var`/`cvar` aggregates (feature `finance`)
 //! bring graph + finance kernels into SQL.
 
+mod catalog;
 mod classify;
 mod exec;
 mod providers;
