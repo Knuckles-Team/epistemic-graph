@@ -570,10 +570,14 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
-        // Read-only SQL query (CONCEPT:KG-2.178): borrows the graph core for an
-        // off-lock snapshot, runs DataFusion on the blocking pool. Slim builds omit
-        // this line and Method::Sql falls to the graph_ops not-available catch-all.
-        #[cfg(feature = "query")]
+        // Read-only query surface — SQL (CONCEPT:KG-2.178, DataFusion behind
+        // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`): borrows
+        // the graph core for an off-lock snapshot, runs on the blocking pool. Gated
+        // on EITHER feature so CypherQuery still routes in a cypher-only (no-
+        // DataFusion) Pi build; the handler's per-method arm falls through (Err) when
+        // ITS feature is off, so Sql/CypherQuery then reach the graph_ops
+        // not-available catch-all. Slim builds with NEITHER feature omit this line.
+        #[cfg(any(feature = "query", feature = "cypher"))]
         let method = match handlers::query::try_handle(req_id, core.clone(), method).await {
             Ok(r) => break 'dispatch r,
             Err(m) => m,

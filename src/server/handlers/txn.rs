@@ -19,7 +19,7 @@ use tokio::sync::RwLock;
 
 use super::super::access::check_graph_access;
 use super::super::state::ServerState;
-use super::super::txn::{now_ms, GraphTxnState};
+use super::super::txn::{now_ms, parse_isolation, GraphTxnState};
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 
@@ -33,7 +33,7 @@ pub(crate) async fn try_handle(
 ) -> Result<Response, Method> {
     match method {
         Method::BeginTxn { graph, isolation } => {
-            Ok(begin_txn(state, req_id, caller, graph, isolation).await)
+            Ok(begin_txn(state, req_id, caller, graph, isolation.as_deref()).await)
         }
         Method::TxnAddNode {
             txn_id,
@@ -112,8 +112,14 @@ async fn begin_txn(
     req_id: u64,
     caller: Option<&str>,
     graph: Option<String>,
-    _isolation: Option<String>,
+    isolation: Option<&str>,
 ) -> Response {
+    // Parse the isolation hint up front (CONCEPT:KG-2.183); an unknown value is
+    // rejected before any graph/ACL work so the contract is unambiguous.
+    let (level, predicate) = match parse_isolation(isolation) {
+        Ok(parsed) => parsed,
+        Err(msg) => return Response::err(req_id, msg),
+    };
     // The request envelope's graph is the default target; `graph` overrides it.
     let s = state.read().await;
     let graph_name = graph.unwrap_or_default();
@@ -164,11 +170,17 @@ async fn begin_txn(
     }
 
     let txn_id = s.txn_id_gen.next();
+    // Under serializable with a declared predicate, the constructor captures the
+    // predicate read-set fingerprint against `entry.core` at begin (the snapshot the
+    // txn reads against). Snapshot level captures nothing extra.
     s.open_txns.insert(
         txn_id.clone(),
         parking_lot::Mutex::new(GraphTxnState::new(
+            &entry.core,
             graph_name,
             begin_version,
+            level,
+            predicate,
             agent,
             now_ms(),
         )),
