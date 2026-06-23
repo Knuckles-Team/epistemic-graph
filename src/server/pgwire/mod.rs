@@ -10,11 +10,25 @@
 //! it gets `mark_dirty` + durability for free. No SQL grammar, planner, or executor
 //! is reimplemented here.
 //!
-//! ## Lifecycle / default behavior
-//! Built only under the `pgwire` cargo feature (cluster tier). The listener is
-//! spawned by `main.rs` ONLY when the binary is built `--features pgwire` AND
-//! `EPISTEMIC_GRAPH_PGWIRE_ADDR` is set. With the feature off, or on but unset, the
-//! engine runs byte-for-byte as today — nothing in this module is reachable.
+//! ## Protocols supported
+//! BOTH Postgres query protocols (CONCEPT:KG-2.197):
+//!   * **Simple query** (`SimpleQueryHandler`) — a single text query string, one
+//!     round-trip. What raw `psql` and `client.simple_query(...)` use.
+//!   * **Extended / prepared** (`ExtendedQueryHandler`) — the Parse / Bind /
+//!     Describe / Execute / Sync / Close flow with prepared statements, parameter
+//!     binding (`$1`, `$2`, …), and portals. This is what psycopg3, asyncpg, JDBC,
+//!     sqlx, SQLAlchemy, and `tokio-postgres::prepare`/`query`/`execute` use by
+//!     DEFAULT — so it is the unlock that makes real drivers (not just `psql`)
+//!     work. Both protocols funnel into the SAME `execute_sql` core: the extended
+//!     path substitutes bound parameters into the SQL as literals first
+//!     (`substitute_params`), then runs the identical classify → read/write path.
+//!
+//! ## DML supported (CONCEPT:KG-2.198)
+//! Over the `nodes` table: single- and multi-row `INSERT`, `UPDATE … SET … WHERE
+//! id = '…'` (or a simple `WHERE <prop> = <literal>`), `DELETE … WHERE …`, and a
+//! `RETURNING` clause on any of them (the affected rows are returned as a result
+//! set). Parameterized DML works via the extended protocol. Deferred follow-ups:
+//! complex WHERE (AND/OR/ranges/IN), joins/subqueries in DML, `INSERT … SELECT`.
 //!
 //! ## Connected graph
 //! The graph a connection runs against is selected, in order: (1) the libpq
@@ -43,14 +57,22 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use pgwire::api::auth::StartupHandler;
-use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::results::{DataRowEncoder, FieldInfo, QueryResponse, Response, Tag};
+use pgwire::api::portal::{Format, Portal};
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::results::{
+    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
+    Response, Tag,
+};
+use pgwire::api::stmt::{QueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
 
-use eg_query::{PgColType, StatementKind, TypedQueryResult};
+use eg_query::{
+    DeleteNodes, InsertNodes, PgColType, StatementKind, TypedColumn, TypedQueryResult, UpdateNodes,
+    WhereEq,
+};
 
 use crate::server::ServerState;
 
@@ -75,6 +97,8 @@ struct EngineBackend {
     /// first query arrives — at which point this latches the graph (unless an
     /// explicit `SET graph` already chose one).
     startup_resolved: std::sync::atomic::AtomicBool,
+    /// The SQL parser used for the extended protocol's Parse step. Stateless.
+    parser: Arc<EngineQueryParser>,
 }
 
 impl EngineBackend {
@@ -83,6 +107,7 @@ impl EngineBackend {
             state,
             graph: parking_lot::Mutex::new(default_graph),
             startup_resolved: std::sync::atomic::AtomicBool::new(false),
+            parser: Arc::new(EngineQueryParser),
         }
     }
 
@@ -133,30 +158,32 @@ fn pg_type(t: PgColType) -> Type {
     }
 }
 
-/// Build the `RowDescription` fields from a typed result. All columns are returned
-/// in the unified TEXT wire format (simple-query protocol), so each cell is sent
-/// as its text rendering — the universally-compatible path for psql/BI tools.
-fn field_defs(result: &TypedQueryResult) -> Arc<Vec<FieldInfo>> {
+/// Build the `RowDescription` fields from a typed result, honouring the requested
+/// per-column wire format (text for the simple-query protocol; the extended
+/// protocol's `result_column_format` for prepared portals). A `None` format
+/// defaults to text — the universally-compatible path.
+fn field_defs(result: &TypedQueryResult, format: Option<&Format>) -> Arc<Vec<FieldInfo>> {
     Arc::new(
         result
             .columns
             .iter()
-            .map(|c| {
-                FieldInfo::new(
-                    c.name.clone(),
-                    None,
-                    None,
-                    pg_type(c.ty),
-                    pgwire::api::results::FieldFormat::Text,
-                )
+            .enumerate()
+            .map(|(i, c)| {
+                let fmt = format
+                    .map(|f| f.format_for(i))
+                    .unwrap_or(pgwire::api::results::FieldFormat::Text);
+                FieldInfo::new(c.name.clone(), None, None, pg_type(c.ty), fmt)
             })
             .collect(),
     )
 }
 
-/// Render one decoded JSON cell as the TEXT representation Postgres expects for the
-/// column's type. NULL stays NULL; strings pass through unquoted; numbers/bools
-/// render canonically; anything structural is JSON-stringified.
+/// Render one decoded JSON cell as the representation Postgres expects for the
+/// column's type, honouring the encoder's per-field text/binary format. NULL stays
+/// NULL; strings pass through; numbers/bools render canonically; anything
+/// structural is JSON-stringified. The `DataRowEncoder` chooses text vs binary
+/// from the `FieldInfo` format it was built with, so this single path serves both
+/// the simple (text) and extended (text-or-binary) protocols.
 fn encode_cell(
     encoder: &mut DataRowEncoder,
     ty: PgColType,
@@ -186,9 +213,12 @@ fn encode_cell(
     }
 }
 
-/// Build the streamed `DataRow`s for a typed read result.
-fn rows_stream(result: TypedQueryResult) -> impl Stream<Item = PgWireResult<DataRow>> {
-    let schema = field_defs(&result);
+/// Build the streamed `DataRow`s for a typed result, encoding each cell in the
+/// schema's per-column format.
+fn rows_stream(
+    result: TypedQueryResult,
+    schema: Arc<Vec<FieldInfo>>,
+) -> impl Stream<Item = PgWireResult<DataRow>> {
     let col_types: Vec<PgColType> = result.columns.iter().map(|c| c.ty).collect();
     let mut out = Vec::with_capacity(result.rows.len());
     for row in &result.rows {
@@ -207,6 +237,86 @@ fn rows_stream(result: TypedQueryResult) -> impl Stream<Item = PgWireResult<Data
         }
     }
     stream::iter(out)
+}
+
+/// Turn a [`TypedQueryResult`] into a pgwire `QueryResponse` honouring the result
+/// column format (text by default; the portal's `result_column_format` for the
+/// extended protocol).
+fn query_response(result: TypedQueryResult, format: Option<&Format>) -> QueryResponse {
+    let schema = field_defs(&result, format);
+    let data = rows_stream(result, schema.clone());
+    QueryResponse::new(schema, data)
+}
+
+/// The PgColType for a single JSON value (RETURNING result-set schema inference).
+fn col_type_of(v: &serde_json::Value) -> PgColType {
+    match v {
+        serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => PgColType::Int8,
+        serde_json::Value::Number(_) => PgColType::Float8,
+        serde_json::Value::Bool(_) => PgColType::Bool,
+        _ => PgColType::Text,
+    }
+}
+
+/// The deterministic column order a `RETURNING` clause projects, EXACTLY matching
+/// what the extended-protocol Describe step reports (so the executed DataRow field
+/// count never disagrees with the described `RowDescription`). A NAMED projection
+/// (`RETURNING id, rank`) yields those columns; `RETURNING *` (or no statically
+/// nameable list) yields `id` followed by the property columns in `prop_cols`
+/// order. Both paths compute this from the SAME inputs so they agree.
+fn returning_projection(sql: &str, prop_cols: &[String]) -> Vec<String> {
+    if let Some(named) = eg_query::returning_columns(sql) {
+        return named;
+    }
+    // `RETURNING *` (or unnameable): `id` + every known property column.
+    let mut cols = vec!["id".to_string()];
+    for c in prop_cols {
+        if c != "id" {
+            cols.push(c.clone());
+        }
+    }
+    cols
+}
+
+/// Build a RETURNING result set from the affected `(id, properties)` nodes,
+/// projecting EXACTLY `col_names` (the columns the Describe step reported) and typing
+/// each from `col_type_map` — the SAME `name → PgColType` schema the Describe step
+/// uses — so the executed DataRows' types ALWAYS match the described `RowDescription`
+/// (a mismatch would break client-side cell decode). A named column missing from a
+/// node's properties is NULL; `id` is filled from the node id. A column absent from
+/// the type map defaults to TEXT; `id` is TEXT.
+fn returning_result(
+    affected: &[(String, serde_json::Map<String, serde_json::Value>)],
+    col_names: &[String],
+    col_type_map: &std::collections::HashMap<String, PgColType>,
+) -> TypedQueryResult {
+    let columns: Vec<TypedColumn> = col_names
+        .iter()
+        .map(|name| {
+            let ty = if name == "id" {
+                PgColType::Text
+            } else {
+                col_type_map.get(name).copied().unwrap_or(PgColType::Text)
+            };
+            TypedColumn {
+                name: name.clone(),
+                ty,
+            }
+        })
+        .collect();
+    let mut rows = Vec::with_capacity(affected.len());
+    for (id, props) in affected {
+        let mut row = Vec::with_capacity(col_names.len());
+        for name in col_names {
+            if name == "id" {
+                row.push(serde_json::Value::String(id.clone()));
+            } else {
+                row.push(props.get(name).cloned().unwrap_or(serde_json::Value::Null));
+            }
+        }
+        rows.push(row);
+    }
+    TypedQueryResult { columns, rows }
 }
 
 impl EngineBackend {
@@ -258,48 +368,246 @@ impl EngineBackend {
             .map_err(|msg| user_err(format!("SQL error: {msg}")))
     }
 
-    /// Apply a classified write through the engine's `GraphTxn` write path, so it
-    /// gets `mark_dirty` (checkpoint) + WAL/durable-backend durability — NOT
-    /// DataFusion's write planner. Returns the `CommandComplete` tag. First
-    /// increment: INSERT (node creation) only; UPDATE/DELETE are recognized but
-    /// report a precise follow-up error.
-    ///
-    /// Durability (CONCEPT:KG-2.190): a pgwire write applies to `GraphCore` exactly
-    /// like an `AddNode` dispatch, then runs the SAME post-write durable-record block
-    /// `dispatch::dispatch_request` runs (the source of truth) so the wire write
-    /// inherits identical semantics — write-behind `record()` by default, and
-    /// commit-before-ack `record_durable().await` under
-    /// `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` (a commit failure becomes an ERROR; the
-    /// CommandComplete is never sent for a write that did not durably land).
-    async fn run_write(&self, graph: &str, kind: StatementKind) -> PgWireResult<Tag> {
-        match kind {
-            StatementKind::InsertNode(node) => {
-                let core = self.graph_core(graph).await?;
-                let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
-                    .map_err(|e| user_err(format!("encode node properties: {e}")))?;
-                // One-shot GraphTxn (acquires the per-graph topology write lock,
-                // applies, releases) — the same write path AddNode dispatch uses.
-                let node_id = node.node_id.clone();
-                core.add_node(node.node_id, blob.clone());
-                core.mark_dirty();
-                // The durable Method this write corresponds to — byte-identical to
-                // the `Method::AddNode` a normal dispatch records.
-                let method = crate::protocol::Method::AddNode {
-                    node_id,
-                    properties_msgpack: blob,
+    /// The shared SQL execution core for BOTH protocols (CONCEPT:KG-2.197). `sql`
+    /// is already a complete literal statement (the extended path has substituted
+    /// any `$N` parameters before calling). Classifies and routes:
+    ///   * `SET graph = …` → connection-scoped graph switch (Execution tag).
+    ///   * a read → the DataFusion path, returned as a Query response honouring the
+    ///     requested `result_format`.
+    ///   * a write → the GraphTxn + durability path; a `RETURNING` write yields a
+    ///     Query response of the affected rows, otherwise a CommandComplete tag.
+    async fn execute_sql(
+        &self,
+        sql: &str,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        if let Some(res) = self.try_set_graph(sql) {
+            return res.map(Response::Execution);
+        }
+        let graph = self.current_graph();
+        match eg_query::classify(sql).map_err(user_err)? {
+            StatementKind::Read => {
+                let result = self.run_read(&graph, sql.to_string()).await?;
+                Ok(Response::Query(query_response(result, result_format)))
+            }
+            StatementKind::InsertNodes(ins) => {
+                self.run_insert(&graph, sql, ins, result_format).await
+            }
+            StatementKind::UpdateNodes(upd) => {
+                self.run_update(&graph, sql, upd, result_format).await
+            }
+            StatementKind::DeleteNodes(del) => {
+                self.run_delete(&graph, sql, del, result_format).await
+            }
+        }
+    }
+
+    /// Resolve the node ids a simple-equality WHERE selects. `Id` is the fast path
+    /// (one id, only included if the node exists). `Property` scans the node store
+    /// once, decodes each blob, and matches the column's current value — bounded by
+    /// the in-memory node set (no DataFusion round-trip needed for a simple eq).
+    async fn matched_ids(&self, graph: &str, selector: &WhereEq) -> PgWireResult<Vec<String>> {
+        let core = self.graph_core(graph).await?;
+        match selector {
+            WhereEq::Id(id) => Ok(if core.has_node(id) {
+                vec![id.clone()]
+            } else {
+                Vec::new()
+            }),
+            WhereEq::Property { column, value } => {
+                let mut out = Vec::new();
+                for (id, blob) in core.get_nodes() {
+                    let Ok(serde_json::Value::Object(obj)) =
+                        rmp_serde::from_slice::<serde_json::Value>(&blob)
+                    else {
+                        continue;
+                    };
+                    let current = obj.get(column).unwrap_or(&serde_json::Value::Null);
+                    if current == value {
+                        out.push(id);
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// Read the current decoded property object for a node (post-write, for
+    /// RETURNING). Missing/undecodable → an empty object.
+    async fn node_props(
+        &self,
+        graph: &str,
+        id: &str,
+    ) -> PgWireResult<serde_json::Map<String, serde_json::Value>> {
+        let core = self.graph_core(graph).await?;
+        match core.get_node_properties(id) {
+            Some(blob) => match rmp_serde::from_slice::<serde_json::Value>(&blob) {
+                Ok(serde_json::Value::Object(o)) => Ok(o),
+                _ => Ok(serde_json::Map::new()),
+            },
+            None => Ok(serde_json::Map::new()),
+        }
+    }
+
+    /// `INSERT INTO nodes …` — single or multi-row (CONCEPT:KG-2.198). Each row is
+    /// applied as an `AddNode` (the same write path `Method::AddNode` dispatch uses)
+    /// and durably recorded via [`Self::record_durable_write`]. With `RETURNING`,
+    /// the inserted rows are returned as a result set; otherwise a CommandComplete
+    /// tag with the row count.
+    /// The RETURNING projection columns for `sql` (in the SAME deterministic order
+    /// the Describe step reports) PLUS the graph's `name → PgColType` schema map used
+    /// to type them. Both are computed from the SAME inputs the Describe path uses, so
+    /// a `RETURNING` write's DataRows always match the described `RowDescription` in
+    /// both column NAMES and TYPES. Resolves `RETURNING *` against the known property
+    /// columns (sorted for determinism).
+    async fn returning_cols(
+        &self,
+        graph: &str,
+        sql: &str,
+    ) -> PgWireResult<(Vec<String>, std::collections::HashMap<String, PgColType>)> {
+        let type_map = self.column_types(graph).await?;
+        let cols = if eg_query::returning_columns(sql).is_some() {
+            returning_projection(sql, &[])
+        } else {
+            let mut prop_cols: Vec<String> = type_map.keys().cloned().collect();
+            prop_cols.sort(); // deterministic `RETURNING *` order
+            returning_projection(sql, &prop_cols)
+        };
+        Ok((cols, type_map))
+    }
+
+    async fn run_insert(
+        &self,
+        graph: &str,
+        sql: &str,
+        ins: InsertNodes,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let core = self.graph_core(graph).await?;
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let n = ins.rows.len();
+        for node in ins.rows {
+            let props = node.properties.clone();
+            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
+                .map_err(|e| user_err(format!("encode node properties: {e}")))?;
+            let node_id = node.node_id.clone();
+            core.add_node(node.node_id, blob.clone());
+            let method = crate::protocol::Method::AddNode {
+                node_id: node_id.clone(),
+                properties_msgpack: blob,
+            };
+            self.record_durable_write(graph, &method).await?;
+            if ins.returning {
+                affected.push((node_id, props));
+            }
+        }
+        core.mark_dirty();
+        if ins.returning {
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+        }
+    }
+
+    /// `UPDATE nodes SET … WHERE …` (CONCEPT:KG-2.198). Resolves the matched ids,
+    /// then for each runs `compare_and_set_fields` with EMPTY conditions (an
+    /// unconditional merge of the SET map — a single atomic read-modify-write per
+    /// node under the topology write guard) and durably records the resulting
+    /// `CompareAndSetNodeFields` method (the same durable Method a CAS dispatch
+    /// records). With `RETURNING`, the post-update rows are returned.
+    async fn run_update(
+        &self,
+        graph: &str,
+        sql: &str,
+        upd: UpdateNodes,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let ids = self.matched_ids(graph, &upd.selector).await?;
+        let core = self.graph_core(graph).await?;
+        let conditions = serde_json::Map::new();
+        let updates = upd.set;
+        let cond_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(conditions.clone()))
+            .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
+        let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+            .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+        let mut affected_ids = Vec::new();
+        for id in ids {
+            let applied = core.compare_and_set_fields(&id, &conditions, &updates);
+            if applied {
+                let method = crate::protocol::Method::CompareAndSetNodeFields {
+                    node_id: id.clone(),
+                    conditions_msgpack: cond_blob.clone(),
+                    updates_msgpack: upd_blob.clone(),
                 };
                 self.record_durable_write(graph, &method).await?;
-                Ok(Tag::new("INSERT").with_rows(1))
+                affected_ids.push(id);
             }
-            StatementKind::Update => Err(user_err(
-                "UPDATE over pgwire is not yet supported (CONCEPT:KG-2.189 follow-up); \
-                 use the engine's CAS/update methods",
-            )),
-            StatementKind::Delete => Err(user_err(
-                "DELETE over pgwire is not yet supported (CONCEPT:KG-2.189 follow-up); \
-                 use the engine's RemoveNode method",
-            )),
-            StatementKind::Read => unreachable!("read routed to write path"),
+        }
+        core.mark_dirty();
+        let n = affected_ids.len();
+        if upd.returning {
+            let mut affected = Vec::with_capacity(n);
+            for id in affected_ids {
+                let props = self.node_props(graph, &id).await?;
+                affected.push((id, props));
+            }
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("UPDATE").with_rows(n)))
+        }
+    }
+
+    /// `DELETE FROM nodes WHERE …` (CONCEPT:KG-2.198). Resolves the matched ids
+    /// (capturing each node's properties FIRST when RETURNING is requested, since
+    /// the row is gone after removal), removes each via `remove_node` (the same
+    /// write path `Method::RemoveNode` dispatch uses) under its one-shot txn, and
+    /// durably records each `RemoveNode`.
+    async fn run_delete(
+        &self,
+        graph: &str,
+        sql: &str,
+        del: DeleteNodes,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let ids = self.matched_ids(graph, &del.selector).await?;
+        // Snapshot properties AND resolve the RETURNING projection BEFORE removal
+        // (both read live node data, which is gone after the delete).
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let returning_cols = if del.returning {
+            for id in &ids {
+                let props = self.node_props(graph, id).await?;
+                affected.push((id.clone(), props));
+            }
+            Some(self.returning_cols(graph, sql).await?)
+        } else {
+            None
+        };
+        let core = self.graph_core(graph).await?;
+        let mut n = 0usize;
+        for id in ids {
+            core.remove_node(id.clone());
+            let method = crate::protocol::Method::RemoveNode {
+                node_id: id.clone(),
+            };
+            self.record_durable_write(graph, &method).await?;
+            n += 1;
+        }
+        core.mark_dirty();
+        if let Some((cols, types)) = returning_cols {
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("DELETE").with_rows(n)))
         }
     }
 
@@ -320,8 +628,9 @@ impl EngineBackend {
     ///     CommandComplete for a write that is not on disk.
     ///
     /// Reads `persistence` + `redb_authoritative` once under the same registry lock
-    /// dispatch reads them under. Only durable DATA mutations reach here (the only
-    /// implemented DML is INSERT → `Method::AddNode`, which `is_durable_mutation`).
+    /// dispatch reads them under. Applies to EVERY durable DML the wire path emits —
+    /// `AddNode` (INSERT), `CompareAndSetNodeFields` (UPDATE), `RemoveNode`
+    /// (DELETE) — all of which `is_durable_mutation`.
     async fn record_durable_write(
         &self,
         graph: &str,
@@ -360,52 +669,573 @@ impl EngineBackend {
         }
         Ok(())
     }
+
+    /// Build a `column name → PgColType` map for the current graph by sampling node
+    /// property blobs (CONCEPT:KG-2.197 describe support). Used to resolve the type
+    /// of a parameter that sits opposite a property column (`WHERE rank > $1`), and
+    /// to type a RETURNING result column, WITHOUT a DataFusion round-trip. Schema-
+    /// on-read: the first non-null value seen for a column wins (matching the
+    /// inference `exec_sql_typed` does). `id` is always TEXT.
+    async fn column_types(
+        &self,
+        graph: &str,
+    ) -> PgWireResult<std::collections::HashMap<String, PgColType>> {
+        let core = self.graph_core(graph).await?;
+        let mut map: std::collections::HashMap<String, PgColType> =
+            std::collections::HashMap::new();
+        map.insert("id".to_string(), PgColType::Text);
+        for (_, blob) in core.get_nodes() {
+            let Ok(serde_json::Value::Object(obj)) =
+                rmp_serde::from_slice::<serde_json::Value>(&blob)
+            else {
+                continue;
+            };
+            for (k, v) in obj {
+                if v.is_null() {
+                    continue;
+                }
+                map.entry(k).or_insert_with(|| col_type_of(&v));
+            }
+        }
+        Ok(map)
+    }
+
+    /// Resolve the wire `Type` OIDs for a statement's `$N` parameters
+    /// (CONCEPT:KG-2.197). Locates each param via `eg_query::infer_param_sites` (a
+    /// column / `id` / literal site), then types it: an `id` site → TEXT; a column
+    /// site → that column's type from [`Self::column_types`]; a literal site → its
+    /// directly-derived type. A column with no observed type defaults to TEXT.
+    /// Reporting CONCRETE OIDs (not UNKNOWN) is what lets a real driver
+    /// (tokio-postgres/psycopg/asyncpg) encode a typed parameter — UNKNOWN is
+    /// rejected client-side as `WrongType`.
+    async fn param_type_oids(&self, graph: &str, sql: &str) -> PgWireResult<Vec<Type>> {
+        let sites = match eg_query::infer_param_sites(sql) {
+            Ok(s) => s,
+            Err(_) => return Ok(Vec::new()),
+        };
+        if sites.is_empty() {
+            return Ok(Vec::new());
+        }
+        let cols = self.column_types(graph).await?;
+        let mut out = Vec::with_capacity(sites.len());
+        for site in sites {
+            let ty = match site {
+                eg_query::ParamSite::IdColumn => PgColType::Text,
+                eg_query::ParamSite::Column(name) => {
+                    cols.get(&name).copied().unwrap_or(PgColType::Text)
+                }
+                eg_query::ParamSite::Literal(lt) => match lt {
+                    eg_query::ParamLiteralType::Int => PgColType::Int8,
+                    eg_query::ParamLiteralType::Float => PgColType::Float8,
+                    eg_query::ParamLiteralType::Bool => PgColType::Bool,
+                    eg_query::ParamLiteralType::Text => PgColType::Text,
+                },
+            };
+            out.push(pg_type(ty));
+        }
+        Ok(out)
+    }
+
+    /// Derive the result-set `FieldInfo`s a statement will produce, for the Describe
+    /// step (CONCEPT:KG-2.197) — WITHOUT mutating state. The extended protocol sends
+    /// the `RowDescription` from Describe (not from Execute), so a wrong/empty schema
+    /// here makes the client miscount DataRow fields. `sql` must already have any
+    /// bound params substituted (portal describe) or `$N`→`NULL` (statement describe).
+    ///   * Read → run the SAME `exec_sql_typed` read path and report its typed
+    ///     columns (the real schema-on-read result schema).
+    ///   * Write with a NAMED `RETURNING` list → report those columns, typed from the
+    ///     node column-type map (no execution, no side effect).
+    ///   * Write without RETURNING (or `RETURNING *`) → no result columns.
+    async fn describe_result_columns(
+        &self,
+        graph: &str,
+        sql: &str,
+    ) -> PgWireResult<Vec<FieldInfo>> {
+        match eg_query::classify(sql) {
+            Ok(StatementKind::Read) => {
+                // Derive the schema from a PROBE form (WHERE/LIMIT dropped) so the
+                // engine's schema-on-read path always sees rows — a filtered query
+                // matching ZERO rows can otherwise lose its column schema, which would
+                // make the described `RowDescription` disagree with the executed
+                // DataRows. The probe keeps the projection/FROM/GROUP BY, so the
+                // columns are identical to the real query.
+                let probe = eg_query::schema_probe_sql(sql).unwrap_or_else(|| sql.to_string());
+                let result = self.run_read(graph, probe).await?;
+                Ok(field_defs(&result, None).as_ref().clone())
+            }
+            Ok(StatementKind::InsertNodes(InsertNodes { returning, .. }))
+            | Ok(StatementKind::UpdateNodes(UpdateNodes { returning, .. }))
+            | Ok(StatementKind::DeleteNodes(DeleteNodes { returning, .. })) => {
+                // A write. Only a RETURNING write yields a result set. Compute the
+                // EXACT same projection + types the execute path will (via the shared
+                // `returning_cols`), so Describe and Execute never disagree.
+                if !returning {
+                    return Ok(Vec::new());
+                }
+                let (cols, types) = self.returning_cols(graph, sql).await?;
+                Ok(cols
+                    .into_iter()
+                    .map(|name| {
+                        let ty = if name == "id" {
+                            PgColType::Text
+                        } else {
+                            types.get(&name).copied().unwrap_or(PgColType::Text)
+                        };
+                        FieldInfo::new(
+                            name,
+                            None,
+                            None,
+                            pg_type(ty),
+                            pgwire::api::results::FieldFormat::Text,
+                        )
+                    })
+                    .collect())
+            }
+            // Unclassifiable (e.g. SET graph) → no result columns.
+            Err(_) => Ok(Vec::new()),
+        }
+    }
 }
 
 #[async_trait]
 impl SimpleQueryHandler for EngineBackend {
     async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo
+            + pgwire::api::ClientPortalStore
+            + futures::Sink<pgwire::messages::PgWireBackendMessage>
+            + Unpin
+            + Send
+            + Sync,
+        C::PortalStore: pgwire::api::store::PortalStore,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
     {
         // On the first query, adopt the libpq `database` startup parameter as the
         // target graph (priority 1) — readable only now that startup has completed.
         self.resolve_startup_graph(client);
+        // Simple query: the unified TEXT wire format (no per-column format codes).
+        let resp = self.execute_sql(query, None).await?;
+        Ok(vec![resp])
+    }
+}
 
-        // Connection-scoped `SET graph = …` is handled before classification.
-        if let Some(res) = self.try_set_graph(query) {
-            return res.map(|tag| vec![Response::Execution(tag)]);
+/// A prepared statement parsed at `Parse` time (CONCEPT:KG-2.197). Holds the raw
+/// SQL (with `$N` placeholders intact) and the count of distinct parameters so the
+/// `Bind` step can validate and the describe step can report a `ParameterDescription`.
+#[derive(Debug, Clone)]
+struct PreparedStatement {
+    sql: String,
+    param_count: usize,
+}
+
+/// The extended-protocol SQL parser. Stateless: `parse_sql` records the raw SQL and
+/// counts `$N` placeholders. It does NOT type-resolve params or result columns
+/// up-front (the engine is schema-on-read), so `get_parameter_types` reports the
+/// client-supplied/`UNKNOWN` types and `get_result_schema` reports an empty schema
+/// — the actual `RowDescription` is emitted from the executed result, which the
+/// real drivers (tokio-postgres/psycopg/asyncpg) accept.
+#[derive(Debug)]
+struct EngineQueryParser;
+
+/// Count the distinct `$N` placeholders in a SQL string (the parameter count a
+/// `ParameterDescription` reports). Scans for `$` followed by one or more ASCII
+/// digits, tracking the max N seen (Postgres params are 1-based and dense in
+/// practice; max-N is the conventional count). Skips `$` inside single-quoted
+/// string literals so a literal `'$1'` is not miscounted.
+fn count_params(sql: &str) -> usize {
+    let bytes = sql.as_bytes();
+    let mut i = 0usize;
+    let mut max_n = 0usize;
+    let mut in_str = false;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            if b == b'\'' {
+                // Doubled '' is an escaped quote inside the literal.
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                    i += 2;
+                    continue;
+                }
+                in_str = false;
+            }
+            i += 1;
+            continue;
         }
+        if b == b'\'' {
+            in_str = true;
+            i += 1;
+            continue;
+        }
+        if b == b'$' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
+            let mut j = i + 1;
+            let mut n = 0usize;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                n = n * 10 + (bytes[j] - b'0') as usize;
+                j += 1;
+            }
+            if n > max_n {
+                max_n = n;
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    max_n
+}
 
+#[async_trait]
+impl QueryParser for EngineQueryParser {
+    type Statement = PreparedStatement;
+
+    async fn parse_sql<C>(
+        &self,
+        _client: &C,
+        sql: &str,
+        _types: &[Option<Type>],
+    ) -> PgWireResult<Self::Statement>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        Ok(PreparedStatement {
+            sql: sql.to_owned(),
+            param_count: count_params(sql),
+        })
+    }
+
+    fn get_parameter_types(&self, stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
+        // Schema-on-read: we don't statically resolve parameter types. Report each
+        // as UNKNOWN so the client (and `Bind`'s typed decode) drives the type.
+        Ok(vec![Type::UNKNOWN; stmt.param_count])
+    }
+
+    fn get_result_schema(
+        &self,
+        _stmt: &Self::Statement,
+        _column_format: Option<&Format>,
+    ) -> PgWireResult<Vec<FieldInfo>> {
+        // The result schema is known only after execution (schema-on-read). Return
+        // empty; the real `RowDescription` is sent with the executed result. Real
+        // drivers (tokio-postgres/psycopg/asyncpg) describe via the executed rows.
+        Ok(vec![])
+    }
+}
+
+/// Render a bound parameter (already decoded from the wire by the typed-decode
+/// ladder) as a SQL literal to splice into the statement. NULL → `NULL`; strings
+/// are single-quoted with `'` doubled; numbers/bools render canonically.
+fn json_to_sql_literal(v: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match v {
+        Value::Null => "NULL".to_string(),
+        Value::Bool(b) => {
+            if *b {
+                "TRUE".to_string()
+            } else {
+                "FALSE".to_string()
+            }
+        }
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => format!("'{}'", s.replace('\'', "''")),
+        // Arrays/objects: pass as a quoted JSON text literal (TEXT column).
+        other => format!("'{}'", other.to_string().replace('\'', "''")),
+    }
+}
+
+/// Decode the `idx`-th bound parameter from a portal into a JSON value, trying the
+/// common Postgres types in turn (the formats psycopg3/asyncpg/JDBC/sqlx send for
+/// int/float/text/bool). `Portal::parameter` handles BOTH the text and binary wire
+/// formats per the portal's `parameter_format`, so this serves both. A NULL
+/// parameter (`None`) decodes to JSON null. Unrecognized types fall back to a TEXT
+/// decode so an exotic type still binds as its text rendering.
+fn decode_param<S>(portal: &Portal<S>, idx: usize) -> PgWireResult<serde_json::Value>
+where
+    S: Clone,
+{
+    // Try INT8, then INT4, then FLOAT8, FLOAT4, BOOL, finally TEXT. The first type
+    // whose decode succeeds wins; a NULL value short-circuits to JSON null.
+    macro_rules! try_as {
+        ($t:ty, $pgty:expr, $conv:expr) => {
+            match portal.parameter::<$t>(idx, &$pgty) {
+                Ok(Some(v)) => return Ok($conv(v)),
+                Ok(None) => return Ok(serde_json::Value::Null),
+                Err(_) => {}
+            }
+        };
+    }
+    try_as!(i64, Type::INT8, |v: i64| serde_json::Value::Number(
+        v.into()
+    ));
+    try_as!(i32, Type::INT4, |v: i32| serde_json::Value::Number(
+        (v as i64).into()
+    ));
+    try_as!(f64, Type::FLOAT8, |v: f64| serde_json::Number::from_f64(v)
+        .map(serde_json::Value::Number)
+        .unwrap_or(serde_json::Value::Null));
+    try_as!(f32, Type::FLOAT4, |v: f32| serde_json::Number::from_f64(
+        v as f64
+    )
+    .map(serde_json::Value::Number)
+    .unwrap_or(serde_json::Value::Null));
+    try_as!(bool, Type::BOOL, serde_json::Value::Bool);
+    // Final fallback: TEXT.
+    match portal.parameter::<String>(idx, &Type::TEXT) {
+        Ok(Some(s)) => Ok(serde_json::Value::String(s)),
+        Ok(None) => Ok(serde_json::Value::Null),
+        Err(e) => Err(e),
+    }
+}
+
+/// Substitute the portal's bound parameters into the prepared SQL, replacing each
+/// `$N` placeholder with its bound value rendered as a SQL literal
+/// (CONCEPT:KG-2.197). This is what lets the extended protocol reuse the EXACT
+/// simple-query classify → read/write path: after substitution the statement is a
+/// plain literal SQL string, identical to what `psql` would send. Scans the SQL
+/// once, skipping `$N` inside single-quoted string literals so a literal `'$1'` is
+/// left intact.
+fn substitute_params<S>(sql: &str, portal: &Portal<S>) -> PgWireResult<String>
+where
+    S: Clone,
+{
+    let bytes = sql.as_bytes();
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0usize;
+    let mut in_str = false;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            out.push(b as char);
+            if b == b'\'' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                    out.push('\'');
+                    i += 2;
+                    continue;
+                }
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'\'' {
+            in_str = true;
+            out.push('\'');
+            i += 1;
+            continue;
+        }
+        if b == b'$' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
+            let mut j = i + 1;
+            let mut n = 0usize;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                n = n * 10 + (bytes[j] - b'0') as usize;
+                j += 1;
+            }
+            if n == 0 {
+                return Err(user_err("parameter placeholders are 1-based ($1, $2, …)"));
+            }
+            let val = decode_param(portal, n - 1)?;
+            out.push_str(&json_to_sql_literal(&val));
+            i = j;
+            continue;
+        }
+        // Non-ASCII bytes pass through faithfully (we operate on raw bytes here).
+        out.push(b as char);
+        i += 1;
+    }
+    Ok(out)
+}
+
+#[async_trait]
+impl ExtendedQueryHandler for EngineBackend {
+    type Statement = PreparedStatement;
+    type QueryParser = EngineQueryParser;
+
+    fn query_parser(&self) -> Arc<Self::QueryParser> {
+        self.parser.clone()
+    }
+
+    /// Execute a bound portal (CONCEPT:KG-2.197). Substitutes the portal's
+    /// parameters into the prepared SQL, then runs the SAME `execute_sql` core the
+    /// simple-query path uses — so a prepared/parameterized statement from a real
+    /// driver takes the identical classify → DataFusion-read / GraphTxn-write path.
+    /// The portal's `result_column_format` is honoured so a binary-format client
+    /// gets binary cells.
+    async fn do_query<C>(
+        &self,
+        client: &mut C,
+        portal: &Portal<Self::Statement>,
+        _max_rows: usize,
+    ) -> PgWireResult<Response>
+    where
+        C: ClientInfo
+            + pgwire::api::ClientPortalStore
+            + futures::Sink<pgwire::messages::PgWireBackendMessage>
+            + Unpin
+            + Send
+            + Sync,
+        C::PortalStore: pgwire::api::store::PortalStore<Statement = Self::Statement>,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
+    {
+        self.resolve_startup_graph(client);
+        let sql = substitute_params(&portal.statement.statement.sql, portal)?;
+        self.execute_sql(&sql, Some(&portal.result_column_format))
+            .await
+    }
+
+    /// Describe a parsed-but-unbound statement (CONCEPT:KG-2.197): report concrete
+    /// parameter type OIDs (resolved against the node column schema, so a real
+    /// driver can encode typed params) AND the result column schema. Params are not
+    /// yet bound, so the result schema is derived from the SQL with each `$N`
+    /// replaced by `NULL` (a runnable read shape) — schema-on-read needs to execute
+    /// to know a read's columns, and a placeholder NULL does not change the columns.
+    async fn do_describe_statement<C>(
+        &self,
+        _client: &mut C,
+        target: &StoredStatement<Self::Statement>,
+    ) -> PgWireResult<DescribeStatementResponse>
+    where
+        C: ClientInfo
+            + pgwire::api::ClientPortalStore
+            + futures::Sink<pgwire::messages::PgWireBackendMessage>
+            + Unpin
+            + Send
+            + Sync,
+        C::PortalStore: pgwire::api::store::PortalStore<Statement = Self::Statement>,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
+    {
         let graph = self.current_graph();
-        match eg_query::classify(query).map_err(user_err)? {
-            StatementKind::Read => {
-                let result = self.run_read(&graph, query.to_string()).await?;
-                let schema = field_defs(&result);
-                let data = rows_stream(result);
-                Ok(vec![Response::Query(QueryResponse::new(schema, data))])
+        let sql = &target.statement.sql;
+        let param_types = self.param_type_oids(&graph, sql).await?;
+        // Substitute `$N` → a TYPED dummy literal for the schema-derivation run
+        // (params unbound here), so the read keeps its real projection schema.
+        let dummy_sql = replace_placeholders_with_dummy(sql, &param_types);
+        let fields = self.describe_result_columns(&graph, &dummy_sql).await?;
+        Ok(DescribeStatementResponse::new(param_types, fields))
+    }
+
+    /// Describe a bound portal (CONCEPT:KG-2.197): report the result column schema
+    /// for THIS binding. The params ARE bound, so we substitute them into the SQL
+    /// (the same `substitute_params` the execute path uses) and derive the columns
+    /// from that concrete statement, honouring the portal's result column format.
+    async fn do_describe_portal<C>(
+        &self,
+        _client: &mut C,
+        target: &Portal<Self::Statement>,
+    ) -> PgWireResult<DescribePortalResponse>
+    where
+        C: ClientInfo
+            + pgwire::api::ClientPortalStore
+            + futures::Sink<pgwire::messages::PgWireBackendMessage>
+            + Unpin
+            + Send
+            + Sync,
+        C::PortalStore: pgwire::api::store::PortalStore<Statement = Self::Statement>,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
+    {
+        let graph = self.current_graph();
+        let sql = substitute_params(&target.statement.statement.sql, target)?;
+        let mut fields = self.describe_result_columns(&graph, &sql).await?;
+        // Re-stamp each field with the portal's requested wire format (text/binary).
+        for (i, f) in fields.iter_mut().enumerate() {
+            let fmt = target.result_column_format.format_for(i);
+            *f = FieldInfo::new(f.name().to_owned(), None, None, f.datatype().clone(), fmt);
+        }
+        Ok(DescribePortalResponse::new(fields))
+    }
+}
+
+/// Replace each `$N` placeholder with a TYPED dummy literal for the unbound-statement
+/// Describe path (CONCEPT:KG-2.197). The result columns of a read depend only on its
+/// projection + FROM, not the param VALUES — but a degenerate placeholder like `NULL`
+/// changes the query's typing (e.g. `WHERE rank > NULL` makes DataFusion fold the
+/// scan to an EMPTY, column-less result, which would mis-describe the schema). A typed
+/// dummy (`0` / `0.0` / `FALSE` / `''`) keeps the predicate well-typed so the real
+/// projection schema survives. `param_oids[k]` is the resolved OID of `$(k+1)`; an
+/// out-of-range / unknown param defaults to the empty-text literal. Skips `$N` inside
+/// single-quoted string literals.
+fn replace_placeholders_with_dummy(sql: &str, param_oids: &[Type]) -> String {
+    let dummy = |idx: usize| -> &'static str {
+        match param_oids.get(idx) {
+            Some(t) if *t == Type::INT8 || *t == Type::INT4 => "0",
+            Some(t) if *t == Type::FLOAT8 || *t == Type::FLOAT4 => "0.0",
+            Some(t) if *t == Type::BOOL => "FALSE",
+            _ => "''",
+        }
+    };
+    let bytes = sql.as_bytes();
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0usize;
+    let mut in_str = false;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            out.push(b as char);
+            if b == b'\'' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                    out.push('\'');
+                    i += 2;
+                    continue;
+                }
+                in_str = false;
             }
-            write_kind => {
-                let tag = self.run_write(&graph, write_kind).await?;
-                Ok(vec![Response::Execution(tag)])
+            i += 1;
+            continue;
+        }
+        if b == b'\'' {
+            in_str = true;
+            out.push('\'');
+            i += 1;
+            continue;
+        }
+        if b == b'$' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
+            let mut j = i + 1;
+            let mut n = 0usize;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                n = n * 10 + (bytes[j] - b'0') as usize;
+                j += 1;
             }
+            // `$N` is 1-based.
+            out.push_str(dummy(n.saturating_sub(1)));
+            i = j;
+            continue;
+        }
+        out.push(b as char);
+        i += 1;
+    }
+    out
+}
+
+/// The PER-CONNECTION handler factory. pgwire calls `simple_query_handler()` and
+/// `extended_query_handler()` ONCE EACH per connection, so to keep the connection's
+/// `SET graph` selection (and the one-time startup-graph latch) consistent across
+/// BOTH protocols, this factory holds a SINGLE shared `EngineBackend` and returns
+/// it from both slots. A fresh factory is built per accepted connection in `serve`,
+/// so two connections never share a backend (their `SET graph` stays isolated).
+struct EngineBackendFactory {
+    backend: Arc<EngineBackend>,
+}
+
+impl EngineBackendFactory {
+    fn new(state: Arc<RwLock<ServerState>>, default_graph: String) -> Self {
+        Self {
+            backend: Arc::new(EngineBackend::new(state, default_graph)),
         }
     }
 }
 
-/// The connection factory: one `EngineBackend` per connection (so `SET graph` is
-/// per-connection), trust startup (first increment), defaults for the rest.
-struct EngineBackendFactory {
-    state: Arc<RwLock<ServerState>>,
-    default_graph: String,
-}
-
 impl PgWireServerHandlers for EngineBackendFactory {
     fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
-        Arc::new(EngineBackend::new(
-            self.state.clone(),
-            self.default_graph.clone(),
-        ))
+        self.backend.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
+        // SAME instance as the simple handler — prepared statements/portals live in
+        // the per-connection `PortalStore` pgwire threads through, while the shared
+        // backend keeps `SET graph` / startup resolution consistent across protocols.
+        self.backend.clone()
     }
 
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
@@ -413,8 +1243,8 @@ impl PgWireServerHandlers for EngineBackendFactory {
         Arc::new(pgwire::api::NoopHandler)
     }
 
-    // `extended_query_handler`, `copy_handler`, `error_handler`, and
-    // `cancel_handler` use the `PgWireServerHandlers` trait defaults (NoopHandler).
+    // `copy_handler`, `error_handler`, and `cancel_handler` use the
+    // `PgWireServerHandlers` trait defaults (NoopHandler).
 }
 
 /// Bind `addr` and serve pgwire connections until the process exits. Spawned by
@@ -426,17 +1256,19 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
         std::env::var(PGWIRE_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "pgwire: serving Postgres wire protocol on {} (default graph '{}', auth=trust)",
+        "pgwire: serving Postgres wire protocol on {} (default graph '{}', auth=trust, \
+         simple+extended)",
         addr,
         default_graph
     );
-    let factory = Arc::new(EngineBackendFactory {
-        state,
-        default_graph,
-    });
     loop {
         let (socket, peer) = listener.accept().await?;
-        let factory = factory.clone();
+        // A FRESH factory (and thus a fresh shared `EngineBackend`) per connection,
+        // so each connection's `SET graph` is isolated.
+        let factory = Arc::new(EngineBackendFactory::new(
+            state.clone(),
+            default_graph.clone(),
+        ));
         tokio::spawn(async move {
             if let Err(e) = process_socket(socket, None, factory).await {
                 tracing::warn!("pgwire connection from {peer} ended with error: {e}");
