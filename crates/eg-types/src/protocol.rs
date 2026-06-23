@@ -1062,6 +1062,66 @@ pub enum Method {
     Rollback {
         txn_id: String,
     },
+
+    // ── Time-series (CONCEPT:KG-2.210/211 — native TSDB) ──────────────────
+    // Native time-series store + query primitives (the eg-tsdb crate), gated
+    // behind the facade `tsdb` feature; in a slim build each variant falls to the
+    // graph_ops not-built catch-all. Series are keyed by `series_id` in their OWN
+    // redb file (`series.redb`) beside `graph.redb`. Points cross the wire as a
+    // MessagePack blob (`Vec<(i64 ts, Vec<f64> values)>`) so the protocol enum (at
+    // the bottom of the DAG) stays free of any eg-tsdb type. Query results return
+    // via `ResultPayload::raw` (the client double-unpacks), matching `Sql`/`Cypher`.
+    //
+    // `TsAppend` is the ONE durable write here (handled out-of-band of the graph
+    // write-coalescer — it targets the series store, not the graph core); the rest
+    // are read-only.
+    TsAppend {
+        series_id: String,
+        /// Field count per point (1 for a scalar series, N for OHLCV…). Used only
+        /// when the series is NEW; an existing series' stored schema wins.
+        n_fields: usize,
+        /// Bucket/time-partition width in nanoseconds (series-creation parameter).
+        bucket_ns: u64,
+        /// Optional field names (series-creation metadata).
+        #[serde(default)]
+        field_names: Vec<String>,
+        /// MessagePack `Vec<(i64, Vec<f64>)>` — the batch of points (one round-trip).
+        #[serde(with = "serde_bytes")]
+        points_msgpack: Vec<u8>,
+    },
+    TsRange {
+        series_id: String,
+        /// Inclusive lower / exclusive upper ts bound (ns).
+        from: i64,
+        to: i64,
+    },
+    TsAsofJoin {
+        /// The "right" series each left event is joined to by nearest-prior ts.
+        series_id: String,
+        /// MessagePack `Vec<i64>` — the left event timestamps (ns).
+        #[serde(with = "serde_bytes")]
+        left_ts_msgpack: Vec<u8>,
+        /// Optional tolerance (ns); a match older than this is dropped (`None` =
+        /// unbounded). `-1` encodes `None` over the wire.
+        #[serde(default)]
+        tolerance: i64,
+    },
+    TsWindow {
+        series_id: String,
+        from: i64,
+        to: i64,
+        /// Window width (ns) for the bucketed aggregate.
+        width: i64,
+        /// Aggregate function: one of first/last/min/max/mean/sum/count.
+        agg: String,
+    },
+    TsGapFill {
+        series_id: String,
+        from: i64,
+        to: i64,
+        /// Grid step (ns) for the LOCF densification.
+        step: i64,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────

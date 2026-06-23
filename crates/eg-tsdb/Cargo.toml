@@ -1,0 +1,49 @@
+[package]
+name = "eg-tsdb"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Native time-series store + TS query primitives (time_bucket/ASOF/gap-fill/OHLC/rollup) for the epistemic-graph engine"
+license = "MIT"
+
+[lib]
+name = "eg_tsdb"
+
+# Measured benchmark (append/scan/range/footprint + every primitive). Needs the
+# store, so it only builds with `redb-store`. Run `--release` for the real numbers.
+[[bin]]
+name = "tsdb_bench"
+required-features = ["redb-store"]
+
+[features]
+default = []
+# redb composite-key (series_id, bucket_start) chunked store — the lean/Pi path.
+# Sits ABOVE eg-compute in the DAG; pulls redb (an eg-core/persistence concern) +
+# the finance kernels (eg-compute) for the primitive reuse. The native TS
+# primitives (ASOF / gap-fill / time_bucket / OHLC / decay_weighted_mean) need
+# NOTHING but this — no DataFusion (the Pi contract).
+redb-store = ["dep:redb"]
+# Arrow columnar segment + DataFusion `time_bucket = GROUP BY (ts/w)*w` scan path.
+# Heavy (Arrow + DataFusion); OFF in the lean build, folded only into node/cluster/
+# full via the facade `query` feature.
+arrow-seg = ["dep:arrow", "dep:datafusion", "dep:tokio", "dep:async-trait"]
+
+[dependencies]
+# The ONE shared decay curve (CONCEPT:KG-2.211) lives in eg-core; the finance
+# kernels (ewma_signal/rolling_zscore) we REUSE live in eg-compute. Depending on
+# both puts eg-tsdb ABOVE eg-compute in the DAG — parallel to where eg-query sits.
+eg-core = { path = "../eg-core" }
+eg-compute = { path = "../eg-compute", features = ["finance"] }
+
+# Same pins as the engine so footprint/throughput findings transfer 1:1.
+redb = { version = "4.1", optional = true }
+arrow = { version = "53", optional = true }
+datafusion = { version = "43", default-features = false, optional = true }
+tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"], optional = true }
+async-trait = { version = "0.1", optional = true }
+
+serde = { version = "1.0", features = ["derive"] }
+rmp-serde = "1.3"
+
+[dev-dependencies]
+tempfile = "3"

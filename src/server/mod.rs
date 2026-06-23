@@ -67,6 +67,23 @@ mod tests {
             txn_max_per_agent: 256,
             #[cfg(feature = "raft")]
             raft: None,
+            // A real per-test temp series store so the `Ts*` handler round-trips
+            // exercise the actual store (a fresh, uniquely-named redb file — redb
+            // holds an exclusive per-process file lock, so each test gets its own).
+            #[cfg(feature = "tsdb")]
+            tsdb_store: Some(Arc::new(
+                eg_tsdb::store::SeriesStore::open(&std::env::temp_dir().join(format!(
+                        "eg-tsdb-test-{}-{}.redb",
+                        std::process::id(),
+                        std::sync::atomic::AtomicU64::new(0)
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            + std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_nanos() as u64)
+                                .unwrap_or(0)
+                    )))
+                .expect("open test series store"),
+            )),
         }))
     }
 
@@ -523,6 +540,8 @@ mod tests {
             txn_max_per_agent: 256,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -590,6 +609,8 @@ mod tests {
             txn_max_per_agent: 256,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -663,6 +684,8 @@ mod tests {
             txn_max_per_agent: 256,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -836,6 +859,8 @@ mod tests {
             txn_max_per_agent: 256,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
@@ -2066,5 +2091,163 @@ mod tests {
             0,
             "rejected BeginTxn opens no txn"
         );
+    }
+
+    // ── Time-series (CONCEPT:KG-2.210/211) round-trips through full dispatch ──
+    #[cfg(feature = "tsdb")]
+    const TS_NS: i64 = 1_000_000_000;
+
+    #[cfg(feature = "tsdb")]
+    fn ts_points(pts: &[(i64, Vec<f64>)]) -> Vec<u8> {
+        rmp_serde::to_vec(&pts.to_vec()).unwrap()
+    }
+
+    #[cfg(feature = "tsdb")]
+    #[tokio::test]
+    async fn ts_append_then_range_via_dispatch() {
+        let state = test_state();
+        let pts: Vec<(i64, Vec<f64>)> = (0..10).map(|i| (i * TS_NS, vec![i as f64])).collect();
+        let r = dispatch(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                Method::TsAppend {
+                    series_id: "s".into(),
+                    n_fields: 1,
+                    bucket_ns: 100 * TS_NS as u64,
+                    field_names: vec!["v".into()],
+                    points_msgpack: ts_points(&pts),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Count(10))),
+            "{:?}",
+            r
+        );
+
+        let r = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::TsRange {
+                    series_id: "s".into(),
+                    from: 2 * TS_NS,
+                    to: 5 * TS_NS,
+                },
+            ),
+        )
+        .await;
+        let raw = match r.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?}"),
+        };
+        let got: Vec<(i64, Vec<f64>)> = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0].0, 2 * TS_NS);
+        assert_eq!(got[2].1[0], 4.0);
+    }
+
+    #[cfg(feature = "tsdb")]
+    #[tokio::test]
+    async fn ts_asof_window_gapfill_via_dispatch() {
+        let state = test_state();
+        let ticks: Vec<(i64, Vec<f64>)> = (0..20)
+            .map(|i| (i * TS_NS, vec![100.0 + i as f64]))
+            .collect();
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::TsAppend {
+                        series_id: "px".into(),
+                        n_fields: 1,
+                        bucket_ns: 100 * TS_NS as u64,
+                        field_names: vec!["px".into()],
+                        points_msgpack: ts_points(&ticks),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // ASOF: out-of-order left events, results returned in caller order.
+        let left_ts: Vec<i64> = vec![7 * TS_NS, 3 * TS_NS];
+        let r = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::TsAsofJoin {
+                    series_id: "px".into(),
+                    left_ts_msgpack: rmp_serde::to_vec(&left_ts).unwrap(),
+                    tolerance: -1,
+                },
+            ),
+        )
+        .await;
+        let raw = match r.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?}"),
+        };
+        let got: Vec<Option<f64>> = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(got, vec![Some(107.0), Some(103.0)]);
+
+        // WINDOW: 10s mean buckets.
+        let r = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::TsWindow {
+                    series_id: "px".into(),
+                    from: 0,
+                    to: 20 * TS_NS,
+                    width: 10 * TS_NS,
+                    agg: "mean".into(),
+                },
+            ),
+        )
+        .await;
+        let raw = match r.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?}"),
+        };
+        let bars: Vec<(i64, f64, usize)> = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(bars.len(), 2);
+        assert!((bars[0].1 - 104.5).abs() < 1e-9);
+
+        // GAP-FILL on a 5s grid.
+        let r = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::TsGapFill {
+                    series_id: "px".into(),
+                    from: 0,
+                    to: 20 * TS_NS,
+                    step: 5 * TS_NS,
+                },
+            ),
+        )
+        .await;
+        let raw = match r.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("expected Raw, got {other:?}"),
+        };
+        let grid: Vec<(i64, f64, bool)> = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(grid.len(), 4);
     }
 }

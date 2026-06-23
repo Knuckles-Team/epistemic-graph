@@ -494,6 +494,26 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Time-series (CONCEPT:KG-2.210/211 — native TSDB) ─────────
+        // Stateful + self-routing: a Ts* op targets the SERIES store (keyed by
+        // `series_id`), NOT a graph, so it is handled here (with `state`, which
+        // holds the `SeriesStore`) BEFORE the graph-op path — never through
+        // `dispatch_graph_op`'s graph registry/coalescer. Gated on `tsdb`: in a
+        // slim build the arm is absent and these variants fall to the graph_ops
+        // not-built catch-all (never a panic, never a mis-route).
+        #[cfg(feature = "tsdb")]
+        Method::TsAppend { .. }
+        | Method::TsRange { .. }
+        | Method::TsAsofJoin { .. }
+        | Method::TsWindow { .. }
+        | Method::TsGapFill { .. } => {
+            match handlers::timeseries::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: every variant matched above is a ts method.
+                Err(_) => Response::err(req.id, "timeseries dispatch routing error"),
+            }
+        }
+
         // ── Graph operations (dispatch to target graph) ──────────────
         _ => {
             dispatch_graph_op(

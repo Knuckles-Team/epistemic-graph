@@ -23,3 +23,8 @@ pub(crate) mod query;
 // `server` feature — the Txn* methods are stateful (need `state`) and not
 // feature-gated to a compute domain.
 pub(crate) mod txn;
+// Native time-series store + primitives (CONCEPT:KG-2.210/211, feature `tsdb`). The
+// Ts* methods are stateful (need the `SeriesStore` on `state`); a slim build without
+// `tsdb` omits the module and the variants fall to the graph_ops not-built catch-all.
+#[cfg(feature = "tsdb")]
+pub(crate) mod timeseries;
