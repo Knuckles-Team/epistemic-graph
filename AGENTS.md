@@ -65,6 +65,32 @@ in-memory cache + compute layer** over it:
   by `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (LRU eviction back to the durable tier)
   so a shard **degrades instead of OOM-killing every tenant** on it.
 
+### Opt-in: redb-AUTHORITATIVE mode (CONCEPT:KG-2.187, behind a flag, default OFF)
+
+The model above is the DEFAULT and is unchanged. A flag —
+`EPISTEMIC_GRAPH_REDB_AUTHORITATIVE=1` (only meaningful with
+`EPISTEMIC_GRAPH_PERSIST_BACKEND=redb`), read once at startup into
+`ServerState.redb_authoritative` — makes **redb the system-of-record** instead of a
+write-through cache tier. When OFF, behavior is byte-for-byte as described above
+(fire-and-forget `record()`, LRU eviction to an external tier, drop-on-saturation).
+When ON, three durability rules change so "authoritative" is actually safe:
+
+- **Commit-before-ack.** A durable mutation is COMMITTED to redb (group-commit
+  fsync) BEFORE its Response is acked. Dispatch awaits `record_durable`; a commit
+  failure becomes an ERROR response — an acked write is *always* on disk. Many
+  concurrent awaiting writers still coalesce into ONE group-commit fsync.
+- **No blind eviction.** The per-graph node cap becomes ADVISORY: eviction never
+  drops a node (which, with no external tier, would make it unreadable). The
+  backend exposes a `read_node` read-through seam; wiring GraphCore RAM-miss →
+  redb read-through (so the cap can resume enforcing) is the documented follow-up.
+- **Backpressure, not drop.** The redb writer's bounded channel BLOCKS for capacity
+  (off-reactor) instead of shedding a mutation. A durable write is never silently
+  discarded.
+
+A one-time migration imports legacy `.mp`/`.wal` snapshots into redb on first
+authoritative boot (old files are LEFT as a backstop). The program will flip this
+flag's default ON in a later wave; today it ships default-OFF.
+
 ---
 
 ## Commands for AI Agents

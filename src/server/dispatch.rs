@@ -192,6 +192,24 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             {
                 Ok(()) => {
                     crate::metrics::set_graph_size(&graph_name, 0, 0);
+                    // Authoritative durable graph registration (CONCEPT:KG-2.187):
+                    // persist the graph's real name/type so a kill -9 before the next
+                    // checkpoint still recovers it. Commit-before-ack: on failure the
+                    // create is reported as an error (graph identity not durable).
+                    let (authoritative, backend) = (s.redb_authoritative, s.persistence.clone());
+                    drop(s);
+                    if authoritative {
+                        if let Some(p) = backend {
+                            let fname = crate::persist::sanitize(&graph_name);
+                            if let Err(e) = p.register_graph(&fname, &graph_name, graph_type).await
+                            {
+                                return Response::err(
+                                    req.id,
+                                    format!("durable graph registration failed: {e}"),
+                                );
+                            }
+                        }
+                    }
                     Response::ok(
                         req.id,
                         ResultPayload::Json(serde_json::json!({"created": graph_name})),
@@ -490,6 +508,10 @@ async fn dispatch_graph_op(
     // write to its own off-reactor writer). Only durable DATA mutations are
     // recorded, and only when a backend is configured (i.e. a persist dir is set).
     let persistence = s.persistence.clone();
+    // redb-authoritative mode (CONCEPT:KG-2.187): when ON, the durable mutation must
+    // be COMMITTED to redb BEFORE we ack the client (commit-before-ack), and a
+    // commit failure becomes an ERROR response. Read once under the same lock.
+    let redb_authoritative = s.redb_authoritative;
     // Per-graph write coalescer (CONCEPT:KG-2.182): clone the registry handle so the
     // hot single-op writes can be batched onto this graph's writer (lazily created,
     // keyed by name — automatic per new graph/connector), collapsing N concurrent
@@ -571,14 +593,39 @@ async fn dispatch_graph_op(
         core.mark_dirty();
     }
 
-    // Record the durable mutation after it SUCCEEDED (write-behind; the abstracted
-    // backend remains the system-of-record, this is the fast local crash-
-    // consistency layer that closes the between-checkpoint loss window). The chosen
-    // backend serializes + hands the write to its own off-reactor writer thread, so
-    // no file I/O runs on this Tokio worker. (CONCEPT:KG-2.177 / KG-2.8)
+    // Record the durable mutation after it SUCCEEDED in memory.
+    //
+    // Two regimes (CONCEPT:KG-2.177 / KG-2.187):
+    //   * NOT authoritative (default): write-BEHIND. The abstracted backend remains
+    //     the system-of-record; `record()` is fire-and-forget — serialize + hand to
+    //     the off-reactor writer, no file I/O on this Tokio worker, no await. This is
+    //     BYTE-FOR-BYTE today's behavior.
+    //   * AUTHORITATIVE: commit-BEFORE-ACK. redb is the source of truth, so we AWAIT
+    //     `record_durable` (which group-commits this op + fsyncs, coalescing with
+    //     concurrent writers) before returning. If the durable commit FAILS, we did
+    //     NOT land the write — convert the (in-memory-applied) success into an ERROR
+    //     response rather than acking a write that isn't on disk. The in-RAM model is
+    //     still ahead, but a checkpoint or eviction-gate keeps it readable, and the
+    //     client correctly sees the write as not-durably-acknowledged so it can retry.
     if let (Some(m), Some(p)) = (record_method, persistence) {
         if response.error.is_none() {
-            p.record(&crate::persist::sanitize(graph_name), &m);
+            let fname = crate::persist::sanitize(graph_name);
+            if redb_authoritative {
+                if let Err(e) = p.record_durable(&fname, &m).await {
+                    tracing::error!(
+                        "redb authoritative: durable commit FAILED for graph '{}': {} — \
+                         returning error (write not acked)",
+                        graph_name,
+                        e
+                    );
+                    return Response::err(
+                        req_id,
+                        format!("durable commit failed (write not acknowledged): {e}"),
+                    );
+                }
+            } else {
+                p.record(&fname, &m);
+            }
         }
     }
     response

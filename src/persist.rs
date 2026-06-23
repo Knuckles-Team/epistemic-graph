@@ -195,8 +195,39 @@ pub async fn evict_oversized_all(state: &Arc<RwLock<ServerState>>, max_nodes: us
     if max_nodes == 0 {
         return 0;
     }
+    // redb-authoritative SAFETY GATE (CONCEPT:KG-2.187). The default eviction path
+    // DROPS LRU nodes from RAM on the assumption they re-hydrate from an EXTERNAL
+    // durable tier on next access. Under authoritative mode redb IS the source of
+    // truth and there is NO external tier to re-hydrate from, and the engine does
+    // not yet serve a read-through-on-RAM-miss from redb. Dropping a node here would
+    // therefore make it UNREADABLE until the next full `load_all` — a correctness
+    // (apparent data-loss) hazard, even though the row is still durable in redb.
+    //
+    // So under authoritative mode we make the cap ADVISORY: never drop. The node
+    // stays resident and readable; the only cost is the cap is not enforced.
+    // (The backend `read_node` seam + the writer's `read_one_node` are already in
+    // place; wiring GraphCore read-miss → redb read-through + repopulate is the
+    // documented FOLLOW-UP that will let eviction resume safely.)
     let entries: Vec<Arc<GraphCore>> = {
         let s = state.read().await;
+        if s.redb_authoritative {
+            let over = s
+                .registry
+                .all_entries()
+                .iter()
+                .filter(|e| e.core.node_count() > max_nodes)
+                .count();
+            if over > 0 {
+                tracing::warn!(
+                    "redb authoritative: per-graph node cap ({}) is ADVISORY — {} graph(s) over \
+                     cap NOT evicted (read-through-on-miss is the follow-up; dropping would make \
+                     nodes unreadable). Raise the cap or add shards.",
+                    max_nodes,
+                    over
+                );
+            }
+            return 0;
+        }
         s.registry
             .all_entries()
             .iter()

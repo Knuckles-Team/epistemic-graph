@@ -52,6 +52,18 @@ pub struct ServerState {
     /// (snapshot+WAL by default, redb write-through when selected) owns its own
     /// off-reactor writer internally, so the WAL type no longer leaks here.
     pub persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    /// redb-authoritative mode (CONCEPT:KG-2.187), read ONCE at startup from
+    /// `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` (default `false`). When `false` the
+    /// engine behaves EXACTLY as before: redb (if selected) is an opt-in
+    /// write-through cache tier and Postgres remains the system-of-record, with
+    /// fire-and-forget `record()` durability. When `true` redb becomes the
+    /// authoritative store: durable mutations are committed-before-ack (dispatch
+    /// awaits `record_durable`), LRU eviction is gated so no node is dropped
+    /// before it is durable + readable, and the writer applies backpressure rather
+    /// than dropping. ONLY meaningful when the redb backend is selected; a
+    /// non-redb backend treats it as a no-op (its `record_durable` default falls
+    /// back to `record`).
+    pub redb_authoritative: bool,
     /// Global backpressure: caps concurrent in-flight requests across all
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
