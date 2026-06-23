@@ -186,59 +186,88 @@ pub async fn decay_all(
 }
 
 /// Evict any graph above `max_nodes` back down to it (LRU), returning the number
-/// of nodes evicted across all graphs. The engine is a rebuildable cache over the
-/// durable backend (see AGENTS.md), so evicted nodes are not lost — they re-hydrate
-/// on next access. This is the memory backstop that makes a shard DEGRADE under
-/// pressure instead of OOM-killing every tenant on it. Mirrors `decay_all`'s lock
-/// discipline (global registry lock released before the per-graph evictions).
+/// of nodes evicted across all graphs. Mirrors `decay_all`'s lock discipline
+/// (global registry lock released before the per-graph evictions).
+///
+/// Two modes:
+///
+/// * **Default (rebuildable cache, see AGENTS.md):** the engine is a cache over an
+///   EXTERNAL durable backend, so a dropped LRU node re-hydrates on next access.
+///   Drop the oldest nodes; this is the memory backstop that makes a shard DEGRADE
+///   under pressure instead of OOM-killing every tenant on it. Unchanged.
+///
+/// * **redb-AUTHORITATIVE (CONCEPT:KG-2.187/2.191):** redb IS the source of truth
+///   and there is no external tier — but with read-through-on-RAM-miss now wired,
+///   an evicted node is still readable (its properties are served back from redb on
+///   a miss). So the cap resumes EVICTING to bound memory, WITHOUT data loss, by a
+///   strict durability gate: a candidate is dropped ONLY after a redb point-read
+///   CONFIRMS its properties are durably on disk. Commit-before-ack makes that the
+///   common case (every acked write is already committed); the explicit check is
+///   the hard no-loss guarantee — a node whose durability can't be confirmed is
+///   left resident, never evicted.
 pub async fn evict_oversized_all(state: &Arc<RwLock<ServerState>>, max_nodes: usize) -> usize {
     if max_nodes == 0 {
         return 0;
     }
-    // redb-authoritative SAFETY GATE (CONCEPT:KG-2.187). The default eviction path
-    // DROPS LRU nodes from RAM on the assumption they re-hydrate from an EXTERNAL
-    // durable tier on next access. Under authoritative mode redb IS the source of
-    // truth and there is NO external tier to re-hydrate from, and the engine does
-    // not yet serve a read-through-on-RAM-miss from redb. Dropping a node here would
-    // therefore make it UNREADABLE until the next full `load_all` — a correctness
-    // (apparent data-loss) hazard, even though the row is still durable in redb.
-    //
-    // So under authoritative mode we make the cap ADVISORY: never drop. The node
-    // stays resident and readable; the only cost is the cap is not enforced.
-    // (The backend `read_node` seam + the writer's `read_one_node` are already in
-    // place; wiring GraphCore read-miss → redb read-through + repopulate is the
-    // documented FOLLOW-UP that will let eviction resume safely.)
-    let entries: Vec<Arc<GraphCore>> = {
+    let (authoritative, backend, entries) = {
         let s = state.read().await;
-        if s.redb_authoritative {
-            let over = s
-                .registry
-                .all_entries()
-                .iter()
-                .filter(|e| e.core.node_count() > max_nodes)
-                .count();
-            if over > 0 {
-                tracing::warn!(
-                    "redb authoritative: per-graph node cap ({}) is ADVISORY — {} graph(s) over \
-                     cap NOT evicted (read-through-on-miss is the follow-up; dropping would make \
-                     nodes unreadable). Raise the cap or add shards.",
-                    max_nodes,
-                    over
-                );
-            }
-            return 0;
-        }
-        s.registry
+        let entries: Vec<(String, Arc<GraphCore>)> = s
+            .registry
             .all_entries()
             .iter()
-            .map(|e| e.core.clone())
-            .collect()
+            .map(|e| (e.name.clone(), e.core.clone()))
+            .collect();
+        (s.redb_authoritative, s.persistence.clone(), entries)
+    };
+
+    if !authoritative {
+        // Default rebuildable-cache eviction — drop the oldest, unchanged.
+        let mut evicted = 0usize;
+        for (_name, core) in entries {
+            if core.node_count() > max_nodes {
+                evicted += core.evict_lru(max_nodes);
+            }
+        }
+        return evicted;
+    }
+
+    // redb-authoritative: durability-gated eviction (CONCEPT:KG-2.191). Without a
+    // backend there is nothing durable to confirm against, so never drop.
+    let backend = match backend {
+        Some(b) => b,
+        None => return 0,
     };
     let mut evicted = 0usize;
-    for core in entries {
-        if core.node_count() > max_nodes {
-            evicted += core.evict_lru(max_nodes);
+    let mut deferred = 0usize;
+    for (name, core) in entries {
+        let candidates = core.lru_eviction_candidates(max_nodes);
+        if candidates.is_empty() {
+            continue;
         }
+        let fname = sanitize(&name);
+        for node_id in candidates {
+            // Confirm durable in redb BEFORE dropping from RAM. Only a confirmed
+            // Some(_) (the node's properties are on disk) is safe to evict — with
+            // read-through it stays readable. A None (not yet durable) or an Err
+            // (read failure) means we CANNOT prove durability, so we keep the node
+            // resident: no data loss, ever.
+            match backend.read_node(&fname, &node_id).await {
+                Ok(Some(_)) => {
+                    core.remove_node(node_id);
+                    evicted += 1;
+                }
+                Ok(None) | Err(_) => {
+                    deferred += 1;
+                }
+            }
+        }
+    }
+    if deferred > 0 {
+        tracing::warn!(
+            "redb authoritative eviction: kept {} node(s) resident — durability not yet \
+             confirmed in redb (no data loss; they evict once durable)",
+            deferred
+        );
     }
     evicted
 }

@@ -81,10 +81,17 @@ When ON, three durability rules change so "authoritative" is actually safe:
   fsync) BEFORE its Response is acked. Dispatch awaits `record_durable`; a commit
   failure becomes an ERROR response — an acked write is *always* on disk. Many
   concurrent awaiting writers still coalesce into ONE group-commit fsync.
-- **No blind eviction.** The per-graph node cap becomes ADVISORY: eviction never
-  drops a node (which, with no external tier, would make it unreadable). The
-  backend exposes a `read_node` read-through seam; wiring GraphCore RAM-miss →
-  redb read-through (so the cap can resume enforcing) is the documented follow-up.
+- **Eviction is read-through-safe** (CONCEPT:KG-2.191). The per-graph node cap
+  resumes ENFORCING under authoritative mode so memory stays bounded — but WITHOUT
+  data loss. eg-core defines a `ReadThrough` seam (`crates/eg-core/src/read_through.rs`);
+  the facade implements it over the redb backend's point-read and injects one per
+  graph at startup, so `GraphCore::get_node_properties` serves an EVICTED node's
+  stored blob from redb on a RAM miss. Eviction is durability-gated: a node is
+  dropped from RAM ONLY after a redb read CONFIRMS it is on disk (commit-before-ack
+  makes that the common case); a node whose durability can't be confirmed is left
+  resident. So an evicted node is still readable and never lost. (Topology/edge
+  reconstruction of an evicted node still needs a full `load_all` — the read-through
+  seam is node-property granularity, matching what redb `read_node` durably holds.)
 - **Backpressure, not drop.** The redb writer's bounded channel BLOCKS for capacity
   (off-reactor) instead of shedding a mutation. A durable write is never silently
   discarded.
