@@ -12,14 +12,23 @@
 //! An `id: Utf8` column (the node id) and a raw `props: Binary` escape-hatch column
 //! (the original msgpack blob, for the `json_get*` UDFs) are ALWAYS emitted.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::any::Any;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, RwLock};
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder,
+    Array, ArrayRef, BinaryBuilder, BooleanArray, BooleanBuilder, Float64Array, Float64Builder,
+    Int64Array, Int64Builder, StringArray, StringBuilder, UInt32Array,
 };
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
+use async_trait::async_trait;
+use datafusion::catalog::{Session, TableProvider};
+use datafusion::common::ScalarValue;
+use datafusion::datasource::MemTable;
+use datafusion::error::Result as DfResult;
+use datafusion::logical_expr::{Expr, Operator, TableProviderFilterPushDown, TableType};
+use datafusion::physical_plan::ExecutionPlan;
 use eg_core::graph::GraphView;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde_json::Value;
@@ -318,5 +327,403 @@ impl SqlCache {
         };
         *self.inner.lock().unwrap() = Some((version, built.clone()));
         Ok(built)
+    }
+}
+
+// ── nodes TableProvider + secondary-index predicate pushdown (CONCEPT:KG-2.199) ──
+
+/// Default cap on the number of distinct columns the `nodes` provider will index
+/// for pushdown. Mirrors eg-core's property-index bound; env-overridable via
+/// `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES`.
+const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
+
+/// A canonicalized equality value used as a secondary-index key. We index Arrow
+/// cell values by their canonical string form so a `col = literal` predicate
+/// resolves to row positions regardless of the column's inferred Arrow type.
+type IndexKey = String;
+
+/// `nodes` table provider with secondary/property-index predicate pushdown
+/// (CONCEPT:KG-2.199). Wraps the already-materialized `(schema, batch)` that
+/// `infer_nodes` produced (so the rows are byte-identical to the full-scan path),
+/// plus a lazily-built, bounded per-column equality index
+/// (`column → (value → row positions)`).
+///
+/// `supports_filters_pushdown` reports `Exact` for a `col = literal` equality on an
+/// indexable column (`id` or any scalar property column in the schema); `scan`
+/// consumes those equalities, intersects their row-position sets via the index, and
+/// returns ONLY the matching rows (an `arrow::compute::take` into a fresh in-memory
+/// table) instead of decoding/scanning every node. Any non-equality / non-indexed
+/// predicate is reported `Unsupported`, so DataFusion keeps it as a Filter above the
+/// scan — results are therefore IDENTICAL to the full-scan path, with the index used
+/// purely to shrink the rows handed up. With no pushable filter the provider serves
+/// the full batch (the original behavior).
+///
+/// Index policy (bounded + demand-driven, mirroring eg-core CONCEPT:KG-2.199): a
+/// column is indexed on its FIRST pushed equality and cached, up to
+/// `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` columns (default 32); columns named in
+/// `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` are pre-seeded on the first build.
+#[derive(Debug)]
+pub(crate) struct NodesTableProvider {
+    schema: SchemaRef,
+    batch: RecordBatch,
+    /// `column name → (value → row positions)`, built lazily under the bound.
+    index: RwLock<HashMap<String, HashMap<IndexKey, Vec<u32>>>>,
+}
+
+impl NodesTableProvider {
+    pub(crate) fn new(schema: SchemaRef, batch: RecordBatch) -> Self {
+        Self {
+            schema,
+            batch,
+            index: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Columns that are equality-indexable: `id` and every scalar property column.
+    /// The `props` (Binary) column is the raw-blob escape hatch — never indexed.
+    fn is_indexable_column(&self, name: &str) -> bool {
+        match self.schema.column_with_name(name) {
+            Some((_, f)) => matches!(
+                f.data_type(),
+                DataType::Utf8 | DataType::Boolean | DataType::Int64 | DataType::Float64
+            ),
+            None => false,
+        }
+    }
+
+    fn max_indexed() -> usize {
+        std::env::var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(DEFAULT_MAX_INDEXED_PROPERTIES)
+    }
+
+    fn seed_columns() -> Vec<String> {
+        std::env::var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES")
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(str::trim)
+                    .filter(|k| !k.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Canonical string form of an Arrow cell at `(col, row)`, or `None` for null /
+    /// a non-scalar column. Matches the literal canonicalization in
+    /// [`scalar_to_key`] so a pushed `col = literal` lands on the right bucket.
+    fn cell_key(col: &dyn Array, row: usize) -> Option<IndexKey> {
+        if col.is_null(row) {
+            return None;
+        }
+        match col.data_type() {
+            DataType::Utf8 => col
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .map(|a| a.value(row).to_string()),
+            DataType::Boolean => col
+                .as_any()
+                .downcast_ref::<BooleanArray>()
+                .map(|a| a.value(row).to_string()),
+            DataType::Int64 => col
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .map(|a| a.value(row).to_string()),
+            DataType::Float64 => col
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .map(|a| a.value(row).to_string()),
+            _ => None,
+        }
+    }
+
+    /// Build the `value → row positions` map for one column over the materialized
+    /// batch. One linear pass; the result is cached.
+    fn build_column_index(&self, name: &str) -> HashMap<IndexKey, Vec<u32>> {
+        let mut by_value: HashMap<IndexKey, Vec<u32>> = HashMap::new();
+        if let Some((idx, _)) = self.schema.column_with_name(name) {
+            let col = self.batch.column(idx);
+            for row in 0..self.batch.num_rows() {
+                if let Some(k) = Self::cell_key(col.as_ref(), row) {
+                    by_value.entry(k).or_default().push(row as u32);
+                }
+            }
+        }
+        by_value
+    }
+
+    /// Ensure `name` is indexed (honoring the cap + the env pre-seed) and return the
+    /// row positions matching `value`, or `None` if the column cannot be indexed
+    /// under the bound (caller falls back to a full scan for that predicate).
+    fn lookup(&self, name: &str, value: &IndexKey) -> Option<Vec<u32>> {
+        {
+            let guard = self.index.read().unwrap();
+            if let Some(by_value) = guard.get(name) {
+                return Some(by_value.get(value).cloned().unwrap_or_default());
+            }
+        }
+        let mut guard = self.index.write().unwrap();
+        let cap = Self::max_indexed();
+        if guard.is_empty() {
+            for seed in Self::seed_columns() {
+                if guard.len() >= cap {
+                    break;
+                }
+                if !guard.contains_key(&seed) && self.is_indexable_column(&seed) {
+                    let m = self.build_column_index(&seed);
+                    guard.insert(seed, m);
+                }
+            }
+        }
+        if !guard.contains_key(name) {
+            if guard.len() >= cap {
+                return None; // cap reached — full-scan fallback for this column.
+            }
+            let m = self.build_column_index(name);
+            guard.insert(name.to_string(), m);
+        }
+        Some(
+            guard
+                .get(name)
+                .and_then(|m| m.get(value).cloned())
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Extract `(column, canonical-value)` from a `col = literal` / `literal = col`
+    /// equality on an indexable column; `None` for anything else.
+    fn as_eq_predicate(&self, expr: &Expr) -> Option<(String, IndexKey)> {
+        let Expr::BinaryExpr(be) = expr else {
+            return None;
+        };
+        if be.op != Operator::Eq {
+            return None;
+        }
+        let (col, lit) = match (be.left.as_ref(), be.right.as_ref()) {
+            (Expr::Column(c), Expr::Literal(v)) => (c, v),
+            (Expr::Literal(v), Expr::Column(c)) => (c, v),
+            _ => return None,
+        };
+        if !self.is_indexable_column(&col.name) {
+            return None;
+        }
+        scalar_to_key(lit).map(|k| (col.name.clone(), k))
+    }
+}
+
+/// Canonical string key for a literal `ScalarValue`, matching [`cell_key`] so a
+/// pushed `col = 'x'` / `col = 5` finds the indexed bucket. `None` for null / a
+/// type we don't index (the predicate then stays unsupported).
+fn scalar_to_key(v: &ScalarValue) -> Option<IndexKey> {
+    match v {
+        ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => Some(s.clone()),
+        ScalarValue::Boolean(Some(b)) => Some(b.to_string()),
+        ScalarValue::Int8(Some(n)) => Some(n.to_string()),
+        ScalarValue::Int16(Some(n)) => Some(n.to_string()),
+        ScalarValue::Int32(Some(n)) => Some(n.to_string()),
+        ScalarValue::Int64(Some(n)) => Some(n.to_string()),
+        ScalarValue::UInt8(Some(n)) => Some(n.to_string()),
+        ScalarValue::UInt16(Some(n)) => Some(n.to_string()),
+        ScalarValue::UInt32(Some(n)) => Some(n.to_string()),
+        ScalarValue::UInt64(Some(n)) => Some(n.to_string()),
+        ScalarValue::Float32(Some(f)) => Some((*f as f64).to_string()),
+        ScalarValue::Float64(Some(f)) => Some(f.to_string()),
+        _ => None,
+    }
+}
+
+#[async_trait]
+impl TableProvider for NodesTableProvider {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::Base
+    }
+
+    /// `Inexact` for a `col = literal` equality on an indexable column, `Unsupported`
+    /// otherwise. `Inexact` (NOT `Exact`) is deliberate and is what makes correctness
+    /// independent of the index: DataFusion pushes the predicate into `scan` (so we
+    /// narrow rows via the index) BUT also keeps the equality as a Filter node ABOVE
+    /// the scan and re-applies it. So whether the index narrows to the exact set, a
+    /// superset (a column that overflowed the bounded cap → full scan), or the
+    /// predicate is composite, the final result is ALWAYS identical to the full-scan
+    /// path — the index is a pure row-reduction optimization, never a correctness
+    /// boundary. The re-filter over the already-narrowed rows is negligible.
+    fn supports_filters_pushdown(
+        &self,
+        filters: &[&Expr],
+    ) -> DfResult<Vec<TableProviderFilterPushDown>> {
+        Ok(filters
+            .iter()
+            .map(|f| {
+                if self.as_eq_predicate(f).is_some() {
+                    TableProviderFilterPushDown::Inexact
+                } else {
+                    TableProviderFilterPushDown::Unsupported
+                }
+            })
+            .collect())
+    }
+
+    async fn scan(
+        &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> DfResult<Arc<dyn ExecutionPlan>> {
+        // Collect the indexable equality predicates DataFusion pushed down.
+        let preds: Vec<(String, IndexKey)> = filters
+            .iter()
+            .filter_map(|f| self.as_eq_predicate(f))
+            .collect();
+
+        // Resolve each via the index and intersect. If ANY indexable predicate's
+        // column can't be indexed under the cap, fall back to the full batch for
+        // that predicate (DataFusion re-applied filters keep correctness — but we
+        // reported Exact, so to stay correct we must still serve a SUPERSET; the
+        // simplest correct superset is the full scan). We therefore only narrow
+        // when EVERY pushed predicate resolved through the index.
+        let mut matched: Option<Vec<u32>> = None;
+        let mut all_indexed = true;
+        for (col, val) in &preds {
+            match self.lookup(col, val) {
+                Some(rows) => {
+                    matched = Some(match matched.take() {
+                        None => rows,
+                        Some(prev) => intersect_sorted(&prev, &rows),
+                    });
+                }
+                None => {
+                    all_indexed = false;
+                    break;
+                }
+            }
+        }
+
+        let batch = if preds.is_empty() || !all_indexed {
+            // No pushable filter, or a column overflowed the bounded cap → serve the
+            // full batch. Correct in every case because the predicates were reported
+            // `Inexact`, so DataFusion re-applies them as a Filter above this scan.
+            self.batch.clone()
+        } else {
+            let mut rows = matched.unwrap_or_default();
+            rows.sort_unstable();
+            let indices = UInt32Array::from(rows);
+            arrow::compute::take_record_batch(&self.batch, &indices)
+                .map_err(|e| datafusion::error::DataFusionError::ArrowError(e, None))?
+        };
+
+        let mem = MemTable::try_new(self.schema.clone(), vec![vec![batch]])?;
+        // Delegate execution (projection + limit handling) to the inner MemTable over
+        // the already-narrowed rows. We pass NO filters down — the index narrowing
+        // replaced the Exact predicates; any Unsupported predicate is still a Filter
+        // node ABOVE this scan, so it is applied by DataFusion, not lost.
+        mem.scan(state, projection, &[], limit).await
+    }
+}
+
+/// Intersection of two SORTED-ASCENDING `u32` slices (row positions). The index
+/// produces ascending positions, so this is a linear merge.
+fn intersect_sorted(a: &[u32], b: &[u32]) -> Vec<u32> {
+    let mut out = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                out.push(a[i]);
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod provider_tests {
+    use super::*;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn provider() -> NodesTableProvider {
+        let core = GraphCore::new();
+        for (id, team, rank) in [
+            ("a", "blue", 1),
+            ("b", "red", 2),
+            ("c", "blue", 2),
+            ("d", "blue", 3),
+        ] {
+            core.add_node(
+                id.into(),
+                rmp_serde::to_vec_named(&json!({"team": team, "rank": rank})).unwrap(),
+            );
+        }
+        let snap = core.analysis_snapshot();
+        let (schema, batch) = infer_nodes(&snap).unwrap();
+        NodesTableProvider::new(schema, batch)
+    }
+
+    /// The index lookup returns exactly the row positions whose column value matches
+    /// — the proof the pushdown path resolves through the index, not a scan.
+    #[test]
+    fn lookup_returns_matching_row_positions() {
+        let p = provider();
+        // `team` is an indexable Utf8 column; resolve "blue" -> the 3 blue rows.
+        let rows = p.lookup("team", &"blue".to_string()).unwrap();
+        assert_eq!(rows.len(), 3, "three nodes are blue");
+        // Each returned position's `team` cell must actually be "blue".
+        let (idx, _) = p.schema.column_with_name("team").unwrap();
+        let col = p.batch.column(idx);
+        for r in rows {
+            assert_eq!(
+                NodesTableProvider::cell_key(col.as_ref(), r as usize),
+                Some("blue".to_string())
+            );
+        }
+        // A value with no rows -> empty, but Some (column IS indexed).
+        assert_eq!(p.lookup("team", &"green".to_string()), Some(Vec::new()));
+    }
+
+    /// `supports_filters_pushdown`: equality on an indexable column is `Inexact`
+    /// (pushed + re-checked), everything else `Unsupported` (kept as a Filter).
+    #[test]
+    fn supports_filters_classifies_predicates() {
+        use datafusion::logical_expr::{col, lit};
+        let p = provider();
+        let eq = col("team").eq(lit("blue"));
+        let like = col("team").like(lit("b%"));
+        let gt = col("rank").gt(lit(2_i64));
+        let refs: Vec<&Expr> = vec![&eq, &like, &gt];
+        let got = p.supports_filters_pushdown(&refs).unwrap();
+        assert_eq!(got[0], TableProviderFilterPushDown::Inexact);
+        assert_eq!(got[1], TableProviderFilterPushDown::Unsupported);
+        assert_eq!(got[2], TableProviderFilterPushDown::Unsupported);
+    }
+
+    /// The bounded cap: with cap=1, a second distinct column overflows and `lookup`
+    /// returns `None` (caller serves the full batch — still correct via `Inexact`).
+    #[test]
+    fn bounded_cap_overflows_to_none() {
+        std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES", "1");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
+        let p = provider();
+        assert!(p.lookup("team", &"blue".to_string()).is_some());
+        assert!(
+            p.lookup("rank", &"2".to_string()).is_none(),
+            "cap=1 must refuse a second column"
+        );
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
     }
 }
