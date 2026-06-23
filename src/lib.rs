@@ -44,3 +44,8 @@ pub mod server;
 pub mod wal;
 #[cfg(feature = "server")]
 pub mod wal_service;
+// Per-graph write coalescer (CONCEPT:KG-2.182): batches concurrent single-op
+// writes to one graph into a single topology-lock acquisition. Tokio-based, so it
+// lives in the server-gated top-level crate alongside wal_service.
+#[cfg(feature = "server")]
+pub mod write_coalescer;
