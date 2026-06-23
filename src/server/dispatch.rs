@@ -60,7 +60,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                     "uptime_s": uptime_s,
                     "mem_bytes": mem_bytes,
                     "version": env!("CARGO_PKG_VERSION"),
-                    "ops": ["ParseFiles", "IndexRepository"]
+                    "ops": ["ParseFiles", "IndexRepository", "ObserveScreen"]
                 })),
             )
         }
@@ -152,6 +152,44 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             {
                 let _ = files_msgpack;
                 Response::err(req.id, "AST feature not enabled".to_string())
+            }
+        }
+
+        Method::ObserveScreen { obs_msgpack } => {
+            // MessagePack map → a captured desktop frame. png rides as a bin field;
+            // elements are the AT-SPI accessibles. (CONCEPT:KG-2.185)
+            #[derive(serde::Deserialize)]
+            struct Wire {
+                session_id: String,
+                #[serde(default)]
+                frame_seq: u64,
+                #[serde(default)]
+                prev_frame_id: String,
+                #[serde(default)]
+                prev_hash: u64,
+                #[serde(with = "serde_bytes", default)]
+                png: Vec<u8>,
+                #[serde(default)]
+                elements: Vec<crate::screen::UiElementInput>,
+            }
+            let wire: Wire = match rmp_serde::from_slice(&obs_msgpack) {
+                Ok(w) => w,
+                Err(e) => return Response::err(req.id, format!("Invalid obs_msgpack: {}", e)),
+            };
+            let input = crate::screen::ScreenObservationInput {
+                session_id: wire.session_id,
+                frame_seq: wire.frame_seq,
+                prev_frame_id: wire.prev_frame_id,
+                prev_hash: wire.prev_hash,
+                png: wire.png,
+                elements: wire.elements,
+            };
+            // Inline: PNG hashing + node/edge build over the element set is
+            // microsecond-cheap (no AST parse), so it doesn't need the blocking pool.
+            let result = crate::screen::observe_screen(&input);
+            match serde_json::to_value(&result) {
+                Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
+                Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
             }
         }
 
