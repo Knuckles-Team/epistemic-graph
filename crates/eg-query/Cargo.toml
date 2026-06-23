@@ -13,7 +13,7 @@ name = "eg_query"
 # `sql` pulls DataFusion + Arrow (heavy). A default build links NONE of them so
 # the engine stays lean for a Raspberry Pi.
 default = []
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:async-trait"]
 # Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
 # engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
@@ -46,6 +46,10 @@ petgraph = { version = "0.6.4", features = ["serde-1"], optional = true }
 # blocking pool (the `compute_off_lock` idiom). Only the `rt` feature is needed —
 # the caller already runs us under `spawn_blocking`.
 tokio = { version = "1.38", features = ["rt"], optional = true }
+# `#[async_trait]` for the custom `nodes` TableProvider (CONCEPT:KG-2.199 predicate
+# pushdown). DataFusion's `TableProvider` trait is itself `#[async_trait]`; pulled
+# only under `sql`, so it stays out of the lean Pi build.
+async-trait = { version = "0.1", optional = true }
 
 [dev-dependencies]
 # The spike's OUTER reactor mimics the server's multi-thread runtime; the inner
