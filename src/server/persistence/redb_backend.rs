@@ -1002,6 +1002,8 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "raft")]
+            raft: None,
         }))
     }
 

@@ -101,4 +101,11 @@ pub struct ServerState {
     /// Cap on concurrently-open txns per agent (`EPISTEMIC_GRAPH_TXN_MAX_PER_AGENT`,
     /// default 256). Anonymous callers (`agent_id` absent) share the `""` bucket.
     pub txn_max_per_agent: usize,
+    /// In-engine Raft replication handle (CONCEPT:KG-2.188), cluster tier only.
+    /// `None` ⇒ single-node: the dispatch write path is byte-for-byte unchanged.
+    /// `Some` ⇒ durable mutations are routed through Raft consensus (the leader's
+    /// `client_write`) BEFORE they are applied+acked — the replication barrier.
+    /// Only ever populated when built `--features raft` AND configured at startup.
+    #[cfg(feature = "raft")]
+    pub raft: Option<crate::raft::RaftHandle>,
 }

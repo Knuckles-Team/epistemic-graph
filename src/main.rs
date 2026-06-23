@@ -339,6 +339,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         txn_ttl_secs,
         txn_max_per_graph,
         txn_max_per_agent,
+        // Populated below AFTER snapshot recovery, only when built `--features raft`
+        // AND configured. Until then (and always in a non-raft build) it is `None`,
+        // so the dispatch write path is the single-node path, unchanged.
+        #[cfg(feature = "raft")]
+        raft: None,
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
@@ -512,6 +517,58 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         });
+    }
+
+    // ── In-engine Raft replication (CONCEPT:KG-2.188) — cluster tier ──────
+    // Only when built `--features raft` AND configured (EPISTEMIC_GRAPH_RAFT_NODE_ID
+    // + EPISTEMIC_GRAPH_RAFT_PEERS). When the feature is off, OR on but unconfigured,
+    // this block is absent / no-ops and the engine runs single-node exactly as
+    // before. Raft replicates the AUTHORITATIVE state, so it requires a persist dir
+    // (the redb store) — refuse to start a half-configured cluster loudly.
+    #[cfg(feature = "raft")]
+    {
+        match epistemic_graph::raft::config::RaftClusterConfig::from_env() {
+            Ok(Some(cluster_cfg)) => {
+                let persist_dir = match state.read().await.persist_dir.clone() {
+                    Some(d) => d,
+                    None => {
+                        eprintln!(
+                            "error: Raft is configured (EPISTEMIC_GRAPH_RAFT_NODE_ID) but no \
+                             persist dir is set — Raft replicates the authoritative redb store, so \
+                             GRAPH_SERVICE_PERSIST_DIR is required."
+                        );
+                        std::process::exit(2);
+                    }
+                };
+                info!(
+                    "Raft cluster mode: node {} of {} peers (CONCEPT:KG-2.188)",
+                    cluster_cfg.node_id,
+                    cluster_cfg.peers.len()
+                );
+                match epistemic_graph::raft::node::start(cluster_cfg, &persist_dir, state.clone())
+                    .await
+                {
+                    Ok(started) => {
+                        // The listener task runs for the process lifetime; detach it
+                        // (dropping a JoinHandle leaves the spawned task running).
+                        drop(started.listener);
+                        state.write().await.raft = Some(started.handle);
+                        info!("Raft node started; writes now route through consensus");
+                    }
+                    Err(e) => {
+                        eprintln!("error: failed to start Raft node: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Ok(None) => {
+                info!("Raft feature built but not configured — running single-node");
+            }
+            Err(e) => {
+                eprintln!("error: invalid Raft configuration: {e}");
+                std::process::exit(2);
+            }
+        }
     }
 
     // ── Transport ───────────────────────────────────────────────────────
