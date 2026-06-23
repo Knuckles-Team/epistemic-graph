@@ -13,7 +13,10 @@
 pub mod sql;
 
 #[cfg(feature = "sql")]
-pub use sql::{exec_sql, exec_sql_cached, QueryResult, SqlCache};
+pub use sql::{
+    classify, exec_sql, exec_sql_cached, exec_sql_typed, InsertNode, PgColType, QueryResult,
+    SqlCache, StatementKind, TypedColumn, TypedQueryResult,
+};
 
 #[cfg(feature = "cypher")]
 pub mod cypher;
