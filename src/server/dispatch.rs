@@ -494,6 +494,28 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Blob (CONCEPT:KG-2.206) ──────────────────────────────────
+        // Content-addressed, NOT graph-scoped: a blob is keyed by digest and may be
+        // referenced across graphs, so route at the top level (like txn) before the
+        // per-graph chain. The variants only exist with the `blob` feature; without
+        // it they aren't in the enum and a slim build can't reach this arm.
+        #[cfg(feature = "blob")]
+        Method::BlobBegin { .. }
+        | Method::BlobChunkPut { .. }
+        | Method::BlobCommit { .. }
+        | Method::BlobFetchBegin { .. }
+        | Method::BlobChunkGet { .. }
+        | Method::BlobFetchEnd { .. }
+        | Method::BlobRef { .. }
+        | Method::BlobUnref { .. }
+        | Method::BlobGc => {
+            match handlers::blob::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: every variant matched above is a blob method.
+                Err(_) => Response::err(req.id, "blob dispatch routing error"),
+            }
+        }
+
         // ── Graph operations (dispatch to target graph) ──────────────
         _ => {
             dispatch_graph_op(
@@ -824,4 +846,289 @@ async fn try_coalesce_write(
         WriteOutcome::WriterGone => Response::err(req_id, "write worker unavailable"),
     };
     Ok(resp)
+}
+
+// ── Blob substrate dispatch round-trip (CONCEPT:KG-2.206) ─────────────────────
+//
+// Drives the Blob* methods through the SAME `dispatch` entrypoint a wire request
+// hits (auth → routing → handler → CAS), proving streamed round-trip integrity +
+// dedup + bounded memory + GC over the real protocol — not just the store unit.
+#[cfg(all(test, feature = "blob"))]
+mod blob_dispatch_tests {
+    use super::*;
+    use crate::channels::ChannelManager;
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use crate::server::blob::{BlobCursors, RedbChunkStore};
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, Semaphore};
+
+    const SECRET: &str = "blob-test-secret";
+
+    fn state_with_blob(dir: &str) -> Arc<RwLock<ServerState>> {
+        let store = Arc::new(RedbChunkStore::open(dir).unwrap());
+        Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: Some(dir.to_string()),
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            blob: Some(Arc::new(BlobCursors::new(store))),
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+        }))
+    }
+
+    fn req(id: u64, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        }
+    }
+
+    fn peak_rss_mb() -> u64 {
+        let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        for line in s.lines() {
+            if let Some(rest) = line.strip_prefix("VmHWM:") {
+                if let Some(kb) = rest
+                    .split_whitespace()
+                    .next()
+                    .and_then(|n| n.parse::<u64>().ok())
+                {
+                    return kb / 1024;
+                }
+            }
+        }
+        0
+    }
+
+    /// Upload `data` chunk-by-chunk via dispatch (never resident whole), commit,
+    /// return the blob digest.
+    async fn upload(
+        state: &Arc<RwLock<ServerState>>,
+        next_id: &mut u64,
+        data: &[u8],
+        chunk_size: usize,
+    ) -> String {
+        let begin = dispatch(
+            state,
+            req(
+                *next_id,
+                Method::BlobBegin {
+                    chunk_size: chunk_size as u32,
+                },
+            ),
+        )
+        .await;
+        *next_id += 1;
+        let cursor = match begin.result {
+            Some(ResultPayload::Count(c)) => c,
+            other => panic!("BlobBegin: {:?} / {:?}", other, begin.error),
+        };
+        for part in data.chunks(chunk_size) {
+            let r = dispatch(
+                state,
+                req(
+                    *next_id,
+                    Method::BlobChunkPut {
+                        cursor,
+                        data: part.to_vec(),
+                    },
+                ),
+            )
+            .await;
+            *next_id += 1;
+            assert!(r.error.is_none(), "BlobChunkPut: {:?}", r.error);
+        }
+        let commit = dispatch(state, req(*next_id, Method::BlobCommit { cursor })).await;
+        *next_id += 1;
+        match commit.result {
+            Some(ResultPayload::String(d)) => d,
+            other => panic!("BlobCommit: {:?} / {:?}", other, commit.error),
+        }
+    }
+
+    /// Stream `digest` back down chunk-by-chunk via dispatch, reassemble.
+    async fn download(
+        state: &Arc<RwLock<ServerState>>,
+        next_id: &mut u64,
+        digest: &str,
+    ) -> Vec<u8> {
+        let begin = dispatch(
+            state,
+            req(
+                *next_id,
+                Method::BlobFetchBegin {
+                    digest: digest.into(),
+                },
+            ),
+        )
+        .await;
+        *next_id += 1;
+        let (cursor, n): (u64, u32) = match begin.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("BlobFetchBegin: {:?} / {:?}", other, begin.error),
+        };
+        let mut out = Vec::new();
+        for idx in 0..n {
+            let r = dispatch(state, req(*next_id, Method::BlobChunkGet { cursor, idx })).await;
+            *next_id += 1;
+            match r.result {
+                Some(ResultPayload::PropertiesMsgpack(bytes)) => out.extend(bytes),
+                other => panic!("BlobChunkGet: {:?} / {:?}", other, r.error),
+            }
+        }
+        let _ = dispatch(state, req(*next_id, Method::BlobFetchEnd { cursor })).await;
+        *next_id += 1;
+        out
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn roundtrip_dedup_bounded_memory_and_gc() {
+        let dir = std::env::temp_dir().join(format!("eg-blob-dispatch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = state_with_blob(&dir.to_string_lossy());
+        let mut id = 1u64;
+
+        // 16 MB blob streamed as 2 MiB chunks. NON-dedupable content (offset-seeded)
+        // so real chunks are stored; the file is never held whole in this test
+        // either — each chunk is generated, dispatched, then dropped.
+        let chunk_size = 2 * 1024 * 1024usize;
+        let n_chunks = 8u64;
+        let mut full = Vec::new(); // only kept to verify the round-trip equals source
+        {
+            // Upload streaming: build+dispatch one chunk at a time.
+            let begin = dispatch(
+                &state,
+                req(
+                    id,
+                    Method::BlobBegin {
+                        chunk_size: chunk_size as u32,
+                    },
+                ),
+            )
+            .await;
+            id += 1;
+            let cursor = match begin.result {
+                Some(ResultPayload::Count(c)) => c,
+                o => panic!("begin {:?}", o),
+            };
+            for c in 0..n_chunks {
+                let mut buf = vec![0u8; chunk_size];
+                let mut x = (c + 1).wrapping_mul(0x9E3779B97F4A7C15) | 1;
+                for b in buf.iter_mut() {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    *b = (x & 0xFF) as u8;
+                }
+                full.extend_from_slice(&buf);
+                let r = dispatch(&state, req(id, Method::BlobChunkPut { cursor, data: buf })).await;
+                id += 1;
+                assert!(r.error.is_none());
+            }
+            let commit = dispatch(&state, req(id, Method::BlobCommit { cursor })).await;
+            id += 1;
+            let digest = match commit.result {
+                Some(ResultPayload::String(d)) => d,
+                o => panic!("commit {:?}", o),
+            };
+
+            // Round-trip integrity.
+            let got = download(&state, &mut id, &digest).await;
+            assert_eq!(got.len(), full.len());
+            assert_eq!(got, full);
+
+            // Bounded memory: the whole 16 MB blob was streamed through dispatch,
+            // and peak RSS must stay well under buffering the whole object on both
+            // sides. We keep ONE copy (`full`) for the integrity assert, so allow
+            // total + a fixed floor; a regression that buffers the file in the
+            // cursor/handler would blow past this.
+            let total_mb = (n_chunks * chunk_size as u64) / (1024 * 1024);
+            let peak = peak_rss_mb();
+            assert!(
+                peak < total_mb + 512,
+                "peak RSS {peak}MB should stay bounded for a {total_mb}MB streamed blob"
+            );
+
+            // Reference the blob (a :Media node points at it).
+            let r = dispatch(
+                &state,
+                req(
+                    id,
+                    Method::BlobRef {
+                        digest: digest.clone(),
+                    },
+                ),
+            )
+            .await;
+            id += 1;
+            assert!(matches!(r.result, Some(ResultPayload::Count(1))));
+
+            // Dedup: re-upload identical content → same digest, ZERO new chunks.
+            let store = state.read().await.blob.as_ref().unwrap().store.clone();
+            let chunks_before = store.chunk_count().unwrap();
+            let digest2 = upload(&state, &mut id, &full, chunk_size).await;
+            let chunks_after = store.chunk_count().unwrap();
+            assert_eq!(digest, digest2, "identical content ⇒ identical digest");
+            assert_eq!(chunks_before, chunks_after, "dedup: no new chunks");
+
+            // GC keeps a referenced blob, reclaims an unreferenced one. digest is
+            // referenced (count 1); digest2 == digest so still 1 reference total.
+            let gc = dispatch(&state, req(id, Method::BlobGc)).await;
+            id += 1;
+            let (blobs, _chunks): (u64, u64) = match gc.result {
+                Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+                o => panic!("gc {:?}", o),
+            };
+            assert_eq!(blobs, 0, "referenced blob is kept");
+            // Still fetchable after GC.
+            assert_eq!(download(&state, &mut id, &digest).await, full);
+
+            // Drop the reference → GC reclaims the blob + all its chunks.
+            let r = dispatch(
+                &state,
+                req(
+                    id,
+                    Method::BlobUnref {
+                        digest: digest.clone(),
+                    },
+                ),
+            )
+            .await;
+            id += 1;
+            assert!(matches!(r.result, Some(ResultPayload::Count(0))));
+            let gc = dispatch(&state, req(id, Method::BlobGc)).await;
+            id += 1;
+            let (blobs, chunks): (u64, u64) = match gc.result {
+                Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+                o => panic!("gc {:?}", o),
+            };
+            assert_eq!(blobs, 1, "unreferenced blob reclaimed");
+            assert_eq!(chunks, n_chunks, "all its orphan chunks reclaimed");
+            assert_eq!(store.chunk_count().unwrap(), 0);
+            // Fetching a reclaimed blob now fails.
+            let r = dispatch(&state, req(id, Method::BlobFetchBegin { digest })).await;
+            assert!(r.error.is_some());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

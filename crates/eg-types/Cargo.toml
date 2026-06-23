@@ -17,6 +17,10 @@ name = "eg_types"
 metrics = ["dep:strum"]
 finance = []
 datascience = []
+# Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206): gates the `// ──
+# Blob ──` Method variants so a build without `blob` drops them from the enum (they
+# then fall to the dispatch "not available in this build" catch-all).
+blob = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

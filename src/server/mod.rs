@@ -5,6 +5,11 @@
 
 mod access;
 mod auth;
+// Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206). Facade-only,
+// behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
+// the Blob* methods then fall to the dispatch "not available" catch-all.
+#[cfg(feature = "blob")]
+pub mod blob;
 mod compute;
 mod dispatch;
 mod handlers;
@@ -65,6 +70,10 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
         }))
@@ -521,6 +530,10 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
         }));
@@ -588,6 +601,10 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
         }));
@@ -661,6 +678,10 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
         }));
@@ -834,6 +855,10 @@ mod tests {
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
         }));
