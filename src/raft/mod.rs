@@ -15,24 +15,34 @@
 //! (CONCEPT:KG-2.187). So a Raft node IS an M2 authoritative node — its graph data
 //! lives in `graph.redb`, committed-before-applied.
 //!
-//! Raft's own metadata (vote, last-applied log id, membership, snapshot) is kept
-//! durable in a SEPARATE `raft.redb` ([`store::RaftMeta`]) so this module never has
-//! to reach into the M2 backend's file (redb is single-handle-per-process).
+//! ## Durable redb Raft log (CONCEPT:KG-2.204)
+//!
+//! The Raft LOG, the vote, the applied state, and the graph data are ALL durable in
+//! the SAME `graph.redb` Database (the M2 store), keyed by `(group_id, index)` /
+//! `(group_id, key)`. The log shares M2's off-reactor group-commit writer, so a log
+//! append and its graph mutation ride ONE `WriteTransaction` / one fsync. A restarted
+//! node recovers its log tail LOCALLY from redb — it no longer needs the leader to
+//! refill an un-snapshotted tail. (The old separate `raft.redb` sidecar is gone.)
+//!
+//! ## Multi-Raft scaffold (CONCEPT:KG-2.205)
+//!
+//! [`multi::MultiRaft`] holds N openraft groups keyed by [`GroupId`], each its own
+//! state machine + `GraphCore`, sharing ONE TCP listener per node (RPC frames are
+//! tagged and demuxed by group id) and ONE shared `graph.redb` (composite-key
+//! log/meta — NOT a file per group). [`multi::GroupRouter`] maps `graph_name →
+//! GroupId`.
 //!
 //! ## Scope of this increment (documented follow-ups)
 //!
-//! * **Single Raft group.** One replicated keyspace covers every graph on the node
-//!   (the app-data carries the target graph name). Per-graph / per-shard Raft
-//!   groups are a documented follow-up — the app-data shape already carries the
-//!   graph name, so splitting groups later is a routing change, not a data change.
-//! * **In-memory Raft log.** The log entries live in RAM ([`store::LogStore`]); the
-//!   vote + applied state + membership ARE durable in `raft.redb`, and the GRAPH
-//!   DATA is durable via M2. So a node that restarts recovers its applied data and
-//!   its vote; it re-replicates any un-snapshotted log tail from the leader (Raft's
-//!   normal catch-up). Moving the log itself into `raft.redb` (so a node never
-//!   needs the leader to refill an un-snapshotted tail) is the documented
-//!   durability follow-up; in-memory is acceptable for a first increment because
-//!   committed state is never lost (it is on a quorum + durable via M2).
+//! * **One group today.** Every graph routes to [`DEFAULT_GROUP`] so behavior matches
+//!   the single-group path; the manager + routing + group lifecycle + multi-group
+//!   isolation are exercised by tests, so splitting a keyspace into its own group
+//!   later is a routing change, not a storage change.
+//! * **Group = transaction boundary.** One graph belongs to one group; a txn stays
+//!   inside a group. Cross-group (2-phase) transactions are a SEPARATE, larger
+//!   project — NOT in this increment (documented follow-up CONCEPT:KG-2.207).
+//! * Other follow-ups: per-group snapshot scoping, leader balancing across groups,
+//!   heartbeat coalescing, and a pooled per-peer connection.
 //!
 //! ## Write-routing barrier
 //!
@@ -56,6 +66,7 @@ use crate::protocol::Method;
 use crate::server::ServerState;
 
 pub mod config;
+pub mod multi;
 pub mod network;
 pub mod node;
 pub mod store;
@@ -65,6 +76,18 @@ mod tests;
 
 /// Raft node id — a small integer assigned per cluster member.
 pub type NodeId = u64;
+
+/// A Raft GROUP id (CONCEPT:KG-2.205). One consensus group per keyspace; today one
+/// graph maps to one group via the [`multi::GroupRouter`]. It is the composite-key
+/// prefix the durable redb log + meta rows are keyed by, so ONE `graph.redb` serves
+/// every group's log (the spike's FD-ceiling fix — no file per group).
+pub type GroupId = u64;
+
+/// The single default group every graph routes to in this increment (one group =
+/// today's single-group behavior, now with a durable redb log). Multi-group routing
+/// machinery exists ([`multi`]) and is proven by tests, but the default router maps
+/// all graphs here so behavior is unchanged from the single-group path.
+pub const DEFAULT_GROUP: GroupId = 0;
 
 /// The application request replicated through Raft: a durable [`Method`] targeted
 /// at a named graph. This is the log-entry payload — applying it = applying the
