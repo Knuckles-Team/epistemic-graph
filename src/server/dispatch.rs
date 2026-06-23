@@ -162,7 +162,14 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
 
         Method::Checkpoint => {
             info!("Checkpoint requested");
-            match crate::persist::checkpoint_all(state).await {
+            // Route through the configured durable backend (CONCEPT:KG-2.177) so a
+            // protocol-triggered checkpoint persists via whichever tier is active.
+            let backend = { state.read().await.persistence.clone() };
+            let result = match backend {
+                Some(p) => p.checkpoint_all(state).await,
+                None => Ok(0),
+            };
+            match result {
                 Ok(n) => Response::ok(
                     req.id,
                     ResultPayload::String(format!("checkpoint_complete:{}", n)),
@@ -443,14 +450,15 @@ async fn dispatch_graph_op(
     }
 
     let core = entry.core.clone();
-    // WAL (Phase B3): clone the off-reactor writer handle under the registry lock
-    // so a durable mutation can enqueue its append after it applies, with no extra
-    // locking and no file I/O on this Tokio worker. Only durable DATA mutations are
-    // logged, and only when the WAL service is running (i.e. a persist dir is set).
-    let wal_service = s.wal_service.clone();
+    // Persistence (CONCEPT:KG-2.177): clone the durable backend handle under the
+    // registry lock so a durable mutation can record itself after it applies, with
+    // no extra locking and no file I/O on this Tokio worker (the backend hands the
+    // write to its own off-reactor writer). Only durable DATA mutations are
+    // recorded, and only when a backend is configured (i.e. a persist dir is set).
+    let persistence = s.persistence.clone();
     drop(s); // Release registry lock before graph lock.
 
-    let wal_method = match (&wal_service, crate::wal::is_durable_mutation(&method)) {
+    let record_method = match (&persistence, crate::wal::is_durable_mutation(&method)) {
         (Some(_), true) => Some(method.clone()),
         _ => None,
     };
@@ -500,17 +508,14 @@ async fn dispatch_graph_op(
         core.mark_dirty();
     }
 
-    // Enqueue the WAL append after a SUCCESSFUL durable mutation (write-behind; the
-    // durable backend is the system-of-record, this is the fast local crash-
-    // consistency layer that closes the between-checkpoint loss window). The append
-    // is serialized here (cheap CPU) and handed to the off-reactor writer thread so
-    // no file I/O runs on this Tokio worker. (CONCEPT:KG-2.8 / Phase B3)
-    if let (Some(m), Some(svc)) = (wal_method, wal_service) {
+    // Record the durable mutation after it SUCCEEDED (write-behind; the abstracted
+    // backend remains the system-of-record, this is the fast local crash-
+    // consistency layer that closes the between-checkpoint loss window). The chosen
+    // backend serializes + hands the write to its own off-reactor writer thread, so
+    // no file I/O runs on this Tokio worker. (CONCEPT:KG-2.177 / KG-2.8)
+    if let (Some(m), Some(p)) = (record_method, persistence) {
         if response.error.is_none() {
-            match rmp_serde::to_vec_named(&m) {
-                Ok(bytes) => svc.append(crate::persist::sanitize(graph_name), bytes),
-                Err(e) => tracing::warn!("WAL serialize failed for '{}': {}", graph_name, e),
-            }
+            p.record(&crate::persist::sanitize(graph_name), &m);
         }
     }
     response
