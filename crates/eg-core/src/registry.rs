@@ -27,6 +27,13 @@ pub struct GraphEntry {
 /// Multi-tenant graph registry.
 pub struct GraphRegistry {
     graphs: HashMap<String, GraphEntry>,
+    /// Durable read-through factory (CONCEPT:KG-2.191). Set once at startup ONLY
+    /// under redb-authoritative mode; when present, every `GraphCore` the registry
+    /// creates (and every existing one, via `attach_read_through_all`) gains a
+    /// per-graph read-through so an evicted node still reads from redb. `None` (the
+    /// default and always in the rebuildable-cache model) ⇒ no read-through wiring,
+    /// behavior unchanged.
+    read_through_factory: Option<Arc<dyn crate::read_through::ReadThroughFactory>>,
 }
 
 impl Default for GraphRegistry {
@@ -48,7 +55,25 @@ impl GraphRegistry {
                 owner: None,
             },
         );
-        GraphRegistry { graphs }
+        GraphRegistry {
+            graphs,
+            read_through_factory: None,
+        }
+    }
+
+    /// Install the durable read-through factory and attach a per-graph read-through
+    /// to every graph that ALREADY exists (CONCEPT:KG-2.191) — the pre-created
+    /// `__commons__` plus anything `load_all` recovered before this was set. Called
+    /// once at startup under redb-authoritative mode; future `create_graph` calls
+    /// pick the factory up automatically.
+    pub fn set_read_through_factory(
+        &mut self,
+        factory: Arc<dyn crate::read_through::ReadThroughFactory>,
+    ) {
+        for entry in self.graphs.values() {
+            entry.core.set_read_through(factory.for_graph(&entry.name));
+        }
+        self.read_through_factory = Some(factory);
     }
 
     /// Create a new named graph.
@@ -61,12 +86,18 @@ impl GraphRegistry {
         if self.graphs.contains_key(name) {
             return Err(format!("Graph '{}' already exists", name));
         }
+        let core = Arc::new(GraphCore::new());
+        // Transparently wire read-through for the new graph when authoritative
+        // (CONCEPT:KG-2.191), so a graph created after startup is eviction-safe too.
+        if let Some(factory) = &self.read_through_factory {
+            core.set_read_through(factory.for_graph(name));
+        }
         self.graphs.insert(
             name.to_string(),
             GraphEntry {
                 name: name.to_string(),
                 graph_type,
-                core: Arc::new(GraphCore::new()),
+                core,
                 owner,
             },
         );
