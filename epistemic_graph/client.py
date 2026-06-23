@@ -288,6 +288,45 @@ class GraphOperationsClient:
         blob = msgpack.packb([[fp, src] for fp, src in files])
         return await self._client._send("IndexRepository", {"files_msgpack": blob})
 
+    async def observe_screen(
+        self,
+        png: bytes,
+        *,
+        session_id: str,
+        frame_seq: int = 0,
+        prev_frame_id: str = "",
+        prev_hash: int = 0,
+        elements: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Turn a captured desktop frame into durable graph entities in ONE round-trip
+        (CONCEPT:KG-2.185).
+
+        ``png`` is the screenshot bytes (only its dimensions + content hash are kept,
+        for frame-diff — the image itself is not persisted). ``elements`` is the AT-SPI
+        accessibility tree (``[{role,name,x,y,w,h}, ...]``). Returns a single
+        ``ScreenObservationResult``::
+
+            {"nodes": [...], "edges": [...],   # session + frame + UIElement nodes,
+             "frame_id": str, "width": int, "height": int,
+             "hash": int, "changed": bool, "element_count": int}
+
+        ``edges`` carry ``hasObservation`` (session→frame), ``hasElement``
+        (frame→element) and ``succeededBy`` (prev→frame, only when the frame changed).
+        Pass the returned ``hash``/``frame_id`` back as ``prev_hash``/``prev_frame_id``
+        on the next call to chain the frames.
+        """
+        blob = msgpack.packb(
+            {
+                "session_id": session_id,
+                "frame_seq": frame_seq,
+                "prev_frame_id": prev_frame_id,
+                "prev_hash": prev_hash,
+                "png": png,
+                "elements": elements or [],
+            }
+        )
+        return await self._client._send("ObserveScreen", {"obs_msgpack": blob})
+
     async def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         await self._client._send(
             "AddEmbedding", {"node_id": node_id, "embedding": embedding}
