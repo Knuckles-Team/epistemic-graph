@@ -104,6 +104,16 @@ pub struct GraphCore {
     /// node count is unchanged, so `match_ontology_terms` is ~µs per query
     /// instead of a full node scan. `None` until first use / after invalidation.
     ontology_index: RwLock<Option<OntologyTermIndex>>,
+    /// Cached secondary label index (CONCEPT:KG-2.176): `label → node ids` so
+    /// `get_nodes_by_label` is an O(1) map lookup instead of a full DashMap scan
+    /// that deserializes every node's properties. Built lazily on first label
+    /// lookup and invalidated by `mark_dirty()` after any successful write (the
+    /// same dirty flag the checkpoint uses) — a property update can change a
+    /// node's label without changing `node_count`, so this index must NOT key its
+    /// validity on node count the way the ontology index does. `None` until first
+    /// use / after invalidation. A node appears under every label it carries
+    /// across `type`/`node_type`/`label`/`labels` (mirrors `get_nodes_by_label`).
+    label_index: RwLock<Option<HashMap<String, Vec<String>>>>,
 }
 
 impl Default for GraphCore {
@@ -318,6 +328,7 @@ impl GraphCore {
             semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
             dirty: std::sync::atomic::AtomicBool::new(true),
             ontology_index: RwLock::new(None),
+            label_index: RwLock::new(None),
         }
     }
 
@@ -325,6 +336,10 @@ impl GraphCore {
     /// the dispatch after any successful write op and by the background decay sweep.
     pub fn mark_dirty(&self) {
         self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+        // Invalidate the lazy label index (CONCEPT:KG-2.176): a write may have
+        // added/removed a node or rewritten a node's label, so the cached
+        // `label → ids` map is stale and is rebuilt on the next label lookup.
+        *self.label_index.write() = None;
     }
 
     /// Atomically read-and-clear the dirty flag. The checkpoint calls this BEFORE
@@ -387,32 +402,85 @@ impl GraphCore {
     /// in-memory) but bounds the returned payload, so a `MATCH (n:Label) … LIMIT k`
     /// caller no longer materializes every node's properties over the wire.
     pub fn get_nodes_by_label(&self, label: &str, limit: usize) -> Vec<(String, Vec<u8>)> {
+        // CONCEPT:KG-2.176 — consult the lazy `label → ids` index so a label
+        // lookup is an O(1) map hit instead of a full DashMap scan that
+        // deserializes every node. The cached map is invalidated by `mark_dirty()`
+        // after any successful write (the same dirty flag the checkpoint uses), so
+        // it never serves a stale view across a mutation.
+        {
+            let guard = self.label_index.read();
+            if let Some(idx) = guard.as_ref() {
+                return Self::collect_by_label(idx, &self.node_properties, label, limit);
+            }
+        }
+        let built = self.build_label_index();
+        let out = Self::collect_by_label(&built, &self.node_properties, label, limit);
+        *self.label_index.write() = Some(built);
+        out
+    }
+
+    /// Materialize the `(id, properties)` rows for `label` from a built index,
+    /// honouring `limit` (`0` = uncapped). Skips ids that have since been removed
+    /// from the property store (defensive against an in-flight removal that hasn't
+    /// yet invalidated the index).
+    fn collect_by_label(
+        index: &HashMap<String, Vec<String>>,
+        node_properties: &DashMap<String, Arc<Vec<u8>>>,
+        label: &str,
+        limit: usize,
+    ) -> Vec<(String, Vec<u8>)> {
         let mut out: Vec<(String, Vec<u8>)> = Vec::new();
-        for entry in self.node_properties.iter() {
+        let Some(ids) = index.get(label) else {
+            return out;
+        };
+        for id in ids {
             if limit != 0 && out.len() >= limit {
                 break;
             }
-            let props = entry.value();
-            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props.as_slice()) else {
-                continue;
-            };
-            // The label lives on `type` (canonical), `node_type` (the field the
-            // Python client writes — graph_compute normalises `type` ⇒ `node_type`
-            // on read-back, so the index MUST honour both or label-scoped MATCH
-            // silently under-returns every node_type-keyed node), `label`, or the
-            // multi-valued `labels` array.
-            let matches = val.get("type").and_then(|v| v.as_str()) == Some(label)
-                || val.get("node_type").and_then(|v| v.as_str()) == Some(label)
-                || val.get("label").and_then(|v| v.as_str()) == Some(label)
-                || val
-                    .get("labels")
-                    .and_then(|v| v.as_array())
-                    .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(label)));
-            if matches {
-                out.push((entry.key().clone(), (**props).clone()));
+            if let Some(props) = node_properties.get(id) {
+                out.push((id.clone(), (**props.value()).clone()));
             }
         }
         out
+    }
+
+    /// Scan the node store once and build the secondary label index
+    /// (CONCEPT:KG-2.176): each node id is filed under EVERY label it carries.
+    /// The label set is read from exactly the fields `get_nodes_by_label` matched
+    /// before this index existed, so the two never diverge:
+    ///   * `type` (canonical), `node_type` (the field the Python client writes —
+    ///     graph_compute normalises `type` ⇒ `node_type` on read-back, so the
+    ///     index MUST honour both or a label-scoped MATCH under-returns every
+    ///     node_type-keyed node), `label`, and the multi-valued `labels` array.
+    fn build_label_index(&self) -> HashMap<String, Vec<String>> {
+        let mut index: HashMap<String, Vec<String>> = HashMap::new();
+        for entry in self.node_properties.iter() {
+            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
+            else {
+                continue;
+            };
+            let id = entry.key();
+            for key in ["type", "node_type", "label"] {
+                if let Some(lbl) = val.get(key).and_then(|v| v.as_str()) {
+                    index.entry(lbl.to_string()).or_default().push(id.clone());
+                }
+            }
+            if let Some(arr) = val.get("labels").and_then(|v| v.as_array()) {
+                for x in arr {
+                    if let Some(lbl) = x.as_str() {
+                        index.entry(lbl.to_string()).or_default().push(id.clone());
+                    }
+                }
+            }
+        }
+        // A node carrying the same value on two of {type,node_type,label} (or a
+        // duplicated `labels` entry) would otherwise be listed twice for that
+        // label; dedup so the returned rows match the pre-index 1-node-1-row scan.
+        for ids in index.values_mut() {
+            ids.sort_unstable();
+            ids.dedup();
+        }
+        index
     }
 
     /// Lexical classification gate (CONCEPT:EG-010): find every capability term
@@ -941,8 +1009,9 @@ impl GraphCore {
             ledger: Mutex::new(self.ledger.lock().clone()),
             semantic_store: RwLock::new(self.semantic_store.read().clone()),
             dirty: std::sync::atomic::AtomicBool::new(true),
-            // Fork starts with a cold gate index; rebuilt lazily on first use.
+            // Fork starts with cold lazy indexes; rebuilt lazily on first use.
             ontology_index: RwLock::new(None),
+            label_index: RwLock::new(None),
         }
     }
 
@@ -1954,6 +2023,92 @@ mod tests {
             g.dirty.load(Ordering::Relaxed),
             "real decay must mark dirty"
         );
+    }
+
+    // ── label index (CONCEPT:KG-2.176) ──────────────────────────────────
+
+    fn ids_of(rows: &[(String, Vec<u8>)]) -> Vec<String> {
+        let mut v: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn label_index_hit_returns_matching_nodes_across_fields() {
+        let g = GraphCore::new();
+        // `type`, `node_type`, `label`, and `labels[]` must all be honoured.
+        g.add_node("a".into(), props(serde_json::json!({"type": "Task"})));
+        g.add_node("b".into(), props(serde_json::json!({"node_type": "Task"})));
+        g.add_node("c".into(), props(serde_json::json!({"label": "Task"})));
+        g.add_node(
+            "d".into(),
+            props(serde_json::json!({"labels": ["Other", "Task"]})),
+        );
+        g.add_node("e".into(), props(serde_json::json!({"type": "Person"})));
+
+        // First call builds the index; assert it is now cached.
+        let rows = g.get_nodes_by_label("Task", 0);
+        assert_eq!(ids_of(&rows), vec!["a", "b", "c", "d"]);
+        assert!(
+            g.label_index.read().is_some(),
+            "label lookup must populate the lazy index"
+        );
+
+        // Second call is served from the cache and returns the same set.
+        let rows2 = g.get_nodes_by_label("Task", 0);
+        assert_eq!(ids_of(&rows2), vec!["a", "b", "c", "d"]);
+
+        // A different label is served from the same cached index.
+        assert_eq!(ids_of(&g.get_nodes_by_label("Person", 0)), vec!["e"]);
+        // An unknown label yields nothing.
+        assert!(g.get_nodes_by_label("Nope", 0).is_empty());
+    }
+
+    #[test]
+    fn label_index_respects_limit() {
+        let g = GraphCore::new();
+        for i in 0..5 {
+            g.add_node(format!("n{i}"), props(serde_json::json!({"type": "T"})));
+        }
+        assert_eq!(g.get_nodes_by_label("T", 2).len(), 2);
+        assert_eq!(g.get_nodes_by_label("T", 0).len(), 5);
+    }
+
+    #[test]
+    fn label_index_invalidated_after_mutation() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), props(serde_json::json!({"type": "Task"})));
+        // Build the cache.
+        assert_eq!(g.get_nodes_by_label("Task", 0).len(), 1);
+        assert!(g.label_index.read().is_some());
+
+        // A mutation (modelled by the dispatch calling mark_dirty after a write)
+        // must drop the cache so the next lookup reflects the new node.
+        g.add_node("b".into(), props(serde_json::json!({"type": "Task"})));
+        g.mark_dirty();
+        assert!(
+            g.label_index.read().is_none(),
+            "mark_dirty must invalidate the label index"
+        );
+        assert_eq!(ids_of(&g.get_nodes_by_label("Task", 0)), vec!["a", "b"]);
+
+        // A node whose label changed must move buckets after invalidation.
+        g.add_node("a".into(), props(serde_json::json!({"type": "Done"})));
+        g.mark_dirty();
+        assert_eq!(ids_of(&g.get_nodes_by_label("Task", 0)), vec!["b"]);
+        assert_eq!(ids_of(&g.get_nodes_by_label("Done", 0)), vec!["a"]);
+    }
+
+    #[test]
+    fn label_index_dedups_node_with_repeated_label() {
+        let g = GraphCore::new();
+        // Same value on type + node_type + labels[] → still ONE row for that label.
+        g.add_node(
+            "a".into(),
+            props(serde_json::json!({"type": "Task", "node_type": "Task", "labels": ["Task"]})),
+        );
+        let rows = g.get_nodes_by_label("Task", 0);
+        assert_eq!(ids_of(&rows), vec!["a"]);
     }
 }
 

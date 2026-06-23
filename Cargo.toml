@@ -33,7 +33,11 @@ ast = ["eg-compute/ast"]
 ast-extended = ["eg-compute/ast-extended"]
 datascience = ["eg-compute/datascience", "eg-types/datascience"]
 reasoning = ["eg-compute/reasoning"]
-server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
+server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait"]
+# Durable redb write-through persistence tier (CONCEPT:KG-2.177). OFF by default —
+# snapshot+WAL stays the shipped behavior; redb is opt-in via this feature AND
+# EPISTEMIC_GRAPH_PERSIST_BACKEND=redb at runtime.
+redb = ["server", "dep:redb"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 full = ["compute", "server"]
 all = ["full"]
@@ -70,6 +74,11 @@ tokio = { version = "1.38", features = [
 ], optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
+# `dyn PersistenceBackend` needs object-safe async methods (CONCEPT:KG-2.177);
+# matches the existing async persist.rs style without a runtime bridge.
+async-trait = { version = "0.1", optional = true }
+# Durable embedded KV for the redb write-through tier (feature `redb`).
+redb = { version = "4.1", optional = true }
 
 # Optional Prometheus observability (feature `metrics`, on by default).
 # default-features = false drops the protobuf encoder — text exposition only.

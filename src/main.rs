@@ -202,7 +202,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // EPISTEMIC_GRAPH_WAL_FSYNC (off | each | <ms> | interval, default 100ms).
     // The bounded channel (EPISTEMIC_GRAPH_WAL_QUEUE, default 8192) sheds — loudly
     // — rather than stalling the reactor under a saturated disk.
-    let wal_service = args.persist_dir.as_ref().map(|dir| {
+    // Build the durable persistence backend (CONCEPT:KG-2.177). `snapshot`
+    // (default) = today's snapshot RDB + off-reactor WAL; `redb` = the
+    // feature-gated write-through tier. Selection is one env read; both own their
+    // off-reactor writer internally so the dispatch path only sees the trait.
+    let backend_kind = std::env::var("EPISTEMIC_GRAPH_PERSIST_BACKEND")
+        .ok()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .unwrap_or_else(|| "snapshot".to_string());
+    let persistence: Option<
+        Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>,
+    > = args.persist_dir.as_ref().map(|dir| {
         let policy = epistemic_graph::wal_service::FsyncPolicy::from_env(
             std::env::var("EPISTEMIC_GRAPH_WAL_FSYNC").ok().as_deref(),
         );
@@ -211,13 +221,51 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
             .unwrap_or(8192);
-        info!(
-            "WAL: off-reactor writer (fsync {:?}, queue {})",
-            policy, capacity
-        );
-        epistemic_graph::wal_service::WalService::spawn(dir.clone(), policy, capacity)
+        match backend_kind.as_str() {
+            #[cfg(feature = "redb")]
+            "redb" => {
+                info!(
+                    "Persistence: redb write-through tier (fsync {:?}, queue {})",
+                    policy, capacity
+                );
+                let b: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> =
+                    match epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
+                        dir.clone(),
+                        policy,
+                        capacity,
+                    ) {
+                        Ok(b) => Arc::new(b),
+                        Err(e) => {
+                            eprintln!("error: failed to open redb backend at {dir}: {e}");
+                            std::process::exit(1);
+                        }
+                    };
+                b
+            }
+            other => {
+                if other != "snapshot" {
+                    tracing::warn!(
+                        "EPISTEMIC_GRAPH_PERSIST_BACKEND='{}' not available in this build; \
+                         falling back to snapshot+WAL",
+                        other
+                    );
+                }
+                info!(
+                    "Persistence: snapshot+WAL (fsync {:?}, queue {})",
+                    policy, capacity
+                );
+                let svc =
+                    epistemic_graph::wal_service::WalService::spawn(dir.clone(), policy, capacity);
+                let b: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> = Arc::new(
+                    epistemic_graph::server::persistence::snapshot_wal::SnapshotWalBackend::new(
+                        Some(svc),
+                    ),
+                );
+                b
+            }
+        }
     });
-    let wal_service_shutdown = wal_service.clone();
+    let persistence_shutdown = persistence.clone();
 
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
@@ -225,7 +273,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         channels: ChannelManager::new(),
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
-        wal_service,
+        persistence,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
@@ -256,22 +304,29 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
-    if let Err(e) = epistemic_graph::persist::load_all(&state).await {
-        tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
+    // Boot-time recovery + periodic checkpoint route through the chosen backend
+    // (CONCEPT:KG-2.177). Both no-op when no persist dir is configured.
+    let persistence_for_load = { state.read().await.persistence.clone() };
+    if let Some(p) = &persistence_for_load {
+        if let Err(e) = p.load_all(&state).await {
+            tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
+        }
     }
     if args.checkpoint_interval > 0 {
-        let cp_state = state.clone();
-        let interval = args.checkpoint_interval;
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
-            ticker.tick().await; // consume the immediate first tick
-            loop {
-                ticker.tick().await;
-                if let Err(e) = epistemic_graph::persist::checkpoint_all(&cp_state).await {
-                    tracing::warn!("Auto-checkpoint failed: {}", e);
+        if let Some(backend) = { state.read().await.persistence.clone() } {
+            let cp_state = state.clone();
+            let interval = args.checkpoint_interval;
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
+                ticker.tick().await; // consume the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    if let Err(e) = backend.checkpoint_all(&cp_state).await {
+                        tracing::warn!("Auto-checkpoint failed: {}", e);
+                    }
                 }
-            }
-        });
+            });
+        }
     }
     // Periodic Ebbinghaus decay sweep (CONCEPT:KG-2.16) — opt-in. Confidence on
     // every node/edge decays toward 0 with a configurable half-life; with a
@@ -368,9 +423,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         server::serve_tcp(&addr, state).await?;
     }
 
-    // Graceful shutdown: flush + fsync any buffered WAL appends before exit.
-    if let Some(svc) = wal_service_shutdown {
-        svc.shutdown();
+    // Graceful shutdown: flush + fsync any buffered durable writes before exit.
+    if let Some(p) = persistence_shutdown {
+        p.shutdown();
     }
     Ok(())
 }
