@@ -11,12 +11,15 @@
 use std::sync::Arc;
 
 use arrow::array::Array;
+use arrow::datatypes::SchemaRef;
 use datafusion::datasource::MemTable;
-use datafusion::prelude::SessionContext;
+use datafusion::execution::context::SessionContext;
+use datafusion::prelude::SessionConfig;
 use eg_core::graph::GraphView;
 // The wire DTO lives at the bottom of the DAG (eg-types); the algorithm stays here.
 pub use eg_types::protocol::QueryResult;
 
+use super::catalog::register_pg_catalog;
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, PagerankFunc};
 use super::udfs::{epistemic_decay_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf};
@@ -89,6 +92,54 @@ pub fn exec_sql_cached(
     run(view, tables.nodes, tables.edges, sql)
 }
 
+/// Build the shared `SessionContext` for a SQL run: register the `nodes`/`edges`
+/// tables, the scalar/aggregate UDFs, the graph table functions, the synthetic
+/// `pg_catalog` + catalog functions (CONCEPT:KG-2.201), and enable DataFusion's
+/// native `information_schema` so a real driver/ORM can introspect on connect.
+///
+/// `nodes_schema`/`edges_schema` are the inferred Arrow schemas the catalog is
+/// derived from (the catalog reports exactly the columns a SELECT returns). The
+/// `nodes` table is the index-pushdown provider; `edges` a plain MemTable.
+fn build_ctx(
+    snap: Arc<GraphView>,
+    nodes: (SchemaRef, arrow::record_batch::RecordBatch),
+    edges: (SchemaRef, arrow::record_batch::RecordBatch),
+) -> Result<SessionContext, String> {
+    let nodes_schema = nodes.0.clone();
+    let edges_schema = edges.0.clone();
+
+    // CONCEPT:KG-2.199: the `nodes` table is a custom provider with secondary-index
+    // predicate pushdown — a `WHERE col = 'x'` narrows rows via the index instead of
+    // scanning every node. `edges` stays a plain MemTable.
+    let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
+    let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
+        .map_err(|e| format!("edges mem table: {e}"))?;
+
+    // CONCEPT:KG-2.201: enable DataFusion's native `information_schema` so
+    // `information_schema.tables`/`.columns` reflect the registered relations.
+    let config = SessionConfig::new().with_information_schema(true);
+    let ctx = SessionContext::new_with_config(config);
+
+    ctx.register_table("nodes", Arc::new(nodes_table))
+        .map_err(|e| format!("register nodes: {e}"))?;
+    ctx.register_table("edges", Arc::new(edges_table))
+        .map_err(|e| format!("register edges: {e}"))?;
+    ctx.register_udf(json_get_udf());
+    ctx.register_udf(json_get_f64_udf());
+    ctx.register_udf(json_get_i64_udf());
+    ctx.register_udf(epistemic_decay_udf());
+    ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
+    ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
+    #[cfg(feature = "finance")]
+    {
+        ctx.register_udaf(super::udfs::var_udaf());
+        ctx.register_udaf(super::udfs::cvar_udaf());
+    }
+    // CONCEPT:KG-2.201: supplement the pg_catalog DataFusion does not provide.
+    register_pg_catalog(&ctx, &nodes_schema, &edges_schema)?;
+    Ok(ctx)
+}
+
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
 /// graph table functions, then collect the query.
 fn run(
@@ -103,13 +154,6 @@ fn run(
     ),
     sql: &str,
 ) -> Result<QueryResult, String> {
-    // CONCEPT:KG-2.199: the `nodes` table is a custom provider with secondary-index
-    // predicate pushdown — a `WHERE col = 'x'` narrows rows via the index instead of
-    // scanning every node. `edges` stays a plain MemTable.
-    let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
-    let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
-        .map_err(|e| format!("edges mem table: {e}"))?;
-
     // The graph table functions run their kernel over an owned snapshot; clone the
     // topology+ids once (cheap relative to the algorithm) so they don't borrow `view`.
     let snap = Arc::new(view.clone());
@@ -120,23 +164,7 @@ fn run(
         .map_err(|e| format!("runtime build: {e}"))?;
 
     rt.block_on(async move {
-        let ctx = SessionContext::new();
-        ctx.register_table("nodes", Arc::new(nodes_table))
-            .map_err(|e| format!("register nodes: {e}"))?;
-        ctx.register_table("edges", Arc::new(edges_table))
-            .map_err(|e| format!("register edges: {e}"))?;
-        ctx.register_udf(json_get_udf());
-        ctx.register_udf(json_get_f64_udf());
-        ctx.register_udf(json_get_i64_udf());
-        ctx.register_udf(epistemic_decay_udf());
-        ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
-        ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
-        #[cfg(feature = "finance")]
-        {
-            ctx.register_udaf(super::udfs::var_udaf());
-            ctx.register_udaf(super::udfs::cvar_udaf());
-        }
-
+        let ctx = build_ctx(snap, nodes, edges)?;
         let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_result(&batches)
@@ -158,10 +186,6 @@ fn run_typed(
     ),
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
-    // CONCEPT:KG-2.199: secondary-index predicate pushdown on `nodes` (see `run`).
-    let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
-    let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
-        .map_err(|e| format!("edges mem table: {e}"))?;
     let snap = Arc::new(view.clone());
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -170,23 +194,7 @@ fn run_typed(
         .map_err(|e| format!("runtime build: {e}"))?;
 
     rt.block_on(async move {
-        let ctx = SessionContext::new();
-        ctx.register_table("nodes", Arc::new(nodes_table))
-            .map_err(|e| format!("register nodes: {e}"))?;
-        ctx.register_table("edges", Arc::new(edges_table))
-            .map_err(|e| format!("register edges: {e}"))?;
-        ctx.register_udf(json_get_udf());
-        ctx.register_udf(json_get_f64_udf());
-        ctx.register_udf(json_get_i64_udf());
-        ctx.register_udf(epistemic_decay_udf());
-        ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
-        ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
-        #[cfg(feature = "finance")]
-        {
-            ctx.register_udaf(super::udfs::var_udaf());
-            ctx.register_udaf(super::udfs::cvar_udaf());
-        }
-
+        let ctx = build_ctx(snap, nodes, edges)?;
         let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
