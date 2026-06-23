@@ -341,6 +341,19 @@ impl PersistenceBackend for RedbBackend {
     }
 
     async fn read_node(&self, graph_fname: &str, node_id: &str) -> Result<Option<Vec<u8>>, String> {
+        self.read_node_blocking(graph_fname, node_id)
+    }
+
+    fn read_node_blocking(
+        &self,
+        graph_fname: &str,
+        node_id: &str,
+    ) -> Result<Option<Vec<u8>>, String> {
+        // Point-read routed through the off-reactor writer (so it flushes any
+        // pending group-commit first and sees the latest durable state) over a
+        // blocking channel. Only hit on a RAM miss (CONCEPT:KG-2.191), never on the
+        // resident hot path, so the synchronous round-trip cost is paid only when a
+        // node was actually evicted.
         let (reply, rx) = std::sync::mpsc::channel();
         self.tx
             .send(Cmd::ReadNode {
@@ -1367,6 +1380,220 @@ mod tests {
             let got = backend.read_node("g1", &format!("n{i}")).await.unwrap();
             assert!(got.is_some(), "n{i} durable");
         }
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── CONCEPT:KG-2.191 — read-through-on-RAM-miss + safe authoritative eviction ──
+
+    /// Populate `core` AND redb with `n` durable nodes, then install the read-through
+    /// factory + the backend on `state` exactly as `main.rs` does under authoritative
+    /// mode. Returns the live core for "g1".
+    async fn seed_authoritative(
+        backend: &Arc<dyn PersistenceBackend>,
+        state: &Arc<RwLock<ServerState>>,
+        n: usize,
+    ) -> Arc<GraphCore> {
+        {
+            let mut s = state.write().await;
+            s.persistence = Some(backend.clone());
+            let _ = s.registry.create_graph("g1", GraphType::Global, None);
+            // Wire read-through exactly like startup (attaches to g1 + __commons__).
+            let factory = Arc::new(
+                crate::server::persistence::read_through::BackendReadThroughFactory::new(
+                    backend.clone(),
+                ),
+            );
+            s.registry.set_read_through_factory(factory);
+        }
+        let core = {
+            let s = state.read().await;
+            s.registry.get("g1").map(|e| e.core.clone()).unwrap()
+        };
+        for i in 0..n {
+            let p = props(serde_json::json!({"type": "Task", "i": i}));
+            // RAM
+            core.add_node(format!("n{i}"), p.clone());
+            // Durable (commit-before-ack) — every node is provably on disk.
+            backend
+                .record_durable(
+                    "g1",
+                    &Method::AddNode {
+                        node_id: format!("n{i}"),
+                        properties_msgpack: p,
+                    },
+                )
+                .await
+                .expect("durable commit");
+        }
+        core
+    }
+
+    /// (a) Memory bounded: filling past the cap under authoritative mode + read-through
+    /// EVICTS down to the cap — RAM resident count is bounded, eviction actually ran.
+    /// (b)/(c) An EVICTED node still reads back its correct properties via the
+    /// read-through (it is not in RAM, but redb serves it) — no loss across the boundary.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn authoritative_eviction_bounds_memory_and_reads_through() {
+        let dir = std::env::temp_dir().join(format!("eg-redb-evict-rt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 256).expect("open"));
+        let state = new_state_auth(Some(dir_s.clone()), true);
+
+        let n = 50usize;
+        let cap = 10usize;
+        let core = seed_authoritative(&backend, &state, n).await;
+        assert_eq!(
+            core.node_count(),
+            n,
+            "all {n} nodes resident before eviction"
+        );
+
+        // Evict down to the cap (the per-graph max-nodes backstop).
+        let evicted = crate::persist::evict_oversized_all(&state, cap).await;
+        assert_eq!(evicted, n - cap, "evicted everything above the cap");
+
+        // (a) memory bounded: RAM resident count is at the cap, NOT n.
+        assert_eq!(
+            core.node_count(),
+            cap,
+            "RAM resident count bounded to the cap after eviction"
+        );
+
+        // (b)/(c) the EVICTED nodes (lowest indices n0..) are gone from RAM yet read
+        // back their exact properties via read-through from redb — no data loss.
+        assert!(!core.has_node("n0"), "n0 evicted from RAM topology");
+        for i in 0..(n - cap) {
+            let got = core.get_node_properties(&format!("n{i}"));
+            assert_eq!(
+                got,
+                Some(props(serde_json::json!({"type": "Task", "i": i}))),
+                "evicted node n{i} reads back correct properties via read-through"
+            );
+        }
+        // A node still resident reads from RAM as before.
+        for i in (n - cap)..n {
+            assert!(core.has_node(&format!("n{i}")), "n{i} still resident");
+            assert_eq!(
+                core.get_node_properties(&format!("n{i}")),
+                Some(props(serde_json::json!({"type": "Task", "i": i})))
+            );
+        }
+        // A genuinely absent node is still None (read-through is not a fabricator).
+        assert_eq!(core.get_node_properties("does-not-exist"), None);
+
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// No data loss: a node NOT durably in redb is NEVER evicted, even if it is the
+    /// LRU candidate. We add an extra RAM-only node with the LOWEST index (so it is
+    /// first in the LRU order) but do NOT record it durably; eviction must keep it
+    /// resident (durability unconfirmed) and instead evict only durable nodes.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn authoritative_eviction_never_drops_undurable_node() {
+        let dir = std::env::temp_dir().join(format!("eg-redb-evict-safe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("open"));
+        let state = new_state_auth(Some(dir_s.clone()), true);
+
+        // Insert the un-durable node FIRST so it has the lowest NodeIndex (front of
+        // the LRU order — the one the cache would normally drop first).
+        let core = {
+            let mut s = state.write().await;
+            s.persistence = Some(backend.clone());
+            let _ = s.registry.create_graph("g1", GraphType::Global, None);
+            let factory = Arc::new(
+                crate::server::persistence::read_through::BackendReadThroughFactory::new(
+                    backend.clone(),
+                ),
+            );
+            s.registry.set_read_through_factory(factory);
+            s.registry.get("g1").map(|e| e.core.clone()).unwrap()
+        };
+        core.add_node(
+            "ghost".into(),
+            props(serde_json::json!({"type": "Task", "durable": false})),
+        );
+        // Now 10 durable nodes.
+        for i in 0..10usize {
+            let p = props(serde_json::json!({"type": "Task", "i": i}));
+            core.add_node(format!("n{i}"), p.clone());
+            backend
+                .record_durable(
+                    "g1",
+                    &Method::AddNode {
+                        node_id: format!("n{i}"),
+                        properties_msgpack: p,
+                    },
+                )
+                .await
+                .expect("durable commit");
+        }
+        assert_eq!(core.node_count(), 11);
+
+        // Cap = 5 ⇒ 6 candidates: ghost (lowest index) + n0..n4. Only the 5 durable
+        // ones may be dropped; ghost is kept (its durability cannot be confirmed).
+        let evicted = crate::persist::evict_oversized_all(&state, 5).await;
+        assert_eq!(
+            evicted, 5,
+            "only the 5 confirmed-durable candidates evicted"
+        );
+        assert!(
+            core.has_node("ghost"),
+            "un-durable node kept resident — never evicted (no data loss)"
+        );
+        // The un-durable node has no redb row, so a (hypothetical) miss would not
+        // resurrect it — which is exactly why eviction must not drop it. Confirm it
+        // still reads from RAM.
+        assert_eq!(
+            core.get_node_properties("ghost"),
+            Some(props(serde_json::json!({"type": "Task", "durable": false})))
+        );
+
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// (d) Non-authoritative regression: the default rebuildable-cache path is
+    /// UNCHANGED — eviction drops the oldest down to the cap, and with NO read-through
+    /// attached an evicted node reads back as absent (it re-hydrates from the external
+    /// durable tier, which this in-engine test does not model).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn non_authoritative_eviction_unchanged() {
+        let dir =
+            std::env::temp_dir().join(format!("eg-redb-evict-nonauth-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("open"));
+        // authoritative = false.
+        let state = new_state_auth(Some(dir_s.clone()), false);
+        {
+            let mut s = state.write().await;
+            s.persistence = Some(backend.clone());
+            let _ = s.registry.create_graph("g1", GraphType::Global, None);
+            // Deliberately NO read-through factory in the default model.
+        }
+        let core = {
+            let s = state.read().await;
+            s.registry.get("g1").map(|e| e.core.clone()).unwrap()
+        };
+        for i in 0..20usize {
+            core.add_node(
+                format!("n{i}"),
+                props(serde_json::json!({"type": "Task", "i": i})),
+            );
+        }
+        let evicted = crate::persist::evict_oversized_all(&state, 8).await;
+        assert_eq!(evicted, 12, "drops oldest down to the cap, as before");
+        assert_eq!(core.node_count(), 8);
+        // No read-through ⇒ an evicted node reads back absent (re-hydrates externally).
+        assert_eq!(core.get_node_properties("n0"), None);
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
