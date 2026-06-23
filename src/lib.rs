@@ -29,7 +29,7 @@ pub use eg_compute::datascience;
 pub use eg_compute::finance;
 #[cfg(feature = "reasoning")]
 pub use eg_compute::reasoning;
-pub use eg_compute::{algorithms, ast, parser};
+pub use eg_compute::{algorithms, ast, parser, screen};
 
 #[cfg(feature = "server")]
 pub mod channels;
