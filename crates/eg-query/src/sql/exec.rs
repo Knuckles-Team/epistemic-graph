@@ -35,6 +35,46 @@ pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
     run(view, nodes, edges, sql)
 }
 
+/// A coarse, Postgres-mappable column type derived from the Arrow result schema.
+/// The pgwire shim (CONCEPT:KG-2.189) maps each to a wire type OID; the variants
+/// cover exactly the Arrow types the `nodes`/`edges` schema-on-read inference and
+/// ordinary SELECT projections produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PgColType {
+    Text,
+    Int8,
+    Float8,
+    Bool,
+}
+
+/// One typed result column: its name plus the pg-mappable type inferred from the
+/// Arrow result schema.
+#[derive(Debug, Clone)]
+pub struct TypedColumn {
+    pub name: String,
+    pub ty: PgColType,
+}
+
+/// The SQL result with per-column types and rows as decoded JSON values — the
+/// shape the pgwire shim needs to emit a Postgres `RowDescription` (type OIDs) +
+/// `DataRow`s. Reuses the SAME DataFusion exec path as [`exec_sql`]; the only
+/// difference is it surfaces the Arrow column types and hands back JSON cells
+/// instead of MessagePack blobs (no wire-protocol re-encode needed downstream).
+pub struct TypedQueryResult {
+    pub columns: Vec<TypedColumn>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+}
+
+/// Run `sql` over `view` and return a [`TypedQueryResult`] (CONCEPT:KG-2.189).
+/// Identical execution to [`exec_sql`] — same providers, UDFs, table functions,
+/// off-lock snapshot, and current-thread runtime — but it captures the Arrow
+/// result schema so the pgwire shim can describe columns with real type OIDs.
+pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, String> {
+    let nodes = infer_nodes(view)?;
+    let edges = infer_edges(view)?;
+    run_typed(view, nodes, edges, sql)
+}
+
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
 /// still valid for `version` (the GraphCore OCC `version()`, CONCEPT:KG-2.184).
 /// A different version (any committed write bumped it) rebuilds, so the cache never
@@ -99,6 +139,103 @@ fn run(
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_result(&batches)
     })
+}
+
+/// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
+/// the Arrow schema + JSON cells). Shares the providers/UDFs/runtime verbatim so
+/// the pgwire read path is the SAME engine path as `Method::Sql`.
+fn run_typed(
+    view: &GraphView,
+    nodes: (
+        arrow::datatypes::SchemaRef,
+        arrow::record_batch::RecordBatch,
+    ),
+    edges: (
+        arrow::datatypes::SchemaRef,
+        arrow::record_batch::RecordBatch,
+    ),
+    sql: &str,
+) -> Result<TypedQueryResult, String> {
+    let nodes_table = MemTable::try_new(nodes.0, vec![vec![nodes.1]])
+        .map_err(|e| format!("nodes mem table: {e}"))?;
+    let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
+        .map_err(|e| format!("edges mem table: {e}"))?;
+    let snap = Arc::new(view.clone());
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("runtime build: {e}"))?;
+
+    rt.block_on(async move {
+        let ctx = SessionContext::new();
+        ctx.register_table("nodes", Arc::new(nodes_table))
+            .map_err(|e| format!("register nodes: {e}"))?;
+        ctx.register_table("edges", Arc::new(edges_table))
+            .map_err(|e| format!("register edges: {e}"))?;
+        ctx.register_udf(json_get_udf());
+        ctx.register_udf(json_get_f64_udf());
+        ctx.register_udf(json_get_i64_udf());
+        ctx.register_udf(epistemic_decay_udf());
+        ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
+        ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
+        #[cfg(feature = "finance")]
+        {
+            ctx.register_udaf(super::udfs::var_udaf());
+            ctx.register_udaf(super::udfs::cvar_udaf());
+        }
+
+        let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
+        let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
+        batches_to_typed(&batches)
+    })
+}
+
+/// Map an Arrow column `DataType` to a coarse pg-mappable [`PgColType`]. Anything
+/// outside the small known set falls back to `Text` (stringified), so the wire
+/// surface is never lossy-dropped.
+fn pg_col_type(dt: &arrow::datatypes::DataType) -> PgColType {
+    use arrow::datatypes::DataType::*;
+    match dt {
+        Boolean => PgColType::Bool,
+        Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => PgColType::Int8,
+        Float16 | Float32 | Float64 => PgColType::Float8,
+        _ => PgColType::Text,
+    }
+}
+
+/// Convert the result RecordBatches into typed columns + JSON-per-cell rows,
+/// applying the same implicit max-rows guard as [`batches_to_result`].
+fn batches_to_typed(
+    batches: &[arrow::record_batch::RecordBatch],
+) -> Result<TypedQueryResult, String> {
+    let columns: Vec<TypedColumn> = match batches.first() {
+        Some(b) => b
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| TypedColumn {
+                name: f.name().clone(),
+                ty: pg_col_type(f.data_type()),
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+
+    let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
+    'outer: for batch in batches {
+        for r in 0..batch.num_rows() {
+            if rows.len() >= MAX_ROWS {
+                break 'outer;
+            }
+            let mut cells: Vec<serde_json::Value> = Vec::with_capacity(batch.num_columns());
+            for c in 0..batch.num_columns() {
+                cells.push(cell_to_json(batch.column(c), r)?);
+            }
+            rows.push(cells);
+        }
+    }
+    Ok(TypedQueryResult { columns, rows })
 }
 
 /// Convert the result RecordBatches into column names + msgpack-per-row, applying
