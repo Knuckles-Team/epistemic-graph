@@ -658,14 +658,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     cluster_cfg.node_id,
                     cluster_cfg.peers.len()
                 );
-                match epistemic_graph::raft::node::start(cluster_cfg, &persist_dir, state.clone())
-                    .await
-                {
+                // persist_dir is validated above (Raft requires the redb store); the
+                // MultiRaft opens its durable log over the SAME backend in ServerState.
+                let _ = &persist_dir;
+                match epistemic_graph::raft::node::start(cluster_cfg, state.clone()).await {
                     Ok(started) => {
-                        // The listener task runs for the process lifetime; detach it
-                        // (dropping a JoinHandle leaves the spawned task running).
-                        drop(started.listener);
+                        // The MultiRaft manager owns the shared listener (runs for the
+                        // process lifetime). Keep it alive by storing the handle; the
+                        // routing handle goes into ServerState for the dispatch path.
                         state.write().await.raft = Some(started.handle);
+                        // Leak the manager Arc so its listener task is never dropped
+                        // (process-lifetime). A graceful-shutdown hook is a follow-up.
+                        std::mem::forget(started.multi);
                         info!("Raft node started; writes now route through consensus");
                     }
                     Err(e) => {
