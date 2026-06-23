@@ -89,7 +89,49 @@ this becomes a **restart loop** that never completes.
 
 **Mitigation — restart with an extended `--health-start-period` covering the migration,
 then restore it.** Give the healthcheck a grace window long enough for the migration to
-finish before it starts probing:
+finish before it starts probing. `scripts/promote_engine.sh` now does this for you
+(CONCEPT:OS-5.62) — prefer the script flags over the manual dance:
+
+```bash
+# Migration-aware promotion of the FLIP binary: extend the start-period to cover the
+# migration, watch the progress log until the socket binds, then restore the normal
+# start-period, then restart consumers.
+scripts/promote_engine.sh --build --migrate --restore-health-period --restart-consumers
+```
+
+What `--migrate` does, step by step:
+
+1. **Restart the engine with a generous start-period.** `--migrate` implies
+   `--health-start-period 600` (override with an explicit `--health-start-period <secs>`,
+   or the `MIGRATE_DEFAULT_START_PERIOD` env). The emitted restart is:
+   ```
+   docker service update --update-order stop-first --health-start-period 600s --force epistemic-graph_epistemic-graph
+   ```
+2. **Watch it migrate.** The script tails the new engine container's logs **on this node**
+   (the service is node-pinned to the bind-mount host) and surfaces the progress lines until
+   the socket binds or `MIGRATE_WATCH_TIMEOUT` (default 1800s) elapses:
+   ```
+   Snapshot load progress: 2000/8123 graph(s) processed (1998 restored)
+   redb authoritative migration: imported 8123 graph(s) from legacy snapshot/WAL into redb in 214.3s …
+   Listening on UDS: /run/epistemic-graph/epistemic-graph.sock
+   ```
+   If the engine task is **not** on this node, the tail is skipped with a note telling you
+   how to watch it on the bind-mount host (and the start-period is left extended).
+3. **Restore the normal start-period (opt-in).** With `--restore-health-period`, once the
+   `Listening on UDS` line is seen the script runs a second `service update` restoring
+   `--health-start-period 20s` (override via `NORMAL_HEALTH_START_PERIOD`). The second
+   restart on the now-populated redb is fast. If the bind couldn't be confirmed (engine not
+   on this node, or a timeout), the restore is **skipped** so you don't shrink the window
+   mid-migration — restore it manually after confirming the bind.
+
+Progress is logged so you can tell *slow-but-working* from *hung* (CONCEPT:KG-2.200):
+`Snapshot load progress: N/total graph(s) processed` during the legacy load, then
+`redb authoritative migration: imported N graph(s) … in Xs` when it commits to redb. Then
+the script (with `--restart-consumers`) **restarts the consumers** with `GRAPH_BACKEND=fanout`
+so they reconnect to the now-authoritative engine.
+
+**Doing it by hand** (e.g. when promoting from a node that isn't the bind-mount host) — the
+same two-`service update` dance the flags automate:
 
 ```bash
 # 1. Restart the engine with a generous start-period (e.g. 600s) for the migration.
@@ -98,23 +140,10 @@ ssh R820 docker service update --update-order stop-first \
 
 # 2. Watch it migrate (it logs progress; the socket binds only when done):
 ssh R820 'docker service logs -f epistemic-graph_epistemic-graph 2>&1' | grep -i 'snapshot load\|migration\|imported'
-#   Snapshot load progress: 2000/8123 graph(s) processed (1998 restored)
-#   redb authoritative migration: imported 8123 graph(s) from legacy snapshot/WAL into redb in 214.3s …
 
 # 3. Once the socket is bound and the migration line printed, restore the normal start-period.
 ssh R820 docker service update --health-start-period 20s --force epistemic-graph_epistemic-graph
 ```
-
-Progress is logged so you can tell *slow-but-working* from *hung* (CONCEPT:KG-2.200):
-`Snapshot load progress: N/total graph(s) processed` during the legacy load, then
-`redb authoritative migration: imported N graph(s) … in Xs` when it commits to redb. After
-that completes, run step 4 (**restart the consumers** with `GRAPH_BACKEND=fanout`) so they
-reconnect to the now-authoritative engine.
-
-> **Recommended follow-up (not yet implemented):** teach `scripts/promote_engine.sh` a
-> `--health-start-period <dur>` flag (or a `--migrate` mode that auto-extends the
-> start-period for the engine restart, tails the migration progress log, and restores the
-> default once the socket is bound). Today this is a manual two-`service update` dance.
 
 **Rollback during/after migration.** The `.mp`/`.wal` files are left untouched, so rollback
 is unchanged: restore the timestamped `.bak-*` binary and restart — the old binary reads the
@@ -128,7 +157,9 @@ store entirely).
   silently falls back to the snapshot cache).
 - **First FLIP boot ⇒ extend `--health-start-period`.** The one-time `.mp`→redb migration runs
   before the socket binds and can take minutes; the 20s healthcheck start-period will kill it
-  into a restart loop. See [Authoritative migration (first boot)](#authoritative-migration-first-boot).
+  into a restart loop. Use `promote_engine.sh --migrate [--restore-health-period]` (CONCEPT:OS-5.62),
+  or pass `--health-start-period <secs>` directly. See
+  [Authoritative migration (first boot)](#authoritative-migration-first-boot).
 - **Consumers must be `GRAPH_BACKEND=fanout`, never `tiered`.** The `tiered` backend was removed;
   a stale consumer fails bootstrap with "A persistent graph backend is required" / "Unknown
   graph backend type 'tiered'".
