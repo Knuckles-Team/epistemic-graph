@@ -14,8 +14,12 @@ name = "eg_query"
 # the engine stays lean for a Raspberry Pi. `cypher` is a dep-free placeholder
 # owned by another track.
 default = []
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph"]
 cypher = []
+# Finance aggregate UDFs (`var`, `cvar`) — forward to eg-compute's finance kernels.
+# Gated (and implies `sql`) so a no-finance build skips them AND keeps nalgebra out
+# of the default tree (CONCEPT:KG-2.184).
+finance = ["sql", "eg-compute/finance"]
 
 [dependencies]
 eg-types = { path = "../eg-types" }
@@ -30,6 +34,9 @@ rmp-serde = "1.3"
 datafusion = { version = "43", default-features = false, optional = true }
 arrow = { version = "53", optional = true }
 arrow-schema = { version = "53", optional = true }
+# Edge-table topology iteration (EdgeRef/IntoEdgeReferences over GraphView's
+# StableDiGraph). Gated behind `sql` — not in a default build (CONCEPT:KG-2.184).
+petgraph = { version = "0.6.4", features = ["serde-1"], optional = true }
 # Current-thread runtime to drive DataFusion's async `collect()` inside the
 # blocking pool (the `compute_off_lock` idiom). Only the `rt` feature is needed —
 # the caller already runs us under `spawn_blocking`.
