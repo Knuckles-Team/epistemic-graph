@@ -14,7 +14,10 @@ mod providers;
 mod tablefuncs;
 mod udfs;
 
-pub use classify::{classify, InsertNode, StatementKind};
+pub use classify::{
+    classify, infer_param_sites, returning_columns, schema_probe_sql, DeleteNodes, InsertNode,
+    InsertNodes, ParamLiteralType, ParamSite, StatementKind, UpdateNodes, WhereEq,
+};
 pub use exec::{
     exec_sql, exec_sql_cached, exec_sql_typed, PgColType, QueryResult, TypedColumn,
     TypedQueryResult,
