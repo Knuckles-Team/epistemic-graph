@@ -59,11 +59,13 @@ in-memory cache + compute layer** over it:
   durable backend (or replays its snapshot + WAL). Run the engine under a
   supervisor (systemd / the Python host daemon) that auto-restarts it; restart is
   sub-second for typical shards, so the RTO is small.
-- Consequently there is **no in-engine replication or consensus** — that would
+- By DEFAULT there is **no in-engine replication or consensus** — that would
   duplicate the durable backend's job. Horizontal scale is client-side HRW
   sharding over independent single-process shards, and per-graph memory is bounded
   by `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (LRU eviction back to the durable tier)
-  so a shard **degrades instead of OOM-killing every tenant** on it.
+  so a shard **degrades instead of OOM-killing every tenant** on it. (The
+  cluster-tier opt-in below pairs in-engine Raft with the redb-authoritative store
+  for the HA case where the engine itself IS the system-of-record.)
 
 ### Opt-in: redb-AUTHORITATIVE mode (CONCEPT:KG-2.187, behind a flag, default OFF)
 
@@ -90,6 +92,32 @@ When ON, three durability rules change so "authoritative" is actually safe:
 A one-time migration imports legacy `.mp`/`.wal` snapshots into redb on first
 authoritative boot (old files are LEFT as a backstop). The program will flip this
 flag's default ON in a later wave; today it ships default-OFF.
+
+### Opt-in: in-engine Raft replication (CONCEPT:KG-2.188, `raft` feature, cluster tier)
+
+The DEFAULT remains single-node + a rebuildable cache. The `raft` cargo feature
+(cluster tier only — `cluster = ["node", "raft"]`; NOT in `full`/`all`, so a
+default / `pi` / `full` build links **no openraft** and the Pi contract holds: no
+DataFusion AND no openraft) runs the engine as a multi-node, highly-available
+cluster that replicates its **authoritative** state via [`openraft`] 0.9. It
+**activates only** when built `--features raft` AND configured at runtime:
+
+- `EPISTEMIC_GRAPH_RAFT_NODE_ID` — this node's integer id (absent ⇒ single-node,
+  unchanged).
+- `EPISTEMIC_GRAPH_RAFT_PEERS` — `id@host:port,…` cluster members (must include
+  self). Requires `GRAPH_SERVICE_PERSIST_DIR` (Raft replicates the redb store).
+
+When active, a durable mutation is routed through Raft consensus (the leader's
+`client_write`) BEFORE it is applied+acked — the replication barrier. A committed
+log entry is applied on **every** node by the SAME `wal::apply` → `GraphCore` +
+`record_durable` path a replayed WAL record / a single-node write uses (pairs with
+redb-authoritative M2). Followers redirect writes to the leader; leader failover is
+automatic. Scope today is a **single Raft group** (one replicated keyspace; the
+app-data carries the target graph name) with an **in-memory Raft log** (the vote +
+applied state + graph data ARE durable — vote/applied in `raft.redb`, graph data in
+`graph.redb` via M2). Documented follow-ups: a redb-backed Raft log, per-graph Raft
+groups, and a pooled per-peer connection. When the feature is off, the dispatch
+write path is **byte-for-byte** the single-node path.
 
 ---
 

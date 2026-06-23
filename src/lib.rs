@@ -49,3 +49,9 @@ pub mod wal_service;
 // lives in the server-gated top-level crate alongside wal_service.
 #[cfg(feature = "server")]
 pub mod write_coalescer;
+// In-engine Raft replication (CONCEPT:KG-2.188) — cluster tier only, behind the
+// `raft` feature. A default/pi/full build links no openraft. The module is
+// self-`#![cfg(feature = "raft")]`-gated; this `mod` line is also gated so it does
+// not even appear in a non-raft build.
+#[cfg(feature = "raft")]
+pub mod raft;

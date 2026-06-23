@@ -47,7 +47,18 @@ query = ["dep:eg-query", "eg-query/sql"]
 # HARD requirement of the lean Pi tier. A `cypher`-only build links no DataFusion
 # (the Pi proof).
 cypher = ["dep:eg-query", "eg-query/cypher"]
+# In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
+# HA cluster replicating its AUTHORITATIVE state via openraft. CLUSTER-TIER ONLY —
+# OFF by default and NOT in `full`/`all`, so a default / `pi` / `full` build links
+# NO openraft. The Pi contract is sacred: no DataFusion AND no openraft in the tree.
+# It pulls `redb` because Raft replicates the redb-AUTHORITATIVE store (M2): a
+# committed log entry applies through the same PersistenceBackend/GraphCore path.
+# Activates only when built `--features raft` AND configured at runtime
+# (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
+raft = ["server", "redb", "dep:openraft"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
+# `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
+# build links no openraft (matching the tier intent — replication is cluster-only).
 full = ["compute", "server", "query", "cypher"]
 all = ["full"]
 
@@ -56,11 +67,12 @@ all = ["full"]
 # durable in-memory build with NO DataFusion (Raspberry-Pi contract) — but it
 # DOES carry the dep-free `cypher` query surface (CONCEPT:KG-2.179): Cypher is a
 # hard requirement of the Pi tier and links no DataFusion. `node` layers SQL +
-# compute on top; `cluster` is `node` today (openraft/pgwire land in a later
-# milestone).
+# compute on top; `cluster` is `node` + in-engine Raft replication
+# (CONCEPT:KG-2.188). A sibling track (M8) also extends `cluster` with `pgwire`;
+# an integration step unions them — keep the raft part here.
 pi = ["server", "graph", "algorithms", "redb", "cypher"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast"]
-cluster = ["node"]
+cluster = ["node", "raft"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
@@ -101,6 +113,12 @@ tracing-subscriber = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 # Durable embedded KV for the redb write-through tier (feature `redb`).
 redb = { version = "4.1", optional = true }
+# In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188). Pinned to the latest
+# 0.9.x stable; `serde` is required because the app data (a durable `Method` for a
+# graph) + the log entries cross the wire MessagePack-encoded. CLUSTER-TIER ONLY:
+# optional + only referenced under #[cfg(feature = "raft")], so a default/pi/full
+# build links no openraft (verified by `cargo tree`).
+openraft = { version = "0.9", features = ["serde"], optional = true }
 
 # Optional Prometheus observability (feature `metrics`, on by default).
 # default-features = false drops the protobuf encoder — text exposition only.
