@@ -448,6 +448,11 @@ async fn dispatch_graph_op(
     // locking and no file I/O on this Tokio worker. Only durable DATA mutations are
     // logged, and only when the WAL service is running (i.e. a persist dir is set).
     let wal_service = s.wal_service.clone();
+    // Per-graph write coalescer (CONCEPT:KG-2.182): clone the registry handle so the
+    // hot single-op writes can be batched onto this graph's writer (lazily created,
+    // keyed by name — automatic per new graph/connector), collapsing N concurrent
+    // topology-lock acquisitions into one per batch. Cheap Arc clone under the lock.
+    let write_coalescer = s.write_coalescer.clone();
     drop(s); // Release registry lock before graph lock.
 
     let wal_method = match (&wal_service, crate::wal::is_durable_mutation(&method)) {
@@ -458,6 +463,18 @@ async fn dispatch_graph_op(
     crate::metrics::graph_op(graph_name);
 
     let response = 'dispatch: {
+        // Per-graph write coalescer (CONCEPT:KG-2.182): the five high-frequency
+        // single-op writes are batched onto this graph's writer so M concurrent
+        // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
+        // below still owns dirty/WAL/gauge off the returned Response, so durability
+        // and checkpoint semantics are unchanged — only WHERE the lock is taken
+        // moved. On a full queue / disabled coalescer the method is handed back and
+        // flows through the inline path unchanged.
+        let method =
+            match try_coalesce_write(req_id, &write_coalescer, graph_name, &core, method).await {
+                Ok(resp) => break 'dispatch resp,
+                Err(m) => m,
+            };
         // Pure-compute domains (stateless: no graph core / lock) route first; a
         // method that isn't theirs is handed back via Err and falls through to the
         // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
@@ -516,4 +533,114 @@ async fn dispatch_graph_op(
     response
 }
 
-// ── Tests ───────────────────────────────────────────────────────────────
+/// Route the five high-frequency single-op writes through the per-graph write
+/// coalescer (CONCEPT:KG-2.182). On success returns the same `Response` the inline
+/// handler would have produced (so the dispatch shell's dirty/WAL/gauge logic runs
+/// identically against it). Returns `Err(method)` — handing the method back
+/// untouched — for any method that isn't coalescable, or when the coalescer is
+/// disabled / its bounded queue is full (backpressure → inline fallback) / the
+/// worker is gone, so behavior is never lost, only the lock-acquisition path
+/// changes.
+async fn try_coalesce_write(
+    req_id: u64,
+    coalescer: &crate::write_coalescer::WriteCoalescerRegistry,
+    graph_name: &str,
+    core: &Arc<crate::graph::GraphCore>,
+    method: Method,
+) -> Result<Response, Method> {
+    use crate::write_coalescer::{WriteOp, WriteOutcome};
+    use tokio::sync::oneshot;
+
+    // Not enabled → no writer; stay inline (no lazy creation, no spawn).
+    if !coalescer.enabled() {
+        return Err(method);
+    }
+
+    // Build this op's reply channel; the op carries the sender, we await the receiver
+    // regardless of whether it was batched or applied inline on fallback.
+    let (reply, reply_rx) = oneshot::channel::<WriteOutcome>();
+
+    // Map the method → a WriteOp (consuming its args). For CompareAndSetNodeFields,
+    // decode the two msgpack blobs FIRST: a decode failure is a CAS failure
+    // (Bool(false)) that does NOT touch the graph — exactly the inline handler's
+    // contract — so short-circuit without enqueuing (the shell then WAL-logs the
+    // method, matching inline). Non-coalescable methods are handed straight back.
+    let op = match method {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => WriteOp::AddNode {
+            node_id,
+            properties_msgpack,
+            reply,
+        },
+        Method::RemoveNode { node_id } => WriteOp::RemoveNode { node_id, reply },
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => WriteOp::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+            reply,
+        },
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => WriteOp::RemoveEdge {
+            source_id,
+            target_id,
+            reply,
+        },
+        Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } => {
+            let conditions = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                &conditions_msgpack,
+            ) {
+                Ok(m) => m,
+                Err(_) => return Ok(Response::ok(req_id, ResultPayload::Bool(false))),
+            };
+            let updates = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                &updates_msgpack,
+            ) {
+                Ok(m) => m,
+                Err(_) => return Ok(Response::ok(req_id, ResultPayload::Bool(false))),
+            };
+            WriteOp::CompareAndSet {
+                node_id,
+                conditions,
+                updates,
+                reply,
+            }
+        }
+        other => return Err(other),
+    };
+
+    // Lazily get/create this graph's writer (automatic per new graph/connector).
+    let writer = match coalescer.writer_for(graph_name, core) {
+        Some(w) => w,
+        None => unreachable!("writer_for returned None while coalescer.enabled() was true"),
+    };
+
+    // Enqueue; on a full/closed queue (backpressure) apply this single op inline
+    // under its own txn — same engine effect, just not batched — so a saturated
+    // worker never drops or stalls a write.
+    if let Err(op) = writer.try_enqueue(op) {
+        writer.apply_one_inline(core, graph_name, op);
+    }
+
+    // Await the outcome (from the batch worker or the inline fallback) and rebuild
+    // the exact Response the inline handler would have returned.
+    let outcome = reply_rx.await.unwrap_or(WriteOutcome::WriterGone);
+    let resp = match outcome {
+        WriteOutcome::Ok => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+        WriteOutcome::Cas(b) => Response::ok(req_id, ResultPayload::Bool(b)),
+        WriteOutcome::Err(e) => Response::err(req_id, e),
+        WriteOutcome::WriterGone => Response::err(req_id, "write worker unavailable"),
+    };
+    Ok(resp)
+}
