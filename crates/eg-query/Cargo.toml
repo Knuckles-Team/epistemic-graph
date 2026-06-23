@@ -1,0 +1,41 @@
+[package]
+name = "eg-query"
+version = "0.31.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "SQL/Cypher query surface (CONCEPT:KG-2.178) over the epistemic-graph engine — DataFusion behind the `sql` feature"
+license = "MIT"
+
+[lib]
+name = "eg_query"
+
+[features]
+# `sql` pulls DataFusion + Arrow (heavy). A default build links NONE of them so
+# the engine stays lean for a Raspberry Pi. `cypher` is a dep-free placeholder
+# owned by another track.
+default = []
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio"]
+cypher = []
+
+[dependencies]
+eg-types = { path = "../eg-types" }
+eg-core = { path = "../eg-core" }
+eg-compute = { path = "../eg-compute" }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+
+# Heavy SQL deps — optional, gated behind `sql`. DataFusion re-exports its SQL
+# parser (datafusion::sql), so NO standalone sqlparser-rs dep.
+datafusion = { version = "43", default-features = false, optional = true }
+arrow = { version = "53", optional = true }
+arrow-schema = { version = "53", optional = true }
+# Current-thread runtime to drive DataFusion's async `collect()` inside the
+# blocking pool (the `compute_off_lock` idiom). Only the `rt` feature is needed —
+# the caller already runs us under `spawn_blocking`.
+tokio = { version = "1.38", features = ["rt"], optional = true }
+
+[dev-dependencies]
+# The spike's OUTER reactor mimics the server's multi-thread runtime; the inner
+# DataFusion driver uses only the current-thread runtime from the `sql` dep.
+tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"] }

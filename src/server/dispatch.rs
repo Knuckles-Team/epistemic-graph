@@ -481,6 +481,14 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
+        // Read-only SQL query (CONCEPT:KG-2.178): borrows the graph core for an
+        // off-lock snapshot, runs DataFusion on the blocking pool. Slim builds omit
+        // this line and Method::Sql falls to the graph_ops not-available catch-all.
+        #[cfg(feature = "query")]
+        let method = match handlers::query::try_handle(req_id, core.clone(), method).await {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
         // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
         // re-enter the registry via `state`). Owns the catch-all, returns a Response.
         // Bind then `break` (not a tail expr) so the `'dispatch` label stays used

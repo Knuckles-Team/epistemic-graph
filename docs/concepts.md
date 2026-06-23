@@ -26,6 +26,10 @@ These concepts are actively realized by the compiled Rust/Python Epistemic Graph
 | `CONCEPT:ORCH-1.0` | Multi-Agent Orchestration Abstraction | agent-utilities |
 | `CONCEPT:KG-2.7` | Batch Materialization / Local SPARQL Fast Path | agent-utilities |
 | `CONCEPT:KG-2.8` | Code/Test Enrichment & Interlinking (incl. `2.8r` cross-file call/import resolution) | agent-utilities |
+| `CONCEPT:KG-2.171` | Cross-graph union reads (point/label/neighbor reads unioned across a graph set, deduped by id) | epistemic-graph |
+| `CONCEPT:KG-2.178` | Internal SQL query surface (read-only `SELECT … FROM nodes` over one graph via DataFusion, behind the `query` feature) | epistemic-graph |
+| `CONCEPT:KG-2.176` | Lazy secondary label index (`label → node ids`) for O(1) label lookup, invalidated on write | epistemic-graph |
+| `CONCEPT:KG-2.177` | Pluggable `PersistenceBackend` + durable redb write-through tier (behind the `redb` feature) | epistemic-graph |
 \n## CONCEPT:KG-2.20\nRust-Native Finance Compute Suite
 \n## CONCEPT:KG-2.22\nGraph Network Protocols
 \n## CONCEPT:KG-2.22\nData Science Primitives
