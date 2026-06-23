@@ -14,8 +14,9 @@ pub mod sql;
 
 #[cfg(feature = "sql")]
 pub use sql::{
-    classify, exec_sql, exec_sql_cached, exec_sql_typed, InsertNode, PgColType, QueryResult,
-    SqlCache, StatementKind, TypedColumn, TypedQueryResult,
+    classify, exec_sql, exec_sql_cached, exec_sql_typed, infer_param_sites, returning_columns,
+    schema_probe_sql, DeleteNodes, InsertNode, InsertNodes, ParamLiteralType, ParamSite, PgColType,
+    QueryResult, SqlCache, StatementKind, TypedColumn, TypedQueryResult, UpdateNodes, WhereEq,
 };
 
 #[cfg(feature = "cypher")]
