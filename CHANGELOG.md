@@ -6,9 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [Unreleased]
+## [0.32.0]
 
 ### Added
+- **Per-graph write coalescer (`CONCEPT:KG-2.182`)** — concurrent single-op writes to ONE hot
+  graph (the `__commons__` ingestion firehose) now batch onto a lazily-created per-graph writer
+  (`src/write_coalescer.rs`) and apply under ONE `topo.write()` per batch, collapsing N
+  topology-lock acquisitions into ⌈N/batch⌉. Writers are keyed by graph name in a `DashMap`
+  (`ServerState.write_coalescer`) — created automatically for any new graph/connector, no
+  hardcoded list (mirrors `per_graph_inflight`). `dirty`/WAL/gauge side-effects stay centralized
+  in the dispatch shell, so durability and checkpoint contracts are byte-for-byte unchanged; CAS
+  stays exactly-once; a full bounded queue falls back to the inline single-op path (never a stall
+  or a drop). Default ON, batch auto-sized from cpu count; opt out with
+  `EPISTEMIC_GRAPH_WRITE_COALESCE=0`. New Prometheus counters
+  `epistemic_graph_write_batches_total` / `epistemic_graph_write_batched_ops_total` per graph.
+  Micro-benchmark (50k writes, 64 pipelined producers, one graph): **57.5× fewer lock
+  acquisitions, ~2× wall-clock**. See `docs/architecture/write-coalescer.md`.
+
+### Added (prior, unreleased)
 - **`GetTriples` bulk RDF export op** — exports a graph as RDF triples in one round-trip, the
   fast path backing local SPARQL over any durable backend (eliminates the per-node export loop).
 - **Per-graph memory cap (E1/E3)** — `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (0=off): a periodic
