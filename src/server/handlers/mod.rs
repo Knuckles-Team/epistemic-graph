@@ -23,3 +23,9 @@ pub(crate) mod query;
 // `server` feature — the Txn* methods are stateful (need `state`) and not
 // feature-gated to a compute domain.
 pub(crate) mod txn;
+// Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206). Behind `blob`
+// (which pulls `redb` + `server`); the stateful Blob* methods drive the CAS store
+// + cursors on ServerState. A build without `blob` drops both the module and the
+// Method variants, so the dispatch chain never routes them.
+#[cfg(feature = "blob")]
+pub(crate) mod blob;
