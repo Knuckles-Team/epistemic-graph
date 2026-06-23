@@ -9,8 +9,20 @@ license = "MIT"
 [lib]
 name = "eg_core"
 
+[features]
+default = []
+# Use the native eg-ann IVF-PQ+OPQ+SQ8-refine index (CONCEPT:KG-2.207) as the
+# SemanticStore ANN backend instead of the rebuild-on-load hnsw_rs index. The
+# persisted index reopens WITHOUT rebuilding from raw vectors. OFF by default;
+# the facade folds it into the durable tiers. Pure-Rust, no GPU/native-ML deps.
+ann = ["dep:eg-ann"]
+# Additionally persist the ANN codes into the engine's redb durable tier
+# (CONCEPT:KG-2.195) rather than only the mmap files.
+ann-redb = ["ann", "eg-ann/redb"]
+
 [dependencies]
 eg-types = { path = "../eg-types" }
+eg-ann = { path = "../eg-ann", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"

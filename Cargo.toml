@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute", "crates/eg-query"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query"]
 
 [package]
 name = "epistemic-graph"
@@ -33,6 +33,14 @@ ast = ["eg-compute/ast"]
 ast-extended = ["eg-compute/ast-extended"]
 datascience = ["eg-compute/datascience", "eg-types/datascience"]
 reasoning = ["eg-compute/reasoning"]
+# Native eg-ann IVF-PQ + OPQ + SQ8-refine vector index (CONCEPT:KG-2.207) as the
+# SemanticStore backend, replacing the rebuild-on-load hnsw_rs index. Pure-Rust,
+# CPU integer-table serving (no GPU/native-ML/faiss in the tree) so it is Pi-lean
+# and folded into the durable serving tiers (pi/node/cluster/full). A persisted
+# index reopens WITHOUT rebuilding from raw vectors.
+ann = ["eg-core/ann"]
+# Persist the ANN codes into the redb durable tier too (needs `redb`).
+ann-redb = ["ann", "redb", "eg-core/ann-redb"]
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait"]
 # Durable redb write-through persistence tier (CONCEPT:KG-2.177). OFF by default —
 # snapshot+WAL stays the shipped behavior; redb is opt-in via this feature AND
@@ -68,7 +76,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # build links no openraft (matching the tier intent — replication is cluster-only).
 # `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP) so the standard full/all build
 # is authoritative-by-default (a durable source of truth) just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb"]
+full = ["compute", "server", "query", "cypher", "redb", "ann"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -79,7 +87,7 @@ all = ["full"]
 # compute on top; `cluster` is `node` + in-engine Raft replication
 # (CONCEPT:KG-2.188). A sibling track (M8) also extends `cluster` with `pgwire`;
 # an integration step unions them — keep the raft part here.
-pi = ["server", "graph", "algorithms", "redb", "cypher"]
+pi = ["server", "graph", "algorithms", "redb", "cypher", "ann"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8). The two sibling tracks each extended
