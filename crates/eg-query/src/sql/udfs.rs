@@ -127,3 +127,190 @@ pub(crate) fn json_get_i64_udf() -> ScalarUDF {
         fun,
     )
 }
+
+// ── epistemic_decay scalar UDF (CONCEPT:KG-2.184) ──────────────────────────
+
+/// Ebbinghaus 30-day-half-life confidence decay, lifted from the engine's
+/// `weight_semantic_results` (`src/server/compute.rs` ~line 44) so SQL projections
+/// can salience-weight a fact in-query:
+///   `epistemic_decay(confidence, valid_from, now) -> Float64`
+/// All three args are Float64 (epoch-seconds for `valid_from`/`now`). Returns
+///   confidence                                    when now <= valid_from
+///   confidence * exp(-ln2/30 * age_days)          when now  > valid_from
+/// and null if any argument is null. Pure / immutable scalar.
+pub(crate) fn epistemic_decay_udf() -> ScalarUDF {
+    let fun = Arc::new(|args: &[ColumnarValue]| {
+        let arrays = ColumnarValue::values_to_arrays(args)?;
+        let want = |i: usize| -> datafusion::error::Result<Float64Array> {
+            arrays[i]
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .cloned()
+                .ok_or_else(|| {
+                    datafusion::error::DataFusionError::Execution(
+                        "epistemic_decay: arguments must be Float64".into(),
+                    )
+                })
+        };
+        let confidence = want(0)?;
+        let valid_from = want(1)?;
+        let now = want(2)?;
+        // Half-life of 30 days (decay rate lambda = ln(2) / 30), matching
+        // weight_semantic_results.
+        let decay_rate = std::f64::consts::LN_2 / 30.0;
+        let out: Float64Array = (0..confidence.len())
+            .map(|i| {
+                if confidence.is_null(i) || valid_from.is_null(i) || now.is_null(i) {
+                    return None;
+                }
+                let c = confidence.value(i);
+                let vf = valid_from.value(i);
+                let n = now.value(i);
+                if n > vf {
+                    let age_days = (n - vf) / 86_400.0;
+                    Some(c * (-decay_rate * age_days).exp())
+                } else {
+                    Some(c)
+                }
+            })
+            .collect();
+        Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+    });
+    create_udf(
+        "epistemic_decay",
+        vec![DataType::Float64, DataType::Float64, DataType::Float64],
+        DataType::Float64,
+        Volatility::Immutable,
+        fun,
+    )
+}
+
+// ── finance aggregate UDFs (CONCEPT:KG-2.184, feature `finance`) ────────────
+
+/// `var(returns) -> Float64` and `cvar(returns) -> Float64` aggregate UDFs over a
+/// Float64 returns column, delegating the kernel to `eg_compute::finance::risk`.
+/// Aggregates (not scalars) because VaR/CVaR are sample statistics over the whole
+/// column — a single accumulator buffers the returns and computes at `evaluate()`.
+/// Confidence is fixed at 0.95 (the engine's risk-metrics default). Gated behind
+/// `finance` so a no-finance build links neither these nor nalgebra.
+#[cfg(feature = "finance")]
+mod finance_udf {
+    use std::sync::Arc;
+
+    use arrow::array::{Array, ArrayRef, Float64Array};
+    use arrow::datatypes::DataType;
+    use datafusion::error::Result as DfResult;
+    use datafusion::logical_expr::{create_udaf, Accumulator, AggregateUDF, Volatility};
+    use datafusion::scalar::ScalarValue;
+
+    /// 95% confidence — the engine's default risk-metric level.
+    const CONFIDENCE: f64 = 0.95;
+
+    /// Accumulator that buffers every observed return, then applies a closure
+    /// (historical_var / historical_cvar) at `evaluate`. State is the full buffer
+    /// as a `List<Float64>` so multi-phase grouping merges losslessly.
+    #[derive(Debug)]
+    struct RiskAcc {
+        returns: Vec<f64>,
+        kernel: fn(&[f64], f64) -> f64,
+    }
+
+    impl RiskAcc {
+        fn new(kernel: fn(&[f64], f64) -> f64) -> Self {
+            Self {
+                returns: Vec::new(),
+                kernel,
+            }
+        }
+
+        fn ingest(&mut self, values: &[ArrayRef]) -> DfResult<()> {
+            let arr = values[0]
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .ok_or_else(|| {
+                    datafusion::error::DataFusionError::Execution(
+                        "var/cvar: argument must be Float64".into(),
+                    )
+                })?;
+            for i in 0..arr.len() {
+                if !arr.is_null(i) {
+                    self.returns.push(arr.value(i));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl Accumulator for RiskAcc {
+        fn update_batch(&mut self, values: &[ArrayRef]) -> DfResult<()> {
+            self.ingest(values)
+        }
+
+        fn merge_batch(&mut self, states: &[ArrayRef]) -> DfResult<()> {
+            // Each state row is a List<Float64>; flatten its child values in.
+            let lists = states[0]
+                .as_any()
+                .downcast_ref::<arrow::array::ListArray>()
+                .ok_or_else(|| {
+                    datafusion::error::DataFusionError::Execution(
+                        "var/cvar: state must be List<Float64>".into(),
+                    )
+                })?;
+            for i in 0..lists.len() {
+                if lists.is_null(i) {
+                    continue;
+                }
+                let child = lists.value(i);
+                self.ingest(&[child])?;
+            }
+            Ok(())
+        }
+
+        fn state(&mut self) -> DfResult<Vec<ScalarValue>> {
+            let scalars: Vec<ScalarValue> = self
+                .returns
+                .iter()
+                .map(|v| ScalarValue::Float64(Some(*v)))
+                .collect();
+            let list =
+                ScalarValue::List(ScalarValue::new_list_nullable(&scalars, &DataType::Float64));
+            Ok(vec![list])
+        }
+
+        fn evaluate(&mut self) -> DfResult<ScalarValue> {
+            let v = (self.kernel)(&self.returns, CONFIDENCE);
+            Ok(ScalarValue::Float64(Some(v)))
+        }
+
+        fn size(&self) -> usize {
+            std::mem::size_of_val(self) + self.returns.capacity() * std::mem::size_of::<f64>()
+        }
+    }
+
+    fn risk_udaf(name: &str, kernel: fn(&[f64], f64) -> f64) -> AggregateUDF {
+        create_udaf(
+            name,
+            vec![DataType::Float64],
+            Arc::new(DataType::Float64),
+            Volatility::Immutable,
+            Arc::new(move |_| Ok(Box::new(RiskAcc::new(kernel)) as Box<dyn Accumulator>)),
+            // State: a single List<Float64> column (the buffered returns).
+            Arc::new(vec![DataType::List(Arc::new(
+                arrow::datatypes::Field::new("item", DataType::Float64, true),
+            ))]),
+        )
+    }
+
+    /// `var(returns)` — historical Value-at-Risk at 95%.
+    pub(crate) fn var_udaf() -> AggregateUDF {
+        risk_udaf("var", eg_compute::finance::risk::historical_var)
+    }
+
+    /// `cvar(returns)` — historical Conditional VaR (expected shortfall) at 95%.
+    pub(crate) fn cvar_udaf() -> AggregateUDF {
+        risk_udaf("cvar", eg_compute::finance::risk::historical_cvar)
+    }
+}
+
+#[cfg(feature = "finance")]
+pub(crate) use finance_udf::{cvar_udaf, var_udaf};

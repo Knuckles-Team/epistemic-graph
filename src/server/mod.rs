@@ -312,6 +312,124 @@ mod tests {
         assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
     }
 
+    // ── Cypher query surface (CONCEPT:KG-2.179) ─────────────────────────
+
+    /// End-to-end: add nodes + a KNOWS edge, route `Method::CypherQuery` through
+    /// the FULL dispatch chain, and decode the `Raw(QueryResult)` rows. Proves the
+    /// dep-free Cypher handler is wired before graph_ops in a no-DataFusion build.
+    /// (cypher feature)
+    #[cfg(feature = "cypher")]
+    #[tokio::test]
+    async fn test_cypher_match_returns_rows() {
+        let state = test_state();
+        let add = |id: u64, node_id: &str, ty: &str, name: &str| {
+            request(
+                id,
+                "__commons__",
+                None,
+                Method::AddNode {
+                    node_id: node_id.to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"type": ty, "name": name}),
+                    )
+                    .unwrap(),
+                },
+            )
+        };
+        assert_ok(&dispatch(&state, add(1, "alice", "Person", "Alice")).await);
+        assert_ok(&dispatch(&state, add(2, "bob", "Person", "Bob")).await);
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    3,
+                    "__commons__",
+                    None,
+                    Method::AddEdge {
+                        source_id: "alice".into(),
+                        target_id: "bob".into(),
+                        properties_msgpack: rmp_serde::to_vec_named(
+                            &serde_json::json!({"relationship": "KNOWS"}),
+                        )
+                        .unwrap(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // Single-node label MATCH → label index.
+        let resp = dispatch(
+            &state,
+            request(
+                10,
+                "__commons__",
+                None,
+                Method::CypherQuery {
+                    query: "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let qr = match resp.result {
+            Some(ResultPayload::Raw(bytes)) => {
+                rmp_serde::from_slice::<crate::protocol::QueryResult>(&bytes).unwrap()
+            }
+            other => panic!("expected Raw(QueryResult), got {:?}", other),
+        };
+        assert_eq!(qr.columns, vec!["a".to_string()]);
+        let cells: Vec<serde_json::Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
+        assert_eq!(cells[0].as_str(), Some("alice"));
+
+        // 2-node typed-edge MATCH → VF2.
+        let resp2 = dispatch(
+            &state,
+            request(
+                11,
+                "__commons__",
+                None,
+                Method::CypherQuery {
+                    query: "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp2);
+        let qr2 = match resp2.result {
+            Some(ResultPayload::Raw(bytes)) => {
+                rmp_serde::from_slice::<crate::protocol::QueryResult>(&bytes).unwrap()
+            }
+            other => panic!("expected Raw(QueryResult), got {:?}", other),
+        };
+        assert_eq!(qr2.columns, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(qr2.rows.len(), 1);
+        let pair: Vec<serde_json::Value> = rmp_serde::from_slice(&qr2.rows[0]).unwrap();
+        assert_eq!(pair[0].as_str(), Some("alice"));
+        assert_eq!(pair[1].as_str(), Some("bob"));
+    }
+
+    /// Feature-gating contract for the Cypher surface (CONCEPT:KG-2.179): with the
+    /// `cypher` feature off, `Method::CypherQuery`'s handler arm is compiled away
+    /// and the request must hit the not-built catch-all. (Compiled out when
+    /// `cypher` is on, where the real handler answers instead.)
+    #[cfg(not(feature = "cypher"))]
+    #[tokio::test]
+    async fn test_cypher_gated_out_returns_not_built() {
+        let state = test_state();
+        let method = Method::CypherQuery {
+            query: "MATCH (a:Person) RETURN a".into(),
+        };
+        let resp = dispatch(&state, request(1, "__commons__", None, method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
     #[tokio::test]
     async fn test_bad_auth_token_rejected() {
         let state = test_state();
@@ -1336,6 +1454,17 @@ mod tests {
 
     /// Open a txn on `graph` and return its server-issued id.
     async fn begin_txn(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) -> String {
+        begin_txn_iso(state, id, graph, None).await
+    }
+
+    /// Open a txn on `graph` with an explicit isolation hint (CONCEPT:KG-2.183) and
+    /// return its server-issued id.
+    async fn begin_txn_iso(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        graph: &str,
+        isolation: Option<&str>,
+    ) -> String {
         let resp = dispatch(
             state,
             request(
@@ -1344,7 +1473,7 @@ mod tests {
                 None,
                 Method::BeginTxn {
                     graph: None,
-                    isolation: None,
+                    isolation: isolation.map(str::to_string),
                 },
             ),
         )
@@ -1669,6 +1798,254 @@ mod tests {
         assert!(
             matches!(r.result, Some(ResultPayload::Bool(false))),
             "second CAS rejected"
+        );
+    }
+
+    // ── Transaction isolation levels (CONCEPT:KG-2.183 — M6b) ────────────
+
+    /// Commit `txn` and return the Bool payload (true=committed, false=conflict).
+    async fn commit_bool(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        graph: &str,
+        txn: &str,
+    ) -> bool {
+        let r = dispatch(
+            state,
+            request(
+                id,
+                graph,
+                None,
+                Method::Commit {
+                    txn_id: txn.to_string(),
+                },
+            ),
+        )
+        .await;
+        match r.result {
+            Some(ResultPayload::Bool(b)) => b,
+            other => panic!("Commit must return Bool, got {other:?} (err={:?})", r.error),
+        }
+    }
+
+    /// Stage an AddNode into `txn` (used by the phantom scenarios).
+    async fn stage_add(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        graph: &str,
+        txn: &str,
+        node_id: &str,
+        props: serde_json::Value,
+    ) {
+        let r = dispatch(
+            state,
+            request(
+                id,
+                graph,
+                None,
+                Method::TxnAddNode {
+                    txn_id: txn.to_string(),
+                    node_id: node_id.to_string(),
+                    properties_msgpack: node_props(props),
+                },
+            ),
+        )
+        .await;
+        assert!(matches!(r.result, Some(ResultPayload::Bool(true))), "stage");
+    }
+
+    /// (a-serializable) Phantom: under `serializable:label=Doc`, txn A declares a
+    /// label-scan read-set, txn B inserts a matching `Doc` and commits, then A's
+    /// commit returns Bool(false) — the phantom is rejected.
+    #[tokio::test]
+    async fn txn_serializable_rejects_phantom() {
+        let state = test_state();
+        // Seed one Doc so the label set is non-empty at begin (not required, but
+        // mirrors a real range read).
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddNode {
+                        node_id: "d0".into(),
+                        properties_msgpack: node_props(serde_json::json!({"type": "Doc"})),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // Txn A reads the `Doc` label set (declared via the isolation hint) and stages
+        // an unrelated write so it has something to commit.
+        let a = begin_txn_iso(&state, 2, "__commons__", Some("serializable:label=Doc")).await;
+        stage_add(
+            &state,
+            3,
+            "__commons__",
+            &a,
+            "a_marker",
+            serde_json::json!({"type": "Marker"}),
+        )
+        .await;
+
+        // Txn B inserts a NEW matching Doc and commits — a phantom for A's read-set.
+        let b = begin_txn_iso(&state, 4, "__commons__", Some("snapshot")).await;
+        stage_add(
+            &state,
+            5,
+            "__commons__",
+            &b,
+            "d_phantom",
+            serde_json::json!({"type": "Doc"}),
+        )
+        .await;
+        assert!(
+            commit_bool(&state, 6, "__commons__", &b).await,
+            "B (phantom inserter) commits"
+        );
+
+        // A's commit must now conflict: the Doc label set changed under it.
+        assert!(
+            !commit_bool(&state, 7, "__commons__", &a).await,
+            "serializable A must reject the phantom (Bool(false))"
+        );
+        // A applied nothing — its unrelated marker is absent.
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        assert!(!core.has_node("a_marker"), "conflicted A applied nothing");
+    }
+
+    /// (a-snapshot) The SAME phantom scenario under `snapshot` ALLOWS A to commit —
+    /// proving the levels differ. A touches no node B touched, so the per-node OCC
+    /// read-set sees no conflict and snapshot does not watch the label predicate.
+    #[tokio::test]
+    async fn txn_snapshot_allows_phantom() {
+        let state = test_state();
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddNode {
+                        node_id: "d0".into(),
+                        properties_msgpack: node_props(serde_json::json!({"type": "Doc"})),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // A under SNAPSHOT (the default). A label predicate is meaningless here and
+        // omitted; A simply stages an unrelated write.
+        let a = begin_txn_iso(&state, 2, "__commons__", Some("snapshot")).await;
+        stage_add(
+            &state,
+            3,
+            "__commons__",
+            &a,
+            "a_marker",
+            serde_json::json!({"type": "Marker"}),
+        )
+        .await;
+
+        // B inserts a matching Doc and commits (the phantom).
+        let b = begin_txn(&state, 4, "__commons__").await;
+        stage_add(
+            &state,
+            5,
+            "__commons__",
+            &b,
+            "d_phantom",
+            serde_json::json!({"type": "Doc"}),
+        )
+        .await;
+        assert!(commit_bool(&state, 6, "__commons__", &b).await, "B commits");
+
+        // Under snapshot, A commits successfully despite the phantom.
+        assert!(
+            commit_bool(&state, 7, "__commons__", &a).await,
+            "snapshot A is allowed to commit through the phantom (Bool(true))"
+        );
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        assert!(core.has_node("a_marker"), "snapshot A applied its write");
+    }
+
+    /// A serializable txn whose predicate set is UNCHANGED still commits (the level
+    /// rejects only real anomalies, not every concurrent write).
+    #[tokio::test]
+    async fn txn_serializable_commits_when_predicate_unchanged() {
+        let state = test_state();
+        let a = begin_txn_iso(&state, 1, "__commons__", Some("serializable:label=Doc")).await;
+        stage_add(
+            &state,
+            2,
+            "__commons__",
+            &a,
+            "m1",
+            serde_json::json!({"type": "Marker"}),
+        )
+        .await;
+        // A concurrent commit that does NOT touch the Doc label set.
+        let b = begin_txn(&state, 3, "__commons__").await;
+        stage_add(
+            &state,
+            4,
+            "__commons__",
+            &b,
+            "m2",
+            serde_json::json!({"type": "Other"}),
+        )
+        .await;
+        assert!(commit_bool(&state, 5, "__commons__", &b).await, "B commits");
+        assert!(
+            commit_bool(&state, 6, "__commons__", &a).await,
+            "serializable A commits when its Doc predicate set is unchanged"
+        );
+    }
+
+    /// (c) An unknown isolation value is rejected at BeginTxn (no txn opened).
+    #[tokio::test]
+    async fn txn_unknown_isolation_rejected() {
+        let state = test_state();
+        let resp = dispatch(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                Method::BeginTxn {
+                    graph: None,
+                    isolation: Some("read-committed".into()),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            resp.error.is_some() && resp.result.is_none(),
+            "unknown isolation must error, got ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+        assert!(
+            resp.error.as_deref().unwrap_or("").contains("isolation"),
+            "error should name the isolation problem: {:?}",
+            resp.error
+        );
+        // No transaction was registered.
+        assert_eq!(
+            state.read().await.open_txns.len(),
+            0,
+            "rejected BeginTxn opens no txn"
         );
     }
 }

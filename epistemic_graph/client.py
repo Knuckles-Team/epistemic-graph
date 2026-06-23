@@ -1850,6 +1850,8 @@ _HEAVY_RPC_METHODS = frozenset(
         "GetEdges",
         # SQL scans the whole node set (CONCEPT:KG-2.178) — give it the heavy budget.
         "Sql",
+        # Cypher MATCH/BFS scans the node set too (CONCEPT:KG-2.179).
+        "CypherQuery",
         # A txn commit (CONCEPT:KG-2.180) applies the whole staged write-set under
         # one lock — a large multi-op commit may legitimately take longer.
         "Commit",
@@ -1880,6 +1882,32 @@ class QueryClient:
         caller gets ordinary records.
         """
         result = await self._client._send("Sql", {"query": query})
+        return self._rows_to_dicts(result)
+
+    async def cypher(self, query: str) -> list[dict[str, Any]]:
+        """Run a Cypher-subset ``query`` and return a list of row dicts keyed by
+        RETURN column.
+
+        ``MATCH (a:Label)-[:REL]->(b:Label2) WHERE a.prop = 'x' RETURN a, b LIMIT
+        k`` over the connection's graph (CONCEPT:KG-2.179). DEP-FREE on the engine
+        side — compiled to the label index / VF2 / BFS, NO DataFusion — so it works
+        against a server built with only the ``cypher`` feature (the lean Pi build).
+
+        Supports: node ``:Label`` predicates, typed directed edges
+        (``-[:REL]->`` / ``<-[:REL]-``), variable-length paths (``-[:REL*1..3]->``),
+        ``WHERE`` equality/comparison on properties, ``RETURN`` of bound variables
+        and ``var.prop`` accesses, and ``LIMIT``. The result has the SAME
+        ``{"columns": [...], "rows": [<msgpack-blob>, ...]}`` shape as ``sql`` (a
+        ``Raw`` payload the transport already double-unpacks); each row blob is a
+        list of cell values aligned to ``columns``.
+        """
+        result = await self._client._send("CypherQuery", {"query": query})
+        return self._rows_to_dicts(result)
+
+    @staticmethod
+    def _rows_to_dicts(result: Any) -> list[dict[str, Any]]:
+        """Zip a ``{columns, rows}`` query result into per-row dicts. Shared by
+        ``sql`` and ``cypher`` — both return the identical wire shape."""
         if not result:
             return []
         columns: list[str] = result.get("columns", [])
