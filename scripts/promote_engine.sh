@@ -9,15 +9,41 @@
 #
 # Usage:
 #   scripts/promote_engine.sh [--build] [--no-restart] [--restart-consumers]
+#                             [--migrate] [--health-start-period <secs>]
+#                             [--restore-health-period]
 #
-#   --build              cargo build --release --features full first (default: reuse target/release)
-#   --no-restart         install the binary only; do not restart the service
-#   --restart-consumers  also restart graph-os + messaging (they pick up new agent-utilities)
+#   --build                       cargo build --release --features full first (default: reuse target/release)
+#   --no-restart                  install the binary only; do not restart the service
+#   --restart-consumers           also restart graph-os + messaging (they pick up new agent-utilities).
+#                                 They MUST run GRAPH_BACKEND=fanout (engine authority + optional mirrors);
+#                                 the old `tiered` value was removed and fails bootstrap.
+#   --health-start-period <secs>  pass --health-start-period <secs>s to the engine restart so the
+#                                 swarm healthcheck (test -S <socket>, default start-period 20s)
+#                                 does NOT kill a long first-boot .mp→redb migration. REQUIRED for the
+#                                 FIRST authoritative boot of a flipped binary against a large KG —
+#                                 the engine binds its socket only after the migration finishes, which
+#                                 can take MINUTES (thousands of graphs / hundreds of MB).
+#   --migrate                     migration-aware restart: imply --health-start-period 600 (unless one is
+#                                 given), then TAIL the new engine container's logs on THIS node and
+#                                 surface migration progress ("Snapshot load progress" / "imported N
+#                                 graph(s)") until "Listening on UDS" appears or a timeout, so the
+#                                 operator watches it complete instead of flying blind.
+#   --restore-health-period       after a --migrate watch sees the socket bind, run a SECOND service
+#                                 update restoring --health-start-period to the normal value (20s). The
+#                                 second restart on the now-populated redb is fast. Opt-in.
 #
 # Env overrides (defaults are the homelab):
 #   ENGINE_BIN_DEST   host bind-mount path of the engine binary  (default below)
 #   SWARM_MANAGER     ssh host of the swarm MANAGER (updates run there; this node is a worker)
 #   ENGINE_SERVICE / GRAPHOS_SERVICE / MESSAGING_SERVICE   swarm service names
+#   MIGRATE_DEFAULT_START_PERIOD   start-period (secs) implied by --migrate (default 600)
+#   NORMAL_HEALTH_START_PERIOD     start-period (secs) restored by --restore-health-period (default 20)
+#   MIGRATE_WATCH_TIMEOUT          max secs to tail the migration log before giving up (default 1800)
+#
+# CONCEPT:OS-5.62 — migration-aware promotion: the first authoritative boot runs a
+# one-time .mp→redb migration that binds the socket only when done; the 20s healthcheck
+# start-period would kill it into a restart loop. --health-start-period / --migrate /
+# --restore-health-period make that previously-manual two-`service update` dance opt-in here.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,14 +53,33 @@ ENGINE_SERVICE="${ENGINE_SERVICE:-epistemic-graph_epistemic-graph}"
 GRAPHOS_SERVICE="${GRAPHOS_SERVICE:-graph-os_graph-os}"
 MESSAGING_SERVICE="${MESSAGING_SERVICE:-agent-utilities-messaging_agent-utilities-messaging}"
 FEATURES="${FEATURES:-full}"   # production needs finance/quant/datascience/reasoning — NOT server-only
+MIGRATE_DEFAULT_START_PERIOD="${MIGRATE_DEFAULT_START_PERIOD:-600}"
+NORMAL_HEALTH_START_PERIOD="${NORMAL_HEALTH_START_PERIOD:-20}"
+MIGRATE_WATCH_TIMEOUT="${MIGRATE_WATCH_TIMEOUT:-1800}"
 
 DO_BUILD=0; DO_RESTART=1; DO_CONSUMERS=0
-for a in "$@"; do case "$a" in
+DO_MIGRATE=0; DO_RESTORE_HEALTH=0
+HEALTH_START_PERIOD=""   # empty ⇒ default path (no --health-start-period flag emitted)
+while [[ $# -gt 0 ]]; do case "$1" in
   --build) DO_BUILD=1 ;;
   --no-restart) DO_RESTART=0 ;;
   --restart-consumers) DO_CONSUMERS=1 ;;
-  *) echo "unknown arg: $a" >&2; exit 2 ;;
-esac; done
+  --migrate) DO_MIGRATE=1 ;;
+  --restore-health-period) DO_RESTORE_HEALTH=1 ;;
+  --health-start-period)
+    shift; HEALTH_START_PERIOD="${1:-}"
+    [[ "$HEALTH_START_PERIOD" =~ ^[0-9]+$ ]] || { echo "!! --health-start-period needs an integer seconds value" >&2; exit 2; } ;;
+  --health-start-period=*)
+    HEALTH_START_PERIOD="${1#*=}"
+    [[ "$HEALTH_START_PERIOD" =~ ^[0-9]+$ ]] || { echo "!! --health-start-period needs an integer seconds value" >&2; exit 2; } ;;
+  *) echo "unknown arg: $1" >&2; exit 2 ;;
+esac; shift; done
+
+# --migrate implies an extended start-period (unless one was given explicitly), so the
+# healthcheck does not kill the in-progress migration.
+if [[ "$DO_MIGRATE" == 1 && -z "$HEALTH_START_PERIOD" ]]; then
+  HEALTH_START_PERIOD="$MIGRATE_DEFAULT_START_PERIOD"
+fi
 
 SRC="$REPO/target/release/epistemic-graph-server"
 
@@ -68,11 +113,90 @@ fi
 # start-first fails ("address in use" → task exits 1). stop-first releases the
 # socket before the new task binds it. Brief (~seconds) engine downtime; the KG
 # snapshot volume persists, consumers reconnect.
-restart() { echo ">> restart $1"; ssh -o BatchMode=yes "$SWARM_MANAGER" \
-  "docker service update --update-order stop-first --force $1" 2>&1 | tail -2; }
+#
+# CONCEPT:OS-5.62 — an optional `--health-start-period <secs>` is threaded onto the
+# engine restart so the swarm healthcheck (test -S <socket>) does not kill a long
+# first-boot .mp→redb migration that binds the socket only when it finishes.
+restart() {
+  local svc="$1" extra="${2:-}"
+  echo ">> restart $svc${extra:+ ($extra)}"
+  # shellcheck disable=SC2029  # intentional client-side expansion: build the remote cmd here
+  ssh -o BatchMode=yes "$SWARM_MANAGER" \
+    "docker service update --update-order stop-first $extra --force $svc" 2>&1 | tail -2
+}
 
-restart "$ENGINE_SERVICE"
+engine_extra=""
+if [[ -n "$HEALTH_START_PERIOD" ]]; then
+  engine_extra="--health-start-period ${HEALTH_START_PERIOD}s"
+  echo ">> first-boot/migration mode: engine restart with start-period ${HEALTH_START_PERIOD}s"
+fi
+restart "$ENGINE_SERVICE" "$engine_extra"
+
+# Migration-aware watch: tail the new engine container's logs on THIS node (the
+# service is node-pinned to the bind-mount host, so the task usually lands here)
+# and surface migration progress until the socket binds or we time out. The
+# operator sees the migration complete instead of flying blind.
+watch_migration() {
+  local cname
+  # The swarm task runs as a container whose name embeds the service name; the
+  # binary is bind-mounted only on this node, so the engine task is pinned here.
+  cname="$(docker ps --filter "name=${ENGINE_SERVICE}" --format '{{.Names}}' 2>/dev/null | head -1)"
+  if [[ -z "$cname" ]]; then
+    echo ">> (migration watch) engine container not found on this node — skipping log tail."
+    echo "   watch it on the bind-mount host with:"
+    echo "     docker logs -f <engine-container> 2>&1 | grep -iE 'snapshot load|migration|imported|Listening on UDS'"
+    return 2   # could-not-watch (not on this node) — distinct from confirmed-bind(0)/timeout(1)
+  fi
+  echo ">> (migration watch) tailing $cname for migration progress (timeout ${MIGRATE_WATCH_TIMEOUT}s) …"
+  local deadline=$(( $(date +%s) + MIGRATE_WATCH_TIMEOUT ))
+  # Tail follows the container; we echo migration-relevant lines and stop once the
+  # socket binds. The inner `while read` exits 42 when it sees the bind marker, which
+  # (under pipefail) becomes the pipeline's status. A per-iteration `timeout` re-attaches
+  # if the stream ends early (e.g. the container restarted) and bounds the total wait.
+  local rc
+  while [[ $(date +%s) -lt $deadline ]]; do
+    local remaining=$(( deadline - $(date +%s) ))
+    rc=0
+    timeout "${remaining}s" docker logs -f --since 1m "$cname" 2>&1 \
+      | grep --line-buffered -iE 'snapshot load|migration|imported|Listening on UDS' \
+      | while IFS= read -r line; do
+          echo "   $line"
+          case "$line" in *"Listening on UDS"*) exit 42 ;; esac
+        done || rc=$?
+    if [[ "$rc" -eq 42 ]]; then
+      echo ">> migration complete — engine is listening on its UDS socket."
+      return 0
+    fi
+    # Otherwise the log stream ended (container restart) or timed out — loop re-attaches
+    # while there is time left.
+  done
+  echo "!! (migration watch) timed out after ${MIGRATE_WATCH_TIMEOUT}s without seeing 'Listening on UDS'."
+  echo "   the migration may still be running; check the engine logs before assuming a hang."
+  return 1
+}
+
+if [[ "$DO_MIGRATE" == 1 ]]; then
+  watch_rc=0; watch_migration || watch_rc=$?
+  if [[ "$watch_rc" -eq 0 ]]; then
+    # Socket bind confirmed by the local log tail.
+    if [[ "$DO_RESTORE_HEALTH" == 1 ]]; then
+      echo ">> --restore-health-period: restoring start-period to ${NORMAL_HEALTH_START_PERIOD}s (fast restart on populated redb)"
+      restart "$ENGINE_SERVICE" "--health-start-period ${NORMAL_HEALTH_START_PERIOD}s"
+    fi
+  elif [[ "$watch_rc" -eq 2 ]]; then
+    # Couldn't tail (engine not on this node) — leave the extended start-period in place
+    # and let the operator restore it once they confirm the bind on the bind-mount host.
+    [[ "$DO_RESTORE_HEALTH" == 1 ]] && \
+      echo ">> (not restoring health period: bind unconfirmed from this node — restore manually after watching on the bind-mount host)"
+  else
+    echo "!! migration watch did not confirm the socket bound — NOT restoring health period; investigate."
+  fi
+fi
+
 if [[ "$DO_CONSUMERS" == 1 ]]; then
+  # Consumers (graph-os + messaging) reconnect to the restarted engine and pick up
+  # merged agent-utilities. They MUST run GRAPH_BACKEND=fanout — the removed `tiered`
+  # value fails bootstrap ("A persistent graph backend is required").
   restart "$GRAPHOS_SERVICE"
   restart "$MESSAGING_SERVICE"
 fi
