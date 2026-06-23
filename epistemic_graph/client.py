@@ -1811,6 +1811,9 @@ _HEAVY_RPC_METHODS = frozenset(
         "GetEdges",
         # SQL scans the whole node set (CONCEPT:KG-2.178) — give it the heavy budget.
         "Sql",
+        # A txn commit (CONCEPT:KG-2.180) applies the whole staged write-set under
+        # one lock — a large multi-op commit may legitimately take longer.
+        "Commit",
     }
 )
 
@@ -1846,6 +1849,102 @@ class QueryClient:
             cells = msgpack.unpackb(bytes(row_blob), raw=False)
             out.append(dict(zip(columns, cells, strict=False)))
         return out
+
+
+class TxnClient:
+    """CONCEPT:KG-2.180 — Multi-op OCC ACID Transaction Namespace.
+
+    Optimistic, snapshot-isolation, server-staged transactions. ``begin()``
+    returns a server-issued ``txn_id``; the ``add_node``/``remove_node``/
+    ``add_edge``/``remove_edge``/``cas`` calls STAGE durable mutations server-side
+    (nothing touches the graph until commit), and ``commit()`` validates the OCC
+    read-set and applies the whole write-set atomically — returning ``False`` on
+    conflict (a true rollback: nothing applied or persisted). ``rollback()``
+    discards the staged transaction. Usage::
+
+        txn = await client.txn.begin()
+        await client.txn.add_node(txn, "a", {"type": "Doc"})
+        await client.txn.add_edge(txn, "a", "b", {})
+        ok = await client.txn.commit(txn)   # False ⇒ OCC conflict, retry
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def begin(self, graph: str | None = None) -> str:
+        """Open a transaction and return its server-issued ``txn_id``. The target
+        graph defaults to the connection's graph; pass ``graph`` to override."""
+        params: dict[str, Any] = {}
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("BeginTxn", params, graph=graph)
+
+    async def add_node(
+        self, txn_id: str, node_id: str, properties: dict[str, Any] | None = None
+    ) -> bool:
+        return await self._client._send(
+            "TxnAddNode",
+            {
+                "txn_id": txn_id,
+                "node_id": node_id,
+                "properties_msgpack": list(msgpack.packb(properties or {})),
+            },
+        )
+
+    async def remove_node(self, txn_id: str, node_id: str) -> bool:
+        return await self._client._send(
+            "TxnRemoveNode", {"txn_id": txn_id, "node_id": node_id}
+        )
+
+    async def add_edge(
+        self,
+        txn_id: str,
+        source_id: str,
+        target_id: str,
+        properties: dict[str, Any] | None = None,
+    ) -> bool:
+        return await self._client._send(
+            "TxnAddEdge",
+            {
+                "txn_id": txn_id,
+                "source_id": source_id,
+                "target_id": target_id,
+                "properties_msgpack": list(msgpack.packb(properties or {})),
+            },
+        )
+
+    async def remove_edge(self, txn_id: str, source_id: str, target_id: str) -> bool:
+        return await self._client._send(
+            "TxnRemoveEdge",
+            {"txn_id": txn_id, "source_id": source_id, "target_id": target_id},
+        )
+
+    async def cas(
+        self,
+        txn_id: str,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Stage an atomic compare-and-set on ``node_id`` (applied at commit)."""
+        return await self._client._send(
+            "TxnCas",
+            {
+                "txn_id": txn_id,
+                "node_id": node_id,
+                "conditions_msgpack": list(msgpack.packb(conditions)),
+                "updates_msgpack": list(msgpack.packb(updates)),
+            },
+        )
+
+    async def commit(self, txn_id: str) -> bool:
+        """Commit the transaction. ``True`` ⇒ applied + persisted; ``False`` ⇒ OCC
+        conflict (nothing applied — a true rollback; re-begin and retry)."""
+        return await self._client._send("Commit", {"txn_id": txn_id})
+
+    async def rollback(self, txn_id: str) -> bool:
+        """Discard the staged transaction (nothing was applied/persisted)."""
+        return await self._client._send("Rollback", {"txn_id": txn_id})
 
 
 class EpistemicGraphClient:
@@ -1913,6 +2012,7 @@ class EpistemicGraphClient:
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
         self.query = QueryClient(self)
+        self.txn = TxnClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -2207,6 +2307,7 @@ class SyncEpistemicGraphClient:
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
         self.query = self._SyncWrapper(self._client.query, self._loop)
+        self.txn = self._SyncWrapper(self._client.txn, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

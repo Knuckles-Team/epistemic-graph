@@ -99,6 +99,14 @@ pub struct GraphCore {
     /// loaded graph is snapshotted once; thereafter `checkpoint_all` skips graphs
     /// that are still clean, so an idle tenant costs no checkpoint I/O.
     pub dirty: std::sync::atomic::AtomicBool,
+    /// Monotonic write-version counter for optimistic concurrency control
+    /// (CONCEPT:KG-2.180 — OCC ACID transactions). Bumped once per COMMITTED write
+    /// (every single-op/coalesced write via `mark_dirty`, and once per multi-op
+    /// txn commit). A staged OCC transaction snapshots this at begin and re-checks
+    /// it (plus the read-set node versions) under the commit lock; a concurrent
+    /// inline/coalesced write that bumped it forces the txn to re-validate. Read
+    /// cheaply via `version()`; never gates a read path.
+    pub version: std::sync::atomic::AtomicU64,
     /// Cached aho-corasick index of capability-node terms for the lexical
     /// classification gate (CONCEPT:EG-010). Built lazily and reused while the
     /// node count is unchanged, so `match_ontology_terms` is ~µs per query
@@ -327,6 +335,7 @@ impl GraphCore {
             ledger: Mutex::new(Vec::new()),
             semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
             dirty: std::sync::atomic::AtomicBool::new(true),
+            version: std::sync::atomic::AtomicU64::new(0),
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
         }
@@ -336,10 +345,25 @@ impl GraphCore {
     /// the dispatch after any successful write op and by the background decay sweep.
     pub fn mark_dirty(&self) {
         self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+        // Bump the OCC write-version (CONCEPT:KG-2.180): every committed write —
+        // single-op, coalesced batch, and (via the commit path) a multi-op txn —
+        // flows through `mark_dirty`, so an in-flight staged transaction's validate
+        // step observes any concurrent write that landed since it began. AcqRel so
+        // the bump is visible to a commit that reads `version()` under the topo
+        // write lock.
+        self.version
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         // Invalidate the lazy label index (CONCEPT:KG-2.176): a write may have
         // added/removed a node or rewritten a node's label, so the cached
         // `label → ids` map is stale and is rebuilt on the next label lookup.
         *self.label_index.write() = None;
+    }
+
+    /// Current OCC write-version (CONCEPT:KG-2.180). A staged transaction snapshots
+    /// this at begin and an OCC commit re-reads it under the topology write lock to
+    /// detect concurrent writes. Cheap atomic load — never on a read hot path.
+    pub fn version(&self) -> u64 {
+        self.version.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Atomically read-and-clear the dirty flag. The checkpoint calls this BEFORE
@@ -1009,6 +1033,9 @@ impl GraphCore {
             ledger: Mutex::new(self.ledger.lock().clone()),
             semantic_store: RwLock::new(self.semantic_store.read().clone()),
             dirty: std::sync::atomic::AtomicBool::new(true),
+            // Fork starts a fresh OCC version line (CONCEPT:KG-2.180) — it is a new
+            // independent graph; any txn against the fork baselines from 0.
+            version: std::sync::atomic::AtomicU64::new(0),
             // Fork starts with cold lazy indexes; rebuilt lazily on first use.
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),

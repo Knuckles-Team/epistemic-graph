@@ -16,3 +16,7 @@ pub(crate) mod graph_ops;
 // Method::Sql variant then falls to the graph_ops "not available" catch-all.
 #[cfg(feature = "query")]
 pub(crate) mod query;
+// Multi-op OCC ACID transactions (CONCEPT:KG-2.180). Always present with the
+// `server` feature — the Txn* methods are stateful (need `state`) and not
+// feature-gated to a compute domain.
+pub(crate) mod txn;
