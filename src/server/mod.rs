@@ -11,6 +11,9 @@ mod handlers;
 pub mod persistence;
 mod state;
 mod transport;
+// Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged
+// transaction state + id source; `handlers::txn` owns the Txn* methods.
+pub mod txn;
 
 // External path surface — `server::ServerState`, `server::MAX_BATCH_IDS`,
 // `server::compute_auth_token`, `server::dispatch`, and
@@ -18,7 +21,7 @@ mod transport;
 pub use auth::compute_auth_token;
 pub use dispatch::dispatch;
 pub use persistence::PersistenceBackend;
-pub use state::{ServerState, MAX_BATCH_IDS};
+pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
 pub use transport::{handle_connection, serve_tcp};
 // serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
 // so gate the re-export to keep the windows-msvc wheel building (main.rs already
@@ -52,6 +55,11 @@ mod tests {
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
         }))
     }
 
@@ -382,6 +390,11 @@ mod tests {
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -441,6 +454,11 @@ mod tests {
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -506,6 +524,11 @@ mod tests {
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -671,6 +694,11 @@ mod tests {
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
@@ -1302,5 +1330,345 @@ mod tests {
             }
         }
         assert_eq!(winners, 1, "exactly one CAS claimer wins through dispatch");
+    }
+
+    // ── Multi-op OCC ACID transactions (CONCEPT:KG-2.180) ───────────────
+
+    /// Open a txn on `graph` and return its server-issued id.
+    async fn begin_txn(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) -> String {
+        let resp = dispatch(
+            state,
+            request(
+                id,
+                graph,
+                None,
+                Method::BeginTxn {
+                    graph: None,
+                    isolation: None,
+                },
+            ),
+        )
+        .await;
+        match resp.result {
+            Some(ResultPayload::String(txn_id)) => txn_id,
+            other => panic!(
+                "BeginTxn must return a txn id, got {other:?} (err={:?})",
+                resp.error
+            ),
+        }
+    }
+
+    fn node_props(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// (a) Happy path: begin → stage two nodes + one edge → commit → all present.
+    #[tokio::test]
+    async fn txn_commit_applies_staged_writes() {
+        let state = test_state();
+        let txn = begin_txn(&state, 1, "__commons__").await;
+
+        for (i, nid) in ["a", "b"].iter().enumerate() {
+            let r = dispatch(
+                &state,
+                request(
+                    10 + i as u64,
+                    "__commons__",
+                    None,
+                    Method::TxnAddNode {
+                        txn_id: txn.clone(),
+                        node_id: nid.to_string(),
+                        properties_msgpack: node_props(serde_json::json!({"type": "Doc"})),
+                    },
+                ),
+            )
+            .await;
+            assert!(
+                matches!(r.result, Some(ResultPayload::Bool(true))),
+                "stage node {nid}"
+            );
+        }
+        let r = dispatch(
+            &state,
+            request(
+                20,
+                "__commons__",
+                None,
+                Method::TxnAddEdge {
+                    txn_id: txn.clone(),
+                    source_id: "a".into(),
+                    target_id: "b".into(),
+                    properties_msgpack: node_props(serde_json::json!({})),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(true))),
+            "stage edge"
+        );
+
+        // Nothing applied until commit: the nodes are absent pre-commit.
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        assert!(
+            !core.has_node("a"),
+            "staged node must NOT exist before commit"
+        );
+
+        // Commit → Bool(true), all present.
+        let r = dispatch(
+            &state,
+            request(
+                30,
+                "__commons__",
+                None,
+                Method::Commit {
+                    txn_id: txn.clone(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(true))),
+            "commit ok: {:?}",
+            r.error
+        );
+        assert!(
+            core.has_node("a") && core.has_node("b"),
+            "committed nodes present"
+        );
+        assert!(core.has_edge("a", "b"), "committed edge present");
+        // The txn id is consumed.
+        let s = state.read().await;
+        assert!(s.open_txns.get(&txn).is_none(), "committed txn removed");
+    }
+
+    /// (b) Rollback: begin → stage → rollback → graph unchanged, nothing persisted.
+    #[tokio::test]
+    async fn txn_rollback_applies_nothing() {
+        let state = test_state();
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        let v0 = core.version();
+        let txn = begin_txn(&state, 1, "__commons__").await;
+        let r = dispatch(
+            &state,
+            request(
+                10,
+                "__commons__",
+                None,
+                Method::TxnAddNode {
+                    txn_id: txn.clone(),
+                    node_id: "ghost".into(),
+                    properties_msgpack: node_props(serde_json::json!({})),
+                },
+            ),
+        )
+        .await;
+        assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
+
+        let r = dispatch(
+            &state,
+            request(
+                20,
+                "__commons__",
+                None,
+                Method::Rollback {
+                    txn_id: txn.clone(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(true))),
+            "rollback ok"
+        );
+        assert!(!core.has_node("ghost"), "rolled-back node must be absent");
+        assert_eq!(
+            core.version(),
+            v0,
+            "rollback bumps no version (nothing applied)"
+        );
+        assert_eq!(core.node_count(), 0, "graph unchanged after rollback");
+    }
+
+    /// (c) OCC conflict: two txns read-modify the SAME node; the first commits, the
+    /// second's commit returns Bool(false) (a true rollback — nothing applied).
+    #[tokio::test]
+    async fn txn_occ_conflict_second_commit_fails() {
+        let state = test_state();
+        // Seed the contended node.
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddNode {
+                        node_id: "k".into(),
+                        properties_msgpack: node_props(serde_json::json!({"v": 0})),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // Both transactions open and stage a CAS-like overwrite of node "k"; both
+        // fingerprint "k" at its CURRENT (v=0) state.
+        let t1 = begin_txn(&state, 2, "__commons__").await;
+        let t2 = begin_txn(&state, 3, "__commons__").await;
+        for (rid, txn, val) in [(10u64, &t1, 1), (11, &t2, 2)] {
+            let r = dispatch(
+                &state,
+                request(
+                    rid,
+                    "__commons__",
+                    None,
+                    Method::TxnAddNode {
+                        txn_id: txn.clone(),
+                        node_id: "k".into(),
+                        properties_msgpack: node_props(serde_json::json!({"v": val})),
+                    },
+                ),
+            )
+            .await;
+            assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
+        }
+
+        // First commit wins.
+        let r1 = dispatch(
+            &state,
+            request(
+                20,
+                "__commons__",
+                None,
+                Method::Commit { txn_id: t1.clone() },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r1.result, Some(ResultPayload::Bool(true))),
+            "t1 commits"
+        );
+
+        // Second commit conflicts (node "k" changed since t2 began) → Bool(false).
+        let r2 = dispatch(
+            &state,
+            request(
+                21,
+                "__commons__",
+                None,
+                Method::Commit { txn_id: t2.clone() },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r2.result, Some(ResultPayload::Bool(false))),
+            "t2 must conflict, got {:?} err={:?}",
+            r2.result,
+            r2.error
+        );
+
+        // t1's value won; t2 applied nothing.
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        let props: serde_json::Value =
+            rmp_serde::from_slice(&core.get_node_properties("k").unwrap()).unwrap();
+        assert_eq!(
+            props["v"], 1,
+            "first committer's write survives, not the conflicted one"
+        );
+    }
+
+    /// (d) Abandoned txn auto-rolls-back after the TTL (drive the sweep directly).
+    #[tokio::test]
+    async fn txn_ttl_sweep_reclaims_idle() {
+        use crate::server::txn::{now_ms, sweep_expired_txns};
+        let state = test_state();
+        let txn = begin_txn(&state, 1, "__commons__").await;
+        assert!(state.read().await.open_txns.get(&txn).is_some());
+
+        // A sweep with a future "now" (TTL elapsed) reclaims the idle txn.
+        let future = now_ms() + 10 * 60 * 1000; // 10 min later
+        let reclaimed = sweep_expired_txns(&state, 300, future);
+        assert_eq!(reclaimed, 1, "idle txn past TTL is swept");
+        assert!(
+            state.read().await.open_txns.get(&txn).is_none(),
+            "swept txn removed"
+        );
+        // Committing a swept txn is now an unknown-id error (true rollback occurred).
+        let r = dispatch(
+            &state,
+            request(2, "__commons__", None, Method::Commit { txn_id: txn }),
+        )
+        .await;
+        assert!(r.error.is_some(), "committing a swept txn errors");
+    }
+
+    /// (e) Regression: standalone single-op CAS still works (degenerate 1-op
+    /// auto-commit) and is untouched by the txn machinery.
+    #[tokio::test]
+    async fn standalone_cas_still_works() {
+        let state = test_state();
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddNode {
+                        node_id: "task".into(),
+                        properties_msgpack: node_props(serde_json::json!({"owner": null})),
+                    },
+                ),
+            )
+            .await,
+        );
+        let r = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::CompareAndSetNodeFields {
+                    node_id: "task".into(),
+                    conditions_msgpack: node_props(serde_json::json!({"owner": null})),
+                    updates_msgpack: node_props(serde_json::json!({"owner": "w1"})),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(true))),
+            "CAS claims"
+        );
+        // A second CAS with the same condition fails (already claimed).
+        let r = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::CompareAndSetNodeFields {
+                    node_id: "task".into(),
+                    conditions_msgpack: node_props(serde_json::json!({"owner": null})),
+                    updates_msgpack: node_props(serde_json::json!({"owner": "w2"})),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(false))),
+            "second CAS rejected"
+        );
     }
 }

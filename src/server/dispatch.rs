@@ -404,6 +404,40 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             .await
         }
 
+        // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ──────
+        // Stateful + self-routing: a Txn* op targets the graph the txn was opened
+        // against (resolved from `open_txns`), NOT necessarily `req.graph`, and
+        // BeginTxn carries its own graph. So they are handled here (with `state`)
+        // BEFORE the graph-op path — never through `dispatch_graph_op`, whose
+        // coalescer/registry-lookup assumes a single `req.graph` target. For
+        // BeginTxn the request envelope's `graph` is the default target when the
+        // body omits one.
+        Method::BeginTxn { .. }
+        | Method::TxnAddNode { .. }
+        | Method::TxnRemoveNode { .. }
+        | Method::TxnAddEdge { .. }
+        | Method::TxnRemoveEdge { .. }
+        | Method::TxnCas { .. }
+        | Method::Commit { .. }
+        | Method::Rollback { .. } => {
+            // BeginTxn defaults its target to the request envelope's graph.
+            let method = match req.method {
+                Method::BeginTxn {
+                    graph: None,
+                    isolation,
+                } => Method::BeginTxn {
+                    graph: Some(req.graph.clone()),
+                    isolation,
+                },
+                m => m,
+            };
+            match handlers::txn::try_handle(state, req.id, req.agent_id.as_deref(), method).await {
+                Ok(resp) => resp,
+                // Unreachable: every variant matched above is a txn method.
+                Err(_) => Response::err(req.id, "txn dispatch routing error"),
+            }
+        }
+
         // ── Graph operations (dispatch to target graph) ──────────────
         _ => {
             dispatch_graph_op(

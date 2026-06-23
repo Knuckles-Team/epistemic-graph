@@ -766,6 +766,11 @@ mod tests {
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(dashmap::DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
         }))
     }
 
@@ -851,6 +856,118 @@ mod tests {
             Some(props(serde_json::json!({"type": "Task", "n": 1})))
         );
         assert_eq!(core2.get_edges().len(), 1);
+        backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:KG-2.180 — a committed OCC transaction is durable through the redb
+    /// backend: stage nodes/edge in a txn, commit through the full dispatch path
+    /// (which records each staged method via `persistence.record`), drop, then
+    /// reload via redb-only → the committed graph is recovered.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn txn_commit_persists_to_redb() {
+        use crate::protocol::{Request, ResultPayload};
+        use crate::server::{compute_auth_token, dispatch};
+
+        const SECRET: &str = "redb-txn-secret";
+        let dir = std::env::temp_dir().join(format!("eg-redb-txn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("open redb backend"),
+        );
+        let state = new_state(Some(dir_s.clone()));
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend.clone());
+        }
+
+        let req = |id: u64, method: Method| Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        };
+        let txn = match dispatch(
+            &state,
+            req(
+                1,
+                Method::BeginTxn {
+                    graph: None,
+                    isolation: None,
+                },
+            ),
+        )
+        .await
+        .result
+        {
+            Some(ResultPayload::String(t)) => t,
+            other => panic!("BeginTxn id, got {other:?}"),
+        };
+        for (rid, nid) in [(2u64, "x"), (3, "y")] {
+            let r = dispatch(
+                &state,
+                req(
+                    rid,
+                    Method::TxnAddNode {
+                        txn_id: txn.clone(),
+                        node_id: nid.into(),
+                        properties_msgpack: props(serde_json::json!({"type": "Task"})),
+                    },
+                ),
+            )
+            .await;
+            assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
+        }
+        let r = dispatch(
+            &state,
+            req(
+                4,
+                Method::TxnAddEdge {
+                    txn_id: txn.clone(),
+                    source_id: "x".into(),
+                    target_id: "y".into(),
+                    properties_msgpack: props(serde_json::json!({})),
+                },
+            ),
+        )
+        .await;
+        assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
+
+        let r = dispatch(&state, req(5, Method::Commit { txn_id: txn })).await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(true))),
+            "commit ok: {:?}",
+            r.error
+        );
+
+        // Checkpoint to flush graph_meta + a durable commit, then reload redb-only.
+        assert!(backend.checkpoint_all(&state).await.unwrap() >= 1);
+        backend.shutdown();
+
+        let backend2 =
+            RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("reopen redb backend");
+        let state2 = new_state(Some(dir_s.clone()));
+        backend2.load_all(&state2).await.unwrap();
+        let core2 = {
+            let s = state2.read().await;
+            s.registry
+                .get("__commons__")
+                .map(|e| e.core.clone())
+                .expect("__commons__ reloaded")
+        };
+        assert!(
+            core2.has_node("x") && core2.has_node("y"),
+            "committed txn nodes durable in redb"
+        );
+        assert_eq!(
+            core2.get_edges().len(),
+            1,
+            "committed txn edge durable in redb"
+        );
         backend2.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }

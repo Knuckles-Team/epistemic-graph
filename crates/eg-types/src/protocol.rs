@@ -977,6 +977,68 @@ pub enum Method {
         #[serde(default, with = "serde_bytes")]
         params_msgpack: Vec<u8>,
     },
+
+    // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ───────────────
+    // Server-side STAGED, OPTIMISTIC, snapshot-isolation transactions. `BeginTxn`
+    // returns a server-issued `txn_id` (String). The `Txn*` ops STAGE durable
+    // mutations into a server-held write-set (nothing touches the graph or
+    // persistence until commit) and ack with `Bool(true)`. `Commit` takes the
+    // topology write lock ONCE — the serialization point — validates the OCC
+    // read-set (no targeted node changed since begin), applies the staged write-set
+    // atomically through one `GraphTxn`, bumps the version counter, and persists;
+    // it returns `Bool(false)` on conflict (true rollback — nothing applied).
+    // `Rollback` discards the staged state and returns `Bool(true)`. The write
+    // coalescer is NOT involved: staged ops are applied directly via `GraphTxn` at
+    // commit, so there is no interaction/deadlock with the per-graph write worker
+    // (which only handles NON-transactional single-op writes). A long-open txn
+    // never holds `topo.write()`. (A single redb WriteTransaction per commit — a
+    // true durability barrier — is a future enhancement; M6 persists per staged op
+    // at commit and relies on the single GraphTxn for in-memory atomicity.)
+    BeginTxn {
+        /// Optional explicit target graph; defaults to the request envelope's
+        /// `graph` when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+        /// Reserved isolation hint; only snapshot isolation is implemented.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        isolation: Option<String>,
+    },
+    TxnAddNode {
+        txn_id: String,
+        node_id: String,
+        #[serde(with = "serde_bytes")]
+        properties_msgpack: Vec<u8>,
+    },
+    TxnRemoveNode {
+        txn_id: String,
+        node_id: String,
+    },
+    TxnAddEdge {
+        txn_id: String,
+        source_id: String,
+        target_id: String,
+        #[serde(with = "serde_bytes")]
+        properties_msgpack: Vec<u8>,
+    },
+    TxnRemoveEdge {
+        txn_id: String,
+        source_id: String,
+        target_id: String,
+    },
+    TxnCas {
+        txn_id: String,
+        node_id: String,
+        #[serde(with = "serde_bytes")]
+        conditions_msgpack: Vec<u8>,
+        #[serde(with = "serde_bytes")]
+        updates_msgpack: Vec<u8>,
+    },
+    Commit {
+        txn_id: String,
+    },
+    Rollback {
+        txn_id: String,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
