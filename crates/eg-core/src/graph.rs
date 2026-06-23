@@ -76,6 +76,29 @@ struct OntologyTermIndex {
     metas: Vec<OntologyMatch>,
 }
 
+/// Secondary property index (CONCEPT:KG-2.199): a bounded, demand-driven set of
+/// per-key `value → node ids` maps for equality lookups. Built lazily on
+/// [`GraphCore`] and invalidated by `mark_dirty()`, mirroring the label index.
+///
+/// Policy (bounded + opt-in so indexing every key can't blow up memory):
+/// * `keys` are added on demand — a property key is indexed the FIRST time
+///   `nodes_by_property` is called for it (and then reused), so we only pay for
+///   the keys queries actually filter on.
+/// * `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` (comma-separated) pre-seeds keys to
+///   index eagerly on the first build.
+/// * `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` (default 32) caps how many distinct
+///   keys are ever indexed; once full, a new key is NOT added (the caller falls
+///   back to a full scan). The cap is read once per build.
+#[derive(Debug, Default)]
+struct PropertyIndex {
+    /// `key → (value → node ids)`. A value is the canonical string form of the
+    /// property (see [`GraphCore::property_value_key`]).
+    keys: HashMap<String, HashMap<String, Vec<String>>>,
+}
+
+/// Default cap on the number of distinct property keys ever indexed.
+const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
+
 /// Capability node types whose names/synonyms form the lexical gate vocabulary.
 const CAPABILITY_NODE_TYPES: &[&str] = &[
     "Tool",
@@ -122,6 +145,22 @@ pub struct GraphCore {
     /// use / after invalidation. A node appears under every label it carries
     /// across `type`/`node_type`/`label`/`labels` (mirrors `get_nodes_by_label`).
     label_index: RwLock<Option<HashMap<String, Vec<String>>>>,
+    /// Cached secondary PROPERTY index (CONCEPT:KG-2.199): for each indexed
+    /// property key, a `value → node ids` map so `nodes_by_property(key, value)`
+    /// is an O(1) map lookup instead of a full DashMap scan that deserializes
+    /// every node's properties (the perf win behind SQL `WHERE prop = 'x'`
+    /// predicate pushdown in eg-query). The set of indexed keys is BOUNDED and
+    /// demand-driven: a key is indexed on its FIRST `nodes_by_property` call and
+    /// then cached, up to `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` keys (default
+    /// 32); keys named in `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` (comma-separated)
+    /// are pre-seeded on first use. Indexing every key would be unbounded memory,
+    /// hence the cap. Invalidated by `mark_dirty()` after any successful write —
+    /// the SAME dirty flag the checkpoint + label index use — so it never serves a
+    /// stale view across a mutation (a property write can change an indexed value
+    /// without changing `node_count`, so validity must NOT key on node count).
+    /// `None` until first use / after invalidation; the inner map only ever holds
+    /// the keys demanded so far.
+    property_index: RwLock<Option<PropertyIndex>>,
     /// Read-through into the durable tier on a RAM MISS (CONCEPT:KG-2.191). Set
     /// only under redb-AUTHORITATIVE mode, where a node may have been evicted from
     /// RAM once it is durable in redb. On a node-property miss the read path
@@ -346,6 +385,7 @@ impl GraphCore {
             version: std::sync::atomic::AtomicU64::new(0),
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
+            property_index: RwLock::new(None),
             read_through: RwLock::new(None),
         }
     }
@@ -374,6 +414,11 @@ impl GraphCore {
         // added/removed a node or rewritten a node's label, so the cached
         // `label → ids` map is stale and is rebuilt on the next label lookup.
         *self.label_index.write() = None;
+        // Invalidate the lazy property index (CONCEPT:KG-2.199): a write may have
+        // changed an indexed property value or added/removed a node, so the cached
+        // `value → ids` maps are stale and are rebuilt (over the same demanded keys)
+        // on the next `nodes_by_property` lookup.
+        *self.property_index.write() = None;
     }
 
     /// Current OCC write-version (CONCEPT:KG-2.180). A staged transaction snapshots
@@ -522,6 +567,161 @@ impl GraphCore {
             ids.dedup();
         }
         index
+    }
+
+    // ── secondary property index (CONCEPT:KG-2.199) ──────────────────────────
+
+    /// Node ids whose property `key` equals `value`, via the bounded, demand-driven
+    /// secondary property index (CONCEPT:KG-2.199). Equality only. The first call
+    /// for a given `key` indexes it (subject to the configured cap) and caches the
+    /// `value → ids` map; subsequent calls are an O(1) map hit. The cache is
+    /// invalidated by `mark_dirty()` after any write, so it never serves a stale
+    /// view across a mutation.
+    ///
+    /// `value` is compared against the canonical string form of the stored property
+    /// (see [`Self::property_value_key`]): strings match their text, scalars their
+    /// `to_string()`. Returns ids sorted + deduped (one id per node).
+    ///
+    /// Returns `None` when `key` is NOT (and cannot be) indexed under the bound —
+    /// the caller must then full-scan. Returns `Some(vec)` (possibly empty) when the
+    /// key IS indexed: an empty vec means "indexed, no node has that value".
+    pub fn nodes_by_property(&self, key: &str, value: &str) -> Option<Vec<String>> {
+        // Fast path: key already indexed in the cached map.
+        {
+            let guard = self.property_index.read();
+            if let Some(idx) = guard.as_ref() {
+                if let Some(by_value) = idx.keys.get(key) {
+                    return Some(by_value.get(value).cloned().unwrap_or_default());
+                }
+            }
+        }
+        // Slow path: build/extend the index to cover `key` (bounded), then answer.
+        let mut guard = self.property_index.write();
+        let idx = guard.get_or_insert_with(PropertyIndex::default);
+        self.ensure_key_indexed(idx, key)?;
+        Some(
+            idx.keys
+                .get(key)
+                .and_then(|by_value| by_value.get(value).cloned())
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Composite equality lookup (CONCEPT:KG-2.199): node ids matching EVERY
+    /// `(key, value)` pair, as the intersection of the per-key equality sets. Used
+    /// for pushdown of multiple `col = literal` predicates ANDed together. Returns
+    /// `None` if ANY key is not (and cannot be) indexed under the bound — the caller
+    /// then full-scans the whole predicate; partial pushdown would risk divergence.
+    pub fn nodes_by_properties(&self, pairs: &[(&str, &str)]) -> Option<Vec<String>> {
+        if pairs.is_empty() {
+            return None;
+        }
+        // Resolve each predicate via the single-key path (each ensures its key is
+        // indexed); intersect the resulting id sets. Start from the smallest set.
+        let mut sets: Vec<Vec<String>> = Vec::with_capacity(pairs.len());
+        for (k, v) in pairs {
+            sets.push(self.nodes_by_property(k, v)?);
+        }
+        sets.sort_by_key(|s| s.len());
+        let mut acc = sets.remove(0);
+        for s in &sets {
+            let other: std::collections::HashSet<&String> = s.iter().collect();
+            acc.retain(|id| other.contains(id));
+        }
+        Some(acc)
+    }
+
+    /// Ensure `key` is present in the property index, honouring the bound. Returns
+    /// `Some(())` if the key is (now) indexed, `None` if the cap is full and the key
+    /// is not already present (so the caller must full-scan). Pre-seeds any keys
+    /// named in `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` on the first build.
+    // `map_entry` would have us use `entry().or_insert_with`, but the bounded cap
+    // means we must NOT insert when the map is full — `entry` always inserts, so the
+    // explicit `contains_key`/`len`-then-`insert` is the correct shape here.
+    #[allow(clippy::map_entry)]
+    fn ensure_key_indexed(&self, idx: &mut PropertyIndex, key: &str) -> Option<()> {
+        let cap = Self::max_indexed_properties();
+        // First-build pre-seed: index every env-named key (subject to the cap).
+        if idx.keys.is_empty() {
+            for seed in Self::seed_indexed_properties() {
+                if idx.keys.len() >= cap || idx.keys.contains_key(&seed) {
+                    continue;
+                }
+                let map = self.build_property_value_map(&seed);
+                idx.keys.insert(seed, map);
+            }
+        }
+        if idx.keys.contains_key(key) {
+            return Some(());
+        }
+        if idx.keys.len() >= cap {
+            // Cap reached and this key isn't indexed — refuse (full-scan fallback).
+            return None;
+        }
+        let map = self.build_property_value_map(key);
+        idx.keys.insert(key.to_string(), map);
+        Some(())
+    }
+
+    /// Scan the node store once and build the `value → node ids` map for one
+    /// property `key`. Each node is filed under the canonical string form of its
+    /// `key` value (if present and a scalar). Ids are sorted + deduped.
+    fn build_property_value_map(&self, key: &str) -> HashMap<String, Vec<String>> {
+        let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
+        for entry in self.node_properties.iter() {
+            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
+            else {
+                continue;
+            };
+            if let Some(vk) = val.get(key).and_then(Self::property_value_key) {
+                by_value.entry(vk).or_default().push(entry.key().clone());
+            }
+        }
+        for ids in by_value.values_mut() {
+            ids.sort_unstable();
+            ids.dedup();
+        }
+        by_value
+    }
+
+    /// Canonical string key for an equality-indexable property value: strings index
+    /// under their text, bools/numbers under their `to_string()`. Arrays/objects/
+    /// null are NOT equality-indexable (return `None`) — they fall to a full scan,
+    /// matching how an equality predicate on such a column behaves.
+    fn property_value_key(v: &serde_json::Value) -> Option<String> {
+        match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Bool(b) => Some(b.to_string()),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Cap on the number of distinct property keys ever indexed
+    /// (`EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES`, default 32). `0` is treated as the
+    /// default rather than "disable" so a misconfigured empty value can't silently
+    /// turn the index off.
+    fn max_indexed_properties() -> usize {
+        std::env::var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(DEFAULT_MAX_INDEXED_PROPERTIES)
+    }
+
+    /// Property keys to pre-seed into the index on first build
+    /// (`EPISTEMIC_GRAPH_INDEXED_PROPERTIES`, comma-separated). Empty when unset.
+    fn seed_indexed_properties() -> Vec<String> {
+        std::env::var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES")
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(str::trim)
+                    .filter(|k| !k.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Lexical classification gate (CONCEPT:EG-010): find every capability term
@@ -1076,6 +1276,7 @@ impl GraphCore {
             // Fork starts with cold lazy indexes; rebuilt lazily on first use.
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
+            property_index: RwLock::new(None),
             // A fork is a fresh, detached graph (not registered, not backed by the
             // durable tier), so it carries no read-through (CONCEPT:KG-2.191).
             read_through: RwLock::new(None),
@@ -1733,6 +1934,129 @@ mod tests {
 
     fn props(map: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&map).unwrap()
+    }
+
+    // ── secondary property index (CONCEPT:KG-2.199) ──────────────────────────
+
+    /// Serializes the env-mutating property-index tests (env is process-global and
+    /// Rust runs tests on parallel threads).
+    static PROP_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn prop_graph() -> GraphCore {
+        let core = GraphCore::new();
+        for (id, val) in [
+            (
+                "n1",
+                serde_json::json!({"type": "Agent", "team": "blue", "rank": 1}),
+            ),
+            (
+                "n2",
+                serde_json::json!({"type": "Agent", "team": "red", "rank": 2}),
+            ),
+            (
+                "n3",
+                serde_json::json!({"type": "Tool", "team": "blue", "rank": 3}),
+            ),
+            (
+                "n4",
+                serde_json::json!({"type": "Tool", "team": "blue", "rank": 3}),
+            ),
+        ] {
+            core.add_node(id.into(), props(val));
+        }
+        core
+    }
+
+    #[test]
+    fn property_index_returns_correct_ids() {
+        let core = prop_graph();
+        // Demand-driven: indexing `team` on first call. Equality lookup.
+        let mut blue = core.nodes_by_property("team", "blue").unwrap();
+        blue.sort();
+        assert_eq!(blue, vec!["n1", "n3", "n4"]);
+        assert_eq!(core.nodes_by_property("team", "red").unwrap(), vec!["n2"]);
+        // Indexed key, no matching value -> empty (Some, not None).
+        assert_eq!(
+            core.nodes_by_property("team", "green").unwrap(),
+            Vec::<String>::new()
+        );
+        // Numeric value indexes under its canonical string form.
+        let mut r3 = core.nodes_by_property("rank", "3").unwrap();
+        r3.sort();
+        assert_eq!(r3, vec!["n3", "n4"]);
+    }
+
+    #[test]
+    fn property_index_invalidates_after_mutation() {
+        let core = prop_graph();
+        assert_eq!(core.nodes_by_property("team", "red").unwrap(), vec!["n2"]);
+        let v0 = core.version();
+        // Move n1 from blue -> red. The dispatch layer calls mark_dirty after a
+        // write (mirrors the label-index test); that bumps version + drops the index.
+        core.add_node(
+            "n1".into(),
+            props(serde_json::json!({"type": "Agent", "team": "red"})),
+        );
+        core.mark_dirty();
+        assert_ne!(core.version(), v0, "write must bump version");
+        let mut red = core.nodes_by_property("team", "red").unwrap();
+        red.sort();
+        assert_eq!(
+            red,
+            vec!["n1", "n2"],
+            "rebuilt index must reflect the write"
+        );
+        assert_eq!(
+            core.nodes_by_property("team", "blue").unwrap(),
+            vec!["n3", "n4"]
+        );
+    }
+
+    #[test]
+    fn property_index_composite_lookup() {
+        let core = prop_graph();
+        // team=blue AND type=Tool -> n3, n4 (n1 is blue but Agent).
+        let mut got = core
+            .nodes_by_properties(&[("team", "blue"), ("type", "Tool")])
+            .unwrap();
+        got.sort();
+        assert_eq!(got, vec!["n3", "n4"]);
+        // No node is both red and Tool.
+        assert_eq!(
+            core.nodes_by_properties(&[("team", "red"), ("type", "Tool")])
+                .unwrap(),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn property_index_bounded_cap_falls_back() {
+        let _g = PROP_ENV_LOCK.lock().unwrap();
+        std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES", "1");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
+        let core = prop_graph();
+        // First key indexes fine.
+        assert!(core.nodes_by_property("team", "blue").is_some());
+        // Second distinct key hits the cap (1) -> None, caller must full-scan.
+        assert!(
+            core.nodes_by_property("type", "Tool").is_none(),
+            "cap=1 must refuse a second key"
+        );
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
+    }
+
+    #[test]
+    fn property_index_seed_opt_in() {
+        let _g = PROP_ENV_LOCK.lock().unwrap();
+        std::env::set_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES", " team , type ");
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
+        let core = prop_graph();
+        // A query on a pre-seeded key works (seeded on first build).
+        let mut blue = core.nodes_by_property("team", "blue").unwrap();
+        blue.sort();
+        assert_eq!(blue, vec!["n1", "n3", "n4"]);
+        assert_eq!(core.nodes_by_property("type", "Agent").unwrap().len(), 2);
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
     }
 
     /// CONCEPT:KG-2.191 — the read-through seam, exercised purely in eg-core with a

@@ -17,7 +17,7 @@ use eg_core::graph::GraphView;
 // The wire DTO lives at the bottom of the DAG (eg-types); the algorithm stays here.
 pub use eg_types::protocol::QueryResult;
 
-use super::providers::{infer_edges, infer_nodes, SqlCache};
+use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, PagerankFunc};
 use super::udfs::{epistemic_decay_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf};
 
@@ -103,8 +103,10 @@ fn run(
     ),
     sql: &str,
 ) -> Result<QueryResult, String> {
-    let nodes_table = MemTable::try_new(nodes.0, vec![vec![nodes.1]])
-        .map_err(|e| format!("nodes mem table: {e}"))?;
+    // CONCEPT:KG-2.199: the `nodes` table is a custom provider with secondary-index
+    // predicate pushdown — a `WHERE col = 'x'` narrows rows via the index instead of
+    // scanning every node. `edges` stays a plain MemTable.
+    let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
     let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
         .map_err(|e| format!("edges mem table: {e}"))?;
 
@@ -156,8 +158,8 @@ fn run_typed(
     ),
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
-    let nodes_table = MemTable::try_new(nodes.0, vec![vec![nodes.1]])
-        .map_err(|e| format!("nodes mem table: {e}"))?;
+    // CONCEPT:KG-2.199: secondary-index predicate pushdown on `nodes` (see `run`).
+    let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
     let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
         .map_err(|e| format!("edges mem table: {e}"))?;
     let snap = Arc::new(view.clone());
