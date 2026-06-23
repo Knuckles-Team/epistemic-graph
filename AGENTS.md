@@ -47,35 +47,38 @@ Two rules follow, and they shape every integration:
 There is no GIL coupling and no shared address space — design for a network boundary,
 because that is exactly what it is.
 
-## Durability model — the engine is a rebuildable cache, NOT the source of truth
+## Durability model — redb-authoritative is the DEFAULT (CONCEPT:KG-2.195 — THE FLIP)
 
-The durable system-of-record is the **abstracted backend** agent-utilities writes
-through (Postgres/pggraph, neo4j, falkordb, or ladybug). This engine is the **fast
-in-memory cache + compute layer** over it:
+**The engine is now a durable SOURCE OF TRUTH out of the box.** When built with the
+`redb` feature — which `full`/`node`/`cluster`/`pi` all include — the persist
+backend defaults to `redb` and runs in **authoritative mode** whenever a persist
+dir is configured. A stock deployment is therefore durable-by-default: an acked
+write survives a `kill -9` (proven by `tests/test_redb_authoritative_crash.py::test_stock_default_build_is_durable_by_default`,
+which sets NO durability env — only a persist dir). The one-time `.mp`/`.wal` →
+redb migration runs automatically on first authoritative boot (old files left as a
+backstop).
 
-- The local RDB snapshot (`.mp`) + WAL exist purely for **fast warm restart** —
-  they bound how much a restart has to recompute, not whether data survives.
-- A crashed shard is a **latency event, not data loss**: it re-hydrates from the
-  durable backend (or replays its snapshot + WAL). Run the engine under a
-  supervisor (systemd / the Python host daemon) that auto-restarts it; restart is
-  sub-second for typical shards, so the RTO is small.
-- By DEFAULT there is **no in-engine replication or consensus** — that would
-  duplicate the durable backend's job. Horizontal scale is client-side HRW
-  sharding over independent single-process shards, and per-graph memory is bounded
-  by `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (LRU eviction back to the durable tier)
-  so a shard **degrades instead of OOM-killing every tenant** on it. (The
-  cluster-tier opt-in below pairs in-engine Raft with the redb-authoritative store
-  for the HA case where the engine itself IS the system-of-record.)
+**Resolution rules** (read once at startup, `src/main.rs`):
 
-### Opt-in: redb-AUTHORITATIVE mode (CONCEPT:KG-2.187, behind a flag, default OFF)
+- **Backend** = `EPISTEMIC_GRAPH_PERSIST_BACKEND`, default **`redb`**. Force the old
+  rebuildable-cache path with `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot`.
+- **Authoritative** = `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` when set, else defaults
+  **ON exactly when the redb backend is active** (the `redb` feature is compiled AND
+  selected). A `snapshot` build, or a build without the `redb` feature (bare
+  `default` / `server`-only — where the `redb` default name silently falls back to
+  snapshot), is **not** authoritative and boots clean with **no warning**.
+- The mismatch warning fires ONLY when an operator EXPLICITLY sets
+  `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE=1` against a build where the redb backend is
+  not active. Likewise the "backend not available, falling back to snapshot"
+  warning fires ONLY when the operator EXPLICITLY named `redb` in a non-redb build —
+  not for the new implicit default.
+- **No persist dir** + authoritative ⇒ the engine runs **in-memory only** (every
+  durable-record/eviction path short-circuits on the absent backend — no panic, no
+  files written) and logs a loud warning that writes are not durable. Set a persist
+  dir to make it a source of truth.
 
-The model above is the DEFAULT and is unchanged. A flag —
-`EPISTEMIC_GRAPH_REDB_AUTHORITATIVE=1` (only meaningful with
-`EPISTEMIC_GRAPH_PERSIST_BACKEND=redb`), read once at startup into
-`ServerState.redb_authoritative` — makes **redb the system-of-record** instead of a
-write-through cache tier. When OFF, behavior is byte-for-byte as described above
-(fire-and-forget `record()`, LRU eviction to an external tier, drop-on-saturation).
-When ON, three durability rules change so "authoritative" is actually safe:
+The three durability rules that make "authoritative" actually safe (CONCEPT:KG-2.187/
+KG-2.191), read once at startup into `ServerState.redb_authoritative`:
 
 - **Commit-before-ack.** A durable mutation is COMMITTED to redb (group-commit
   fsync) BEFORE its Response is acked. Dispatch awaits `record_durable`; a commit
@@ -96,9 +99,29 @@ When ON, three durability rules change so "authoritative" is actually safe:
   (off-reactor) instead of shedding a mutation. A durable write is never silently
   discarded.
 
-A one-time migration imports legacy `.mp`/`.wal` snapshots into redb on first
-authoritative boot (old files are LEFT as a backstop). The program will flip this
-flag's default ON in a later wave; today it ships default-OFF.
+### Opt-in: the rebuildable-cache model (`EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot`)
+
+When the backend is `snapshot` (or the `redb` feature isn't compiled), the engine
+is the **fast in-memory cache + compute layer** over an external durable
+system-of-record (the **abstracted backend** agent-utilities writes through —
+Postgres/pggraph, neo4j, falkordb, or ladybug). Behavior is byte-for-byte the
+pre-flip model:
+
+- The local RDB snapshot (`.mp`) + WAL exist purely for **fast warm restart** —
+  they bound how much a restart has to recompute, not whether data survives.
+- A crashed shard is a **latency event, not data loss**: it re-hydrates from the
+  durable backend (or replays its snapshot + WAL). Run the engine under a
+  supervisor (systemd / the Python host daemon) that auto-restarts it; restart is
+  sub-second for typical shards, so the RTO is small.
+- There is **no in-engine replication or consensus** in this mode — that would
+  duplicate the durable backend's job. Horizontal scale is client-side HRW
+  sharding over independent single-process shards, and per-graph memory is bounded
+  by `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` (LRU eviction back to the durable tier)
+  so a shard **degrades instead of OOM-killing every tenant** on it. (The
+  cluster-tier opt-in below pairs in-engine Raft with the redb-authoritative store
+  for the HA case where the engine itself IS the system-of-record.)
+- Durable mutations use fire-and-forget `record()` (write-behind); eviction drops
+  the LRU on saturation.
 
 ### Opt-in: in-engine Raft replication (CONCEPT:KG-2.188, `raft` feature, cluster tier)
 
@@ -248,7 +271,12 @@ compute     = ["finance", "ast", "datascience", "reasoning"]
 # Tokio service (UDS/TCP). tokio is pinned to the minimal feature set actually
 # used (rt-multi-thread, net, io-util, sync, time) — NOT "full".
 server      = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
-full        = ["compute", "server"]
+# Durable redb store (CONCEPT:KG-2.177). Folded into full/node/cluster/pi so the
+# standard build is redb-AUTHORITATIVE by default (CONCEPT:KG-2.195 — THE FLIP).
+redb        = ["server", "dep:redb"]
+# `full` now pulls `redb` (+ `query`/`cypher`) so a stock full build is a durable
+# source of truth out of the box. It stays SINGLE-NODE (no `raft`/`openraft`).
+full        = ["compute", "server", "query", "cypher", "redb"]
 ```
 
 `eg-compute` is a non-optional dep (its `algorithms` is used by the always-on
@@ -370,6 +398,9 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `GRAPH_SERVICE_AUTH_SECRET` | HMAC-SHA256 secret for the Tokio service (alias: `EPISTEMIC_GRAPH_SECRET` via `run_shards.sh`). **Required** — the server refuses to start with an empty secret |
 | `EPISTEMIC_GRAPH_ALLOW_INSECURE` | `1`/`true`: explicit opt-out allowing an empty auth secret (development only; prominent warning at startup) |
 | `GRAPH_SERVICE_SOCKET` | Path to the UDS socket |
+| `GRAPH_SERVICE_PERSIST_DIR` | Persist dir (alias `--persist-dir`). When set with a redb-bearing build, the engine is a durable source of truth; absent ⇒ in-memory only |
+| `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` (**default**, CONCEPT:KG-2.195) = durable authoritative store; `snapshot` = opt-in rebuildable-cache (snapshot RDB + WAL). A `redb` request in a build without the `redb` feature silently falls back to snapshot |
+| `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` | Override authoritative mode. Unset ⇒ defaults ON when the redb backend is active (full/node/cluster/pi). Set `1` against a non-redb build ⇒ warns + ignored |
 | `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints for the Python `ShardRouter` |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess → `BUSY` |
 | `GRAPH_SERVICE_METRICS_ADDR` | Prometheus `/metrics` HTTP listener address (alias of `--metrics-addr`, e.g. `127.0.0.1:9101`). Disabled when unset; requires the `metrics` cargo feature (on by default) |

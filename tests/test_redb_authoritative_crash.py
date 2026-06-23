@@ -57,6 +57,52 @@ def _build_redb() -> str | None:
     return binary if os.path.exists(binary) else None
 
 
+def _build_full() -> str | None:
+    """Build the standard ``full`` binary ONCE (CONCEPT:KG-2.195 — THE FLIP).
+
+    ``full`` now folds in ``redb``, so a STOCK full build is redb-authoritative by
+    default — no backend/authoritative env needed. Returns the binary path."""
+    r = subprocess.run(
+        ["cargo", "build", "--features", "full"],
+        cwd=RUST_DIR,
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        return None
+    binary = os.path.join(RUST_DIR, "target", "debug", "epistemic-graph-server")
+    return binary if os.path.exists(binary) else None
+
+
+def _launch_env(
+    binary: str, socket_path: str, persist_dir: str, extra_env: dict
+) -> subprocess.Popen:
+    env = {**os.environ, "GRAPH_SERVICE_AUTH_SECRET": AUTH_SECRET, **extra_env}
+    if os.path.exists(socket_path):
+        os.remove(socket_path)
+    proc = subprocess.Popen(
+        [binary, "--socket-path", socket_path, "--persist-dir", persist_dir],
+        cwd=RUST_DIR,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    for _ in range(120):
+        if os.path.exists(socket_path):
+            try:
+                s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+                s.connect(socket_path)
+                s.close()
+                return proc
+            except OSError:
+                pass
+        if proc.poll() is not None:
+            out, err = proc.communicate()
+            raise RuntimeError(f"server exited early: {err.decode(errors='replace')}")
+        time.sleep(0.5)
+    raise RuntimeError("server did not come up in time")
+
+
 def _launch(binary: str, socket_path: str, persist_dir: str) -> subprocess.Popen:
     env = {
         **os.environ,
@@ -182,6 +228,62 @@ def test_inflight_unacked_write_does_not_corrupt(tmp_path):
         )
         # Recovery is consistent: the engine serves reads and the acked node is here.
         assert client2.nodes.has("durable")
+        client2.close()
+    finally:
+        proc2.send_signal(signal.SIGKILL)
+        proc2.wait()
+        if os.path.exists(socket_path):
+            os.remove(socket_path)
+
+
+@pytest.mark.timeout(600)
+def test_stock_default_build_is_durable_by_default(tmp_path):
+    """THE FLIP proof (CONCEPT:KG-2.195): a STOCK deployment is durable by default.
+
+    No ``EPISTEMIC_GRAPH_PERSIST_BACKEND`` and no
+    ``EPISTEMIC_GRAPH_REDB_AUTHORITATIVE`` are set — ONLY a persist dir and the
+    mandatory auth secret. Because the standard ``full`` build now folds in ``redb``
+    and the backend defaults to ``redb`` + authoritative-when-redb-active, an acked
+    write must survive a ``kill -9`` with ZERO durability env tuning. This is the
+    whole point of the flip: the engine is a source of truth out of the box."""
+    binary = _build_full()
+    if binary is None:
+        pytest.skip("full build failed in this environment")
+
+    persist_dir = str(tmp_path / "redb_store_default")
+    os.makedirs(persist_dir, exist_ok=True)
+    socket_path = _free_socket_path("default")
+    graph = "stockgraph"
+    n = 50
+
+    # ── round 1: write + ack N nodes with NO durability env, then kill -9 ──
+    proc = _launch_env(binary, socket_path, persist_dir, extra_env={})
+    try:
+        client = SyncEpistemicGraphClient.connect(
+            socket_path=socket_path, graph_name=graph, auth_secret=AUTH_SECRET
+        )
+        client.tenants.create(graph)
+        for i in range(n):
+            # Under the new default, the redb backend is authoritative, so each add()
+            # returns only after the durable group-commit (commit-before-ack).
+            client.nodes.add(f"n{i}", {"type": "Task", "i": i})
+        assert client.nodes.count() == n
+        client.close()
+    finally:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+
+    # ── round 2: restart (same stock config), assert all N acked nodes survive ──
+    proc2 = _launch_env(binary, socket_path, persist_dir, extra_env={})
+    try:
+        client2 = SyncEpistemicGraphClient.connect(
+            socket_path=socket_path, graph_name=graph, auth_secret=AUTH_SECRET
+        )
+        present = [client2.nodes.has(f"n{i}") for i in range(n)]
+        missing = [i for i, ok in enumerate(present) if not ok]
+        assert not missing, f"acked nodes lost after kill -9 (stock default): {missing}"
+        props = client2.nodes.properties("n0")
+        assert props is not None and props.get("i") == 0
         client2.close()
     finally:
         proc2.send_signal(signal.SIGKILL)

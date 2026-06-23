@@ -231,30 +231,66 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // (default) = today's snapshot RDB + off-reactor WAL; `redb` = the
     // feature-gated write-through tier. Selection is one env read; both own their
     // off-reactor writer internally so the dispatch path only sees the trait.
-    let backend_kind = std::env::var("EPISTEMIC_GRAPH_PERSIST_BACKEND")
+    // THE FLIP (CONCEPT:KG-2.195): the engine is a SOURCE OF TRUTH out of the box.
+    // The persist backend now DEFAULTS to "redb" (was "snapshot"); operators can
+    // still force the old rebuildable-cache path with
+    // EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot.
+    let backend_env = std::env::var("EPISTEMIC_GRAPH_PERSIST_BACKEND")
         .ok()
-        .map(|s| s.trim().to_ascii_lowercase())
-        .unwrap_or_else(|| "snapshot".to_string());
-    // redb-authoritative mode (CONCEPT:KG-2.187), read ONCE at startup. Default OFF
-    // → byte-for-byte today's behavior. Only meaningful with the redb backend
-    // selected; warn (don't fail) if set without it so a misconfig is loud but the
-    // engine still boots in safe write-through mode.
-    let redb_authoritative = std::env::var("EPISTEMIC_GRAPH_REDB_AUTHORITATIVE")
+        .map(|s| s.trim().to_ascii_lowercase());
+    // Whether the operator NAMED a backend (vs. taking the new default). Used to
+    // keep the fallback path quiet for the implicit default: a build without the
+    // redb feature must boot clean even though "redb" is now the default name.
+    let backend_explicit = backend_env.is_some();
+    let backend_kind = backend_env.unwrap_or_else(|| "redb".to_string());
+    // Is the redb backend actually USABLE in this build? Authoritative mode is only
+    // real when the `redb` cargo feature is compiled in AND `redb` is the selected
+    // backend (so `RedbBackend::open` is the live PersistenceBackend, not the
+    // snapshot fallback). A `redb` request in a build without the feature silently
+    // degrades to snapshot+WAL below, so it is NOT authoritative.
+    let redb_feature = cfg!(feature = "redb");
+    let redb_active = redb_feature && backend_kind == "redb";
+
+    // redb-authoritative mode (CONCEPT:KG-2.187 / KG-2.195), read ONCE at startup.
+    // EXPLICIT env (Option<bool>): when the operator sets EPISTEMIC_GRAPH_REDB_AUTHORITATIVE
+    // we honor it verbatim; when UNSET it DEFAULTS to ON exactly when the redb
+    // backend is active — so a stock redb-bearing build (full/node/cluster/pi) is a
+    // durable source of truth by default, while a snapshot or no-redb build stays in
+    // the byte-for-byte rebuildable-cache model.
+    let redb_authoritative_explicit = std::env::var("EPISTEMIC_GRAPH_REDB_AUTHORITATIVE")
         .ok()
         .map(|s| {
             let s = s.trim().to_ascii_lowercase();
             s == "1" || s == "true" || s == "yes" || s == "on"
-        })
-        .unwrap_or(false);
-    if redb_authoritative && backend_kind != "redb" {
+        });
+    let redb_authoritative = redb_authoritative_explicit.unwrap_or(redb_active);
+    // Warn ONLY when an operator EXPLICITLY asked for authoritative mode but the
+    // redb backend is not active (snapshot selected, or redb feature not compiled) —
+    // a genuine misconfig. The NEW default never trips this, so a snapshot / no-redb
+    // build boots clean with no scary warning.
+    if redb_authoritative_explicit == Some(true) && !redb_active {
         tracing::warn!(
-            "EPISTEMIC_GRAPH_REDB_AUTHORITATIVE is set but EPISTEMIC_GRAPH_PERSIST_BACKEND='{}' \
-             (not 'redb'); authoritative mode is IGNORED — it only applies to the redb backend",
-            backend_kind
+            "EPISTEMIC_GRAPH_REDB_AUTHORITATIVE is set but the redb backend is not active \
+             (EPISTEMIC_GRAPH_PERSIST_BACKEND='{}', redb feature compiled: {}); authoritative \
+             mode is IGNORED — it only applies to the redb backend",
+            backend_kind,
+            redb_feature
         );
     }
-    if redb_authoritative && backend_kind == "redb" {
-        info!("redb AUTHORITATIVE mode ON (CONCEPT:KG-2.187): commit-before-ack, eviction gated, backpressure (no drop)");
+    if redb_authoritative && redb_active {
+        if args.persist_dir.is_some() {
+            info!("redb AUTHORITATIVE mode ON (CONCEPT:KG-2.187): commit-before-ack, eviction gated, backpressure (no drop)");
+        } else {
+            // Authoritative is requested/defaulted but there is no persist dir, so
+            // there is nowhere durable to write — the engine runs IN-MEMORY ONLY and
+            // every durable-record path short-circuits. Be loud so an operator does
+            // not mistake this for a durable source of truth.
+            tracing::warn!(
+                "redb authoritative is active but no persist dir is configured \
+                 (GRAPH_SERVICE_PERSIST_DIR / --persist-dir) — running IN-MEMORY ONLY; \
+                 writes are NOT durable. Set a persist dir to make the engine a source of truth."
+            );
+        }
     }
     let persistence: Option<
         Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>,
@@ -289,7 +325,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 b
             }
             other => {
-                if other != "snapshot" {
+                // Warn about a fallback only when the operator EXPLICITLY named a
+                // backend we can't honor (e.g. set redb but the feature isn't
+                // compiled, or a typo). The NEW implicit default ("redb" on a build
+                // without the feature) falls back to snapshot SILENTLY so a
+                // bare/server-only build boots clean (CONCEPT:KG-2.195).
+                if other != "snapshot" && backend_explicit {
                     tracing::warn!(
                         "EPISTEMIC_GRAPH_PERSIST_BACKEND='{}' not available in this build; \
                          falling back to snapshot+WAL",
@@ -324,10 +365,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
         persistence,
-        // Only honor authoritative mode when the redb backend is actually selected
-        // (its `record_durable`/`read_node` are the only real implementations); any
-        // other backend stays in safe write-through/no-op behavior.
-        redb_authoritative: redb_authoritative && backend_kind == "redb",
+        // Only honor authoritative mode when the redb backend is actually active
+        // (feature compiled AND selected — its `record_durable`/`read_node` are the
+        // only real implementations); any other backend / a redb fallback stays in
+        // safe write-through/no-op behavior.
+        redb_authoritative: redb_authoritative && redb_active,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
