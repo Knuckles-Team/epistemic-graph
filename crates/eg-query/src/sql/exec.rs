@@ -269,58 +269,190 @@ fn batches_to_result(batches: &[arrow::record_batch::RecordBatch]) -> Result<Que
     Ok(QueryResult { columns, rows })
 }
 
-/// One cell at `(col, row)` to a `serde_json::Value`. Covers the types the `nodes`
-/// schema and ordinary SELECT projections produce (the inferred columns + UDF
-/// outputs + literals).
+/// One cell at `(col, row)` to a `serde_json::Value` (CONCEPT:KG-2.196).
+///
+/// DataFusion 43 fully executes aggregates / GROUP BY / HAVING, window functions,
+/// CTEs, subqueries, set ops (UNION/INTERSECT/EXCEPT) and DISTINCT — but their
+/// results materialize as a much wider set of Arrow types than the `nodes`/`edges`
+/// schema-on-read produces (every Int/UInt/Float width, Decimal128/256, Date/Time/
+/// Timestamp, Utf8 variants, List/Struct/Map intermediates). This decoder covers the
+/// common numeric/string/binary fast paths natively, then degrades any remaining
+/// type to its Arrow display string via [`array_value_to_string`] — so a cell type
+/// NEVER hard-errors at result materialization (which would fail a query the compute
+/// already succeeded at). Fallback representation choices: Decimal128/256 → lossless
+/// decimal string; Date/Time/Timestamp(*)[/tz] → ISO-8601 string; List/Struct/Map →
+/// Arrow's textual rendering.
 fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String> {
     use arrow::array::{
-        BinaryArray, BooleanArray, Float64Array, Int64Array, StringArray, UInt64Array,
+        BinaryArray, BooleanArray, Float16Array, Float32Array, Float64Array, Int16Array,
+        Int32Array, Int64Array, Int8Array, LargeBinaryArray, LargeStringArray, StringArray,
+        StringViewArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
     };
     use arrow::datatypes::DataType::*;
+    use arrow::util::display::array_value_to_string;
     use serde_json::Value;
 
     if col.is_null(row) {
         return Ok(Value::Null);
     }
+
+    // A binary/blob column → JSON array of byte numbers (the historical `props`
+    // escape-hatch encoding: serde_json renders a byte slice as an array of numbers).
+    let bytes_to_json = |bytes: &[u8]| -> Value {
+        Value::Array(bytes.iter().map(|b| Value::Number((*b).into())).collect())
+    };
+
     let v = match col.data_type() {
-        Utf8 => {
-            let a = col.as_any().downcast_ref::<StringArray>().unwrap();
-            Value::String(a.value(row).to_string())
-        }
-        Boolean => {
-            let a = col.as_any().downcast_ref::<BooleanArray>().unwrap();
-            Value::Bool(a.value(row))
-        }
-        Int64 => {
-            let a = col.as_any().downcast_ref::<Int64Array>().unwrap();
-            Value::Number(a.value(row).into())
-        }
-        UInt64 => {
-            let a = col.as_any().downcast_ref::<UInt64Array>().unwrap();
-            Value::Number(a.value(row).into())
-        }
-        Float64 => {
-            let a = col.as_any().downcast_ref::<Float64Array>().unwrap();
-            serde_json::Number::from_f64(a.value(row))
+        // ── strings ──
+        Utf8 => Value::String(
+            col.as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(row)
+                .to_string(),
+        ),
+        LargeUtf8 => Value::String(
+            col.as_any()
+                .downcast_ref::<LargeStringArray>()
+                .unwrap()
+                .value(row)
+                .to_string(),
+        ),
+        Utf8View => Value::String(
+            col.as_any()
+                .downcast_ref::<StringViewArray>()
+                .unwrap()
+                .value(row)
+                .to_string(),
+        ),
+        // ── bool ──
+        Boolean => Value::Bool(
+            col.as_any()
+                .downcast_ref::<BooleanArray>()
+                .unwrap()
+                .value(row),
+        ),
+        // ── signed ints (all widths) → JSON number ──
+        Int8 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int8Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        Int16 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int16Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        Int32 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int32Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        Int64 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        // ── unsigned ints (all widths) → JSON number ──
+        UInt8 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt8Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        UInt16 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt16Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        UInt32 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        UInt64 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        // ── floats (all widths) → JSON number; non-finite → null ──
+        Float16 => {
+            let f = col
+                .as_any()
+                .downcast_ref::<Float16Array>()
+                .unwrap()
+                .value(row);
+            serde_json::Number::from_f64(f.to_f64())
                 .map(Value::Number)
                 .unwrap_or(Value::Null)
         }
-        Binary => {
-            // The `props` escape-hatch column: hand back the raw msgpack bytes so a
-            // caller selecting `props` still gets the blob (serde_json encodes a
-            // byte slice as an array of numbers).
-            let a = col.as_any().downcast_ref::<BinaryArray>().unwrap();
-            Value::Array(
-                a.value(row)
-                    .iter()
-                    .map(|b| Value::Number((*b).into()))
-                    .collect(),
-            )
+        Float32 => {
+            let f = col
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .unwrap()
+                .value(row);
+            serde_json::Number::from_f64(f as f64)
+                .map(Value::Number)
+                .unwrap_or(Value::Null)
         }
+        Float64 => {
+            let f = col
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap()
+                .value(row);
+            serde_json::Number::from_f64(f)
+                .map(Value::Number)
+                .unwrap_or(Value::Null)
+        }
+        // ── binary blobs → array of byte numbers (the `props` escape hatch) ──
+        Binary => bytes_to_json(
+            col.as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap()
+                .value(row),
+        ),
+        LargeBinary => bytes_to_json(
+            col.as_any()
+                .downcast_ref::<LargeBinaryArray>()
+                .unwrap()
+                .value(row),
+        ),
+        // ── everything else: Decimal128/256 (→ lossless decimal string), Date32/64,
+        // Time32/64, Timestamp(*)[/tz] (→ ISO-8601 string), List/LargeList/Struct/Map
+        // (→ Arrow's textual rendering), or any unforeseen type — degrade to the Arrow
+        // display string. NEVER hard-error on a cell type. ──
         other => {
-            // Any other DataFusion-produced type (e.g. an aggregate) — stringify so
-            // the result is never lossy-dropped.
-            return Err(format!("unsupported result column type: {other:?}"));
+            // `array_value_to_string` formats with `with_display_error(true)`, so even
+            // a type Arrow itself can't render yields a placeholder string rather than
+            // an Err — but guard the Result anyway and fall to the type name as a last
+            // resort so a cell decode can never fail.
+            match array_value_to_string(col, row) {
+                Ok(s) => Value::String(s),
+                Err(e) => {
+                    tracing::debug!(
+                        target: "eg_query::sql",
+                        "cell display fallback failed for {other:?}: {e}; using type name"
+                    );
+                    Value::String(format!("{other:?}"))
+                }
+            }
         }
     };
     Ok(v)
