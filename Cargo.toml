@@ -66,7 +66,9 @@ pgwire = ["dep:pgwire", "dep:futures", "query", "server"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).
-full = ["compute", "server", "query", "cypher"]
+# `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP) so the standard full/all build
+# is authoritative-by-default (a durable source of truth) just like pi/node/cluster.
+full = ["compute", "server", "query", "cypher", "redb"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
