@@ -101,6 +101,18 @@ pub struct ServerState {
     /// Cap on concurrently-open txns per agent (`EPISTEMIC_GRAPH_TXN_MAX_PER_AGENT`,
     /// default 256). Anonymous callers (`agent_id` absent) share the `""` bucket.
     pub txn_max_per_agent: usize,
+    /// Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206), feature `blob`.
+    /// Holds the CAS chunk store + the open upload/fetch cursors (DashMap keyed by a
+    /// server-issued cursor id, with a TTL reaper like `open_txns`). `Some` when the
+    /// engine is built `--features blob`; `None` otherwise (the Blob* variants then
+    /// fall to the dispatch "not available" catch-all). The chunk bytes live in
+    /// `{persist_dir}/blob.redb`, entirely off the inline node/edge KV.
+    #[cfg(feature = "blob")]
+    pub blob: Option<Arc<crate::server::blob::BlobCursors>>,
+    /// Idle TTL (seconds) after which an open blob cursor is reaped
+    /// (`EPISTEMIC_GRAPH_BLOB_CURSOR_TTL_SECS`, default 300).
+    #[cfg(feature = "blob")]
+    pub blob_cursor_ttl_secs: u64,
     /// In-engine Raft replication handle (CONCEPT:KG-2.188), cluster tier only.
     /// `None` ⇒ single-node: the dispatch write path is byte-for-byte unchanged.
     /// `Some` ⇒ durable mutations are routed through Raft consensus (the leader's

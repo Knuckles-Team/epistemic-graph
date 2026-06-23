@@ -1062,6 +1062,75 @@ pub enum Method {
     Rollback {
         txn_id: String,
     },
+
+    // ── Blob (CONCEPT:KG-2.206 — streamed content-addressed media substrate) ──
+    // Streamed transfer of a large media blob as MANY ordinary one-Response-per-
+    // Request frames sharing a SERVER-SIDE CURSOR — NOT a side-channel socket, NOT
+    // a protocol-v2. The whole file is never resident on either side; only one
+    // chunk is in flight. `BlobBegin` opens an upload cursor, N `BlobChunkPut`
+    // frames push fixed-size chunks (each hashed + stored content-addressed on
+    // arrival), `BlobCommit` assembles the manifest → blob digest. Download
+    // mirrors it: `BlobFetchBegin(digest)` → repeated `BlobChunkGet(cursor, idx)`.
+    // Refcount-GC bookkeeping rides `BlobRef`/`BlobUnref` (a `:Media` node
+    // referencing a blob increments; removal decrements; a zero-ref blob's chunks
+    // are reclaimed by `BlobGc`). `data` is a MessagePack `bin` (serde_bytes) so a
+    // 0x0A inside a chunk is framed by the outer length prefix. Gated `blob`; a
+    // build without it drops these variants → dispatch's "not available" catch-all.
+    /// Open an upload cursor; server allocates a cursor id and an empty accumulator.
+    /// `chunk_size` is the fixed split size the client will use (records it on the
+    /// manifest for range-read math later); 0 ⇒ the engine default.
+    #[cfg(feature = "blob")]
+    BlobBegin {
+        #[serde(default)]
+        chunk_size: u32,
+    },
+    /// Push one chunk into an open upload cursor. Hashed + stored on arrival; only
+    /// the digest is appended to the cursor (bounded memory).
+    #[cfg(feature = "blob")]
+    BlobChunkPut {
+        cursor: u64,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
+    },
+    /// Finalize an upload cursor → assemble + store the manifest content-addressed,
+    /// return the blob digest. Drops the cursor.
+    #[cfg(feature = "blob")]
+    BlobCommit {
+        cursor: u64,
+    },
+    /// Open a fetch cursor for a stored blob digest; returns `(cursor, n_chunks)`.
+    #[cfg(feature = "blob")]
+    BlobFetchBegin {
+        digest: String,
+    },
+    /// Pull chunk `idx` of an open fetch cursor (one chunk per frame).
+    #[cfg(feature = "blob")]
+    BlobChunkGet {
+        cursor: u64,
+        idx: u32,
+    },
+    /// Close a fetch cursor (client done streaming down). Idempotent.
+    #[cfg(feature = "blob")]
+    BlobFetchEnd {
+        cursor: u64,
+    },
+    /// Increment a blob's refcount — a `:Media` node now references it. Returns the
+    /// new count. (The graph link itself, `:Media-[:HAS_BLOB]->:Blob`, is created by
+    /// the caller via the normal node/edge methods; this maintains the GC refcount.)
+    #[cfg(feature = "blob")]
+    BlobRef {
+        digest: String,
+    },
+    /// Decrement a blob's refcount — a `:Media` reference was removed. Returns the
+    /// new count; a blob at 0 is eligible for the next `BlobGc`.
+    #[cfg(feature = "blob")]
+    BlobUnref {
+        digest: String,
+    },
+    /// Run the refcount mark-and-sweep GC: reclaim every zero-ref blob's manifest +
+    /// the chunks no surviving blob still lists. Returns `(blobs, chunks)` reclaimed.
+    #[cfg(feature = "blob")]
+    BlobGc,
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────

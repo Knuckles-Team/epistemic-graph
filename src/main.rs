@@ -358,6 +358,54 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (txn_ttl_secs, txn_max_per_graph, txn_max_per_agent) =
         epistemic_graph::server::txn_limits_from_env();
 
+    // Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206). The CAS lives
+    // in `{persist_dir}/blob.redb`; with no persist dir there is no durable place
+    // for the bytes, so the substrate is disabled and the Blob* methods report
+    // "not available" (matching the in-memory-only philosophy elsewhere).
+    #[cfg(feature = "blob")]
+    let (blob, blob_cursor_ttl_secs) = {
+        let ttl = std::env::var("EPISTEMIC_GRAPH_BLOB_CURSOR_TTL_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(300u64);
+        let cursors = match args.persist_dir.as_deref() {
+            Some(dir) => {
+                #[cfg(feature = "blob-s3")]
+                let store: Arc<dyn epistemic_graph::server::blob::ChunkStore> =
+                    match epistemic_graph::server::blob::s3::S3ChunkStore::open(dir) {
+                        Ok(s) => Arc::new(s),
+                        Err(e) => {
+                            eprintln!("error: failed to open blob-s3 CAS at {dir}: {e}");
+                            std::process::exit(1);
+                        }
+                    };
+                #[cfg(not(feature = "blob-s3"))]
+                let store: Arc<dyn epistemic_graph::server::blob::ChunkStore> =
+                    match epistemic_graph::server::blob::RedbChunkStore::open(dir) {
+                        Ok(s) => Arc::new(s),
+                        Err(e) => {
+                            eprintln!("error: failed to open blob CAS at {dir}: {e}");
+                            std::process::exit(1);
+                        }
+                    };
+                info!(
+                    "Blob substrate: content-addressed CAS at {dir}/blob.redb (CONCEPT:KG-2.206)"
+                );
+                Some(Arc::new(epistemic_graph::server::blob::BlobCursors::new(
+                    store,
+                )))
+            }
+            None => {
+                tracing::warn!(
+                    "Blob substrate disabled: no persist dir (blob bytes need durable storage)"
+                );
+                None
+            }
+        };
+        (cursors, ttl)
+    };
+
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
@@ -381,6 +429,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         txn_ttl_secs,
         txn_max_per_graph,
         txn_max_per_agent,
+        #[cfg(feature = "blob")]
+        blob,
+        #[cfg(feature = "blob")]
+        blob_cursor_ttl_secs,
         // Populated below AFTER snapshot recovery, only when built `--features raft`
         // AND configured. Until then (and always in a non-raft build) it is `None`,
         // so the dispatch write path is the single-node path, unchanged.
