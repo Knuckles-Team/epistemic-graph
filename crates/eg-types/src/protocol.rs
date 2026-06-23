@@ -977,6 +977,17 @@ pub enum Method {
         #[serde(default, with = "serde_bytes")]
         params_msgpack: Vec<u8>,
     },
+    // Read-only Cypher query surface (CONCEPT:KG-2.179). A `MATCH … WHERE … RETURN
+    // … LIMIT …` over ONE graph, compiled to the engine's own primitives (the
+    // eg-core label index, `vf2_subgraph_match`, and petgraph BFS) — NO DataFusion,
+    // so it ships in the lean Pi build behind the facade `cypher` feature. Reuses
+    // the same `QueryResult` carrier as `Sql` (returned via `ResultPayload::raw`):
+    // a Cypher RETURN is the same columns+row-blobs shape, so no new payload
+    // variant. In a build without `cypher` the variant falls to the not-built
+    // catch-all.
+    CypherQuery {
+        query: String,
+    },
 
     // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ───────────────
     // Server-side STAGED, OPTIMISTIC, snapshot-isolation transactions. `BeginTxn`
