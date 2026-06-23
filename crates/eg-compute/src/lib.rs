@@ -15,6 +15,7 @@ pub use eg_types::{acl, protocol, types, wire};
 pub mod algorithms;
 pub mod ast;
 pub mod parser;
+pub mod screen;
 
 #[cfg(feature = "datascience")]
 pub mod datascience;

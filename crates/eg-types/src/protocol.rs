@@ -424,6 +424,18 @@ pub enum Method {
         files_msgpack: Vec<u8>,
     },
 
+    // ── Screen Observation (computer-use) ─────────────────────────────
+    /// Turn a captured desktop frame into durable session/frame/UIElement graph
+    /// entities in one round-trip (CONCEPT:KG-2.185). The blob is a MessagePack map
+    /// `{session_id, frame_seq, prev_frame_id, prev_hash, png: bin, elements: [..]}`;
+    /// the response is a SINGLE `ScreenObservationResult` (nodes + edges), mirroring
+    /// `IndexRepository`. The screenshot bytes never persist — only its dimensions +
+    /// content hash do, for frame-diff.
+    ObserveScreen {
+        #[serde(with = "serde_bytes")]
+        obs_msgpack: Vec<u8>,
+    },
+
     // ── Semantic Compute ─────────────────────────────────────────────
     AddEmbedding {
         node_id: String,
