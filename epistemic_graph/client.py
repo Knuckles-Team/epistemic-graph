@@ -1809,8 +1809,43 @@ _HEAVY_RPC_METHODS = frozenset(
         "GetSubgraph",
         "GetNodes",
         "GetEdges",
+        # SQL scans the whole node set (CONCEPT:KG-2.178) — give it the heavy budget.
+        "Sql",
     }
 )
+
+
+class QueryClient:
+    """CONCEPT:KG-2.178 — Read-only SQL Query Namespace.
+
+    ``SELECT ... FROM nodes WHERE ... LIMIT ...`` over the connection's graph,
+    served by the engine's DataFusion surface (requires a server built with the
+    ``query`` feature). Schema-on-read: node property keys become columns; a raw
+    ``props`` blob column plus ``json_get(props, key)`` /
+    ``json_get_f64`` / ``json_get_i64`` UDFs reach fields the inferred schema
+    widened or dropped.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def sql(self, query: str) -> list[dict[str, Any]]:
+        """Run ``query`` and return a list of row dicts keyed by column name.
+
+        The engine returns ``{"columns": [...], "rows": [<msgpack-blob>, ...]}``
+        (a ``Raw`` payload the transport already double-unpacks); each row blob is
+        a list of cell values aligned to ``columns``. We zip them into dicts so a
+        caller gets ordinary records.
+        """
+        result = await self._client._send("Sql", {"query": query})
+        if not result:
+            return []
+        columns: list[str] = result.get("columns", [])
+        out: list[dict[str, Any]] = []
+        for row_blob in result.get("rows", []):
+            cells = msgpack.unpackb(bytes(row_blob), raw=False)
+            out.append(dict(zip(columns, cells, strict=False)))
+        return out
 
 
 class EpistemicGraphClient:
@@ -1877,6 +1912,7 @@ class EpistemicGraphClient:
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
+        self.query = QueryClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -2170,6 +2206,7 @@ class SyncEpistemicGraphClient:
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
+        self.query = self._SyncWrapper(self._client.query, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

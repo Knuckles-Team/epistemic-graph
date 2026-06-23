@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute"]
+members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute", "crates/eg-query"]
 
 [package]
 name = "epistemic-graph"
@@ -33,9 +33,13 @@ ast = ["eg-compute/ast"]
 ast-extended = ["eg-compute/ast-extended"]
 datascience = ["eg-compute/datascience", "eg-types/datascience"]
 reasoning = ["eg-compute/reasoning"]
+# Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
+# — heavy, so it is OFF by default and folded only into full/all (never the slim
+# Raspberry-Pi build). A default build links no DataFusion.
+query = ["dep:eg-query", "eg-query/sql"]
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
-full = ["compute", "server"]
+full = ["compute", "server", "query"]
 all = ["full"]
 
 [dependencies]
@@ -45,6 +49,8 @@ eg-core = { path = "crates/eg-core" }
 # the heavy finance/datascience/ast/reasoning code + deps are gated behind the
 # facade features that pass through to eg-compute's matching features.
 eg-compute = { path = "crates/eg-compute" }
+# Optional SQL query surface (feature `query`); pulls DataFusion only when enabled.
+eg-query = { path = "crates/eg-query", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
