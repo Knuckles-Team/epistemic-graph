@@ -368,6 +368,23 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // ── Postgres wire-protocol shim (CONCEPT:KG-2.189) ───────────────────
+    // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
+    // `--features pgwire` AND EPISTEMIC_GRAPH_PGWIRE_ADDR is set. With the feature
+    // off, or on but unset, this is a no-op and the engine runs exactly as today.
+    #[cfg(feature = "pgwire")]
+    if let Ok(pg_addr) = std::env::var(epistemic_graph::server::pgwire::PGWIRE_ADDR_ENV) {
+        if !pg_addr.trim().is_empty() {
+            let pg_state = state.clone();
+            let addr = pg_addr.clone();
+            tokio::spawn(async move {
+                if let Err(e) = epistemic_graph::server::pgwire::serve(&addr, pg_state).await {
+                    tracing::error!("pgwire server error: {}", e);
+                }
+            });
+        }
+    }
+
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
