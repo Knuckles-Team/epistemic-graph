@@ -8,24 +8,69 @@
 //! `spawn_blocking` (the `compute_off_lock` idiom), so no DataFusion work ever runs
 //! on a reactor worker.
 
+use std::sync::Arc;
+
 use arrow::array::Array;
+use datafusion::datasource::MemTable;
 use datafusion::prelude::SessionContext;
 use eg_core::graph::GraphView;
 // The wire DTO lives at the bottom of the DAG (eg-types); the algorithm stays here.
 pub use eg_types::protocol::QueryResult;
 
-use super::providers::build_nodes_table;
-use super::udfs::{json_get_f64_udf, json_get_i64_udf, json_get_udf};
+use super::providers::{infer_edges, infer_nodes, SqlCache};
+use super::tablefuncs::{BetweennessFunc, PagerankFunc};
+use super::udfs::{epistemic_decay_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf};
 
 /// Implicit max rows guarded into the result. Transport is one Response per
 /// Request (no streaming), so an unbounded SELECT would buffer the whole graph in
 /// one message; we cap and truncate.
 const MAX_ROWS: usize = 50_000;
 
-/// Run `sql` over `view` (read-only, single graph). Synchronous: builds and drives
-/// its own current-thread runtime, so it is safe to call inside `spawn_blocking`.
+/// Run `sql` over `view` (read-only, single graph), with no cache: re-scans the
+/// `nodes`/`edges` tables every call. Synchronous — builds and drives its own
+/// current-thread runtime, safe to call inside `spawn_blocking`.
 pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
-    let table = build_nodes_table(view)?;
+    let nodes = infer_nodes(view)?;
+    let edges = infer_edges(view)?;
+    run(view, nodes, edges, sql)
+}
+
+/// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
+/// still valid for `version` (the GraphCore OCC `version()`, CONCEPT:KG-2.184).
+/// A different version (any committed write bumped it) rebuilds, so the cache never
+/// serves stale tables. `view` must be the snapshot taken at `version`.
+pub fn exec_sql_cached(
+    view: &GraphView,
+    version: u64,
+    cache: &SqlCache,
+    sql: &str,
+) -> Result<QueryResult, String> {
+    let tables = cache.tables_at(view, version)?;
+    run(view, tables.nodes, tables.edges, sql)
+}
+
+/// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
+/// graph table functions, then collect the query.
+fn run(
+    view: &GraphView,
+    nodes: (
+        arrow::datatypes::SchemaRef,
+        arrow::record_batch::RecordBatch,
+    ),
+    edges: (
+        arrow::datatypes::SchemaRef,
+        arrow::record_batch::RecordBatch,
+    ),
+    sql: &str,
+) -> Result<QueryResult, String> {
+    let nodes_table = MemTable::try_new(nodes.0, vec![vec![nodes.1]])
+        .map_err(|e| format!("nodes mem table: {e}"))?;
+    let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
+        .map_err(|e| format!("edges mem table: {e}"))?;
+
+    // The graph table functions run their kernel over an owned snapshot; clone the
+    // topology+ids once (cheap relative to the algorithm) so they don't borrow `view`.
+    let snap = Arc::new(view.clone());
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -34,11 +79,21 @@ pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
 
     rt.block_on(async move {
         let ctx = SessionContext::new();
-        ctx.register_table("nodes", std::sync::Arc::new(table))
+        ctx.register_table("nodes", Arc::new(nodes_table))
             .map_err(|e| format!("register nodes: {e}"))?;
+        ctx.register_table("edges", Arc::new(edges_table))
+            .map_err(|e| format!("register edges: {e}"))?;
         ctx.register_udf(json_get_udf());
         ctx.register_udf(json_get_f64_udf());
         ctx.register_udf(json_get_i64_udf());
+        ctx.register_udf(epistemic_decay_udf());
+        ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
+        ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
+        #[cfg(feature = "finance")]
+        {
+            ctx.register_udaf(super::udfs::var_udaf());
+            ctx.register_udaf(super::udfs::cvar_udaf());
+        }
 
         let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
