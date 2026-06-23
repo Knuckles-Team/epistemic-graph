@@ -195,6 +195,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         "Backpressure: max in-flight = {} (per-graph cap = {})",
         max_in_flight, per_graph_inflight_limit
     );
+    // Per-graph write coalescer (CONCEPT:KG-2.182): batch size auto-sized from cpu
+    // count; default ON, opt out with EPISTEMIC_GRAPH_WRITE_COALESCE=0.
+    {
+        let cfg = epistemic_graph::write_coalescer::CoalescerConfig::auto();
+        info!(
+            "Write coalescer: batch up to {} ops/lock (queue {}, linger {:?})",
+            cfg.max_batch, cfg.queue_capacity, cfg.max_linger
+        );
+    }
 
     // ── Off-reactor WAL writer (CONCEPT:KG-2.8, Phase B3) ────────────────
     // When persisting, all WAL file I/O runs on one dedicated thread so durable
@@ -229,6 +238,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
+        write_coalescer: std::sync::Arc::new(
+            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
+        ),
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────

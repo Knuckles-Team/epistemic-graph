@@ -35,4 +35,11 @@ pub struct ServerState {
     pub per_graph_inflight: Arc<DashMap<String, Arc<Semaphore>>>,
     /// Max concurrent in-flight requests any single graph may hold.
     pub per_graph_inflight_limit: usize,
+    /// Per-graph write coalescer (CONCEPT:KG-2.182). Lazily creates one batching
+    /// writer per graph name (same lazy-keyed pattern as `per_graph_inflight`), so
+    /// concurrent single-op writes to ONE hot graph (the `__commons__` ingestion
+    /// firehose) collapse into one topology-lock acquisition per batch instead of
+    /// serializing one-op-at-a-time. A new graph/connector gets a writer
+    /// automatically. Default ON; opt out with `EPISTEMIC_GRAPH_WRITE_COALESCE=0`.
+    pub write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
 }

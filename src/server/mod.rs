@@ -49,6 +49,7 @@ mod tests {
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
         }))
     }
 
@@ -175,6 +176,7 @@ mod tests {
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -216,6 +218,7 @@ mod tests {
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -280,6 +283,7 @@ mod tests {
             max_in_flight: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
         }));
 
         crate::persist::load_all(&state).await.unwrap();
@@ -444,6 +448,7 @@ mod tests {
             max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 1, // any one graph: a single slot
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
@@ -980,5 +985,100 @@ mod tests {
             s.registry.get("agent:control").unwrap().core.clone()
         };
         assert_eq!(control_core.node_count(), 25);
+    }
+
+    /// CONCEPT:KG-2.182 — per-graph write coalescer, end-to-end through dispatch.
+    ///
+    /// Many concurrent writers to ONE hot graph (the `__commons__` firehose) must
+    /// (a) ALL land via the dispatch path (no lost writes — the coalescer is not a
+    /// drop point) and (b) be applied in FEWER topology-lock acquisitions than ops,
+    /// proving the batching win on the live serving path (not just the unit level).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn dispatch_coalesces_concurrent_writes_to_one_graph() {
+        let state = test_state();
+
+        const N: u64 = 400;
+        let mut handles = Vec::with_capacity(N as usize);
+        for i in 0..N {
+            let st = state.clone();
+            handles.push(tokio::spawn(async move {
+                dispatch(
+                    &st,
+                    request(i, "__commons__", None, add_node(&format!("n{i}"))),
+                )
+                .await
+            }));
+        }
+        for h in handles {
+            assert_ok(&h.await.unwrap());
+        }
+
+        // Every write landed exactly once on the live path.
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        assert_eq!(
+            core.node_count() as u64,
+            N,
+            "all {N} dispatched writes land"
+        );
+
+        // The win: the coalescer applied them in fewer lock acquisitions than ops.
+        let (batches, ops) = {
+            let s = state.read().await;
+            let w = s
+                .write_coalescer
+                .writer_for("__commons__", &core)
+                .expect("commons writer");
+            (w.stats().batches(), w.stats().ops())
+        };
+        assert_eq!(ops, N, "stats account for every dispatched write");
+        assert!(
+            batches < ops,
+            "dispatch path should batch: {ops} ops in {batches} lock acquisitions",
+        );
+    }
+
+    /// CAS exactly-once is preserved through the dispatch coalescer: concurrent
+    /// claimers of one node via `CompareAndSetNodeFields` yield exactly one winner.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn dispatch_cas_exactly_once_under_coalescing() {
+        let state = test_state();
+
+        // Seed the task node with owner=null.
+        let seed = Method::AddNode {
+            node_id: "task".into(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"owner": null}))
+                .unwrap(),
+        };
+        assert_ok(&dispatch(&state, request(0, "__commons__", None, seed)).await);
+
+        const C: u64 = 40;
+        let mut handles = Vec::with_capacity(C as usize);
+        for i in 0..C {
+            let st = state.clone();
+            handles.push(tokio::spawn(async move {
+                let conditions_msgpack =
+                    rmp_serde::to_vec_named(&serde_json::json!({"owner": null})).unwrap();
+                let updates_msgpack =
+                    rmp_serde::to_vec_named(&serde_json::json!({"owner": format!("w{i}")}))
+                        .unwrap();
+                let m = Method::CompareAndSetNodeFields {
+                    node_id: "task".into(),
+                    conditions_msgpack,
+                    updates_msgpack,
+                };
+                let resp = dispatch(&st, request(100 + i, "__commons__", None, m)).await;
+                matches!(resp.result, Some(ResultPayload::Bool(true)))
+            }));
+        }
+        let mut winners = 0;
+        for h in handles {
+            if h.await.unwrap() {
+                winners += 1;
+            }
+        }
+        assert_eq!(winners, 1, "exactly one CAS claimer wins through dispatch");
     }
 }
