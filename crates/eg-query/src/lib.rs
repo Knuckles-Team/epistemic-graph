@@ -9,4 +9,4 @@
 pub mod sql;
 
 #[cfg(feature = "sql")]
-pub use sql::{exec_sql, QueryResult};
+pub use sql::{exec_sql, exec_sql_cached, QueryResult, SqlCache};
