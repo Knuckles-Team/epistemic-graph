@@ -11,11 +11,14 @@ name = "eg_query"
 
 [features]
 # `sql` pulls DataFusion + Arrow (heavy). A default build links NONE of them so
-# the engine stays lean for a Raspberry Pi. `cypher` is a dep-free placeholder
-# owned by another track.
+# the engine stays lean for a Raspberry Pi.
 default = []
 sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph"]
-cypher = []
+# Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
+# engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
+# variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
+# and NO DataFusion/Arrow, so it ships in the lean Pi build.
+cypher = ["dep:petgraph"]
 # Finance aggregate UDFs (`var`, `cvar`) — forward to eg-compute's finance kernels.
 # Gated (and implies `sql`) so a no-finance build skips them AND keeps nalgebra out
 # of the default tree (CONCEPT:KG-2.184).
@@ -34,8 +37,10 @@ rmp-serde = "1.3"
 datafusion = { version = "43", default-features = false, optional = true }
 arrow = { version = "53", optional = true }
 arrow-schema = { version = "53", optional = true }
-# Edge-table topology iteration (EdgeRef/IntoEdgeReferences over GraphView's
-# StableDiGraph). Gated behind `sql` — not in a default build (CONCEPT:KG-2.184).
+# Shared by `sql` (EdgeRef/IntoEdgeReferences edge-table topology iteration over
+# GraphView's StableDiGraph) and `cypher` (variable-length-path BFS). Already
+# linked transitively via eg-core; pin the same minor. `serde-1` is the superset
+# both features tolerate — not in a default build (CONCEPT:KG-2.184).
 petgraph = { version = "0.6.4", features = ["serde-1"], optional = true }
 # Current-thread runtime to drive DataFusion's async `collect()` inside the
 # blocking pool (the `compute_off_lock` idiom). Only the `rt` feature is needed —
