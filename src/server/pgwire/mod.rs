@@ -37,12 +37,18 @@
 //! can be changed mid-session with `SET graph = '<name>'` (or `SET graph TO
 //! '<name>'`). A missing graph yields a clean error, not a panic.
 //!
-//! ## Auth model (first increment)
-//! TRUST: the startup phase performs NO authentication (pgwire's
-//! `NoopStartupHandler`). The listener only binds when an operator explicitly sets
-//! `EPISTEMIC_GRAPH_PGWIRE_ADDR`, and the documented address is a loopback
-//! (`127.0.0.1:5433`). Password/SCRAM auth over this surface is the documented
-//! follow-up; it slots in by swapping the `startup_handler` for a password handler.
+//! ## Auth model (CONCEPT:KG-2.202)
+//! Opt-in via `EPISTEMIC_GRAPH_PGWIRE_AUTH` = `trust` | `scram` (see `auth.rs`):
+//!   * `trust` — no authentication (`NoopHandler`); the zero-infra/dev path. The
+//!     DEFAULT only when no `GRAPH_SERVICE_AUTH_SECRET` is configured.
+//!   * `scram` — SCRAM-SHA-256 bridged to the engine secret. The DEFAULT when an
+//!     engine secret IS set. The pg `user` maps to an engine `agent_id` and the
+//!     password is derived from the shared secret; on a successful login the
+//!     connection's ACTOR is set to that user, so subsequent queries run under the
+//!     engine ACL (`IsolationLayer::check_access`) for the mapped identity.
+//!
+//! The listener still only binds when an operator sets `EPISTEMIC_GRAPH_PGWIRE_ADDR`
+//! (documented loopback `127.0.0.1:5433`).
 //!
 //! ## Arrow → pg type-OID mapping
 //! Result columns are described from the Arrow result schema via
@@ -76,6 +82,12 @@ use eg_query::{
 
 use crate::server::ServerState;
 
+mod auth;
+
+pub use auth::{derive_pg_password, PgWireAuthMode, PGWIRE_AUTH_ENV};
+
+use crate::isolation::AccessLevel;
+
 /// Env var: when set (and the binary is built `--features pgwire`), the pgwire
 /// listener binds this address (e.g. `127.0.0.1:5433`). Unset → no listener.
 pub const PGWIRE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_ADDR";
@@ -99,15 +111,31 @@ struct EngineBackend {
     startup_resolved: std::sync::atomic::AtomicBool,
     /// The SQL parser used for the extended protocol's Parse step. Stateless.
     parser: Arc<EngineQueryParser>,
+    /// The authenticated actor (engine `agent_id`) for this connection
+    /// (CONCEPT:KG-2.202). `None` = anonymous (trust mode / no auth). Latched once
+    /// from the libpq `user` startup parameter on the first query AFTER auth has
+    /// succeeded — the startup handler guarantees we only reach the query phase
+    /// authenticated, so the metadata user is the authenticated identity. Every
+    /// graph access then enforces the engine ACL under this actor.
+    actor: parking_lot::Mutex<Option<String>>,
+    /// The resolved pgwire auth mode. Under TRUST the actor stays anonymous (no ACL
+    /// identity); under SCRAM the actor is the authenticated user.
+    auth_mode: PgWireAuthMode,
 }
 
 impl EngineBackend {
-    fn new(state: Arc<RwLock<ServerState>>, default_graph: String) -> Self {
+    fn new(
+        state: Arc<RwLock<ServerState>>,
+        default_graph: String,
+        auth_mode: PgWireAuthMode,
+    ) -> Self {
         Self {
             state,
             graph: parking_lot::Mutex::new(default_graph),
             startup_resolved: std::sync::atomic::AtomicBool::new(false),
             parser: Arc::new(EngineQueryParser),
+            actor: parking_lot::Mutex::new(None),
+            auth_mode,
         }
     }
 
@@ -115,26 +143,46 @@ impl EngineBackend {
         self.graph.lock().clone()
     }
 
-    /// One-time: adopt the libpq `database` startup parameter as the target graph
-    /// (priority 1). Skipped if a `SET graph` already chose one, if the param is
-    /// absent, or if it equals the connection's user name (libpq's default when
-    /// `dbname` is unset — not an intentional graph selection). Idempotent.
+    /// One-time, on the first query: (1) adopt the libpq `database` startup
+    /// parameter as the target graph (priority 1), and (2) latch the authenticated
+    /// actor from the libpq `user` (CONCEPT:KG-2.202). Both are only readable from
+    /// `ClientInfo` once startup completes, so they latch on the first query.
+    ///
+    /// The graph adoption is skipped if a `SET graph` already chose one, if the
+    /// param is absent, or if it equals the user name (libpq's default when `dbname`
+    /// is unset — not a deliberate pick). The actor is set to the connecting `user`
+    /// ONLY under SCRAM (an authenticated identity); under TRUST it stays anonymous
+    /// (`None`) so the back-compat single-tenant path is unchanged. Idempotent.
     fn resolve_startup_graph<C: ClientInfo>(&self, client: &C) {
         use std::sync::atomic::Ordering;
         if self.startup_resolved.swap(true, Ordering::AcqRel) {
             return;
         }
         let meta = client.metadata();
+        let user = meta.get(pgwire::api::METADATA_USER).cloned();
+        // Under SCRAM the connection only reaches here authenticated, so the libpq
+        // user IS the validated engine identity — adopt it as the ACL actor.
+        if self.auth_mode == PgWireAuthMode::Scram {
+            if let Some(u) = user.as_ref().filter(|u| !u.is_empty()) {
+                *self.actor.lock() = Some(u.clone());
+            }
+        }
         let db = match meta.get(pgwire::api::METADATA_DATABASE) {
             Some(d) if !d.is_empty() => d,
             _ => return,
         };
         // libpq defaults `database` to the user name when `dbname` is unset; that
         // is not a deliberate graph pick, so leave the server default in place.
-        if meta.get(pgwire::api::METADATA_USER).map(String::as_str) == Some(db.as_str()) {
+        if user.as_deref() == Some(db.as_str()) {
             return;
         }
         *self.graph.lock() = db.clone();
+    }
+
+    /// The authenticated actor (engine `agent_id`) for this connection, or `None`
+    /// for an anonymous (trust) connection.
+    fn actor(&self) -> Option<String> {
+        self.actor.lock().clone()
     }
 }
 
@@ -355,6 +403,53 @@ impl EngineBackend {
         }
     }
 
+    /// Enforce the engine ACL for this connection's actor against `graph` at the
+    /// requested `access` level (CONCEPT:KG-2.202). Reuses the SAME
+    /// `IsolationLayer::check_access` the engine's MessagePack dispatch uses, with
+    /// the same back-compat invariant: while NO identities are registered the layer
+    /// has no rules and everything is allowed (single-tenant / trust deployments are
+    /// unchanged). Once rules exist, an authenticated pg user is mapped to its
+    /// `agent_id` and peer-graph isolation / team scoping / manager reach all apply
+    /// exactly as they do over the native protocol. An anonymous (trust) connection
+    /// is treated as the empty actor — denied any graph that has rules beyond the
+    /// open `__commons__`/global-read, matching native-anonymous behavior.
+    async fn check_access(&self, graph: &str, access: AccessLevel) -> PgWireResult<()> {
+        let actor = self.actor();
+        let s = self.state.read().await;
+        if !s.isolation.has_rules() {
+            return Ok(());
+        }
+        let (graph_type, owner) = match s.registry.get(graph) {
+            Some(e) => (e.graph_type, e.owner.clone()),
+            // A missing graph is reported by the caller's own resolve; allow here so
+            // the not-found error surfaces instead of a misleading ACCESS_DENIED.
+            None => return Ok(()),
+        };
+        let agent = actor.as_deref().unwrap_or("");
+        if s.isolation
+            .check_access(agent, graph, graph_type, owner.as_deref(), access)
+        {
+            Ok(())
+        } else {
+            crate::metrics::access_denied();
+            Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                // 42501 — insufficient_privilege (what a real pg ACL denial reports).
+                "42501".to_owned(),
+                format!(
+                    "permission denied for graph '{}' (agent '{}', {:?})",
+                    graph,
+                    if agent.is_empty() {
+                        "<anonymous>"
+                    } else {
+                        agent
+                    },
+                    access
+                ),
+            ))))
+        }
+    }
+
     /// Execute a read (`SELECT`/`WITH`/…) over `graph` by reusing the EXACT
     /// DataFusion path `Method::Sql` uses: take the owned off-lock
     /// `analysis_snapshot()` and run `eg_query::exec_sql_typed` on the blocking
@@ -385,7 +480,16 @@ impl EngineBackend {
             return res.map(Response::Execution);
         }
         let graph = self.current_graph();
-        match eg_query::classify(sql).map_err(user_err)? {
+        let kind = eg_query::classify(sql).map_err(user_err)?;
+        // Enforce the engine ACL under the connection's authenticated actor
+        // (CONCEPT:KG-2.202) BEFORE touching the graph: a read needs Read access, any
+        // DML needs Write. A no-rules deployment is a no-op (back-compat).
+        let access = match kind {
+            StatementKind::Read => AccessLevel::Read,
+            _ => AccessLevel::Write,
+        };
+        self.check_access(&graph, access).await?;
+        match kind {
             StatementKind::Read => {
                 let result = self.run_read(&graph, sql.to_string()).await?;
                 Ok(Response::Query(query_response(result, result_format)))
@@ -1216,12 +1320,25 @@ fn replace_placeholders_with_dummy(sql: &str, param_oids: &[Type]) -> String {
 /// so two connections never share a backend (their `SET graph` stays isolated).
 struct EngineBackendFactory {
     backend: Arc<EngineBackend>,
+    /// The resolved auth mode + the engine secret, used to build the per-connection
+    /// startup handler (CONCEPT:KG-2.202). The SCRAM handler holds per-connection
+    /// SASL state, so a FRESH one is built in `startup_handler()` (called once per
+    /// connection — a fresh factory is created per accepted connection in `serve`).
+    auth_mode: PgWireAuthMode,
+    auth_secret: String,
 }
 
 impl EngineBackendFactory {
-    fn new(state: Arc<RwLock<ServerState>>, default_graph: String) -> Self {
+    fn new(
+        state: Arc<RwLock<ServerState>>,
+        default_graph: String,
+        auth_mode: PgWireAuthMode,
+        auth_secret: String,
+    ) -> Self {
         Self {
-            backend: Arc::new(EngineBackend::new(state, default_graph)),
+            backend: Arc::new(EngineBackend::new(state, default_graph, auth_mode)),
+            auth_mode,
+            auth_secret,
         }
     }
 }
@@ -1239,8 +1356,12 @@ impl PgWireServerHandlers for EngineBackendFactory {
     }
 
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        // TRUST: no authentication in the first increment (documented).
-        Arc::new(pgwire::api::NoopHandler)
+        // TRUST or SCRAM (CONCEPT:KG-2.202), resolved once at serve() startup. A
+        // fresh handler per connection: the SCRAM SASL state machine is per-conn.
+        Arc::new(auth::EngineStartupHandler::new(
+            self.auth_mode,
+            &self.auth_secret,
+        ))
     }
 
     // `copy_handler`, `error_handler`, and `cancel_handler` use the
@@ -1252,14 +1373,31 @@ impl PgWireServerHandlers for EngineBackendFactory {
 /// is set. The default graph is read once from `EPISTEMIC_GRAPH_PGWIRE_GRAPH`
 /// (falling back to `__commons__`).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
+    // Resolve the auth mode once from the engine secret + env (CONCEPT:KG-2.202).
+    let auth_secret = state.read().await.auth_secret.clone();
+    let auth_mode = PgWireAuthMode::resolve(&auth_secret);
+    serve_with_auth(addr, state, auth_mode).await
+}
+
+/// `serve` with an EXPLICIT auth mode (CONCEPT:KG-2.202). `serve` resolves the mode
+/// from the env + engine secret and delegates here; integration tests call this
+/// directly so they pin trust vs scram deterministically without a process-global
+/// env toggle (tests run in parallel).
+pub async fn serve_with_auth(
+    addr: &str,
+    state: Arc<RwLock<ServerState>>,
+    auth_mode: PgWireAuthMode,
+) -> std::io::Result<()> {
     let default_graph =
         std::env::var(PGWIRE_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
+    let auth_secret = state.read().await.auth_secret.clone();
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "pgwire: serving Postgres wire protocol on {} (default graph '{}', auth=trust, \
+        "pgwire: serving Postgres wire protocol on {} (default graph '{}', auth={}, \
          simple+extended)",
         addr,
-        default_graph
+        default_graph,
+        auth_mode.as_str()
     );
     loop {
         let (socket, peer) = listener.accept().await?;
@@ -1268,6 +1406,8 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
         let factory = Arc::new(EngineBackendFactory::new(
             state.clone(),
             default_graph.clone(),
+            auth_mode,
+            auth_secret.clone(),
         ));
         tokio::spawn(async move {
             if let Err(e) = process_socket(socket, None, factory).await {
