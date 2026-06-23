@@ -444,7 +444,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if authoritative {
             match p.load_all(&state).await {
                 Ok(0) => {
-                    if let Some(dir) = { state.read().await.persist_dir.clone() } {
+                    // Bind `dir` to an OWNED String and DROP the read guard before the
+                    // migration body. A `state.read().await` temporary in the `if let`
+                    // scrutinee would otherwise live to the end of the `if let` block —
+                    // and the body below calls `persist::load_all`/`checkpoint_all`, both
+                    // of which take `state.write().await`. A read guard held across that
+                    // write acquire is a permanent deadlock: the migration awaits a write
+                    // lock that can never be granted, the task parks forever, and the UDS
+                    // socket is never bound (CONCEPT:KG-2.200).
+                    let migrate_dir = {
+                        let s = state.read().await;
+                        s.persist_dir.clone()
+                    };
+                    if let Some(dir) = migrate_dir {
                         if legacy_snapshots_present(&dir) {
                             info!(
                                 "redb authoritative: redb store empty but legacy snapshot/WAL \
@@ -452,13 +464,31 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                             );
                             // Load the legacy snapshot+WAL into the live registry via the
                             // snapshot recovery path, then checkpoint the registry into redb.
+                            // Both phases are O(graphs) and run BEFORE the socket binds, so
+                            // each logs progress (CONCEPT:KG-2.200) — a silent multi-second
+                            // boot on a many-graph homelab is indistinguishable from a hang.
+                            let mig_start = std::time::Instant::now();
                             if let Err(e) = epistemic_graph::persist::load_all(&state, None).await {
                                 tracing::warn!("legacy snapshot load failed: {e}");
                             }
+                            let loaded = { state.read().await.registry.all_entries().len() };
+                            info!(
+                                "redb authoritative migration: legacy load complete \
+                                 ({loaded} graph(s) in registry after {:.1}s) — writing them \
+                                 into redb…",
+                                mig_start.elapsed().as_secs_f64()
+                            );
+                            // checkpoint_all writes the WHOLE registry into redb in ONE atomic
+                            // transaction: a crash mid-write leaves the txn uncommitted (redb
+                            // stays empty), so the next boot re-detects "empty + legacy
+                            // present" and re-runs the migration — idempotent + crash-safe, no
+                            // half-populated-yet-considered-done store.
                             match p.checkpoint_all(&state).await {
                                 Ok(n) => info!(
                                     "redb authoritative migration: imported {n} graph(s) from \
-                                     legacy snapshot/WAL into redb (old files left as backstop)"
+                                     legacy snapshot/WAL into redb in {:.1}s (old files left as \
+                                     backstop)",
+                                    mig_start.elapsed().as_secs_f64()
                                 ),
                                 Err(e) => tracing::warn!("redb migration checkpoint failed: {e}"),
                             }
