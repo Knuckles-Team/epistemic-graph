@@ -81,9 +81,19 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
     state_with(None, false)
 }
 
-/// Bind the listener on an ephemeral port, then start serving it. Returns the
-/// chosen `127.0.0.1:<port>` address.
+/// Bind the listener on an ephemeral port and serve it in TRUST mode (the default
+/// for the historical round-trip + durability tests, which connect without a
+/// password). Returns the chosen `127.0.0.1:<port>` address.
 async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
+    spawn_listener_mode(state, pgwire::PgWireAuthMode::Trust).await
+}
+
+/// Bind + serve with an EXPLICIT auth mode (CONCEPT:KG-2.202). Used by the auth
+/// tests to pin SCRAM deterministically (no process-global env toggle).
+async fn spawn_listener_mode(
+    state: Arc<RwLock<ServerState>>,
+    mode: pgwire::PgWireAuthMode,
+) -> String {
     // Probe a free port, then let `serve` bind it (a tiny race window, fine for a test).
     let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = probe.local_addr().unwrap();
@@ -91,7 +101,7 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
     let addr_s = addr.to_string();
     let serve_addr = addr_s.clone();
     tokio::spawn(async move {
-        let _ = pgwire::serve(&serve_addr, state).await;
+        let _ = pgwire::serve_with_auth(&serve_addr, state, mode).await;
     });
     // Give the listener a moment to bind.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -540,4 +550,268 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
 
     reopened.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Synthetic catalog (CONCEPT:KG-2.201) — a real driver introspects on connect.
+// A tokio-postgres client lists tables via information_schema, reflects the
+// `nodes` columns, calls version()/current_schema(), then SELECTs — all succeed.
+// ───────────────────────────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn catalog_introspection_then_select() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    // 1. List tables via information_schema (what SQLAlchemy get_table_names issues).
+    let rows = client
+        .query(
+            "SELECT table_name FROM information_schema.tables \
+             WHERE table_name IN ('nodes','edges') ORDER BY table_name",
+            &[],
+        )
+        .await
+        .expect("information_schema.tables");
+    let tables: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
+    assert_eq!(tables, vec!["edges".to_string(), "nodes".to_string()]);
+
+    // 2. Reflect the `nodes` columns (what SQLAlchemy get_columns issues).
+    let rows = client
+        .query(
+            "SELECT column_name FROM information_schema.columns \
+             WHERE table_name = 'nodes' ORDER BY column_name",
+            &[],
+        )
+        .await
+        .expect("information_schema.columns");
+    let cols: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
+    for must in ["id", "rank", "type"] {
+        assert!(
+            cols.contains(&must.to_string()),
+            "reflect missing {must}: {cols:?}"
+        );
+    }
+
+    // 3. pg_catalog reflect: list relations under public via pg_class/pg_namespace.
+    let rows = client
+        .query(
+            "SELECT c.relname FROM pg_catalog.pg_class c \
+             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY c.relname",
+            &[],
+        )
+        .await
+        .expect("pg_catalog.pg_class");
+    let rels: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
+    assert_eq!(rels, vec!["edges".to_string(), "nodes".to_string()]);
+
+    // 4. Catalog scalar functions a driver probes on connect.
+    let v = client
+        .query("SELECT version()", &[])
+        .await
+        .expect("version()");
+    assert!(v[0].get::<_, String>(0).starts_with("PostgreSQL"));
+    let s = client
+        .query("SELECT current_schema()", &[])
+        .await
+        .expect("current_schema()");
+    assert_eq!(s[0].get::<_, String>(0), "public");
+
+    // 5. After introspection, a normal SELECT still works.
+    let rows = client
+        .query("SELECT id FROM nodes WHERE rank >= 2 ORDER BY id", &[])
+        .await
+        .expect("post-introspection SELECT");
+    let ids: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
+    assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// pg-wire SCRAM auth bridged to the engine identity (CONCEPT:KG-2.202).
+// A SCRAM login succeeds with the derived password, is REJECTED with the wrong
+// one, and post-login queries run under the mapped engine AgentIdentity/ACL.
+// ───────────────────────────────────────────────────────────────────────────
+
+use epistemic_graph::isolation::{AgentIdentity, AgentRole};
+use epistemic_graph::server::pgwire::derive_pg_password;
+
+/// A SCRAM-auth state: a known engine secret + a registered identity so the
+/// IsolationLayer has rules (the ACL is enforced once any identity exists). The
+/// `worker` agent owns `agent:worker` and is a member of no team; `__commons__`
+/// stays open to all authenticated agents.
+fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
+    let mut registry = GraphRegistry::new();
+    {
+        let core = registry.get("__commons__").unwrap().core.clone();
+        for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
+            let blob =
+                rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank})).unwrap();
+            core.add_node(id.to_string(), blob);
+        }
+    }
+    // A private per-agent graph owned by `worker`, plus a peer's private graph.
+    registry
+        .create_graph(
+            "agent:worker",
+            epistemic_graph::protocol::GraphType::Agent,
+            Some("worker".to_string()),
+        )
+        .unwrap();
+    registry
+        .create_graph(
+            "agent:peer",
+            epistemic_graph::protocol::GraphType::Agent,
+            Some("peer".to_string()),
+        )
+        .unwrap();
+
+    let mut isolation = IsolationLayer::new();
+    isolation.register_agent(AgentIdentity {
+        agent_id: "worker".to_string(),
+        role: AgentRole::Agent,
+        teams: vec![],
+    });
+    isolation.register_agent(AgentIdentity {
+        agent_id: "peer".to_string(),
+        role: AgentRole::Agent,
+        teams: vec![],
+    });
+
+    Arc::new(RwLock::new(ServerState {
+        registry,
+        isolation,
+        channels: ChannelManager::new(),
+        auth_secret: secret.to_string(),
+        persist_dir: None,
+        persistence: None,
+        redb_authoritative: false,
+        max_in_flight: Arc::new(Semaphore::new(16)),
+        per_graph_inflight: Arc::new(DashMap::new()),
+        per_graph_inflight_limit: 8,
+        write_coalescer: Arc::new(
+            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
+        ),
+        open_txns: Arc::new(DashMap::new()),
+        txn_id_gen: Arc::new(TxnIdGen::default()),
+        txn_ttl_secs: 300,
+        txn_max_per_graph: 256,
+        txn_max_per_agent: 256,
+        #[cfg(feature = "raft")]
+        raft: None,
+    }))
+}
+
+/// Connect with explicit user + password (SCRAM negotiated by tokio-postgres).
+async fn connect_scram(
+    addr: &str,
+    user: &str,
+    password: &str,
+    dbname: &str,
+) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
+    let port = addr.rsplit(':').next().unwrap();
+    let conn_str =
+        format!("host=127.0.0.1 port={port} user={user} password={password} dbname={dbname}");
+    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    Ok(client)
+}
+
+/// SCRAM login SUCCEEDS with the derived password and a post-login query runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scram_login_succeeds_with_correct_password() {
+    let secret = "engine-secret-xyz";
+    let state = scram_state(secret);
+    let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
+
+    let pw = derive_pg_password(secret, "worker");
+    let client = connect_scram(&addr, "worker", &pw, "__commons__")
+        .await
+        .expect("SCRAM login with correct derived password");
+
+    // A query after login runs (against the open __commons__).
+    let rows = client
+        .query("SELECT id FROM nodes WHERE rank = 1", &[])
+        .await
+        .expect("post-login SELECT");
+    let ids: Vec<String> = rows.iter().map(|r| r.get::<_, String>(0)).collect();
+    assert_eq!(ids, vec!["n1".to_string()]);
+}
+
+/// SCRAM login is REJECTED with the wrong password.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scram_login_rejected_with_wrong_password() {
+    let secret = "engine-secret-xyz";
+    let state = scram_state(secret);
+    let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
+
+    let err = connect_scram(&addr, "worker", "not-the-derived-password", "__commons__")
+        .await
+        .expect_err("wrong password must be rejected");
+    // The SASL failure surfaces as a db error; inspect the full source chain so the
+    // assertion catches the auth-failure SQLSTATE/message regardless of wrapping.
+    let chain = error_chain(&err);
+    assert!(
+        chain.contains("password")
+            || chain.contains("auth")
+            || chain.contains("sasl")
+            || chain.contains("28p01")
+            || chain.contains("28000"),
+        "expected an auth failure, got chain: {chain}"
+    );
+}
+
+/// The post-login identity drives the ACL: `worker` reaches its OWN private graph
+/// (`agent:worker`) but is DENIED a peer's private graph (`agent:peer`). Proves the
+/// pg user → engine AgentIdentity mapping flows into `IsolationLayer::check_access`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn scram_identity_drives_acl() {
+    let secret = "engine-secret-xyz";
+    let state = scram_state(secret);
+    let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
+
+    let pw = derive_pg_password(secret, "worker");
+    let client = connect_scram(&addr, "worker", &pw, "__commons__")
+        .await
+        .expect("SCRAM login");
+
+    // Owner reaches its own private graph.
+    client
+        .simple_query("SET graph = 'agent:worker'")
+        .await
+        .expect("SET graph to own");
+    client
+        .query("SELECT id FROM nodes", &[])
+        .await
+        .expect("read own private graph");
+
+    // The same connection is DENIED a peer's private graph.
+    client
+        .simple_query("SET graph = 'agent:peer'")
+        .await
+        .expect("SET graph to peer (the SET itself is local)");
+    let denied = client.query("SELECT id FROM nodes", &[]).await;
+    let err = denied.expect_err("peer graph read must be denied");
+    let chain = error_chain(&err);
+    assert!(
+        chain.contains("permission denied") || chain.contains("42501"),
+        "expected an ACL denial, got chain: {chain}"
+    );
+}
+
+/// Render a tokio-postgres error's full source chain lowercased, so an assertion
+/// can match a SQLSTATE/message that the top-level `Display` hides behind a generic
+/// "db error" wrapper.
+fn error_chain(err: &tokio_postgres::Error) -> String {
+    use std::error::Error;
+    let mut s = err.to_string();
+    let mut src = err.source();
+    while let Some(e) = src {
+        s.push_str(" | ");
+        s.push_str(&e.to_string());
+        src = e.source();
+    }
+    s.to_lowercase()
 }
