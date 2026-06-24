@@ -33,6 +33,33 @@ use crate::rowset::RowSet;
 pub struct PlanCtx<'a> {
     pub view: &'a GraphView,
     pub semantic: &'a SemanticStore,
+    /// The lexical BM25 index for the `RankText` / `FuseRrf` ops (CONCEPT:KG-2.215).
+    /// `None` when no text index is configured — a `RankText` then yields no hits
+    /// (the plan degrades, never errs), exactly as an absent embedding does for
+    /// `Rank`. Gated behind `text`, so a non-text build's `PlanCtx` is unchanged.
+    #[cfg(feature = "text")]
+    pub text: Option<&'a eg_text::TextIndex>,
+}
+
+impl<'a> PlanCtx<'a> {
+    /// Construct a ctx with NO text index (the common case + every non-text plan).
+    /// Keeps call-sites (and existing tests) feature-agnostic: the `text` field, when
+    /// the feature is on, defaults to `None`. Use [`Self::with_text`] to attach one.
+    pub fn new(view: &'a GraphView, semantic: &'a SemanticStore) -> Self {
+        Self {
+            view,
+            semantic,
+            #[cfg(feature = "text")]
+            text: None,
+        }
+    }
+
+    /// Attach a lexical BM25 index so `RankText` / `FuseRrf` ops can run.
+    #[cfg(feature = "text")]
+    pub fn with_text(mut self, text: &'a eg_text::TextIndex) -> Self {
+        self.text = Some(text);
+        self
+    }
 }
 
 /// Execute a [`Plan`] over `ctx`, returning the final `RowSet`. A free function (not
@@ -105,8 +132,65 @@ fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
             Ok(RowSet::from_scored(scored))
         }
 
+        #[cfg(feature = "text")]
+        Op::RankText { query } => Ok(rank_text(ctx, &input, query)),
+
+        #[cfg(feature = "text")]
+        Op::FuseRrf { left, right, k } => fuse_rrf(ctx, &input, left, right, *k),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
+}
+
+/// RANK (lexical, BM25): re-order the candidate set by BM25 relevance to `query`.
+/// Symmetric to the vector `Rank` — BM25 top-k over the FULL index (over-fetch),
+/// then keep only the current candidates, in BM25-score order. With no text index
+/// configured the result is empty (degrade, never err), mirroring `Rank` over an
+/// empty embedding store.
+#[cfg(feature = "text")]
+fn rank_text(ctx: &PlanCtx, input: &RowSet, query: &str) -> RowSet {
+    let Some(index) = ctx.text else {
+        return RowSet::new();
+    };
+    let candidates = input.id_set();
+    let k = candidates.len().max(1);
+    let want = (k * 4).max(k + 32);
+    let hits = index.search(query, want);
+    let scored: Vec<(String, f32)> = hits
+        .into_iter()
+        .filter(|h| candidates.contains(h.id.as_str()))
+        .map(|h| (h.id, h.score))
+        .collect();
+    RowSet::from_scored(scored)
+}
+
+/// FUSE (hybrid): run the `left` and `right` SUB-PLANS over the SAME `input` seed
+/// (snapshot-isolated, same `ctx`), then reciprocal-rank-fuse their ranked id lists
+/// into one RowSet (CONCEPT:KG-2.215). Each branch is a normal `Vec<Op>` plan — so
+/// the canonical hybrid is `left = [Rank{vec}]`, `right = [RankText{q}]`, but any two
+/// ranking sub-plans compose. RRF fuses the RANKS (not the incomparable cosine/BM25
+/// score scales), so a doc strong in BOTH branches out-ranks one strong in only one
+/// — the property that makes the fused query beat either branch alone.
+#[cfg(feature = "text")]
+fn fuse_rrf(
+    ctx: &PlanCtx,
+    input: &RowSet,
+    left: &[Op],
+    right: &[Op],
+    k: f32,
+) -> Result<RowSet, String> {
+    let run_branch = |ops: &[Op]| -> Result<Vec<String>, String> {
+        let mut cur = input.clone();
+        for op in ops {
+            cur = apply(op, cur, ctx)?;
+        }
+        Ok(cur.ids())
+    };
+    let l = run_branch(left)?;
+    let r = run_branch(right)?;
+    let k = if k > 0.0 { k } else { eg_text::RRF_K };
+    let fused = eg_text::rrf_fuse(&[&l, &r], k);
+    Ok(RowSet::from_scored(fused))
 }
 
 /// SOURCE: all node ids whose `type` property equals `label`.

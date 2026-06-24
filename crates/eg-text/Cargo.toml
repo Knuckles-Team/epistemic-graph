@@ -1,0 +1,33 @@
+[package]
+name = "eg-text"
+version = "0.33.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Embedded BM25 full-text inverted index over node text fields (CONCEPT:KG-2.215). Tantivy-backed, persistent-no-rebuild, incremental add/delete. HARD feature-gated OUT of the Pi/default build — Tantivy (zstd-sys etc.) is heavy."
+license = "MIT"
+
+[lib]
+name = "eg_text"
+
+# Pi-lean by design. The DEFAULT build links NOTHING heavy: the crate exposes only
+# its public types (TextHit, the trait surface) dep-free, and the Tantivy backend —
+# with its zstd-sys C dep, fst, memmap segments — is bound ONLY behind `tantivy`.
+# A default / pi build of the workspace never enables this crate's `tantivy` feature,
+# so `cargo tree` shows no tantivy in default/pi (the Pi contract).
+[features]
+default = []
+# The real BM25 inverted index. Pulls Tantivy (the Rust Lucene): persistent mmap
+# segments (reopen WITHOUT rebuild), incremental add/delete, BM25 scoring, default
+# tokenization + stemming. Heavy (≈140 transitive crates incl. zstd-sys's C build),
+# so it is OPT-IN and folded by the facade ONLY into text/node/cluster/full — never
+# pi/default.
+tantivy = ["dep:tantivy"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# The Rust Lucene. OPTIONAL + only referenced under #[cfg(feature = "tantivy")], so a
+# default/pi build links no tantivy / zstd-sys / fst (verified by `cargo tree`).
+tantivy = { version = "0.26", optional = true }
+
+[dev-dependencies]
+tempfile = "3.10"
