@@ -142,12 +142,28 @@ When active, a durable mutation is routed through Raft consensus (the leader's
 log entry is applied on **every** node by the SAME `wal::apply` → `GraphCore` +
 `record_durable` path a replayed WAL record / a single-node write uses (pairs with
 redb-authoritative M2). Followers redirect writes to the leader; leader failover is
-automatic. Scope today is a **single Raft group** (one replicated keyspace; the
-app-data carries the target graph name) with an **in-memory Raft log** (the vote +
-applied state + graph data ARE durable — vote/applied in `raft.redb`, graph data in
-`graph.redb` via M2). Documented follow-ups: a redb-backed Raft log, per-graph Raft
-groups, and a pooled per-peer connection. When the feature is off, the dispatch
-write path is **byte-for-byte** the single-node path.
+automatic. When the feature is off, the dispatch write path is **byte-for-byte** the
+single-node path.
+
+**Durable redb Raft log (CONCEPT:KG-2.204).** The Raft log — and the vote + applied
+state — live in the SAME `graph.redb` Database as the M2 graph data, keyed by
+`(group_id, index)` / `(group_id, key)`. Because the log shares M2's off-reactor
+group-commit writer, a log append and its graph mutation **coalesce into ONE
+`WriteTransaction` / one fsync**. A restarted node recovers its log tail **locally**
+from redb (it no longer needs the leader to refill an un-snapshotted tail). The
+separate `raft.redb` sidecar is gone — one shared DB serves M2 + every group's log.
+
+**Multi-Raft scaffold (CONCEPT:KG-2.205).** A `MultiRaft` manager holds N openraft
+groups keyed by `GroupId`, each its own state machine + `GraphCore`, **sharing ONE
+TCP listener per node** (RPC frames tagged + demuxed by group id) and **ONE shared
+`graph.redb`** (composite-key log/meta — not a file per group, the spike's FD-ceiling
+fix). A `GroupRouter` maps `graph_name → GroupId`. This increment runs **one group**
+(`DEFAULT_GROUP`) so behavior matches the single-group path, but the manager,
+routing, group create/open/close lifecycle, and multi-group isolation are exercised
+by tests. **Group = transaction boundary:** one graph belongs to one group and a txn
+stays inside a group — **no cross-group transactions yet** (documented follow-up
+CONCEPT:KG-2.207). Other documented follow-ups: per-group snapshot scoping, leader
+balancing across groups, heartbeat coalescing, and a pooled per-peer connection.
 
 ---
 
