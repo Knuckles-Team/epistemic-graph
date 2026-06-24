@@ -61,6 +61,10 @@ async fn make_state_with_backend(
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
+        #[cfg(feature = "blob")]
+        blob: None,
+        #[cfg(feature = "blob")]
+        blob_cursor_ttl_secs: 300,
         raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
