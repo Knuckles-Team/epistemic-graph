@@ -1001,6 +1001,26 @@ pub enum Method {
         query: String,
     },
 
+    // ── Unified cross-modal query (CONCEPT:KG-2.208/209) ──────────────────
+    // ONE plan that filters (relational/DataFusion) → traverses (graph/BFS) →
+    // ranks (vector/kNN) over the SAME off-lock snapshot, instead of three siloed
+    // round-trips. The `plan` is the serializable [`crate::wire::Plan`] AST (an
+    // ordered list of `Scan|Filter|Traverse|Rank|Limit` ops over a shared RowSet);
+    // the bespoke planner (eg-plan) sequences the existing legs and applies a
+    // cost-based filter-vs-vector reorder (CONCEPT:KG-2.209). Read-only this
+    // increment. Gated behind the facade `query` feature (the FILTER leg needs
+    // DataFusion); in a slim build the variant falls to the not-built catch-all.
+    // Result via `ResultPayload::raw` — a list of `[id, score|nil]` rows.
+    #[cfg(feature = "query")]
+    UnifiedQuery {
+        plan: crate::wire::Plan,
+        /// Optional cost-based reorder hint: when set, the planner reorders an
+        /// adjacent (Filter, Rank) pair by this estimated filter selectivity in
+        /// [0,1] (CONCEPT:KG-2.209). Absent ⇒ the plan executes as given.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reorder_filter_selectivity: Option<f64>,
+    },
+
     // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ───────────────
     // Server-side STAGED, OPTIMISTIC, snapshot-isolation transactions. `BeginTxn`
     // returns a server-issued `txn_id` (String). The `Txn*` ops STAGE durable
