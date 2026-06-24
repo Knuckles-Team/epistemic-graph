@@ -69,6 +69,33 @@ impl GroupRouter {
     pub fn assign(&self, graph_name: &str, group_id: GroupId) {
         self.overrides.insert(graph_name.to_string(), group_id);
     }
+
+    /// The distinct groups a set of graph names spans (CONCEPT:KG-2.222). A txn whose
+    /// write-set touches graphs that resolve to >1 group is a CROSS-SHARD txn and must
+    /// route through the 2PC coordinator; a set that resolves to exactly one group is
+    /// the single-group FAST PATH (unchanged). This is the span-detection the commit
+    /// path uses to decide between the two.
+    pub fn span<I, S>(&self, graph_names: I) -> std::collections::BTreeSet<GroupId>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        graph_names
+            .into_iter()
+            .map(|g| self.group_of(g.as_ref()))
+            .collect()
+    }
+
+    /// True when `graph_names` span ≥2 groups — i.e. a transaction over them is
+    /// cross-shard and needs 2PC. Exactly the gate `Commit` checks before choosing
+    /// the coordinator over the single-group fast path.
+    pub fn is_cross_shard<I, S>(&self, graph_names: I) -> bool
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.span(graph_names).len() >= 2
+    }
 }
 
 /// A single running group: its `EgRaft` handle + the node id it runs as. Cloneable.
@@ -146,6 +173,18 @@ impl MultiRaft {
 
     pub fn router(&self) -> Arc<GroupRouter> {
         self.router.clone()
+    }
+
+    /// The shared `ServerState` (registry + persistence) every group applies into —
+    /// reached via the manager's [`AppCtx`]. Used by the cross-shard 2PC coordinator
+    /// (CONCEPT:KG-2.222) to validate slices against live group state.
+    pub fn app_state(&self) -> Arc<RwLock<crate::server::ServerState>> {
+        self.ctx.state.clone()
+    }
+
+    /// The shared M2 backend (for the cross-shard coordinator's durable 2PC records).
+    pub fn backend(&self) -> Arc<dyn crate::server::persistence::PersistenceBackend> {
+        self.backend.clone()
     }
 
     /// Create + start group `gid` on this node with the given peer set. The store is

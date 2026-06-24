@@ -65,9 +65,23 @@ const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_met
 const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition::new("raft_log");
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:KG-2.204).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
+/// In-doubt cross-shard prepare records `(txn_id, group_id, slice-blob)` returned by
+/// the recovery scan (CONCEPT:KG-2.222).
+type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
 // Per-group Raft metadata (vote, applied-state pointers, last-purged), keyed by
 // `(group_id, key)`. Lives in `graph.redb` alongside the log for the same reason.
 const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
+// Cross-shard 2PC prepare records (CONCEPT:KG-2.222). One row per participant group
+// of an in-flight cross-shard transaction, keyed by `(txn_id, group_id)`, holding
+// that group's PREPARED-but-not-applied slice (its staged write-set). Durable so an
+// in-doubt txn survives a coordinator/participant crash between PREPARE and COMMIT
+// and is resolved on restart. Lives in `graph.redb` for the same single-file reason.
+const XSHARD_PREPARE: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("xshard_prepare");
+// The coordinator's durable DECISION record for a cross-shard txn, keyed by `txn_id`
+// (CONCEPT:KG-2.222). The value is `1` = COMMIT, `0` = ABORT. Writing this row is the
+// ATOMIC COMMIT POINT: once it reads COMMIT every participant will apply on recovery;
+// absent/ABORT ⇒ no participant applies (presumed-abort). Cleared after resolution.
+const XSHARD_DECISION: TableDefinition<&str, u8> = TableDefinition::new("xshard_decision");
 
 // Time-series tables (CONCEPT:KG-2.210). The CANONICAL `(series_id, bucket_start)`
 // chunk schema is declared once in the eg-tsdb crate (where the store/query logic
@@ -192,6 +206,42 @@ enum Cmd {
         key: String,
         reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
     },
+    // ── Cross-shard 2PC durable records (CONCEPT:KG-2.222) ──────────────────
+    /// Durably persist ONE participant group's PREPARE slice for a cross-shard txn
+    /// (commit-before-vote: a group votes yes only after this is on disk).
+    XshardPreparePut {
+        txn_id: String,
+        group_id: u64,
+        slice: Vec<u8>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Durably write the coordinator's DECISION for a cross-shard txn (the atomic
+    /// commit point): `1` = COMMIT, `0` = ABORT.
+    XshardDecisionPut {
+        txn_id: String,
+        commit: bool,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Clear ONE participant's prepare record after the txn is resolved.
+    XshardPrepareClear {
+        txn_id: String,
+        group_id: u64,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Clear a resolved txn's decision record (after every participant cleared).
+    XshardDecisionClear {
+        txn_id: String,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Scan ALL in-doubt prepare records (txn_id, group_id, slice) for recovery.
+    XshardScanPrepares {
+        reply: std::sync::mpsc::Sender<XshardPrepareScan>,
+    },
+    /// Read a txn's decision (Some(true)=commit, Some(false)=abort, None=undecided).
+    XshardDecisionGet {
+        txn_id: String,
+        reply: std::sync::mpsc::Sender<Result<Option<bool>, String>>,
+    },
 }
 
 /// An owned, off-lock dump of one graph used by the checkpoint path.
@@ -235,6 +285,8 @@ impl RedbBackend {
             wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
             wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
             wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
+            wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+            wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
@@ -626,6 +678,118 @@ impl RedbBackend {
         rx.recv()
             .map_err(|_| "redb writer dropped raft_meta_get reply".to_string())?
     }
+
+    // ── Cross-shard 2PC durable records (CONCEPT:KG-2.222) ─────────────────────
+    // The 2PC coordinator persists each participant's PREPARE slice + the final
+    // DECISION here so an in-doubt txn is resolvable after a crash. Each write awaits
+    // an Immediate-durability commit (commit-before-vote / commit-before-apply): a
+    // group only votes yes once its slice is on disk, and the decision is on disk
+    // before any participant applies — the atomicity barrier.
+
+    /// Durably persist one participant group's prepared slice. Awaits the fsync.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_prepare_put(
+        &self,
+        txn_id: &str,
+        group_id: u64,
+        slice: Vec<u8>,
+    ) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardPreparePut {
+                txn_id,
+                group_id,
+                slice,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("xshard_prepare_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_prepare_put completion".to_string())?
+    }
+
+    /// Durably write the coordinator's decision (the atomic commit point). Awaits fsync.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_decision_put(&self, txn_id: &str, commit: bool) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardDecisionPut {
+                txn_id,
+                commit,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("xshard_decision_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_decision_put completion".to_string())?
+    }
+
+    /// Clear one participant's prepare record after it is resolved.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_prepare_clear(&self, txn_id: &str, group_id: u64) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardPrepareClear {
+                txn_id,
+                group_id,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("xshard_prepare_clear join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_prepare_clear completion".to_string())?
+    }
+
+    /// Clear a resolved txn's decision record.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_decision_clear(&self, txn_id: &str) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(Cmd::XshardDecisionClear { txn_id, done }))
+            .await
+            .map_err(|e| format!("xshard_decision_clear join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_decision_clear completion".to_string())?
+    }
+
+    /// Scan every in-doubt prepare record `(txn_id, group_id, slice)` (for recovery).
+    #[cfg(feature = "raft")]
+    pub fn xshard_scan_prepares(&self) -> XshardPrepareScan {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::XshardScanPrepares { reply })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped xshard_scan_prepares reply".to_string())?
+    }
+
+    /// Read a txn's durable decision (Some(true)=commit, Some(false)=abort, None=undecided).
+    #[cfg(feature = "raft")]
+    pub fn xshard_decision_get(&self, txn_id: &str) -> Result<Option<bool>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::XshardDecisionGet {
+                txn_id: txn_id.to_string(),
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped xshard_decision_get reply".to_string())?
+    }
 }
 
 // ── off-reactor group-commit writer thread ───────────────────────────────
@@ -866,6 +1030,49 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             let _ = reply.send(get_raft_meta(db, group_id, &key));
             false
         }
+        Cmd::XshardPreparePut {
+            txn_id,
+            group_id,
+            slice,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(put_xshard_prepare(db, &txn_id, group_id, &slice));
+            false
+        }
+        Cmd::XshardDecisionPut {
+            txn_id,
+            commit,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(put_xshard_decision(db, &txn_id, commit));
+            false
+        }
+        Cmd::XshardPrepareClear {
+            txn_id,
+            group_id,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(clear_xshard_prepare(db, &txn_id, group_id));
+            false
+        }
+        Cmd::XshardDecisionClear { txn_id, done } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(clear_xshard_decision(db, &txn_id));
+            false
+        }
+        Cmd::XshardScanPrepares { reply } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(scan_xshard_prepares(db));
+            false
+        }
+        Cmd::XshardDecisionGet { txn_id, reply } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(get_xshard_decision(db, &txn_id));
+            false
+        }
     }
 }
 
@@ -1059,6 +1266,83 @@ fn get_raft_meta(db: &Database, gid: u64, key: &str) -> Result<Option<Vec<u8>>, 
     Ok(t.get((gid, key))
         .map_err(|e| e.to_string())?
         .map(|v| v.value().to_vec()))
+}
+
+// ── Cross-shard 2PC helpers (CONCEPT:KG-2.222) — run on the writer thread ──────
+
+/// Durably persist one participant group's prepared slice (its own transaction).
+fn put_xshard_prepare(db: &Database, txn_id: &str, gid: u64, slice: &[u8]) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+        t.insert((txn_id, gid), slice).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Durably write the coordinator's decision row (the atomic commit point).
+fn put_xshard_decision(db: &Database, txn_id: &str, commit: bool) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+        t.insert(txn_id, if commit { 1u8 } else { 0u8 })
+            .map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Clear one participant's prepare record after resolution.
+fn clear_xshard_prepare(db: &Database, txn_id: &str, gid: u64) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+        t.remove((txn_id, gid)).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Clear a resolved txn's decision record.
+fn clear_xshard_decision(db: &Database, txn_id: &str) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+        t.remove(txn_id).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Scan every in-doubt prepare record `(txn_id, group_id, slice)` for recovery.
+fn scan_xshard_prepares(db: &Database) -> XshardPrepareScan {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = rtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for kv in t.iter().map_err(|e| e.to_string())? {
+        let (k, v) = kv.map_err(|e| e.to_string())?;
+        let (txn_id, gid) = k.value();
+        out.push((txn_id.to_string(), gid, v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+/// Read a txn's durable decision (Some(true)=commit, Some(false)=abort, None=undecided).
+fn get_xshard_decision(db: &Database, txn_id: &str) -> Result<Option<bool>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = rtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+    Ok(t.get(txn_id)
+        .map_err(|e| e.to_string())?
+        .map(|v| v.value() == 1))
 }
 
 /// Translate ONE applied method into redb row writes inside an open transaction.
