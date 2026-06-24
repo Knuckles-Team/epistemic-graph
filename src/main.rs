@@ -384,6 +384,29 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Opt-in lossless RDF quad table (CONCEPT:KG-2.217, feature `rdf-redb`). A
+    // durable `rdf_quads.redb` beside `graph.redb` ONLY when a persist dir is set —
+    // with no persist dir the property-graph mapping alone is used (the multi-valued
+    // literal extras are reported by `LoadReport`, never silently lost), so there is
+    // nothing to durably store. A store-open failure is fatal at boot.
+    #[cfg(feature = "rdf-redb")]
+    let rdf_quads: Option<Arc<eg_rdf::quads::QuadStore>> = match &args.persist_dir {
+        Some(dir) => {
+            let path = std::path::Path::new(dir).join("rdf_quads.redb");
+            match eg_rdf::quads::QuadStore::open(&path) {
+                Ok(s) => {
+                    info!("RDF lossless quad store (rdf-redb): {}", path.display());
+                    Some(Arc::new(s))
+                }
+                Err(e) => {
+                    tracing::error!("failed to open RDF quad store at {}: {e}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
+        None => None,
+    };
+
     // Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206). The CAS lives
     // in `{persist_dir}/blob.redb`; with no persist dir there is no durable place
     // for the bytes, so the substrate is disabled and the Blob* methods report
@@ -466,6 +489,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store,
+        #[cfg(feature = "rdf-redb")]
+        rdf_quads,
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────

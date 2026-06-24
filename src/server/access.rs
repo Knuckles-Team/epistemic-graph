@@ -7,6 +7,11 @@ use crate::protocol::Method;
 /// reads from it (Read). Pure-compute methods (finance, datascience, parse)
 /// never touch graph state and classify as Read.
 pub(crate) fn requires_write(method: &Method) -> bool {
+    // `AddTriples` (feature `rdf`) writes nodes + edges into the target graph.
+    #[cfg(feature = "rdf")]
+    if matches!(method, Method::AddTriples { .. }) {
+        return true;
+    }
     matches!(
         method,
         Method::AddNode { .. }

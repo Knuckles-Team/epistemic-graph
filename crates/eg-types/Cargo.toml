@@ -32,6 +32,12 @@ text = ["query"]
 # Blob ──` Method variants so a build without `blob` drops them from the enum (they
 # then fall to the dispatch "not available in this build" catch-all).
 blob = []
+# Native RDF surface (CONCEPT:KG-2.217): gates the `AddTriples`/`GetTriples` Method
+# variants so a build without `rdf` drops them from the enum.
+rdf = []
+# Native SPARQL surface (CONCEPT:KG-2.218): gates the `Sparql` Method variant +
+# `SparqlResult` wire DTO. Implies `rdf`.
+sparql = ["rdf"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

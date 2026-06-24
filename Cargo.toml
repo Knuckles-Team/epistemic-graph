@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf"]
 
 [package]
 name = "epistemic-graph"
@@ -139,12 +139,25 @@ pgwire = ["dep:pgwire", "dep:futures", "query", "server"]
 # with no Tokio server runtime (the Pi/edge "100M agents, a local engine each"
 # story). Gated query/tsdb surfaces light up when those features are ALSO on.
 embedded = ["redb"]
+# Native RDF surface (CONCEPT:KG-2.217, Lane W): maps an RDF dataset onto the
+# property-graph + serializes it back (Turtle/N-Triples via oxrdf/oxttl in the
+# eg-rdf crate). PURE-RUST — links NO C/native dep (proven by cargo tree) — so it is
+# safe to fold into the serving tiers but kept OUT of bare default/`pi` (the Pi
+# build stays lean; RDF is not a Pi requirement). Needs `server` (the handler routes
+# through dispatch) + `eg-types/rdf` (the Method variants).
+rdf = ["server", "dep:eg-rdf", "eg-rdf/rdf", "eg-types/rdf"]
+# Native SPARQL 1.1 surface (CONCEPT:KG-2.218): compiles spargebra's algebra to
+# GraphView scans (eg-rdf). IMPLIES `rdf`; pure-Rust (spargebra), no native dep.
+sparql = ["rdf", "eg-rdf/sparql", "eg-types/sparql"]
+# Opt-in lossless redb `quads` table for multi-valued-literal predicates the
+# property blob can't hold (CONCEPT:KG-2.217). Rides the engine `redb` tier.
+rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).
 # `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP) so the standard full/all build
 # is authoritative-by-default (a durable source of truth) just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text"]
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -156,7 +169,7 @@ all = ["full"]
 # (CONCEPT:KG-2.188). A sibling track (M8) also extends `cluster` with `pgwire`;
 # an integration step unions them — keep the raft part here.
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann"]
-node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text"]
+node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8). The two sibling tracks each extended
 # `cluster`; this integration unions both halves so the cluster tier links raft
@@ -180,6 +193,11 @@ eg-plan = { path = "crates/eg-plan", optional = true }
 # 211); pulls redb only (native primitives), and DataFusion only when `query` is ALSO
 # on (its `arrow-seg` feature, enabled transitively by the facade `query` feature).
 eg-tsdb = { path = "crates/eg-tsdb", optional = true }
+# Optional native RDF/SPARQL surface (features `rdf`/`sparql`, CONCEPT:KG-2.217/218).
+# Pulls oxrdf/oxttl/spargebra — ALL pure-Rust — only when enabled, so a default/pi
+# build links none of them (asserted by cargo tree). Its `rdf-redb` quad table rides
+# the facade `redb` feature.
+eg-rdf = { path = "crates/eg-rdf", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
