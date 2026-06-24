@@ -72,6 +72,8 @@ async fn make_state_with_backend(
         tsdb_store: None,
         #[cfg(feature = "rdf-redb")]
         rdf_quads: None,
+        #[cfg(feature = "streaming")]
+        cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
     }))
 }
 
