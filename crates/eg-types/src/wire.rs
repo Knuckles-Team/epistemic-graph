@@ -88,6 +88,15 @@ pub enum Op {
         /// The projected variable whose (resource) bindings become the RowSet ids.
         var: String,
     },
+    /// UDF (WASM) — transform the current `RowSet` through a registered, SANDBOXED
+    /// WebAssembly user function (CONCEPT:KG-2.228). The executor serializes the input
+    /// rows (ids + scores) to bytes, runs the wasm module `id` under fuel + memory
+    /// limits with NO host capabilities, and deserializes the returned rows back into
+    /// the pipeline. A pure `RowSet -> RowSet` op like every other, so a UDF composes
+    /// with Scan/Filter/Traverse/Rank/Limit. Gated by `wasm-udf` (the wasmtime runtime
+    /// lives in eg-wasm behind its own gate; this is just the wire variant).
+    #[cfg(feature = "wasm-udf")]
+    Udf { id: String },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }

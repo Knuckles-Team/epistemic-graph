@@ -48,6 +48,17 @@ owl = ["sparql"]
 # SPLIT from `owl` because the unified-plan executor needs DataFusion (`query`) which
 # the Pi tier omits — the bare OWL reasoner (`owl`) stays Pi-safe.
 owl-plan = ["owl", "query"]
+# WASM-sandboxed UDF surface (CONCEPT:KG-2.228): gates the `RegisterUdf`/`RunUdf`
+# Method variants AND the `Op::Udf { id }` variant of the cross-modal plan AST. The
+# `Udf` op lives inside the `query`-gated `Op` enum, so this implies `query`. Pure
+# serde — NO wasmtime here (the runtime lives in eg-wasm behind its own gate); this
+# only adds enum variants to the wire protocol.
+wasm-udf = ["query"]
+# Distributed graph compute surface (CONCEPT:KG-2.227): gates the
+# `DistributedCompute`/`*MatView` Method variants + the `DistAlgo` wire enum. Pure
+# serde — the cross-shard Pregel coordinator lives in the facade behind `compute-dist`
+# (which needs raft); this only adds the wire variants.
+compute-dist = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
