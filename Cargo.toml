@@ -103,6 +103,16 @@ cypher = ["dep:eg-query", "eg-query/cypher"]
 # bare default. When `query` is ALSO on, eg-tsdb's `arrow-seg` lights up the
 # DataFusion `time_bucket = GROUP BY (ts/w)*w` leg (see the `query` feature below).
 tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
+# Streaming / CDC / continuous queries / subscriptions / triggers (CONCEPT:KG-2.229/
+# 230, Lane L). Reactivity layered over the existing per-graph durable change record
+# (the ledger): every durable mutation the dispatch shell records also emits an
+# ordered, cursor-addressable change into a per-graph in-memory feed, from which the
+# CDC read / incremental continuous-query / watch+trigger surfaces are driven over the
+# SAME one-Response-per-Request transport (cursor / long-poll — no side-channel). The
+# core is a bounded VecDeque ring + a tokio Notify: PURE-RUST, NO heavy dep, so it is
+# Pi-lean and folded into pi/node/cluster/full. Needs `server` (the handler routes
+# through dispatch); `eg-types/streaming` carries the Method variants + wire DTOs.
+streaming = ["server", "eg-types/streaming"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. CLUSTER-TIER ONLY —
 # OFF by default and NOT in `full`/`all`, so a default / `pi` / `full` build links
@@ -170,7 +180,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # build links no openraft (matching the tier intent — replication is cluster-only).
 # `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP) so the standard full/all build
 # is authoritative-by-default (a durable source of truth) just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan"]
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -189,7 +199,7 @@ all = ["full"]
 #     the Pi-3 tier). NOT `text` (Tantivy's C dep must stay out of `pi`). The Pi
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
-pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl"]
+pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8). The two sibling tracks each extended

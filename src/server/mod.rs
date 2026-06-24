@@ -10,6 +10,11 @@ mod auth;
 // the Blob* methods then fall to the dispatch "not available" catch-all.
 #[cfg(feature = "blob")]
 pub mod blob;
+// Change-Data-Capture hub + continuous queries + subscriptions/triggers
+// (CONCEPT:KG-2.229/230). Facade-only, behind the `streaming` cargo feature (no heavy
+// dep, folds into pi/node/cluster/full). A build without it compiles none of it.
+#[cfg(feature = "streaming")]
+pub mod cdc;
 mod compute;
 mod dispatch;
 mod handlers;
@@ -95,6 +100,8 @@ mod tests {
             )),
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         }))
     }
 
@@ -917,6 +924,8 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -992,6 +1001,8 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -1073,6 +1084,8 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -1254,6 +1267,8 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
@@ -2816,5 +2831,404 @@ ex:myHeart a ex:HumanHeart .
             "<http://example.org/myHeart>".into(),
             "<http://example.org/HumanComponent>".into()
         )));
+    }
+
+    // ── Streaming / CDC / subscriptions / triggers (CONCEPT:KG-2.229/230) ──
+    // End-to-end through the FULL dispatch path (the emit hook fires from the
+    // write-side-effect block, NOT a direct hub call).
+
+    #[cfg(feature = "streaming")]
+    fn doc_node(id: &str, label: &str) -> Method {
+        Method::AddNode {
+            node_id: id.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"type": label}))
+                .unwrap(),
+        }
+    }
+
+    #[cfg(feature = "streaming")]
+    fn cdc_events(resp: &Response) -> Vec<crate::wire::CdcEvent> {
+        match &resp.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(b).unwrap(),
+            other => panic!("expected Raw(Vec<CdcEvent>), got {other:?}"),
+        }
+    }
+
+    /// A write through dispatch lands in the CDC feed in order; re-reading from a
+    /// later cursor skips what was already seen (CONCEPT:KG-2.229).
+    #[cfg(feature = "streaming")]
+    #[tokio::test]
+    async fn test_cdc_ordered_read_from_cursor() {
+        let state = test_state();
+        assert_ok(
+            &dispatch(
+                &state,
+                request(1, "__commons__", None, doc_node("n1", "Doc")),
+            )
+            .await,
+        );
+        assert_ok(
+            &dispatch(
+                &state,
+                request(2, "__commons__", None, doc_node("n2", "Doc")),
+            )
+            .await,
+        );
+
+        // Read from the start: both, in order.
+        let r = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::CdcRead {
+                    graph: "__commons__".into(),
+                    from_seq: 0,
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        let events = cdc_events(&r);
+        assert_eq!(events.len(), 2, "two writes → two CDC events");
+        assert_eq!(events[0].seq, 0);
+        assert_eq!(events[0].node_id, "n1");
+        assert_eq!(events[0].label, "Doc");
+        assert!(matches!(events[0].kind, crate::wire::CdcKind::AddNode));
+        assert_eq!(events[1].seq, 1);
+        assert_eq!(events[1].node_id, "n2");
+
+        // Re-read from one past the last seen cursor → empty (skips seen).
+        let cursor = events.last().unwrap().seq + 1;
+        let r2 = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::CdcRead {
+                    graph: "__commons__".into(),
+                    from_seq: cursor,
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        assert!(cdc_events(&r2).is_empty(), "cursor past head sees nothing");
+
+        // A new write then read-from-cursor returns ONLY it.
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    5,
+                    "__commons__",
+                    None,
+                    Method::RemoveNode {
+                        node_id: "n1".into(),
+                    },
+                ),
+            )
+            .await,
+        );
+        let r3 = dispatch(
+            &state,
+            request(
+                6,
+                "__commons__",
+                None,
+                Method::CdcRead {
+                    graph: "__commons__".into(),
+                    from_seq: cursor,
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        let tail = cdc_events(&r3);
+        assert_eq!(tail.len(), 1);
+        assert!(matches!(tail[0].kind, crate::wire::CdcKind::RemoveNode));
+        assert_eq!(tail[0].node_id, "n1");
+
+        // ClearGraph through dispatch RESETS the feed (CONCEPT:KG-2.229): the seq
+        // rewinds to 0 and the ring empties, so a consumer re-seeds from 0. (This is
+        // what gives a wiped/cleared graph a clean change feed.)
+        assert_ok(&dispatch(&state, request(7, "__commons__", None, Method::ClearGraph)).await);
+        let after_clear = dispatch(
+            &state,
+            request(
+                8,
+                "__commons__",
+                None,
+                Method::CdcRead {
+                    graph: "__commons__".into(),
+                    from_seq: 0,
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            cdc_events(&after_clear).is_empty(),
+            "ClearGraph resets the CDC feed to empty"
+        );
+        // A post-clear write is seq 0 again.
+        assert_ok(&dispatch(&state, request(9, "__commons__", None, doc_node("fresh", "Doc"))).await);
+        let reseeded = dispatch(
+            &state,
+            request(
+                10,
+                "__commons__",
+                None,
+                Method::CdcRead {
+                    graph: "__commons__".into(),
+                    from_seq: 0,
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        let ev = cdc_events(&reseeded);
+        assert_eq!(ev.len(), 1);
+        assert_eq!(ev[0].seq, 0, "feed rewound — first post-clear change is seq 0");
+        assert_eq!(ev[0].node_id, "fresh");
+    }
+
+    /// A continuous query maintained incrementally off the CDC feed equals a full
+    /// re-run over the final graph state (CONCEPT:KG-2.229).
+    #[cfg(feature = "streaming")]
+    #[tokio::test]
+    async fn test_continuous_query_incremental_equals_full_rerun() {
+        let state = test_state();
+        // Register a Count CQ over label "Doc" BEFORE any writes.
+        let spec = crate::wire::ContinuousQuerySpec {
+            graph: "__commons__".into(),
+            label: "Doc".into(),
+            agg: crate::wire::ContinuousAgg::Count,
+        };
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::RegisterContinuousQuery {
+                        name: "doc_count".into(),
+                        spec_msgpack: rmp_serde::to_vec_named(&spec).unwrap(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // Mutations: 3 Doc adds, 1 Other add, 1 Doc remove → 2 live Docs.
+        let mut id = 10u64;
+        for n in ["a", "b", "c"] {
+            assert_ok(
+                &dispatch(&state, request(id, "__commons__", None, doc_node(n, "Doc"))).await,
+            );
+            id += 1;
+        }
+        assert_ok(
+            &dispatch(
+                &state,
+                request(id, "__commons__", None, doc_node("x", "Other")),
+            )
+            .await,
+        );
+        id += 1;
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    id,
+                    "__commons__",
+                    None,
+                    Method::RemoveNode {
+                        node_id: "a".into(),
+                    },
+                ),
+            )
+            .await,
+        );
+        id += 1;
+
+        // Read the incrementally-maintained CQ value.
+        let r = dispatch(
+            &state,
+            request(
+                id,
+                "__commons__",
+                None,
+                Method::ReadContinuousQuery {
+                    name: "doc_count".into(),
+                },
+            ),
+        )
+        .await;
+        let cq: crate::wire::ContinuousQueryResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(ContinuousQueryResult), got {other:?}"),
+        };
+
+        // ORACLE: full re-run = count nodes with label "Doc" in the final graph.
+        let full_rerun = {
+            let s = state.read().await;
+            let core = s.registry.get("__commons__").unwrap().core.clone();
+            core.get_nodes_by_label("Doc", 0).len() as f64
+        };
+        assert_eq!(
+            cq.value, full_rerun,
+            "incremental CQ must equal the full re-run"
+        );
+        assert_eq!(cq.value, 2.0);
+    }
+
+    /// A `Watch` long-poll delivers a change to a subscriber, and a registered trigger
+    /// fires its action on a matching change (CONCEPT:KG-2.230).
+    #[cfg(feature = "streaming")]
+    #[tokio::test]
+    async fn test_watch_and_trigger_delivery() {
+        let state = test_state();
+
+        // Register a trigger: any "Alert"-labelled node add records an action.
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::RegisterTrigger {
+                        name: "on_alert".into(),
+                        graph: "__commons__".into(),
+                        label: "Alert".into(),
+                        op: "add".into(),
+                        action_msgpack: rmp_serde::to_vec_named(
+                            &serde_json::json!({"topic": "ops"}),
+                        )
+                        .unwrap(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // A non-matching write (Doc) does NOT fire the trigger.
+        assert_ok(
+            &dispatch(
+                &state,
+                request(2, "__commons__", None, doc_node("d1", "Doc")),
+            )
+            .await,
+        );
+        // A matching write (Alert) DOES — and is delivered to a Watch subscriber.
+        assert_ok(
+            &dispatch(
+                &state,
+                request(3, "__commons__", None, doc_node("a1", "Alert")),
+            )
+            .await,
+        );
+
+        // Watch from the start, filtered to "Alert": must see exactly the Alert change.
+        let w = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::Watch {
+                    graph: "__commons__".into(),
+                    from_seq: 0,
+                    label: "Alert".into(),
+                    timeout_ms: 0,
+                },
+            ),
+        )
+        .await;
+        let batch: crate::wire::WatchBatch = match w.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(WatchBatch), got {other:?}"),
+        };
+        assert_eq!(
+            batch.events.len(),
+            1,
+            "watch delivers only the Alert change"
+        );
+        assert_eq!(batch.events[0].node_id, "a1");
+        assert_eq!(batch.next_seq, batch.events[0].seq + 1);
+
+        // The trigger fired exactly once; poll the fired log for its action.
+        let f = dispatch(
+            &state,
+            request(
+                5,
+                "__commons__",
+                None,
+                Method::FiredTriggers {
+                    graph: "__commons__".into(),
+                    from_seq: 0,
+                    limit: 0,
+                },
+            ),
+        )
+        .await;
+        let fired: Vec<crate::wire::FiredAction> = match f.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(Vec<FiredAction>), got {other:?}"),
+        };
+        assert_eq!(fired.len(), 1, "exactly one firing (only the Alert add)");
+        assert_eq!(fired[0].trigger, "on_alert");
+        assert_eq!(fired[0].node_id, "a1");
+        let action: serde_json::Value = rmp_serde::from_slice(&fired[0].action).unwrap();
+        assert_eq!(action["topic"], "ops");
+    }
+
+    /// `Watch` long-poll wakes when a change lands DURING the poll window
+    /// (subscription push semantics over the long-poll transport).
+    #[cfg(feature = "streaming")]
+    #[tokio::test]
+    async fn test_watch_long_poll_wakes_on_write() {
+        let state = test_state();
+        let st2 = state.clone();
+        // Spawn a writer that lands a change shortly after the watch begins.
+        let writer = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            let _ = dispatch(
+                &st2,
+                request(9, "__commons__", None, doc_node("late", "Doc")),
+            )
+            .await;
+        });
+        // Watch with a generous timeout; it should return the change once it lands.
+        let w = dispatch(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                Method::Watch {
+                    graph: "__commons__".into(),
+                    from_seq: 0,
+                    label: String::new(),
+                    timeout_ms: 2000,
+                },
+            ),
+        )
+        .await;
+        writer.await.unwrap();
+        let batch: crate::wire::WatchBatch = match w.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(WatchBatch), got {other:?}"),
+        };
+        assert_eq!(
+            batch.events.len(),
+            1,
+            "long-poll woke on the in-window write"
+        );
+        assert_eq!(batch.events[0].node_id, "late");
     }
 }
