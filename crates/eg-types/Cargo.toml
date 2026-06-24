@@ -21,6 +21,10 @@ datascience = []
 # `Method::UnifiedQuery`. Gated so a build without the query surface drops the AST
 # (and the Method variant) from the enum, exactly like finance/datascience.
 query = []
+# Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206): gates the `// ──
+# Blob ──` Method variants so a build without `blob` drops them from the enum (they
+# then fall to the dispatch "not available in this build" catch-all).
+blob = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

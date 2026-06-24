@@ -28,3 +28,9 @@ pub(crate) mod txn;
 // `tsdb` omits the module and the variants fall to the graph_ops not-built catch-all.
 #[cfg(feature = "tsdb")]
 pub(crate) mod timeseries;
+// Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206). Behind `blob`
+// (which pulls `redb` + `server`); the stateful Blob* methods drive the CAS store
+// + cursors on ServerState. A build without `blob` drops both the module and the
+// Method variants, so the dispatch chain never routes them.
+#[cfg(feature = "blob")]
+pub(crate) mod blob;
