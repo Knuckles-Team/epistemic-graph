@@ -2129,7 +2129,9 @@ class TimeSeriesClient:
         if not points:
             return 0
         nf = n_fields if n_fields is not None else len(points[0][1])
-        blob = msgpack.packb([[int(ts), [float(v) for v in vals]] for ts, vals in points])
+        blob = msgpack.packb(
+            [[int(ts), [float(v) for v in vals]] for ts, vals in points]
+        )
         return await self._client._send(
             "TsAppend",
             {
@@ -2141,7 +2143,9 @@ class TimeSeriesClient:
             },
         )
 
-    async def range(self, series_id: str, from_ts: int, to_ts: int) -> list[tuple[int, list[float]]]:
+    async def range(
+        self, series_id: str, from_ts: int, to_ts: int
+    ) -> list[tuple[int, list[float]]]:
         """Scan ``[from_ts, to_ts)`` of a series in ts order. Returns
         ``(ts_ns, [values])`` points (empty for an unknown series)."""
         rows = await self._client._send(
@@ -2192,11 +2196,18 @@ class TimeSeriesClient:
         wire); ``carried_forward`` is ``True`` when no real obs landed on that grid ts."""
         rows = await self._client._send(
             "TsGapFill",
-            {"series_id": series_id, "from": int(from_ts), "to": int(to_ts), "step": int(step_ns)},
+            {
+                "series_id": series_id,
+                "from": int(from_ts),
+                "to": int(to_ts),
+                "step": int(step_ns),
+            },
         )
         out: list[tuple[int, float | None, bool]] = []
         for ts, val, filled in rows or []:
-            v = None if isinstance(val, float) and val != val else float(val)  # NaN -> None
+            v = (
+                None if isinstance(val, float) and val != val else float(val)
+            )  # NaN -> None
             out.append((int(ts), v, bool(filled)))
         return out
 
