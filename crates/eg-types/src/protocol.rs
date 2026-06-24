@@ -1266,6 +1266,24 @@ pub enum Method {
     Sparql {
         query: String,
     },
+    /// Run the native OWL 2 (EL⁺ + RL) reasoner over the request's graph and
+    /// materialize entailments (CONCEPT:KG-2.219). Classifies the OWL axioms already
+    /// in the graph (the TBox loaded via `AddTriples`) plus any extra `ontology`
+    /// Turtle, then returns a `Raw` [`OwlReasonResult`]: the derived named-class
+    /// subsumptions, the inferred instance→class memberships (incl. ones reached only
+    /// through existential restrictions / role chains), and a consistency verdict. The
+    /// `Op::Reason` plan op reuses the SAME classifier as a RowSet source. Read-only
+    /// (it does not mutate the graph). Gated `owl`.
+    #[cfg(feature = "owl")]
+    OwlReason {
+        /// Extra OWL axioms as Turtle (empty ⇒ reason over the graph's own axioms).
+        #[serde(default)]
+        ontology: String,
+        /// When set, restrict the returned instance memberships to this class (its
+        /// inferred members) — the materialize-one-class shape. Empty ⇒ all classes.
+        #[serde(default)]
+        target_class: String,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -1291,6 +1309,25 @@ pub struct QueryResult {
 pub struct SparqlResult {
     pub vars: Vec<String>,
     pub rows: Vec<Vec<Option<String>>>,
+}
+
+/// Materialized result of a `Method::OwlReason` run (CONCEPT:KG-2.219). Returned via
+/// `ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.
+#[cfg(feature = "owl")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwlReasonResult {
+    /// Derived named-class subsumptions `(sub, sup)` (the reflexive/asserted ones are
+    /// included; the closure is the full classification hierarchy).
+    pub subclasses: Vec<(String, String)>,
+    /// Inferred instance memberships `(instance, class)` — every individual mapped to
+    /// every class it (provably) belongs to, INCLUDING classes reached only through
+    /// existential restrictions / role chains. When `target_class` was set, restricted
+    /// to that class's members.
+    pub instances: Vec<(String, String)>,
+    /// `true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).
+    pub consistent: bool,
+    /// Named classes derived to be unsatisfiable (`A ⊑ ⊥`); empty when consistent.
+    pub unsatisfiable: Vec<String>,
 }
 
 /// Graph type for multi-tenant registry.
