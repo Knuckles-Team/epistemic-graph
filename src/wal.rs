@@ -30,6 +30,13 @@ use crate::protocol::Method;
 
 /// True for the methods whose effect must survive a crash via the WAL.
 pub fn is_durable_mutation(m: &Method) -> bool {
+    // `AddTriples` (feature `rdf`) writes nodes + edges, so it is durable: the
+    // dispatch shell records the Method and `apply` below re-parses + re-applies it
+    // deterministically on replay, exactly like `BatchUpdate`.
+    #[cfg(feature = "rdf")]
+    if matches!(m, Method::AddTriples { .. }) {
+        return true;
+    }
     matches!(
         m,
         Method::AddNode { .. }
@@ -177,6 +184,34 @@ pub fn apply(core: &GraphCore, m: &Method) {
             let _ = crate::algorithms::batch_update(core, operations_msgpack);
         }
         Method::ClearGraph => core.clear(),
+        // `AddTriples` (feature `rdf`): deterministic replay = re-parse the SAME
+        // source text and re-apply the property-graph projection. The multi-valued
+        // literal extras live in their OWN durable `rdf_quads.redb` (independently
+        // durable), so they need no WAL replay here — only the in-graph nodes/edges
+        // are rebuilt. Re-running over the same pre-image yields the same state.
+        #[cfg(feature = "rdf")]
+        Method::AddTriples { turtle, ntriples } => {
+            let parsed = if !turtle.trim().is_empty() {
+                eg_rdf::mapping::parse_turtle(turtle)
+            } else if !ntriples.trim().is_empty() {
+                eg_rdf::mapping::parse_ntriples(ntriples)
+            } else {
+                Ok(Vec::new())
+            };
+            if let Ok(triples) = parsed {
+                let mut iris = eg_rdf::mapping::IriStore::default();
+                // Replay rebuilds the property-graph projection; the lossless quad
+                // store is durable on its own file, so pass no store here.
+                let _ = eg_rdf::mapping::load_triples(
+                    core,
+                    &mut iris,
+                    "",
+                    triples,
+                    #[cfg(feature = "rdf-redb")]
+                    None,
+                );
+            }
+        }
         _ => {}
     }
 }
