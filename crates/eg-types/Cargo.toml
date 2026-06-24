@@ -32,6 +32,11 @@ text = ["query"]
 # Blob ──` Method variants so a build without `blob` drops them from the enum (they
 # then fall to the dispatch "not available in this build" catch-all).
 blob = []
+# Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230): gates the `// ── Streaming
+# ──` Method variants + the CDC/continuous-query/watch/trigger wire DTOs. PURE serde
+# — no heavy dep — so it folds into pi/node/cluster/full; a build without it drops
+# the variants (→ the dispatch "not available in this build" catch-all).
+streaming = []
 # Native RDF surface (CONCEPT:KG-2.217): gates the `AddTriples`/`GetTriples` Method
 # variants so a build without `rdf` drops them from the enum.
 rdf = []

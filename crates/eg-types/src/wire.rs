@@ -6,7 +6,12 @@
 //! Each type is gated by the same feature as the Method variant that carries it,
 //! so a build that omits a compute domain drops its wire types from the enum too.
 
-#[cfg(any(feature = "finance", feature = "datascience", feature = "query"))]
+#[cfg(any(
+    feature = "finance",
+    feature = "datascience",
+    feature = "query",
+    feature = "streaming"
+))]
 use serde::{Deserialize, Serialize};
 
 // ── unified cross-modal query plan AST (CONCEPT:KG-2.208) ────────────────────
@@ -240,4 +245,136 @@ pub enum FittedModel {
         kernel: String,
         gamma: f64,
     },
+}
+
+// ── Streaming / CDC / continuous queries / watch / triggers (CONCEPT:KG-2.229/230) ──
+// PURE-data wire DTOs for the reactive surface. They are produced/consumed by the
+// `streaming` handler over the existing one-Response-per-Request transport (cursor /
+// long-poll, NOT a side-channel), so the enum stays free of any server type.
+
+/// The kind of a captured change. Mirrors the durable-mutation `Method` set the CDC
+/// feed records (the ledger's `is_durable_mutation` family), flattened to the unit a
+/// consumer reasons about (node add/remove/update, edge add/remove).
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CdcKind {
+    AddNode,
+    RemoveNode,
+    UpdateNode,
+    AddEdge,
+    RemoveEdge,
+}
+
+/// One ordered change in a graph's CDC feed (CONCEPT:KG-2.229). `seq` is the per-graph
+/// monotonic cursor: a consumer tails with `CdcRead { from_seq }` and re-reads from a
+/// later `seq` to skip what it has already seen. `before`/`after` carry the affected
+/// node/edge property blob (MessagePack) pre- and post-mutation; `None` means absent
+/// (an add has no `before`, a remove no `after`).
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CdcEvent {
+    pub seq: u64,
+    pub graph: String,
+    pub kind: CdcKind,
+    /// The node id for node changes / the edge source for edge changes.
+    pub node_id: String,
+    /// The edge target (empty for node changes).
+    #[serde(default)]
+    pub target_id: String,
+    /// The change's `type`/label property after the mutation (for label-filtered
+    /// watch + triggers); best-effort decoded from `after` (else `before`).
+    #[serde(default)]
+    pub label: String,
+    #[serde(default, with = "serde_bytes")]
+    pub before: Vec<u8>,
+    #[serde(default, with = "serde_bytes")]
+    pub after: Vec<u8>,
+    /// True when `before` carried a value (distinguishes an empty blob from absent).
+    #[serde(default)]
+    pub had_before: bool,
+    /// True when `after` carried a value.
+    #[serde(default)]
+    pub had_after: bool,
+}
+
+/// Spec for a registered continuous query (CONCEPT:KG-2.229), incrementally maintained
+/// as CDC changes arrive. One graph, one label filter, one aggregate. Deliberately
+/// SIMPLE — a counting/sum/filter view that updates on delta rather than re-running.
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContinuousQuerySpec {
+    /// The graph whose CDC feed drives this view.
+    pub graph: String,
+    /// Only changes whose label equals this maintain the view (empty ⇒ all nodes).
+    #[serde(default)]
+    pub label: String,
+    /// The aggregate maintained: "count" (live node count for the label) or
+    /// "sum:<field>" (running sum of a numeric node property).
+    pub agg: ContinuousAgg,
+}
+
+/// The incremental aggregate a continuous query maintains.
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ContinuousAgg {
+    /// Live count of matching nodes (add +1, remove -1).
+    Count,
+    /// Running sum of a numeric node property (delta = new - old on update).
+    Sum { field: String },
+}
+
+/// Current result of a continuous query — the incrementally-maintained value plus the
+/// CDC `seq` it reflects (so a reader knows how current it is).
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContinuousQueryResult {
+    pub name: String,
+    /// The aggregate value (count, or sum).
+    pub value: f64,
+    /// The CDC seq this result has folded in up to (the watermark).
+    pub through_seq: u64,
+}
+
+/// A batch returned by a `Watch` long-poll (CONCEPT:KG-2.230): the matching changes
+/// since the client's cursor plus the next cursor to resume from.
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WatchBatch {
+    pub events: Vec<CdcEvent>,
+    /// The cursor to pass as `from_seq` next time (one past the last delivered seq).
+    pub next_seq: u64,
+}
+
+/// One trigger registration (CONCEPT:KG-2.230). When a CDC change in `graph` matches
+/// `label` + `op`, the trigger fires its `action` (an opaque MessagePack payload the
+/// consumer interprets — e.g. a notification topic / a webhook spec). Fired actions
+/// are recorded in a per-graph fired log a client polls with `FiredTriggers`.
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TriggerInfo {
+    pub name: String,
+    pub graph: String,
+    #[serde(default)]
+    pub label: String,
+    /// "add" | "remove" | "update" | "any" — the change kind that fires it.
+    pub op: String,
+    /// How many times this trigger has fired.
+    pub fire_count: u64,
+}
+
+/// A recorded trigger firing (CONCEPT:KG-2.230). Returned by `FiredTriggers` so a
+/// reaction consumer pulls the action payload + the change that fired it.
+#[cfg(feature = "streaming")]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FiredAction {
+    /// Per-graph monotonic fired-id (the cursor for `FiredTriggers`).
+    pub fire_seq: u64,
+    pub trigger: String,
+    pub graph: String,
+    /// The CDC seq of the change that fired the trigger.
+    pub change_seq: u64,
+    pub node_id: String,
+    /// The opaque action payload registered with the trigger (MessagePack).
+    #[serde(default, with = "serde_bytes")]
+    pub action: Vec<u8>,
 }

@@ -552,6 +552,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tsdb_store,
         #[cfg(feature = "rdf-redb")]
         rdf_quads,
+        // Change-Data-Capture hub (CONCEPT:KG-2.229/230). In-memory only (a bounded
+        // per-graph ring + Notify) — needs no persist dir, so it is always live on a
+        // `streaming` build. The dispatch shell emits a change into it after every
+        // durable mutation; the streaming handler reads/maintains/serves off it.
+        #[cfg(feature = "streaming")]
+        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
