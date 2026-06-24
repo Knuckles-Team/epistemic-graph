@@ -38,9 +38,24 @@ pub mod metrics;
 pub mod persist;
 #[cfg(feature = "server")]
 pub mod persist_lock;
+// Pure redb durable-row machinery (CONCEPT:KG-2.216) — server-INDEPENDENT, gated on
+// `redb` ALONE so the embedded API (and the server's `redb_backend`) share ONE
+// durable format with no Tokio. Built whenever the `redb` crate is linked.
+#[cfg(feature = "redb")]
+pub mod redb_store;
+// In-process embedded library API (CONCEPT:KG-2.216) — SQLite/DuckDB-style. Drives
+// the SAME GraphCore + redb durable rows the socket dispatch does, with NO Tokio
+// server/socket/HMAC. Gated on `embedded` (→ `redb`); needs NO `server` feature.
+#[cfg(feature = "embedded")]
+pub mod embedded;
 #[cfg(feature = "server")]
 pub mod server;
-#[cfg(feature = "server")]
+// The WAL module: `WalWriter`/`replay` (snapshot+WAL tier) need `server`, but its
+// canonical "durable Method → GraphCore" applier (`wal::apply`) + the
+// `is_durable_mutation` predicate are PURE (no Tokio) and are the SAME core-apply
+// the socket dispatch, WAL replay, and the Raft state machine use. The embedded API
+// drives them too, so the module is available without `server` whenever `redb` is on.
+#[cfg(any(feature = "server", feature = "redb"))]
 pub mod wal;
 #[cfg(feature = "server")]
 pub mod wal_service;
