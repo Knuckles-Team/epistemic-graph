@@ -1,15 +1,144 @@
 //! Wire transport: response framing, the per-connection loop (with backpressure
 //! admission), and the UDS/TCP listeners. Routing/auth live in `dispatch`.
+//!
+//! ## Graceful shutdown (reference-counted)
+//!
+//! The accept loop `select!`s between accepting a new connection and a
+//! [`tokio::sync::Notify`] "shutdown" signal. When the signal fires the loop
+//! BREAKS and returns, so `main()` falls through to the persistence flush + final
+//! checkpoint (`PersistenceBackend::shutdown()`), instead of looping forever.
+//! The signal is fired by any of:
+//!   * a SIGTERM/SIGINT handler (a supervisor / `kill` is a clean checkpointed stop);
+//!   * the optional idle watcher (`--idle-shutdown-secs N`, N>0) once the active
+//!     connection count has been 0 continuously for N seconds.
+//!
+//! [`ShutdownCoordinator`] holds the `Notify` plus an [`AtomicUsize`] active-
+//! connection counter that `handle_connection` increments on entry and decrements
+//! on return (RAII via [`ConnGuard`]) — that count is what the idle watcher polls.
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Notify, RwLock, Semaphore};
 use tracing::{error, info};
 
 use super::{dispatch, ServerState};
 use crate::protocol::{Method, Request, Response};
+
+/// Coordinates reference-counted graceful shutdown across the listeners and the
+/// per-connection tasks. Shared via `Arc`. `active` is the live connection count
+/// (the refcount); `requested` latches the shutdown decision; `notify` wakes an
+/// accept loop parked in `accept()` so it re-checks the latch promptly.
+#[derive(Debug, Default)]
+pub struct ShutdownCoordinator {
+    /// Live (currently-handled) connection count — the reference count the idle
+    /// watcher observes. Incremented on accept, decremented when the connection's
+    /// `handle_connection` returns.
+    active: AtomicUsize,
+    /// Latched "shutdown requested" flag. Checked at the TOP of every accept-loop
+    /// iteration, so a `trigger()` that fires BETWEEN iterations (after one select
+    /// completed, before the next `notified()` is armed) is never missed — the
+    /// latch persists, unlike a bare `Notify` edge.
+    requested: AtomicBool,
+    /// Edge-triggered wake so an accept loop currently parked in `accept()` returns
+    /// to the top of the loop (where it reads `requested`) without waiting for a new
+    /// connection. The latch — not this edge — is the source of truth.
+    notify: Notify,
+}
+
+impl ShutdownCoordinator {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Current number of in-flight connections (the reference count).
+    pub fn active_connections(&self) -> usize {
+        self.active.load(Ordering::SeqCst)
+    }
+
+    /// True once shutdown has been triggered (latched).
+    fn is_requested(&self) -> bool {
+        self.requested.load(Ordering::SeqCst)
+    }
+
+    /// Fire the graceful-shutdown signal. Idempotent — latches `requested` and wakes
+    /// any parked accept loop so it breaks. Extra calls are harmless.
+    pub fn trigger(&self) {
+        self.requested.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    /// Future that resolves when shutdown is triggered. Armed fresh each accept-loop
+    /// iteration; the loop also re-checks the latch at the top, so an edge missed
+    /// between iterations is caught by the latch on the next pass.
+    fn notified(&self) -> tokio::sync::futures::Notified<'_> {
+        self.notify.notified()
+    }
+}
+
+/// RAII guard: increments the active-connection count on creation and decrements
+/// it on drop, so the refcount is correct even if `handle_connection` returns via
+/// an early `break`/`?` or a panic unwinds the task.
+struct ConnGuard {
+    coord: Arc<ShutdownCoordinator>,
+}
+
+impl ConnGuard {
+    fn new(coord: Arc<ShutdownCoordinator>) -> Self {
+        coord.active.fetch_add(1, Ordering::SeqCst);
+        Self { coord }
+    }
+}
+
+impl Drop for ConnGuard {
+    fn drop(&mut self) {
+        self.coord.active.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Watch the active-connection count and fire the shutdown signal once it has been
+/// 0 continuously for `idle_secs` seconds (CONCEPT:KG-2.223 — the tiny shared
+/// daemon self-terminates a grace period after its last client disconnects, the
+/// auto-bundled-engine mode agent-utilities' EngineResolver opts into by passing
+/// `--idle-shutdown-secs`). A connection arriving DURING the grace period resets
+/// the timer (the watcher re-observes a non-zero count and re-arms). Only spawned
+/// when `idle_secs > 0`; absent/0 ⇒ no watcher, the engine runs forever
+/// (long-living/persistent mode). The watcher polls once a second, so a
+/// 1-second idle window is honored without busy-polling.
+pub async fn run_idle_watcher(coord: Arc<ShutdownCoordinator>, idle_secs: u64) {
+    let idle = std::time::Duration::from_secs(idle_secs);
+    // Poll once a second: fine-grained enough to honor a 1s idle window, coarse
+    // enough never to busy-poll for a long grace period.
+    let poll = std::time::Duration::from_secs(1);
+    // Instant the count was last observed at zero; None while a connection is live.
+    // `tokio::time::Instant` (not std) so the watcher honors paused/virtual time in
+    // tests and the real monotonic clock in production.
+    let mut idle_since: Option<tokio::time::Instant> = None;
+    loop {
+        tokio::time::sleep(poll).await;
+        let active = coord.active_connections();
+        if active > 0 {
+            // A connection is live → cancel any pending idle timer.
+            idle_since = None;
+            continue;
+        }
+        match idle_since {
+            None => idle_since = Some(tokio::time::Instant::now()),
+            Some(since) => {
+                if since.elapsed() >= idle {
+                    info!(
+                        "Idle shutdown: no connections for {}s — triggering graceful shutdown",
+                        idle_secs
+                    );
+                    coord.trigger();
+                    return;
+                }
+            }
+        }
+    }
+}
 
 /// Serialize a response to a length-prefixable frame. On the (essentially
 /// impossible) event that encoding fails, emit a VALID error frame rather than an
@@ -138,45 +267,149 @@ where
 }
 
 /// Start the server on a Unix Domain Socket (unix only; Windows uses TCP).
+///
+/// The accept loop `select!`s the next connection against `coord`'s shutdown
+/// signal: when the signal fires the loop BREAKS and returns `Ok(())`, so
+/// `main()` falls through to the persistence flush + final checkpoint. Each
+/// accepted connection is wrapped in a [`ConnGuard`] so the active-connection
+/// refcount the idle watcher observes stays correct.
 #[cfg(unix)]
-pub async fn serve_uds(socket_path: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
+pub async fn serve_uds(
+    socket_path: &str,
+    state: Arc<RwLock<ServerState>>,
+    coord: Arc<ShutdownCoordinator>,
+) -> std::io::Result<()> {
     // Remove stale socket file.
     let _ = std::fs::remove_file(socket_path);
     let listener = UnixListener::bind(socket_path)?;
     info!("Listening on UDS: {}", socket_path);
 
     loop {
-        match listener.accept().await {
-            Ok((stream, _addr)) => {
-                let state = state.clone();
-                tokio::spawn(async move {
-                    handle_connection(stream, state).await;
-                });
+        // Latch check at the TOP catches a trigger() that fired between iterations
+        // (the Notify edge below only wakes a currently-parked accept).
+        if coord.is_requested() {
+            info!("UDS accept loop: shutdown requested, stopping accept");
+            break;
+        }
+        // Arm the wake future BEFORE awaiting accept so a trigger() racing the
+        // select! is not lost: notify_waiters wakes this armed future, and even if
+        // the edge is missed the latch is re-read at the top of the next iteration.
+        let shutdown = coord.notified();
+        tokio::select! {
+            biased;
+            _ = shutdown => {
+                info!("UDS accept loop: shutdown signal received, stopping accept");
+                break;
             }
-            Err(e) => {
-                error!("Accept error: {}", e);
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _addr)) => {
+                    let state = state.clone();
+                    let guard = ConnGuard::new(coord.clone());
+                    tokio::spawn(async move {
+                        let _guard = guard; // dropped when the connection ends
+                        handle_connection(stream, state).await;
+                    });
+                }
+                Err(e) => {
+                    error!("Accept error: {}", e);
+                }
             }
         }
     }
+    Ok(())
 }
 
-/// Start the server on a TCP address.
-pub async fn serve_tcp(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
+/// Start the server on a TCP address. Same graceful-shutdown contract as
+/// [`serve_uds`].
+pub async fn serve_tcp(
+    addr: &str,
+    state: Arc<RwLock<ServerState>>,
+    coord: Arc<ShutdownCoordinator>,
+) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     info!("Listening on TCP: {}", addr);
 
     loop {
-        match listener.accept().await {
-            Ok((stream, addr)) => {
-                info!("TCP connection from {}", addr);
-                let state = state.clone();
-                tokio::spawn(async move {
-                    handle_connection(stream, state).await;
-                });
+        if coord.is_requested() {
+            info!("TCP accept loop: shutdown requested, stopping accept");
+            break;
+        }
+        let shutdown = coord.notified();
+        tokio::select! {
+            biased;
+            _ = shutdown => {
+                info!("TCP accept loop: shutdown signal received, stopping accept");
+                break;
             }
-            Err(e) => {
-                error!("Accept error: {}", e);
+            accepted = listener.accept() => match accepted {
+                Ok((stream, addr)) => {
+                    info!("TCP connection from {}", addr);
+                    let state = state.clone();
+                    let guard = ConnGuard::new(coord.clone());
+                    tokio::spawn(async move {
+                        let _guard = guard; // dropped when the connection ends
+                        handle_connection(stream, state).await;
+                    });
+                }
+                Err(e) => {
+                    error!("Accept error: {}", e);
+                }
             }
         }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conn_guard_refcounts() {
+        let coord = ShutdownCoordinator::new();
+        assert_eq!(coord.active_connections(), 0);
+        let g1 = ConnGuard::new(coord.clone());
+        let g2 = ConnGuard::new(coord.clone());
+        assert_eq!(coord.active_connections(), 2);
+        drop(g1);
+        assert_eq!(coord.active_connections(), 1);
+        drop(g2);
+        assert_eq!(coord.active_connections(), 0);
+    }
+
+    #[test]
+    fn trigger_latches() {
+        let coord = ShutdownCoordinator::new();
+        assert!(!coord.is_requested());
+        coord.trigger();
+        assert!(coord.is_requested());
+        // Idempotent.
+        coord.trigger();
+        assert!(coord.is_requested());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_watcher_triggers_when_idle() {
+        let coord = ShutdownCoordinator::new();
+        let c = coord.clone();
+        let h = tokio::spawn(async move { run_idle_watcher(c, 1).await });
+        // No connections ⇒ after the grace window the watcher must trigger.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        assert!(coord.is_requested(), "idle watcher did not trigger");
+        h.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_watcher_resets_on_active_connection() {
+        let coord = ShutdownCoordinator::new();
+        // Hold a live connection the whole time ⇒ the watcher never fires.
+        let _g = ConnGuard::new(coord.clone());
+        let c = coord.clone();
+        tokio::spawn(async move { run_idle_watcher(c, 1).await });
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        assert!(
+            !coord.is_requested(),
+            "idle watcher fired despite an active connection"
+        );
     }
 }

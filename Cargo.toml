@@ -3,7 +3,7 @@ members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-comp
 
 [package]
 name = "epistemic-graph"
-version = "0.33.1"
+version = "0.34.0"
 edition = "2021"
 authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
 description = "High-performance Rust graph compute engine for AI agents"
@@ -97,6 +97,8 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # build links no openraft (matching the tier intent — replication is cluster-only).
 # `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP) so the standard full/all build
 # is authoritative-by-default (a durable source of truth) just like pi/node/cluster.
+# TODO(integration): add "rdf","sparql","text" once Lane-W (CONCEPT:KG-2.223) is
+# merged to main (see the tier-bundle note below).
 full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob"]
 all = ["full"]
 
@@ -108,6 +110,18 @@ all = ["full"]
 # compute on top; `cluster` is `node` + in-engine Raft replication
 # (CONCEPT:KG-2.188). A sibling track (M8) also extends `cluster` with `pgwire`;
 # an integration step unions them — keep the raft part here.
+#
+# Lane-W (CONCEPT:KG-2.223 — the auto-bundled engine) lands PURE-RUST `rdf` +
+# `sparql` (oxrdf/oxttl/spargebra — no native deps) and a `text` (Tantivy, C dep)
+# surface on OTHER branches not yet merged to this base. The tier wiring for those
+# is intentionally DEFERRED so this branch keeps building:
+#   * `pi`  gains `rdf` + `sparql` (pure-Rust, Pi-safe — ships native RDF/SPARQL on
+#     the Pi-3 tier). NOT `text` (Tantivy's C dep must stay out of `pi`).
+#   * `node`/`full` gain `rdf` + `sparql` + `text`.
+# TODO(integration): add "rdf","sparql" to `pi` and "rdf","sparql","text" to
+# `node` once the Lane-W crates/features are merged to main. They are omitted here
+# because referencing a non-existent feature fails `cargo build`; the integrator
+# finalizes the bundles when all lanes land.
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
@@ -147,14 +161,18 @@ tracing = "0.1"
 
 # Optional Server. Explicit minimal feature set (not "full"): the binary uses an
 # explicitly-built multi-thread runtime + UDS/TCP listeners + sync primitives +
-# timers, and nothing from process/signal/fs. Tests pull dev-dependencies' "full"
-# tokio, so #[tokio::test]/duplex still work. Trims compile time + binary surface.
+# timers + `signal` (SIGTERM/SIGINT graceful shutdown) + `macros` (the
+# `tokio::select!` the graceful accept loop awaits on). Tests pull
+# dev-dependencies' "full" tokio, so #[tokio::test]/duplex still work. Trims
+# compile time + binary surface.
 tokio = { version = "1.38", features = [
     "rt-multi-thread",
     "net",
     "io-util",
     "sync",
     "time",
+    "signal",
+    "macros",
 ], optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
