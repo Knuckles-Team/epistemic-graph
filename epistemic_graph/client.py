@@ -1941,6 +1941,47 @@ class QueryClient:
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
+    async def uql(
+        self,
+        text: str,
+        reorder_filter_selectivity: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run a UQL TEXT query (CONCEPT:KG-2.214) — the human/agent-writable
+        front-end over :meth:`unified`.
+
+        ``text`` is a UQL pipeline that the engine PARSES into the SAME cross-modal
+        ``Plan`` AST :meth:`unified` carries, then runs through the IDENTICAL
+        executor (no new execution path). One query expresses filter (relational) +
+        traverse (graph) + rank (vector) across modalities, e.g.::
+
+            MATCH (:Doc) WHERE year > 2024
+              |> TRAVERSE -[:CITES]->{1,2}
+              |> RANK BY ~[1.0, 0.0, 0.0, 0.0]
+              |> LIMIT 10
+
+        Grammar (this increment): ``MATCH (:Label) [WHERE preds]`` seeds the scan
+        (an inline ``WHERE`` is sugar for a ``|> WHERE`` filter stage); pipeline
+        stages are ``TRAVERSE -[:REL]->{min,max}`` (or bare ``TRAVERSE REL{min,max}``;
+        ``{n}`` = exactly n hops, absent = 1 hop), ``RANK BY ~[v0, v1, …]`` (an inline
+        literal query vector), ``LIMIT k``, and a later-stage ``WHERE``. Predicates are
+        ``prop > num`` / ``prop < num`` / ``prop = value`` joined by ``AND``; keywords
+        are case-insensitive. Requires a server built with the ``query`` feature.
+
+        ``reorder_filter_selectivity`` behaves exactly as in :meth:`unified` — a
+        ``[0,1]`` fraction triggering the cost-based (Filter, Rank) reorder
+        (CONCEPT:KG-2.209), which never changes the result set.
+
+        On a syntax error the engine returns a clear, caret-annotated parse error
+        (raised as the transport's error). Returns the same
+        ``{"id": str, "score": float | None}`` rows as :meth:`unified`.
+        """
+        params: dict[str, Any] = {"text": text}
+        if reorder_filter_selectivity is not None:
+            params["reorder_filter_selectivity"] = reorder_filter_selectivity
+        result = await self._client._send("UnifiedQueryText", params)
+        rows = result or []
+        return [{"id": id_, "score": score} for id_, score in rows]
+
     @staticmethod
     def _rows_to_dicts(result: Any) -> list[dict[str, Any]]:
         """Zip a ``{columns, rows}`` query result into per-row dicts. Shared by

@@ -1021,6 +1021,22 @@ pub enum Method {
         reorder_filter_selectivity: Option<f64>,
     },
 
+    // ── Unified query, TEXT surface — UQL (CONCEPT:KG-2.214) ────────────────
+    // The human/agent-writable counterpart of `UnifiedQuery`: a UQL `text` string
+    // (e.g. `MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2} |> RANK BY
+    // ~[…] |> LIMIT 10`) that the handler PARSES (eg_plan::uql::parse) into the SAME
+    // `wire::Plan` AST `UnifiedQuery` carries, then runs through the IDENTICAL
+    // `run_unified` executor — NO new execution path, just a front-end. A parse error
+    // becomes a clear error Response. Same `query`-gating + `ResultPayload::raw`
+    // (`[id, score|nil]` rows) as `UnifiedQuery`.
+    #[cfg(feature = "query")]
+    UnifiedQueryText {
+        text: String,
+        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:KG-2.209).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reorder_filter_selectivity: Option<f64>,
+    },
+
     // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ───────────────
     // Server-side STAGED, OPTIMISTIC, snapshot-isolation transactions. `BeginTxn`
     // returns a server-issued `txn_id` (String). The `Txn*` ops STAGE durable
