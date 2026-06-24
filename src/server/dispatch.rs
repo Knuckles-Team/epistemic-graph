@@ -674,54 +674,70 @@ async fn dispatch_graph_op(
 
     crate::metrics::graph_op(graph_name);
 
-    let response = 'dispatch: {
-        // Per-graph write coalescer (CONCEPT:KG-2.182): the five high-frequency
-        // single-op writes are batched onto this graph's writer so M concurrent
-        // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
-        // below still owns dirty/WAL/gauge off the returned Response, so durability
-        // and checkpoint semantics are unchanged — only WHERE the lock is taken
-        // moved. On a full queue / disabled coalescer the method is handed back and
-        // flows through the inline path unchanged.
-        let method =
-            match try_coalesce_write(req_id, &write_coalescer, graph_name, &core, method).await {
-                Ok(resp) => break 'dispatch resp,
+    let response =
+        'dispatch: {
+            // Per-graph write coalescer (CONCEPT:KG-2.182): the five high-frequency
+            // single-op writes are batched onto this graph's writer so M concurrent
+            // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
+            // below still owns dirty/WAL/gauge off the returned Response, so durability
+            // and checkpoint semantics are unchanged — only WHERE the lock is taken
+            // moved. On a full queue / disabled coalescer the method is handed back and
+            // flows through the inline path unchanged.
+            let method =
+                match try_coalesce_write(req_id, &write_coalescer, graph_name, &core, method).await
+                {
+                    Ok(resp) => break 'dispatch resp,
+                    Err(m) => m,
+                };
+            // Pure-compute domains (stateless: no graph core / lock) route first; a
+            // method that isn't theirs is handed back via Err and falls through to the
+            // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
+            // Feature-gated: in a slim build the line is absent and the method flows
+            // straight through to graph_ops (whose catch-all reports "not available").
+            #[cfg(feature = "finance")]
+            let method = match handlers::finance::try_handle(req_id, method) {
+                Ok(r) => break 'dispatch r,
                 Err(m) => m,
             };
-        // Pure-compute domains (stateless: no graph core / lock) route first; a
-        // method that isn't theirs is handed back via Err and falls through to the
-        // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
-        // Feature-gated: in a slim build the line is absent and the method flows
-        // straight through to graph_ops (whose catch-all reports "not available").
-        #[cfg(feature = "finance")]
-        let method = match handlers::finance::try_handle(req_id, method) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
+            #[cfg(feature = "datascience")]
+            let method = match handlers::datascience::try_handle(req_id, method) {
+                Ok(r) => break 'dispatch r,
+                Err(m) => m,
+            };
+            // Read-only query surface — SQL (CONCEPT:KG-2.178, DataFusion behind
+            // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`): borrows
+            // the graph core for an off-lock snapshot, runs on the blocking pool. Gated
+            // on EITHER feature so CypherQuery still routes in a cypher-only (no-
+            // DataFusion) Pi build; the handler's per-method arm falls through (Err) when
+            // ITS feature is off, so Sql/CypherQuery then reach the graph_ops
+            // not-available catch-all. Slim builds with NEITHER feature omit this line.
+            #[cfg(any(feature = "query", feature = "cypher"))]
+            let method = match handlers::query::try_handle(req_id, core.clone(), method).await {
+                Ok(r) => break 'dispatch r,
+                Err(m) => m,
+            };
+            // Native RDF/SPARQL surface (CONCEPT:KG-2.217/218, features `rdf`/`sparql`):
+            // AddTriples (durable — the shell below records it like any write),
+            // GetRdf + Sparql (read-only, off-lock snapshot). Graph-scoped, so the
+            // handler takes the graph core + name; AddTriples also reads the optional
+            // lossless quad store off `state`. Gated on `rdf`; a method whose feature is
+            // off falls through (Err) to the graph_ops not-available catch-all.
+            #[cfg(feature = "rdf")]
+            let method =
+                match handlers::rdf::try_handle(state, req_id, graph_name, core.clone(), method)
+                    .await
+                {
+                    Ok(r) => break 'dispatch r,
+                    Err(m) => m,
+                };
+            // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
+            // re-enter the registry via `state`). Owns the catch-all, returns a Response.
+            // Bind then `break` (not a tail expr) so the `'dispatch` label stays used
+            // even when both compute-routing lines above are feature-gated out.
+            let resp =
+                handlers::graph_ops::try_handle(state, req_id, caller, core.clone(), method).await;
+            break 'dispatch resp;
         };
-        #[cfg(feature = "datascience")]
-        let method = match handlers::datascience::try_handle(req_id, method) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Read-only query surface — SQL (CONCEPT:KG-2.178, DataFusion behind
-        // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`): borrows
-        // the graph core for an off-lock snapshot, runs on the blocking pool. Gated
-        // on EITHER feature so CypherQuery still routes in a cypher-only (no-
-        // DataFusion) Pi build; the handler's per-method arm falls through (Err) when
-        // ITS feature is off, so Sql/CypherQuery then reach the graph_ops
-        // not-available catch-all. Slim builds with NEITHER feature omit this line.
-        #[cfg(any(feature = "query", feature = "cypher"))]
-        let method = match handlers::query::try_handle(req_id, core.clone(), method).await {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
-        // re-enter the registry via `state`). Owns the catch-all, returns a Response.
-        // Bind then `break` (not a tail expr) so the `'dispatch` label stays used
-        // even when both compute-routing lines above are feature-gated out.
-        let resp =
-            handlers::graph_ops::try_handle(state, req_id, caller, core.clone(), method).await;
-        break 'dispatch resp;
-    };
 
     // Refresh the per-graph size gauges after mutations — both petgraph
     // counts are O(1), so this adds no meaningful write-path cost.
@@ -936,6 +952,8 @@ mod blob_dispatch_tests {
             raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
         }))
     }
 
