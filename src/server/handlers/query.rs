@@ -50,6 +50,29 @@ pub(crate) async fn try_handle(
                 };
             Ok(resp)
         }
+        #[cfg(feature = "query")]
+        Method::UnifiedQuery {
+            plan,
+            reorder_filter_selectivity,
+        } => {
+            // ONE cross-modal plan (CONCEPT:KG-2.208/209): filter (DataFusion) →
+            // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot. Take
+            // BOTH the GraphView (topology + property blobs) and a SemanticStore clone
+            // under a brief read each — same point-in-time, so the cross-modal read is
+            // snapshot-isolated — then run the whole pipeline on the blocking pool.
+            let snap = core.analysis_snapshot();
+            let semantic = core.semantic_store.read().clone();
+            let resp = match compute_off_lock(req_id, move || {
+                run_unified(plan, reorder_filter_selectivity, &snap, &semantic)
+            })
+            .await
+            {
+                Ok(Ok(rows)) => Response::ok(req_id, ResultPayload::raw(&rows)),
+                Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
         #[cfg(feature = "cypher")]
         Method::CypherQuery { query } => {
             // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
@@ -66,4 +89,49 @@ pub(crate) async fn try_handle(
         }
         other => Err(other),
     }
+}
+
+/// Execute a unified cross-modal plan (CONCEPT:KG-2.208/209) over one off-lock
+/// snapshot and return the result rows as `[id, score|nil]`. When
+/// `reorder_filter_selectivity` is set, the cost model reorders an adjacent
+/// (Filter, Rank) pair before execution (CONCEPT:KG-2.209). Synchronous — runs on
+/// the blocking pool via `compute_off_lock`, like the SQL/Cypher legs.
+#[cfg(feature = "query")]
+fn run_unified(
+    plan: eg_plan::Plan,
+    reorder_filter_selectivity: Option<f64>,
+    view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+) -> Result<Vec<(String, Option<f32>)>, String> {
+    use eg_plan::{CostModel, Op, PlanCtx, Stats};
+
+    // Optional cost-based reorder of the adjacent (Filter, Rank) pair. The final
+    // top-k requested by a trailing Limit drives the cost asymmetry; default to the
+    // seed size if there is no Limit. Seed/embedding counts come straight from the
+    // snapshot, so the decision is fed by derivable stats (CONCEPT:KG-2.209).
+    let ops = match reorder_filter_selectivity {
+        Some(sel) => {
+            let seed_rows = view.node_properties.len();
+            let top_k = plan
+                .ops
+                .iter()
+                .rev()
+                .find_map(|o| match o {
+                    Op::Limit { k } => Some(*k),
+                    _ => None,
+                })
+                .unwrap_or(seed_rows.max(1));
+            let stats = Stats::estimate(seed_rows, sel, top_k, semantic.len());
+            CostModel::reorder_filter_rank(plan.ops, &stats)
+        }
+        None => plan.ops,
+    };
+
+    let ctx = PlanCtx { view, semantic };
+    let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
+    Ok(result
+        .rows()
+        .iter()
+        .map(|r| (r.id.clone(), r.score))
+        .collect())
 }

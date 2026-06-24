@@ -1,0 +1,42 @@
+[package]
+name = "eg-plan"
+version = "0.33.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Unified cross-modal query planner (CONCEPT:KG-2.208/209) — a RowSet closed algebra sequencing the existing SQL (DataFusion), graph (petgraph BFS) and vector (SemanticStore) legs into ONE plan, with a cost-based filter-vs-vector reorder"
+license = "MIT"
+
+[lib]
+name = "eg_plan"
+
+[features]
+# `query` pulls the DataFusion-backed FILTER leg (via eg-query/sql). A default
+# build links NO DataFusion: the algebra, the cost model, the graph/vector legs
+# and the plan IR all compile dep-free (the Pi contract). The DataFusion `Filter`
+# leg — and the `UnifiedPlan::execute` that needs it — are gated behind this
+# feature, exactly as the facade gates `query`.
+default = []
+query = ["dep:eg-query", "eg-query/sql"]
+
+[dependencies]
+# The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
+# `query` feature — but it is pure serde (NO DataFusion), so eg-plan ALWAYS enables
+# it: the algebra + cost model + IR compile dep-free in a default/Pi build. Only the
+# DataFusion FILTER leg (eg-query, below) is gated behind eg-plan's own `query`.
+eg-types = { path = "../eg-types", features = ["query"] }
+eg-core = { path = "../eg-core" }
+# The relational FILTER leg is real DataFusion via eg-query's schema-on-read
+# `nodes` provider — gated behind `query` so a default build links none of it.
+eg-query = { path = "../eg-query", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+# Variable-length-hop TRAVERSE BFS over GraphView's StableDiGraph (EdgeRef). Already
+# linked transitively via eg-core; pin the same minor. NOT a new heavy dep, and the
+# graph leg is dep-free (ships in a default/Pi build).
+petgraph = { version = "0.6.4", features = ["serde-1"] }
+
+[dev-dependencies]
+# The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
+# DataFusion FILTER leg, so the test target needs the `query` feature on.
+eg-query = { path = "../eg-query", features = ["sql"] }

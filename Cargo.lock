@@ -1395,6 +1395,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-plan"
+version = "0.33.0"
+dependencies = [
+ "eg-core",
+ "eg-query",
+ "eg-types",
+ "petgraph",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-query"
 version = "0.31.0"
 dependencies = [
@@ -1476,6 +1489,7 @@ dependencies = [
  "dashmap",
  "eg-compute",
  "eg-core",
+ "eg-plan",
  "eg-query",
  "eg-types",
  "fs4",
