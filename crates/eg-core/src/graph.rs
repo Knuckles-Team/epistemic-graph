@@ -161,6 +161,14 @@ pub struct GraphCore {
     /// `None` until first use / after invalidation; the inner map only ever holds
     /// the keys demanded so far.
     property_index: RwLock<Option<PropertyIndex>>,
+    /// The unified secondary-index registry/seam (CONCEPT:KG-2.213). Owns the
+    /// `SecondaryIndex` descriptors (label, property, + discoverable vector /
+    /// ontology) so a planner consults ONE registry — `index_for(predicate)` /
+    /// `descriptors_for_column(col)` — instead of bespoke per-index checks. The
+    /// label/property CACHES still live in the fields above (lazy + `mark_dirty`-
+    /// invalidated); the manager only routes, so their behavior is unchanged. The
+    /// registry is fixed for the graph's lifetime ⇒ no interior locking needed.
+    index_manager: crate::index::IndexManager,
     /// Read-through into the durable tier on a RAM MISS (CONCEPT:KG-2.191). Set
     /// only under redb-AUTHORITATIVE mode, where a node may have been evicted from
     /// RAM once it is durable in redb. On a node-property miss the read path
@@ -386,8 +394,19 @@ impl GraphCore {
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             property_index: RwLock::new(None),
+            index_manager: crate::index::IndexManager::with_default_indexes(),
             read_through: RwLock::new(None),
         }
+    }
+
+    /// The unified secondary-index registry/seam (CONCEPT:KG-2.213). A planner
+    /// (eg-query's pushdown, eg-plan's Filter leg) consults this ONE registry to
+    /// ask "which index covers this predicate?" / "what indexes cover column X?"
+    /// instead of hard-coding per-index checks. The label/property caches it routes
+    /// to still live on this `GraphCore`, so their lazy + `mark_dirty` semantics
+    /// are unchanged.
+    pub fn indexes(&self) -> &crate::index::IndexManager {
+        &self.index_manager
     }
 
     /// Attach a durable read-through (CONCEPT:KG-2.191). Called once at startup
@@ -1277,6 +1296,9 @@ impl GraphCore {
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             property_index: RwLock::new(None),
+            // A fork gets its own default index registry (the registry is fixed
+            // metadata, not graph state) (CONCEPT:KG-2.213).
+            index_manager: crate::index::IndexManager::with_default_indexes(),
             // A fork is a fresh, detached graph (not registered, not backed by the
             // durable tier), so it carries no read-through (CONCEPT:KG-2.191).
             read_through: RwLock::new(None),
