@@ -81,18 +81,66 @@ struct Args {
     idle_shutdown_secs: u64,
 }
 
+/// Resolve the default UDS path per-platform. Explicit > $GRAPH_SERVICE_SOCKET
+/// (handled by clap's `env`) > per-OS runtime dir > temp dir fallback.
+///
+/// - **Unix:** `$XDG_RUNTIME_DIR/epistemic-graph.sock` (when the dir exists),
+///   else `/tmp/epistemic-graph.sock`.
+/// - **Windows:** `%LOCALAPPDATA%\epistemic-graph\engine.sock` (created lazily by
+///   the listener), else `%TEMP%\epistemic-graph.sock`, else
+///   `C:\Windows\Temp\epistemic-graph.sock`. NOTE: Tokio has no `UnixListener` on
+///   Windows, so this path is only a stable *identifier* / lock anchor — the
+///   actual default transport on Windows is TCP loopback (see the transport
+///   section). Keeping the value defined preserves parity for config/logging.
 fn resolve_socket_path(explicit: Option<String>) -> String {
     if let Some(p) = explicit {
         return p;
     }
-    if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
-        let xdg_sock = format!("{}/epistemic-graph.sock", xdg);
-        // Prefer XDG if the directory exists
-        if std::path::Path::new(&xdg).exists() {
-            return xdg_sock;
+    #[cfg(unix)]
+    {
+        if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+            let xdg_sock = format!("{}/epistemic-graph.sock", xdg);
+            // Prefer XDG if the directory exists
+            if std::path::Path::new(&xdg).exists() {
+                return xdg_sock;
+            }
         }
+        "/tmp/epistemic-graph.sock".to_string()
     }
-    "/tmp/epistemic-graph.sock".to_string()
+    #[cfg(windows)]
+    {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            let dir = std::path::Path::new(&local).join("epistemic-graph");
+            // Best-effort: ensure the dir exists so the path is usable as an anchor.
+            let _ = std::fs::create_dir_all(&dir);
+            return dir.join("engine.sock").to_string_lossy().into_owned();
+        }
+        if let Ok(tmp) = std::env::var("TEMP").or_else(|_| std::env::var("TMP")) {
+            return std::path::Path::new(&tmp)
+                .join("epistemic-graph.sock")
+                .to_string_lossy()
+                .into_owned();
+        }
+        r"C:\Windows\Temp\epistemic-graph.sock".to_string()
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        std::env::temp_dir()
+            .join("epistemic-graph.sock")
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+/// The default TCP loopback endpoint used when AF_UNIX is unavailable for the
+/// primary transport (Windows, or any non-unix target). Honors
+/// `$GRAPH_SERVICE_TCP_FALLBACK_ADDR` so an operator can pin host:port without a
+/// CLI flag; defaults to `127.0.0.1:8765` (loopback-only — never 0.0.0.0).
+fn default_tcp_fallback_addr() -> String {
+    std::env::var("GRAPH_SERVICE_TCP_FALLBACK_ADDR")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "127.0.0.1:8765".to_string())
 }
 
 /// True if any legacy snapshot (`.mp`) or WAL (`.wal`) file exists in `dir` —
@@ -917,13 +965,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(not(unix))]
     {
-        // Windows: no UDS — serve on TCP as the main loop.
-        let _ = &socket_path; // computed for parity; UDS unavailable here
+        // Non-unix (Windows): Tokio has no UnixListener, so AF_UNIX is unavailable.
+        // TCP loopback is the per-platform DEFAULT transport here — an explicit
+        // --tcp-addr wins, else GRAPH_SERVICE_TCP_FALLBACK_ADDR, else 127.0.0.1:8765.
+        // `socket_path` is still resolved (above) for config/lock parity & logging.
+        let _ = &socket_path;
         let addr = args
             .tcp_addr
             .clone()
-            .unwrap_or_else(|| "127.0.0.1:8765".to_string());
-        info!("UDS unavailable on this platform; serving on TCP: {}", addr);
+            .unwrap_or_else(default_tcp_fallback_addr);
+        info!(
+            "AF_UNIX unavailable on this platform; default transport is TCP loopback: {}",
+            addr
+        );
         server::serve_tcp(&addr, state.clone(), shutdown.clone()).await?;
     }
 

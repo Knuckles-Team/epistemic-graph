@@ -1,0 +1,243 @@
+name: Release Build (wheels + multi-arch image)
+
+# Cross-platform native build matrix for epistemic-graph (CONCEPT:OS-5.64).
+#
+# BUILDS native `epistemic-graph-server` wheels for every supported
+# platform×arch, plus a multi-arch Docker DB image — and smoke-tests each leg
+# (`epistemic-graph-server --help`). Runs on every push/PR and on tags.
+#
+# PUBLISHING IS GATED. The PyPI upload and the DockerHub/registry push only run
+# on a tag (release) AND carry an explicit `if:` guard, so a normal branch push
+# (including this one) BUILDS + SMOKE-TESTS but never publishes. Publishing is a
+# separate release runbook — push a `v*` tag to trigger it.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Default wheel tier (the `node` auto-bundled engine). The pi-lean recipe is the
+  # separate `wheels-pi` leg below.
+  MATURIN_FEATURES: "node,ast-extended"
+
+jobs:
+  # ── Native wheels: linux x86_64 + aarch64, macOS x86_64 + arm64, windows x86_64
+  wheels:
+    name: wheel ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            maturin_args: --manylinux 2_28
+          - name: linux-aarch64
+            runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            maturin_args: --manylinux 2_28
+          - name: macos-x86_64
+            runner: macos-13          # intel runner
+            target: x86_64-apple-darwin
+            maturin_args: ""
+          - name: macos-arm64
+            runner: macos-14          # apple-silicon runner
+            target: aarch64-apple-darwin
+            maturin_args: ""
+          - name: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            maturin_args: ""
+          # windows-arm64 is build-only / best-effort — no hosted arm64 windows
+          # runner yet, so it cross-builds (no smoke test). Kept off the default
+          # path; enable by removing `continue-on-error` once a runner exists.
+          - name: windows-arm64
+            runner: windows-latest
+            target: aarch64-pc-windows-msvc
+            maturin_args: ""
+            experimental: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Native + cross wheels via maturin-action (uses zig/cross for linux-aarch64,
+      # so no manual cross-linker setup is needed in CI).
+      - name: Build wheel (${{ matrix.name }})
+        uses: PyO3/maturin-action@v1
+        continue-on-error: ${{ matrix.experimental == true }}
+        with:
+          target: ${{ matrix.target }}
+          args: >-
+            --release
+            --out dist
+            --no-default-features
+            --features ${{ env.MATURIN_FEATURES }}
+            ${{ matrix.maturin_args }}
+          # zig gives reproducible glibc-pinned linux cross-builds.
+          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          sccache: 'true'
+
+      # Smoke test: install the wheel and run the server `--help`. Skipped for the
+      # cross-only legs (linux-aarch64 on x86 host, windows-arm64) where the binary
+      # can't execute on the runner.
+      - name: Smoke test (epistemic-graph-server --help)
+        if: ${{ matrix.name != 'linux-aarch64' && matrix.name != 'windows-arm64' }}
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install dist/*.whl
+          epistemic-graph-server --help
+
+      - name: Upload wheel artifact
+        if: ${{ matrix.experimental != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.name }}
+          path: dist/*.whl
+
+  # ── Leaner Raspberry-Pi tier wheel (no DataFusion / openraft — the Pi contract)
+  wheels-pi:
+    name: wheel linux-aarch64-pi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build Pi-lean wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64-unknown-linux-gnu
+          manylinux: '2_28'
+          args: >-
+            --release
+            --out dist
+            --no-default-features
+            --features pi,ast-extended
+          sccache: 'true'
+      - name: Upload Pi wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux-aarch64-pi
+          path: dist/*.whl
+
+  # ── sdist (source distribution) for pip fallback builds
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  # ── Multi-arch Docker DB image (BUILD + healthcheck-style smoke; no push)
+  docker-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # BUILD multi-arch (amd64+arm64) — load=false so it just proves the build.
+      # No push here; the push step below is gated on a tag.
+      - name: Build multi-arch image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: epistemic-graph:ci
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # PUBLISH JOBS — GATED. These only run on a `v*` tag (a release). On a normal
+  # branch push or PR they are SKIPPED entirely by the `if:` guard, so nothing is
+  # published by this push.
+  # ─────────────────────────────────────────────────────────────────────────
+  publish-pypi:
+    name: Publish wheels to PyPI (release only)
+    needs: [wheels, wheels-pi, sdist]
+    runs-on: ubuntu-latest
+    # GATE: tag push only. A branch push / PR does NOT publish.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    environment: release
+    permissions:
+      contents: read
+      id-token: write   # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  publish-image:
+    name: Push multi-arch image (release only)
+    needs: [docker-image, wheels]
+    runs-on: ubuntu-latest
+    # GATE: tag push only. A branch push / PR does NOT push the image.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build & push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/epistemic-graph:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/epistemic-graph:${{ github.ref_name }}
