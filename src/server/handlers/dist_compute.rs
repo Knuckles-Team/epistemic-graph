@@ -27,11 +27,7 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e),
             })
         }
-        Method::CreateMatView {
-            name,
-            graphs,
-            algo,
-        } => {
+        Method::CreateMatView { name, graphs, algo } => {
             let result = match pregel::run_distributed(state, &graphs, &algo).await {
                 Ok(r) => r,
                 Err(e) => return Ok(Response::err(req_id, e)),
@@ -68,7 +64,10 @@ pub(crate) async fn try_handle(
                 store.get(&name).cloned()
             };
             let Some(mut view) = existing else {
-                return Ok(Response::err(req_id, format!("no materialized view '{name}'")));
+                return Ok(Response::err(
+                    req_id,
+                    format!("no materialized view '{name}'"),
+                ));
             };
             let refreshed = match pregel::run_distributed(state, &view.graphs, &view.algo).await {
                 Ok(r) => r,
@@ -116,7 +115,10 @@ async fn persist_and_index(
     }
     match persist_err {
         None => Response::ok(req_id, ResultPayload::Count(rows as u64)),
-        Some(e) => Response::err(req_id, format!("matview persisted in RAM but durable write failed: {e}")),
+        Some(e) => Response::err(
+            req_id,
+            format!("matview persisted in RAM but durable write failed: {e}"),
+        ),
     }
 }
 

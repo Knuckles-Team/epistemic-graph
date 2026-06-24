@@ -600,7 +600,10 @@ mod dist_compute {
         nodes: &[&str],
         edges: &[(&str, &str)],
         placement: &dyn Fn(&str) -> &'static str,
-    ) -> (Arc<RwLock<ServerState>>, std::sync::Arc<crate::graph::GraphCore>) {
+    ) -> (
+        Arc<RwLock<ServerState>>,
+        std::sync::Arc<crate::graph::GraphCore>,
+    ) {
         let dir = std::env::temp_dir().join(format!(
             "eg-pregel-{}-{}",
             std::process::id(),
@@ -622,7 +625,11 @@ mod dist_compute {
                 .unwrap();
             for n in nodes {
                 let g = placement(n);
-                s.registry.get(g).unwrap().core.add_node(n.to_string(), props(n));
+                s.registry
+                    .get(g)
+                    .unwrap()
+                    .core
+                    .add_node(n.to_string(), props(n));
             }
             for (u, v) in edges {
                 // The edge's endpoints must both exist in the owning shard for petgraph
@@ -633,7 +640,8 @@ mod dist_compute {
                 if !core.has_node(v) {
                     core.add_node(v.to_string(), props(v));
                 }
-                core.add_edge(u.to_string(), v.to_string(), props(u)).unwrap();
+                core.add_edge(u.to_string(), v.to_string(), props(u))
+                    .unwrap();
             }
         }
 
@@ -643,7 +651,9 @@ mod dist_compute {
             union.add_node(n.to_string(), props(n));
         }
         for (u, v) in edges {
-            union.add_edge(u.to_string(), v.to_string(), props(u)).unwrap();
+            union
+                .add_edge(u.to_string(), v.to_string(), props(u))
+                .unwrap();
         }
         (state, union)
     }
@@ -790,20 +800,18 @@ mod dist_compute {
         // Incremental: only b and c are affected by the new edge.
         let affected: std::collections::HashSet<String> =
             ["b".to_string(), "c".to_string()].into_iter().collect();
-        let incr =
-            pregel::incremental_connected_components(&state, &graphs, &prior, &affected)
-                .await
-                .unwrap();
+        let incr = pregel::incremental_connected_components(&state, &graphs, &prior, &affected)
+            .await
+            .unwrap();
 
         // From scratch over the same (post-delta) graphs.
-        let scratch =
-            match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
-                .await
-                .unwrap()
-            {
-                DistResult::Labels(l) => l,
-                _ => panic!("labels"),
-            };
+        let scratch = match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
+            .await
+            .unwrap()
+        {
+            DistResult::Labels(l) => l,
+            _ => panic!("labels"),
+        };
 
         // Compare partitions (same-component equivalence — label values are stable here
         // because both seed from the same vertex indexing, but compare structurally to
@@ -868,7 +876,10 @@ mod matview {
         let (name, recovered_blob) = &scanned[0];
         assert_eq!(name, "ranks");
         let recovered: MatView = rmp_serde::from_slice(recovered_blob).unwrap();
-        assert_eq!(recovered, view, "matview must round-trip through redb unchanged");
+        assert_eq!(
+            recovered, view,
+            "matview must round-trip through redb unchanged"
+        );
 
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

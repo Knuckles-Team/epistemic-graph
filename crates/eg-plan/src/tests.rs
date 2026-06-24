@@ -248,6 +248,8 @@ fn udf_op_without_registry_errs() {
     let fx = build();
     let ctx = PlanCtx::new(&fx.view, &fx.semantic); // no .with_udf
     let plan = Plan::new(vec![Op::Udf { id: "x".into() }]);
-    let err = plan.execute(&ctx).expect_err("Udf without a registry must err");
+    let err = plan
+        .execute(&ctx)
+        .expect_err("Udf without a registry must err");
     assert!(err.contains("registry"), "got: {err}");
 }
