@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "epistemic-graph"
-version = "0.33.1"
+version = "0.34.0"
 description = "Rust-based epistemic graph engine for agent-utilities"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -73,10 +73,30 @@ min_confidence = 95
 python-source = "."
 bindings = "bin"
 strip = true
-# `ast-extended` (CONCEPT:KG-2.106) compiles the native tree-sitter parser + the full
-# grammar tier (python/js/ts/go/rust/java/c/cpp/c#/ruby/php/bash/scala/lua) into the
-# shipped wheel so the `ParseFiles`/`ParseFile` ops actually parse. This makes the engine
-# the ONE code-parsing implementation: agent-utilities delegates to it and ships no Python
-# tree-sitter wheels. The grammars add compile time + binary size but the engine wheel is
-# installed once (the `[engine]` extra), not per-connector.
-features = ["server", "ast-extended"]
+# DEFAULT WHEEL = the `node` tier bundle (CONCEPT:KG-2.223 — the auto-bundled
+# engine). The shipped binary is a MAX-FUNCTIONALITY single-process tiny DB:
+# durable redb-authoritative store + cypher + SQL (query/DataFusion) + ann + tsdb +
+# blob + the full compute domains (finance/datascience/reasoning/ast). It also adds
+# `ast-extended` so the `ParseFiles`/`ParseFile` ops compile the full grammar tier
+# (python/js/ts/go/rust/java/c/cpp/c#/ruby/php/bash/scala/lua) — making the engine
+# the ONE code-parsing implementation (agent-utilities delegates and ships no Python
+# tree-sitter wheels). NOTE: the previous default `["server", "ast-extended"]`
+# OMITTED redb/cypher/ann/etc., so the shipped binary was NOT a usable tiny DB —
+# `node` fixes that. `node` stays SINGLE-NODE (no raft/pgwire); those are the
+# `cluster` tier and are built explicitly (see the Pi recipe note below).
+features = ["node", "ast-extended"]
+
+# ── Building a leaner Pi-3 tier wheel ──
+# The `node` default carries SQL/DataFusion + tsdb + blob + the compute domains —
+# great for a workstation/server, heavier than a Raspberry-Pi-3 wants. For the Pi
+# tier, build a lean wheel from the `pi` bundle (graph + algorithms + redb + cypher
+# + ann — durable, native RDF/SPARQL once Lane-W lands, NO DataFusion / Tantivy /
+# openraft, the Pi contract):
+#
+#     maturin build --release --no-default-features --features pi,ast-extended
+#
+# (Drop `ast-extended` for the very leanest build with no tree-sitter grammars.)
+# `--no-default-features` is required so maturin does NOT union `node` on top of
+# `pi` via the `[tool.maturin] features` default above — the pi recipe must be the
+# ONLY feature set selected, or the resulting wheel would re-link DataFusion and
+# break the Pi contract.
