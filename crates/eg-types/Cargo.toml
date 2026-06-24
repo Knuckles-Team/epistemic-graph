@@ -17,6 +17,10 @@ name = "eg_types"
 metrics = ["dep:strum"]
 finance = []
 datascience = []
+# Unified cross-modal query plan AST (CONCEPT:KG-2.208) — the wire DTO embedded in
+# `Method::UnifiedQuery`. Gated so a build without the query surface drops the AST
+# (and the Method variant) from the enum, exactly like finance/datascience.
+query = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

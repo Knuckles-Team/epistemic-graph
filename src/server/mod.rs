@@ -319,6 +319,229 @@ mod tests {
         assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
     }
 
+    // ── Unified cross-modal query (CONCEPT:KG-2.208/209) ────────────────
+
+    /// Build the canonical cross-modal fixture in `__commons__` via the full
+    /// dispatch chain: Doc nodes with a `year`, CITES/MENTIONS edges, and an
+    /// embedding per Doc. Mirrors eg-plan's test fixture so the dispatched plan and
+    /// the in-crate oracle operate on identical data.
+    #[cfg(feature = "query")]
+    async fn build_unified_fixture(state: &Arc<RwLock<ServerState>>) {
+        let mut id = 1u64;
+        let mut send = |m: Method| {
+            let r = request(id, "__commons__", None, m);
+            id += 1;
+            r
+        };
+        for (nid, ty, year) in [
+            ("d1", "Doc", 2025),
+            ("d2", "Doc", 2025),
+            ("d3", "Doc", 2023),
+            ("d4", "Doc", 2024),
+            ("d5", "Doc", 2025),
+            ("old", "Doc", 2020),
+            ("t1", "Tool", 2025),
+        ] {
+            let m = Method::AddNode {
+                node_id: nid.into(),
+                properties_msgpack: rmp_serde::to_vec_named(
+                    &serde_json::json!({"type": ty, "year": year}),
+                )
+                .unwrap(),
+            };
+            assert_ok(&dispatch(state, send(m)).await);
+        }
+        for (s, t, rel) in [
+            ("d1", "d2", "CITES"),
+            ("d2", "d3", "CITES"),
+            ("d1", "d4", "CITES"),
+            ("d2", "d5", "MENTIONS"),
+        ] {
+            let m = Method::AddEdge {
+                source_id: s.into(),
+                target_id: t.into(),
+                properties_msgpack: rmp_serde::to_vec_named(
+                    &serde_json::json!({"relationship": rel}),
+                )
+                .unwrap(),
+            };
+            assert_ok(&dispatch(state, send(m)).await);
+        }
+        for (nid, emb) in [
+            ("d1", vec![0.2f32, 0.9, 0.0, 0.0]),
+            ("d2", vec![0.98, 0.20, 0.0, 0.0]),
+            ("d3", vec![0.80, 0.60, 0.0, 0.0]),
+            ("d4", vec![0.90, 0.44, 0.0, 0.0]),
+            ("d5", vec![0.0, 0.0, 1.0, 0.0]),
+            ("old", vec![0.0, 1.0, 0.0, 0.0]),
+        ] {
+            let m = Method::AddEmbedding {
+                node_id: nid.into(),
+                embedding: emb,
+            };
+            assert_ok(&dispatch(state, send(m)).await);
+        }
+    }
+
+    /// Decode a `UnifiedQuery` response (`Raw([(id, score?)])`) to its id list.
+    #[cfg(feature = "query")]
+    fn unified_ids(resp: &crate::protocol::Response) -> Vec<String> {
+        let raw = match &resp.result {
+            Some(ResultPayload::Raw(bytes)) => bytes,
+            other => panic!("expected Raw rows, got {:?}", other),
+        };
+        let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(raw).unwrap();
+        rows.into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// THE oracle proof, end-to-end through the SERVED surface: run the unified plan
+    /// `Method::UnifiedQuery` over the full dispatch chain, then run the SAME query
+    /// the siloed way via `eg_plan::oracle::separate_surfaces` over the graph's
+    /// snapshot, and assert the served result is byte-identical. (CONCEPT:KG-2.208)
+    #[cfg(feature = "query")]
+    #[tokio::test]
+    async fn test_unified_query_matches_separate_surfaces_oracle() {
+        use eg_plan::{Op, Pred};
+        let state = test_state();
+        build_unified_fixture(&state).await;
+
+        let plan = vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.0,
+                }],
+            },
+            Op::Traverse {
+                rel: "CITES".into(),
+                min: 1,
+                max: 2,
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+            Op::Limit { k: 10 },
+        ];
+        let resp = dispatch(
+            &state,
+            request(
+                100,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(plan),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let served_ids = unified_ids(&resp);
+
+        // The siloed oracle over the same snapshot.
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        let view = core.analysis_snapshot();
+        let semantic = core.semantic_store.read().clone();
+        // The oracle's FILTER leg drives DataFusion via a current-thread runtime
+        // (eg_query::exec_sql), which cannot nest inside this #[tokio::test] reactor —
+        // run it off-reactor, exactly as the served handler does via spawn_blocking.
+        let oracle = tokio::task::spawn_blocking(move || {
+            eg_plan::oracle::separate_surfaces(
+                &view,
+                &semantic,
+                "Doc",
+                &[Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.0,
+                }],
+                "CITES",
+                1,
+                2,
+                &[1.0, 0.0, 0.0, 0.0],
+                10,
+            )
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            served_ids,
+            oracle.ids(),
+            "served unified plan must equal the separate-surfaces oracle"
+        );
+        assert_eq!(
+            served_ids,
+            vec!["d2", "d4", "d3"],
+            "expected ranked order d2 > d4 > d3"
+        );
+    }
+
+    /// Cost-reorder e2e (CONCEPT:KG-2.209): the SAME plan with a selective vs a broad
+    /// `reorder_filter_selectivity` (which flip filter-first ↔ vector-first) returns
+    /// the IDENTICAL result set through the served surface — the reorder is cost-only.
+    #[cfg(feature = "query")]
+    #[tokio::test]
+    async fn test_unified_query_cost_reorder_same_result() {
+        use eg_plan::{Op, Pred};
+        let state = test_state();
+        build_unified_fixture(&state).await;
+
+        // Scan'd seed feeding a commuting (Filter, Rank) pair.
+        let plan = vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2022.0,
+                }],
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+        ];
+
+        let run = |sel: f64, rid: u64| {
+            let plan = plan.clone();
+            let state = state.clone();
+            async move {
+                let resp = dispatch(
+                    &state,
+                    request(
+                        rid,
+                        "__commons__",
+                        None,
+                        Method::UnifiedQuery {
+                            plan: eg_plan::Plan::new(plan),
+                            reorder_filter_selectivity: Some(sel),
+                        },
+                    ),
+                )
+                .await;
+                assert_ok(&resp);
+                let mut ids = unified_ids(&resp);
+                ids.sort();
+                ids
+            }
+        };
+
+        let selective = run(0.01, 200).await; // filter-first
+        let broad = run(0.98, 201).await; // vector-first
+        assert_eq!(
+            selective, broad,
+            "cost reorder must not change the result set"
+        );
+        assert!(!selective.is_empty(), "fixture yields a non-empty result");
+    }
+
     // ── Cypher query surface (CONCEPT:KG-2.179) ─────────────────────────
 
     /// End-to-end: add nodes + a KNOWS edge, route `Method::CypherQuery` through
