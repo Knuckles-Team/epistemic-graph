@@ -96,7 +96,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Durably remove ALL state for a graph when its tenant is DELETED
-    /// (CONCEPT:KG-2.212). The default per-mutation write path persists rows keyed by
+    /// (CONCEPT:KG-2.221). The default per-mutation write path persists rows keyed by
     /// the graph's sanitized name but has NO row-removal on `DeleteGraph`; that left
     /// a deleted tenant's nodes/edges/meta resident in the durable tier, so a
     /// recreate of the SAME name inherited them via the read-through-on-RAM-miss path
