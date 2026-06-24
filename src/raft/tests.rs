@@ -62,6 +62,8 @@ async fn make_state_with_backend(
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
         raft: None,
+        #[cfg(feature = "tsdb")]
+        tsdb_store: None,
     }))
 }
 

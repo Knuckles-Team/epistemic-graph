@@ -1427,6 +1427,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-tsdb"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "datafusion",
+ "eg-compute",
+ "eg-core",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "eg-types"
 version = "0.27.0"
 dependencies = [
@@ -1491,6 +1507,7 @@ dependencies = [
  "eg-core",
  "eg-plan",
  "eg-query",
+ "eg-tsdb",
  "eg-types",
  "fs4",
  "futures",
