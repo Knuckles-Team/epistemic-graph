@@ -95,6 +95,21 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(())
     }
 
+    /// Durably remove ALL state for a graph when its tenant is DELETED
+    /// (CONCEPT:KG-2.212). The default per-mutation write path persists rows keyed by
+    /// the graph's sanitized name but has NO row-removal on `DeleteGraph`; that left
+    /// a deleted tenant's nodes/edges/meta resident in the durable tier, so a
+    /// recreate of the SAME name inherited them via the read-through-on-RAM-miss path
+    /// and via `load_all` — silently corrupting/dropping the new tenant's writes.
+    /// Dispatch awaits this on `DeleteGraph` under authoritative mode so the purge is
+    /// COMMITTED before the delete is acked (commit-before-ack), making a same-name
+    /// recreate start from a clean durable slate with no race. Idempotent. Default
+    /// no-op for non-authoritative / non-redb backends (those keep no authoritative
+    /// per-graph durable rows that could leak across a recreate).
+    async fn purge_graph(&self, _graph_fname: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Read a single node's stored properties back from the durable tier
     /// (CONCEPT:KG-2.187 read-through). Returns `Ok(None)` when the node is not
     /// present durably, `Ok(Some(props))` when it is. The default is `Ok(None)`

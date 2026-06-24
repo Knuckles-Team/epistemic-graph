@@ -105,6 +105,17 @@ enum Cmd {
         graph_type: GraphType,
         done: oneshot::Sender<Result<(), String>>,
     },
+    /// Drop EVERY durable row for one graph — nodes/edges/ledger/semantic AND the
+    /// `graph_meta` identity row — in one durable transaction (CONCEPT:KG-2.212).
+    /// Issued when a tenant is DELETED so a recreate of the SAME name starts from a
+    /// clean durable slate: without this the stale rows survive (same `graph_fname`
+    /// key) and leak into the recreated tenant via the read-through / `load_all`.
+    /// Carries a completion oneshot (commit-before-ack: the delete is acked only
+    /// after the purge is on disk).
+    PurgeGraph {
+        graph: String,
+        done: oneshot::Sender<Result<(), String>>,
+    },
     /// Read a single node's stored properties back (read-through on RAM miss under
     /// authoritative mode). Runs on the owner thread because redb holds an exclusive
     /// per-process file lock.
@@ -415,6 +426,23 @@ impl PersistenceBackend for RedbBackend {
         }
     }
 
+    async fn purge_graph(&self, graph_fname: &str) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::PurgeGraph {
+            graph: graph_fname.to_string(),
+            done,
+        };
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(cmd))
+            .await
+            .map_err(|e| format!("redb purge_graph join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        match rx.await {
+            Ok(res) => res,
+            Err(_) => Err("redb writer dropped purge_graph completion".to_string()),
+        }
+    }
+
     async fn read_node(&self, graph_fname: &str, node_id: &str) -> Result<Option<Vec<u8>>, String> {
         self.read_node_blocking(graph_fname, node_id)
     }
@@ -718,6 +746,14 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             commit_and_notify(db, pending, Durability::Immediate);
             let res = write_graph_meta(db, &graph, &name, graph_type);
             let _ = done.send(res);
+            false
+        }
+        Cmd::PurgeGraph { graph, done } => {
+            // Flush pending mutations first so we never purge a graph and then
+            // re-apply a buffered op for it out of order, then drop ALL of its rows
+            // (incl. graph_meta) in one durable transaction.
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(purge_graph_rows(db, &graph));
             false
         }
         Cmd::ReadNode {
@@ -1241,6 +1277,32 @@ fn clear_graph_rows(
     Ok(())
 }
 
+/// Drop EVERY durable row for `graph` in ONE durable transaction (CONCEPT:KG-2.212,
+/// the tenant-DELETE path). Unlike `clear_graph_rows` (which empties a LIVE graph's
+/// data but keeps its `graph_meta` identity), this ALSO removes the `semantic_store`
+/// blob and the `graph_meta` row, so the graph ceases to exist durably — a recreate
+/// of the same name then starts from a clean slate instead of inheriting the deleted
+/// incarnation's rows on a read-through / `load_all`.
+fn purge_graph_rows(db: &Database, graph: &str) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+        // nodes/edges/ledger — reuse the same range-scan-and-remove as ClearGraph.
+        clear_graph_rows(graph, &mut nodes, &mut edges, &mut ledger)?;
+        // semantic store blob (keyed by graph) + the identity row.
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        let _ = semantic.remove(graph).map_err(|e| e.to_string())?;
+        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+        let _ = meta.remove(graph).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Snapshot the full registry dump into redb, overwriting each graph's rows, and
 /// commit durably. Folds any buffered mutations into the SAME transaction first.
 fn apply_checkpoint(
@@ -1631,6 +1693,155 @@ mod tests {
             1,
             "committed txn edge durable in redb"
         );
+        backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:KG-2.212 — tenant DELETE + recreate-same-name must not drop the new
+    /// graph's writes. Under redb-authoritative mode (read-through wired exactly as
+    /// `main.rs` does it) we: create "g", add "n1"={v:1}, DELETE "g", recreate "g",
+    /// add "n1"={v:2}, then read "n1" back through the full dispatch path. The
+    /// recreated graph's node MUST read back as {v:2} — not the stale {v:1} left in
+    /// redb by the first incarnation, not empty. Mirrors the agent-utilities
+    /// `test_find_analogous_subgraphs` tenant-churn failure at the engine level.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn delete_then_recreate_same_name_keeps_new_writes() {
+        use crate::protocol::{Request, ResultPayload};
+        use crate::server::persistence::read_through::BackendReadThroughFactory;
+        use crate::server::{compute_auth_token, dispatch};
+
+        const SECRET: &str = "redb-recreate";
+        let dir = std::env::temp_dir().join(format!("eg-redb-recreate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 256).expect("open"));
+        let state = new_state_auth(Some(dir_s.clone()), true);
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend.clone());
+            // Wire the durable read-through exactly like main.rs does under
+            // authoritative mode — this is the read path that serves a RAM miss.
+            let factory = Arc::new(BackendReadThroughFactory::new(backend.clone()));
+            s.registry.set_read_through_factory(factory);
+        }
+
+        let req = |id: u64, method: Method| Request {
+            id,
+            graph: "g".to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        };
+        let create = |id: u64| {
+            req(
+                id,
+                Method::CreateGraph {
+                    graph_name: "g".into(),
+                    graph_type: GraphType::Global,
+                },
+            )
+        };
+        let add = |id: u64, node: &str, v: i64| {
+            req(
+                id,
+                Method::AddNode {
+                    node_id: node.into(),
+                    properties_msgpack: props(serde_json::json!({"v": v})),
+                },
+            )
+        };
+        let get = |id: u64, node: &str| {
+            req(
+                id,
+                Method::GetNodeProperties {
+                    node_id: node.into(),
+                },
+            )
+        };
+
+        // First incarnation: create + write n1={v:1} and stale={v:9}.
+        assert!(dispatch(&state, create(1)).await.error.is_none());
+        assert!(dispatch(&state, add(2, "n1", 1)).await.error.is_none());
+        assert!(dispatch(&state, add(3, "stale", 9)).await.error.is_none());
+
+        // Delete the tenant.
+        let del = dispatch(
+            &state,
+            req(
+                4,
+                Method::DeleteGraph {
+                    graph_name: "g".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(del.error.is_none(), "delete: {:?}", del.error);
+
+        // Recreate SAME name. The new tenant writes ONLY n1={v:2}; it never writes
+        // "stale" — that node belongs to the deleted incarnation and must be gone.
+        let recreate = dispatch(&state, create(5)).await;
+        assert!(recreate.error.is_none(), "recreate: {:?}", recreate.error);
+        assert!(dispatch(&state, add(6, "n1", 2)).await.error.is_none());
+
+        // (a) LIVE read-through: force every node out of RAM so the next read
+        // RAM-MISSES and falls to the durable read-through (the eviction path is real
+        // under authoritative mode — it bounds memory per CONCEPT:KG-2.191).
+        let ev = dispatch(&state, req(7, Method::EvictLRU { max_nodes: 0 })).await;
+        assert!(ev.error.is_none(), "evict: {:?}", ev.error);
+
+        // The deleted incarnation's "stale" node must NOT resurrect from redb on a
+        // RAM-miss read of the recreated graph.
+        let r = dispatch(&state, get(8, "stale")).await;
+        let stale = match r.result {
+            Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
+            Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
+            other => panic!("unexpected get result: {other:?}"),
+        };
+        assert_eq!(
+            stale, None,
+            "deleted tenant's node 'stale' resurrected via read-through after recreate"
+        );
+
+        // And n1 reads back as the NEW write {v:2}.
+        let r = dispatch(&state, get(9, "n1")).await;
+        let got = match r.result {
+            Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
+            Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
+            other => panic!("unexpected get result: {other:?}"),
+        };
+        assert_eq!(
+            got,
+            Some(props(serde_json::json!({"v": 2}))),
+            "recreated tenant's node n1 must read back as the NEW write {{v:2}}, not stale/empty"
+        );
+        backend.shutdown();
+        drop(backend);
+
+        // (b) DURABLE resurrection across a reload (restart / resharding / hibernation
+        // rehydration): a fresh backend + state that load_all from the SAME redb dir
+        // must NOT recover the deleted incarnation's nodes.
+        let backend2: Arc<dyn crate::server::persistence::PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 256).expect("reopen"));
+        let state2 = new_state_auth(Some(dir_s.clone()), true);
+        backend2.load_all(&state2).await.unwrap();
+        let core2 = {
+            let s = state2.read().await;
+            s.registry.get("g").map(|e| e.core.clone())
+        };
+        if let Some(core2) = core2 {
+            assert!(
+                !core2.has_node("stale"),
+                "deleted tenant's node 'stale' resurrected from redb on load_all after recreate"
+            );
+            assert_eq!(
+                core2.get_node_properties("n1"),
+                Some(props(serde_json::json!({"v": 2}))),
+                "recreated tenant's n1 must survive a reload as {{v:2}}"
+            );
+        }
         backend2.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
