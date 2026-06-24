@@ -237,6 +237,22 @@ pub struct GraphTxnState {
     /// Monotonic ms timestamp of the last staged/begun activity, for TTL idle
     /// expiry. Updated on every stage so an actively-used txn is never swept.
     pub(crate) last_active_ms: u64,
+    /// Multi-graph staged write-set (CONCEPT:KG-2.226 — Lane N). A `Txn*` op naming a
+    /// graph OTHER than the default `graph` accumulates here, keyed by graph name, in
+    /// stage order. EMPTY for an ordinary single-graph txn (the fast path pays
+    /// nothing). At commit, if these touch graphs in a DIFFERENT Raft group than the
+    /// default graph, the txn is CROSS-SHARD and routes through the 2PC coordinator;
+    /// otherwise the spanned graphs collapse onto one group and stay single-group.
+    pub(crate) extra_writes: HashMap<String, Vec<Method>>,
+    /// Staged VECTOR upserts `(node_id, embedding)` for the DEFAULT graph (CONCEPT:
+    /// KG-2.225 — cross-modal ACID). EMPTY for a graph-only txn. When non-empty, the
+    /// commit lands graph + vectors (+ blob-refs) in ONE redb `WriteTransaction` so a
+    /// node and its embedding are atomic — never one without the other.
+    pub(crate) vectors: Vec<(String, Vec<f32>)>,
+    /// Staged BLOB REFERENCES `(node_id, digest)` for the DEFAULT graph (CONCEPT:
+    /// KG-2.225). Each records a durable graph-side `__blob__` link to an already-
+    /// stored content-addressed blob; lands in the SAME cross-modal commit txn.
+    pub(crate) blob_refs: Vec<(String, String)>,
 }
 
 impl GraphTxnState {
@@ -269,7 +285,86 @@ impl GraphTxnState {
             predicate_reads,
             agent,
             last_active_ms: now_ms,
+            extra_writes: HashMap::new(),
+            vectors: Vec::new(),
+            blob_refs: Vec::new(),
         }
+    }
+
+    /// Stage a VECTOR upsert into the cross-modal write-set (CONCEPT:KG-2.225). The
+    /// node it targets is captured into the OCC read-set (so a concurrent change to
+    /// that node still conflicts), then the embedding is queued to land atomically at
+    /// commit. Only the DEFAULT graph's vectors participate in the one-txn barrier.
+    pub(crate) fn stage_vector(
+        &mut self,
+        core: &GraphCore,
+        node_id: String,
+        embedding: Vec<f32>,
+        now_ms: u64,
+    ) {
+        self.observe(core, &node_id);
+        self.vectors.push((node_id, embedding));
+        self.last_active_ms = now_ms;
+    }
+
+    /// Stage a BLOB REFERENCE into the cross-modal write-set (CONCEPT:KG-2.225). The
+    /// node is captured into the OCC read-set; the `(node_id, digest)` ref lands
+    /// atomically with the node/vector/property at commit.
+    pub(crate) fn stage_blob_ref(
+        &mut self,
+        core: &GraphCore,
+        node_id: String,
+        digest: String,
+        now_ms: u64,
+    ) {
+        self.observe(core, &node_id);
+        self.blob_refs.push((node_id, digest));
+        self.last_active_ms = now_ms;
+    }
+
+    /// True when this txn staged a vector or blob-ref — i.e. it is a CROSS-MODAL txn
+    /// whose commit must land all modalities in ONE redb `WriteTransaction`.
+    pub(crate) fn is_cross_modal(&self) -> bool {
+        !self.vectors.is_empty() || !self.blob_refs.is_empty()
+    }
+
+    /// Stage one durable mutation against a NAMED graph that may differ from the
+    /// txn's default (CONCEPT:KG-2.226 — multi-graph). When `graph` equals the
+    /// default, this routes to [`Self::stage`] (the single-graph read-set/OCC path,
+    /// unchanged). Otherwise the op accumulates in `extra_writes` for that graph; the
+    /// op is NOT applied (the cross-shard coordinator applies the multi-graph slices
+    /// atomically at commit, with its own per-participant OCC validation).
+    pub(crate) fn stage_in(
+        &mut self,
+        default_core: &GraphCore,
+        target_graph: &str,
+        method: Method,
+        now_ms: u64,
+    ) {
+        if target_graph == self.graph {
+            self.stage(default_core, method, now_ms);
+        } else {
+            self.extra_writes
+                .entry(target_graph.to_string())
+                .or_default()
+                .push(method);
+            self.last_active_ms = now_ms;
+        }
+    }
+
+    /// Every graph this txn touches: the default plus any extra-graph targets
+    /// (CONCEPT:KG-2.226). Used at commit to detect a cross-shard span.
+    pub(crate) fn touched_graphs(&self) -> Vec<String> {
+        let mut out = vec![self.graph.clone()];
+        out.extend(self.extra_writes.keys().cloned());
+        out
+    }
+
+    /// True when this txn staged ops against a graph other than its default
+    /// (CONCEPT:KG-2.226) — i.e. it is a multi-graph txn whose span the commit path
+    /// must evaluate against the router.
+    pub(crate) fn is_multi_graph(&self) -> bool {
+        !self.extra_writes.is_empty()
     }
 
     /// Record (once) the current fingerprint of a node this txn touches, capturing

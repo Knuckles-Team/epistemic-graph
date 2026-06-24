@@ -70,6 +70,7 @@ pub mod cross_shard_txn;
 pub mod multi;
 pub mod network;
 pub mod node;
+pub mod reshard;
 pub mod store;
 
 /// Correctness + load harness (CONCEPT:KG-2.212) — the standing proof-engine that
@@ -87,6 +88,12 @@ mod tests;
 // `cargo test --features "raft harness"`.
 #[cfg(all(test, feature = "harness"))]
 mod xshard_harness;
+
+// The online-resharding + tenant-hibernation gauntlet (CONCEPT:KG-2.224) — proves a
+// graph reshareded A→B keeps all data + serves correctly, and a hibernated graph
+// rehydrates intact. Gated behind `harness` so a normal `raft` build links nothing.
+#[cfg(all(test, feature = "harness"))]
+mod reshard_harness;
 
 /// Raft node id — a small integer assigned per cluster member.
 pub type NodeId = u64;

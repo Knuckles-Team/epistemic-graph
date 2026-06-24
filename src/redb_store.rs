@@ -135,6 +135,103 @@ pub(crate) fn commit_ops(
     Ok(())
 }
 
+/// One node's vector upsert for a cross-modal commit (CONCEPT:KG-2.225).
+pub type VectorUpsert = (String, Vec<f32>);
+
+/// A blob-reference for a cross-modal commit (CONCEPT:KG-2.225): a `(node_id, digest)`
+/// pair recorded as a durable graph-side link to an already-stored blob. The blob
+/// BYTES live in the content-addressed `blob.redb` (pre-uploaded); THIS is the durable
+/// graph pointer that must land atomically with the node/vector/property.
+pub type BlobRefRow = (String, String);
+
+/// **Cross-modal ACID commit (CONCEPT:KG-2.225)** — land a graph + vector + blob-ref +
+/// property write-set for ONE graph in ONE redb [`WriteTransaction`], all-or-nothing.
+///
+/// This is the durable barrier the single-graph cross-modal txn commits through. Every
+/// modality writes into the SAME `graph.redb` transaction so the commit is atomic:
+///   * **graph** ops (`AddNode`/`AddEdge`/`CompareAndSetNodeFields`/…) → NODES/EDGES,
+///     via the shared [`apply_method_rows`] (the SAME rows the single-modal path writes);
+///   * **vectors** → the graph's `SEMANTIC` blob is read-modify-written inside the txn
+///     (deserialize → `add_embedding` each upsert → reserialize), so a node and its
+///     embedding are durable together — never a node without its vector or vice-versa;
+///   * **blob refs** → a `__blob__` reserved property on the node carrying the digest,
+///     written into NODES, so the graph-side link to the (separately content-addressed)
+///     blob lands in the SAME transaction as everything else.
+///
+/// If ANY step errors, the `WriteTransaction` is DROPPED without `commit()` — redb
+/// discards every staged write, so NONE of the modalities land (a true rollback, no
+/// partial). On success the txn commits at `Durability::Immediate` (commit-before-ack:
+/// the cross-modal write is on disk before the client is told it succeeded).
+pub(crate) fn commit_crossmodal(
+    db: &Database,
+    graph: &str,
+    methods: &[Method],
+    vectors: &[VectorUpsert],
+    blob_refs: &[BlobRefRow],
+) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+
+        // 1. Graph mutations (nodes/edges/properties) — the SAME row apply.
+        for method in methods {
+            apply_method_rows(graph, method, &mut nodes, &mut edges, &mut ledger)?;
+        }
+
+        // 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
+        // Read-modify-write the node's property blob so the ref rides the node row.
+        for (node_id, digest) in blob_refs {
+            let mut props: serde_json::Map<String, serde_json::Value> = nodes
+                .get((graph, node_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .and_then(|v| rmp_serde::from_slice(v.value()).ok())
+                .unwrap_or_default();
+            props.insert(
+                "__blob__".to_string(),
+                serde_json::Value::String(digest.clone()),
+            );
+            let blob = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+            nodes
+                .insert((graph, node_id.as_str()), blob.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+
+        // 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
+        if !vectors.is_empty() {
+            let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+            let mut store = semantic
+                .get(graph)
+                .map_err(|e| e.to_string())?
+                .and_then(|v| {
+                    rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(v.value()).ok()
+                })
+                .unwrap_or_default();
+            for (node_id, embedding) in vectors {
+                store.add_embedding(node_id.clone(), embedding.clone());
+            }
+            let blob = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+            semantic
+                .insert(graph, blob.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+
+        // Backfill a graph_meta identity row so authoritative load_all recovers it.
+        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+        if meta.get(graph).map_err(|e| e.to_string())?.is_none() {
+            meta.insert(graph, encode_meta(graph, GraphType::Global).as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    // The atomic commit point: every modality lands here, or (on any `?` above) the
+    // dropped wtx discards them all.
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Durably write/overwrite a graph_meta identity row in its OWN transaction.
 pub(crate) fn write_graph_meta(
     db: &Database,
@@ -542,6 +639,74 @@ pub(crate) fn apply_checkpoint(
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(count)
+}
+
+/// Read ONE graph's durable rows back into an owned [`GraphDump`] (CONCEPT:KG-2.224 —
+/// tenant rehydration). Range-scans each table by the `graph` key prefix, so a cold
+/// tenant rehydrates from redb without reading the whole store. `None` when the graph
+/// has no durable identity (`graph_meta`) row — a genuine absence, not a hibernation.
+pub(crate) fn read_graph_dump(db: &Database, graph: &str) -> Result<Option<GraphDump>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+    let (name, graph_type) = match meta_table.get(graph).map_err(|e| e.to_string())? {
+        Some(v) => decode_meta(v.value()),
+        None => return Ok(None),
+    };
+    let nodes_table = rtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
+    let ledger_table = rtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+    let semantic_table = rtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+
+    let mut nodes = Vec::new();
+    for row in nodes_table
+        .range((graph, "")..)
+        .map_err(|e| e.to_string())?
+    {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, id) = k.value();
+        if g != graph {
+            break;
+        }
+        nodes.push((id.to_string(), v.value().to_vec()));
+    }
+    let mut edges = Vec::new();
+    for row in edges_table
+        .range((graph, "", "", 0u32)..)
+        .map_err(|e| e.to_string())?
+    {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, s, t, _) = k.value();
+        if g != graph {
+            break;
+        }
+        edges.push((s.to_string(), t.to_string(), v.value().to_vec()));
+    }
+    let mut ledger = Vec::new();
+    for row in ledger_table
+        .range((graph, 0u64)..)
+        .map_err(|e| e.to_string())?
+    {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        if k.value().0 != graph {
+            break;
+        }
+        ledger.push(v.value().to_string());
+    }
+    let semantic = semantic_table
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|v| v.value().to_vec())
+        .unwrap_or_default();
+
+    Ok(Some(GraphDump {
+        graph: graph.to_string(),
+        name,
+        graph_type,
+        nodes,
+        edges,
+        ledger,
+        semantic,
+    }))
 }
 
 /// Read the entire store into owned per-graph dumps. Each graph's rows are

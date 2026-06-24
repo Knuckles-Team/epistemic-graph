@@ -131,6 +131,10 @@ pub struct MultiRaft {
     backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
     ctx: AppCtx,
     listener_handle: tokio::task::JoinHandle<()>,
+    /// Per-tenant migration locks (CONCEPT:KG-2.224). A reshard or hibernate of a
+    /// graph takes its lock so the two cannot race / interleave for one tenant; ops
+    /// on DIFFERENT graphs proceed concurrently. Lazily created per graph name.
+    tenant_locks: Arc<DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl MultiRaft {
@@ -168,7 +172,36 @@ impl MultiRaft {
             backend,
             ctx,
             listener_handle,
+            tenant_locks: Arc::new(DashMap::new()),
         }))
+    }
+
+    /// Acquire the per-tenant migration lock for `graph_name` (CONCEPT:KG-2.224), so a
+    /// reshard and a hibernate of the SAME graph serialize. Lazily creates the lock.
+    /// Returns an owned guard the caller holds for the duration of the migration.
+    pub async fn tenant_lock(&self, graph_name: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = self
+            .tenant_locks
+            .entry(graph_name.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        lock.lock_owned().await
+    }
+
+    /// Ensure group `gid` is running on this node, creating it (single-member,
+    /// bootstrap) if absent — the resharding target-group seam (CONCEPT:KG-2.224).
+    /// Idempotent: a no-op if the group already runs. The new group shares the SAME
+    /// listener + `graph.redb`; its durable log/meta are keyed by `gid`.
+    pub async fn ensure_group(&self, gid: GroupId) -> Result<(), String> {
+        if self.groups.read().await.contains_key(&gid) {
+            return Ok(());
+        }
+        let peers: BTreeMap<NodeId, BasicNode> = [(
+            self.node_id,
+            BasicNode::new(format!("self-{}", self.node_id)),
+        )]
+        .into();
+        self.create_group(gid, peers, true).await
     }
 
     pub fn router(&self) -> Arc<GroupRouter> {

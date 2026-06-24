@@ -68,6 +68,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         #[cfg(feature = "blob")]
         blob_cursor_ttl_secs: 300,
         raft: None,
+        #[cfg(feature = "raft")]
+        multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
     }))
@@ -419,5 +421,164 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
 
     multi2.stop_listener();
     backend2.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 6. Lane N WIRE (CONCEPT:KG-2.226) — a USER multi-graph txn across 2 groups,
+//    driven through the BeginTxn→stage→Commit HANDLER, is atomic.
+// ─────────────────────────────────────────────────────────────────────────
+
+use crate::protocol::{Response, ResultPayload};
+use crate::server::handlers::txn::try_handle as txn_handle;
+
+/// Register `shardA`/`shardB` in the registry + wire `state.multi_raft` so the
+/// user-facing commit path can resolve the cross-shard span (CONCEPT:KG-2.226).
+async fn wire_user_graphs(state: &Arc<RwLock<ServerState>>, multi: &Arc<MultiRaft>) {
+    let mut s = state.write().await;
+    let _ = s.registry.create_graph(GRAPH_A, GraphType::Global, None);
+    let _ = s.registry.create_graph(GRAPH_B, GraphType::Global, None);
+    s.multi_raft = Some(multi.clone());
+}
+
+/// Unwrap a handler `Response` to its `Bool` payload (the txn ack), or panic.
+fn as_bool(r: Response) -> bool {
+    match r.result {
+        Some(ResultPayload::Bool(b)) => b,
+        other => panic!("expected Bool payload, got {other:?} (error={:?})", r.error),
+    }
+}
+
+/// Drive BeginTxn (default=shardA) → TxnAddNode(shardA) → TxnAddNode(graph=shardB)
+/// through the HANDLER. Returns the txn id so the caller can Commit it.
+async fn begin_two_graph_txn(
+    state: &Arc<RwLock<ServerState>>,
+    a_node: &str,
+    b_node: &str,
+) -> String {
+    let begin = txn_handle(
+        state,
+        1,
+        None,
+        Method::BeginTxn {
+            graph: Some(GRAPH_A.to_string()),
+            isolation: None,
+        },
+    )
+    .await
+    .expect("BeginTxn is a txn method");
+    let txn_id = match begin.result {
+        Some(ResultPayload::String(id)) => id,
+        other => panic!("BeginTxn must return a txn id, got {other:?}"),
+    };
+    let mk = |node: &str| rmp_serde::to_vec_named(&serde_json::json!({ "n": node })).unwrap();
+    // Op 1: default graph (shardA).
+    assert!(as_bool(
+        txn_handle(
+            state,
+            2,
+            None,
+            Method::TxnAddNode {
+                txn_id: txn_id.clone(),
+                node_id: a_node.to_string(),
+                properties_msgpack: mk(a_node),
+                graph: None,
+            },
+        )
+        .await
+        .unwrap()
+    ));
+    // Op 2: a DIFFERENT graph (shardB) — makes the txn cross-shard.
+    assert!(as_bool(
+        txn_handle(
+            state,
+            3,
+            None,
+            Method::TxnAddNode {
+                txn_id: txn_id.clone(),
+                node_id: b_node.to_string(),
+                properties_msgpack: mk(b_node),
+                graph: Some(GRAPH_B.to_string()),
+            },
+        )
+        .await
+        .unwrap()
+    ));
+    txn_id
+}
+
+/// HAPPY: a user multi-graph txn across 2 groups commits atomically on BOTH (the
+/// staged multi-graph write-set routed through the 2PC coordinator).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn user_multigraph_txn_commits_atomically_across_groups() {
+    let dir = fresh_dir("userhappy");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
+    wire_user_graphs(&state, &multi).await;
+
+    let txn_id = begin_two_graph_txn(&state, "ua1", "ub1").await;
+    let committed = as_bool(
+        txn_handle(&state, 4, None, Method::Commit { txn_id })
+            .await
+            .unwrap(),
+    );
+    assert!(committed, "user cross-shard txn commits");
+
+    // BOTH graphs got their node — all-or-nothing landed everywhere.
+    assert_eq!(node_count(&state, GRAPH_A).await, 1, "shardA committed");
+    assert_eq!(node_count(&state, GRAPH_B).await, 1, "shardB committed");
+    // Durable 2PC records cleared (no leak) after a resolved commit.
+    let redb = backend.as_redb().unwrap();
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "prepares cleared"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// NEMESIS: kill participant B (close its group) so its slice cannot prepare, then
+/// commit a USER multi-graph txn through the handler. It must ABORT with NO PARTIAL
+/// COMMIT — the live participant A must NOT have applied. This proves the user wire
+/// inherits the coordinator's atomicity under a participant kill (CONCEPT:KG-2.226).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn user_multigraph_txn_atomic_under_participant_kill() {
+    let dir = fresh_dir("userkill");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
+    wire_user_graphs(&state, &multi).await;
+
+    // Stage the multi-graph txn first (both graphs resident), THEN kill participant B.
+    let txn_id = begin_two_graph_txn(&state, "ua2", "ub2").await;
+    multi.close_group(GROUP_B).await.unwrap();
+    assert!(multi.group(GROUP_B).await.is_none(), "B is killed");
+
+    let committed = as_bool(
+        txn_handle(&state, 4, None, Method::Commit { txn_id })
+            .await
+            .unwrap(),
+    );
+    assert!(!committed, "a killed participant aborts the user txn");
+
+    // NO PARTIAL COMMIT: neither graph applied (the live A must NOT have its node).
+    assert_eq!(
+        node_count(&state, GRAPH_A).await,
+        0,
+        "no partial commit on A"
+    );
+    assert_eq!(node_count(&state, GRAPH_B).await, 0, "B never applied");
+    // Clean abort: no leaked prepares.
+    let redb = backend.as_redb().unwrap();
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "no leaked prepares"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
 }

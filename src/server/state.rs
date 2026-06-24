@@ -120,6 +120,15 @@ pub struct ServerState {
     /// Only ever populated when built `--features raft` AND configured at startup.
     #[cfg(feature = "raft")]
     pub raft: Option<crate::raft::RaftHandle>,
+    /// The per-node [`MultiRaft`] manager (CONCEPT:KG-2.205/2.222/2.224), cluster tier
+    /// only. `Some` when a cluster is active. Held here (rather than leaked) so the
+    /// USER-FACING surfaces that need cross-group routing reach it: the multi-graph
+    /// `Commit` path (CONCEPT:KG-2.226 — routes a cross-shard txn through the 2PC
+    /// coordinator) and the online-reshard / tenant-hibernation ops (CONCEPT:KG-2.224).
+    /// `None` ⇒ single-node: a multi-graph txn falls back to applying each graph's
+    /// slice locally (no consensus), and the commit path is otherwise unchanged.
+    #[cfg(feature = "raft")]
+    pub multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
     /// Native time-series store (CONCEPT:KG-2.210, feature `tsdb`). `Some` when the
     /// engine booted with a series store: a durable `series.redb` beside `graph.redb`
     /// when a persist dir is set, else a process-temp file (in-memory deployments).

@@ -2025,21 +2025,31 @@ class TxnClient:
         return await self._client._send("BeginTxn", params, graph=graph)
 
     async def add_node(
-        self, txn_id: str, node_id: str, properties: dict[str, Any] | None = None
+        self,
+        txn_id: str,
+        node_id: str,
+        properties: dict[str, Any] | None = None,
+        graph: str | None = None,
     ) -> bool:
-        return await self._client._send(
-            "TxnAddNode",
-            {
-                "txn_id": txn_id,
-                "node_id": node_id,
-                "properties_msgpack": list(msgpack.packb(properties or {})),
-            },
-        )
+        """Stage an add-node. ``graph`` (CONCEPT:KG-2.226) targets a graph OTHER than
+        the txn's default — making the txn multi-graph (cross-shard if it spans Raft
+        groups, routed through 2PC at commit); omit for the single-graph default."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "node_id": node_id,
+            "properties_msgpack": list(msgpack.packb(properties or {})),
+        }
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnAddNode", params)
 
-    async def remove_node(self, txn_id: str, node_id: str) -> bool:
-        return await self._client._send(
-            "TxnRemoveNode", {"txn_id": txn_id, "node_id": node_id}
-        )
+    async def remove_node(
+        self, txn_id: str, node_id: str, graph: str | None = None
+    ) -> bool:
+        params: dict[str, Any] = {"txn_id": txn_id, "node_id": node_id}
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnRemoveNode", params)
 
     async def add_edge(
         self,
@@ -2047,22 +2057,29 @@ class TxnClient:
         source_id: str,
         target_id: str,
         properties: dict[str, Any] | None = None,
+        graph: str | None = None,
     ) -> bool:
-        return await self._client._send(
-            "TxnAddEdge",
-            {
-                "txn_id": txn_id,
-                "source_id": source_id,
-                "target_id": target_id,
-                "properties_msgpack": list(msgpack.packb(properties or {})),
-            },
-        )
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "source_id": source_id,
+            "target_id": target_id,
+            "properties_msgpack": list(msgpack.packb(properties or {})),
+        }
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnAddEdge", params)
 
-    async def remove_edge(self, txn_id: str, source_id: str, target_id: str) -> bool:
-        return await self._client._send(
-            "TxnRemoveEdge",
-            {"txn_id": txn_id, "source_id": source_id, "target_id": target_id},
-        )
+    async def remove_edge(
+        self, txn_id: str, source_id: str, target_id: str, graph: str | None = None
+    ) -> bool:
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "source_id": source_id,
+            "target_id": target_id,
+        }
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnRemoveEdge", params)
 
     async def cas(
         self,
@@ -2070,16 +2087,37 @@ class TxnClient:
         node_id: str,
         conditions: dict[str, Any],
         updates: dict[str, Any],
+        graph: str | None = None,
     ) -> bool:
         """Stage an atomic compare-and-set on ``node_id`` (applied at commit)."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "node_id": node_id,
+            "conditions_msgpack": list(msgpack.packb(conditions)),
+            "updates_msgpack": list(msgpack.packb(updates)),
+        }
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnCas", params)
+
+    async def add_embedding(
+        self, txn_id: str, node_id: str, embedding: list[float]
+    ) -> bool:
+        """Stage a VECTOR upsert (CONCEPT:KG-2.225 — cross-modal ACID). The embedding
+        lands atomically WITH the txn's graph/property/blob-ref writes in ONE redb
+        WriteTransaction at commit (requires the redb persistence backend)."""
         return await self._client._send(
-            "TxnCas",
-            {
-                "txn_id": txn_id,
-                "node_id": node_id,
-                "conditions_msgpack": list(msgpack.packb(conditions)),
-                "updates_msgpack": list(msgpack.packb(updates)),
-            },
+            "TxnAddEmbedding",
+            {"txn_id": txn_id, "node_id": node_id, "embedding": embedding},
+        )
+
+    async def blob_ref(self, txn_id: str, node_id: str, digest: str) -> bool:
+        """Stage a BLOB REFERENCE (CONCEPT:KG-2.225). Records a durable graph-side
+        ``__blob__`` link to an already-stored content-addressed blob; lands
+        atomically with the node/vector/property at commit."""
+        return await self._client._send(
+            "TxnBlobRef",
+            {"txn_id": txn_id, "node_id": node_id, "digest": digest},
         )
 
     async def commit(self, txn_id: str) -> bool:
