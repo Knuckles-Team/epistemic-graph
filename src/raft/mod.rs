@@ -66,6 +66,7 @@ use crate::protocol::Method;
 use crate::server::ServerState;
 
 pub mod config;
+pub mod cross_shard_txn;
 pub mod multi;
 pub mod network;
 pub mod node;
@@ -79,6 +80,13 @@ pub mod harness;
 
 #[cfg(test)]
 mod tests;
+
+// The cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:KG-2.222) — the nemesis
+// harness proving NO PARTIAL COMMIT under participant-kill + partition. Gated behind
+// the `harness` feature so the default `raft` test set is unchanged; run it with
+// `cargo test --features "raft harness"`.
+#[cfg(all(test, feature = "harness"))]
+mod xshard_harness;
 
 /// Raft node id — a small integer assigned per cluster member.
 pub type NodeId = u64;
