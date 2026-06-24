@@ -66,6 +66,19 @@ impl RowSet {
         Self { rows }
     }
 
+    /// Build from `(id, score?)` pairs preserving order, deduping by id (first wins).
+    /// The inverse of reading `rows()` out — used by the WASM `Udf` op to rebuild the
+    /// RowSet from a UDF's output rows (CONCEPT:KG-2.228).
+    pub fn from_rows<I: IntoIterator<Item = (String, Option<f32>)>>(rows: I) -> Self {
+        let mut seen = HashSet::new();
+        let rows = rows
+            .into_iter()
+            .filter(|(id, _)| seen.insert(id.clone()))
+            .map(|(id, score)| Row { id, score })
+            .collect();
+        Self { rows }
+    }
+
     pub fn len(&self) -> usize {
         self.rows.len()
     }

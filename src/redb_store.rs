@@ -57,6 +57,13 @@ pub(crate) const XSHARD_PREPARE: TableDefinition<(&str, u64), &[u8]> =
 // absent/ABORT ⇒ no participant applies (presumed-abort). Cleared after resolution.
 pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
     TableDefinition::new("xshard_decision");
+// Named distributed-compute MATERIALIZED VIEWS (CONCEPT:KG-2.227). One row per matview
+// keyed by `name`, holding the MessagePack-serialized `MatView` (its definition +
+// current result rows). Durable so a matview survives restart; the handler reloads the
+// in-RAM `MatViewStore` from this table on boot and refreshes incrementally on a delta.
+// Lives in `graph.redb` for the same single-file reason as the Raft log + xshard rows.
+#[cfg(feature = "compute-dist")]
+pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("matviews");
 
 /// In-doubt cross-shard prepare records `(txn_id, group_id, slice-blob)` returned by
 /// the recovery scan (CONCEPT:KG-2.222).
@@ -484,6 +491,37 @@ pub(crate) fn get_xshard_decision(db: &Database, txn_id: &str) -> Result<Option<
     Ok(t.get(txn_id)
         .map_err(|e| e.to_string())?
         .map(|v| v.value() == 1))
+}
+
+/// Durably upsert a named materialized view's serialized blob (CONCEPT:KG-2.227).
+#[cfg(feature = "compute-dist")]
+pub(crate) fn put_matview(db: &Database, name: &str, blob: &[u8]) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(MATVIEWS).map_err(|e| e.to_string())?;
+        t.insert(name, blob).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Scan every persisted materialized view `(name, blob)` for reload on boot.
+#[cfg(feature = "compute-dist")]
+pub(crate) fn scan_matviews(db: &Database) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    // A fresh DB may not have the table yet — treat "table missing" as "no views".
+    let t = match rtx.open_table(MATVIEWS) {
+        Ok(t) => t,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    for kv in t.iter().map_err(|e| e.to_string())? {
+        let (k, v) = kv.map_err(|e| e.to_string())?;
+        out.push((k.value().to_string(), v.value().to_vec()));
+    }
+    Ok(out)
 }
 
 /// Snapshot the full registry dump into redb, overwriting each graph's rows, and

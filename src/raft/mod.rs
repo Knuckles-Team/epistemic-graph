@@ -70,6 +70,12 @@ pub mod cross_shard_txn;
 pub mod multi;
 pub mod network;
 pub mod node;
+/// Distributed graph compute — the Pregel/GAS cross-shard superstep engine
+/// (CONCEPT:KG-2.227). Behind `compute-dist` (which implies `raft`): runs PageRank /
+/// connected-components / BFS across graphs spanning multiple Raft groups, plus the
+/// incremental/streaming variant and materialized views.
+#[cfg(feature = "compute-dist")]
+pub mod pregel;
 pub mod store;
 
 /// Correctness + load harness (CONCEPT:KG-2.212) — the standing proof-engine that

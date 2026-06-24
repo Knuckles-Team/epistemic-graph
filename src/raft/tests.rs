@@ -70,6 +70,12 @@ async fn make_state_with_backend(
         tsdb_store: None,
         #[cfg(feature = "rdf-redb")]
         rdf_quads: None,
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+            crate::raft::pregel::MatViewStore::new(),
+        )),
     }))
 }
 

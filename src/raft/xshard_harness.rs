@@ -70,6 +70,12 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+            crate::raft::pregel::MatViewStore::new(),
+        )),
     }))
 }
 

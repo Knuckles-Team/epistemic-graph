@@ -550,6 +550,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tsdb_store,
         #[cfg(feature = "rdf-redb")]
         rdf_quads,
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+            epistemic_graph::raft::pregel::MatViewStore::new(),
+        )),
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────

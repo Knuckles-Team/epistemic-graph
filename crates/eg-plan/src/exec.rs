@@ -39,6 +39,11 @@ pub struct PlanCtx<'a> {
     /// `Rank`. Gated behind `text`, so a non-text build's `PlanCtx` is unchanged.
     #[cfg(feature = "text")]
     pub text: Option<&'a eg_text::TextIndex>,
+    /// The WASM UDF registry for the `Udf { id }` op (CONCEPT:KG-2.228). `None` when no
+    /// registry is attached — a `Udf` op then errs (a UDF must be registered to run).
+    /// Gated behind `wasm-udf`, so a non-wasm build's `PlanCtx` is unchanged.
+    #[cfg(feature = "wasm-udf")]
+    pub udf: Option<&'a eg_wasm::UdfRegistry>,
 }
 
 impl<'a> PlanCtx<'a> {
@@ -51,6 +56,8 @@ impl<'a> PlanCtx<'a> {
             semantic,
             #[cfg(feature = "text")]
             text: None,
+            #[cfg(feature = "wasm-udf")]
+            udf: None,
         }
     }
 
@@ -58,6 +65,13 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "text")]
     pub fn with_text(mut self, text: &'a eg_text::TextIndex) -> Self {
         self.text = Some(text);
+        self
+    }
+
+    /// Attach a WASM UDF registry so a `Udf { id }` op can run a sandboxed function.
+    #[cfg(feature = "wasm-udf")]
+    pub fn with_udf(mut self, udf: &'a eg_wasm::UdfRegistry) -> Self {
+        self.udf = Some(udf);
         self
     }
 }
@@ -147,8 +161,34 @@ fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
         #[cfg(feature = "owl")]
         Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
 
+        #[cfg(feature = "wasm-udf")]
+        Op::Udf { id } => udf_transform(ctx, &input, id),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
+}
+
+/// UDF (WASM): transform the current `RowSet` through a registered, SANDBOXED wasm
+/// function (CONCEPT:KG-2.228). Serializes the input rows `[(id, score?), …]` to
+/// MessagePack, runs the UDF `id` under fuel + memory limits with NO host caps, and
+/// deserializes the SAME-shape output rows back into the pipeline. A registry-less ctx
+/// or an unknown UDF id errs (a UDF must be registered to run). The bytes contract is
+/// the engine's — a UDF reads `Vec<(String, Option<f32>)>` and returns the same.
+#[cfg(feature = "wasm-udf")]
+fn udf_transform(ctx: &PlanCtx, input: &RowSet, id: &str) -> Result<RowSet, String> {
+    let Some(registry) = ctx.udf else {
+        return Err("Udf op requires a UDF registry on the PlanCtx (none attached)".into());
+    };
+    let rows: Vec<(String, Option<f32>)> = input
+        .rows()
+        .iter()
+        .map(|r| (r.id.clone(), r.score))
+        .collect();
+    let payload = rmp_serde::to_vec_named(&rows).map_err(|e| format!("udf input encode: {e}"))?;
+    let out = registry.run(id, &payload).map_err(|e| e.to_string())?;
+    let out_rows: Vec<(String, Option<f32>)> =
+        rmp_serde::from_slice(&out).map_err(|e| format!("udf output decode: {e}"))?;
+    Ok(RowSet::from_rows(out_rows))
 }
 
 /// RANK (lexical, BM25): re-order the candidate set by BM25 relevance to `query`.

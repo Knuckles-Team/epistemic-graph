@@ -229,6 +229,18 @@ enum Cmd {
         txn_id: String,
         reply: std::sync::mpsc::Sender<Result<Option<bool>, String>>,
     },
+    /// Durably upsert a named materialized view's blob (CONCEPT:KG-2.227).
+    #[cfg(feature = "compute-dist")]
+    MatViewPut {
+        name: String,
+        blob: Vec<u8>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Scan every persisted materialized view `(name, blob)` for reload on boot.
+    #[cfg(feature = "compute-dist")]
+    MatViewScan {
+        reply: std::sync::mpsc::Sender<Result<Vec<(String, Vec<u8>)>, String>>,
+    },
 }
 
 /// Handle to the redb write-through tier. The dispatch path holds an `Arc` of this
@@ -766,6 +778,32 @@ impl RedbBackend {
         rx.recv()
             .map_err(|_| "redb writer dropped xshard_decision_get reply".to_string())?
     }
+
+    /// Durably upsert a named materialized view's serialized blob (CONCEPT:KG-2.227).
+    /// Awaits the fsync so a `CreateMatView`/`RefreshMatView` ack means it is on disk.
+    #[cfg(feature = "compute-dist")]
+    pub async fn matview_put(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let name = name.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(Cmd::MatViewPut { name, blob, done }))
+            .await
+            .map_err(|e| format!("matview_put join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped matview_put completion".to_string())?
+    }
+
+    /// Scan every persisted materialized view `(name, blob)` (reload on boot).
+    #[cfg(feature = "compute-dist")]
+    pub fn matview_scan(&self) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::MatViewScan { reply })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped matview_scan reply".to_string())?
+    }
 }
 
 // ── off-reactor group-commit writer thread ───────────────────────────────
@@ -1049,6 +1087,18 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             let _ = reply.send(get_xshard_decision(db, &txn_id));
             false
         }
+        #[cfg(feature = "compute-dist")]
+        Cmd::MatViewPut { name, blob, done } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(crate::redb_store::put_matview(db, &name, &blob));
+            false
+        }
+        #[cfg(feature = "compute-dist")]
+        Cmd::MatViewScan { reply } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(crate::redb_store::scan_matviews(db));
+            false
+        }
     }
 }
 
@@ -1215,6 +1265,12 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }))
     }
 
