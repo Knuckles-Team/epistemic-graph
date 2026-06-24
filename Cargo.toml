@@ -324,6 +324,9 @@ tracing-subscriber = "0.3"
 # Real Postgres client for the pgwire wire round-trip integration test
 # (CONCEPT:KG-2.189). Only compiled for tests; never linked into the engine.
 tokio-postgres = "0.7"
+# Compile the `.wat` WASM UDF fixtures to wasm in the server-dispatch UDF test
+# (CONCEPT:KG-2.228). Only compiled for tests with `--features wasm-udf`.
+wat = "1"
 
 [profile.release]
 opt-level = 3
