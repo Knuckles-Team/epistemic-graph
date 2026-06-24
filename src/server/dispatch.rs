@@ -559,6 +559,31 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230) ───
+        // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
+        // side — emitting changes — lives in the dispatch_graph_op write-side-effect
+        // block). These are NOT graph-mutating (CdcRead/Watch/FiredTriggers tail a
+        // cursor; Register*/Drop* manage hub registrations), so they self-route here
+        // BEFORE the per-graph chain, like tsdb/blob. Gated `streaming`: in a slim
+        // build the arm is absent and the variants fall to the graph_ops not-built
+        // catch-all (never a panic, never a mis-route).
+        #[cfg(feature = "streaming")]
+        Method::CdcRead { .. }
+        | Method::RegisterContinuousQuery { .. }
+        | Method::ReadContinuousQuery { .. }
+        | Method::DropContinuousQuery { .. }
+        | Method::Watch { .. }
+        | Method::RegisterTrigger { .. }
+        | Method::DropTrigger { .. }
+        | Method::ListTriggers { .. }
+        | Method::FiredTriggers { .. } => {
+            match handlers::streaming::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: every variant matched above is a streaming method.
+                Err(_) => Response::err(req.id, "streaming dispatch routing error"),
+            }
+        }
+
         // ── Graph operations (dispatch to target graph) ──────────────
         _ => {
             dispatch_graph_op(
@@ -615,6 +640,12 @@ async fn dispatch_graph_op(
     // be COMMITTED to redb BEFORE we ack the client (commit-before-ack), and a
     // commit failure becomes an ERROR response. Read once under the same lock.
     let redb_authoritative = s.redb_authoritative;
+    // Change-Data-Capture hub (CONCEPT:KG-2.229/230): clone the handle under the same
+    // lock so a successful durable mutation can emit an ordered change into this
+    // graph's feed AFTER it applies. `None` ⇒ a non-streaming build ⇒ no emit, the
+    // write path is byte-for-byte unchanged.
+    #[cfg(feature = "streaming")]
+    let cdc = s.cdc.clone();
     // Per-graph write coalescer (CONCEPT:KG-2.182): clone the registry handle so the
     // hot single-op writes can be batched onto this graph's writer (lazily created,
     // keyed by name — automatic per new graph/connector), collapsing N concurrent
@@ -673,6 +704,25 @@ async fn dispatch_graph_op(
     };
 
     crate::metrics::graph_op(graph_name);
+
+    // CDC pre-image (CONCEPT:KG-2.229): for a durable single-row mutation, capture the
+    // affected node/edge's CURRENT property blob BEFORE the write applies, so the
+    // emitted change carries an accurate `before`. Reads the core directly, so it is
+    // correct for both the inline and the coalescer apply paths. No-op (Skip) for a
+    // non-streaming build or a multi-row method (BatchUpdate/ClearGraph).
+    #[cfg(feature = "streaming")]
+    let cdc_pre = match (&cdc, crate::wal::is_durable_mutation(&method)) {
+        (Some(_), true) => crate::server::cdc::capture_before(&core, &method),
+        _ => crate::server::cdc::CdcPre::Skip,
+    };
+    // The method is consumed by the dispatch block below; keep its identity for the
+    // post-emit (the emit only needs the variant + ids, all cloned by capture_before).
+    #[cfg(feature = "streaming")]
+    let cdc_method = if cdc.is_some() && crate::wal::is_durable_mutation(&method) {
+        Some(method.clone())
+    } else {
+        None
+    };
 
     let response =
         'dispatch: {
@@ -790,6 +840,19 @@ async fn dispatch_graph_op(
             } else {
                 p.record(&fname, &m);
             }
+        }
+    }
+
+    // Emit the CDC change (CONCEPT:KG-2.229/230) AFTER the write succeeded in memory
+    // and (in authoritative mode) committed durably — the durable-fail path above
+    // returns early, so reaching here means the change is real. The hub assigns the
+    // per-graph seq, appends the ring, maintains continuous queries, fires triggers,
+    // and wakes watchers. Off the returned Response (not in any handler), so both the
+    // inline and coalescer apply paths feed the SAME feed.
+    #[cfg(feature = "streaming")]
+    if let (Some(hub), Some(m)) = (cdc, cdc_method) {
+        if response.error.is_none() {
+            crate::server::cdc::emit_for_method(&hub, &core, graph_name, &m, cdc_pre);
         }
     }
     response
@@ -954,6 +1017,8 @@ mod blob_dispatch_tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         }))
     }
 

@@ -34,6 +34,12 @@ pub(crate) mod timeseries;
 // Method variants, so the dispatch chain never routes them.
 #[cfg(feature = "blob")]
 pub(crate) mod blob;
+// Streaming / CDC / subscriptions / triggers (CONCEPT:KG-2.229/230, feature
+// `streaming`). The Cdc*/ContinuousQuery/Watch/Trigger methods are stateful (they
+// drive the `CdcHub` on `state`); a build without `streaming` omits the module and
+// the variants fall to the graph_ops not-built catch-all.
+#[cfg(feature = "streaming")]
+pub(crate) mod streaming;
 // Native RDF/SPARQL surface (CONCEPT:KG-2.217/218, features `rdf`/`sparql`). The
 // AddTriples/GetRdf/Sparql methods are graph-scoped (they target `req.graph`),
 // so the handler takes the graph core like the query handler; AddTriples also reads

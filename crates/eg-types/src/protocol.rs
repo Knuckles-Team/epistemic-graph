@@ -1284,6 +1284,96 @@ pub enum Method {
         #[serde(default)]
         target_class: String,
     },
+
+    // ── Streaming / CDC / subscriptions / reactivity (CONCEPT:KG-2.229/230) ──
+    // A reactive surface over the engine's per-graph durable change record (the
+    // ledger). Every durable mutation the dispatch shell records also emits an
+    // ordered, cursor-addressable `CdcEvent` (node/edge add/remove/update with
+    // before/after) into a per-graph in-memory feed. Built on the SAME one-Response-
+    // per-Request transport — a consumer TAILS via a `from_seq` cursor (CdcRead /
+    // Watch long-poll), never a side-channel socket or a protocol-v2. All variants
+    // are gated `streaming` (folds into pi/node/cluster/full — no heavy dep); a build
+    // without it drops them → the dispatch "not available in this build" catch-all.
+    /// Read the ordered change feed for `graph` from cursor `from_seq` (inclusive),
+    /// up to `limit` events (CONCEPT:KG-2.229). Returns a `Raw` `Vec<CdcEvent>`. The
+    /// consumer re-reads from `last.seq + 1` to skip what it has seen. `limit` 0 ⇒ a
+    /// default cap.
+    #[cfg(feature = "streaming")]
+    CdcRead {
+        graph: String,
+        from_seq: u64,
+        #[serde(default)]
+        limit: u32,
+    },
+    /// Register a continuous query (CONCEPT:KG-2.229): a named, incrementally-
+    /// maintained aggregate/filter view over a graph's CDC feed. `spec_msgpack` is a
+    /// MessagePack `ContinuousQuerySpec`. Returns a `String` (the name). Re-registering
+    /// the same name replaces it (and re-seeds from the current graph state).
+    #[cfg(feature = "streaming")]
+    RegisterContinuousQuery {
+        name: String,
+        #[serde(with = "serde_bytes")]
+        spec_msgpack: Vec<u8>,
+    },
+    /// Read the current incrementally-maintained result of a continuous query. Returns
+    /// a `Raw` `ContinuousQueryResult`.
+    #[cfg(feature = "streaming")]
+    ReadContinuousQuery {
+        name: String,
+    },
+    /// Drop a continuous query. Returns `Bool` (true if it existed).
+    #[cfg(feature = "streaming")]
+    DropContinuousQuery {
+        name: String,
+    },
+    /// LISTEN/NOTIFY-style long-poll subscription (CONCEPT:KG-2.230): return the
+    /// matching CDC changes for `graph` since `from_seq`, blocking up to `timeout_ms`
+    /// for the FIRST one if none are pending yet (then returns what arrived). `label`
+    /// (empty ⇒ all) filters by node/edge label. Returns a `Raw` `WatchBatch`
+    /// (`{events, next_seq}`); the client passes `next_seq` back to resume. Transport-
+    /// compatible: one Request → one Response, cursor-driven.
+    #[cfg(feature = "streaming")]
+    Watch {
+        graph: String,
+        from_seq: u64,
+        #[serde(default)]
+        label: String,
+        #[serde(default)]
+        timeout_ms: u64,
+    },
+    /// Register a trigger/reaction (CONCEPT:KG-2.230): when a CDC change in `graph`
+    /// matches `label` (empty ⇒ any) + `op` ("add"|"remove"|"update"|"any"), record a
+    /// firing carrying `action_msgpack` (an opaque reaction payload). Returns the name.
+    #[cfg(feature = "streaming")]
+    RegisterTrigger {
+        name: String,
+        graph: String,
+        #[serde(default)]
+        label: String,
+        op: String,
+        #[serde(default, with = "serde_bytes")]
+        action_msgpack: Vec<u8>,
+    },
+    /// Drop a trigger. Returns `Bool`.
+    #[cfg(feature = "streaming")]
+    DropTrigger {
+        name: String,
+    },
+    /// List the triggers registered on `graph`. Returns a `Raw` `Vec<TriggerInfo>`.
+    #[cfg(feature = "streaming")]
+    ListTriggers {
+        graph: String,
+    },
+    /// Poll the fired-trigger log for `graph` from cursor `from_seq` (CONCEPT:KG-2.230):
+    /// the reactions that fired since the cursor. Returns a `Raw` `Vec<FiredAction>`;
+    /// the consumer dispatches each action then resumes from `last.fire_seq + 1`.
+    #[cfg(feature = "streaming")]
+    FiredTriggers {
+        graph: String,
+        from_seq: u64,
+        #[serde(default)]
+        limit: u32,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
