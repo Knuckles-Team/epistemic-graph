@@ -85,6 +85,12 @@ tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
 # Activates only when built `--features raft` AND configured at runtime
 # (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
 raft = ["server", "redb", "dep:openraft"]
+# Distributed-correctness nemesis harness (CONCEPT:KG-2.212/2.222): a no-op marker
+# feature that compiles in the kill/partition/saturate fault-injection gauntlet tests
+# (the cross-shard 2PC atomicity + recovery proof). OFF by default so it adds NOTHING
+# to a normal build; the gauntlet is in scope only under `cargo test --features
+# "raft harness"`. Implies `raft` is meaningless on its own — pair it WITH `raft`.
+harness = []
 # Postgres wire-protocol shim (CONCEPT:KG-2.189). A facade-only listener that lets
 # psql / BI tools / ORMs run SQL against a graph, reusing the eg-query DataFusion
 # path (so it IMPLIES `query`) over the Tokio server (`server`). Heavy (pgwire +

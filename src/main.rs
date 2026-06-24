@@ -747,6 +747,30 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         // process lifetime). Keep it alive by storing the handle; the
                         // routing handle goes into ServerState for the dispatch path.
                         state.write().await.raft = Some(started.handle);
+                        // Cross-shard 2PC recovery (CONCEPT:KG-2.222): resolve any
+                        // in-doubt cross-shard txns from the durable prepare/decision
+                        // records BEFORE serving — a COMMIT decision re-applies, an
+                        // undecided/ABORT clears (presumed-abort). Deterministic from
+                        // disk, so this is safe to run unconditionally on every boot.
+                        {
+                            let backend = state.read().await.persistence.clone();
+                            if let Some(backend) = backend {
+                                let coord = epistemic_graph::raft::cross_shard_txn::CrossShardCoordinator::new(
+                                    started.multi.clone(),
+                                    backend,
+                                );
+                                match coord.recover_in_doubt().await {
+                                    Ok(0) => {}
+                                    Ok(n) => info!(
+                                        "Cross-shard 2PC recovery: resolved {n} in-doubt txn(s) (CONCEPT:KG-2.222)"
+                                    ),
+                                    Err(e) => {
+                                        eprintln!("error: cross-shard 2PC recovery failed: {e}");
+                                        std::process::exit(1);
+                                    }
+                                }
+                            }
+                        }
                         // Leak the manager Arc so its listener task is never dropped
                         // (process-lifetime). A graceful-shutdown hook is a follow-up.
                         std::mem::forget(started.multi);

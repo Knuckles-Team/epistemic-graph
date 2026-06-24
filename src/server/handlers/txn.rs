@@ -217,6 +217,16 @@ async fn stage(
 /// ONE `GraphTxn`, drop the guard, then persist each staged method and mark dirty
 /// (which bumps the version). On conflict NOTHING is applied/persisted — a true
 /// rollback returning `Bool(false)`.
+///
+/// **Cross-shard routing (CONCEPT:KG-2.222).** A `GraphTxnState` targets exactly ONE
+/// graph, which resolves to ONE Raft group ([`crate::raft::multi::GroupRouter`]), so
+/// EVERY `Commit` here is single-group and stays on this byte-for-byte-unchanged fast
+/// path. A transaction whose write-set spans graphs in ≥2 groups
+/// (`GroupRouter::is_cross_shard`) is a CROSS-SHARD txn: it routes through the 2PC
+/// [`crate::raft::cross_shard_txn::CrossShardCoordinator`] instead. Accumulating a
+/// multi-graph staged write-set into one `BeginTxn` is the remaining wire step (it
+/// needs a multi-graph txn model); the coordinator + the span gate + the durable 2PC
+/// records + recovery are built and proven by the `raft harness` gauntlet.
 async fn commit(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
