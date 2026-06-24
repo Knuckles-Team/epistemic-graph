@@ -38,6 +38,16 @@ rdf = []
 # Native SPARQL surface (CONCEPT:KG-2.218): gates the `Sparql` Method variant +
 # `SparqlResult` wire DTO. Implies `rdf`.
 sparql = ["rdf"]
+# Native OWL 2 reasoner surface (CONCEPT:KG-2.219): gates the `OwlReason` Method +
+# `OwlReasonResult` wire DTO. PURE-RUST + Pi-safe — implies only `sparql` (→`rdf`),
+# NOT `query`, so the OWL reasoner ships on the Pi tier with NO DataFusion.
+owl = ["sparql"]
+# The OWL/SPARQL cross-modal plan SOURCE ops `Op::Reason` / `Op::SparqlBgp`
+# (CONCEPT:KG-2.220). They live INSIDE the `query`-gated `Op` enum (the unified plan
+# AST), so they need `query`; and they select from the OWL/SPARQL surfaces, so `owl`.
+# SPLIT from `owl` because the unified-plan executor needs DataFusion (`query`) which
+# the Pi tier omits — the bare OWL reasoner (`owl`) stays Pi-safe.
+owl-plan = ["owl", "query"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

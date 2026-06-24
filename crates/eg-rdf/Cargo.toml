@@ -28,6 +28,11 @@ sparql = ["rdf", "dep:spargebra"]
 # Opt-in lossless redb `quads` table for multi-valued-literal predicates that the
 # key-unique property-graph blob would collapse. Rides the engine's redb tier.
 rdf-redb = ["rdf", "dep:redb"]
+# W3 — native OWL 2 (EL⁺ completion + RL property rules) reasoner (CONCEPT:KG-2.219).
+# Parses OWL axioms from the SAME oxttl-parsed RDF as `rdf`, so it adds NO dep beyond
+# the RDF stack: implies `rdf`, links ZERO native/C crate (pure Rust — no horned-owl,
+# no whelk-rs). Safe to fold into pi/node/full alongside rdf/sparql.
+owl = ["rdf"]
 
 [dependencies]
 eg-core = { path = "../eg-core" }
