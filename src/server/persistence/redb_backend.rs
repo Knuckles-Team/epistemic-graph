@@ -58,10 +58,11 @@ use super::PersistenceBackend;
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
 use crate::redb_store::{
-    apply_checkpoint, clear_xshard_decision, clear_xshard_prepare, commit_ops, get_xshard_decision,
-    purge_graph_rows, put_xshard_decision, put_xshard_prepare, read_all_dumps, read_one_node,
-    scan_xshard_prepares, write_graph_meta, GraphDump, XshardPrepareScan, EDGES, GRAPH_META,
-    LEDGER, NODES, RAFT_LOG, SEMANTIC, XSHARD_DECISION, XSHARD_PREPARE,
+    apply_checkpoint, clear_xshard_decision, clear_xshard_prepare, commit_crossmodal, commit_ops,
+    get_xshard_decision, purge_graph_rows, put_xshard_decision, put_xshard_prepare, read_all_dumps,
+    read_graph_dump, read_one_node, scan_xshard_prepares, write_graph_meta, GraphDump,
+    XshardPrepareScan, EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC, XSHARD_DECISION,
+    XSHARD_PREPARE,
 };
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:KG-2.204).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
@@ -139,6 +140,24 @@ enum Cmd {
     /// already open"). The async caller rebuilds the registry from the dumps.
     Load {
         reply: std::sync::mpsc::Sender<Result<Vec<GraphDump>, String>>,
+    },
+    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:KG-2.224 — tenant
+    /// rehydration). Goes through the owner thread (exclusive file lock) and flushes
+    /// pending writes first so the rehydrated dump reflects the latest durable state.
+    ReadGraphDump {
+        graph: String,
+        reply: std::sync::mpsc::Sender<Result<Option<GraphDump>, String>>,
+    },
+    /// **Cross-modal ACID commit (CONCEPT:KG-2.225).** Land a graph, vector, blob-ref,
+    /// and property write-set for ONE graph in ONE `WriteTransaction`, all-or-nothing,
+    /// awaiting its durable fsync (commit-before-ack). On any error nothing lands: the
+    /// dropped transaction discards every modality (no partial cross-modal commit).
+    CrossModalCommit {
+        graph: String,
+        methods: Vec<Method>,
+        vectors: Vec<(String, Vec<f32>)>,
+        blob_refs: Vec<(String, String)>,
+        done: oneshot::Sender<Result<(), String>>,
     },
     Shutdown {
         reply: std::sync::mpsc::Sender<()>,
@@ -284,6 +303,21 @@ impl RedbBackend {
         self.dropped.load(Ordering::Relaxed)
     }
 
+    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:KG-2.224 — tenant
+    /// rehydration). Routed through the owner thread (exclusive file lock) which
+    /// flushes pending writes first. `None` ⇒ the graph has no durable identity.
+    pub fn read_graph_dump_blocking(&self, graph_fname: &str) -> Result<Option<GraphDump>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::ReadGraphDump {
+                graph: graph_fname.to_string(),
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped read_graph_dump reply".to_string())?
+    }
+
     /// Reconstruct every graph from the redb store into the registry. The actual
     /// DB read runs on the owner thread (via the `Load` command) because redb holds
     /// an exclusive per-process file lock; this rebuilds each `GraphCore` from the
@@ -332,6 +366,27 @@ impl RedbBackend {
             count += 1;
         }
         Ok(count)
+    }
+}
+
+/// Rebuild a live [`GraphCore`] from a durable [`GraphDump`] (CONCEPT:KG-2.224 —
+/// tenant rehydration). Uses the SAME `add_node`/`add_edge`/semantic-restore path
+/// `load_into` uses, so a rehydrated graph is byte-identical to a freshly loaded one.
+/// The core is cleared first so a re-rehydrate is idempotent.
+pub fn rehydrate_core_from_dump(core: &GraphCore, dump: &GraphDump) {
+    core.clear();
+    for (id, props) in &dump.nodes {
+        core.add_node(id.clone(), props.clone());
+    }
+    for (src, tgt, props) in &dump.edges {
+        let _ = core.add_edge(src.clone(), tgt.clone(), props.clone());
+    }
+    if !dump.semantic.is_empty() {
+        if let Ok(store) =
+            rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(&dump.semantic)
+        {
+            *core.semantic_store.write() = store;
+        }
     }
 }
 
@@ -427,6 +482,37 @@ impl PersistenceBackend for RedbBackend {
         match done_rx.await {
             Ok(res) => res,
             Err(_) => Err("redb writer dropped durable-commit completion".to_string()),
+        }
+    }
+
+    /// **Cross-modal ACID (CONCEPT:KG-2.225).** Land graph + vectors + blob-refs for ONE
+    /// graph in ONE redb `WriteTransaction`, awaiting its durable fsync. On any error
+    /// the transaction is dropped without commit, so NONE of the modalities land — a
+    /// true rollback (no partial cross-modal commit). Routed through the owner thread
+    /// (exclusive file lock) via a blocking send off the reactor.
+    async fn commit_crossmodal(
+        &self,
+        graph_fname: &str,
+        methods: &[Method],
+        vectors: &[(String, Vec<f32>)],
+        blob_refs: &[(String, String)],
+    ) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::CrossModalCommit {
+            graph: graph_fname.to_string(),
+            methods: methods.to_vec(),
+            vectors: vectors.to_vec(),
+            blob_refs: blob_refs.to_vec(),
+            done,
+        };
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(cmd))
+            .await
+            .map_err(|e| format!("commit_crossmodal join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        match rx.await {
+            Ok(res) => res,
+            Err(_) => Err("redb writer dropped commit_crossmodal completion".to_string()),
         }
     }
 
@@ -933,6 +1019,28 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             let _ = reply.send(read_all_dumps(db));
             false
         }
+        Cmd::ReadGraphDump { graph, reply } => {
+            // Flush pending so the rehydrated dump reflects the latest durable state,
+            // then range-scan ONE graph's rows (CONCEPT:KG-2.224).
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(read_graph_dump(db, &graph));
+            false
+        }
+        Cmd::CrossModalCommit {
+            graph,
+            methods,
+            vectors,
+            blob_refs,
+            done,
+        } => {
+            // Flush pending first so this cross-modal txn observes the latest durable
+            // state (its vector read-modify-write of the SEMANTIC blob must start from
+            // the committed store), then land ALL modalities in ONE WriteTransaction.
+            commit_and_notify(db, pending, Durability::Immediate);
+            let res = commit_crossmodal(db, &graph, &methods, &vectors, &blob_refs);
+            let _ = done.send(res);
+            false
+        }
         Cmd::Shutdown { reply } => {
             let _ = reply.send(());
             true
@@ -1211,6 +1319,8 @@ mod tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
@@ -1360,6 +1470,7 @@ mod tests {
                         txn_id: txn.clone(),
                         node_id: nid.into(),
                         properties_msgpack: props(serde_json::json!({"type": "Task"})),
+                        graph: None,
                     },
                 ),
             )
@@ -1375,6 +1486,7 @@ mod tests {
                     source_id: "x".into(),
                     target_id: "y".into(),
                     properties_msgpack: props(serde_json::json!({})),
+                    graph: None,
                 },
             ),
         )
@@ -1998,6 +2110,270 @@ mod tests {
         );
         assert_eq!(backend.dropped(), 0);
         backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Cross-modal ACID (CONCEPT:KG-2.225) ─────────────────────────────────────
+
+    use crate::protocol::{Response, ResultPayload};
+    use crate::server::handlers::txn::try_handle as txn_handle;
+
+    fn cm_dir(tag: &str) -> String {
+        let d = std::env::temp_dir().join(format!("eg-crossmodal-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d.to_string_lossy().to_string()
+    }
+
+    fn as_bool(r: Response) -> Option<bool> {
+        match r.result {
+            Some(ResultPayload::Bool(b)) => Some(b),
+            _ => None,
+        }
+    }
+
+    /// Drive BeginTxn(g) → TxnAddNode(node) → TxnAddEmbedding → TxnBlobRef, returning
+    /// the txn id (the staged cross-modal write-set is ready to Commit).
+    async fn stage_crossmodal(
+        state: &Arc<RwLock<ServerState>>,
+        graph: &str,
+        node: &str,
+        digest: &str,
+    ) -> String {
+        let begin = txn_handle(
+            state,
+            1,
+            None,
+            Method::BeginTxn {
+                graph: Some(graph.to_string()),
+                isolation: None,
+            },
+        )
+        .await
+        .unwrap();
+        let txn_id = match begin.result {
+            Some(ResultPayload::String(id)) => id,
+            other => panic!("BeginTxn id, got {other:?}"),
+        };
+        assert_eq!(
+            as_bool(
+                txn_handle(
+                    state,
+                    2,
+                    None,
+                    Method::TxnAddNode {
+                        txn_id: txn_id.clone(),
+                        node_id: node.to_string(),
+                        properties_msgpack: props(serde_json::json!({"type": "Media"})),
+                        graph: None,
+                    },
+                )
+                .await
+                .unwrap()
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            as_bool(
+                txn_handle(
+                    state,
+                    3,
+                    None,
+                    Method::TxnAddEmbedding {
+                        txn_id: txn_id.clone(),
+                        node_id: node.to_string(),
+                        embedding: vec![0.1, 0.2, 0.3],
+                        graph: None,
+                    },
+                )
+                .await
+                .unwrap()
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            as_bool(
+                txn_handle(
+                    state,
+                    4,
+                    None,
+                    Method::TxnBlobRef {
+                        txn_id: txn_id.clone(),
+                        node_id: node.to_string(),
+                        digest: digest.to_string(),
+                        graph: None,
+                    },
+                )
+                .await
+                .unwrap()
+            ),
+            Some(true)
+        );
+        txn_id
+    }
+
+    /// HAPPY: a cross-modal txn (node + vector + blob-ref) commits atomically — ALL
+    /// modalities land durably in ONE WriteTransaction and survive a reload.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn crossmodal_txn_commits_all_modalities_atomically() {
+        let dir = cm_dir("happy");
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let state = new_state_auth(Some(dir.clone()), true);
+        {
+            let mut s = state.write().await;
+            let _ = s.registry.create_graph("media", GraphType::Global, None);
+            s.persistence = Some(backend.clone());
+        }
+
+        let txn_id = stage_crossmodal(&state, "media", "m1", "sha256:abc").await;
+        // Nothing applied before commit.
+        {
+            let s = state.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(!core.has_node("m1"), "no apply before commit");
+            assert_eq!(
+                core.semantic_store.read().len(),
+                0,
+                "no vector before commit"
+            );
+        }
+
+        // COMMIT — all three modalities land atomically.
+        assert_eq!(
+            as_bool(
+                txn_handle(&state, 5, None, Method::Commit { txn_id })
+                    .await
+                    .unwrap()
+            ),
+            Some(true),
+            "cross-modal commit"
+        );
+
+        // In-memory: node + vector + blob-ref property all present.
+        {
+            let s = state.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(core.has_node("m1"), "node landed");
+            assert_eq!(core.semantic_store.read().len(), 1, "vector landed");
+            let blob = core.get_node_properties("m1").unwrap();
+            let p: serde_json::Map<String, serde_json::Value> =
+                rmp_serde::from_slice(&blob).unwrap();
+            assert_eq!(
+                p.get("__blob__").and_then(|v| v.as_str()),
+                Some("sha256:abc")
+            );
+        }
+        backend.shutdown();
+        drop(backend);
+
+        // Reload from redb: every modality is DURABLE (the one WriteTransaction).
+        let backend2: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let state2 = new_state_auth(Some(dir.clone()), true);
+        backend2.load_all(&state2).await.unwrap();
+        {
+            let s = state2.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(core.has_node("m1"), "node durable");
+            assert_eq!(core.semantic_store.read().len(), 1, "vector durable");
+            let blob = core.get_node_properties("m1").unwrap();
+            let p: serde_json::Map<String, serde_json::Value> =
+                rmp_serde::from_slice(&blob).unwrap();
+            assert_eq!(
+                p.get("__blob__").and_then(|v| v.as_str()),
+                Some("sha256:abc"),
+                "blob-ref durable"
+            );
+        }
+        backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A backend whose `commit_crossmodal` always FAILS — used to prove the handler
+    /// rolls back ALL modalities (applies nothing in-memory) on a durable-commit
+    /// failure: no partial cross-modal commit (CONCEPT:KG-2.225).
+    struct FailingBackend {
+        inner: Arc<RedbBackend>,
+    }
+
+    #[async_trait::async_trait]
+    impl PersistenceBackend for FailingBackend {
+        async fn load_all(&self, s: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+            self.inner.load_all(s).await
+        }
+        async fn checkpoint_all(&self, s: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+            self.inner.checkpoint_all(s).await
+        }
+        fn record(&self, g: &str, m: &Method) {
+            self.inner.record(g, m)
+        }
+        async fn commit_crossmodal(
+            &self,
+            _g: &str,
+            _m: &[Method],
+            _v: &[(String, Vec<f32>)],
+            _b: &[(String, String)],
+        ) -> Result<(), String> {
+            // Simulate a mid-way durable failure: NOTHING is written to redb.
+            Err("injected durable commit failure".to_string())
+        }
+        fn shutdown(&self) {
+            self.inner.shutdown()
+        }
+    }
+
+    /// ROLLBACK: a cross-modal txn whose durable commit FAILS mid-way applies NONE of
+    /// its modalities — no node, no vector, no blob-ref (no partial commit).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn crossmodal_txn_rolls_back_all_modalities_on_failure() {
+        let dir = cm_dir("rollback");
+        let inner = Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(FailingBackend {
+            inner: inner.clone(),
+        });
+        let state = new_state_auth(Some(dir.clone()), true);
+        {
+            let mut s = state.write().await;
+            let _ = s.registry.create_graph("media", GraphType::Global, None);
+            s.persistence = Some(backend.clone());
+        }
+
+        let txn_id = stage_crossmodal(&state, "media", "m1", "sha256:def").await;
+
+        // COMMIT must FAIL (the durable barrier errored) → Response is an error.
+        let resp = txn_handle(&state, 5, None, Method::Commit { txn_id })
+            .await
+            .unwrap();
+        assert!(resp.error.is_some(), "commit surfaces the durable failure");
+        assert!(resp.result.is_none(), "no Bool ack on a failed commit");
+
+        // NO PARTIAL COMMIT: NONE of the modalities applied in-memory.
+        {
+            let s = state.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(!core.has_node("m1"), "node rolled back");
+            assert_eq!(core.semantic_store.read().len(), 0, "vector rolled back");
+        }
+
+        // And NONE durable in redb either (the WriteTransaction never committed).
+        inner.shutdown();
+        drop(inner);
+        drop(backend);
+        let backend2: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let state2 = new_state_auth(Some(dir.clone()), true);
+        backend2.load_all(&state2).await.unwrap();
+        {
+            let s = state2.read().await;
+            let durable_node = s
+                .registry
+                .get("media")
+                .map(|e| e.core.has_node("m1"))
+                .unwrap_or(false);
+            assert!(!durable_node, "node never landed durably");
+        }
+        backend2.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

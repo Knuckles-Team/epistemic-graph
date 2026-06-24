@@ -140,6 +140,34 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
+    /// **Cross-modal ACID commit (CONCEPT:KG-2.225).** Land a graph + vector + blob-ref
+    /// + property write-set for ONE graph atomically. The redb backend overrides this
+    /// to commit ALL modalities in ONE `WriteTransaction` (commit-before-ack): on any
+    /// error nothing lands (full rollback — no partial cross-modal commit). The
+    /// default (non-redb) impl records the graph methods through the write-behind
+    /// `record` seam; vectors/blob-refs have no durable home off redb, so it errors if
+    /// any are present rather than silently dropping a modality.
+    async fn commit_crossmodal(
+        &self,
+        graph_fname: &str,
+        methods: &[Method],
+        vectors: &[(String, Vec<f32>)],
+        blob_refs: &[(String, String)],
+    ) -> Result<(), String> {
+        if !vectors.is_empty() || !blob_refs.is_empty() {
+            return Err(
+                "cross-modal txn (vectors / blob-refs) requires the redb persistence backend"
+                    .to_string(),
+            );
+        }
+        for m in methods {
+            if crate::wal::is_durable_mutation(m) {
+                self.record(graph_fname, m);
+            }
+        }
+        Ok(())
+    }
+
     /// Flush and stop any background writer threads at graceful shutdown.
     /// Idempotent.
     fn shutdown(&self);

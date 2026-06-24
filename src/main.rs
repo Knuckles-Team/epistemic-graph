@@ -546,6 +546,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // so the dispatch write path is the single-node path, unchanged.
         #[cfg(feature = "raft")]
         raft: None,
+        #[cfg(feature = "raft")]
+        multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store,
         #[cfg(feature = "rdf-redb")]
@@ -855,9 +857,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
-                        // Leak the manager Arc so its listener task is never dropped
-                        // (process-lifetime). A graceful-shutdown hook is a follow-up.
-                        std::mem::forget(started.multi);
+                        // Hold the manager in ServerState (CONCEPT:KG-2.224/2.226) so
+                        // its listener task lives the process lifetime AND the
+                        // user-facing cross-group surfaces (multi-graph Commit → 2PC,
+                        // online reshard, tenant hibernation) can reach it. The Arc is
+                        // kept alive by the field; no leak needed.
+                        state.write().await.multi_raft = Some(started.multi.clone());
                         info!("Raft node started; writes now route through consensus");
                     }
                     Err(e) => {

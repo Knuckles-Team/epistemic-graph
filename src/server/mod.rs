@@ -12,7 +12,7 @@ mod auth;
 pub mod blob;
 mod compute;
 mod dispatch;
-mod handlers;
+pub(crate) mod handlers;
 pub mod persistence;
 // Postgres wire-protocol shim (CONCEPT:KG-2.189). Facade-only, behind the `pgwire`
 // cargo feature (cluster tier). Default/pi/node builds compile NONE of it.
@@ -76,6 +76,8 @@ mod tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             // A real per-test temp series store so the `Ts*` handler round-trips
             // exercise the actual store (a fresh, uniquely-named redb file — redb
             // holds an exclusive per-process file lock, so each test gets its own).
@@ -913,6 +915,8 @@ mod tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
@@ -988,6 +992,8 @@ mod tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
@@ -1069,6 +1075,8 @@ mod tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
@@ -1250,6 +1258,8 @@ mod tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
@@ -1945,6 +1955,7 @@ mod tests {
                         txn_id: txn.clone(),
                         node_id: nid.to_string(),
                         properties_msgpack: node_props(serde_json::json!({"type": "Doc"})),
+                        graph: None,
                     },
                 ),
             )
@@ -1965,6 +1976,7 @@ mod tests {
                     source_id: "a".into(),
                     target_id: "b".into(),
                     properties_msgpack: node_props(serde_json::json!({})),
+                    graph: None,
                 },
             ),
         )
@@ -2032,6 +2044,7 @@ mod tests {
                     txn_id: txn.clone(),
                     node_id: "ghost".into(),
                     properties_msgpack: node_props(serde_json::json!({})),
+                    graph: None,
                 },
             ),
         )
@@ -2100,6 +2113,7 @@ mod tests {
                         txn_id: txn.clone(),
                         node_id: "k".into(),
                         properties_msgpack: node_props(serde_json::json!({"v": val})),
+                        graph: None,
                     },
                 ),
             )
@@ -2284,6 +2298,7 @@ mod tests {
                     txn_id: txn.to_string(),
                     node_id: node_id.to_string(),
                     properties_msgpack: node_props(props),
+                    graph: None,
                 },
             ),
         )
