@@ -6,8 +6,57 @@
 //! Each type is gated by the same feature as the Method variant that carries it,
 //! so a build that omits a compute domain drops its wire types from the enum too.
 
-#[cfg(any(feature = "finance", feature = "datascience"))]
+#[cfg(any(feature = "finance", feature = "datascience", feature = "query"))]
 use serde::{Deserialize, Serialize};
+
+// ── unified cross-modal query plan AST (CONCEPT:KG-2.208) ────────────────────
+
+/// A simple equality / range predicate over a node property, compiled to a SQL
+/// `WHERE` fragment and evaluated by the DataFusion FILTER leg in `eg-plan`.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Pred {
+    /// `prop == value` (string compare on the JSON-stringified value).
+    Eq { prop: String, value: String },
+    /// `prop > n` (numeric).
+    GtNum { prop: String, n: f64 },
+    /// `prop < n` (numeric).
+    LtNum { prop: String, n: f64 },
+}
+
+/// One cross-modal operator. A [`Plan`] is an ordered list of these — a pipeline
+/// where each op `(RowSet) -> RowSet`. This increment binds SQL + graph + vector
+/// (`Scan | Filter | Traverse | Rank | Limit`); reasoning/blob ops are later
+/// increments. The algorithm lives in `eg-plan`; this is the wire DTO.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum Op {
+    /// SOURCE — seed from all nodes carrying `label` (`type == label`).
+    Scan { label: String },
+    /// FILTER (relational) — keep rows matching ALL `preds`, via real DataFusion.
+    Filter { preds: Vec<Pred> },
+    /// TRAVERSE (graph) — follow `rel` edges `min..=max` hops (petgraph BFS).
+    Traverse { rel: String, min: usize, max: usize },
+    /// RANK (vector) — re-order by cosine similarity to `query` (SemanticStore kNN).
+    Rank { query: Vec<f32> },
+    /// LIMIT — top-k, respecting the current order.
+    Limit { k: usize },
+}
+
+/// A logical plan: an ordered list of [`Op`]s over one `RowSet`. The serializable
+/// wire payload of `Method::UnifiedQuery` (CONCEPT:KG-2.208).
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Plan {
+    pub ops: Vec<Op>,
+}
+
+#[cfg(feature = "query")]
+impl Plan {
+    pub fn new(ops: Vec<Op>) -> Self {
+        Self { ops }
+    }
+}
 
 // ── finance ────────────────────────────────────────────────────────────────
 
