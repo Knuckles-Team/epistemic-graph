@@ -1904,6 +1904,43 @@ class QueryClient:
         result = await self._client._send("CypherQuery", {"query": query})
         return self._rows_to_dicts(result)
 
+    async def unified(
+        self,
+        plan: list[dict[str, Any]],
+        reorder_filter_selectivity: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run ONE cross-modal plan (CONCEPT:KG-2.208/209) and return ranked rows.
+
+        ``plan`` is an ordered list of operator dicts — a CLOSED algebra over a
+        shared ``RowSet`` (ordered ids + optional scores). Each op is the
+        externally-tagged form of the engine's ``Op`` enum, e.g.::
+
+            [
+                {"Scan": {"label": "Doc"}},
+                {"Filter": {"preds": [{"GtNum": {"prop": "year", "n": 2024.0}}]}},
+                {"Traverse": {"rel": "CITES", "min": 1, "max": 2}},
+                {"Rank": {"query": [1.0, 0.0, 0.0, 0.0]}},
+                {"Limit": {"k": 10}},
+            ]
+
+        The engine sequences the EXISTING legs over one off-lock snapshot —
+        ``Filter`` via real DataFusion, ``Traverse`` via petgraph BFS, ``Rank`` via
+        the vector kNN — instead of three siloed round-trips (requires a server
+        built with the ``query`` feature). When ``reorder_filter_selectivity`` is
+        given (a fraction in ``[0,1]``), the cost model reorders an adjacent
+        ``(Filter, Rank)`` pair filter-first vs vector-first by that selectivity
+        (CONCEPT:KG-2.209) — the result set is unchanged, only the work differs.
+
+        Returns a list of ``{"id": str, "score": float | None}`` rows, in the plan's
+        final order (descending score after a ``Rank``).
+        """
+        params: dict[str, Any] = {"plan": {"ops": plan}}
+        if reorder_filter_selectivity is not None:
+            params["reorder_filter_selectivity"] = reorder_filter_selectivity
+        result = await self._client._send("UnifiedQuery", params)
+        rows = result or []
+        return [{"id": id_, "score": score} for id_, score in rows]
+
     @staticmethod
     def _rows_to_dicts(result: Any) -> list[dict[str, Any]]:
         """Zip a ``{columns, rows}`` query result into per-row dicts. Shared by

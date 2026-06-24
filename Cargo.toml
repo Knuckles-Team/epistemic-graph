@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute", "crates/eg-query"]
+members = ["crates/eg-types", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan"]
 
 [package]
 name = "epistemic-graph"
@@ -41,7 +41,7 @@ redb = ["server", "dep:redb"]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
 # — heavy, so it is OFF by default and folded only into full/all (never the slim
 # Raspberry-Pi build). A default build links no DataFusion.
-query = ["dep:eg-query", "eg-query/sql"]
+query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query"]
 # Dep-free Cypher query surface (CONCEPT:KG-2.179): `MATCH … RETURN …` compiled to
 # the engine's own primitives (label index / VF2 / BFS) — NO DataFusion, so it is a
 # HARD requirement of the lean Pi tier. A `cypher`-only build links no DataFusion
@@ -96,6 +96,10 @@ eg-core = { path = "crates/eg-core" }
 eg-compute = { path = "crates/eg-compute" }
 # Optional SQL query surface (feature `query`); pulls DataFusion only when enabled.
 eg-query = { path = "crates/eg-query", optional = true }
+# Optional unified cross-modal planner (feature `query`, CONCEPT:KG-2.208/209). Its
+# DataFusion FILTER leg is gated by eg-plan's own `query`; pulled only with the
+# facade `query`, so a default/Pi build links neither it nor DataFusion.
+eg-plan = { path = "crates/eg-plan", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
