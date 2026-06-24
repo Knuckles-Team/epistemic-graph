@@ -130,6 +130,43 @@ fn embedded_per_mutation_durable_without_checkpoint() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Tenant DELETE durably PURGES the graph's redb rows (CONCEPT:KG-2.221/2.216) so a
+/// recreate of the SAME name after a reopen starts from a clean durable slate — the
+/// embedded analogue of the server's `delete_then_recreate_same_name_keeps_new_writes`.
+#[test]
+fn embedded_delete_purges_durable_rows_across_reopen() {
+    let dir = tmp_dir("delete-purge");
+    {
+        let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+        eng.create_graph("g", GraphType::Global).unwrap();
+        eng.add_node("g", "n1", props(serde_json::json!({"v": 1})))
+            .unwrap();
+        eng.add_node("g", "stale", props(serde_json::json!({"v": 9})))
+            .unwrap();
+        // Delete the tenant — this must purge its durable rows.
+        eng.delete_graph("g").unwrap();
+        // Recreate the SAME name; write ONLY n1={v:2} (never "stale").
+        eng.create_graph("g", GraphType::Global).unwrap();
+        eng.add_node("g", "n1", props(serde_json::json!({"v": 2})))
+            .unwrap();
+    }
+
+    // Reopen (load_all): the deleted incarnation's "stale" node must NOT resurrect,
+    // and n1 must be the NEW write {v:2}, not the stale {v:1}.
+    let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+    assert!(
+        !eng.has_node("g", "stale").unwrap(),
+        "deleted tenant's 'stale' node resurrected from redb on reopen after recreate"
+    );
+    let p = eng.get_node_properties("g", "n1").unwrap().unwrap();
+    let v: serde_json::Value = rmp_serde::from_slice(&p).unwrap();
+    assert_eq!(
+        v["v"], 2,
+        "recreated tenant's n1 must read back as the NEW write {{v:2}}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// In-memory mode: no persist dir ⇒ not durable, but every op still works.
 #[test]
 fn embedded_in_memory_no_persist() {
