@@ -57,6 +57,17 @@ const EDGES: TableDefinition<(&str, &str, &str, u32), &[u8]> = TableDefinition::
 const LEDGER: TableDefinition<(&str, u64), &str> = TableDefinition::new("ledger");
 const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("semantic_store");
 const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
+// Durable Raft log (CONCEPT:KG-2.204): committed log entries live in the SAME
+// `graph.redb` Database, keyed by `(group_id, index)` so ONE table serves every
+// Raft group (CONCEPT:KG-2.205 — the spike's "one DB, composite key" shape, not a
+// file per group). Sharing the Database with the M2 graph tables is what lets a log
+// append and a graph mutation ride ONE group-commit `WriteTransaction` / one fsync.
+const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition::new("raft_log");
+/// `(first, last)` present Raft log index for a group, or an error (CONCEPT:KG-2.204).
+type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
+// Per-group Raft metadata (vote, applied-state pointers, last-purged), keyed by
+// `(group_id, key)`. Lives in `graph.redb` alongside the log for the same reason.
+const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
 
 /// One write command handed to the off-reactor thread. A `Mutation` carries the
 /// graph file-name + the applied method; the thread translates it into row writes
@@ -108,6 +119,56 @@ enum Cmd {
     Shutdown {
         reply: std::sync::mpsc::Sender<()>,
     },
+    // ── Raft log/meta (CONCEPT:KG-2.204) — all on the writer thread because redb
+    // holds an EXCLUSIVE per-process file lock, so log + M2 graph data must go
+    // through the ONE thread that owns the Database. ──────────────────────────
+    /// Append Raft log entries `(group_id, index) -> blob` and await durable commit.
+    /// Buffered into the SAME `Pending` batch as M2 mutations so a log append and a
+    /// graph mutation coalesce into ONE group-commit `WriteTransaction` / one fsync
+    /// (the spike's key optimization). Commit-before-ack: the writer fires `done`
+    /// only after the carrying transaction has durably committed.
+    RaftLogAppend {
+        group_id: u64,
+        entries: Vec<(u64, Vec<u8>)>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Read a `[lo, hi]` inclusive index range for one group, in order.
+    RaftLogRead {
+        group_id: u64,
+        lo: u64,
+        hi: u64,
+        reply: std::sync::mpsc::Sender<Result<Vec<Vec<u8>>, String>>,
+    },
+    /// Delete entries with index >= `from` for one group (conflict truncation).
+    RaftLogDeleteFrom {
+        group_id: u64,
+        from: u64,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Delete entries with index <= `upto` for one group (purge/compaction).
+    RaftLogPurgeUpto {
+        group_id: u64,
+        upto: u64,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// (first, last) present log index for one group, for `get_log_state`.
+    RaftLogBounds {
+        group_id: u64,
+        reply: std::sync::mpsc::Sender<LogBoundsResult>,
+    },
+    /// Durably write one Raft metadata key (vote / applied-state / last-purged).
+    RaftMetaPut {
+        group_id: u64,
+        key: String,
+        val: Vec<u8>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Read one Raft metadata key.
+    RaftMetaGet {
+        group_id: u64,
+        key: String,
+        reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
+    },
 }
 
 /// An owned, off-lock dump of one graph used by the checkpoint path.
@@ -149,6 +210,8 @@ impl RedbBackend {
             wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
             wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
             wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+            wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+            wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
@@ -376,6 +439,153 @@ impl PersistenceBackend for RedbBackend {
             let _ = handle.join();
         }
     }
+
+    #[cfg(feature = "raft")]
+    fn as_redb(&self) -> Option<&RedbBackend> {
+        Some(self)
+    }
+}
+
+// ── Durable Raft log API (CONCEPT:KG-2.204) — inherent methods ────────────────
+// The Raft log lives in the SAME `graph.redb` Database, written by the SAME
+// off-reactor group-commit thread, keyed by `(group_id, index)` so one table
+// serves every group (CONCEPT:KG-2.205). Sharing the writer is what lets a log
+// append and its graph mutation coalesce into ONE fsync. All gated on `raft`
+// (only the raft module consumes them).
+#[cfg(feature = "raft")]
+impl RedbBackend {
+    /// Durably append Raft log entries for a group, awaiting the group-commit fsync
+    /// (commit-before-ack). The entries fold into the SAME batch as concurrent M2
+    /// mutations, so one fsync covers both.
+    #[cfg(feature = "raft")]
+    pub async fn raft_log_append(
+        &self,
+        group_id: u64,
+        entries: Vec<(u64, Vec<u8>)>,
+    ) -> Result<(), String> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::RaftLogAppend {
+            group_id,
+            entries,
+            done,
+        };
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(cmd))
+            .await
+            .map_err(|e| format!("raft_log_append join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped raft_log_append completion".to_string())?
+    }
+
+    /// Read an inclusive `[lo, hi]` log index range for a group, in order.
+    #[cfg(feature = "raft")]
+    pub fn raft_log_read(&self, group_id: u64, lo: u64, hi: u64) -> Result<Vec<Vec<u8>>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::RaftLogRead {
+                group_id,
+                lo,
+                hi,
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped raft_log_read reply".to_string())?
+    }
+
+    /// Delete entries with index >= `from` for a group (conflict truncation).
+    #[cfg(feature = "raft")]
+    pub async fn raft_log_delete_from(&self, group_id: u64, from: u64) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::RaftLogDeleteFrom {
+                group_id,
+                from,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("raft_log_delete_from join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped raft_log_delete_from completion".to_string())?
+    }
+
+    /// Delete entries with index <= `upto` for a group (purge/compaction).
+    #[cfg(feature = "raft")]
+    pub async fn raft_log_purge_upto(&self, group_id: u64, upto: u64) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::RaftLogPurgeUpto {
+                group_id,
+                upto,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("raft_log_purge_upto join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped raft_log_purge_upto completion".to_string())?
+    }
+
+    /// `(first, last)` present log index for a group (for `get_log_state`).
+    #[cfg(feature = "raft")]
+    pub fn raft_log_bounds(&self, group_id: u64) -> LogBoundsResult {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::RaftLogBounds { group_id, reply })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped raft_log_bounds reply".to_string())?
+    }
+
+    /// Durably write one Raft metadata key (vote / applied-state / last-purged).
+    #[cfg(feature = "raft")]
+    pub async fn raft_meta_put(
+        &self,
+        group_id: u64,
+        key: &str,
+        val: Vec<u8>,
+    ) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let key = key.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::RaftMetaPut {
+                group_id,
+                key,
+                val,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("raft_meta_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped raft_meta_put completion".to_string())?
+    }
+
+    /// Read one Raft metadata key for a group.
+    #[cfg(feature = "raft")]
+    pub fn raft_meta_get(&self, group_id: u64, key: &str) -> Result<Option<Vec<u8>>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::RaftMetaGet {
+                group_id,
+                key: key.to_string(),
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped raft_meta_get reply".to_string())?
+    }
 }
 
 // ── off-reactor group-commit writer thread ───────────────────────────────
@@ -442,6 +652,10 @@ fn run(rx: Receiver<Cmd>, db: Database, policy: FsyncPolicy) {
 #[derive(Default)]
 struct Pending {
     ops: Vec<(String, Method)>,
+    /// Raft log appends `(group_id, index, blob)` folded into the SAME group-commit
+    /// transaction as `ops` (CONCEPT:KG-2.204) — one fsync covers both the log entry
+    /// and the M2 graph mutation.
+    raft_log_ops: Vec<(u64, u64, Vec<u8>)>,
     /// One per awaited (commit-before-ack) op in this batch.
     waiters: Vec<oneshot::Sender<Result<(), String>>>,
 }
@@ -449,6 +663,9 @@ struct Pending {
 impl Pending {
     fn has_barrier(&self) -> bool {
         !self.waiters.is_empty()
+    }
+    fn is_empty(&self) -> bool {
+        self.ops.is_empty() && self.raft_log_ops.is_empty() && self.waiters.is_empty()
     }
 }
 
@@ -503,6 +720,12 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             false
         }
         Cmd::Checkpoint { graphs, reply } => {
+            // Flush any buffered Raft log appends (+ their barrier waiters) durably
+            // first — the checkpoint path only folds graph `ops`, not log ops, so a
+            // pending log entry must be committed on its own before the checkpoint.
+            if !pending.raft_log_ops.is_empty() {
+                commit_and_notify(db, pending, Durability::Immediate);
+            }
             // Fold any buffered mutations into the same durable commit first so the
             // checkpoint reflects them, then overwrite each graph's rows. The
             // checkpoint commits durably, so any awaited ops it absorbed are durable
@@ -526,6 +749,75 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             let _ = reply.send(());
             true
         }
+        Cmd::RaftLogAppend {
+            group_id,
+            entries,
+            done,
+        } => {
+            // Buffer into the SAME pending batch as M2 mutations; the awaited `done`
+            // makes this a commit-before-ack barrier, so the batch commits durably at
+            // the next boundary (or immediately, since has_barrier() is now true) and
+            // a concurrently-pending graph mutation rides the SAME fsync.
+            for (idx, blob) in entries {
+                pending.raft_log_ops.push((group_id, idx, blob));
+            }
+            pending.waiters.push(done);
+            false
+        }
+        Cmd::RaftLogRead {
+            group_id,
+            lo,
+            hi,
+            reply,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(read_raft_log_range(db, group_id, lo, hi));
+            false
+        }
+        Cmd::RaftLogDeleteFrom {
+            group_id,
+            from,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(delete_raft_log_from(db, group_id, from));
+            false
+        }
+        Cmd::RaftLogPurgeUpto {
+            group_id,
+            upto,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(purge_raft_log_upto(db, group_id, upto));
+            false
+        }
+        Cmd::RaftLogBounds { group_id, reply } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(raft_log_bounds(db, group_id));
+            false
+        }
+        Cmd::RaftMetaPut {
+            group_id,
+            key,
+            val,
+            done,
+        } => {
+            // Flush pending first so meta ordering is consistent with the log, then
+            // durably write the meta row in its own transaction.
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(put_raft_meta(db, group_id, &key, &val));
+            false
+        }
+        Cmd::RaftMetaGet {
+            group_id,
+            key,
+            reply,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(get_raft_meta(db, group_id, &key));
+            false
+        }
     }
 }
 
@@ -535,10 +827,10 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
 /// ride one `WriteTransaction` / one fsync and are all notified after it commits.
 /// A waiter is only signalled `Ok` once its op is provably on disk.
 fn commit_and_notify(db: &Database, pending: &mut Pending, durability: Durability) {
-    if pending.ops.is_empty() && pending.waiters.is_empty() {
+    if pending.is_empty() {
         return;
     }
-    let res = commit_ops(db, &mut pending.ops, durability);
+    let res = commit_ops(db, &mut pending.ops, &mut pending.raft_log_ops, durability);
     let waiters = std::mem::take(&mut pending.waiters);
     let signal = res.map(|_| ());
     for w in waiters {
@@ -546,13 +838,16 @@ fn commit_and_notify(db: &Database, pending: &mut Pending, durability: Durabilit
     }
 }
 
-/// Commit all buffered mutations in ONE write transaction at the given durability.
+/// Commit all buffered mutations AND Raft log appends in ONE write transaction at
+/// the given durability (CONCEPT:KG-2.204). A graph mutation and a Raft log entry in
+/// the same batch therefore share ONE `WriteTransaction` and ONE fsync.
 fn commit_ops(
     db: &Database,
     ops: &mut Vec<(String, Method)>,
+    raft_log_ops: &mut Vec<(u64, u64, Vec<u8>)>,
     durability: Durability,
 ) -> Result<(), String> {
-    if ops.is_empty() {
+    if ops.is_empty() && raft_log_ops.is_empty() {
         return Ok(());
     }
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
@@ -576,6 +871,15 @@ fn commit_ops(
         for g in &touched {
             if meta.get(g.as_str()).map_err(|e| e.to_string())?.is_none() {
                 meta.insert(g.as_str(), encode_meta(g, GraphType::Global).as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        // Raft log appends ride the SAME transaction (CONCEPT:KG-2.204) — one fsync
+        // covers the graph mutation AND its replicated log entry.
+        if !raft_log_ops.is_empty() {
+            let mut log = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+            for (gid, idx, blob) in raft_log_ops.drain(..) {
+                log.insert((gid, idx), blob.as_slice())
                     .map_err(|e| e.to_string())?;
             }
         }
@@ -612,6 +916,101 @@ fn read_one_node(db: &Database, graph: &str, node_id: &str) -> Result<Option<Vec
         .map_err(|e| e.to_string())?
         .map(|g| g.value().to_vec());
     Ok(v)
+}
+
+// ── Raft log/meta helpers (CONCEPT:KG-2.204) — run on the writer thread ───────
+
+/// Read a `[lo, hi]` inclusive log range for one group, in index order.
+fn read_raft_log_range(db: &Database, gid: u64, lo: u64, hi: u64) -> Result<Vec<Vec<u8>>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = rtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for kv in t.range((gid, lo)..=(gid, hi)).map_err(|e| e.to_string())? {
+        let (_, v) = kv.map_err(|e| e.to_string())?;
+        out.push(v.value().to_vec());
+    }
+    Ok(out)
+}
+
+/// Delete entries with index >= `from` for one group (conflict truncation).
+fn delete_raft_log_from(db: &Database, gid: u64, from: u64) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+        let keys: Vec<u64> = t
+            .range((gid, from)..=(gid, u64::MAX))
+            .map_err(|e| e.to_string())?
+            .filter_map(|kv| kv.ok().map(|(k, _)| k.value().1))
+            .collect();
+        for idx in keys {
+            t.remove((gid, idx)).map_err(|e| e.to_string())?;
+        }
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Delete entries with index <= `upto` for one group (purge/compaction).
+fn purge_raft_log_upto(db: &Database, gid: u64, upto: u64) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+        let keys: Vec<u64> = t
+            .range((gid, 0)..=(gid, upto))
+            .map_err(|e| e.to_string())?
+            .filter_map(|kv| kv.ok().map(|(k, _)| k.value().1))
+            .collect();
+        for idx in keys {
+            t.remove((gid, idx)).map_err(|e| e.to_string())?;
+        }
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// (first, last) present log index for one group.
+fn raft_log_bounds(db: &Database, gid: u64) -> LogBoundsResult {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = rtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+    let mut range = t
+        .range((gid, 0)..=(gid, u64::MAX))
+        .map_err(|e| e.to_string())?;
+    let first = range
+        .next()
+        .and_then(|kv| kv.ok().map(|(k, _)| k.value().1));
+    // Re-scan for the last (the iterator was advanced by `next`).
+    let last = t
+        .range((gid, 0)..=(gid, u64::MAX))
+        .map_err(|e| e.to_string())?
+        .next_back()
+        .and_then(|kv| kv.ok().map(|(k, _)| k.value().1));
+    Ok((first, last))
+}
+
+/// Durably write one Raft metadata key for a group.
+fn put_raft_meta(db: &Database, gid: u64, key: &str, val: &[u8]) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
+        t.insert((gid, key), val).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Read one Raft metadata key for a group.
+fn get_raft_meta(db: &Database, gid: u64, key: &str) -> Result<Option<Vec<u8>>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = rtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
+    Ok(t.get((gid, key))
+        .map_err(|e| e.to_string())?
+        .map(|v| v.value().to_vec()))
 }
 
 /// Translate ONE applied method into redb row writes inside an open transaction.
@@ -1594,6 +1993,62 @@ mod tests {
         assert_eq!(core.node_count(), 8);
         // No read-through ⇒ an evicted node reads back absent (re-hydrates externally).
         assert_eq!(core.get_node_properties("n0"), None);
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:KG-2.204 — ONE fsync covers a Raft log entry AND its graph mutation.
+    /// Under `FsyncPolicy::Interval`, the only way an awaited op completes is the
+    /// group commit firing. We launch a `record_durable` (M2 graph mutation) and a
+    /// `raft_log_append` (Raft log entry) CONCURRENTLY into the same tick window;
+    /// both share ONE `Pending` batch → ONE `WriteTransaction` → ONE fsync. We then
+    /// prove BOTH landed durably (the graph row AND the log row).
+    #[cfg(feature = "raft")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn raft_log_and_mutation_share_one_group_commit() {
+        let dir = std::env::temp_dir().join(format!("eg-redb-1txn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend = Arc::new(
+            RedbBackend::open(
+                dir_s.clone(),
+                FsyncPolicy::Interval(Duration::from_millis(40)),
+                64,
+            )
+            .expect("open"),
+        );
+
+        // Fire both into the SAME group-commit window, concurrently. With Interval
+        // fsync, neither completes until the group commit fires — so if they both
+        // resolve from ONE flush, they rode ONE transaction together.
+        let b1 = backend.clone();
+        let mutation = tokio::spawn(async move {
+            b1.record_durable(
+                "g1",
+                &Method::AddNode {
+                    node_id: "shared".into(),
+                    properties_msgpack: props(serde_json::json!({"v": 7})),
+                },
+            )
+            .await
+        });
+        let b2 = backend.clone();
+        let log_blob = rmp_serde::to_vec_named(&serde_json::json!({"entry": 1})).unwrap();
+        let log = tokio::spawn(async move { b2.raft_log_append(0, vec![(1u64, log_blob)]).await });
+
+        mutation.await.unwrap().expect("graph mutation durable");
+        log.await.unwrap().expect("raft log append durable");
+
+        // Both are on disk: the graph row AND the log row at (group 0, index 1).
+        let node = backend.read_node("g1", "shared").await.expect("read node");
+        assert_eq!(node, Some(props(serde_json::json!({"v": 7}))));
+        let entries = backend.raft_log_read(0, 1, 1).expect("read log");
+        assert_eq!(
+            entries.len(),
+            1,
+            "the log entry committed in the same flush"
+        );
+        assert_eq!(backend.dropped(), 0);
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
