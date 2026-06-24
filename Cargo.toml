@@ -18,6 +18,12 @@ name = "epistemic-graph-server"
 path = "src/main.rs"
 required-features = ["server"]
 
+# SQLite-style embedded usage (CONCEPT:KG-2.216). Needs the in-process library API.
+[[example]]
+name = "embedded"
+path = "examples/embedded.rs"
+required-features = ["embedded"]
+
 [features]
 default = ["graph", "algorithms", "metrics"]
 
@@ -42,10 +48,14 @@ ann = ["eg-core/ann"]
 # Persist the ANN codes into the redb durable tier too (needs `redb`).
 ann-redb = ["ann", "redb", "eg-core/ann-redb"]
 server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait"]
-# Durable redb write-through persistence tier (CONCEPT:KG-2.177). OFF by default —
-# snapshot+WAL stays the shipped behavior; redb is opt-in via this feature AND
-# EPISTEMIC_GRAPH_PERSIST_BACKEND=redb at runtime.
-redb = ["server", "dep:redb"]
+# Durable redb store (CONCEPT:KG-2.177 / KG-2.195). Pulls the redb crate + the
+# PURE durable-row machinery (`redb_store` — table layout, Method→rows apply,
+# checkpoint/load, group-commit) which is server-INDEPENDENT (no Tokio). The
+# server's write-through/authoritative `PersistenceBackend` impl (`redb_backend`)
+# is layered ON TOP and is itself gated on `server` (it talks to `ServerState`
+# + the Tokio dispatch). So `redb` alone (no `server`) compiles a usable durable
+# store — exactly what the EMBEDDED API drives on the Pi/edge with no Tokio.
+redb = ["dep:redb"]
 # Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206): the bytes tier
 # under multimodal `:Media`/`:Blob`. Pulls `redb` (the native CAS lives in
 # `blob.redb`) + `server` (the streaming protocol rides the Tokio transport). The
@@ -92,6 +102,16 @@ raft = ["server", "redb", "dep:openraft"]
 # embeddable build; it ships only in the `cluster` tier. The listener only starts
 # when ALSO configured via EPISTEMIC_GRAPH_PGWIRE_ADDR.
 pgwire = ["dep:pgwire", "dep:futures", "query", "server"]
+# Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
+# that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
+# NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
+# a persist dir, call core ops as plain methods. It drives the SAME GraphCore +
+# redb-authoritative durable rows the socket dispatch does (via `wal::apply` +
+# `redb_store`), so there is ONE core, two transports. Pulls only `redb` (the
+# durable tier) — deliberately NOT `server`, so `--features "embedded redb"` builds
+# with no Tokio server runtime (the Pi/edge "100M agents, a local engine each"
+# story). Gated query/tsdb surfaces light up when those features are ALSO on.
+embedded = ["redb"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).

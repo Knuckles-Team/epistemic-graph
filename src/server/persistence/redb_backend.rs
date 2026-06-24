@@ -33,7 +33,6 @@
 //!   * `semantic_store` `graph                  -> semantic store blob (msgpack)`
 //!   * `graph_meta`     `graph                  -> {name, graph_type} blob` (replaces manifest.json)
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
@@ -52,21 +51,21 @@ use crate::wal_service::FsyncPolicy;
 
 use super::PersistenceBackend;
 
-const NODES: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("nodes");
-const EDGES: TableDefinition<(&str, &str, &str, u32), &[u8]> = TableDefinition::new("edges");
-const LEDGER: TableDefinition<(&str, u64), &str> = TableDefinition::new("ledger");
-const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("semantic_store");
-const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
-// Durable Raft log (CONCEPT:KG-2.204): committed log entries live in the SAME
-// `graph.redb` Database, keyed by `(group_id, index)` so ONE table serves every
-// Raft group (CONCEPT:KG-2.205 — the spike's "one DB, composite key" shape, not a
-// file per group). Sharing the Database with the M2 graph tables is what lets a log
-// append and a graph mutation ride ONE group-commit `WriteTransaction` / one fsync.
-const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition::new("raft_log");
+// The graph table layout + the PURE durable-row machinery (Method→rows apply,
+// group-commit, checkpoint/load) now live in the server-INDEPENDENT
+// `crate::redb_store` (CONCEPT:KG-2.216) so the embedded API can drive the SAME
+// durable format with no Tokio. This backend re-uses them verbatim — ONE format,
+// never duplicated — and adds only the off-reactor group-commit writer thread +
+// the `PersistenceBackend` async trait wiring on top.
+use crate::redb_store::{
+    apply_checkpoint, commit_ops, read_all_dumps, read_one_node, write_graph_meta, GraphDump,
+    EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC,
+};
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:KG-2.204).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
 // Per-group Raft metadata (vote, applied-state pointers, last-purged), keyed by
-// `(group_id, key)`. Lives in `graph.redb` alongside the log for the same reason.
+// `(group_id, key)`. Lives in `graph.redb` alongside the log; Raft-only, so it
+// stays here with the Raft helpers rather than in the shared graph store.
 const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
 
 // Time-series tables (CONCEPT:KG-2.210). The CANONICAL `(series_id, bucket_start)`
@@ -181,17 +180,6 @@ enum Cmd {
         key: String,
         reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
     },
-}
-
-/// An owned, off-lock dump of one graph used by the checkpoint path.
-struct GraphDump {
-    graph: String,
-    name: String,
-    graph_type: GraphType,
-    nodes: Vec<(String, Vec<u8>)>,
-    edges: Vec<(String, String, Vec<u8>)>,
-    ledger: Vec<String>,
-    semantic: Vec<u8>,
 }
 
 /// Handle to the redb write-through tier. The dispatch path holds an `Arc` of this
@@ -850,85 +838,8 @@ fn commit_and_notify(db: &Database, pending: &mut Pending, durability: Durabilit
     }
 }
 
-/// Commit all buffered mutations AND Raft log appends in ONE write transaction at
-/// the given durability (CONCEPT:KG-2.204). A graph mutation and a Raft log entry in
-/// the same batch therefore share ONE `WriteTransaction` and ONE fsync.
-fn commit_ops(
-    db: &Database,
-    ops: &mut Vec<(String, Method)>,
-    raft_log_ops: &mut Vec<(u64, u64, Vec<u8>)>,
-    durability: Durability,
-) -> Result<(), String> {
-    if ops.is_empty() && raft_log_ops.is_empty() {
-        return Ok(());
-    }
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(durability).map_err(|e| e.to_string())?;
-    // Graphs touched by this batch — used to backfill a graph_meta row for any
-    // graph that received writes but was never explicitly registered (e.g. the
-    // pre-created `__commons__`), so authoritative `load_all` recovers it even with
-    // no checkpoint. The fallback name == the sanitized graph key (exact for names
-    // that survive sanitization, incl. `__commons__`); an explicit `register_graph`
-    // overwrites it with the REAL name when one was created via CreateGraph.
-    let mut touched: std::collections::HashSet<String> = std::collections::HashSet::new();
-    {
-        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
-        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
-        for (graph, method) in ops.drain(..) {
-            touched.insert(graph.clone());
-            apply_method_rows(&graph, &method, &mut nodes, &mut edges, &mut ledger)?;
-        }
-        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-        for g in &touched {
-            if meta.get(g.as_str()).map_err(|e| e.to_string())?.is_none() {
-                meta.insert(g.as_str(), encode_meta(g, GraphType::Global).as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-        // Raft log appends ride the SAME transaction (CONCEPT:KG-2.204) — one fsync
-        // covers the graph mutation AND its replicated log entry.
-        if !raft_log_ops.is_empty() {
-            let mut log = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
-            for (gid, idx, blob) in raft_log_ops.drain(..) {
-                log.insert((gid, idx), blob.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-    }
-    wtx.commit().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Durably write/overwrite a graph_meta identity row in its OWN transaction.
-fn write_graph_meta(
-    db: &Database,
-    graph: &str,
-    name: &str,
-    graph_type: GraphType,
-) -> Result<(), String> {
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
-    {
-        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-        meta.insert(graph, encode_meta(name, graph_type).as_slice())
-            .map_err(|e| e.to_string())?;
-    }
-    wtx.commit().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Point-read a single node's stored properties (read-through path).
-fn read_one_node(db: &Database, graph: &str, node_id: &str) -> Result<Option<Vec<u8>>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let nodes = rtx.open_table(NODES).map_err(|e| e.to_string())?;
-    let v = nodes
-        .get((graph, node_id))
-        .map_err(|e| e.to_string())?
-        .map(|g| g.value().to_vec());
-    Ok(v)
-}
+// commit_ops / write_graph_meta / read_one_node now live in `crate::redb_store`
+// (imported above) — shared verbatim with the embedded path, ONE durable format.
 
 // ── Raft log/meta helpers (CONCEPT:KG-2.204) — run on the writer thread ───────
 
@@ -1023,369 +934,6 @@ fn get_raft_meta(db: &Database, gid: u64, key: &str) -> Result<Option<Vec<u8>>, 
     Ok(t.get((gid, key))
         .map_err(|e| e.to_string())?
         .map(|v| v.value().to_vec()))
-}
-
-/// Translate ONE applied method into redb row writes inside an open transaction.
-/// Mirrors `crate::wal::apply`'s method set: the durable DATA mutations only.
-fn apply_method_rows(
-    graph: &str,
-    method: &Method,
-    nodes: &mut redb::Table<(&str, &str), &[u8]>,
-    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
-    ledger: &mut redb::Table<(&str, u64), &str>,
-) -> Result<(), String> {
-    match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            nodes
-                .insert((graph, node_id.as_str()), properties_msgpack.as_slice())
-                .map_err(|e| e.to_string())?;
-        }
-        Method::RemoveNode { node_id } => {
-            nodes
-                .remove((graph, node_id.as_str()))
-                .map_err(|e| e.to_string())?;
-            // Remove this node's incident edges (best-effort prefix sweep on src).
-            // Edge keys whose src OR tgt is this node are dropped on reload anyway
-            // because the node won't exist; we sweep src-keyed here for hygiene.
-            let to_del: Vec<(String, String, u32)> = edges
-                .range((graph, node_id.as_str(), "", 0u32)..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|r| r.ok())
-                .take_while(|(k, _)| {
-                    let (g, s, _, _) = k.value();
-                    g == graph && s == node_id.as_str()
-                })
-                .map(|(k, _)| {
-                    let (_, s, t, o) = k.value();
-                    (s.to_string(), t.to_string(), o)
-                })
-                .collect();
-            for (s, t, o) in to_del {
-                let _ = edges.remove((graph, s.as_str(), t.as_str(), o));
-            }
-        }
-        Method::CompareAndSetNodeFields {
-            node_id,
-            updates_msgpack,
-            ..
-        } => {
-            // Write-through best-effort: persist the post-update node properties.
-            // The in-memory CAS already decided success; on reload the stored row
-            // is the authoritative latest properties for this node.
-            nodes
-                .insert((graph, node_id.as_str()), updates_msgpack.as_slice())
-                .map_err(|e| e.to_string())?;
-        }
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => {
-            // Ordinal lets a graph carry parallel edges between the same pair; we
-            // append at the next free ordinal for this (src,tgt).
-            let ord = next_edge_ordinal(edges, graph, source_id, target_id)?;
-            edges
-                .insert(
-                    (graph, source_id.as_str(), target_id.as_str(), ord),
-                    properties_msgpack.as_slice(),
-                )
-                .map_err(|e| e.to_string())?;
-        }
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => {
-            // Remove every ordinal for this (src,tgt).
-            let ords: Vec<u32> = edges
-                .range((graph, source_id.as_str(), target_id.as_str(), 0u32)..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|r| r.ok())
-                .take_while(|(k, _)| {
-                    let (g, s, t, _) = k.value();
-                    g == graph && s == source_id.as_str() && t == target_id.as_str()
-                })
-                .map(|(k, _)| k.value().3)
-                .collect();
-            for o in ords {
-                let _ = edges.remove((graph, source_id.as_str(), target_id.as_str(), o));
-            }
-        }
-        Method::BatchUpdate { operations_msgpack } => {
-            // A batch is a vector of (op, args) — decode and apply each as rows.
-            apply_batch_rows(graph, operations_msgpack, nodes, edges)?;
-        }
-        Method::ClearGraph => {
-            // Drop every row for this graph across nodes/edges/ledger.
-            clear_graph_rows(graph, nodes, edges, ledger)?;
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-/// Next free edge ordinal for a (src,tgt) pair in this graph.
-fn next_edge_ordinal(
-    edges: &redb::Table<(&str, &str, &str, u32), &[u8]>,
-    graph: &str,
-    src: &str,
-    tgt: &str,
-) -> Result<u32, String> {
-    let max = edges
-        .range((graph, src, tgt, 0u32)..)
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .take_while(|(k, _)| {
-            let (g, s, t, _) = k.value();
-            g == graph && s == src && t == tgt
-        })
-        .map(|(k, _)| k.value().3)
-        .max();
-    Ok(max.map(|m| m + 1).unwrap_or(0))
-}
-
-/// Apply a decoded `BatchUpdate` op-list as row writes. The batch payload is the
-/// same msgpack the in-memory `batch_update` consumes: a list of `{op, ...}` maps.
-fn apply_batch_rows(
-    graph: &str,
-    operations_msgpack: &[u8],
-    nodes: &mut redb::Table<(&str, &str), &[u8]>,
-    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
-) -> Result<(), String> {
-    let ops: Vec<serde_json::Value> = match rmp_serde::from_slice(operations_msgpack) {
-        Ok(o) => o,
-        Err(_) => return Ok(()), // opaque batch — skip rather than fail the commit
-    };
-    for op in ops {
-        let kind = op.get("op").and_then(|v| v.as_str()).unwrap_or("");
-        match kind {
-            "add_node" | "upsert_node" => {
-                if let Some(id) = op.get("node_id").and_then(|v| v.as_str()) {
-                    let props = op
-                        .get("properties")
-                        .map(|p| rmp_serde::to_vec_named(p).unwrap_or_default())
-                        .unwrap_or_default();
-                    nodes
-                        .insert((graph, id), props.as_slice())
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-            "remove_node" => {
-                if let Some(id) = op.get("node_id").and_then(|v| v.as_str()) {
-                    nodes.remove((graph, id)).map_err(|e| e.to_string())?;
-                }
-            }
-            "add_edge" => {
-                if let (Some(s), Some(t)) = (
-                    op.get("source_id").and_then(|v| v.as_str()),
-                    op.get("target_id").and_then(|v| v.as_str()),
-                ) {
-                    let props = op
-                        .get("properties")
-                        .map(|p| rmp_serde::to_vec_named(p).unwrap_or_default())
-                        .unwrap_or_default();
-                    let ord = next_edge_ordinal(edges, graph, s, t)?;
-                    edges
-                        .insert((graph, s, t, ord), props.as_slice())
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-/// Drop every row for `graph` across nodes/edges/ledger (ClearGraph).
-fn clear_graph_rows(
-    graph: &str,
-    nodes: &mut redb::Table<(&str, &str), &[u8]>,
-    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
-    ledger: &mut redb::Table<(&str, u64), &str>,
-) -> Result<(), String> {
-    let node_keys: Vec<String> = nodes
-        .range((graph, "")..)
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .take_while(|(k, _)| k.value().0 == graph)
-        .map(|(k, _)| k.value().1.to_string())
-        .collect();
-    for id in node_keys {
-        let _ = nodes.remove((graph, id.as_str()));
-    }
-    let edge_keys: Vec<(String, String, u32)> = edges
-        .range((graph, "", "", 0u32)..)
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .take_while(|(k, _)| k.value().0 == graph)
-        .map(|(k, _)| {
-            let (_, s, t, o) = k.value();
-            (s.to_string(), t.to_string(), o)
-        })
-        .collect();
-    for (s, t, o) in edge_keys {
-        let _ = edges.remove((graph, s.as_str(), t.as_str(), o));
-    }
-    let seqs: Vec<u64> = ledger
-        .range((graph, 0u64)..)
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .take_while(|(k, _)| k.value().0 == graph)
-        .map(|(k, _)| k.value().1)
-        .collect();
-    for seq in seqs {
-        let _ = ledger.remove((graph, seq));
-    }
-    Ok(())
-}
-
-/// Snapshot the full registry dump into redb, overwriting each graph's rows, and
-/// commit durably. Folds any buffered mutations into the SAME transaction first.
-fn apply_checkpoint(
-    db: &Database,
-    pending: &mut Vec<(String, Method)>,
-    graphs: Vec<GraphDump>,
-) -> Result<usize, String> {
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0usize;
-    {
-        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
-        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
-        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-
-        // Drain buffered mutations into this commit so the checkpoint is consistent.
-        for (graph, method) in pending.drain(..) {
-            apply_method_rows(&graph, &method, &mut nodes, &mut edges, &mut ledger)?;
-        }
-
-        for dump in graphs {
-            // Overwrite-by-replace: clear then write this graph's full state.
-            clear_graph_rows(&dump.graph, &mut nodes, &mut edges, &mut ledger)?;
-            for (id, props) in &dump.nodes {
-                nodes
-                    .insert((dump.graph.as_str(), id.as_str()), props.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            for (src, tgt, props) in &dump.edges {
-                let ord = next_edge_ordinal(&edges, &dump.graph, src, tgt)?;
-                edges
-                    .insert(
-                        (dump.graph.as_str(), src.as_str(), tgt.as_str(), ord),
-                        props.as_slice(),
-                    )
-                    .map_err(|e| e.to_string())?;
-            }
-            for (seq, line) in dump.ledger.iter().enumerate() {
-                ledger
-                    .insert((dump.graph.as_str(), seq as u64), line.as_str())
-                    .map_err(|e| e.to_string())?;
-            }
-            semantic
-                .insert(dump.graph.as_str(), dump.semantic.as_slice())
-                .map_err(|e| e.to_string())?;
-            meta.insert(
-                dump.graph.as_str(),
-                encode_meta(&dump.name, dump.graph_type).as_slice(),
-            )
-            .map_err(|e| e.to_string())?;
-            count += 1;
-        }
-    }
-    wtx.commit().map_err(|e| e.to_string())?;
-    Ok(count)
-}
-
-// ── full read-back (load path, runs on the DB-owner thread) ───────────────
-
-/// Read the entire store into owned per-graph dumps. Runs on the writer thread
-/// (the only holder of the exclusive redb file lock). Each graph's rows are
-/// collected by iterating the whole table once and bucketing by the graph prefix
-/// — simpler than per-graph range bounds and load is a once-per-boot path.
-fn read_all_dumps(db: &Database) -> Result<Vec<GraphDump>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-    let nodes_table = rtx.open_table(NODES).map_err(|e| e.to_string())?;
-    let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
-    let ledger_table = rtx.open_table(LEDGER).map_err(|e| e.to_string())?;
-    let semantic_table = rtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-
-    // graph_meta drives which graphs exist + their name/type; seed a dump each.
-    let mut dumps: HashMap<String, GraphDump> = HashMap::new();
-    for row in meta_table.iter().map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let graph = k.value().to_string();
-        let (name, graph_type) = decode_meta(v.value());
-        dumps.insert(
-            graph.clone(),
-            GraphDump {
-                graph,
-                name,
-                graph_type,
-                nodes: Vec::new(),
-                edges: Vec::new(),
-                ledger: Vec::new(),
-                semantic: Vec::new(),
-            },
-        );
-    }
-
-    for row in nodes_table.iter().map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, id) = k.value();
-        if let Some(d) = dumps.get_mut(g) {
-            d.nodes.push((id.to_string(), v.value().to_vec()));
-        }
-    }
-    for row in edges_table.iter().map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, s, t, _) = k.value();
-        if let Some(d) = dumps.get_mut(g) {
-            d.edges
-                .push((s.to_string(), t.to_string(), v.value().to_vec()));
-        }
-    }
-    for row in ledger_table.iter().map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, _) = k.value();
-        if let Some(d) = dumps.get_mut(g) {
-            d.ledger.push(v.value().to_string());
-        }
-    }
-    for row in semantic_table.iter().map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        if let Some(d) = dumps.get_mut(k.value()) {
-            d.semantic = v.value().to_vec();
-        }
-    }
-    Ok(dumps.into_values().collect())
-}
-
-// ── graph_meta blob (replaces manifest.json) ─────────────────────────────
-
-fn encode_meta(name: &str, gtype: GraphType) -> Vec<u8> {
-    rmp_serde::to_vec_named(&serde_json::json!({ "name": name, "graph_type": gtype }))
-        .unwrap_or_default()
-}
-
-fn decode_meta(blob: &[u8]) -> (String, GraphType) {
-    let v: serde_json::Value = rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
-    let name = v
-        .get("name")
-        .and_then(|x| x.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let gtype = v
-        .get("graph_type")
-        .cloned()
-        .and_then(|x| serde_json::from_value(x).ok())
-        .unwrap_or(GraphType::Global);
-    (name, gtype)
 }
 
 #[cfg(test)]
