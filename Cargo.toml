@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb"]
 
 [package]
 name = "epistemic-graph"
@@ -49,12 +49,20 @@ redb = ["server", "dep:redb"]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
 # — heavy, so it is OFF by default and folded only into full/all (never the slim
 # Raspberry-Pi build). A default build links no DataFusion.
-query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query"]
+query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
 # Dep-free Cypher query surface (CONCEPT:KG-2.179): `MATCH … RETURN …` compiled to
 # the engine's own primitives (label index / VF2 / BFS) — NO DataFusion, so it is a
 # HARD requirement of the lean Pi tier. A `cypher`-only build links no DataFusion
 # (the Pi proof).
 cypher = ["dep:eg-query", "eg-query/cypher"]
+# Native time-series store + TS primitives (CONCEPT:KG-2.210/211). Pulls eg-tsdb's
+# redb chunk store + the native ASOF/gap-fill/time_bucket/OHLC/decay primitives —
+# NO DataFusion (the Pi contract holds: a `tsdb`-only build links no DataFusion).
+# Requires `redb` (the durable series store sits beside graph.redb) + `server` (the
+# series handler routes through dispatch). Folded into node/cluster/full; OUT of the
+# bare default. When `query` is ALSO on, eg-tsdb's `arrow-seg` lights up the
+# DataFusion `time_bucket = GROUP BY (ts/w)*w` leg (see the `query` feature below).
+tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. CLUSTER-TIER ONLY —
 # OFF by default and NOT in `full`/`all`, so a default / `pi` / `full` build links
@@ -76,7 +84,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # build links no openraft (matching the tier intent — replication is cluster-only).
 # `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP) so the standard full/all build
 # is authoritative-by-default (a durable source of truth) just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb", "ann"]
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -88,7 +96,7 @@ all = ["full"]
 # (CONCEPT:KG-2.188). A sibling track (M8) also extends `cluster` with `pgwire`;
 # an integration step unions them — keep the raft part here.
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann"]
-node = ["pi", "query", "reasoning", "finance", "datascience", "ast"]
+node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8). The two sibling tracks each extended
 # `cluster`; this integration unions both halves so the cluster tier links raft
@@ -108,6 +116,10 @@ eg-query = { path = "crates/eg-query", optional = true }
 # DataFusion FILTER leg is gated by eg-plan's own `query`; pulled only with the
 # facade `query`, so a default/Pi build links neither it nor DataFusion.
 eg-plan = { path = "crates/eg-plan", optional = true }
+# Optional native time-series store + primitives (feature `tsdb`, CONCEPT:KG-2.210/
+# 211); pulls redb only (native primitives), and DataFusion only when `query` is ALSO
+# on (its `arrow-seg` feature, enabled transitively by the facade `query` feature).
+eg-tsdb = { path = "crates/eg-tsdb", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
