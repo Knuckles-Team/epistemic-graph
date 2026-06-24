@@ -56,6 +56,12 @@
 pub mod algebra;
 pub mod cost;
 
+/// The UQL text front-end (CONCEPT:KG-2.214) — `uql::parse(text) -> wire::Plan`. It
+/// is a pure parser (lexer + recursive descent, NO DataFusion), so it ships in a
+/// default/Pi build alongside the algebra/cost/IR; only EXECUTION of the resulting
+/// Plan is `query`-gated.
+pub mod uql;
+
 #[cfg(feature = "query")]
 pub mod exec;
 #[cfg(feature = "query")]
