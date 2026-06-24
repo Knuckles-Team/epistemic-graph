@@ -2051,6 +2051,156 @@ class TxnClient:
         return await self._client._send("Rollback", {"txn_id": txn_id})
 
 
+class TimeSeriesClient:
+    """CONCEPT:KG-2.210/211 — Native Time-Series Namespace.
+
+    Append/scan/query time-partitioned series stored beside the graph (their own
+    ``series.redb``), served by a server built with the ``tsdb`` feature. Series are
+    keyed by ``series_id`` (independent of the connection's graph). Points are
+    ``(ts_ns, [field0, field1, ...])`` — a scalar series is one field per point;
+    OHLCV is several. The native primitives (ASOF / gap-fill / windowed aggregate)
+    need NO DataFusion, so they work on the lean / Pi build.
+
+    Usage::
+
+        await client.timeseries.append("px", [(0, [100.0]), (1_000_000_000, [101.0])])
+        pts  = await client.timeseries.range("px", 0, 2_000_000_000)
+        vals = await client.timeseries.asof_join("px", [500_000_000])  # -> [100.0]
+        bars = await client.timeseries.window("px", 0, 60_000_000_000, 60_000_000_000, "mean")
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def register_series(
+        self,
+        series_id: str,
+        *,
+        entity_id: str | None = None,
+        field_names: list[str] | None = None,
+        bucket_ns: int = 3_600_000_000_000,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Register a ``:Series`` node in the connection's graph linking the series
+        to a KG entity — the series-id registry shape (CONCEPT:KG-2.210).
+
+        The series data itself lives in the time-series store (keyed by
+        ``series_id``); this writes a small node into the GRAPH so the series is
+        discoverable + linkable from the ontology. Node shape::
+
+            :Series {
+              id:          "series:<series_id>",
+              type:        "Series",
+              series_id:   "<series_id>",
+              entity_id:   "<kg-node-id>",     # the entity this series measures
+              field_names: ["px", "vol", ...],
+              bucket_ns:   <int>,
+              ... metadata
+            }
+
+        ``entity_id`` is the KG node the series describes (e.g. a ``:Instrument`` or
+        ``:Memory``); a downstream caller adds the ``:measures`` edge in its ontology
+        layer (agent-utilities owns the OWL mapping)."""
+        props: dict[str, Any] = {
+            "type": "Series",
+            "series_id": series_id,
+            "field_names": field_names or [],
+            "bucket_ns": int(bucket_ns),
+        }
+        if entity_id is not None:
+            props["entity_id"] = entity_id
+        if metadata:
+            props.update(metadata)
+        await self._client.nodes.add(f"series:{series_id}", props)
+
+    async def append(
+        self,
+        series_id: str,
+        points: list[tuple[int, list[float]]],
+        *,
+        n_fields: int | None = None,
+        bucket_ns: int = 3_600_000_000_000,
+        field_names: list[str] | None = None,
+    ) -> int:
+        """Append a batch of ``(ts_ns, [values])`` points in ONE round-trip. Returns
+        the number of points appended. ``bucket_ns``/``field_names`` are used only
+        when the series is NEW (default bucket = 1h); ``n_fields`` defaults to the
+        width of the first point. Out-of-order / late points are handled."""
+        if not points:
+            return 0
+        nf = n_fields if n_fields is not None else len(points[0][1])
+        blob = msgpack.packb([[int(ts), [float(v) for v in vals]] for ts, vals in points])
+        return await self._client._send(
+            "TsAppend",
+            {
+                "series_id": series_id,
+                "n_fields": nf,
+                "bucket_ns": int(bucket_ns),
+                "field_names": field_names or [],
+                "points_msgpack": blob,
+            },
+        )
+
+    async def range(self, series_id: str, from_ts: int, to_ts: int) -> list[tuple[int, list[float]]]:
+        """Scan ``[from_ts, to_ts)`` of a series in ts order. Returns
+        ``(ts_ns, [values])`` points (empty for an unknown series)."""
+        rows = await self._client._send(
+            "TsRange", {"series_id": series_id, "from": int(from_ts), "to": int(to_ts)}
+        )
+        return [(int(ts), [float(v) for v in vals]) for ts, vals in (rows or [])]
+
+    async def asof_join(
+        self, series_id: str, left_ts: list[int], *, tolerance_ns: int | None = None
+    ) -> list[float | None]:
+        """ASOF join: for each event ts in ``left_ts``, the series' field-0 value as
+        of (nearest at-or-before) that time. Results are in the SAME order as
+        ``left_ts``; an unmatched / out-of-tolerance event yields ``None``."""
+        blob = msgpack.packb([int(t) for t in left_ts])
+        return await self._client._send(
+            "TsAsofJoin",
+            {
+                "series_id": series_id,
+                "left_ts_msgpack": blob,
+                "tolerance": -1 if tolerance_ns is None else int(tolerance_ns),
+            },
+        )
+
+    async def window(
+        self, series_id: str, from_ts: int, to_ts: int, width_ns: int, agg: str = "mean"
+    ) -> list[tuple[int, float, int]]:
+        """Windowed aggregate over ``[from_ts, to_ts)`` in ``width_ns`` buckets.
+        ``agg`` ∈ first/last/min/max/mean/sum/count. Returns
+        ``(bucket_start_ns, value, count)`` per non-empty bucket."""
+        rows = await self._client._send(
+            "TsWindow",
+            {
+                "series_id": series_id,
+                "from": int(from_ts),
+                "to": int(to_ts),
+                "width": int(width_ns),
+                "agg": agg,
+            },
+        )
+        return [(int(b), float(v), int(c)) for b, v, c in (rows or [])]
+
+    async def gap_fill(
+        self, series_id: str, from_ts: int, to_ts: int, step_ns: int
+    ) -> list[tuple[int, float | None, bool]]:
+        """Gap-fill (LOCF) on a fixed grid from ``from_ts`` to ``to_ts`` every
+        ``step_ns``. Returns ``(grid_ts_ns, value_or_None, carried_forward)`` —
+        ``value`` is ``None`` before the first observation (encoded as NaN on the
+        wire); ``carried_forward`` is ``True`` when no real obs landed on that grid ts."""
+        rows = await self._client._send(
+            "TsGapFill",
+            {"series_id": series_id, "from": int(from_ts), "to": int(to_ts), "step": int(step_ns)},
+        )
+        out: list[tuple[int, float | None, bool]] = []
+        for ts, val, filled in rows or []:
+            v = None if isinstance(val, float) and val != val else float(val)  # NaN -> None
+            out.append((int(ts), v, bool(filled)))
+        return out
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -2117,6 +2267,7 @@ class EpistemicGraphClient:
         self.datascience = DataScienceClient(self)
         self.query = QueryClient(self)
         self.txn = TxnClient(self)
+        self.timeseries = TimeSeriesClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -2412,6 +2563,7 @@ class SyncEpistemicGraphClient:
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
         self.query = self._SyncWrapper(self._client.query, self._loop)
         self.txn = self._SyncWrapper(self._client.txn, self._loop)
+        self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

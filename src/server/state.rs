@@ -108,4 +108,13 @@ pub struct ServerState {
     /// Only ever populated when built `--features raft` AND configured at startup.
     #[cfg(feature = "raft")]
     pub raft: Option<crate::raft::RaftHandle>,
+    /// Native time-series store (CONCEPT:KG-2.210, feature `tsdb`). `Some` when the
+    /// engine booted with a series store: a durable `series.redb` beside `graph.redb`
+    /// when a persist dir is set, else a process-temp file (in-memory deployments).
+    /// The `Ts*` handlers append/scan/query through it; it is independent of the
+    /// graph registry + the graph write-coalescer (series are keyed by `series_id`,
+    /// not a graph). redb holds an exclusive per-process file lock, so this is its
+    /// OWN file — NOT a second handle on `graph.redb`.
+    #[cfg(feature = "tsdb")]
+    pub tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
 }
