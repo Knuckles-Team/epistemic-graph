@@ -497,6 +497,8 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
         | Method::TxnAddEdge { .. }
         | Method::TxnRemoveEdge { .. }
         | Method::TxnCas { .. }
+        | Method::TxnAddEmbedding { .. }
+        | Method::TxnBlobRef { .. }
         | Method::Commit { .. }
         | Method::Rollback { .. } => {
             // BeginTxn defaults its target to the request envelope's graph.
@@ -950,6 +952,8 @@ mod blob_dispatch_tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]

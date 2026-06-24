@@ -1103,6 +1103,21 @@ impl GraphCore {
         *self.semantic_store.write() = crate::compute::semantic::SemanticStore::new();
     }
 
+    /// Hibernate this graph's in-memory state (CONCEPT:KG-2.224 — cold-tenant
+    /// hibernation). Drops the whole in-RAM topology / node+edge properties /
+    /// semantic vectors — exactly what [`Self::clear`] frees — to reclaim a COLD
+    /// tenant's memory, WITHOUT touching the durable redb tier (the caller guarantees
+    /// the graph is durable first, the SAME durability-gate eviction uses). The
+    /// `read_through` seam is left INTACT, so an evicted node's properties still read
+    /// from redb on a RAM miss; a full topology/edge view requires a rehydrate.
+    /// Reuses `clear`'s single-write-txn atomicity so no reader sees a half-state.
+    /// Returns the node count freed (for observability).
+    pub fn hibernate(&self) -> usize {
+        let freed = self.node_count();
+        self.clear();
+        freed
+    }
+
     pub fn from_msgpack(&self, msgpack: &[u8]) -> Result<(), String> {
         let graph_map: HashMap<String, serde_json::Value> =
             rmp_serde::from_slice(msgpack).map_err(|e| e.to_string())?;

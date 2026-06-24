@@ -87,6 +87,8 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         #[cfg(feature = "blob")]
         blob_cursor_ttl_secs: 300,
         raft: None,
+        #[cfg(feature = "raft")]
+        multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
     }));

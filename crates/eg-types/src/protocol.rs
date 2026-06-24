@@ -1067,10 +1067,18 @@ pub enum Method {
         node_id: String,
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
+        /// Optional target graph for THIS staged op (CONCEPT:KG-2.226 — multi-graph
+        /// txn). Absent ⇒ the txn's default graph (single-graph, backward-compatible).
+        /// A staged op naming a graph that resolves to a DIFFERENT Raft group makes
+        /// the txn CROSS-SHARD, routed through 2PC at commit.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
     },
     TxnRemoveNode {
         txn_id: String,
         node_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
     },
     TxnAddEdge {
         txn_id: String,
@@ -1078,11 +1086,15 @@ pub enum Method {
         target_id: String,
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
     },
     TxnRemoveEdge {
         txn_id: String,
         source_id: String,
         target_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
     },
     TxnCas {
         txn_id: String,
@@ -1091,6 +1103,28 @@ pub enum Method {
         conditions_msgpack: Vec<u8>,
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Stage a VECTOR upsert into a txn (CONCEPT:KG-2.225 — cross-modal ACID). The
+    /// embedding lands atomically WITH the txn's graph/property/blob-ref writes in ONE
+    /// redb `WriteTransaction` at commit — never a node without its vector.
+    TxnAddEmbedding {
+        txn_id: String,
+        node_id: String,
+        embedding: Vec<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Stage a BLOB REFERENCE into a txn (CONCEPT:KG-2.225 — cross-modal ACID). Records
+    /// a durable graph-side link (`__blob__` node property) to an already-stored,
+    /// content-addressed blob; lands atomically with the node/vector/property at commit.
+    TxnBlobRef {
+        txn_id: String,
+        node_id: String,
+        digest: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
     },
     Commit {
         txn_id: String,
