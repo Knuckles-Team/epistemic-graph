@@ -1541,6 +1541,7 @@ version = "0.33.0"
 dependencies = [
  "eg-core",
  "eg-query",
+ "eg-rdf",
  "eg-text",
  "eg-types",
  "petgraph",

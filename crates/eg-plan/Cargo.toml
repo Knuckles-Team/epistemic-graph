@@ -23,6 +23,13 @@ query = ["dep:eg-query", "eg-query/sql"]
 # `query`-gated `Op` enum and the text executor branch sits beside the DataFusion
 # FILTER leg. A default/Pi build sets neither feature → no eg-text/Tantivy linked.
 text = ["query", "dep:eg-text", "eg-text/tantivy", "eg-types/text"]
+# OWL/SPARQL SOURCE ops (CONCEPT:KG-2.220): `Reason` (OWL-inferred class members) +
+# `SparqlBgp` (SPARQL-selected ids) as RowSet sources, so ONE UnifiedQuery plan can do
+# OWL/SPARQL candidate-set → graph Traverse / vector Rank / SQL Filter / Limit. Pulls
+# eg-rdf's pure-Rust `owl` (EL⁺ reasoner) + `sparql` evaluator. IMPLIES `query` (the
+# ops live inside the `query`-gated `Op` enum, beside the DataFusion FILTER leg). A
+# default/Pi build sets neither feature → no eg-rdf reasoner/evaluator linked here.
+owl = ["query", "dep:eg-rdf", "eg-rdf/owl", "eg-rdf/sparql", "eg-types/owl-plan"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -38,6 +45,11 @@ eg-query = { path = "../eg-query", optional = true }
 # only referenced under #[cfg(feature = "text")], so a default/Pi build links no
 # eg-text and therefore no Tantivy/zstd-sys (verified by `cargo tree`).
 eg-text = { path = "../eg-text", optional = true }
+# The native OWL 2 EL⁺ reasoner + SPARQL evaluator backing the `Reason`/`SparqlBgp`
+# SOURCE ops (feature `owl`, CONCEPT:KG-2.220). Optional + only referenced under
+# #[cfg(feature = "owl")]; pure-Rust (oxrdf/oxttl/spargebra), so it adds NO native dep
+# (a default/Pi build links none of it).
+eg-rdf = { path = "../eg-rdf", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
@@ -50,3 +62,7 @@ petgraph = { version = "0.6.4", features = ["serde-1"] }
 # The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
 # DataFusion FILTER leg, so the test target needs the `query` feature on.
 eg-query = { path = "../eg-query", features = ["sql"] }
+# The owl compose-oracle test loads an OWL ontology + individuals via the eg-rdf
+# mapping and reasons over it, so the test target names eg-rdf directly with its
+# owl/sparql surfaces. (Only compiled with `--features owl`.)
+eg-rdf = { path = "../eg-rdf", features = ["owl", "sparql"] }

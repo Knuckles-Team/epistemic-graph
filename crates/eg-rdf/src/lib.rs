@@ -39,3 +39,9 @@ pub mod quads;
 
 #[cfg(feature = "sparql")]
 pub mod sparql;
+
+/// W3 — the native OWL 2 (EL⁺ + RL) reasoner (CONCEPT:KG-2.219). Classification,
+/// consistency checking, incremental materialization + justifications over the
+/// oxttl-parsed ontology. Pure Rust; behind `owl` (implies `rdf`).
+#[cfg(feature = "owl")]
+pub mod owl;
