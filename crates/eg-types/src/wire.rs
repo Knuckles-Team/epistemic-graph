@@ -39,6 +39,25 @@ pub enum Op {
     Traverse { rel: String, min: usize, max: usize },
     /// RANK (vector) — re-order by cosine similarity to `query` (SemanticStore kNN).
     Rank { query: Vec<f32> },
+    /// RANK (lexical, BM25) — re-order the candidate set by BM25 relevance to the
+    /// natural-language `query` string over the text index (CONCEPT:KG-2.215). A
+    /// sibling of the vector `Rank`: it produces a score-per-id over the SAME RowSet
+    /// currency, so the closed algebra is unchanged. Gated by `text` (the Tantivy
+    /// index lives in eg-text behind its own gate; this is just the wire variant).
+    #[cfg(feature = "text")]
+    RankText { query: String },
+    /// FUSE (hybrid) — reciprocal-rank-fusion of the results of two SUB-PLANS over the
+    /// same seed (typically a vector `Rank` branch and a lexical `RankText` branch)
+    /// into ONE ranked RowSet (CONCEPT:KG-2.215). The modern hybrid-retrieval pattern:
+    /// fuse the RANKS (not the incomparable BM25/cosine scores) so a doc strong in
+    /// BOTH modalities out-ranks one strong in only one. `k` is the RRF damping
+    /// constant (use `eg_text::RRF_K` = 60 by convention; `0.0` ⇒ that default).
+    #[cfg(feature = "text")]
+    FuseRrf {
+        left: Vec<Op>,
+        right: Vec<Op>,
+        k: f32,
+    },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }

@@ -20,10 +20,7 @@ use crate::oracle::separate_surfaces;
 #[test]
 fn fused_plan_matches_separate_surfaces() {
     let fx = build();
-    let ctx = PlanCtx {
-        view: &fx.view,
-        semantic: &fx.semantic,
-    };
+    let ctx = PlanCtx::new(&fx.view, &fx.semantic);
     let preds = vec![Pred::GtNum {
         prop: "year".into(),
         n: 2024.0,
@@ -83,10 +80,7 @@ fn fused_plan_matches_separate_surfaces() {
 #[test]
 fn reorder_preserves_result_set_both_regimes() {
     let fx = build();
-    let ctx = PlanCtx {
-        view: &fx.view,
-        semantic: &fx.semantic,
-    };
+    let ctx = PlanCtx::new(&fx.view, &fx.semantic);
 
     // Candidate set from Scan+Filter+Traverse = {d2,d4,d3}; the commuting pair is the
     // tail (Filter year>2022, Rank). Both end with a rank-or-filter over the same set.
@@ -141,10 +135,7 @@ fn reorder_preserves_result_set_both_regimes() {
 #[test]
 fn cost_reorder_picks_winner_same_result() {
     let fx = build();
-    let ctx = PlanCtx {
-        view: &fx.view,
-        semantic: &fx.semantic,
-    };
+    let ctx = PlanCtx::new(&fx.view, &fx.semantic);
 
     // A Scan'd seed feeding a commuting (Filter, Rank) pair.
     let plan = vec![
