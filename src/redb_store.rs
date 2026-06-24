@@ -41,6 +41,26 @@ pub(crate) const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new
 // path never appends log ops, so this table stays empty for an embedded-only DB —
 // the const costs nothing and keeps the two callers on one durable layout.
 pub(crate) const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition::new("raft_log");
+// Cross-shard 2PC prepare records (CONCEPT:KG-2.222). One row per participant group
+// of an in-flight cross-shard transaction, keyed by `(txn_id, group_id)`, holding
+// that group's PREPARED-but-not-applied slice (its staged write-set). Durable so an
+// in-doubt txn survives a coordinator/participant crash between PREPARE and COMMIT
+// and is resolved on restart. Lives in `graph.redb` for the same single-file reason
+// as the Raft log; the PURE put/clear/scan logic lives here (shared store) next to
+// NODES/EDGES/purge_graph_rows, while the writer-thread `Cmd` arms in `redb_backend`
+// call into it (mirrors how the graph-row machinery is shared, CONCEPT:KG-2.216).
+pub(crate) const XSHARD_PREPARE: TableDefinition<(&str, u64), &[u8]> =
+    TableDefinition::new("xshard_prepare");
+// The coordinator's durable DECISION record for a cross-shard txn, keyed by `txn_id`
+// (CONCEPT:KG-2.222). The value is `1` = COMMIT, `0` = ABORT. Writing this row is the
+// ATOMIC COMMIT POINT: once it reads COMMIT every participant will apply on recovery;
+// absent/ABORT ⇒ no participant applies (presumed-abort). Cleared after resolution.
+pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
+    TableDefinition::new("xshard_decision");
+
+/// In-doubt cross-shard prepare records `(txn_id, group_id, slice-blob)` returned by
+/// the recovery scan (CONCEPT:KG-2.222).
+pub(crate) type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
 
 /// Map a logical graph name (which may contain `:` / `/`) to a safe filename /
 /// durable key. Identical to `persist::sanitize`; lives here so the durable store
@@ -380,6 +400,90 @@ pub(crate) fn purge_graph_rows(db: &Database, graph: &str) -> Result<(), String>
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ── Cross-shard 2PC durable rows (CONCEPT:KG-2.222) — pure, server-INDEPENDENT ──
+// Shared store helpers (mirroring NODES/EDGES/purge_graph_rows): the `Cmd` arms in
+// `redb_backend`'s off-reactor writer thread call straight into these.
+
+/// Durably persist one participant group's prepared slice (its own transaction).
+pub(crate) fn put_xshard_prepare(
+    db: &Database,
+    txn_id: &str,
+    gid: u64,
+    slice: &[u8],
+) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+        t.insert((txn_id, gid), slice).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Durably write the coordinator's decision row (the atomic commit point).
+pub(crate) fn put_xshard_decision(db: &Database, txn_id: &str, commit: bool) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+        t.insert(txn_id, if commit { 1u8 } else { 0u8 })
+            .map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Clear one participant's prepare record after resolution.
+pub(crate) fn clear_xshard_prepare(db: &Database, txn_id: &str, gid: u64) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+        t.remove((txn_id, gid)).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Clear a resolved txn's decision record.
+pub(crate) fn clear_xshard_decision(db: &Database, txn_id: &str) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+        t.remove(txn_id).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Scan every in-doubt prepare record `(txn_id, group_id, slice)` for recovery.
+pub(crate) fn scan_xshard_prepares(db: &Database) -> XshardPrepareScan {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = rtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for kv in t.iter().map_err(|e| e.to_string())? {
+        let (k, v) = kv.map_err(|e| e.to_string())?;
+        let (txn_id, gid) = k.value();
+        out.push((txn_id.to_string(), gid, v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+/// Read a txn's durable decision (Some(true)=commit, Some(false)=abort, None=undecided).
+pub(crate) fn get_xshard_decision(db: &Database, txn_id: &str) -> Result<Option<bool>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = rtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+    Ok(t.get(txn_id)
+        .map_err(|e| e.to_string())?
+        .map(|v| v.value() == 1))
 }
 
 /// Snapshot the full registry dump into redb, overwriting each graph's rows, and

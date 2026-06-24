@@ -58,8 +58,10 @@ use super::PersistenceBackend;
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
 use crate::redb_store::{
-    apply_checkpoint, commit_ops, purge_graph_rows, read_all_dumps, read_one_node,
-    write_graph_meta, GraphDump, EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC,
+    apply_checkpoint, clear_xshard_decision, clear_xshard_prepare, commit_ops, get_xshard_decision,
+    purge_graph_rows, put_xshard_decision, put_xshard_prepare, read_all_dumps, read_one_node,
+    scan_xshard_prepares, write_graph_meta, GraphDump, XshardPrepareScan, EDGES, GRAPH_META,
+    LEDGER, NODES, RAFT_LOG, SEMANTIC, XSHARD_DECISION, XSHARD_PREPARE,
 };
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:KG-2.204).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
@@ -191,6 +193,42 @@ enum Cmd {
         key: String,
         reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
     },
+    // ── Cross-shard 2PC durable records (CONCEPT:KG-2.222) ──────────────────
+    /// Durably persist ONE participant group's PREPARE slice for a cross-shard txn
+    /// (commit-before-vote: a group votes yes only after this is on disk).
+    XshardPreparePut {
+        txn_id: String,
+        group_id: u64,
+        slice: Vec<u8>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Durably write the coordinator's DECISION for a cross-shard txn (the atomic
+    /// commit point): `1` = COMMIT, `0` = ABORT.
+    XshardDecisionPut {
+        txn_id: String,
+        commit: bool,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Clear ONE participant's prepare record after the txn is resolved.
+    XshardPrepareClear {
+        txn_id: String,
+        group_id: u64,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Clear a resolved txn's decision record (after every participant cleared).
+    XshardDecisionClear {
+        txn_id: String,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Scan ALL in-doubt prepare records (txn_id, group_id, slice) for recovery.
+    XshardScanPrepares {
+        reply: std::sync::mpsc::Sender<XshardPrepareScan>,
+    },
+    /// Read a txn's decision (Some(true)=commit, Some(false)=abort, None=undecided).
+    XshardDecisionGet {
+        txn_id: String,
+        reply: std::sync::mpsc::Sender<Result<Option<bool>, String>>,
+    },
 }
 
 /// Handle to the redb write-through tier. The dispatch path holds an `Arc` of this
@@ -223,6 +261,8 @@ impl RedbBackend {
             wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
             wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
             wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
+            wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+            wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
@@ -614,6 +654,118 @@ impl RedbBackend {
         rx.recv()
             .map_err(|_| "redb writer dropped raft_meta_get reply".to_string())?
     }
+
+    // ── Cross-shard 2PC durable records (CONCEPT:KG-2.222) ─────────────────────
+    // The 2PC coordinator persists each participant's PREPARE slice + the final
+    // DECISION here so an in-doubt txn is resolvable after a crash. Each write awaits
+    // an Immediate-durability commit (commit-before-vote / commit-before-apply): a
+    // group only votes yes once its slice is on disk, and the decision is on disk
+    // before any participant applies — the atomicity barrier.
+
+    /// Durably persist one participant group's prepared slice. Awaits the fsync.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_prepare_put(
+        &self,
+        txn_id: &str,
+        group_id: u64,
+        slice: Vec<u8>,
+    ) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardPreparePut {
+                txn_id,
+                group_id,
+                slice,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("xshard_prepare_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_prepare_put completion".to_string())?
+    }
+
+    /// Durably write the coordinator's decision (the atomic commit point). Awaits fsync.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_decision_put(&self, txn_id: &str, commit: bool) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardDecisionPut {
+                txn_id,
+                commit,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("xshard_decision_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_decision_put completion".to_string())?
+    }
+
+    /// Clear one participant's prepare record after it is resolved.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_prepare_clear(&self, txn_id: &str, group_id: u64) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardPrepareClear {
+                txn_id,
+                group_id,
+                done,
+            })
+        })
+        .await
+        .map_err(|e| format!("xshard_prepare_clear join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_prepare_clear completion".to_string())?
+    }
+
+    /// Clear a resolved txn's decision record.
+    #[cfg(feature = "raft")]
+    pub async fn xshard_decision_clear(&self, txn_id: &str) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let txn_id = txn_id.to_string();
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(Cmd::XshardDecisionClear { txn_id, done }))
+            .await
+            .map_err(|e| format!("xshard_decision_clear join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped xshard_decision_clear completion".to_string())?
+    }
+
+    /// Scan every in-doubt prepare record `(txn_id, group_id, slice)` (for recovery).
+    #[cfg(feature = "raft")]
+    pub fn xshard_scan_prepares(&self) -> XshardPrepareScan {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::XshardScanPrepares { reply })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped xshard_scan_prepares reply".to_string())?
+    }
+
+    /// Read a txn's durable decision (Some(true)=commit, Some(false)=abort, None=undecided).
+    #[cfg(feature = "raft")]
+    pub fn xshard_decision_get(&self, txn_id: &str) -> Result<Option<bool>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::XshardDecisionGet {
+                txn_id: txn_id.to_string(),
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped xshard_decision_get reply".to_string())?
+    }
 }
 
 // ── off-reactor group-commit writer thread ───────────────────────────────
@@ -852,6 +1004,49 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
         } => {
             commit_and_notify(db, pending, Durability::Immediate);
             let _ = reply.send(get_raft_meta(db, group_id, &key));
+            false
+        }
+        Cmd::XshardPreparePut {
+            txn_id,
+            group_id,
+            slice,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(put_xshard_prepare(db, &txn_id, group_id, &slice));
+            false
+        }
+        Cmd::XshardDecisionPut {
+            txn_id,
+            commit,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(put_xshard_decision(db, &txn_id, commit));
+            false
+        }
+        Cmd::XshardPrepareClear {
+            txn_id,
+            group_id,
+            done,
+        } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(clear_xshard_prepare(db, &txn_id, group_id));
+            false
+        }
+        Cmd::XshardDecisionClear { txn_id, done } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = done.send(clear_xshard_decision(db, &txn_id));
+            false
+        }
+        Cmd::XshardScanPrepares { reply } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(scan_xshard_prepares(db));
+            false
+        }
+        Cmd::XshardDecisionGet { txn_id, reply } => {
+            commit_and_notify(db, pending, Durability::Immediate);
+            let _ = reply.send(get_xshard_decision(db, &txn_id));
             false
         }
     }
