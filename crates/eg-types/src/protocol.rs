@@ -1227,6 +1227,45 @@ pub enum Method {
     /// the chunks no surviving blob still lists. Returns `(blobs, chunks)` reclaimed.
     #[cfg(feature = "blob")]
     BlobGc,
+
+    // ── RDF/SPARQL (CONCEPT:KG-2.217 / KG-2.218 — native semantic-web surface) ──
+    // The RDF dataset maps onto the SAME property-graph the rest of the engine uses
+    // (resource object ⇒ typed edge `{type: predicate}`; literal object ⇒ a typed
+    // JSON property cell preserving xsd datatype + @lang; rdf:type ⇒ the engine
+    // `type` label; named graph ⇒ the target registry graph). So these are
+    // GRAPH-SCOPED ops (they target `req.graph`) and route through the normal
+    // dispatch_graph_op chain like Sql/Cypher — NOT a separate top-level store.
+    //
+    // `AddTriples` is a DURABLE MUTATION: it writes nodes + edges into the target
+    // graph. It is replayed by re-parsing its source text (deterministic — the same
+    // Turtle yields the same triples ⇒ the same node/edge writes), mirroring how
+    // `BatchUpdate` replays. `GetRdf` (serialize OUT) and `Sparql` are read-only.
+    /// Parse `turtle` OR `ntriples` (exactly one non-empty) and store the triples
+    /// into the request's graph (CONCEPT:KG-2.217). Returns a `Raw` `LoadReport`
+    /// (`{triples, multivalue, dropped_multivalue}`). Gated `rdf`; a build without it
+    /// drops the variant → the dispatch not-built catch-all.
+    #[cfg(feature = "rdf")]
+    AddTriples {
+        /// Turtle document (empty ⇒ use `ntriples`).
+        #[serde(default)]
+        turtle: String,
+        /// N-Triples document (empty ⇒ use `turtle`).
+        #[serde(default)]
+        ntriples: String,
+    },
+    /// Serialize the request's graph back OUT to RDF as N-Triples (CONCEPT:KG-2.217).
+    /// Returns a `Raw` `String` (the canonical, order-independent form) — the
+    /// datatype/lang-faithful inverse of `AddTriples`, distinct from the legacy lossy
+    /// `GetTriples` JSON triple-list (CONCEPT:KG-2.7). Read-only.
+    #[cfg(feature = "rdf")]
+    GetRdf,
+    /// Evaluate a SPARQL 1.1 SELECT over the request's graph (CONCEPT:KG-2.218).
+    /// Returns a `Raw` [`SparqlResult`] (`{vars, rows}`; each row a cell list aligned
+    /// to `vars`, an unbound cell is `nil`). Read-only. Gated `sparql`.
+    #[cfg(feature = "sparql")]
+    Sparql {
+        query: String,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -1241,6 +1280,17 @@ pub enum Method {
 pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<u8>>,
+}
+
+/// Materialized result of a `Method::Sparql` SELECT (CONCEPT:KG-2.218). Returned via
+/// `ResultPayload::raw`. `vars` is the projected variable order; each row is aligned
+/// to `vars` with `None` for an unbound (OPTIONAL) variable. Lives in eg-types (the
+/// wire-DTO crate) so the protocol can embed it; the evaluator lives in eg-rdf.
+#[cfg(feature = "sparql")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SparqlResult {
+    pub vars: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
 }
 
 /// Graph type for multi-tenant registry.

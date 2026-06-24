@@ -129,4 +129,12 @@ pub struct ServerState {
     /// OWN file — NOT a second handle on `graph.redb`.
     #[cfg(feature = "tsdb")]
     pub tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
+    /// Opt-in lossless RDF quad table (CONCEPT:KG-2.217, feature `rdf-redb`). `Some`
+    /// when a persist dir is set (a durable `rdf_quads.redb` beside `graph.redb`):
+    /// the `AddTriples` handler routes multi-valued literal predicates here (the one
+    /// lossy edge of the property-graph mapping), and `GetRdf` unions them back.
+    /// `None` ⇒ the property-graph mapping alone (the extras are reported, not lost
+    /// silently). Its OWN redb file — NOT a second handle on `graph.redb`.
+    #[cfg(feature = "rdf-redb")]
+    pub rdf_quads: Option<Arc<eg_rdf::quads::QuadStore>>,
 }

@@ -68,6 +68,8 @@ async fn make_state_with_backend(
         raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
+        #[cfg(feature = "rdf-redb")]
+        rdf_quads: None,
     }))
 }
 
