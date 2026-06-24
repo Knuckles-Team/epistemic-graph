@@ -71,6 +71,12 @@ pub mod network;
 pub mod node;
 pub mod store;
 
+/// Correctness + load harness (CONCEPT:KG-2.212) — the standing proof-engine that
+/// gates every distributed/durability claim. Compiled under tests OR the explicit
+/// `harness` feature; never in a production tier build.
+#[cfg(any(test, feature = "harness"))]
+pub mod harness;
+
 #[cfg(test)]
 mod tests;
 
