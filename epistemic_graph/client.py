@@ -2338,6 +2338,140 @@ class RdfClient:
         )
 
 
+class StreamingClient:
+    """CONCEPT:KG-2.229/230 — Streaming / CDC / subscriptions / triggers.
+
+    A reactive surface over the engine's per-graph durable change record (the
+    ledger): every durable mutation emits an ordered, cursor-addressable change into
+    a per-graph in-memory feed. From that ONE feed three surfaces are served over the
+    SAME framed-MessagePack transport (cursor / long-poll — NO side-channel socket):
+
+      * **CDC feed** (``cdc_read``) — tail the ordered ``CdcEvent`` changes since a
+        ``from_seq`` cursor; re-read from ``last["seq"] + 1`` to skip what you've seen.
+        The foundation for incremental matviews, mirrors, and external sinks.
+      * **Continuous queries** (``register_continuous_query`` / ``read_continuous_query``)
+        — a named aggregate (count / sum) maintained INCREMENTALLY on each change.
+      * **Subscriptions / triggers** (``watch`` / ``register_trigger`` / ``fired_triggers``)
+        — a LISTEN/NOTIFY-style long-poll over a graph/label cursor, plus
+        condition→action triggers whose firings are pollable.
+
+    Requires a server built with the ``streaming`` feature (folded into
+    pi/node/cluster/full).
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def cdc_read(
+        self, graph: str, from_seq: int = 0, *, limit: int = 0
+    ) -> list[dict[str, Any]]:
+        """Read the ordered CDC feed for ``graph`` from cursor ``from_seq`` (inclusive),
+        up to ``limit`` (0 ⇒ a server default). Each event is a dict with ``seq``,
+        ``kind`` (AddNode/RemoveNode/UpdateNode/AddEdge/RemoveEdge), ``node_id``,
+        ``target_id``, ``label``, and the ``before``/``after`` property blobs (raised as
+        ``bytes``; ``had_before``/``had_after`` flag presence). Re-read from
+        ``events[-1]["seq"] + 1`` to skip seen. Raises if the cursor is behind the
+        retained ring window."""
+        return await self._client._send(
+            "CdcRead", {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)}
+        )
+
+    async def register_continuous_query(
+        self, name: str, graph: str, agg: str, *, label: str = "", field: str = ""
+    ) -> str:
+        """Register (or replace) an incrementally-maintained query ``name`` over
+        ``graph``'s CDC feed. ``agg`` is ``"count"`` (live count of matching nodes) or
+        ``"sum"`` (running sum of numeric node property ``field``). ``label`` (empty ⇒
+        all nodes) filters by node label. The view is SEEDED from the graph's current
+        state at registration, then maintained on delta. Returns ``name``."""
+        if agg == "count":
+            spec_agg: Any = "Count"
+        elif agg == "sum":
+            if not field:
+                raise ValueError("sum continuous query requires a field")
+            spec_agg = {"Sum": {"field": field}}
+        else:
+            raise ValueError(f"unknown agg '{agg}' (expected 'count' or 'sum')")
+        spec = {"graph": graph, "label": label, "agg": spec_agg}
+        return await self._client._send(
+            "RegisterContinuousQuery",
+            {"name": name, "spec_msgpack": msgpack.packb(spec)},
+        )
+
+    async def read_continuous_query(self, name: str) -> dict[str, Any]:
+        """Read the current incrementally-maintained result of continuous query
+        ``name`` → ``{"name", "value", "through_seq"}`` (the value + the CDC seq it
+        reflects)."""
+        return await self._client._send("ReadContinuousQuery", {"name": name})
+
+    async def drop_continuous_query(self, name: str) -> bool:
+        """Drop a continuous query. Returns ``True`` if it existed."""
+        return await self._client._send("DropContinuousQuery", {"name": name})
+
+    async def watch(
+        self, graph: str, from_seq: int = 0, *, label: str = "", timeout_ms: int = 0
+    ) -> dict[str, Any]:
+        """LISTEN/NOTIFY-style long-poll subscription: return the matching CDC changes
+        for ``graph`` since ``from_seq`` (filtered by ``label``, empty ⇒ all). If none
+        are pending, block up to ``timeout_ms`` for the first one (0 ⇒ don't block).
+        Returns ``{"events": [...], "next_seq": int}`` — pass ``next_seq`` back to keep
+        tailing. One Request → one Response; re-issue to continue watching."""
+        return await self._client._send(
+            "Watch",
+            {
+                "graph": graph,
+                "from_seq": int(from_seq),
+                "label": label,
+                "timeout_ms": int(timeout_ms),
+            },
+        )
+
+    async def register_trigger(
+        self,
+        name: str,
+        graph: str,
+        op: str,
+        *,
+        label: str = "",
+        action: dict[str, Any] | None = None,
+    ) -> str:
+        """Register a trigger/reaction: when a CDC change in ``graph`` matches ``label``
+        (empty ⇒ any) + ``op`` (``"add"``/``"remove"``/``"update"``/``"any"``), record a
+        firing carrying ``action`` (an opaque reaction payload — e.g. a notification
+        topic / webhook spec). Poll firings with ``fired_triggers``. Returns ``name``."""
+        return await self._client._send(
+            "RegisterTrigger",
+            {
+                "name": name,
+                "graph": graph,
+                "label": label,
+                "op": op,
+                "action_msgpack": msgpack.packb(action or {}),
+            },
+        )
+
+    async def drop_trigger(self, name: str) -> bool:
+        """Drop a trigger. Returns ``True`` if it existed."""
+        return await self._client._send("DropTrigger", {"name": name})
+
+    async def list_triggers(self, graph: str) -> list[dict[str, Any]]:
+        """List the triggers registered on ``graph`` (``name``/``op``/``label``/
+        ``fire_count``)."""
+        return await self._client._send("ListTriggers", {"graph": graph})
+
+    async def fired_triggers(
+        self, graph: str, from_seq: int = 0, *, limit: int = 0
+    ) -> list[dict[str, Any]]:
+        """Poll the fired-trigger log for ``graph`` from cursor ``from_seq``: the
+        reactions that fired, each ``{"fire_seq", "trigger", "change_seq", "node_id",
+        "action"}`` (``action`` raised as ``bytes``). Resume from
+        ``fired[-1]["fire_seq"] + 1``."""
+        return await self._client._send(
+            "FiredTriggers",
+            {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)},
+        )
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -2406,6 +2540,7 @@ class EpistemicGraphClient:
         self.txn = TxnClient(self)
         self.timeseries = TimeSeriesClient(self)
         self.rdf = RdfClient(self)
+        self.streaming = StreamingClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -2703,6 +2838,7 @@ class SyncEpistemicGraphClient:
         self.txn = self._SyncWrapper(self._client.txn, self._loop)
         self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
         self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
+        self.streaming = self._SyncWrapper(self._client.streaming, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

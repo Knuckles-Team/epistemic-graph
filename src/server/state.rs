@@ -137,4 +137,12 @@ pub struct ServerState {
     /// silently). Its OWN redb file — NOT a second handle on `graph.redb`.
     #[cfg(feature = "rdf-redb")]
     pub rdf_quads: Option<Arc<eg_rdf::quads::QuadStore>>,
+    /// Change-Data-Capture hub (CONCEPT:KG-2.229/230, feature `streaming`). `Some` on
+    /// any `streaming` build (constructed unconditionally — it needs no persist dir,
+    /// the in-memory ring IS the cursor surface). The dispatch write-side-effect block
+    /// emits a `CdcEvent` into it after every successful durable mutation; the
+    /// streaming handler reads the feed / maintains continuous queries / serves watch
+    /// + triggers off it. PURE in-memory (bounded ring + Notify) — no second redb file.
+    #[cfg(feature = "streaming")]
+    pub cdc: Option<Arc<crate::server::cdc::CdcHub>>,
 }
