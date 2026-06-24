@@ -17,6 +17,12 @@ name = "eg_plan"
 # feature, exactly as the facade gates `query`.
 default = []
 query = ["dep:eg-query", "eg-query/sql"]
+# Lexical BM25 `RankText` op + the RRF `FuseRrf` hybrid (CONCEPT:KG-2.215). Pulls
+# eg-text's Tantivy index (the `tantivy` backend) and turns on the `text` wire
+# variants in eg-types. It IMPLIES `query` because the new ops live inside the
+# `query`-gated `Op` enum and the text executor branch sits beside the DataFusion
+# FILTER leg. A default/Pi build sets neither feature → no eg-text/Tantivy linked.
+text = ["query", "dep:eg-text", "eg-text/tantivy", "eg-types/text"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -28,6 +34,10 @@ eg-core = { path = "../eg-core" }
 # The relational FILTER leg is real DataFusion via eg-query's schema-on-read
 # `nodes` provider — gated behind `query` so a default build links none of it.
 eg-query = { path = "../eg-query", optional = true }
+# The lexical BM25 index + RRF fusion (feature `text`, CONCEPT:KG-2.215). Optional +
+# only referenced under #[cfg(feature = "text")], so a default/Pi build links no
+# eg-text and therefore no Tantivy/zstd-sys (verified by `cargo tree`).
+eg-text = { path = "../eg-text", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
