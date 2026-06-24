@@ -112,15 +112,17 @@ tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
 # Activates only when built `--features raft` AND configured at runtime
 # (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
 raft = ["server", "redb", "dep:openraft"]
-# Correctness + load harness (CONCEPT:KG-2.212) — the standing proof-engine that
-# gates every distributed/durability claim (multi-raft, M2 durability, distributed
-# txns, PITR/replication). TEST/DEV-ONLY: it pulls `raft` (the cluster it exercises)
-# and compiles the nemesis fault-injector + load-gen + linearizability checker + the
-# `nemesis` soak bin. It is NEVER folded into any deployment tier (pi/node/cluster/
-# full), so a production `cargo build`/`--features pi`/`--features full` build links
-# NOTHING from it (verified by `cargo tree` in the gate). The partition hook it needs
-# in the raft network is `#[cfg(any(test, feature = "harness"))]`, so a non-harness
-# build has byte-for-byte the production network path.
+# Correctness + load harness (CONCEPT:KG-2.212 / KG-2.222) — the standing proof-engine
+# that gates every distributed/durability claim (multi-raft, M2 durability, distributed
+# txns, PITR/replication, the cross-shard 2PC atomicity + recovery proof). TEST/DEV-ONLY:
+# it pulls `raft` (the cluster it exercises) and compiles BOTH gauntlets — T1's nemesis
+# fault-injector + load-gen + linearizability checker + the `nemesis` soak bin
+# (`src/raft/harness/*`) AND Lane N's cross-shard 2PC gauntlet (`src/raft/xshard_harness.rs`).
+# It is NEVER folded into any deployment tier (pi/node/cluster/full), so a production
+# `cargo build`/`--features pi`/`--features full` build links NOTHING from it (verified by
+# `cargo tree` in the gate). The partition hook it needs in the raft network is
+# `#[cfg(any(test, feature = "harness"))]`, so a non-harness build has byte-for-byte the
+# production network path.
 harness = ["raft"]
 # Postgres wire-protocol shim (CONCEPT:KG-2.189). A facade-only listener that lets
 # psql / BI tools / ORMs run SQL against a graph, reusing the eg-query DataFusion
