@@ -99,15 +99,18 @@ pub enum GroupRpcReply {
     Snapshot(Result<InstallSnapshotResponse<NodeId>, String>),
 }
 
-/// Per-group network factory: tags every RPC with `gid`. Cloneable + cheap.
+/// Per-group network factory: tags every RPC with `gid`. Cloneable + cheap. Carries
+/// the LOCAL node id so the (harness-only) partition gate can decide `(from, to)`
+/// reachability — in a production build that id is simply unused.
 #[derive(Clone)]
 pub struct GroupNetworkFactory {
     gid: GroupId,
+    local: NodeId,
 }
 
 impl GroupNetworkFactory {
-    pub fn new(gid: GroupId) -> Self {
-        Self { gid }
+    pub fn new(gid: GroupId, local: NodeId) -> Self {
+        Self { gid, local }
     }
 }
 
@@ -117,6 +120,7 @@ impl RaftNetworkFactory<TypeConfig> for GroupNetworkFactory {
     async fn new_client(&mut self, target: NodeId, node: &BasicNode) -> Self::Network {
         GroupNetworkClient {
             gid: self.gid,
+            local: self.local,
             target,
             addr: node.addr.clone(),
         }
@@ -126,6 +130,10 @@ impl RaftNetworkFactory<TypeConfig> for GroupNetworkFactory {
 /// A client to ONE peer for ONE group. Connects per-RPC; tags each frame with `gid`.
 pub struct GroupNetworkClient {
     gid: GroupId,
+    /// The node this client runs ON (the RPC source). Unused in production; consulted
+    /// by the harness partition gate to drop frames between partitioned subsets.
+    #[allow(dead_code)]
+    local: NodeId,
     #[allow(dead_code)]
     target: NodeId,
     addr: String,
@@ -133,6 +141,19 @@ pub struct GroupNetworkClient {
 
 impl GroupNetworkClient {
     async fn round_trip(&self, rpc: &GroupRpc) -> Result<GroupRpcReply, io::Error> {
+        // ── harness fault-injection: partition gate (CONCEPT:KG-2.212) ──
+        // A test/harness build can DROP the frame between two partitioned nodes,
+        // simulating a network partition WITHOUT a real firewall. In a production
+        // build this whole arm is compiled out, so the network path is byte-for-byte
+        // unchanged. We surface it as the same `ConnectionReset`/EOF a real dropped
+        // TCP frame would, so openraft treats it as `Unreachable` and backs off.
+        #[cfg(any(test, feature = "harness"))]
+        if !partition::reachable(self.local, self.target) {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                "partitioned (harness nemesis)",
+            ));
+        }
         let mut stream = TcpStream::connect(&self.addr).await?;
         let body = rmp_serde::to_vec_named(rpc)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -236,4 +257,63 @@ pub async fn read_frame(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf).await?;
     Ok(buf)
+}
+
+// ── harness partition gate (CONCEPT:KG-2.212) ─────────────────────────────────
+//
+// A process-global, test/harness-only controller that the per-RPC `round_trip`
+// consults to decide whether a frame from node `from` may reach node `to`. The model
+// is "islands": every node sits in an island id (default 0 — fully connected), and
+// two nodes can exchange RPCs iff they share an island. A partition is just a
+// re-assignment of islands; healing puts everyone back on island 0. This is the
+// programmatic equivalent of dropping the group-tagged TCP frames between subsets —
+// no firewall, no real netns — and it is compiled out of every production build.
+#[cfg(any(test, feature = "harness"))]
+pub mod partition {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    use super::NodeId;
+
+    /// node id → island id. Absent ⇒ island 0 (the fully-connected default).
+    fn table() -> &'static Mutex<HashMap<NodeId, u64>> {
+        static T: OnceLock<Mutex<HashMap<NodeId, u64>>> = OnceLock::new();
+        T.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn island_of(map: &HashMap<NodeId, u64>, n: NodeId) -> u64 {
+        map.get(&n).copied().unwrap_or(0)
+    }
+
+    /// Can a frame from `from` reach `to`? True iff they share an island.
+    pub fn reachable(from: NodeId, to: NodeId) -> bool {
+        let map = table().lock().unwrap();
+        island_of(&map, from) == island_of(&map, to)
+    }
+
+    /// Partition the cluster into the given groups: each inner slice becomes its own
+    /// island. Nodes not listed land on island 0. Replaces any prior partition.
+    pub fn partition(groups: &[&[NodeId]]) {
+        let mut map = table().lock().unwrap();
+        map.clear();
+        for (idx, grp) in groups.iter().enumerate() {
+            // island ids start at 1 so an unlisted node (island 0) is its own thing.
+            for &n in grp.iter() {
+                map.insert(n, (idx as u64) + 1);
+            }
+        }
+    }
+
+    /// Isolate a single node from everyone else (its own one-member island). Other
+    /// nodes stay mutually reachable on island 0.
+    pub fn isolate(node: NodeId) {
+        let mut map = table().lock().unwrap();
+        map.clear();
+        map.insert(node, u64::MAX);
+    }
+
+    /// Heal: every node back to island 0 (fully connected).
+    pub fn heal() {
+        table().lock().unwrap().clear();
+    }
 }
