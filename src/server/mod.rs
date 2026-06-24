@@ -2753,4 +2753,68 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         names.sort();
         assert_eq!(names, vec!["Alice".to_string(), "Carol".to_string()]);
     }
+
+    /// OwlReason Method round-trips through dispatch: an EL existential-restriction
+    /// subsumption + an inferred instance membership the property-graph stored no
+    /// explicit type edge for, plus a consistency verdict (CONCEPT:KG-2.219).
+    #[cfg(feature = "owl")]
+    #[tokio::test]
+    async fn test_owl_reason_method_round_trips() {
+        let state = test_state();
+        // TBox + one individual, loaded as RDF; HumanHeart ⊑ HumanComponent is derived
+        // through ∃partOf.Body on the LHS — RL cannot reach it.
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Heart rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ] .
+[ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ] rdfs:subClassOf ex:HumanComponent .
+ex:HumanHeart rdfs:subClassOf ex:Heart .
+ex:myHeart a ex:HumanHeart .
+"#;
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddTriples {
+                        turtle: ttl.into(),
+                        ntriples: String::new(),
+                    },
+                ),
+            )
+            .await,
+        );
+        let r = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::OwlReason {
+                    ontology: String::new(),
+                    target_class: "http://example.org/HumanComponent".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::OwlReasonResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlReasonResult), got {other:?}"),
+        };
+        assert!(res.consistent, "ontology is consistent");
+        // The EL-derived subsumption is in the hierarchy.
+        assert!(res.subclasses.contains(&(
+            "<http://example.org/HumanHeart>".into(),
+            "<http://example.org/HumanComponent>".into()
+        )));
+        // myHeart is an INFERRED HumanComponent (no explicit type edge for it).
+        assert!(res.instances.contains(&(
+            "<http://example.org/myHeart>".into(),
+            "<http://example.org/HumanComponent>".into()
+        )));
+    }
 }

@@ -138,6 +138,15 @@ fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
         #[cfg(feature = "text")]
         Op::FuseRrf { left, right, k } => fuse_rrf(ctx, &input, left, right, *k),
 
+        #[cfg(feature = "owl")]
+        Op::Reason {
+            target_class,
+            ontology,
+        } => Ok(reason_source(ctx.view, target_class, ontology)),
+
+        #[cfg(feature = "owl")]
+        Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
 }
@@ -191,6 +200,60 @@ fn fuse_rrf(
     let k = if k > 0.0 { k } else { eg_text::RRF_K };
     let fused = eg_text::rrf_fuse(&[&l, &r], k);
     Ok(RowSet::from_scored(fused))
+}
+
+/// SOURCE (OWL): the individuals the native OWL 2 reasoner INFERS to be members of
+/// `target_class` (CONCEPT:KG-2.220). Parses the `ontology` Turtle (or, when empty,
+/// the axioms already present in the graph view's blobs — they round-trip as RDF),
+/// runs EL⁺ classification, reads the graph's asserted instance types, and projects
+/// every (possibly only-inferred) member of `target_class` into a `RowSet`. These are
+/// ids the property-graph stored NO explicit `target_class` type edge for, yet they
+/// then flow — like any RowSet — into a downstream `Traverse`/`Rank`/`Filter`/`Limit`.
+#[cfg(feature = "owl")]
+fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet {
+    use eg_rdf::owl::{asserted_types_from_view, instances_of, Reasoner};
+
+    // Axioms: an explicit ontology document, else the triples already in the graph.
+    let triples = if ontology.trim().is_empty() {
+        eg_rdf::owl::tbox_triples_from_view(view)
+    } else {
+        eg_rdf::mapping::parse_turtle(ontology).unwrap_or_default()
+    };
+    let mut reasoner = Reasoner::from_triples(&triples);
+    let cls = reasoner.classify();
+
+    // Asserted instance→class assignments from the live graph's folded `type`.
+    let asserted = asserted_types_from_view(view);
+    let target = normalize_class(target_class);
+    let members = instances_of(&cls, &asserted, &target);
+    RowSet::from_ids(members)
+}
+
+/// SOURCE (SPARQL): the node bindings of `var` in the SPARQL `query` over the view
+/// (CONCEPT:KG-2.220) — a SPARQL-selected candidate set as a RowSet. Only resource
+/// (node) bindings become ids; literal bindings are skipped (an id set is node ids).
+#[cfg(feature = "owl")]
+fn sparql_source(view: &GraphView, query: &str, var: &str) -> Result<RowSet, String> {
+    let res = eg_rdf::sparql::run(view, query)?;
+    let ids = res.solutions.iter().filter_map(|sol| {
+        sol.get(var).and_then(|b| match b {
+            eg_rdf::sparql::Binding::Node(n) => Some(n.clone()),
+            eg_rdf::sparql::Binding::Literal(_) => None,
+        })
+    });
+    Ok(RowSet::from_ids(ids))
+}
+
+/// Canonicalize a class id to the ontology's `<iri>` form (accept a bare IRI too).
+#[cfg(feature = "owl")]
+fn normalize_class(c: &str) -> String {
+    if c.starts_with('<') {
+        c.to_string()
+    } else if c.starts_with("http") {
+        format!("<{c}>")
+    } else {
+        c.to_string()
+    }
 }
 
 /// SOURCE: all node ids whose `type` property equals `label`.
