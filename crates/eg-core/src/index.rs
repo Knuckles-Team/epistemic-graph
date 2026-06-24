@@ -108,7 +108,7 @@ pub enum IndexColumns {
 /// physical fields, so it is exposed under one stable name to a planner).
 pub const LABEL_COLUMN: &str = "__label__";
 
-/// One secondary index behind the manager. Implementors keep their own cache
+/// One secondary index behind the manager. Implementers keep their own cache
 /// (lazy-built, `version()`/`mark_dirty`-invalidated) — the manager only routes.
 pub trait SecondaryIndex: Send + Sync {
     /// This index's kind.

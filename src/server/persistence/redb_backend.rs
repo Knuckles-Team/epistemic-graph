@@ -54,7 +54,7 @@ use super::PersistenceBackend;
 // The graph table layout + the PURE durable-row machinery (Method→rows apply,
 // group-commit, checkpoint/load) now live in the server-INDEPENDENT
 // `crate::redb_store` (CONCEPT:KG-2.216) so the embedded API can drive the SAME
-// durable format with no Tokio. This backend re-uses them verbatim — ONE format,
+// durable format with no Tokio. This backend reuses them verbatim — ONE format,
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
 use crate::redb_store::{
