@@ -911,6 +911,8 @@ mod blob_dispatch_tests {
             blob_cursor_ttl_secs: 300,
             #[cfg(feature = "raft")]
             raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
         }))
     }
 
