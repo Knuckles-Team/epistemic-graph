@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "epistemic-graph"
-version = "0.33.0"
+version = "0.33.1"
 description = "Rust-based epistemic graph engine for agent-utilities"
 readme = "README.md"
 requires-python = ">=3.10"

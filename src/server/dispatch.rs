@@ -274,6 +274,29 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             match s.registry.delete_graph(graph_name) {
                 Ok(()) => {
                     crate::metrics::drop_graph(graph_name);
+                    // Authoritative durable purge (CONCEPT:KG-2.212): the registry
+                    // entry is gone from RAM, but the graph's durable rows (nodes/
+                    // edges/ledger/semantic/graph_meta, keyed by the sanitized name)
+                    // must ALSO be removed — otherwise a recreate of the SAME name
+                    // inherits the deleted incarnation's rows via the read-through-on-
+                    // RAM-miss path and via `load_all`, silently dropping/corrupting
+                    // the new tenant's writes. Commit-before-ack: await the purge so a
+                    // same-name recreate after this ack starts from a clean slate, no
+                    // race with the async writer. A purge failure is surfaced as an
+                    // error (the delete is not durably complete).
+                    let (authoritative, backend) = (s.redb_authoritative, s.persistence.clone());
+                    drop(s);
+                    if authoritative {
+                        if let Some(p) = backend {
+                            let fname = crate::persist::sanitize(graph_name);
+                            if let Err(e) = p.purge_graph(&fname).await {
+                                return Response::err(
+                                    req.id,
+                                    format!("durable graph purge failed: {e}"),
+                                );
+                            }
+                        }
+                    }
                     Response::ok(
                         req.id,
                         ResultPayload::Json(serde_json::json!({"deleted": graph_name})),
