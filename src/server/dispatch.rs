@@ -730,6 +730,23 @@ async fn dispatch_graph_op(
                     Ok(r) => break 'dispatch r,
                     Err(m) => m,
                 };
+            // WASM-sandboxed UDF surface (CONCEPT:KG-2.228, feature `wasm-udf`):
+            // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
+            // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
+            // `state` for the UdfRegistry. A method whose feature is off falls through.
+            #[cfg(feature = "wasm-udf")]
+            let method = match handlers::wasm_udf::try_handle(state, req_id, method).await {
+                Ok(r) => break 'dispatch r,
+                Err(m) => m,
+            };
+            // Distributed graph compute (CONCEPT:KG-2.227, feature `compute-dist`):
+            // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
+            // `state` (it gathers each shard graph's snapshot from the registry).
+            #[cfg(feature = "compute-dist")]
+            let method = match handlers::dist_compute::try_handle(state, req_id, method).await {
+                Ok(r) => break 'dispatch r,
+                Err(m) => m,
+            };
             // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
             // re-enter the registry via `state`). Owns the catch-all, returns a Response.
             // Bind then `break` (not a tail expr) so the `'dispatch` label stays used
@@ -954,6 +971,12 @@ mod blob_dispatch_tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }))
     }
 

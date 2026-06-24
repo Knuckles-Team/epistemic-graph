@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm"]
 
 [package]
 name = "epistemic-graph"
@@ -112,6 +112,23 @@ tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
 # Activates only when built `--features raft` AND configured at runtime
 # (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
 raft = ["server", "redb", "dep:openraft"]
+# Distributed graph compute (CONCEPT:KG-2.227): a Pregel/GAS vertex-centric engine
+# that runs PageRank / connected-components / BFS ACROSS graphs spanning multiple
+# Raft groups/shards (gather-apply-scatter supersteps, cross-shard messages via the
+# existing group RPC), plus incremental/streaming recompute on a delta and named,
+# incrementally-maintained MATERIALIZED VIEWS. It needs the multi-Raft groups, so it
+# pulls `raft` (cluster-tier) — and is therefore OUT of `pi`/`default`/`full`/`node`,
+# folded only into `cluster`. The single-shard fast path is unchanged (always-on
+# `algorithms`); this adds the cross-shard superstep coordinator on top.
+compute-dist = ["raft", "eg-types/compute-dist"]
+# WASM-sandboxed UDF/extension model (CONCEPT:KG-2.228): an agent pushes a safe custom
+# compute function (a WebAssembly module) the engine runs SANDBOXED over a RowSet —
+# wasmtime with fuel-metering + a hard memory limit + NO host capabilities (pure
+# compute, no fs/net). Pulls eg-wasm → wasmtime + cranelift, which is HEAVY and has a
+# C-ish build, so it is OFF by `default`/`pi` (the Pi contract: no wasmtime/cranelift
+# in the tree) and folded only into node/cluster/full. The `Udf{id}` plan op + the
+# RegisterUdf/RunUdf methods light up with it.
+wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf"]
 # Correctness + load harness (CONCEPT:KG-2.212 / KG-2.222) — the standing proof-engine
 # that gates every distributed/durability claim (multi-raft, M2 durability, distributed
 # txns, PITR/replication, the cross-shard 2PC atomicity + recovery proof). TEST/DEV-ONLY:
@@ -168,9 +185,11 @@ rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).
-# `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP) so the standard full/all build
-# is authoritative-by-default (a durable source of truth) just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan"]
+# Consequently `compute-dist` (which NEEDS raft for cross-shard supersteps) is NOT in
+# `full` either — it ships only in `cluster`. `wasm-udf` IS folded in (node/cluster/
+# full carry the WASM UDF runtime). `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP)
+# so the standard full/all build is authoritative-by-default just like pi/node/cluster.
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "wasm-udf"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -190,12 +209,14 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl"]
-node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan"]
+node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
-# Postgres wire shim (CONCEPT:KG-2.189, M8). The two sibling tracks each extended
-# `cluster`; this integration unions both halves so the cluster tier links raft
-# AND pgwire (and transitively datafusion via `query`).
-cluster = ["node", "raft", "pgwire"]
+# Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
+# (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
+# multi-Raft groups). The sibling tracks each extended `cluster`; this unions them so
+# the cluster tier links raft AND pgwire AND the distributed-compute coordinator (and
+# transitively datafusion via `query`).
+cluster = ["node", "raft", "pgwire", "compute-dist"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
@@ -219,6 +240,10 @@ eg-tsdb = { path = "crates/eg-tsdb", optional = true }
 # build links none of them (asserted by cargo tree). Its `rdf-redb` quad table rides
 # the facade `redb` feature.
 eg-rdf = { path = "crates/eg-rdf", optional = true }
+# Optional WASM-sandboxed UDF runtime (feature `wasm-udf`, CONCEPT:KG-2.228). Pulls
+# wasmtime + cranelift only when enabled, so a default/pi build links neither
+# (asserted by cargo tree). The sandboxed `UdfRegistry` lives on ServerState.
+eg-wasm = { path = "crates/eg-wasm", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }

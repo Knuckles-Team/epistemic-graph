@@ -917,6 +917,12 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -992,6 +998,12 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -1073,6 +1085,12 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -1254,6 +1272,12 @@ mod tests {
             tsdb_store: None,
             #[cfg(feature = "rdf-redb")]
             rdf_quads: None,
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating

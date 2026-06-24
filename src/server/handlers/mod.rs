@@ -41,3 +41,14 @@ pub(crate) mod blob;
 // module and the variants fall to the graph_ops "not available" catch-all.
 #[cfg(feature = "rdf")]
 pub(crate) mod rdf;
+// WASM-sandboxed UDF surface (CONCEPT:KG-2.228, feature `wasm-udf`). RegisterUdf/RunUdf
+// drive the process-global UdfRegistry on ServerState; a build without `wasm-udf` omits
+// the module and the variants fall to the graph_ops not-available catch-all.
+#[cfg(feature = "wasm-udf")]
+pub(crate) mod wasm_udf;
+// Distributed graph compute (CONCEPT:KG-2.227, feature `compute-dist`). The
+// DistributedCompute/*MatView methods drive the cross-shard Pregel engine + the
+// matview store on ServerState; a non-cluster build omits the module and the variants
+// fall to the graph_ops not-available catch-all.
+#[cfg(feature = "compute-dist")]
+pub(crate) mod dist_compute;
