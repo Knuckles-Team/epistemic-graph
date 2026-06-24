@@ -1,10 +1,31 @@
+# Production single-node DB server (multi-arch image from docker/Dockerfile).
+# `docker compose -f docker/compose.yml up server` for a durable local instance.
 services:
-  test-runner:
+  server:
+    image: epistemic-graph:local
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    environment:
+      # REQUIRED — the server refuses to start without an auth secret.
+      - GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET:?set a secret, e.g. openssl rand -hex 32}
+    ports:
+      - "127.0.0.1:9100:9100"   # RPC (clients)
+      - "127.0.0.1:9101:9101"   # Prometheus metrics
+    volumes:
+      - eg-data:/var/lib/epistemic-graph/data
+    restart: unless-stopped
+
+  # Dev/test runner (pytest over the Python client) — separate Dockerfile.
+  test-runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
     volumes:
       - ../tests:/app/tests
     environment:
       - PYTHONPATH=.
     command: pytest
+
+volumes:
+  eg-data:
