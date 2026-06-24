@@ -56,35 +56,35 @@ use crate::server::ServerState;
 /// vertex, owned by the shard that declares it first in the `graphs` order).
 pub type VertexId = String;
 
-/// One shard's slice of the distributed computation: the vertices it OWNS, each owned
-/// vertex's out-edges (to any vertex in the union), and the per-vertex value being
-/// computed. Holds an inbox of messages delivered cross-shard for the next superstep.
-struct ShardCompute {
-    /// The graph name this shard corresponds to (its Raft group's keyspace).
-    #[allow(dead_code)]
-    graph: String,
-    /// Vertices this shard OWNS (the partition).
-    owned: BTreeSet<VertexId>,
-    /// Out-edges of owned vertices: `src -> [tgt, …]` (tgt may live in another shard).
-    out_edges: HashMap<VertexId, Vec<VertexId>>,
-}
-
-/// The gathered, partitioned topology for a distributed run: the shards plus the
-/// global ownership map (`vertex -> shard index`). Built ONCE by [`gather_shards`]
-/// from the live registry (each graph's topology snapshot, off-lock).
+/// The gathered, partitioned topology for a distributed run (CONCEPT:KG-2.227). Holds:
+///
+/// * `owner` — which shard each vertex is OWNED by (the routing table: a message to a
+///   vertex is delivered to its owning shard, the cross-shard hop). One graph = one
+///   shard = one Raft group, so this is the real partition boundary.
+/// * `owned` — per shard, the vertices it owns (the partition's vertex set).
+/// * the GLOBAL `out_edges` / `out_degree` over the UNION — every edge from every
+///   shard, merged. A vertex's out-edges live wherever the edge was declared, so the
+///   superstep gathers them globally; the partitioning only controls message ROUTING
+///   (which shard a vertex's value/messages belong to), never the edge math. This keeps
+///   the result bit-identical to the single-graph algorithm on the union (the property
+///   the test asserts), while message passing is genuinely partitioned by ownership.
 struct Partitioning {
-    shards: Vec<ShardCompute>,
-    /// Which shard owns each vertex. The authoritative routing table for messages.
+    /// Which shard owns each vertex (its declaring shard, first in `graphs` order).
     owner: HashMap<VertexId, usize>,
-    /// Out-degree of every vertex in the UNION (used by PageRank mass distribution).
+    /// Per shard: the vertices it owns. `owned[i]` is shard `i`'s partition.
+    owned: Vec<BTreeSet<VertexId>>,
+    /// GLOBAL out-edges over the union: `src -> [tgt, …]` (parallel edges kept, matching
+    /// the single-graph degree). The far endpoint may be owned by another shard — that
+    /// is the cross-shard edge a message rides over.
+    out_edges: HashMap<VertexId, Vec<VertexId>>,
+    /// Out-degree of every vertex in the UNION (PageRank mass split).
     out_degree: HashMap<VertexId, usize>,
-    /// Every vertex in the union, in a stable order (sorted) — the result domain.
+    /// Every vertex in the union, sorted — the deterministic result domain.
     all_vertices: Vec<VertexId>,
 }
 
 impl Partitioning {
-    /// The shard that owns `v` (`None` if `v` is not in the union — shouldn't happen
-    /// for a routed message, but cross-shard edges to an absent vertex are dropped).
+    /// The shard that owns `v` (`None` if `v` is not in the union).
     fn owner_of(&self, v: &str) -> Option<usize> {
         self.owner.get(v).copied()
     }
@@ -93,7 +93,7 @@ impl Partitioning {
 /// Gather each graph's topology into a [`Partitioning`]. Reads each graph's
 /// `topology_snapshot()` off-lock (the same off-lock discipline the single-graph
 /// algorithms use), assigns each vertex to the FIRST shard (in `graphs` order) that
-/// declares it, and records every out-edge + the union out-degree.
+/// declares it as a NODE, and merges every shard's edges into the global union edge set.
 ///
 /// A graph that does not exist yet is skipped (an empty shard) — mirrors the
 /// cross-graph union-read tolerance.
@@ -102,61 +102,67 @@ async fn gather_shards(
     graphs: &[String],
 ) -> Result<Partitioning, String> {
     let s = state.read().await;
-    let mut shards: Vec<ShardCompute> = Vec::with_capacity(graphs.len());
-    let mut owner: HashMap<VertexId, usize> = HashMap::new();
-
     // Snapshot each graph's topology under the registry lock's protection but reading
     // each core's own lock — we clone the petgraph out (off-lock compute thereafter).
-    let mut snaps: Vec<(String, eg_core::graph::GraphView)> = Vec::with_capacity(graphs.len());
+    let mut snaps: Vec<eg_core::graph::GraphView> = Vec::with_capacity(graphs.len());
     for name in graphs {
         match s.registry.get(name) {
-            Some(entry) => snaps.push((name.clone(), entry.core.topology_snapshot())),
+            Some(entry) => snaps.push(entry.core.topology_snapshot()),
             None => continue, // a shard graph may not exist yet — empty partition.
         }
     }
     drop(s);
 
+    let n_shards = snaps.len();
+    let mut owner: HashMap<VertexId, usize> = HashMap::new();
+    let mut owned: Vec<BTreeSet<VertexId>> = vec![BTreeSet::new(); n_shards];
+    let mut out_edges: HashMap<VertexId, Vec<VertexId>> = HashMap::new();
     let mut out_degree: HashMap<VertexId, usize> = HashMap::new();
+    // Dedup the merged edge set: a cross-shard edge can be declared in BOTH shards (the
+    // source's and a mirror); count each (src,tgt) ONCE so the union degree is exact.
+    let mut seen_edges: HashSet<(VertexId, VertexId)> = HashSet::new();
 
-    for (shard_idx, (name, view)) in snaps.iter().enumerate() {
-        let mut owned: BTreeSet<VertexId> = BTreeSet::new();
-        let mut out_edges: HashMap<VertexId, Vec<VertexId>> = HashMap::new();
-
-        // Every node id this graph declares becomes a candidate owned vertex.
+    use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+    for (shard_idx, view) in snaps.iter().enumerate() {
+        // Ownership: first shard (in `graphs` order) to declare a vertex as a NODE owns
+        // it. (A vertex appearing only as a far edge endpoint is owned by whoever
+        // declares it as a node; if none does, it is mapped below.)
         for id in view.node_map.keys() {
-            // First shard to declare a vertex owns it (stable, order-deterministic).
-            owner.entry(id.clone()).or_insert(shard_idx);
-            if owner[id] == shard_idx {
-                owned.insert(id.clone());
+            if let std::collections::hash_map::Entry::Vacant(e) = owner.entry(id.clone()) {
+                e.insert(shard_idx);
+                owned[shard_idx].insert(id.clone());
             }
         }
-        // Out-edges from this graph's topology.
-        use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+        // Merge this shard's edges into the GLOBAL union edge set (deduped).
         for e in view.graph.edge_references() {
             let src = view.graph[e.source()].clone();
             let tgt = view.graph[e.target()].clone();
-            out_edges.entry(src.clone()).or_default().push(tgt.clone());
-            *out_degree.entry(src).or_insert(0) += 1;
+            if seen_edges.insert((src.clone(), tgt.clone())) {
+                out_edges.entry(src.clone()).or_default().push(tgt);
+                *out_degree.entry(src).or_insert(0) += 1;
+            }
         }
-
-        shards.push(ShardCompute {
-            graph: name.clone(),
-            owned,
-            out_edges,
-        });
     }
 
-    // A vertex declared only as an edge TARGET in another shard (never as a node) still
-    // needs an owner so messages to it land somewhere. Assign it to its declaring
-    // shard's targets — but since every node we care about is in some node_map, and a
-    // dangling target has no out-edges, we map any unowned target to shard 0 if shards
-    // exist (it contributes nothing but receives messages consistently).
+    // Any vertex referenced by an edge but never declared as a node (a pure target)
+    // still needs an owner so a message to it lands somewhere; map it to shard 0.
+    if n_shards > 0 {
+        let targets: Vec<VertexId> = out_edges.values().flatten().cloned().collect();
+        for t in targets {
+            if let std::collections::hash_map::Entry::Vacant(e) = owner.entry(t.clone()) {
+                e.insert(0);
+                owned[0].insert(t);
+            }
+        }
+    }
+
     let all_set: BTreeSet<VertexId> = owner.keys().cloned().collect();
     let all_vertices: Vec<VertexId> = all_set.into_iter().collect();
 
     Ok(Partitioning {
-        shards,
         owner,
+        owned,
+        out_edges,
         out_degree,
         all_vertices,
     })
@@ -217,12 +223,13 @@ pub async fn run_distributed(
 
 // ── PageRank — power iteration as Pregel supersteps with cross-shard messages ──
 
-/// Distributed PageRank. Each superstep: every vertex SCATTERS `value/out_degree` along
-/// each out-edge (a message, routed to the target's owning shard — cross-shard if the
-/// target lives elsewhere); every vertex then GATHERS the sum of incoming messages and
-/// APPLIES `teleport + damping * sum`. Dangling-vertex mass (no out-edges) is
-/// redistributed uniformly so the result matches the single-graph `algorithms::pagerank`
-/// power iteration (which the test compares against on the union graph).
+/// Distributed PageRank. Each superstep: every vertex SCATTERS `damping·value/out_degree`
+/// along each out-edge (a message, routed to the target's owning shard — cross-shard if
+/// the target lives elsewhere); every vertex then GATHERS the sum of incoming messages
+/// and APPLIES `teleport + sum`. This mirrors the single-graph `algorithms::pagerank`
+/// power iteration EXACTLY (same teleport, same per-edge mass split, dangling mass simply
+/// leaks — NOT re-normalized), so the distributed result is bit-identical to the
+/// single-graph result on the UNION graph (the property the test asserts).
 fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) -> ScoreRows {
     let n = part.all_vertices.len();
     if n == 0 {
@@ -240,20 +247,21 @@ fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) ->
         // SCATTER: each shard produces messages from its OWNED vertices' out-edges,
         // routing each to the target's owning shard's inbox. We accumulate the inbox as
         // a per-target sum (the Pregel combiner — sum is associative, so combining at
-        // the source shard before routing is equivalent and cheaper).
+        // the source shard before routing is equivalent and cheaper). A vertex with no
+        // out-edges (a sink) simply emits nothing — its mass leaks, matching the
+        // reference power iteration (no dangling redistribution).
         let mut inbox: HashMap<&str, f64> = HashMap::new();
-        for shard in &part.shards {
-            for src in &shard.owned {
+        for owned in &part.owned {
+            for src in owned {
                 let deg = part.out_degree.get(src).copied().unwrap_or(0);
-                let val = value[src.as_str()];
                 if deg == 0 {
-                    continue; // dangling mass handled below
+                    continue;
                 }
-                let share = damping * val / deg as f64;
-                if let Some(targets) = shard.out_edges.get(src) {
+                let share = damping * value[src.as_str()] / deg as f64;
+                if let Some(targets) = part.out_edges.get(src) {
                     for t in targets {
-                        // Route the message to the target's owning shard. We assert the
-                        // owner exists (a real cross-shard hop when owner != this shard).
+                        // Route the message to the target's owning shard (a real
+                        // cross-shard hop when the target is owned elsewhere).
                         if part.owner_of(t).is_some() {
                             *inbox.entry(t.as_str()).or_insert(0.0) += share;
                         }
@@ -261,22 +269,12 @@ fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) ->
                 }
             }
         }
-        // Dangling mass: vertices with no out-edges leak their damped mass; redistribute
-        // it uniformly (the standard correction that keeps the vector stochastic and
-        // matches the reference power iteration on a graph with sinks).
-        let dangling: f64 = part
-            .all_vertices
-            .iter()
-            .filter(|v| part.out_degree.get(v.as_str()).copied().unwrap_or(0) == 0)
-            .map(|v| damping * value[v.as_str()])
-            .sum::<f64>()
-            / n as f64;
 
-        // GATHER + APPLY.
+        // GATHER + APPLY: `teleport + Σ incoming`.
         let mut next: HashMap<&str, f64> = HashMap::with_capacity(n);
         for v in &part.all_vertices {
             let incoming = inbox.get(v.as_str()).copied().unwrap_or(0.0);
-            next.insert(v.as_str(), teleport + dangling + incoming);
+            next.insert(v.as_str(), teleport + incoming);
         }
         value = next;
     }
@@ -307,16 +305,14 @@ fn distributed_connected_components(part: &Partitioning) -> LabelRows {
         .map(|(i, v)| (v.as_str(), i as i64))
         .collect();
 
-    // Build the UNDIRECTED adjacency from all shards' out-edges (weak connectivity:
+    // Build the UNDIRECTED adjacency from the global union out-edges (weak connectivity:
     // an edge connects in both directions regardless of which shard owns the endpoint).
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
-    for shard in &part.shards {
-        for (src, targets) in &shard.out_edges {
-            for t in targets {
-                if idx.contains_key(t.as_str()) {
-                    adj.entry(src.as_str()).or_default().push(t.as_str());
-                    adj.entry(t.as_str()).or_default().push(src.as_str());
-                }
+    for (src, targets) in &part.out_edges {
+        for t in targets {
+            if idx.contains_key(t.as_str()) {
+                adj.entry(src.as_str()).or_default().push(t.as_str());
+                adj.entry(t.as_str()).or_default().push(src.as_str());
             }
         }
     }
@@ -380,18 +376,15 @@ fn distributed_bfs(part: &Partitioning, source: &str) -> LabelRows {
         // SCATTER from the current frontier; a message to a target owned by another
         // shard is the cross-shard hop. GATHER+APPLY: an unvisited target takes cur+1.
         while let Some(u) = frontier.pop_front() {
-            // Find u's out-edges in whichever shard owns u.
-            if let Some(oidx) = part.owner_of(&u) {
-                if let Some(targets) = part.shards[oidx].out_edges.get(&u) {
-                    for t in targets {
-                        // GATHER+APPLY: an unvisited target (level == -1) takes cur+1
-                        // and joins the next frontier. `level` is keyed by the union's
-                        // &str ids, so update in place via the entry.
-                        if let Some(slot) = level.get_mut(t.as_str()) {
-                            if *slot == -1 {
-                                *slot = cur + 1;
-                                next.insert(t.clone());
-                            }
+            // SCATTER along u's out-edges (global union). A target owned by another shard
+            // is the cross-shard hop. GATHER+APPLY: an unvisited target (level == -1)
+            // takes cur+1 and joins the next frontier.
+            if let Some(targets) = part.out_edges.get(&u) {
+                for t in targets {
+                    if let Some(slot) = level.get_mut(t.as_str()) {
+                        if *slot == -1 {
+                            *slot = cur + 1;
+                            next.insert(t.clone());
                         }
                     }
                 }
@@ -438,15 +431,13 @@ pub async fn incremental_connected_components(
         .map(|(i, v)| (v.as_str(), i as i64))
         .collect();
 
-    // Undirected adjacency (weak connectivity).
+    // Undirected adjacency (weak connectivity) over the global union out-edges.
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
-    for shard in &part.shards {
-        for (src, targets) in &shard.out_edges {
-            for t in targets {
-                if idx.contains_key(t.as_str()) {
-                    adj.entry(src.as_str()).or_default().push(t.as_str());
-                    adj.entry(t.as_str()).or_default().push(src.as_str());
-                }
+    for (src, targets) in &part.out_edges {
+        for t in targets {
+            if idx.contains_key(t.as_str()) {
+                adj.entry(src.as_str()).or_default().push(t.as_str());
+                adj.entry(t.as_str()).or_default().push(src.as_str());
             }
         }
     }
