@@ -274,7 +274,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             match s.registry.delete_graph(graph_name) {
                 Ok(()) => {
                     crate::metrics::drop_graph(graph_name);
-                    // Authoritative durable purge (CONCEPT:KG-2.212): the registry
+                    // Authoritative durable purge (CONCEPT:KG-2.221): the registry
                     // entry is gone from RAM, but the graph's durable rows (nodes/
                     // edges/ledger/semantic/graph_meta, keyed by the sanitized name)
                     // must ALSO be removed — otherwise a recreate of the SAME name

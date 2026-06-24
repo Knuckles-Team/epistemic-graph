@@ -106,7 +106,7 @@ enum Cmd {
         done: oneshot::Sender<Result<(), String>>,
     },
     /// Drop EVERY durable row for one graph — nodes/edges/ledger/semantic AND the
-    /// `graph_meta` identity row — in one durable transaction (CONCEPT:KG-2.212).
+    /// `graph_meta` identity row — in one durable transaction (CONCEPT:KG-2.221).
     /// Issued when a tenant is DELETED so a recreate of the SAME name starts from a
     /// clean durable slate: without this the stale rows survive (same `graph_fname`
     /// key) and leak into the recreated tenant via the read-through / `load_all`.
@@ -1277,7 +1277,7 @@ fn clear_graph_rows(
     Ok(())
 }
 
-/// Drop EVERY durable row for `graph` in ONE durable transaction (CONCEPT:KG-2.212,
+/// Drop EVERY durable row for `graph` in ONE durable transaction (CONCEPT:KG-2.221,
 /// the tenant-DELETE path). Unlike `clear_graph_rows` (which empties a LIVE graph's
 /// data but keeps its `graph_meta` identity), this ALSO removes the `semantic_store`
 /// blob and the `graph_meta` row, so the graph ceases to exist durably — a recreate
@@ -1697,7 +1697,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:KG-2.212 — tenant DELETE + recreate-same-name must not drop the new
+    /// CONCEPT:KG-2.221 — tenant DELETE + recreate-same-name must not drop the new
     /// graph's writes. Under redb-authoritative mode (read-through wired exactly as
     /// `main.rs` does it) we: create "g", add "n1"={v:1}, DELETE "g", recreate "g",
     /// add "n1"={v:2}, then read "n1" back through the full dispatch path. The
