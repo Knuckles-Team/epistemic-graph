@@ -882,6 +882,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // ── Distributed-compute materialized-view reload (CONCEPT:KG-2.227) ───────
+    // On every boot, reload any persisted matviews from the redb durable tier into
+    // the in-RAM index so `GetMatView` serves them immediately. A no-op when no
+    // matviews were ever created / no redb backend is configured.
+    #[cfg(feature = "compute-dist")]
+    match epistemic_graph::server::reload_matviews(&state).await {
+        Ok(0) => {}
+        Ok(n) => info!("Reloaded {n} materialized view(s) from redb (CONCEPT:KG-2.227)"),
+        Err(e) => tracing::warn!("materialized-view reload skipped: {e}"),
+    }
+
     // ── Graceful shutdown coordination (reference-counted) ────────────────
     // ONE coordinator shared by every accept loop, the SIGTERM/SIGINT handler,
     // and the optional idle watcher. When its signal fires, the accept loop(s)

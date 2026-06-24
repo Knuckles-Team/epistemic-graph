@@ -29,6 +29,10 @@ pub mod txn;
 // `server::{handle_connection,serve_uds,serve_tcp}` — used by main.rs/persist.rs/tests.
 pub use auth::compute_auth_token;
 pub use dispatch::dispatch;
+// Distributed-compute materialized-view boot reload (CONCEPT:KG-2.227): the binary
+// calls this on startup to repopulate the in-RAM matview index from redb.
+#[cfg(feature = "compute-dist")]
+pub use handlers::dist_compute::reload_matviews;
 pub use persistence::PersistenceBackend;
 pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
 pub use transport::{handle_connection, run_idle_watcher, serve_tcp, ShutdownCoordinator};
