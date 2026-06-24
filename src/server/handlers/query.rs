@@ -153,7 +153,13 @@ fn run_unified(
         None => plan.ops,
     };
 
-    let ctx = PlanCtx { view, semantic };
+    // `PlanCtx::new` defaults the (feature-gated) text index to `None`, so a
+    // `RankText`/`FuseRrf` op served today degrades to no lexical hits rather than
+    // erroring. Threading a live BM25 `TextIndex` into `ServerState` (index-on-write +
+    // an `AddText`/`IndexText` Method + a persist dir beside graph.redb) is the
+    // explicit follow-up integration (CONCEPT:KG-2.215 increment 2); the algebra +
+    // index crate land + are proven here.
+    let ctx = PlanCtx::new(view, semantic);
     let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
     Ok(result
         .rows()

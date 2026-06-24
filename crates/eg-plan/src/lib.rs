@@ -76,7 +76,16 @@ pub mod rowset;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
 
+// Re-export the lexical surface (CONCEPT:KG-2.215) so a caller wiring a text plan
+// names them through eg-plan: the BM25 index, the hit row, and the RRF helper.
+#[cfg(feature = "text")]
+pub use eg_text::{rrf_fuse, TextHit, TextIndex, RRF_K};
+
 #[cfg(all(test, feature = "query"))]
 mod fixture;
 #[cfg(all(test, feature = "query"))]
 mod tests;
+
+// The lexical BM25 `RankText` + RRF `FuseRrf` hybrid proofs (CONCEPT:KG-2.215).
+#[cfg(all(test, feature = "text"))]
+mod text_tests;
