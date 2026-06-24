@@ -73,6 +73,32 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
+        #[cfg(feature = "query")]
+        Method::UnifiedQueryText {
+            text,
+            reorder_filter_selectivity,
+        } => {
+            // UQL (CONCEPT:KG-2.214): parse the TEXT query into the SAME `wire::Plan`
+            // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —
+            // a pure front-end, no new execution path. A parse error is a clear,
+            // caret-annotated error Response (never a panic).
+            let plan = match eg_plan::uql::parse(&text) {
+                Ok(plan) => plan,
+                Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+            };
+            let snap = core.analysis_snapshot();
+            let semantic = core.semantic_store.read().clone();
+            let resp = match compute_off_lock(req_id, move || {
+                run_unified(plan, reorder_filter_selectivity, &snap, &semantic)
+            })
+            .await
+            {
+                Ok(Ok(rows)) => Response::ok(req_id, ResultPayload::raw(&rows)),
+                Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
         #[cfg(feature = "cypher")]
         Method::CypherQuery { query } => {
             // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
