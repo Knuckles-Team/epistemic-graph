@@ -130,6 +130,7 @@ def test_legacy_snapshot_migration_scales_and_serves(tmp_path):
     binary = _build_redb()
     if binary is None:
         pytest.skip("redb+server build failed in this environment")
+        assert binary is not None  # narrow type for mypy (skip above is NoReturn)
 
     persist_dir = str(tmp_path / "store")
     os.makedirs(persist_dir, exist_ok=True)

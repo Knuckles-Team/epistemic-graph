@@ -903,7 +903,7 @@ mod tests {
 
     #[test]
     fn parse_error_surfaces() {
-        assert!(classify("SELEKT 1").is_err());
+        assert!(classify("NOTAKEYWORD 1").is_err());
         assert!(classify("").is_err());
         assert!(classify("SELECT 1; SELECT 2").is_err());
     }

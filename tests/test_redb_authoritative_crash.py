@@ -149,6 +149,7 @@ def test_acked_writes_survive_kill9(tmp_path):
     binary = _build_redb()
     if binary is None:
         pytest.skip("redb+server build failed in this environment")
+        assert binary is not None  # narrow type for mypy (skip above is NoReturn)
 
     persist_dir = str(tmp_path / "redb_store")
     os.makedirs(persist_dir, exist_ok=True)
@@ -203,6 +204,7 @@ def test_inflight_unacked_write_does_not_corrupt(tmp_path):
     binary = _build_redb()
     if binary is None:
         pytest.skip("redb+server build failed in this environment")
+        assert binary is not None  # narrow type for mypy (skip above is NoReturn)
 
     persist_dir = str(tmp_path / "redb_store2")
     os.makedirs(persist_dir, exist_ok=True)
@@ -249,6 +251,7 @@ def test_stock_default_build_is_durable_by_default(tmp_path):
     binary = _build_full()
     if binary is None:
         pytest.skip("full build failed in this environment")
+        assert binary is not None  # narrow type for mypy (skip above is NoReturn)
 
     persist_dir = str(tmp_path / "redb_store_default")
     os.makedirs(persist_dir, exist_ok=True)

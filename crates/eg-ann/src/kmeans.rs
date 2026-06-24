@@ -86,9 +86,9 @@ fn kmeanspp_init(data: &[Vec<f32>], dim: usize, k: usize, rng: &mut ChaCha8Rng) 
         d2.par_iter_mut()
             .zip(data.par_iter())
             .for_each(|(dist, p)| {
-                let nd = sq_dist(p, &newc);
-                if nd < *dist {
-                    *dist = nd;
+                let ndist = sq_dist(p, &newc);
+                if ndist < *dist {
+                    *dist = ndist;
                 }
             });
     }
