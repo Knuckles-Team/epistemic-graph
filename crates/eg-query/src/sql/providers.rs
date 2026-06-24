@@ -330,10 +330,26 @@ impl SqlCache {
     }
 }
 
-// ── nodes TableProvider + secondary-index predicate pushdown (CONCEPT:KG-2.199) ──
+// ── the pushdown registry (CONCEPT:KG-2.213) ─────────────────────────────────
+//
+// ONE registry the `nodes` provider consults for the two pushdown questions —
+// "is this predicate pushable?" and "resolve it to row positions" — instead of
+// the provider hard-coding the per-column indexability + per-value resolution
+// inline. This mirrors eg-core's `IndexManager` seam (CONCEPT:KG-2.213) at the
+// relational boundary: a relational predicate (`col = literal`) corresponds to
+// eg-core's `Predicate::PropertyEq`; the `id` column / a `type` equality maps to
+// the label/property indexes there. The registry keeps the EXACT bounded +
+// demand-driven equality semantics (CONCEPT:KG-2.199) so results stay identical —
+// it relocates the bespoke checks into one object, it does not change them.
+//
+// It works on row positions over the already-materialized Arrow batch (the SQL
+// surface's data shape) rather than node ids — so it is the relational sibling of
+// the eg-core `IndexManager`, not a second consumer of the same cache. Adding a
+// new pushable predicate shape (a range index, a text MATCH) extends this one
+// registry, not scattered provider methods.
 
-/// Default cap on the number of distinct columns the `nodes` provider will index
-/// for pushdown. Mirrors eg-core's property-index bound; env-overridable via
+/// Default cap on the number of distinct columns the pushdown registry will index.
+/// Mirrors eg-core's property-index bound; env-overridable via
 /// `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES`.
 const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
 
@@ -342,36 +358,30 @@ const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
 /// resolves to row positions regardless of the column's inferred Arrow type.
 type IndexKey = String;
 
-/// `nodes` table provider with secondary/property-index predicate pushdown
-/// (CONCEPT:KG-2.199). Wraps the already-materialized `(schema, batch)` that
-/// `infer_nodes` produced (so the rows are byte-identical to the full-scan path),
-/// plus a lazily-built, bounded per-column equality index
-/// (`column → (value → row positions)`).
-///
-/// `supports_filters_pushdown` reports `Exact` for a `col = literal` equality on an
-/// indexable column (`id` or any scalar property column in the schema); `scan`
-/// consumes those equalities, intersects their row-position sets via the index, and
-/// returns ONLY the matching rows (an `arrow::compute::take` into a fresh in-memory
-/// table) instead of decoding/scanning every node. Any non-equality / non-indexed
-/// predicate is reported `Unsupported`, so DataFusion keeps it as a Filter above the
-/// scan — results are therefore IDENTICAL to the full-scan path, with the index used
-/// purely to shrink the rows handed up. With no pushable filter the provider serves
-/// the full batch (the original behavior).
+/// The single secondary-index registry behind the `nodes` provider's pushdown
+/// (CONCEPT:KG-2.213, equality policy CONCEPT:KG-2.199). Owns the lazily-built,
+/// bounded per-column equality index (`column → value → row positions`) over the
+/// materialized batch, and answers:
+///   * [`PushdownRegistry::indexable_eq`] — "is this predicate a pushable
+///     equality?" (the registry equivalent of eg-core `IndexManager::index_for`);
+///   * [`PushdownRegistry::lookup`] — resolve a `(column, value)` equality to row
+///     positions, or `None` when the column can't be indexed under the bound
+///     (caller full-scans).
 ///
 /// Index policy (bounded + demand-driven, mirroring eg-core CONCEPT:KG-2.199): a
-/// column is indexed on its FIRST pushed equality and cached, up to
+/// column is indexed on its FIRST resolved equality and cached, up to
 /// `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` columns (default 32); columns named in
 /// `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` are pre-seeded on the first build.
 #[derive(Debug)]
-pub(crate) struct NodesTableProvider {
+pub(crate) struct PushdownRegistry {
     schema: SchemaRef,
     batch: RecordBatch,
     /// `column name → (value → row positions)`, built lazily under the bound.
     index: RwLock<HashMap<String, HashMap<IndexKey, Vec<u32>>>>,
 }
 
-impl NodesTableProvider {
-    pub(crate) fn new(schema: SchemaRef, batch: RecordBatch) -> Self {
+impl PushdownRegistry {
+    fn new(schema: SchemaRef, batch: RecordBatch) -> Self {
         Self {
             schema,
             batch,
@@ -493,9 +503,10 @@ impl NodesTableProvider {
         )
     }
 
-    /// Extract `(column, canonical-value)` from a `col = literal` / `literal = col`
-    /// equality on an indexable column; `None` for anything else.
-    fn as_eq_predicate(&self, expr: &Expr) -> Option<(String, IndexKey)> {
+    /// "Is this predicate a pushable equality?" — extract `(column, canonical-value)`
+    /// from a `col = literal` / `literal = col` equality on an indexable column;
+    /// `None` for anything else. The one place a predicate's pushability is decided.
+    fn indexable_eq(&self, expr: &Expr) -> Option<(String, IndexKey)> {
         let Expr::BinaryExpr(be) = expr else {
             return None;
         };
@@ -511,6 +522,40 @@ impl NodesTableProvider {
             return None;
         }
         scalar_to_key(lit).map(|k| (col.name.clone(), k))
+    }
+}
+
+// ── nodes TableProvider over the pushdown registry (CONCEPT:KG-2.199/2.213) ──
+
+/// `nodes` table provider whose predicate pushdown runs through ONE
+/// [`PushdownRegistry`] (CONCEPT:KG-2.213) rather than bespoke per-index checks.
+/// Wraps the already-materialized `(schema, batch)` that `infer_nodes` produced (so
+/// the rows are byte-identical to the full-scan path); the registry holds the
+/// lazily-built, bounded per-column equality index.
+///
+/// `supports_filters_pushdown` asks the registry whether each filter is a pushable
+/// equality (`Inexact` if so, `Unsupported` otherwise); `scan` asks the registry to
+/// resolve those equalities to row positions, intersects them, and returns ONLY the
+/// matching rows (an `arrow::compute::take` into a fresh in-memory table) instead of
+/// decoding/scanning every node. Because the predicates are reported `Inexact`,
+/// DataFusion re-applies them as a Filter above the scan, so results are IDENTICAL
+/// to the full-scan path — the index is a pure row-reduction optimization. With no
+/// pushable filter the provider serves the full batch (the original behavior).
+#[derive(Debug)]
+pub(crate) struct NodesTableProvider {
+    schema: SchemaRef,
+    batch: RecordBatch,
+    /// The single pushdown registry this provider consults (CONCEPT:KG-2.213).
+    registry: PushdownRegistry,
+}
+
+impl NodesTableProvider {
+    pub(crate) fn new(schema: SchemaRef, batch: RecordBatch) -> Self {
+        Self {
+            schema: schema.clone(),
+            batch: batch.clone(),
+            registry: PushdownRegistry::new(schema, batch),
+        }
     }
 }
 
@@ -565,7 +610,7 @@ impl TableProvider for NodesTableProvider {
         Ok(filters
             .iter()
             .map(|f| {
-                if self.as_eq_predicate(f).is_some() {
+                if self.registry.indexable_eq(f).is_some() {
                     TableProviderFilterPushDown::Inexact
                 } else {
                     TableProviderFilterPushDown::Unsupported
@@ -581,10 +626,11 @@ impl TableProvider for NodesTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DfResult<Arc<dyn ExecutionPlan>> {
-        // Collect the indexable equality predicates DataFusion pushed down.
+        // Collect the indexable equality predicates DataFusion pushed down,
+        // classified through the ONE pushdown registry (CONCEPT:KG-2.213).
         let preds: Vec<(String, IndexKey)> = filters
             .iter()
-            .filter_map(|f| self.as_eq_predicate(f))
+            .filter_map(|f| self.registry.indexable_eq(f))
             .collect();
 
         // Resolve each via the index and intersect. If ANY indexable predicate's
@@ -596,7 +642,7 @@ impl TableProvider for NodesTableProvider {
         let mut matched: Option<Vec<u32>> = None;
         let mut all_indexed = true;
         for (col, val) in &preds {
-            match self.lookup(col, val) {
+            match self.registry.lookup(col, val) {
                 Some(rows) => {
                     matched = Some(match matched.take() {
                         None => rows,
@@ -680,20 +726,21 @@ mod provider_tests {
     #[test]
     fn lookup_returns_matching_row_positions() {
         let p = provider();
+        let reg = &p.registry;
         // `team` is an indexable Utf8 column; resolve "blue" -> the 3 blue rows.
-        let rows = p.lookup("team", &"blue".to_string()).unwrap();
+        let rows = reg.lookup("team", &"blue".to_string()).unwrap();
         assert_eq!(rows.len(), 3, "three nodes are blue");
         // Each returned position's `team` cell must actually be "blue".
-        let (idx, _) = p.schema.column_with_name("team").unwrap();
-        let col = p.batch.column(idx);
+        let (idx, _) = reg.schema.column_with_name("team").unwrap();
+        let col = reg.batch.column(idx);
         for r in rows {
             assert_eq!(
-                NodesTableProvider::cell_key(col.as_ref(), r as usize),
+                PushdownRegistry::cell_key(col.as_ref(), r as usize),
                 Some("blue".to_string())
             );
         }
         // A value with no rows -> empty, but Some (column IS indexed).
-        assert_eq!(p.lookup("team", &"green".to_string()), Some(Vec::new()));
+        assert_eq!(reg.lookup("team", &"green".to_string()), Some(Vec::new()));
     }
 
     /// `supports_filters_pushdown`: equality on an indexable column is `Inexact`
@@ -719,9 +766,10 @@ mod provider_tests {
         std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES", "1");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let p = provider();
-        assert!(p.lookup("team", &"blue".to_string()).is_some());
+        let reg = &p.registry;
+        assert!(reg.lookup("team", &"blue".to_string()).is_some());
         assert!(
-            p.lookup("rank", &"2".to_string()).is_none(),
+            reg.lookup("rank", &"2".to_string()).is_none(),
             "cap=1 must refuse a second column"
         );
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");

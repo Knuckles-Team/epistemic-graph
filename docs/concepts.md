@@ -53,6 +53,8 @@ These concepts are actively realized by the compiled Rust/Python Epistemic Graph
 | `CONCEPT:KG-2.178` | Internal SQL query surface (read-only `SELECT … FROM nodes` over one graph via DataFusion, behind the `query` feature) | epistemic-graph |
 | `CONCEPT:KG-2.176` | Lazy secondary label index (`label → node ids`) for O(1) label lookup, invalidated on write | epistemic-graph |
 | `CONCEPT:KG-2.177` | Pluggable `PersistenceBackend` + durable redb write-through tier (behind the `redb` feature) | epistemic-graph |
+| `CONCEPT:KG-2.199` | Bounded, demand-driven secondary PROPERTY equality index (`key → value → node ids`) + DataFusion predicate pushdown | epistemic-graph |
+| `CONCEPT:KG-2.213` | Unified `IndexManager` seam: ONE registry over the label/property/vector/ontology indexes (`SecondaryIndex` trait + `index_for`/`descriptors_for_column`); eg-query pushdown consults ONE `PushdownRegistry`. See `docs/architecture/index-manager.md` | epistemic-graph |
 \n## CONCEPT:KG-2.20\nRust-Native Finance Compute Suite
 \n## CONCEPT:KG-2.22\nGraph Network Protocols
 \n## CONCEPT:KG-2.22\nData Science Primitives
