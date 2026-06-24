@@ -68,6 +68,17 @@ struct Args {
     /// Disabled when unset. Separate from the MessagePack RPC transports.
     #[arg(long, env = "GRAPH_SERVICE_METRICS_ADDR")]
     metrics_addr: Option<String>,
+
+    /// Self-terminate after N seconds with ZERO active connections (reference-
+    /// counted idle shutdown). 0 or absent ⇒ NEVER self-terminate on idle: the
+    /// engine is long-living/persistent and runs forever like a normal server.
+    /// N>0 ⇒ a shared tiny daemon shuts itself down (checkpointing cleanly) N
+    /// seconds after its last client disconnects; a new connection during the
+    /// grace period cancels the timer. SIGTERM/SIGINT graceful shutdown works in
+    /// BOTH modes. agent-utilities' EngineResolver passes this to its autostarted
+    /// tiny daemon.
+    #[arg(long, default_value = "0", env = "EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS")]
+    idle_shutdown_secs: u64,
 }
 
 fn resolve_socket_path(explicit: Option<String>) -> String {
@@ -817,6 +828,72 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // ── Graceful shutdown coordination (reference-counted) ────────────────
+    // ONE coordinator shared by every accept loop, the SIGTERM/SIGINT handler,
+    // and the optional idle watcher. When its signal fires, the accept loop(s)
+    // BREAK and the main listener returns, so we fall through to the persistence
+    // flush below (which was previously UNREACHABLE — the accept loop looped
+    // forever). The durable/redb commit-before-ack semantics are untouched: an
+    // already-acked write is already on disk; shutdown only flushes the writer's
+    // buffered/in-flight tail and writes a final checkpoint.
+    let shutdown = server::ShutdownCoordinator::new();
+
+    // SIGTERM (a supervisor / `kill` / agent-utilities stopping the daemon) and
+    // SIGINT (Ctrl-C) both fire the SAME graceful signal, so a supervised stop is
+    // a clean checkpointed shutdown in BOTH the persistent and the idle-shutdown
+    // modes. On non-unix only Ctrl-C is available.
+    {
+        let sig_coord = shutdown.clone();
+        tokio::spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut term = match signal(SignalKind::terminate()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("failed to install SIGTERM handler: {e}");
+                        return;
+                    }
+                };
+                let mut int = match signal(SignalKind::interrupt()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("failed to install SIGINT handler: {e}");
+                        return;
+                    }
+                };
+                tokio::select! {
+                    _ = term.recv() => info!("Received SIGTERM — graceful shutdown"),
+                    _ = int.recv()  => info!("Received SIGINT — graceful shutdown"),
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    info!("Received Ctrl-C — graceful shutdown");
+                }
+            }
+            sig_coord.trigger();
+        });
+    }
+
+    // Optional reference-counted idle shutdown (CONCEPT:KG-2.223). Only spawned
+    // when --idle-shutdown-secs N (N>0); absent/0 ⇒ no watcher ⇒ the engine is
+    // long-living/persistent and never self-terminates on idle.
+    if args.idle_shutdown_secs > 0 {
+        info!(
+            "Idle shutdown ARMED: will self-terminate after {}s with zero active connections",
+            args.idle_shutdown_secs
+        );
+        let idle_coord = shutdown.clone();
+        let secs = args.idle_shutdown_secs;
+        tokio::spawn(async move {
+            server::run_idle_watcher(idle_coord, secs).await;
+        });
+    } else {
+        info!("Idle shutdown disabled (persistent mode): engine stays up while idle");
+    }
+
     // ── Transport ───────────────────────────────────────────────────────
     // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,
     // so TCP is the main (and only) transport there.
@@ -825,16 +902,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // TCP listener (secondary) if configured.
         if let Some(ref tcp_addr) = args.tcp_addr {
             let tcp_state = state.clone();
+            let tcp_shutdown = shutdown.clone();
             let addr = tcp_addr.clone();
             tokio::spawn(async move {
-                if let Err(e) = server::serve_tcp(&addr, tcp_state).await {
+                if let Err(e) = server::serve_tcp(&addr, tcp_state, tcp_shutdown).await {
                     tracing::error!("TCP server error: {}", e);
                 }
             });
         }
 
-        // UDS listener (main loop).
-        server::serve_uds(&socket_path, state).await?;
+        // UDS listener (main loop). Returns when the shutdown signal fires.
+        server::serve_uds(&socket_path, state.clone(), shutdown.clone()).await?;
     }
 
     #[cfg(not(unix))]
@@ -846,12 +924,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .clone()
             .unwrap_or_else(|| "127.0.0.1:8765".to_string());
         info!("UDS unavailable on this platform; serving on TCP: {}", addr);
-        server::serve_tcp(&addr, state).await?;
+        server::serve_tcp(&addr, state.clone(), shutdown.clone()).await?;
     }
 
-    // Graceful shutdown: flush + fsync any buffered durable writes before exit.
-    if let Some(p) = persistence_shutdown {
+    // Graceful shutdown: the accept loop has exited, so flush + fsync any buffered
+    // durable writes and write a final checkpoint before exit. Reachable now that
+    // the accept loop breaks on the shutdown signal (previously dead code).
+    info!("Accept loop stopped — flushing durable state and checkpointing");
+    if let Some(p) = &persistence_shutdown {
+        if let Err(e) = p.checkpoint_all(&state).await {
+            tracing::warn!("Final checkpoint failed: {}", e);
+        }
         p.shutdown();
     }
+    info!("Shutdown complete");
     Ok(())
 }
