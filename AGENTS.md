@@ -267,6 +267,13 @@ finance     = ["eg-compute/finance", "eg-types/finance"]   # → nalgebra; wire 
 datascience = ["eg-compute/datascience", "eg-types/datascience"]  # → rand_chacha
 reasoning   = ["eg-compute/reasoning"]                # OWL/Datalog inference
 ast         = ["eg-compute/ast"]                      # → tree-sitter grammars
+# Native eg-ann IVF-PQ+OPQ+SQ8-refine vector index (CONCEPT:KG-2.207) as the
+# SemanticStore backend, replacing rebuild-on-load HNSW. Pure-Rust CPU serving —
+# NO GPU/faiss/native-ML — so it is folded into pi/node/cluster/full. A persisted
+# index reopens WITHOUT rebuilding from raw vectors. `ann-redb` also stores the
+# codes in the redb durable tier.
+ann         = ["eg-core/ann"]
+ann-redb    = ["ann", "redb", "eg-core/ann-redb"]
 compute     = ["finance", "ast", "datascience", "reasoning"]
 # Tokio service (UDS/TCP). tokio is pinned to the minimal feature set actually
 # used (rt-multi-thread, net, io-util, sync, time) — NOT "full".
@@ -276,7 +283,7 @@ server      = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
 redb        = ["server", "dep:redb"]
 # `full` now pulls `redb` (+ `query`/`cypher`) so a stock full build is a durable
 # source of truth out of the box. It stays SINGLE-NODE (no `raft`/`openraft`).
-full        = ["compute", "server", "query", "cypher", "redb"]
+full        = ["compute", "server", "query", "cypher", "redb", "ann"]
 ```
 
 `eg-compute` is a non-optional dep (its `algorithms` is used by the always-on
@@ -288,9 +295,11 @@ The facade declares `crate-type = ["rlib"]` (no `cdylib`/pyo3; maturin
 
 ## Module Structure — a Cargo workspace along the dependency DAG
 
-The engine is a **4-crate workspace**; member crates map 1:1 to the acyclic
-dependency DAG `eg-types → eg-core → eg-compute → epistemic-graph`. A crate may
-only `use` crates to its left; a cycle won't compile, which is the enforcement.
+The engine is a **Cargo workspace**; member crates map 1:1 to the acyclic
+dependency DAG `eg-types → eg-ann → eg-core → eg-compute → epistemic-graph`
+(`eg-ann` is a leaf used by `eg-core` under the `ann` feature; `eg-query` is the
+optional SQL/Cypher surface depending on `eg-core`). A crate may only `use`
+crates to its left; a cycle won't compile, which is the enforcement.
 
 ```
 crates/
@@ -300,12 +309,18 @@ crates/
 │   ├── wire.rs      #   Pure-data DTOs the protocol embeds: Order/YearData (finance),
 │   │                #     EstimatorParams/FittedModel/DecisionTree/TreeNode (datascience) — feature-gated
 │   └── acl.rs       #   AgentRole/AgentIdentity (RegisterIdentity carries them over the wire)
-├── eg-core/         # lib eg_core — graph engine core; depends on eg-types
+├── eg-ann/          # lib eg_ann — native IVF-PQ + OPQ + SQ8-refine vector index
+│   │                #     (CONCEPT:KG-2.207). Leaf crate (serde/memmap2/rayon/rand; redb opt).
+│   ├── ivfpq.rs     #   IVF-PQ core: OPQ rotation, PQ codes (ADC), SQ8 refine tier
+│   ├── kmeans.rs · linalg.rs   #   k-means++ + dependency-free Jacobi-SVD (OPQ R update)
+│   ├── persist.rs   #   mmap format — no-rebuild reopen + compaction (VACUUM)
+│   └── redb_store.rs   #   optional redb-durable codes (feature `redb`)
+├── eg-core/         # lib eg_core — graph engine core; depends on eg-types (+ eg-ann under `ann`)
 │   ├── graph.rs     #   GraphCore: petgraph-backed graph + ledger; topology/analysis snapshots
 │   │                #     (heavy read-only compute runs off the graph lock)
 │   ├── registry.rs  #   Multi-tenant graph registry
 │   ├── isolation.rs #   Zero-trust agent isolation / ACL
-│   └── compute/semantic.rs  # SemanticStore (Vec<f32> cosine + HNSW)
+│   └── compute/semantic.rs  # SemanticStore: brute-force + HNSW (default) | eg-ann IVF-PQ (feature `ann`)
 ├── eg-compute/      # lib eg_compute — compute domains; depends on eg-types + eg-core
 │   ├── algorithms.rs     # PageRank, centrality, BFS/DFS, components, MST (ALWAYS compiled)
 │   ├── ast/ + parser/    # tree-sitter multi-language parser → KG symbols (feature `ast`)
