@@ -2212,6 +2212,63 @@ class TimeSeriesClient:
         return out
 
 
+class RdfClient:
+    """CONCEPT:KG-2.217 / KG-2.218 — Native RDF/SPARQL Namespace.
+
+    The RDF dataset maps onto the SAME property-graph the rest of the engine uses
+    (a resource object becomes a typed edge, a literal object a typed property cell
+    preserving xsd datatype + ``@lang``, ``rdf:type`` the engine ``type`` label, a
+    named graph the connection's graph). Requires a server built with the ``rdf``
+    feature (``sparql`` for :meth:`sparql`).
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def add_triples(
+        self,
+        turtle: str | None = None,
+        ntriples: str | None = None,
+    ) -> dict[str, int]:
+        """Parse Turtle OR N-Triples (exactly one) into the connection's graph.
+
+        Returns a ``LoadReport`` dict ``{triples, multivalue, dropped_multivalue}``.
+        ``dropped_multivalue`` is non-zero only when a multi-valued literal predicate
+        was seen AND the server has no lossless quad store (no persist dir) — the
+        extras beyond the first value are then reported, never silently lost.
+        """
+        if (turtle is None) == (ntriples is None):
+            raise ValueError(
+                "add_triples: provide exactly one of `turtle` or `ntriples`"
+            )
+        return await self._client._send(
+            "AddTriples",
+            {"turtle": turtle or "", "ntriples": ntriples or ""},
+        )
+
+    async def get_triples(self) -> str:
+        """Serialize the connection's graph back OUT to N-Triples (datatype/lang
+        faithful — the inverse of :meth:`add_triples`)."""
+        return await self._client._send("GetRdf")
+
+    async def sparql(self, query: str) -> list[dict[str, str | None]]:
+        """Run a SPARQL 1.1 ``SELECT`` over the connection's graph and return a list
+        of row dicts keyed by projected variable (``None`` for an unbound OPTIONAL
+        variable). Requires a server built with the ``sparql`` feature.
+
+        The engine returns ``{"vars": [...], "rows": [[cell, ...], ...]}`` (a ``Raw``
+        payload the transport already double-unpacks); we zip each row to its vars.
+        """
+        result = await self._client._send("Sparql", {"query": query})
+        if not result:
+            return []
+        vars_: list[str] = result.get("vars", [])
+        rows: list[dict[str, str | None]] = []
+        for row in result.get("rows", []):
+            rows.append(dict(zip(vars_, row, strict=False)))
+        return rows
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -2279,6 +2336,7 @@ class EpistemicGraphClient:
         self.query = QueryClient(self)
         self.txn = TxnClient(self)
         self.timeseries = TimeSeriesClient(self)
+        self.rdf = RdfClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -2575,6 +2633,7 @@ class SyncEpistemicGraphClient:
         self.query = self._SyncWrapper(self._client.query, self._loop)
         self.txn = self._SyncWrapper(self._client.txn, self._loop)
         self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
+        self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

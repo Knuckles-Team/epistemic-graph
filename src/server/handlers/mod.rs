@@ -34,3 +34,10 @@ pub(crate) mod timeseries;
 // Method variants, so the dispatch chain never routes them.
 #[cfg(feature = "blob")]
 pub(crate) mod blob;
+// Native RDF/SPARQL surface (CONCEPT:KG-2.217/218, features `rdf`/`sparql`). The
+// AddTriples/GetRdf/Sparql methods are graph-scoped (they target `req.graph`),
+// so the handler takes the graph core like the query handler; AddTriples also reads
+// the optional lossless quad store off `state`. A build without `rdf` omits the
+// module and the variants fall to the graph_ops "not available" catch-all.
+#[cfg(feature = "rdf")]
+pub(crate) mod rdf;

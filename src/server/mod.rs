@@ -93,6 +93,8 @@ mod tests {
                     )))
                 .expect("open test series store"),
             )),
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
         }))
     }
 
@@ -778,6 +780,8 @@ mod tests {
             raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -851,6 +855,8 @@ mod tests {
             raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -930,6 +936,8 @@ mod tests {
             raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -1109,6 +1117,8 @@ mod tests {
             raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
@@ -2497,5 +2507,115 @@ mod tests {
         };
         let grid: Vec<(i64, f64, bool)> = rmp_serde::from_slice(&raw).unwrap();
         assert_eq!(grid.len(), 4);
+    }
+
+    // ── RDF/SPARQL Method round-trips through dispatch (CONCEPT:KG-2.217/218) ──
+
+    /// AddTriples → GetRdf round-trips through the dispatch chain: Turtle in, the
+    /// graph populated, N-Triples out reparses to the same triple set (xsd + @lang).
+    #[cfg(feature = "rdf")]
+    #[tokio::test]
+    async fn test_add_triples_then_get_rdf_round_trips() {
+        let state = test_state();
+        let ttl = r#"
+@prefix ex: <http://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:alice a ex:Person ; ex:name "Alice" ; ex:age "30"^^xsd:integer ; ex:knows ex:bob .
+ex:bob   a ex:Person ; ex:name "Bob"@en .
+"#;
+        let r = dispatch(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                Method::AddTriples {
+                    turtle: ttl.into(),
+                    ntriples: String::new(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let report: eg_rdf::mapping::LoadReport = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(LoadReport), got {other:?}"),
+        };
+        assert_eq!(report.triples, 6);
+        assert_eq!(report.multivalue, 0);
+
+        let r2 = dispatch(&state, request(2, "__commons__", None, Method::GetRdf)).await;
+        assert_ok(&r2);
+        let nt: String = match r2.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(String), got {other:?}"),
+        };
+        let parsed_in = eg_rdf::mapping::parse_turtle(ttl).unwrap();
+        let parsed_out = eg_rdf::mapping::parse_ntriples(&nt).unwrap();
+        assert_eq!(
+            eg_rdf::mapping::triple_set_key(&parsed_in),
+            eg_rdf::mapping::triple_set_key(&parsed_out),
+            "AddTriples→GetRdf must round-trip the triple set"
+        );
+    }
+
+    /// Sparql Method round-trips through dispatch: a BGP+FILTER over a loaded graph.
+    #[cfg(feature = "sparql")]
+    #[tokio::test]
+    async fn test_sparql_method_round_trips() {
+        let state = test_state();
+        let ttl = r#"
+@prefix ex: <http://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:alice a ex:Person ; ex:name "Alice" ; ex:age "30"^^xsd:integer ; ex:knows ex:bob .
+ex:bob   a ex:Person ; ex:name "Bob"   ; ex:age "25"^^xsd:integer .
+ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:alice .
+"#;
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddTriples {
+                        turtle: ttl.into(),
+                        ntriples: String::new(),
+                    },
+                ),
+            )
+            .await,
+        );
+        let r = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::Sparql {
+                    query: r#"
+                        PREFIX ex: <http://example.org/>
+                        SELECT ?name WHERE {
+                          ?p a ex:Person . ?p ex:name ?name . ?p ex:age ?age .
+                          ?p ex:knows ?o . FILTER (?age > 28)
+                        }"#
+                    .into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::SparqlResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(SparqlResult), got {other:?}"),
+        };
+        let name_idx = res.vars.iter().position(|v| v == "name").unwrap();
+        let mut names: Vec<String> = res
+            .rows
+            .iter()
+            .filter_map(|row| row[name_idx].clone())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Alice".to_string(), "Carol".to_string()]);
     }
 }
