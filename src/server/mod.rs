@@ -509,6 +509,141 @@ mod tests {
         );
     }
 
+    /// UQL e2e (CONCEPT:KG-2.214): the SAME query written as a UQL TEXT string, served
+    /// via `Method::UnifiedQueryText`, returns the BYTE-IDENTICAL result to (a) the
+    /// hand-built structured `Method::UnifiedQuery` plan AND (b) the separate-surfaces
+    /// oracle. This is the proof the text front-end is faithful: text → Plan → the
+    /// SAME run_unified executor, no new execution path.
+    #[cfg(feature = "query")]
+    #[tokio::test]
+    async fn test_uql_text_equals_structured_plan_and_oracle() {
+        use eg_plan::{Op, Pred};
+        let state = test_state();
+        build_unified_fixture(&state).await;
+
+        // (1) The structured plan (the existing surface).
+        let plan = vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.0,
+                }],
+            },
+            Op::Traverse {
+                rel: "CITES".into(),
+                min: 1,
+                max: 2,
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+            Op::Limit { k: 10 },
+        ];
+        let structured = dispatch(
+            &state,
+            request(
+                300,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(plan),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&structured);
+        let structured_ids = unified_ids(&structured);
+
+        // (2) The SAME query as a UQL text string, served via the text surface.
+        let uql = "MATCH (:Doc) WHERE year > 2024 \
+                   |> TRAVERSE -[:CITES]->{1,2} \
+                   |> RANK BY ~[1.0, 0.0, 0.0, 0.0] \
+                   |> LIMIT 10";
+        let textq = dispatch(
+            &state,
+            request(
+                301,
+                "__commons__",
+                None,
+                Method::UnifiedQueryText {
+                    text: uql.into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&textq);
+        let text_ids = unified_ids(&textq);
+
+        // (3) The siloed oracle over the same snapshot.
+        let core = {
+            let s = state.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        let view = core.analysis_snapshot();
+        let semantic = core.semantic_store.read().clone();
+        let oracle = tokio::task::spawn_blocking(move || {
+            eg_plan::oracle::separate_surfaces(
+                &view,
+                &semantic,
+                "Doc",
+                &[Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.0,
+                }],
+                "CITES",
+                1,
+                2,
+                &[1.0, 0.0, 0.0, 0.0],
+                10,
+            )
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            text_ids, structured_ids,
+            "UQL text result must equal the structured plan result"
+        );
+        assert_eq!(
+            text_ids,
+            oracle.ids(),
+            "UQL text result must equal the separate-surfaces oracle"
+        );
+    }
+
+    /// A malformed UQL string returns a CLEAR error Response (caret diagnostic), not a
+    /// panic and not a wrong result. (CONCEPT:KG-2.214)
+    #[cfg(feature = "query")]
+    #[tokio::test]
+    async fn test_uql_text_bad_syntax_is_clear_error() {
+        let state = test_state();
+        build_unified_fixture(&state).await;
+        let resp = dispatch(
+            &state,
+            request(
+                302,
+                "__commons__",
+                None,
+                Method::UnifiedQueryText {
+                    text: "MATCH (:Doc) |> FROBNICATE".into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        let err = resp.error.expect("malformed UQL must error");
+        assert!(
+            err.contains("UQL parse error") && err.contains("pipeline stage"),
+            "expected a clear UQL parse error, got: {err}"
+        );
+    }
+
     /// Cost-reorder e2e (CONCEPT:KG-2.209): the SAME plan with a selective vs a broad
     /// `reorder_filter_selectivity` (which flip filter-first ↔ vector-first) returns
     /// the IDENTICAL result set through the served surface — the reorder is cost-only.
