@@ -1,0 +1,42 @@
+[package]
+name = "eg-ann"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Native IVF-PQ + OPQ + SQ8-refine approximate-nearest-neighbour index for the epistemic-graph engine (CONCEPT:KG-2.207)"
+license = "MIT"
+
+[lib]
+name = "eg_ann"
+
+# Pure-Rust, Pi-lean by design. The default build links NO heavy/native-ML/GPU
+# deps — only serde (wire), memmap2 (the no-rebuild mmap load) and rayon (CPU
+# parallelism). This is the index that ships in `pi`/`full`.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+memmap2 = "0.9"
+rayon = "1.10"
+rand = "0.8"
+rand_chacha = "0.3"
+# Durable codes tier — reuse the engine's embedded KV. OFF by default; only the
+# mmap file format is in the default build. Folded into the `redb` facade feature.
+redb = { version = "4.1", optional = true }
+
+[features]
+default = []
+# Persist the durable PQ codes + meta into a redb table instead of (or alongside)
+# the mmap files, reusing the engine's KG-2.195 durability tier.
+redb = ["dep:redb"]
+# GPU / training-acceleration path. GATED OUT of pi/full — serving is pure CPU
+# integer-table lookups (the spike proved this). This feature only ever changes
+# BUILD-TIME k-means training; it links no accelerator deps in the default build.
+gpu = []
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[[bench]]
+name = "recall"
+path = "benches/recall.rs"
+harness = false
