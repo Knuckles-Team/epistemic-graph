@@ -137,7 +137,7 @@ impl TextIndex {
 
     /// BM25 top-`k` for the natural-language `query` over the `text` field. Returns
     /// `(id, bm25_score)` descending — the same shape as the vector kNN, so it fuses
-    /// into the RowSet algebra. An empty/unparseable query yields no hits (never errs
+    /// into the RowSet algebra. An empty/unparsable query yields no hits (never errs
     /// the plan).
     pub fn search(&self, query: &str, k: usize) -> Vec<TextHit> {
         if query.trim().is_empty() || k == 0 {
