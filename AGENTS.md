@@ -437,6 +437,7 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_PGWIRE_GRAPH` | Default graph a fresh pg-wire connection runs against when the libpq `database` param is unset. Defaults to `__commons__` |
 | `EPISTEMIC_GRAPH_PGWIRE_AUTH` | pg-wire auth mode (CONCEPT:KG-2.202): `scram` (SCRAM-SHA-256, what modern drivers negotiate) or `trust` (no auth, dev). DEFAULT = `scram` when `GRAPH_SERVICE_AUTH_SECRET` is set, else `trust`. SCRAM maps the pg `user` → an engine `agent_id`; the password is `hex(HMAC-SHA256(secret, "pgwire:"+user))`; a successful login sets the connection's ACL actor so queries run under that `AgentIdentity` (`IsolationLayer::check_access`) |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess → `BUSY` |
+| `EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS` | Reference-counted idle shutdown (CONCEPT:KG-2.223, alias `--idle-shutdown-secs`). `N>0` ⇒ the engine self-terminates (checkpointing cleanly) after N seconds with ZERO active connections — the shared tiny-daemon mode agent-utilities' EngineResolver autostarts. **Absent or `0` (default) ⇒ NEVER self-terminate on idle: long-living/persistent, runs forever like a normal server.** SIGTERM/SIGINT graceful checkpointed shutdown works in BOTH modes |
 | `GRAPH_SERVICE_METRICS_ADDR` | Prometheus `/metrics` HTTP listener address (alias of `--metrics-addr`, e.g. `127.0.0.1:9101`). Disabled when unset; requires the `metrics` cargo feature (on by default) |
 | `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
