@@ -57,6 +57,8 @@ use super::PersistenceBackend;
 // durable format with no Tokio. This backend reuses them verbatim — ONE format,
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
+#[cfg(feature = "compute-dist")]
+use crate::redb_store::MatViewScanResult;
 use crate::redb_store::{
     apply_checkpoint, clear_xshard_decision, clear_xshard_prepare, commit_ops, get_xshard_decision,
     purge_graph_rows, put_xshard_decision, put_xshard_prepare, read_all_dumps, read_one_node,
@@ -239,7 +241,7 @@ enum Cmd {
     /// Scan every persisted materialized view `(name, blob)` for reload on boot.
     #[cfg(feature = "compute-dist")]
     MatViewScan {
-        reply: std::sync::mpsc::Sender<Result<Vec<(String, Vec<u8>)>, String>>,
+        reply: std::sync::mpsc::Sender<MatViewScanResult>,
     },
 }
 
@@ -796,7 +798,7 @@ impl RedbBackend {
 
     /// Scan every persisted materialized view `(name, blob)` (reload on boot).
     #[cfg(feature = "compute-dist")]
-    pub fn matview_scan(&self) -> Result<Vec<(String, Vec<u8>)>, String> {
+    pub fn matview_scan(&self) -> MatViewScanResult {
         let (reply, rx) = std::sync::mpsc::channel();
         self.tx
             .send(Cmd::MatViewScan { reply })

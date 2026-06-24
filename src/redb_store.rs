@@ -69,6 +69,11 @@ pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("
 /// the recovery scan (CONCEPT:KG-2.222).
 pub(crate) type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
 
+/// Persisted materialized views `(name, blob)` returned by the boot reload scan
+/// (CONCEPT:KG-2.227).
+#[cfg(feature = "compute-dist")]
+pub(crate) type MatViewScanResult = Result<Vec<(String, Vec<u8>)>, String>;
+
 /// Map a logical graph name (which may contain `:` / `/`) to a safe filename /
 /// durable key. Identical to `persist::sanitize`; lives here so the durable store
 /// has its own server-independent copy (the embedded path links no `persist.rs`).
