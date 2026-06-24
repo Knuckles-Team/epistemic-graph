@@ -58,6 +58,36 @@ pub enum Op {
         right: Vec<Op>,
         k: f32,
     },
+    /// SOURCE (semantic, OWL) — seed the RowSet with every individual the native OWL 2
+    /// reasoner INFERS to be a member of `target_class` (CONCEPT:KG-2.219/220). The
+    /// reasoner classifies the graph's TBox (the OWL axioms loaded as RDF) and returns
+    /// the instances of `target_class` — INCLUDING ones reached through existential
+    /// restrictions / role chains for which the property-graph stored NO explicit type
+    /// edge. `ontology` (Turtle) carries the axioms; an empty string ⇒ use the axioms
+    /// already in the graph. The result then flows — like any RowSet — into a graph
+    /// `Traverse`, a vector `Rank`, a SQL `Filter`, or a `Limit`. Gated by `owl`.
+    #[cfg(feature = "owl-plan")]
+    Reason {
+        /// The named class whose (inferred) members seed the RowSet (canonical `<iri>`
+        /// or a bare IRI string — both are accepted).
+        target_class: String,
+        /// OWL axioms as a Turtle document. Empty ⇒ classify the axioms already loaded
+        /// into the request's graph.
+        #[serde(default)]
+        ontology: String,
+    },
+    /// SOURCE (semantic, SPARQL) — seed the RowSet with the node bindings of `var` in
+    /// the result of the SPARQL `query` (a basic graph pattern, CONCEPT:KG-2.220),
+    /// evaluated over the request's graph. A SPARQL-selected candidate set as a normal
+    /// RowSet source: it then flows into the SAME graph/vector/SQL/time ops as any
+    /// other op. Gated by `owl` (which implies `sparql`).
+    #[cfg(feature = "owl-plan")]
+    SparqlBgp {
+        /// A SPARQL 1.1 SELECT (the basic-graph-pattern surface eg-rdf evaluates).
+        query: String,
+        /// The projected variable whose (resource) bindings become the RowSet ids.
+        var: String,
+    },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }

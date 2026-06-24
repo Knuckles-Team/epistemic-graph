@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-#[cfg(feature = "sparql")]
+#[cfg(any(feature = "sparql", feature = "owl"))]
 use super::super::compute::compute_off_lock;
 use super::super::state::ServerState;
 use crate::graph::GraphCore;
@@ -63,8 +63,93 @@ pub(crate) async fn try_handle(
                 };
             Ok(resp)
         }
+        #[cfg(feature = "owl")]
+        Method::OwlReason {
+            ontology,
+            target_class,
+        } => Ok(handle_owl_reason(req_id, &core, ontology, target_class).await),
         other => Err(other),
     }
+}
+
+/// Run the native OWL 2 reasoner over an off-lock snapshot and materialize entailments
+/// (CONCEPT:KG-2.219). Read-only — classification/consistency over the graph's axioms
+/// (+ any extra `ontology` Turtle); returns the derived subsumptions, the inferred
+/// instance memberships (optionally restricted to `target_class`), and consistency.
+#[cfg(feature = "owl")]
+async fn handle_owl_reason(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    ontology: String,
+    target_class: String,
+) -> Response {
+    let snap = core.analysis_snapshot();
+    let resp =
+        match compute_off_lock(req_id, move || owl_reason(&snap, &ontology, &target_class)).await {
+            Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+            Ok(Err(msg)) => Response::err(req_id, format!("OwlReason error: {msg}")),
+            Err(resp) => resp,
+        };
+    resp
+}
+
+/// Classify the graph (+ optional extra axioms) and project the wire result.
+#[cfg(feature = "owl")]
+fn owl_reason(
+    view: &crate::graph::GraphView,
+    ontology: &str,
+    target_class: &str,
+) -> Result<crate::protocol::OwlReasonResult, String> {
+    use eg_rdf::owl::{asserted_types_from_view, instances_of, tbox_triples_from_view, Reasoner};
+
+    // Axioms: graph's own TBox, plus any supplied Turtle ontology.
+    let mut triples = tbox_triples_from_view(view);
+    if !ontology.trim().is_empty() {
+        triples.extend(eg_rdf::mapping::parse_turtle(ontology)?);
+    }
+    let mut reasoner = Reasoner::from_triples(&triples);
+    let cls = reasoner.classify();
+
+    // Derived named-class subsumptions (the full classification hierarchy).
+    let mut subclasses: Vec<(String, String)> = Vec::new();
+    for (sub, sups) in &cls.subsumers {
+        for sup in sups {
+            subclasses.push((sub.clone(), sup.clone()));
+        }
+    }
+
+    // Inferred instance memberships.
+    let asserted = asserted_types_from_view(view);
+    let instances: Vec<(String, String)> = if target_class.trim().is_empty() {
+        let mat = eg_rdf::owl::materialize_instances(&cls, &asserted);
+        let mut out = Vec::new();
+        for (inst, classes) in mat {
+            for c in classes {
+                out.push((inst.clone(), c));
+            }
+        }
+        out
+    } else {
+        let target = if target_class.starts_with('<') {
+            target_class.to_string()
+        } else {
+            format!(
+                "<{}>",
+                target_class.trim_start_matches('<').trim_end_matches('>')
+            )
+        };
+        instances_of(&cls, &asserted, &target)
+            .into_iter()
+            .map(|inst| (inst, target.clone()))
+            .collect()
+    };
+
+    Ok(crate::protocol::OwlReasonResult {
+        subclasses,
+        instances,
+        consistent: cls.consistent,
+        unsatisfiable: cls.unsatisfiable.into_iter().collect(),
+    })
 }
 
 /// Parse Turtle/N-Triples and store into the target graph; route multi-valued

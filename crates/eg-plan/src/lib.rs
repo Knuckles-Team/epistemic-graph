@@ -89,3 +89,8 @@ mod tests;
 // The lexical BM25 `RankText` + RRF `FuseRrf` hybrid proofs (CONCEPT:KG-2.215).
 #[cfg(all(test, feature = "text"))]
 mod text_tests;
+
+// The OWL `Reason` + SPARQL `SparqlBgp` source-op compose-oracle proofs
+// (CONCEPT:KG-2.220).
+#[cfg(all(test, feature = "owl"))]
+mod owl_tests;

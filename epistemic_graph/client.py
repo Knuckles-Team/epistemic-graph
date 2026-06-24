@@ -2309,6 +2309,34 @@ class RdfClient:
             rows.append(dict(zip(vars_, row, strict=False)))
         return rows
 
+    async def owl_reason(
+        self,
+        ontology: str | None = None,
+        target_class: str | None = None,
+    ) -> dict[str, Any]:
+        """Run the native OWL 2 (EL⁺ + RL) reasoner over the connection's graph and
+        materialize entailments (CONCEPT:KG-2.219). Classifies the OWL axioms already
+        in the graph (loaded via :meth:`add_triples`) plus any extra ``ontology``
+        Turtle, then returns::
+
+            {
+                "subclasses": [[sub, sup], ...],   # the classification hierarchy
+                "instances":  [[inst, class], ...], # inferred memberships (incl. ones
+                                                    #   reached only through ∃-restrictions
+                                                    #   / role chains)
+                "consistent": bool,                 # False if a class is unsatisfiable
+                "unsatisfiable": [class, ...],
+            }
+
+        Pass ``target_class`` to restrict ``instances`` to that class's inferred
+        members. Read-only — it does NOT mutate the graph. Requires a server built
+        with the ``owl`` feature.
+        """
+        return await self._client._send(
+            "OwlReason",
+            {"ontology": ontology or "", "target_class": target_class or ""},
+        )
+
 
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
