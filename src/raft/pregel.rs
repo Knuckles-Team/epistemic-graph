@@ -16,8 +16,8 @@
 //!
 //! ## The superstep loop (BSP / Pregel)
 //!
-//! Each [`ShardCompute`] holds its partition's vertices + their out-edges + the current
-//! vertex values. A superstep is:
+//! A [`Partitioning`] holds each shard's owned vertices + the global union edges + the
+//! current vertex values. A superstep is:
 //!
 //!   1. **SCATTER** — every active vertex emits a message along each out-edge (its
 //!      value / out-degree for PageRank; its label for CC; its level for BFS). A
@@ -240,8 +240,11 @@ fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) ->
 
     // Vertex value, addressed globally (the supersteps are over the union; partitioning
     // controls only WHERE a message is produced/consumed — the math is identical).
-    let mut value: HashMap<&str, f64> =
-        part.all_vertices.iter().map(|v| (v.as_str(), init)).collect();
+    let mut value: HashMap<&str, f64> = part
+        .all_vertices
+        .iter()
+        .map(|v| (v.as_str(), init))
+        .collect();
 
     for _ in 0..iterations {
         // SCATTER: each shard produces messages from its OWNED vertices' out-edges,
@@ -317,8 +320,11 @@ fn distributed_connected_components(part: &Partitioning) -> LabelRows {
         }
     }
 
-    let mut label: HashMap<&str, i64> =
-        part.all_vertices.iter().map(|v| (v.as_str(), idx[v.as_str()])).collect();
+    let mut label: HashMap<&str, i64> = part
+        .all_vertices
+        .iter()
+        .map(|v| (v.as_str(), idx[v.as_str()]))
+        .collect();
 
     loop {
         let mut changed = false;
@@ -357,14 +363,13 @@ fn distributed_connected_components(part: &Partitioning) -> LabelRows {
 fn distributed_bfs(part: &Partitioning, source: &str) -> LabelRows {
     if part.owner_of(source).is_none() {
         // Source not in the union → every vertex unreachable.
-        return part
-            .all_vertices
-            .iter()
-            .map(|v| (v.clone(), -1))
-            .collect();
+        return part.all_vertices.iter().map(|v| (v.clone(), -1)).collect();
     }
-    let mut level: HashMap<&str, i64> =
-        part.all_vertices.iter().map(|v| (v.as_str(), -1i64)).collect();
+    let mut level: HashMap<&str, i64> = part
+        .all_vertices
+        .iter()
+        .map(|v| (v.as_str(), -1i64))
+        .collect();
     level.insert(source, 0);
 
     let mut frontier: VecDeque<String> = VecDeque::new();
@@ -452,7 +457,10 @@ pub async fn incremental_connected_components(
         let l = if affected.contains(v) {
             idx[v.as_str()]
         } else {
-            prior_map.get(v.as_str()).copied().unwrap_or(idx[v.as_str()])
+            prior_map
+                .get(v.as_str())
+                .copied()
+                .unwrap_or(idx[v.as_str()])
         };
         label.insert(v.as_str(), l);
     }

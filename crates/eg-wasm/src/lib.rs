@@ -191,15 +191,13 @@ impl UdfModule {
 
         // Place the input in guest memory via the guest's own allocator.
         let in_len = input.len() as i32;
-        let in_ptr = alloc
-            .call(&mut store, in_len)
-            .map_err(|e| trap_or_abi(e))?;
+        let in_ptr = alloc.call(&mut store, in_len).map_err(trap_or_abi)?;
         write_guest(&mut store, &memory, in_ptr, input)?;
 
         // Invoke the UDF. A fuel-exhausted / memory-capped guest TRAPS here.
         let packed = udf
             .call(&mut store, (in_ptr, in_len))
-            .map_err(|e| trap_or_abi(e))?;
+            .map_err(trap_or_abi)?;
 
         let out_ptr = (packed >> 32) as u32 as usize;
         let out_len = (packed & 0xFFFF_FFFF) as u32 as usize;
@@ -236,7 +234,10 @@ fn write_guest(
 ) -> Result<(), UdfError> {
     let ptr = ptr as usize;
     memory.write(store, ptr, data).map_err(|e| {
-        UdfError::OutputTooLarge(format!("input write of {} bytes out of bounds: {e}", data.len()))
+        UdfError::OutputTooLarge(format!(
+            "input write of {} bytes out of bounds: {e}",
+            data.len()
+        ))
     })
 }
 
@@ -248,9 +249,9 @@ fn read_guest(
     len: usize,
 ) -> Result<Vec<u8>, UdfError> {
     let data = memory.data(store);
-    let end = ptr.checked_add(len).ok_or_else(|| {
-        UdfError::OutputTooLarge("output region pointer+len overflows".into())
-    })?;
+    let end = ptr
+        .checked_add(len)
+        .ok_or_else(|| UdfError::OutputTooLarge("output region pointer+len overflows".into()))?;
     if end > data.len() {
         return Err(UdfError::OutputTooLarge(format!(
             "output region [{ptr}, {end}) exceeds guest memory of {} bytes",
@@ -276,16 +277,9 @@ impl UdfRegistry {
 
     /// Compile + register `wasm_bytes` under `id`, replacing any prior module with that
     /// id. Returns an error if the module does not compile / validate.
-    pub fn register(
-        &self,
-        id: &str,
-        wasm_bytes: &[u8],
-        limits: UdfLimits,
-    ) -> Result<(), UdfError> {
+    pub fn register(&self, id: &str, wasm_bytes: &[u8], limits: UdfLimits) -> Result<(), UdfError> {
         let module = UdfModule::compile(wasm_bytes, limits)?;
-        self.modules
-            .lock()
-            .insert(id.to_string(), Arc::new(module));
+        self.modules.lock().insert(id.to_string(), Arc::new(module));
         Ok(())
     }
 
