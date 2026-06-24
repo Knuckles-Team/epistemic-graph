@@ -2989,7 +2989,13 @@ ex:myHeart a ex:HumanHeart .
             "ClearGraph resets the CDC feed to empty"
         );
         // A post-clear write is seq 0 again.
-        assert_ok(&dispatch(&state, request(9, "__commons__", None, doc_node("fresh", "Doc"))).await);
+        assert_ok(
+            &dispatch(
+                &state,
+                request(9, "__commons__", None, doc_node("fresh", "Doc")),
+            )
+            .await,
+        );
         let reseeded = dispatch(
             &state,
             request(
@@ -3006,7 +3012,10 @@ ex:myHeart a ex:HumanHeart .
         .await;
         let ev = cdc_events(&reseeded);
         assert_eq!(ev.len(), 1);
-        assert_eq!(ev[0].seq, 0, "feed rewound — first post-clear change is seq 0");
+        assert_eq!(
+            ev[0].seq, 0,
+            "feed rewound — first post-clear change is seq 0"
+        );
         assert_eq!(ev[0].node_id, "fresh");
     }
 
