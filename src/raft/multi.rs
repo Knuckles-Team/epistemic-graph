@@ -173,7 +173,7 @@ impl MultiRaft {
             .map_err(|e| format!("invalid raft config: {e}"))?,
         );
         let (log_store, state_machine) = Adaptor::new(store);
-        let network = network::GroupNetworkFactory::new(gid);
+        let network = network::GroupNetworkFactory::new(gid, self.node_id);
         let raft: EgRaft =
             openraft::Raft::new(self.node_id, raft_config, network, log_store, state_machine)
                 .await
