@@ -3,7 +3,7 @@ members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-comp
 
 [package]
 name = "epistemic-graph"
-version = "0.33.1"
+version = "0.34.0"
 edition = "2021"
 authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
 description = "High-performance Rust graph compute engine for AI agents"
@@ -170,7 +170,15 @@ all = ["full"]
 # compute on top; `cluster` is `node` + in-engine Raft replication
 # (CONCEPT:KG-2.188). A sibling track (M8) also extends `cluster` with `pgwire`;
 # an integration step unions them — keep the raft part here.
-pi = ["server", "graph", "algorithms", "redb", "cypher", "ann"]
+#
+# Lane-W (CONCEPT:KG-2.217/218) lands PURE-RUST `rdf` + `sparql`
+# (oxrdf/oxttl/spargebra — no native deps) and a `text` (Tantivy, C dep) surface.
+# Those lanes are now merged to this base, so the tier wiring is FINALIZED here:
+#   * `pi`  carries `rdf` + `sparql` (pure-Rust, Pi-safe — ships native RDF/SPARQL on
+#     the Pi-3 tier). NOT `text` (Tantivy's C dep must stay out of `pi`). The Pi
+#     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
+#   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
+pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8). The two sibling tracks each extended
@@ -214,14 +222,18 @@ tracing = "0.1"
 
 # Optional Server. Explicit minimal feature set (not "full"): the binary uses an
 # explicitly-built multi-thread runtime + UDS/TCP listeners + sync primitives +
-# timers, and nothing from process/signal/fs. Tests pull dev-dependencies' "full"
-# tokio, so #[tokio::test]/duplex still work. Trims compile time + binary surface.
+# timers + `signal` (SIGTERM/SIGINT graceful shutdown) + `macros` (the
+# `tokio::select!` the graceful accept loop awaits on). Tests pull
+# dev-dependencies' "full" tokio, so #[tokio::test]/duplex still work. Trims
+# compile time + binary surface.
 tokio = { version = "1.38", features = [
     "rt-multi-thread",
     "net",
     "io-util",
     "sync",
     "time",
+    "signal",
+    "macros",
 ], optional = true }
 clap = { version = "4.5", features = ["derive", "env"], optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
