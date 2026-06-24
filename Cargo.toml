@@ -128,7 +128,7 @@ compute-dist = ["raft", "eg-types/compute-dist"]
 # C-ish build, so it is OFF by `default`/`pi` (the Pi contract: no wasmtime/cranelift
 # in the tree) and folded only into node/cluster/full. The `Udf{id}` plan op + the
 # RegisterUdf/RunUdf methods light up with it.
-wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf"]
+wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf", "eg-plan?/wasm-udf"]
 # Correctness + load harness (CONCEPT:KG-2.212 / KG-2.222) — the standing proof-engine
 # that gates every distributed/durability claim (multi-raft, M2 durability, distributed
 # txns, PITR/replication, the cross-shard 2PC atomicity + recovery proof). TEST/DEV-ONLY:

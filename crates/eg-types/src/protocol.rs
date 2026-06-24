@@ -1037,6 +1037,66 @@ pub enum Method {
         reorder_filter_selectivity: Option<f64>,
     },
 
+    // ── WASM-sandboxed UDF / extension model (CONCEPT:KG-2.228) ─────────────
+    // An agent pushes a custom compute function as a WebAssembly module the engine
+    // runs SANDBOXED (wasmtime, fuel + memory limits, NO host capabilities). Gated
+    // behind the facade `wasm-udf` feature (wasmtime is heavy); in a slim/Pi build the
+    // variants fall to the not-built catch-all.
+    /// Register (compile + cache) a WASM UDF under `id`. `wasm` is the module bytes
+    /// (the `.wasm` binary). The module must export `memory`/`alloc`/`udf` and import
+    /// NOTHING (the empty linker rejects any host import). Replaces a prior UDF of the
+    /// same id. Returns the id on success.
+    #[cfg(feature = "wasm-udf")]
+    RegisterUdf {
+        id: String,
+        #[serde(with = "serde_bytes")]
+        wasm: Vec<u8>,
+    },
+    /// Run a registered WASM UDF `id` over an opaque `input` payload, returning the
+    /// UDF's output bytes (`ResultPayload::Raw`). Sandboxed + fuel-limited: an
+    /// infinite-loop UDF is KILLED (a trap error), never a hang. The bytes are opaque
+    /// to the engine — the caller serializes/deserializes its own row payload.
+    #[cfg(feature = "wasm-udf")]
+    RunUdf {
+        id: String,
+        #[serde(with = "serde_bytes")]
+        input: Vec<u8>,
+    },
+
+    // ── Distributed graph compute (CONCEPT:KG-2.227) ───────────────────────
+    // A Pregel/GAS vertex-centric superstep engine that runs an algorithm ACROSS a
+    // SET of graphs spanning multiple Raft groups/shards. Gated behind `compute-dist`
+    // (which needs `raft`); in a non-cluster build the variants fall to the not-built
+    // catch-all. The single-shard fast path stays the always-on `PageRank` etc.
+    /// Run a distributed graph algorithm across `graphs` (each a shard/partition),
+    /// with `algo` selecting PageRank / ConnectedComponents / Bfs. Result is
+    /// `ResultPayload::Raw` — `[id, score]` rows for PageRank, `[id, label]` for CC/BFS.
+    #[cfg(feature = "compute-dist")]
+    DistributedCompute {
+        graphs: Vec<String>,
+        algo: DistAlgo,
+    },
+    /// Create (or replace) a named, incrementally-maintained MATERIALIZED VIEW of a
+    /// distributed-compute result over `graphs`. The view is computed once, persisted,
+    /// and refreshed incrementally on a delta (CONCEPT:KG-2.227). Returns the row count.
+    #[cfg(feature = "compute-dist")]
+    CreateMatView {
+        name: String,
+        graphs: Vec<String>,
+        algo: DistAlgo,
+    },
+    /// Read a materialized view's current rows by name (`ResultPayload::Raw`).
+    #[cfg(feature = "compute-dist")]
+    GetMatView {
+        name: String,
+    },
+    /// Incrementally refresh a materialized view after the underlying graphs changed —
+    /// recomputes only the affected vertices on the delta. Returns the row count.
+    #[cfg(feature = "compute-dist")]
+    RefreshMatView {
+        name: String,
+    },
+
     // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ───────────────
     // Server-side STAGED, OPTIMISTIC, snapshot-isolation transactions. `BeginTxn`
     // returns a server-issued `txn_id` (String). The `Txn*` ops STAGE durable
@@ -1287,6 +1347,23 @@ pub enum Method {
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
+
+/// The distributed graph algorithm a `DistributedCompute` / matview runs across
+/// shards (CONCEPT:KG-2.227). Each is a vertex-centric (Pregel/GAS) computation the
+/// cross-shard superstep coordinator drives; the single-shard fast path stays the
+/// always-on `PageRank`/`ConnectedComponents` ops.
+#[cfg(feature = "compute-dist")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DistAlgo {
+    /// PageRank — `damping`·rank-mass propagation for `iterations` supersteps. The
+    /// cross-shard result matches the single-graph result on the UNION graph.
+    PageRank { damping: f64, iterations: usize },
+    /// Weakly-connected components — every vertex labeled with its component's
+    /// representative, via label-propagation supersteps to a fixpoint.
+    ConnectedComponents,
+    /// BFS levels from `source` — every reachable vertex labeled with its hop distance.
+    Bfs { source: String },
+}
 
 /// Materialized result of a `Method::Sql` query (CONCEPT:KG-2.178). Returned via
 /// `ResultPayload::raw` — `rows[i]` is a MessagePack-encoded `Vec<serde_json::Value>`

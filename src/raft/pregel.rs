@@ -131,7 +131,7 @@ async fn gather_shards(
             }
         }
         // Out-edges from this graph's topology.
-        use petgraph::visit::EdgeRef;
+        use petgraph::visit::{EdgeRef, IntoEdgeReferences};
         for e in view.graph.edge_references() {
             let src = view.graph[e.source()].clone();
             let tgt = view.graph[e.target()].clone();
