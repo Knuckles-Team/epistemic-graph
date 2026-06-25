@@ -323,7 +323,10 @@ fn run_unified(
 /// `core.analysis_snapshot()` (zero overhead, behavior unchanged). Used on the
 /// `not(result-cache)` path; with the result cache the same `filter_view` is applied
 /// inline on the versioned snapshot so the version pairs atomically with the filter.
-#[cfg(all(any(feature = "query", feature = "cypher"), not(feature = "result-cache")))]
+#[cfg(all(
+    any(feature = "query", feature = "cypher"),
+    not(feature = "result-cache")
+))]
 fn rls_snapshot(
     core: &Arc<GraphCore>,
     #[cfg(feature = "security")] caller: Option<&str>,
@@ -741,7 +744,12 @@ mod result_cache_dispatch_tests {
 //     the cache;
 //   * a SECOND A query IS a hit (A's key is stable), proving caching still works
 //     per-agent (we didn't just disable the cache under RLS).
-#[cfg(all(test, feature = "result-cache", feature = "cypher", feature = "security"))]
+#[cfg(all(
+    test,
+    feature = "result-cache",
+    feature = "cypher",
+    feature = "security"
+))]
 mod rls_aware_cache_no_cross_agent_leak {
     use crate::channels::ChannelManager;
     use crate::isolation::{AgentRole, IsolationLayer};
@@ -897,11 +905,19 @@ mod rls_aware_cache_no_cross_agent_leak {
         // ── Alice queries Q: cold MISS, computes + caches under alice's rls-key. Her
         //    filtered view sees BOTH nodes (she owns the private one + the public one).
         let (h0, m0) = core.result_cache().stats();
-        let ra1 = dispatch(&state, req_as(20, "alice", Method::CypherQuery { query: Q.into() })).await;
+        let ra1 = dispatch(
+            &state,
+            req_as(20, "alice", Method::CypherQuery { query: Q.into() }),
+        )
+        .await;
         assert!(ra1.error.is_none());
         let alice_bytes = raw(&ra1);
         let (h1, m1) = core.result_cache().stats();
-        assert_eq!((h1 - h0, m1 - m0), (0, 1), "alice's first query is a cold miss");
+        assert_eq!(
+            (h1 - h0, m1 - m0),
+            (0, 1),
+            "alice's first query is a cold miss"
+        );
         let alice_str = String::from_utf8_lossy(&alice_bytes);
         assert!(
             alice_str.contains("alice_secret"),
@@ -912,7 +928,11 @@ mod rls_aware_cache_no_cross_agent_leak {
         //    If the cache were NOT rls-aware, bob would HIT alice's entry and receive
         //    `alice_secret` — a cross-agent leak. With the rls-aware key it MISSES
         //    (different agent_id ⇒ different key) and recomputes BOB's filtered view.
-        let rb = dispatch(&state, req_as(21, "bob", Method::CypherQuery { query: Q.into() })).await;
+        let rb = dispatch(
+            &state,
+            req_as(21, "bob", Method::CypherQuery { query: Q.into() }),
+        )
+        .await;
         assert!(rb.error.is_none());
         let bob_bytes = raw(&rb);
         let (h2, m2) = core.result_cache().stats();
@@ -938,7 +958,11 @@ mod rls_aware_cache_no_cross_agent_leak {
 
         // ── Alice repeats Q: now it HITS her own entry (caching still works per-agent;
         //    we didn't simply disable the cache under RLS), and serves her bytes back.
-        let ra2 = dispatch(&state, req_as(22, "alice", Method::CypherQuery { query: Q.into() })).await;
+        let ra2 = dispatch(
+            &state,
+            req_as(22, "alice", Method::CypherQuery { query: Q.into() }),
+        )
+        .await;
         let (h3, m3) = core.result_cache().stats();
         assert_eq!(
             (h3 - h2, m3 - m2),
