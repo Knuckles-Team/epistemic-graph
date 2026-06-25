@@ -381,6 +381,20 @@ impl WriteCoalescerRegistry {
             .clone();
         Some(writer)
     }
+
+    /// Drop the cached writer for `graph_name` (CONCEPT:KG-2.237). Called by
+    /// `DeleteGraph` so a same-name recreate does NOT inherit the deleted
+    /// incarnation's writer — whose worker task owns an `Arc<GraphCore>` of the OLD,
+    /// now-orphaned core. Without this, `writer_for` would return the stale writer
+    /// (it is keyed by name and IGNORES the `core` passed once an entry exists), and
+    /// every write to the recreated graph would land on the deleted core — silently
+    /// dropping the new tenant's in-memory writes. Removing the entry drops the only
+    /// `Sender`; the worker's `rx.recv()` then returns `None` and the task exits,
+    /// releasing its hold on the old core. The next write to the name lazily spawns a
+    /// fresh writer over the NEW core. No-op if no writer exists yet.
+    pub fn remove(&self, graph_name: &str) {
+        self.writers.remove(graph_name);
+    }
 }
 
 #[cfg(test)]
@@ -669,6 +683,42 @@ mod tests {
         assert!(
             co_locks < inline_locks / 2,
             "coalescer must cut lock acquisitions >2x: {co_locks} vs {inline_locks}"
+        );
+    }
+
+    /// After a delete (`remove`) + recreate, a write to the SAME name must land on the
+    /// NEW core, never the deleted incarnation's orphaned core (CONCEPT:KG-2.237).
+    /// Without `remove`, `writer_for` returns the stale writer (it is name-keyed and
+    /// ignores the new core) and the write lands on the old core — the tenant-churn
+    /// corruption.
+    #[tokio::test]
+    async fn recreate_after_remove_routes_to_new_core() {
+        let reg = WriteCoalescerRegistry::with_config(CoalescerConfig::auto());
+        let old_core = Arc::new(GraphCore::new());
+        let new_core = Arc::new(GraphCore::new());
+
+        // First incarnation gets a writer over old_core.
+        let _w1 = reg.writer_for("g", &old_core).expect("w1");
+        // Delete: drop the cached writer (the registry entry / old_core is gone too).
+        reg.remove("g");
+        // Recreate with a brand-new core; the next write lazily spawns a fresh writer
+        // over new_core.
+        let w2 = reg.writer_for("g", &new_core).expect("w2");
+        let (reply, rx) = oneshot::channel();
+        w2.try_enqueue(WriteOp::AddNode {
+            node_id: "x".into(),
+            properties_msgpack: node_props(1),
+            reply,
+        })
+        .ok();
+        let _ = rx.await;
+        assert!(
+            new_core.has_node("x"),
+            "write must route to the NEW core after delete+recreate"
+        );
+        assert!(
+            !old_core.has_node("x"),
+            "write must NOT land on the deleted incarnation's orphaned core"
         );
     }
 
