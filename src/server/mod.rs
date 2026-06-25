@@ -2860,6 +2860,7 @@ ex:myHeart a ex:HumanHeart .
                 Method::OwlReason {
                     ontology: String::new(),
                     target_class: "http://example.org/HumanComponent".into(),
+                    min_confidence: 0.0,
                 },
             ),
         )
@@ -2870,6 +2871,9 @@ ex:myHeart a ex:HumanHeart .
             other => panic!("expected Raw(OwlReasonResult), got {other:?}"),
         };
         assert!(res.consistent, "ontology is consistent");
+        // Confidence is aligned + present (hard ontology ⇒ all 1.0).
+        assert_eq!(res.subclasses.len(), res.subclass_conf.len());
+        assert_eq!(res.instances.len(), res.instance_conf.len());
         // The EL-derived subsumption is in the hierarchy.
         assert!(res.subclasses.contains(&(
             "<http://example.org/HumanHeart>".into(),
