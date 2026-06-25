@@ -20,6 +20,10 @@ pub mod cdc;
 // Needs BOTH the cache (`result-cache`) and the CDC feed (`streaming`).
 #[cfg(all(feature = "result-cache", feature = "streaming"))]
 pub mod cache_coherence;
+// Facade-side ColdTier impls (CONCEPT:KG-2.233): redb-durable default + S3 behind
+// `cold-tier-s3`. The seam + in-memory impl live in eg-core; this needs redb.
+#[cfg(all(feature = "cold-tier", feature = "redb"))]
+pub mod cold_tier_impl;
 mod compute;
 mod dispatch;
 pub(crate) mod handlers;
