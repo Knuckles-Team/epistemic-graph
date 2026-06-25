@@ -199,7 +199,17 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full` either — it ships only in `cluster`. `wasm-udf` IS folded in (node/cluster/
 # full carry the WASM UDF runtime). `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP)
 # so the standard full/all build is authoritative-by-default just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf"]
+# Engine-level security (CONCEPT:KG-2.231, Lane O): per-agent Row-Level Security
+# (the read/plan-path view filter), encryption-at-rest for the redb durable value
+# blobs, and a hash-chained tamper-evident audit log over the ledger. PURE-RUST end
+# to end: RLS + audit chain link only `sha2`/`hmac` (already deps, RustCrypto) — NO
+# C; encryption pulls `chacha20poly1305` (RustCrypto AEAD, pure-Rust, NO ring/openssl).
+# Encryption-at-rest also rides the redb tier, so it implies `redb`. Folded into
+# node/cluster/full; kept OUT of bare default + the lean `pi` tier (encryption is not
+# a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
+# pure-Rust and Pi-safe, but is shipped only where `security` is selected).
+security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -219,7 +229,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming"]
-node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf"]
+node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf", "security"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
@@ -288,6 +298,11 @@ tracing-subscriber = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 # Durable embedded KV for the redb write-through tier (feature `redb`).
 redb = { version = "4.1", optional = true }
+# Encryption-at-rest AEAD for the redb durable value blobs (feature `security`,
+# CONCEPT:KG-2.231). RustCrypto ChaCha20-Poly1305 — PURE-RUST, links NO ring/openssl
+# or any C crate (the Pi contract holds for the crypto path); optional + only
+# referenced under #[cfg(feature = "security")].
+chacha20poly1305 = { version = "0.10", optional = true }
 # S3/MinIO object-store chunk backend (feature `blob-s3`, CONCEPT:KG-2.206). The
 # ONLY dep that pulls an object-store/AWS SDK, gated behind `blob-s3` (NOT `blob`),
 # so a default/pi/full build links no object_store/aws crate — verified by the

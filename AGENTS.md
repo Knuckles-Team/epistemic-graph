@@ -297,9 +297,16 @@ server      = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
 # Durable redb store (CONCEPT:KG-2.177). Folded into full/node/cluster/pi so the
 # standard build is redb-AUTHORITATIVE by default (CONCEPT:KG-2.195 — THE FLIP).
 redb        = ["server", "dep:redb"]
-# `full` now pulls `redb` (+ `query`/`cypher`) so a stock full build is a durable
-# source of truth out of the box. It stays SINGLE-NODE (no `raft`/`openraft`).
-full        = ["compute", "server", "query", "cypher", "redb", "ann"]
+# Engine-level security (CONCEPT:KG-2.231): per-agent Row-Level Security (the
+# read/plan-path GraphView filter), encryption-at-rest for the redb value blobs, and a
+# hash-chained tamper-evident audit log over the ledger. PURE-RUST: RLS + audit chain
+# link only sha2/hmac (RustCrypto, already deps); encryption pulls chacha20poly1305
+# (RustCrypto AEAD — NO ring/openssl/C). Implies `redb`. Folded into node/cluster/full;
+# OUT of bare default + the lean `pi` tier.
+security    = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
+# `full` now pulls `redb` (+ `query`/`cypher`/`security`) so a stock full build is a
+# durable, RLS/audit/encryption-capable source of truth. It stays SINGLE-NODE (no raft).
+full        = ["compute", "server", "query", "cypher", "redb", "ann", "security"]
 ```
 
 `eg-compute` is a non-optional dep (its `algorithms` is used by the always-on
@@ -439,6 +446,7 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess → `BUSY` |
 | `EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS` | Reference-counted idle shutdown (CONCEPT:KG-2.223, alias `--idle-shutdown-secs`). `N>0` ⇒ the engine self-terminates (checkpointing cleanly) after N seconds with ZERO active connections — the shared tiny-daemon mode agent-utilities' EngineResolver autostarts. **Absent or `0` (default) ⇒ NEVER self-terminate on idle: long-living/persistent, runs forever like a normal server.** SIGTERM/SIGINT graceful checkpointed shutdown works in BOTH modes |
 | `GRAPH_SERVICE_METRICS_ADDR` | Prometheus `/metrics` HTTP listener address (alias of `--metrics-addr`, e.g. `127.0.0.1:9101`). Disabled when unset; requires the `metrics` cargo feature (on by default) |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | Encryption-at-rest key material (CONCEPT:KG-2.231, feature `security`). When set, the redb durable **value** blobs (node/edge property + semantic store) are sealed with a pure-Rust ChaCha20-Poly1305 AEAD (RustCrypto — NO ring/openssl) — raw `.redb` bytes hold no plaintext properties. Keys stay plaintext so range scans work. **Default OFF / opt-in** (changes the on-disk format). `ValueCipher::from_env` is the KMS hook seam (swap it for a data-key fetch). A wrong key fails the read (never silent plaintext) |
 | `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
 ---
