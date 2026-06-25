@@ -140,6 +140,19 @@ cold-tier = ["eg-core/cold-tier"]
 # S3/object-store ColdTier impl — reuses the blob `ChunkStore` S3 seam. SEPARATE,
 # NOT in any tier bundle, so only an explicit build links the object_store SDK.
 cold-tier-s3 = ["cold-tier", "blob-s3"]
+# Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V —
+# cost/efficiency). Tracks an approximate resident-RAM estimate per tenant/graph and
+# enforces a configurable budget: a tenant over budget has its COLDEST graphs evicted
+# (durability-gated LRU, reusing the KG-2.191 path) and hibernated (KG-2.224) until it
+# is back under cap, with a global memory ceiling + fair per-tenant caps so one hot
+# tenant cannot starve others. Surfaces the autoscaler-facing signals an external
+# autoscaler (agent-utilities OS-5.27) consumes via a `ResourceStats` Method + the
+# Prometheus metrics endpoint. PURE-RUST (no DataFusion/openraft/object_store — the
+# enforcer is a periodic sweep over the registry + the existing evict/hibernate ops),
+# so it folds into pi/node/cluster/full and the Pi contract holds. Needs `server` (the
+# budget enforcer + ResourceStats handler live on ServerState + the dispatch path);
+# `eg-types/cost` carries the `ResourceStats` Method + the snapshot wire DTOs.
+cost = ["server", "eg-types/cost"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. CLUSTER-TIER ONLY —
 # OFF by default and NOT in `full`/`all`, so a default / `pi` / `full` build links
@@ -236,7 +249,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "result-cache", "cold-tier"]
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -255,7 +268,7 @@ all = ["full"]
 #     the Pi-3 tier). NOT `text` (Tantivy's C dep must stay out of `pi`). The Pi
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
-pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier"]
+pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute

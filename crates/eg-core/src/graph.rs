@@ -1018,6 +1018,52 @@ impl GraphCore {
         self.edge_properties.iter().map(|e| e.value().len()).sum()
     }
 
+    /// Approximate resident RAM this graph holds, in bytes (CONCEPT:KG-2.234 —
+    /// per-tenant memory budget). A running byte estimate over the in-RAM state:
+    /// the node + edge property blobs (the bulk of a graph's footprint), plus a
+    /// fixed per-node/per-edge overhead for the petgraph topology + id strings +
+    /// map slots, plus the embedding vectors (`len × dim × 4` bytes). This is an
+    /// ESTIMATE — it deliberately does NOT walk every allocator block; it sums the
+    /// blob lengths already resident (cheap, lock-light) and adds a calibrated
+    /// constant for the structural overhead. It is the signal the budget enforcer
+    /// and `ResourceStats` report; precision to the byte is unnecessary (the
+    /// budget is a soft cap swept periodically), order-of-magnitude accuracy is.
+    ///
+    /// Costs one pass over the node/edge property maps + the topology read lock.
+    /// Called off the hot path (periodic budget sweep / a `ResourceStats` request),
+    /// never per-mutation.
+    pub fn memory_estimate(&self) -> u64 {
+        // Per-node structural overhead: a petgraph node + a node_map entry (the id
+        // String is counted via its bytes below) + a node_properties slot. Per-edge:
+        // a petgraph edge + an edge_properties Vec slot. Calibrated constants, not a
+        // measurement — keep them modest so the blob bytes dominate the estimate.
+        const NODE_OVERHEAD: u64 = 64;
+        const EDGE_OVERHEAD: u64 = 48;
+
+        let mut bytes: u64 = 0;
+
+        // Node property blobs + their id-string bytes.
+        for entry in self.node_properties.iter() {
+            bytes += entry.key().len() as u64;
+            bytes += entry.value().len() as u64;
+            bytes += NODE_OVERHEAD;
+        }
+
+        // Edge property blobs + the (src, tgt) key bytes.
+        for entry in self.edge_properties.iter() {
+            let (src, tgt) = entry.key();
+            let key_bytes = (src.len() + tgt.len()) as u64;
+            for props in entry.value() {
+                bytes += key_bytes + props.len() as u64 + EDGE_OVERHEAD;
+            }
+        }
+
+        // Embedding vectors: sum of each live vector's `len × 4` bytes (f32).
+        bytes += self.semantic_store.read().embedding_bytes();
+
+        bytes
+    }
+
     /// In-degree count for a specific node.
     pub fn in_degree(&self, node_id: &str) -> Result<usize, String> {
         let topo = self.topo.read();
@@ -2906,5 +2952,41 @@ mod concurrency_tests {
         for h in handles {
             h.join().unwrap();
         }
+    }
+
+    #[test]
+    fn memory_estimate_grows_with_nodes_and_shrinks_on_eviction() {
+        let core = GraphCore::new();
+        assert_eq!(core.memory_estimate(), 0, "empty graph estimates 0 bytes");
+
+        for i in 0..100usize {
+            core.add_node(format!("n{i}"), pbytes(i));
+        }
+        let full = core.memory_estimate();
+        // 100 nodes each carry a blob + id + overhead — comfortably non-trivial.
+        assert!(full > 100 * 64, "estimate {full} too small for 100 nodes");
+
+        // Adding edges raises the estimate.
+        for i in 1..100usize {
+            core.add_edge(format!("n{}", i - 1), format!("n{i}"), pbytes(i))
+                .unwrap();
+        }
+        let with_edges = core.memory_estimate();
+        assert!(
+            with_edges > full,
+            "edges should raise the estimate: {with_edges} !> {full}"
+        );
+
+        // Evicting half the nodes shrinks it.
+        core.evict_lru(50);
+        let evicted = core.memory_estimate();
+        assert!(
+            evicted < with_edges,
+            "eviction should shrink the estimate: {evicted} !< {with_edges}"
+        );
+
+        // Hibernation (drop all RAM) returns to ~0.
+        core.hibernate();
+        assert_eq!(core.memory_estimate(), 0, "hibernated graph estimates 0");
     }
 }
