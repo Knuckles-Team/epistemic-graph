@@ -21,6 +21,12 @@ datascience = []
 # `Method::UnifiedQuery`. Gated so a build without the query surface drops the AST
 # (and the Method variant) from the enum, exactly like finance/datascience.
 query = []
+# GraphQL read surface (CONCEPT:KG-2.235): gates the `Method::GraphQl` variant. The
+# result is GraphQL JSON over the existing `ResultPayload::raw`, so NO wire DTO is
+# added — only the Method variant. The resolver/parser live in the eg-graphql crate
+# behind the facade `graphql` feature; a build without it drops the variant (→ the
+# dispatch "not available in this build" catch-all).
+graphql = []
 # Lexical BM25 full-text rank + RRF hybrid fusion (CONCEPT:KG-2.215). Gates the
 # `Op::RankText` / `Op::FuseRrf` variants of the cross-modal plan AST. Implies
 # `query` because those variants live inside the `query`-gated `Op` enum (the AST
