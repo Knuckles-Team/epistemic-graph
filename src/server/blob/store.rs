@@ -671,7 +671,7 @@ mod tests {
         let store = RedbChunkStore::open_temp().unwrap();
         // Two DISTINCT chunks (so chunk_reclaimed is unambiguous, not deduped to 1).
         let mut data: Vec<u8> = vec![0x5A; 8192];
-        data.extend(std::iter::repeat(0x6B).take(8192));
+        data.extend(std::iter::repeat_n(0x6B, 8192));
         let blob = chunked(&store, &data, 8192);
         // Two :Media nodes reference the SAME blob (dedup at the blob level).
         store.incref(&blob.digest).unwrap();
