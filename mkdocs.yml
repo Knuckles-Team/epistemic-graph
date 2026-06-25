@@ -89,6 +89,7 @@ nav:
   - Engine:
       - Technical Overview: overview.md
       - Service Mode: service_mode.md
+      - Deployment (database): deployment.md
       - Rust Compute Guide: RUST_COMPUTE_GUIDE.md
       - Binary Promotion (deploy): deploy/binary-promotion.md
   - Performance:
