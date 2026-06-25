@@ -29,6 +29,7 @@ ast = [
     "dep:tree-sitter-c",
     "dep:tree-sitter-cpp",
     "dep:tree-sitter-c-sharp",
+    "dep:tree-sitter-sequel",
 ]
 # CONCEPT:KG-2.106 — the extended-language tier. Feature-gated because each grammar
 # adds compile time + binary size; the `ast` core stays lean and `full` opts in.
@@ -68,6 +69,10 @@ tree-sitter-cpp = { version = "0.23", optional = true }
 # Pinned to an ABI-14 grammar: 0.23.5 was regenerated with tree-sitter ABI 15,
 # which the 0.23 core runtime rejects ("Incompatible language version 15").
 tree-sitter-c-sharp = { version = "=0.23.1", optional = true }
+# SQL DDL grammar (CONCEPT:KG-2.212) — derekstride's tree-sitter-sql, published as
+# `tree-sitter-sequel`. Parses CREATE TABLE/VIEW + FOREIGN KEY into the database
+# ontology (tables/columns/views/FKs), part of the `ast` core tier.
+tree-sitter-sequel = { version = "0.3", optional = true }
 # Extended-language tier (CONCEPT:KG-2.106), gated by `ast-extended`.
 tree-sitter-ruby = { version = "0.23", optional = true }
 tree-sitter-php = { version = "0.23", optional = true }
