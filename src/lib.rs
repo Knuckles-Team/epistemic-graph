@@ -43,6 +43,14 @@ pub mod persist_lock;
 // durable format with no Tokio. Built whenever the `redb` crate is linked.
 #[cfg(feature = "redb")]
 pub mod redb_store;
+// Engine-level security (CONCEPT:KG-2.231, Lane O): encryption-at-rest for the redb
+// durable value blobs (`crypto`) + the hash-chained tamper-evident audit log over the
+// ledger (`audit`). PURE-RUST (RustCrypto chacha20poly1305 + sha2). Gated on
+// `security` (→ `redb`).
+#[cfg(feature = "security")]
+pub mod audit;
+#[cfg(feature = "security")]
+pub mod crypto;
 // In-process embedded library API (CONCEPT:KG-2.216) — SQLite/DuckDB-style. Drives
 // the SAME GraphCore + redb durable rows the socket dispatch does, with NO Tokio
 // server/socket/HMAC. Gated on `embedded` (→ `redb`); needs NO `server` feature.
