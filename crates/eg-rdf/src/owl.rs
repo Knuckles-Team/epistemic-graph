@@ -469,7 +469,13 @@ fn push_gci(ont: &mut Ontology, lhs: Vec<Concept>, rhs: Concept, label: String, 
 /// Push a subclass axiom whose RHS may be a conjunction: `A ⊑ B ⊓ C` is EL-equivalent
 /// to `A ⊑ B` AND `A ⊑ C`, so a multi-conjunct RHS splits into one GCI per conjunct
 /// (keeping every axiom in EL normal form: a single concept on the RHS).
-fn push_subclass(ont: &mut Ontology, lhs: Vec<Concept>, rhs: Vec<Concept>, label: String, conf: f64) {
+fn push_subclass(
+    ont: &mut Ontology,
+    lhs: Vec<Concept>,
+    rhs: Vec<Concept>,
+    label: String,
+    conf: f64,
+) {
     for r in rhs {
         push_gci(ont, lhs.clone(), r, label.clone(), conf);
     }
@@ -707,10 +713,11 @@ impl Reasoner {
                 match &g.lhs[0] {
                     Concept::Named(b) => match &rhs {
                         Concept::Named(_) => {
-                            sub_index
-                                .entry(b.clone())
-                                .or_default()
-                                .push((rhs, g.label.clone(), g.conf));
+                            sub_index.entry(b.clone()).or_default().push((
+                                rhs,
+                                g.label.clone(),
+                                g.conf,
+                            ));
                         }
                         Concept::Some(r, d) => {
                             some_rhs.entry(b.clone()).or_default().push((
@@ -723,10 +730,11 @@ impl Reasoner {
                     },
                     Concept::Some(r, d) => {
                         // ∃r.D ⊑ E
-                        some_lhs
-                            .entry((r.clone(), d.key()))
-                            .or_default()
-                            .push((rhs, g.label.clone(), g.conf));
+                        some_lhs.entry((r.clone(), d.key())).or_default().push((
+                            rhs,
+                            g.label.clone(),
+                            g.conf,
+                        ));
                     }
                 }
             } else {
@@ -814,14 +822,8 @@ impl Reasoner {
                             let conf = conjuncts
                                 .iter()
                                 .fold(*axiom_conf, |acc, b| acc * self.cur_conf(a, b));
-                            if self.add_sub(
-                                a,
-                                cn,
-                                "CR-conj⁻",
-                                vec![label.clone()],
-                                premises,
-                                conf,
-                            ) {
+                            if self.add_sub(a, cn, "CR-conj⁻", vec![label.clone()], premises, conf)
+                            {
                                 changed = true;
                             }
                         }
@@ -871,9 +873,8 @@ impl Reasoner {
                         if let Some(rules) = some_lhs.get(&(r.clone(), d.clone())) {
                             for (e, label, axiom_conf) in rules {
                                 if let Concept::Named(en) = e {
-                                    let conf = self.cur_rconf(r, a, b)
-                                        * self.cur_conf(b, d)
-                                        * axiom_conf;
+                                    let conf =
+                                        self.cur_rconf(r, a, b) * self.cur_conf(b, d) * axiom_conf;
                                     if self.add_sub(
                                         a,
                                         en,
@@ -959,9 +960,8 @@ impl Reasoner {
                     for (a, b) in &left {
                         if let Some(cs) = by_src.get(b) {
                             for c in cs {
-                                let conf = self.cur_rconf(r1, a, b)
-                                    * self.cur_rconf(r2, b, c)
-                                    * ch.conf;
+                                let conf =
+                                    self.cur_rconf(r1, a, b) * self.cur_rconf(r2, b, c) * ch.conf;
                                 if self.add_role_weighted(&ch.sup, a, c, conf) {
                                     changed = true;
                                 }
@@ -1219,9 +1219,9 @@ pub fn instances_of_weighted(
     let mut out: Vec<(String, f64)> = mat
         .into_iter()
         .filter_map(|(inst, classes)| {
-            classes.get(target_class).and_then(|&c| {
-                (c >= min_confidence).then_some((inst, c))
-            })
+            classes
+                .get(target_class)
+                .and_then(|&c| (c >= min_confidence).then_some((inst, c)))
         })
         .collect();
     out.sort_by(|a, b| {
@@ -1689,10 +1689,7 @@ ex:Mammal eg:confidence "0.9" .
 "#;
         let mut r = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
         let cls = r.classify_weighted();
-        let c = cls.subclass_confidence(
-            "<http://example.org/Dog>",
-            "<http://example.org/Animal>",
-        );
+        let c = cls.subclass_confidence("<http://example.org/Dog>", "<http://example.org/Animal>");
         assert!(
             (c - 0.81).abs() < 1e-9,
             "Dog ⊑ Animal confidence = 0.9·0.9 = 0.81, got {c}"
@@ -1730,19 +1727,13 @@ ex:Mammal eg:confidence "0.2" .
 "#;
         let mut r = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
         let cls = r.classify_weighted();
-        let c = cls.subclass_confidence(
-            "<http://example.org/Dog>",
-            "<http://example.org/Animal>",
-        );
+        let c = cls.subclass_confidence("<http://example.org/Dog>", "<http://example.org/Animal>");
         assert!(
             (c - 0.18).abs() < 1e-9,
             "a weak premise drags Dog ⊑ Animal to 0.9·0.2 = 0.18, got {c}"
         );
         // Membership is unchanged — confidence weighting never alters WHICH hold.
-        assert!(cls.entails_subclass(
-            "<http://example.org/Dog>",
-            "<http://example.org/Animal>"
-        ));
+        assert!(cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"));
     }
 
     /// PROOF 3 — the EXISTENTIAL-restriction headline path propagates confidence
@@ -1780,7 +1771,10 @@ ex:HumanHeart eg:confidence "0.9" .
             (c - 0.81).abs() < 1e-9,
             "existential-path confidence = 0.9·0.9 = 0.81, got {c}"
         );
-        assert!(c > 0.0 && c < 1.0, "a soft path is neither certain nor zero");
+        assert!(
+            c > 0.0 && c < 1.0,
+            "a soft path is neither certain nor zero"
+        );
     }
 
     /// PROOF 4 — MAX across ALTERNATIVE derivations (noisy-OR). A diamond: `X ⊑ A`,
@@ -1836,7 +1830,10 @@ ex:Mammal eg:confidence "0.9" .
         let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
         asserted.insert(
             "<http://example.org/freshOne>".into(),
-            vec![("<http://example.org/Mammal>".into(), fact_confidence(1.0, 0.0, half_life))],
+            vec![(
+                "<http://example.org/Mammal>".into(),
+                fact_confidence(1.0, 0.0, half_life),
+            )],
         );
         // old Mammal fact aged exactly one half-life → fact conf 0.5 → membership 0.45.
         asserted.insert(
@@ -1851,12 +1848,18 @@ ex:Mammal eg:confidence "0.9" .
         let conf_of = |id: &str| members.iter().find(|(i, _)| i == id).map(|(_, c)| *c);
         let fresh = conf_of("<http://example.org/freshOne>").unwrap();
         let old = conf_of("<http://example.org/oldOne>").unwrap();
-        assert!((fresh - 0.9).abs() < 1e-9, "fresh membership = 1.0·0.9 = 0.9, got {fresh}");
+        assert!(
+            (fresh - 0.9).abs() < 1e-9,
+            "fresh membership = 1.0·0.9 = 0.9, got {fresh}"
+        );
         assert!(
             (old - 0.45).abs() < 1e-9,
             "decayed (one half-life) membership = 0.5·0.9 = 0.45, got {old}"
         );
-        assert!(old < fresh, "a decayed fact contributes LESS than a fresh one");
+        assert!(
+            old < fresh,
+            "a decayed fact contributes LESS than a fresh one"
+        );
 
         // PROOF 6 — thresholding EXCLUDES sub-τ entailments. τ = 0.5 keeps fresh (0.9),
         // drops the decayed (0.45).
@@ -1868,7 +1871,10 @@ ex:Mammal eg:confidence "0.9" .
             "τ=0.5 must exclude the 0.45 decayed membership"
         );
         // Sorted by descending confidence.
-        assert_eq!(kept.first().map(|(i, _)| i.as_str()), Some("<http://example.org/freshOne>"));
+        assert_eq!(
+            kept.first().map(|(i, _)| i.as_str()),
+            Some("<http://example.org/freshOne>")
+        );
     }
 
     // ── Distributed (2-shard) reasoning == single-graph (CONCEPT:KG-2.236) ───────
@@ -1912,9 +1918,24 @@ ex:Article eg:confidence "0.8" .
 
         // The full ABox in ONE graph.
         let single = view_with_individuals(&[
-            ("<http://example.org/p1>", "<http://example.org/Paper>", 1.0, now),
-            ("<http://example.org/p2>", "<http://example.org/Article>", 1.0, now),
-            ("<http://example.org/p3>", "<http://example.org/Topic>", 1.0, now),
+            (
+                "<http://example.org/p1>",
+                "<http://example.org/Paper>",
+                1.0,
+                now,
+            ),
+            (
+                "<http://example.org/p2>",
+                "<http://example.org/Article>",
+                1.0,
+                now,
+            ),
+            (
+                "<http://example.org/p3>",
+                "<http://example.org/Topic>",
+                1.0,
+                now,
+            ),
         ]);
         let single_res = reason_distributed_weighted(&[&single], &onto, now, hl, "", 0.0);
 
@@ -1926,11 +1947,20 @@ ex:Article eg:confidence "0.8" .
             now,
         )]);
         let shard_b = view_with_individuals(&[
-            ("<http://example.org/p2>", "<http://example.org/Article>", 1.0, now),
-            ("<http://example.org/p3>", "<http://example.org/Topic>", 1.0, now),
+            (
+                "<http://example.org/p2>",
+                "<http://example.org/Article>",
+                1.0,
+                now,
+            ),
+            (
+                "<http://example.org/p3>",
+                "<http://example.org/Topic>",
+                1.0,
+                now,
+            ),
         ]);
-        let dist_res =
-            reason_distributed_weighted(&[&shard_a, &shard_b], &onto, now, hl, "", 0.0);
+        let dist_res = reason_distributed_weighted(&[&shard_a, &shard_b], &onto, now, hl, "", 0.0);
 
         // Identical entailments + confidences.
         assert_eq!(
@@ -1955,7 +1985,11 @@ ex:Article eg:confidence "0.8" .
             .iter()
             .find(|(i, c, _)| i == "<http://example.org/p2>" && c == sw)
             .expect("p2 is an inferred ScholarlyWork across shards");
-        assert!((p2.2 - 0.72).abs() < 1e-9, "p2 ScholarlyWork conf 0.72, got {}", p2.2);
+        assert!(
+            (p2.2 - 0.72).abs() < 1e-9,
+            "p2 ScholarlyWork conf 0.72, got {}",
+            p2.2
+        );
         // p3 (Topic) is NOT a ScholarlyWork.
         assert!(!dist_res
             .instances
