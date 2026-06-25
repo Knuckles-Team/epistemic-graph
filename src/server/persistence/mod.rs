@@ -172,13 +172,13 @@ pub trait PersistenceBackend: Send + Sync {
     /// Idempotent.
     fn shutdown(&self);
 
-    /// Downcast hook (CONCEPT:KG-2.204). The Raft store needs the CONCRETE
+    /// Downcast hook (CONCEPT:KG-2.204 / KG-2.231). The Raft store needs the CONCRETE
     /// [`redb_backend::RedbBackend`] to reach its durable-log API (which is not part
-    /// of this trait — the log is a Raft concern, not a general persistence one).
-    /// Raft requires the redb backend, so this lets the raft module recover the
-    /// concrete type from the `Arc<dyn PersistenceBackend>` in `ServerState`. The
-    /// default returns `None`; only the redb backend overrides it.
-    #[cfg(feature = "raft")]
+    /// of this trait — the log is a Raft concern, not a general persistence one); the
+    /// `security` audit path likewise needs it for `audit_verify_blocking`. So this
+    /// lets a caller recover the concrete type from the `Arc<dyn PersistenceBackend>`
+    /// in `ServerState`. The default returns `None`; only the redb backend overrides it.
+    #[cfg(any(feature = "raft", feature = "security"))]
     fn as_redb(&self) -> Option<&redb_backend::RedbBackend> {
         None
     }

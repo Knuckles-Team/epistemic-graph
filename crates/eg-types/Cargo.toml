@@ -64,6 +64,9 @@ wasm-udf = ["query"]
 # serde — the cross-shard Pregel coordinator lives in the facade behind `compute-dist`
 # (which needs raft); this only adds the wire variants.
 compute-dist = []
+# Engine-level security (CONCEPT:KG-2.231): gates the `AuditVerify` Method variant +
+# the `AuditReport` wire DTO. Pure serde — no dep.
+security = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
