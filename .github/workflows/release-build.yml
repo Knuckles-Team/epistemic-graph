@@ -114,10 +114,16 @@ jobs:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
 
-  # ── Leaner Raspberry-Pi tier wheel (no DataFusion / openraft — the Pi contract)
+  # ── Leaner Raspberry-Pi tier wheels (no DataFusion / openraft — the Pi contract).
+  #    Two legs: the ultra-lean `pi` and the pure-Rust maximal `pi-max` (pi + tsdb +
+  #    blob + security; still NO DataFusion / Tantivy / openraft / C-toolchain dep).
   wheels-pi:
-    name: wheel linux-aarch64-pi
+    name: wheel linux-aarch64-${{ matrix.tier }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tier: [pi, pi-max]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -126,21 +132,65 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Build Pi-lean wheel
+      - name: Build Pi-tier wheel (${{ matrix.tier }})
         uses: PyO3/maturin-action@v1
         with:
           target: aarch64-unknown-linux-gnu
           manylinux: '2_28'
+          # --profile release-tiny = size-optimized (opt-level z, fat LTO, strip);
+          # maturin forwards it to cargo. --no-default-features so only the tier
+          # bundle is selected (the [tool.maturin] default must NOT union on top).
           args: >-
-            --release
             --out dist
+            --profile release-tiny
             --no-default-features
-            --features pi,ast-extended
+            --features ${{ matrix.tier }},ast-extended
           sccache: 'true'
       - name: Upload Pi wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-linux-aarch64-pi
+          name: wheel-linux-aarch64-${{ matrix.tier }}
+          path: dist/*.whl
+
+  # ── "Contains-all smallest" wheels: the `full` tier built with the size-optimized
+  #    release-tiny profile, linux x86_64 + aarch64. A single binary with every
+  #    single-node feature (query/cypher/graphql/redb/ann/tsdb/blob/text/sparql/rdf/
+  #    owl/streaming/wasm-udf/security/federation/result-cache/cold-tier/cost), built
+  #    smallest. Cross-built in CI so the target host never compiles the C deps.
+  wheels-full-tiny:
+    name: wheel ${{ matrix.name }}-full-tiny
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+          - name: linux-aarch64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build contains-all (full) size-optimized wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: '2_28'
+          args: >-
+            --out dist
+            --profile release-tiny
+            --no-default-features
+            --features full,ast-extended
+          sccache: 'true'
+      - name: Upload full-tiny wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.name }}-full-tiny
           path: dist/*.whl
 
   # ── sdist (source distribution) for pip fallback builds
@@ -188,7 +238,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    needs: [wheels, wheels-pi, sdist]
+    needs: [wheels, wheels-pi, wheels-full-tiny, sdist]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT publish.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}

@@ -20,12 +20,67 @@ The server binary is built for one tier; pick the smallest that fits. Build with
 
 | Tier | `EG_FEATURES` | Includes | Use when |
 |------|---------------|----------|----------|
-| **pi** | `pi,ast-extended` | redb-authoritative store + cypher (no DataFusion/pgwire/raft) | Raspberry Pi / edge, lean single node |
-| **node** | `node,ast-extended` | pi + DataFusion SQL + ANN vectors + tsdb | Single-node server |
-| **cluster** (default) | `cluster,ast-extended` | node + **Raft replication** + **pgwire** (Postgres wire SQL) | HA / multi-node / SQL clients |
+| **pi** | `pi,ast-extended` | redb-authoritative store + cypher + ann + rdf/sparql/owl (no DataFusion/pgwire/raft/Tantivy) | Raspberry Pi / edge, ultra-lean single node |
+| **pi-max** | `pi-max,ast-extended` | pi + tsdb + blob + security (RLS/audit/encryption-at-rest) — **all pure-Rust, still NO DataFusion / Tantivy / C-toolchain** | Pi-3 "everything that needs no C compiler and no DataFusion" |
+| **node** | `node,ast-extended` | pi + DataFusion SQL + ANN vectors + tsdb + Tantivy text | Single-node server |
+| **full** | `full,ast-extended` | **contains-all single-node**: query/cypher/graphql + redb + ann + tsdb + blob + text + sparql/rdf/owl/owl-plan + streaming + wasm-udf + security + federation + result-cache + cold-tier + cost (NO raft/pgwire) | Workstation / "one binary, every feature" |
+| **cluster** (default wheel via `node`) | `cluster,ast-extended` | node + **Raft replication** + **pgwire** (Postgres wire SQL) + distributed compute | HA / multi-node / SQL clients |
 
 All tiers include the `redb` feature, so the **persist dir is the authoritative source of
 truth** and a committed write survives `kill -9` (commit-before-ack).
+
+### Size-optimized "contains-all smallest" build (`release-tiny` profile)
+
+For a pre-packaged binary a Pi can deploy without ever compiling, build the `full`
+tier with the size-optimized `release-tiny` cargo profile (added to the workspace
+`Cargo.toml`). It inherits `release` but uses `opt-level = "z"`, fat LTO, one codegen
+unit, `strip = true`, and `panic = "unwind"` (kept — this is a DB; unwind keeps a
+panic recoverable rather than aborting the process). The default `release` profile is
+untouched, so normal builds are unaffected.
+
+```bash
+# smallest all-features binary (the "contains-all smallest")
+cargo build --profile release-tiny --features full
+# the genuinely-Pi-3-friendly maximal build (pure-Rust, no C / no DataFusion)
+cargo build --profile release-tiny --features pi-max
+```
+
+Because the CI matrix cross-builds wheels per platform/arch (`.github/workflows/release-build.yml`),
+the Pi pulls a prebuilt wheel and **never compiles** — the C-dep / long LTO build is a
+build-host concern only.
+
+### Wheel packaging recipes (prebuilt, no Pi-side compile)
+
+`maturin` forwards `--profile` to cargo, so the size-optimized wheels are a one-liner.
+`--no-default-features` is required so maturin does NOT union the `[tool.maturin]`
+default (`node,ast-extended`) on top of the selected tier.
+
+```bash
+# default wheel (node tier, normal release) — unchanged
+maturin build --release
+
+# contains-all smallest wheel (every single-node feature, size-optimized)
+maturin build --profile release-tiny --no-default-features --features full,ast-extended
+
+# Pi-3-friendly maximal wheel (pure-Rust, no DataFusion / Tantivy / C)
+maturin build --profile release-tiny --no-default-features --features pi-max,ast-extended
+
+# ultra-lean Pi wheel
+maturin build --profile release-tiny --no-default-features --features pi,ast-extended
+```
+
+The CI legs that produce these (publish-gated on a `v*` tag, exactly like the
+default wheel) are `wheels-pi` (matrix `pi`/`pi-max`) and `wheels-full-tiny`
+(`full` + `release-tiny`, linux x86_64/aarch64) in `release-build.yml`.
+
+> **Naming caveat.** All tiers share one package version + platform tag, so the raw
+> `.whl` filenames are identical across tiers (e.g. `full` vs `pi-max` on aarch64).
+> The CI uploads them as distinctly-NAMED artifacts (`wheel-…-full-tiny`,
+> `wheel-…-pi-max`), but **do not publish two different tiers to the same PyPI
+> index** under the same version — pick ONE tier as the PyPI default (the `node`
+> wheel) and distribute the tier variants out-of-band (a release-asset attachment or
+> a private index), or bump a local version suffix per tier. This is unchanged from
+> the pre-existing `pi` vs `node` overlap.
 
 ---
 
