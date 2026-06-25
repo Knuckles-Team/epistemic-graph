@@ -114,6 +114,8 @@ mod tests {
             matviews: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::raft::pregel::MatViewStore::new(),
             )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         }))
     }
 
@@ -724,6 +726,156 @@ mod tests {
         assert!(!selective.is_empty(), "fixture yields a non-empty result");
     }
 
+    // ── Query federation / foreign sources (CONCEPT:KG-2.232, Lane P) ───────
+
+    /// THE federation compose proof through TWO in-process engines: a LOCAL engine A
+    /// runs a `UnifiedQuery` whose plan `ForeignScan`s a REMOTE engine B (served over
+    /// TCP, queried with the engine's own length-prefixed-MessagePack + HMAC transport),
+    /// JOINS B's rows with A's local graph, ranks, and limits. The fused result equals
+    /// the MANUAL join done by hand. This is the cross-engine federation seam: ONE plan,
+    /// TWO engines, no Python round-trip. (CONCEPT:KG-2.232)
+    #[cfg(feature = "federation")]
+    #[tokio::test]
+    async fn test_federated_query_two_engines_equals_manual_join() {
+        use eg_plan::{Op, Pred};
+
+        // ── engine B (the REMOTE), served over TCP ──
+        let remote = test_state();
+        build_unified_fixture(&remote).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let remote_addr = listener.local_addr().unwrap().to_string();
+        let remote_for_serve = remote.clone();
+        tokio::spawn(async move {
+            // One connection is enough for the single foreign round-trip the test makes.
+            if let Ok((stream, _)) = listener.accept().await {
+                handle_connection(stream, remote_for_serve).await;
+            }
+        });
+
+        // ── engine A (the LOCAL) ──
+        let local = test_state();
+        build_unified_fixture(&local).await;
+
+        // The remote returns the ids of Docs it CITES-reaches from the year>2024 seed (a
+        // remote graph traversal): UQL `MATCH (:Doc) WHERE year>2024 |> TRAVERSE
+        // -[:CITES]->{1,2}` → over B's fixture the seed is {d1,d2,d5} (years 2025) and
+        // CITES-reaching 1..2 hops gives {d2,d3,d4} (d1→d2→d3, d1→d4). The foreign source
+        // pulls those ids; A then JOINS them with its OWN local filter `year > 2023`.
+        let foreign = eg_types::wire::ForeignSourceSpec::RemoteEngine {
+            endpoint: remote_addr,
+            graph: "__commons__".into(),
+            secret: SECRET.into(),
+            uql: "MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}".into(),
+            cypher: String::new(),
+            id_field: String::new(),
+        };
+
+        let query = vec![1.0f32, 0.0, 0.0, 0.0]; // ranks d2 > d4 > d3
+        let plan = vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2023.0,
+                }],
+            },
+            Op::ForeignScan {
+                source: foreign,
+                join: true,
+            },
+            Op::Rank {
+                query: query.clone(),
+            },
+            Op::Limit { k: 10 },
+        ];
+        let resp = dispatch(
+            &local,
+            request(
+                500,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(plan),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let fused = unified_ids(&resp);
+
+        // ── the manual join (the oracle) ──
+        // A's local filter `year > 2023` → {d1, d2, d4, d5}. The remote's
+        // CITES-traversal set → {d2, d3, d4}. Join (intersection) → {d2, d4}; ranked by
+        // `[1,0,0,0]` → d2 then d4.
+        let local_filtered: std::collections::HashSet<&str> =
+            ["d1", "d2", "d4", "d5"].into_iter().collect();
+        let remote_reached: std::collections::HashSet<&str> =
+            ["d2", "d3", "d4"].into_iter().collect();
+        let joined: std::collections::HashSet<String> = local_filtered
+            .intersection(&remote_reached)
+            .map(|s| s.to_string())
+            .collect();
+        let core = {
+            let s = local.read().await;
+            s.registry.get("__commons__").unwrap().core.clone()
+        };
+        let semantic = core.semantic_store.read().clone();
+        let ranked = tokio::task::spawn_blocking(move || semantic.semantic_search(&query, 32))
+            .await
+            .unwrap();
+        let manual: Vec<String> = ranked
+            .into_iter()
+            .map(|(id, _)| id)
+            .filter(|id| joined.contains(id))
+            .collect();
+
+        assert_eq!(
+            fused, manual,
+            "federated two-engine plan must equal the manual join"
+        );
+        assert_eq!(fused, vec!["d2", "d4"], "ranked: d2 (closest) then d4");
+    }
+
+    /// `RegisterForeignSource` is served and recorded on `ServerState`. (CONCEPT:KG-2.232)
+    #[cfg(feature = "federation")]
+    #[tokio::test]
+    async fn test_register_foreign_source_served() {
+        let state = test_state();
+        let resp = dispatch(
+            &state,
+            request(
+                600,
+                "__commons__",
+                None,
+                Method::RegisterForeignSource {
+                    name: "papers_api".into(),
+                    source: eg_types::wire::ForeignSourceSpec::HttpJson {
+                        url: "http://example.invalid/papers".into(),
+                        json_path: "data".into(),
+                        field_map: eg_types::wire::HttpFieldMap {
+                            id: "id".into(),
+                            score: None,
+                        },
+                    },
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        match resp.result {
+            Some(ResultPayload::String(name)) => assert_eq!(name, "papers_api"),
+            other => panic!("expected the registered name, got {other:?}"),
+        }
+        let s = state.read().await;
+        assert!(
+            s.foreign_sources.contains_key("papers_api"),
+            "the source must be recorded on ServerState"
+        );
+    }
+
     // ── Cypher query surface (CONCEPT:KG-2.179) ─────────────────────────
 
     /// End-to-end: add nodes + a KNOWS edge, route `Method::CypherQuery` through
@@ -946,6 +1098,8 @@ mod tests {
             matviews: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::raft::pregel::MatViewStore::new(),
             )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -1031,6 +1185,8 @@ mod tests {
             matviews: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::raft::pregel::MatViewStore::new(),
             )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -1122,6 +1278,8 @@ mod tests {
             matviews: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::raft::pregel::MatViewStore::new(),
             )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -1313,6 +1471,8 @@ mod tests {
             matviews: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::raft::pregel::MatViewStore::new(),
             )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating

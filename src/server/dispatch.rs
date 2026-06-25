@@ -791,6 +791,16 @@ async fn dispatch_graph_op(
                 Ok(r) => break 'dispatch r,
                 Err(m) => m,
             };
+            // Query federation (CONCEPT:KG-2.232, feature `federation`):
+            // RegisterForeignSource records a named foreign source on ServerState. The
+            // `Op::ForeignScan` op itself runs through the unified-query handler above
+            // (inline spec). Process-global, so it takes `state`. A method whose feature
+            // is off falls through to the graph_ops not-available catch-all.
+            #[cfg(feature = "federation")]
+            let method = match handlers::federation::try_handle(state, req_id, method).await {
+                Ok(r) => break 'dispatch r,
+                Err(m) => m,
+            };
             // Distributed graph compute (CONCEPT:KG-2.227, feature `compute-dist`):
             // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
             // `state` (it gathers each shard graph's snapshot from the registry).
@@ -1046,6 +1056,8 @@ mod blob_dispatch_tests {
             matviews: std::sync::Arc::new(parking_lot::Mutex::new(
                 crate::raft::pregel::MatViewStore::new(),
             )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         }))
     }
 

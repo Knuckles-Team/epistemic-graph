@@ -564,6 +564,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         matviews: std::sync::Arc::new(parking_lot::Mutex::new(
             epistemic_graph::raft::pregel::MatViewStore::new(),
         )),
+        #[cfg(feature = "federation")]
+        foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
