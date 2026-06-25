@@ -660,7 +660,42 @@ async fn dispatch_graph_op(
     let raft = s.raft.clone();
     #[cfg(feature = "raft")]
     let graph_type = entry.graph_type;
+    // Per-agent Row-Level Security (CONCEPT:KG-2.231): clone the isolation policy
+    // under the same registry lock so the read-only query handler can filter its
+    // off-lock snapshot down to the rows the caller may see. Only the read/query
+    // surfaces need it (writes are already graph-ACL-gated above); cheap clone of a
+    // small identity map, shared by Arc into the handler. `has_rules()==false` ⇒ the
+    // filter is a no-op, single-tenant unchanged.
+    #[cfg(feature = "security")]
+    let rls = std::sync::Arc::new(s.isolation.clone());
+    // Referenced by the read-query routing below only when a query/cypher/rdf surface
+    // is compiled; keep it used in a security-but-no-query-surface build.
+    #[cfg(all(
+        feature = "security",
+        not(any(feature = "query", feature = "cypher", feature = "rdf"))
+    ))]
+    let _ = &rls;
     drop(s); // Release registry lock before graph lock.
+
+    // Tamper-evident audit verification (CONCEPT:KG-2.231): a read-only walk of the
+    // target graph's durable hash-chained audit log. Routed to the redb backend's
+    // owner thread (which flushes pending first). Handled here — AFTER the registry
+    // lock is released — so blocking on the writer-thread reply never holds the lock.
+    #[cfg(feature = "security")]
+    if matches!(method, Method::AuditVerify) {
+        let fname = crate::persist::sanitize(graph_name);
+        return match persistence.as_ref().and_then(|p| p.as_redb()) {
+            Some(redb) => match redb.audit_verify_blocking(&fname) {
+                Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
+                Err(e) => Response::err(req_id, format!("AuditVerify error: {e}")),
+            },
+            None => Response::err(
+                req_id,
+                "AuditVerify requires a durable redb backend (no persist dir configured)"
+                    .to_string(),
+            ),
+        };
+    }
 
     // ── Raft write-routing barrier (CONCEPT:KG-2.188) ──────────────────────
     // When a cluster is active, a durable mutation goes through Raft consensus
@@ -726,87 +761,104 @@ async fn dispatch_graph_op(
         None
     };
 
-    let response =
-        'dispatch: {
-            // Per-graph write coalescer (CONCEPT:KG-2.182): the five high-frequency
-            // single-op writes are batched onto this graph's writer so M concurrent
-            // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
-            // below still owns dirty/WAL/gauge off the returned Response, so durability
-            // and checkpoint semantics are unchanged — only WHERE the lock is taken
-            // moved. On a full queue / disabled coalescer the method is handed back and
-            // flows through the inline path unchanged.
-            let method =
-                match try_coalesce_write(req_id, &write_coalescer, graph_name, &core, method).await
-                {
-                    Ok(resp) => break 'dispatch resp,
-                    Err(m) => m,
-                };
-            // Pure-compute domains (stateless: no graph core / lock) route first; a
-            // method that isn't theirs is handed back via Err and falls through to the
-            // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
-            // Feature-gated: in a slim build the line is absent and the method flows
-            // straight through to graph_ops (whose catch-all reports "not available").
-            #[cfg(feature = "finance")]
-            let method = match handlers::finance::try_handle(req_id, method) {
-                Ok(r) => break 'dispatch r,
+    let response = 'dispatch: {
+        // Per-graph write coalescer (CONCEPT:KG-2.182): the five high-frequency
+        // single-op writes are batched onto this graph's writer so M concurrent
+        // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
+        // below still owns dirty/WAL/gauge off the returned Response, so durability
+        // and checkpoint semantics are unchanged — only WHERE the lock is taken
+        // moved. On a full queue / disabled coalescer the method is handed back and
+        // flows through the inline path unchanged.
+        let method =
+            match try_coalesce_write(req_id, &write_coalescer, graph_name, &core, method).await {
+                Ok(resp) => break 'dispatch resp,
                 Err(m) => m,
             };
-            #[cfg(feature = "datascience")]
-            let method = match handlers::datascience::try_handle(req_id, method) {
-                Ok(r) => break 'dispatch r,
-                Err(m) => m,
-            };
-            // Read-only query surface — SQL (CONCEPT:KG-2.178, DataFusion behind
-            // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`): borrows
-            // the graph core for an off-lock snapshot, runs on the blocking pool. Gated
-            // on EITHER feature so CypherQuery still routes in a cypher-only (no-
-            // DataFusion) Pi build; the handler's per-method arm falls through (Err) when
-            // ITS feature is off, so Sql/CypherQuery then reach the graph_ops
-            // not-available catch-all. Slim builds with NEITHER feature omit this line.
-            #[cfg(any(feature = "query", feature = "cypher"))]
-            let method = match handlers::query::try_handle(req_id, core.clone(), method).await {
-                Ok(r) => break 'dispatch r,
-                Err(m) => m,
-            };
-            // Native RDF/SPARQL surface (CONCEPT:KG-2.217/218, features `rdf`/`sparql`):
-            // AddTriples (durable — the shell below records it like any write),
-            // GetRdf + Sparql (read-only, off-lock snapshot). Graph-scoped, so the
-            // handler takes the graph core + name; AddTriples also reads the optional
-            // lossless quad store off `state`. Gated on `rdf`; a method whose feature is
-            // off falls through (Err) to the graph_ops not-available catch-all.
-            #[cfg(feature = "rdf")]
-            let method =
-                match handlers::rdf::try_handle(state, req_id, graph_name, core.clone(), method)
-                    .await
-                {
-                    Ok(r) => break 'dispatch r,
-                    Err(m) => m,
-                };
-            // WASM-sandboxed UDF surface (CONCEPT:KG-2.228, feature `wasm-udf`):
-            // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
-            // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
-            // `state` for the UdfRegistry. A method whose feature is off falls through.
-            #[cfg(feature = "wasm-udf")]
-            let method = match handlers::wasm_udf::try_handle(state, req_id, method).await {
-                Ok(r) => break 'dispatch r,
-                Err(m) => m,
-            };
-            // Distributed graph compute (CONCEPT:KG-2.227, feature `compute-dist`):
-            // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
-            // `state` (it gathers each shard graph's snapshot from the registry).
-            #[cfg(feature = "compute-dist")]
-            let method = match handlers::dist_compute::try_handle(state, req_id, method).await {
-                Ok(r) => break 'dispatch r,
-                Err(m) => m,
-            };
-            // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
-            // re-enter the registry via `state`). Owns the catch-all, returns a Response.
-            // Bind then `break` (not a tail expr) so the `'dispatch` label stays used
-            // even when both compute-routing lines above are feature-gated out.
-            let resp =
-                handlers::graph_ops::try_handle(state, req_id, caller, core.clone(), method).await;
-            break 'dispatch resp;
+        // Pure-compute domains (stateless: no graph core / lock) route first; a
+        // method that isn't theirs is handed back via Err and falls through to the
+        // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
+        // Feature-gated: in a slim build the line is absent and the method flows
+        // straight through to graph_ops (whose catch-all reports "not available").
+        #[cfg(feature = "finance")]
+        let method = match handlers::finance::try_handle(req_id, method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
         };
+        #[cfg(feature = "datascience")]
+        let method = match handlers::datascience::try_handle(req_id, method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
+        // Read-only query surface — SQL (CONCEPT:KG-2.178, DataFusion behind
+        // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`): borrows
+        // the graph core for an off-lock snapshot, runs on the blocking pool. Gated
+        // on EITHER feature so CypherQuery still routes in a cypher-only (no-
+        // DataFusion) Pi build; the handler's per-method arm falls through (Err) when
+        // ITS feature is off, so Sql/CypherQuery then reach the graph_ops
+        // not-available catch-all. Slim builds with NEITHER feature omit this line.
+        #[cfg(any(feature = "query", feature = "cypher"))]
+        let method = match handlers::query::try_handle(
+            req_id,
+            core.clone(),
+            method,
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            &rls,
+        )
+        .await
+        {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
+        // Native RDF/SPARQL surface (CONCEPT:KG-2.217/218, features `rdf`/`sparql`):
+        // AddTriples (durable — the shell below records it like any write),
+        // GetRdf + Sparql (read-only, off-lock snapshot). Graph-scoped, so the
+        // handler takes the graph core + name; AddTriples also reads the optional
+        // lossless quad store off `state`. Gated on `rdf`; a method whose feature is
+        // off falls through (Err) to the graph_ops not-available catch-all.
+        #[cfg(feature = "rdf")]
+        let method = match handlers::rdf::try_handle(
+            state,
+            req_id,
+            graph_name,
+            core.clone(),
+            method,
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            &rls,
+        )
+        .await
+        {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
+        // WASM-sandboxed UDF surface (CONCEPT:KG-2.228, feature `wasm-udf`):
+        // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
+        // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
+        // `state` for the UdfRegistry. A method whose feature is off falls through.
+        #[cfg(feature = "wasm-udf")]
+        let method = match handlers::wasm_udf::try_handle(state, req_id, method).await {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
+        // Distributed graph compute (CONCEPT:KG-2.227, feature `compute-dist`):
+        // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
+        // `state` (it gathers each shard graph's snapshot from the registry).
+        #[cfg(feature = "compute-dist")]
+        let method = match handlers::dist_compute::try_handle(state, req_id, method).await {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
+        // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
+        // re-enter the registry via `state`). Owns the catch-all, returns a Response.
+        // Bind then `break` (not a tail expr) so the `'dispatch` label stays used
+        // even when both compute-routing lines above are feature-gated out.
+        let resp =
+            handlers::graph_ops::try_handle(state, req_id, caller, core.clone(), method).await;
+        break 'dispatch resp;
+    };
 
     // Refresh the per-graph size gauges after mutations — both petgraph
     // counts are O(1), so this adds no meaningful write-path cost.

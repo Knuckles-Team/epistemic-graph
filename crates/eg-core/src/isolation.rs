@@ -17,6 +17,77 @@ pub enum AccessLevel {
     Write,
 }
 
+/// Per-row owner/visibility derived from a node's property blob (CONCEPT:KG-2.231).
+/// The reserved property keys (`_owner` / `_visibility` / `_grants`) form the RLS
+/// convention enforced by [`IsolationLayer::filter_view`].
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Default)]
+pub struct RowVisibility {
+    /// Owning agent_id (`_owner`); `None` ⇒ unowned ⇒ visible to all.
+    pub owner: Option<String>,
+    /// `true` when `_visibility` is absent OR `"public"`; `false` for `"private"`.
+    pub public: bool,
+    /// Agent_ids explicitly granted read (`_grants`, comma-separated).
+    pub grants: Vec<String>,
+}
+
+/// Reserved RLS property keys.
+#[cfg(feature = "security")]
+pub const RLS_OWNER_KEY: &str = "_owner";
+#[cfg(feature = "security")]
+pub const RLS_VISIBILITY_KEY: &str = "_visibility";
+#[cfg(feature = "security")]
+pub const RLS_GRANTS_KEY: &str = "_grants";
+
+/// Parse a node's msgpack property blob into its [`RowVisibility`]. A blob that
+/// can't be decoded as a string-keyed map (or lacks the keys) is treated as an
+/// unowned PUBLIC row — RLS only ever HIDES rows that explicitly mark themselves
+/// owned+private, so undecodable/legacy data is never accidentally hidden.
+#[cfg(feature = "security")]
+pub fn row_visibility(blob: &[u8]) -> RowVisibility {
+    use serde_json::Value;
+    let map: std::collections::BTreeMap<String, Value> = match rmp_serde::from_slice(blob) {
+        Ok(m) => m,
+        Err(_) => return RowVisibility::default_public(),
+    };
+    let owner = map
+        .get(RLS_OWNER_KEY)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let public = match map.get(RLS_VISIBILITY_KEY).and_then(|v| v.as_str()) {
+        Some(v) => !v.eq_ignore_ascii_case("private"),
+        None => true,
+    };
+    let grants = map
+        .get(RLS_GRANTS_KEY)
+        .and_then(|v| v.as_str())
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    RowVisibility {
+        owner,
+        public,
+        grants,
+    }
+}
+
+#[cfg(feature = "security")]
+impl RowVisibility {
+    fn default_public() -> Self {
+        RowVisibility {
+            owner: None,
+            public: true,
+            grants: Vec::new(),
+        }
+    }
+}
+
 /// `AgentRole` / `AgentIdentity` are defined in `eg-types::acl` (the `protocol`
 /// enum's `RegisterIdentity` carries `AgentRole` over the wire, and `protocol`
 /// sits below `isolation` in the DAG); re-exported here so `IsolationLayer` and
@@ -24,6 +95,7 @@ pub enum AccessLevel {
 pub use crate::acl::{AgentIdentity, AgentRole};
 
 /// Isolation policy engine.
+#[derive(Clone)]
 pub struct IsolationLayer {
     /// Known agent identities for ACL resolution.
     agents: HashMap<String, AgentIdentity>,
@@ -131,6 +203,93 @@ impl IsolationLayer {
             }
         }
         false
+    }
+
+    /// Per-agent Row-Level Security (CONCEPT:KG-2.231): may `agent_id` SEE one
+    /// node, given that node's owner + visibility convention?
+    ///
+    /// Visibility convention (carried in the node's property blob; read by
+    /// [`row_visibility`]):
+    /// * `_owner`      — the owning agent_id (absent ⇒ unowned/legacy ⇒ visible to all).
+    /// * `_visibility` — `"public"` (default when absent) or `"private"`.
+    /// * `_grants`     — optional comma-separated agent_ids explicitly granted read.
+    ///
+    /// Decision: an agent may see a row when ANY holds —
+    /// 1. it is unowned (no `_owner`), 2. it is public, 3. the agent IS the owner,
+    /// 4. the agent is explicitly granted, 5. the agent is a manager of the owner,
+    /// 6. the agent is a `System` role. Otherwise the row is hidden.
+    #[cfg(feature = "security")]
+    pub fn can_see_row(&self, agent_id: &str, vis: &RowVisibility) -> bool {
+        // System role sees everything.
+        if let Some(identity) = self.agents.get(agent_id) {
+            if identity.role == AgentRole::System {
+                return true;
+            }
+        }
+        let owner = match &vis.owner {
+            // Unowned row — visible to all (legacy/shared data).
+            None => return true,
+            Some(o) => o.as_str(),
+        };
+        if vis.public {
+            return true;
+        }
+        if owner == agent_id {
+            return true;
+        }
+        if vis.grants.iter().any(|g| g == agent_id) {
+            return true;
+        }
+        if self.is_manager_of(agent_id, owner) {
+            return true;
+        }
+        false
+    }
+
+    /// Filter a [`GraphView`](crate::graph::GraphView) IN-PLACE down to only the
+    /// rows `agent_id` may see (CONCEPT:KG-2.231 — RLS in the read/plan path).
+    ///
+    /// This runs on the owned, off-lock snapshot the query planner (SQL / Cypher /
+    /// SPARQL / unified) consumes — NOT at the graph boundary — so NO query surface
+    /// can exfiltrate a forbidden row: a hidden node is removed from the view's
+    /// topology, node-map, and property map, and every edge incident to a removed
+    /// node is dropped too (an edge to an invisible node would otherwise leak its
+    /// existence). When the layer has no registered identities the filter is a
+    /// no-op (single-tenant back-compat, matching `check_access`).
+    #[cfg(feature = "security")]
+    pub fn filter_view(&self, agent_id: &str, view: &mut crate::graph::GraphView) {
+        if !self.has_rules() {
+            return;
+        }
+        // Decide visibility per node from its property blob.
+        let hidden: HashSet<String> = view
+            .node_properties
+            .iter()
+            .filter_map(|(id, blob)| {
+                let vis = row_visibility(blob);
+                if self.can_see_row(agent_id, &vis) {
+                    None
+                } else {
+                    Some(id.clone())
+                }
+            })
+            .collect();
+        // A node present in topology but with NO property blob is unowned ⇒ visible;
+        // so `hidden` is exactly the set to drop.
+        if hidden.is_empty() {
+            return;
+        }
+        // Drop hidden nodes from the petgraph topology (StableDiGraph keeps other
+        // indices valid) + the node_map + node_properties.
+        for id in &hidden {
+            if let Some(idx) = view.node_map.remove(id) {
+                view.graph.remove_node(idx);
+            }
+            view.node_properties.remove(id);
+        }
+        // Drop any edge touching a hidden endpoint (do not leak its existence).
+        view.edge_properties
+            .retain(|(s, t), _| !hidden.contains(s) && !hidden.contains(t));
     }
 
     /// Get all agent IDs that a given agent can access.
@@ -288,5 +447,111 @@ mod tests {
             None,
             AccessLevel::Write
         ));
+    }
+
+    // ── Per-agent Row-Level Security (CONCEPT:KG-2.231) ──────────────────
+    #[cfg(feature = "security")]
+    mod rls {
+        use super::*;
+        use crate::graph::GraphView;
+
+        /// Build a node property blob from a list of (key,value) string pairs.
+        fn props(pairs: &[(&str, &str)]) -> std::sync::Arc<Vec<u8>> {
+            let map: std::collections::BTreeMap<String, String> = pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            std::sync::Arc::new(rmp_serde::to_vec_named(&map).unwrap())
+        }
+
+        /// A 3-node view: B's private node owned by worker2, a public node, an
+        /// unowned node. (Topology only carries the node ids; properties carry RLS.)
+        fn view() -> GraphView {
+            let mut v = GraphView::default();
+            for id in ["b_private", "shared_public", "legacy_unowned"] {
+                let idx = v.graph.add_node(id.to_string());
+                v.node_map.insert(id.to_string(), idx);
+            }
+            v.node_properties.insert(
+                "b_private".to_string(),
+                props(&[("_owner", "worker2"), ("_visibility", "private")]),
+            );
+            v.node_properties.insert(
+                "shared_public".to_string(),
+                props(&[("_owner", "worker2"), ("_visibility", "public")]),
+            );
+            v.node_properties
+                .insert("legacy_unowned".to_string(), props(&[("name", "x")]));
+            // An edge from B's private node to the public node — must be dropped for A.
+            v.edge_properties
+                .insert(("b_private".into(), "shared_public".into()), vec![]);
+            v
+        }
+
+        #[test]
+        fn agent_a_cannot_see_agent_b_private_node() {
+            let layer = setup();
+            let mut va = view();
+            layer.filter_view("worker1", &mut va);
+            // worker1 sees the PUBLIC node + the UNOWNED node, NOT worker2's private one.
+            assert!(!va.node_properties.contains_key("b_private"));
+            assert!(va.node_properties.contains_key("shared_public"));
+            assert!(va.node_properties.contains_key("legacy_unowned"));
+            assert!(va.node_map.get("b_private").is_none());
+            // The edge touching the hidden node is dropped (no existence leak).
+            assert!(!va
+                .edge_properties
+                .contains_key(&("b_private".to_string(), "shared_public".to_string())));
+        }
+
+        #[test]
+        fn owner_b_sees_own_private_node() {
+            let layer = setup();
+            let mut vb = view();
+            layer.filter_view("worker2", &mut vb);
+            assert!(vb.node_properties.contains_key("b_private"));
+            assert!(vb.node_properties.contains_key("shared_public"));
+        }
+
+        #[test]
+        fn manager_sees_subordinate_private_node() {
+            let layer = setup();
+            let mut vm = view();
+            layer.filter_view("manager", &mut vm);
+            // manager manages worker2 ⇒ sees its private node.
+            assert!(vm.node_properties.contains_key("b_private"));
+        }
+
+        #[test]
+        fn explicit_grant_is_honored() {
+            let mut layer = setup();
+            layer.register_agent(AgentIdentity {
+                agent_id: "auditor".to_string(),
+                role: AgentRole::Agent,
+                teams: vec![],
+            });
+            let mut v = GraphView::default();
+            let idx = v.graph.add_node("g".to_string());
+            v.node_map.insert("g".to_string(), idx);
+            v.node_properties.insert(
+                "g".to_string(),
+                props(&[
+                    ("_owner", "worker2"),
+                    ("_visibility", "private"),
+                    ("_grants", "auditor, someone_else"),
+                ]),
+            );
+            layer.filter_view("auditor", &mut v);
+            assert!(v.node_properties.contains_key("g"), "grant ignored");
+        }
+
+        #[test]
+        fn no_rules_is_noop() {
+            let layer = IsolationLayer::new(); // no identities
+            let mut v = view();
+            let before = v.node_properties.len();
+            layer.filter_view("anyone", &mut v);
+            assert_eq!(v.node_properties.len(), before);
+        }
     }
 }

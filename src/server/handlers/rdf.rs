@@ -39,7 +39,13 @@ pub(crate) async fn try_handle(
     graph_name: &str,
     core: Arc<GraphCore>,
     method: Method,
+    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
+    // `caller`/`rls` are consumed only by the `sparql`-gated read path below; in a
+    // `security`-but-no-`sparql` build keep them referenced (no dead-param warning).
+    #[cfg(all(feature = "security", not(feature = "sparql")))]
+    let _ = (caller, rls);
     match method {
         #[cfg(feature = "rdf")]
         Method::AddTriples { turtle, ntriples } => {
@@ -49,8 +55,13 @@ pub(crate) async fn try_handle(
         Method::GetRdf => Ok(handle_get_rdf(state, req_id, graph_name, &core).await),
         #[cfg(feature = "sparql")]
         Method::Sparql { query } => {
-            // Off-lock snapshot + blocking-pool idiom, identical to SQL/Cypher.
-            let snap = core.analysis_snapshot();
+            // Off-lock snapshot + blocking-pool idiom, identical to SQL/Cypher. RLS
+            // (CONCEPT:KG-2.231) filters the snapshot to the caller's visible rows
+            // BEFORE SPARQL evaluation, so a SELECT can't exfiltrate a forbidden row.
+            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+            let mut snap = core.analysis_snapshot();
+            #[cfg(feature = "security")]
+            rls.filter_view(caller.unwrap_or(""), &mut snap);
             let resp =
                 match compute_off_lock(req_id, move || eg_rdf::sparql::run(&snap, &query)).await {
                     Ok(Ok(result)) => {
