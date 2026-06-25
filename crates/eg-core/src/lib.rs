@@ -8,6 +8,8 @@
 //! unchanged.
 pub use eg_types::{acl, protocol, types, wire};
 
+#[cfg(feature = "cold-tier")]
+pub mod cold_tier;
 pub mod compute;
 pub mod decay;
 pub mod graph;
@@ -15,3 +17,5 @@ pub mod index;
 pub mod isolation;
 pub mod read_through;
 pub mod registry;
+#[cfg(feature = "result-cache")]
+pub mod result_cache;

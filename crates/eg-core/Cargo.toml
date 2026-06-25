@@ -24,6 +24,16 @@ ann-redb = ["ann", "eg-ann/redb"]
 # dep (the visibility convention is a node-property check). Gated so a non-security
 # build links nothing extra.
 security = []
+# Version-keyed query-RESULT cache (CONCEPT:KG-2.233) on `GraphCore`. Pure-Rust
+# bounded LRU + 128-bit query hash — no new dep — so the facade folds it into the
+# lean Pi tier as well as node/cluster/full.
+result-cache = []
+# Cold object-store tier seam (CONCEPT:KG-2.233): a `ColdTier` trait (RAM→redb→
+# object-store) + an in-memory default impl, for offloading a cold graph's whole
+# serialized state and rehydrating on access. The trait + default are dep-free
+# (Pi-safe); the facade layers a redb/S3 impl on top. Folded into pi/node/cluster/
+# full alongside `result-cache`.
+cold-tier = []
 
 [dependencies]
 eg-types = { path = "../eg-types" }

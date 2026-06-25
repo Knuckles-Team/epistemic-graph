@@ -28,6 +28,8 @@ use crate::graph::GraphCore;
 use crate::protocol::Method;
 #[cfg(any(feature = "query", feature = "cypher"))]
 use crate::protocol::{Response, ResultPayload};
+#[cfg(feature = "result-cache")]
+use eg_core::result_cache::ResultCache;
 
 /// Handle `Method::Sql` / `Method::CypherQuery`. `Err(method)` hands a non-query
 /// method (or a query method whose feature is off) back to the dispatcher
@@ -42,7 +44,33 @@ pub(crate) async fn try_handle(
     match method {
         #[cfg(feature = "query")]
         Method::Sql { query, .. } => {
-            // Owned, off-lock snapshot (shares property bytes by Arc).
+            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): a
+            // repeated identical SQL on an UNCHANGED graph serves the cached bytes
+            // without re-running DataFusion; any write bumped `version()` so the next
+            // lookup misses. The cache KEY incorporates the caller's RLS context (see
+            // `rls_cache_hash`) so agent A's filtered result is NEVER served to agent
+            // B for the same query text. The snapshot is then RLS-FILTERED to the
+            // caller's visible rows before execution, and is taken atomically with the
+            // version so cached bytes are stored under exactly the version they reflect.
+            #[cfg(feature = "result-cache")]
+            let (snap, version, hash) = {
+                let hash = rls_cache_hash(
+                    "sql",
+                    query.as_bytes(),
+                    #[cfg(feature = "security")]
+                    caller,
+                    #[cfg(feature = "security")]
+                    rls,
+                );
+                let (mut snap, version) = core.analysis_snapshot_versioned();
+                if let Some(bytes) = core.result_cache().get(hash, version) {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
+                #[cfg(feature = "security")]
+                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                (snap, version, hash)
+            };
+            #[cfg(not(feature = "result-cache"))]
             let snap = rls_snapshot(
                 &core,
                 #[cfg(feature = "security")]
@@ -52,7 +80,12 @@ pub(crate) async fn try_handle(
             );
             let resp =
                 match compute_off_lock(req_id, move || eg_query::exec_sql(&snap, &query)).await {
-                    Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+                    Ok(Ok(result)) => {
+                        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                        #[cfg(feature = "result-cache")]
+                        core.result_cache().put(hash, version, bytes.clone());
+                        Response::ok(req_id, ResultPayload::Raw(bytes))
+                    }
                     Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
                     Err(resp) => resp,
                 };
@@ -68,6 +101,31 @@ pub(crate) async fn try_handle(
             // BOTH the GraphView (topology + property blobs) and a SemanticStore clone
             // under a brief read each — same point-in-time, so the cross-modal read is
             // snapshot-isolated — then run the whole pipeline on the blocking pool.
+            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): key
+            // on the plan bytes + the reorder flag + the caller's RLS context. The plan
+            // + semantic store both reflect `version`, so a write retires the entry; the
+            // RLS-context salt keeps agent A's fused result out of agent B's lookups.
+            #[cfg(feature = "result-cache")]
+            let (snap, version, hash) = {
+                let mut payload = rmp_serde::to_vec_named(&plan).unwrap_or_default();
+                payload.extend(reorder_filter_selectivity.unwrap_or(f64::NAN).to_le_bytes());
+                let hash = rls_cache_hash(
+                    "unified",
+                    &payload,
+                    #[cfg(feature = "security")]
+                    caller,
+                    #[cfg(feature = "security")]
+                    rls,
+                );
+                let (mut snap, version) = core.analysis_snapshot_versioned();
+                if let Some(bytes) = core.result_cache().get(hash, version) {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
+                #[cfg(feature = "security")]
+                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                (snap, version, hash)
+            };
+            #[cfg(not(feature = "result-cache"))]
             let snap = rls_snapshot(
                 &core,
                 #[cfg(feature = "security")]
@@ -81,7 +139,12 @@ pub(crate) async fn try_handle(
             })
             .await
             {
-                Ok(Ok(rows)) => Response::ok(req_id, ResultPayload::raw(&rows)),
+                Ok(Ok(rows)) => {
+                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+                    #[cfg(feature = "result-cache")]
+                    core.result_cache().put(hash, version, bytes.clone());
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
                 Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
                 Err(resp) => resp,
             };
@@ -96,10 +159,35 @@ pub(crate) async fn try_handle(
             // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —
             // a pure front-end, no new execution path. A parse error is a clear,
             // caret-annotated error Response (never a panic).
+            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): key
+            // on the TEXT + reorder flag + the caller's RLS context (the parse is
+            // deterministic, so caching pre-parse is sound and skips the parse on a hit
+            // too). The RLS-context salt keeps agent A's result out of agent B's lookups.
+            #[cfg(feature = "result-cache")]
+            let (snap, version, hash) = {
+                let mut payload = text.clone().into_bytes();
+                payload.extend(reorder_filter_selectivity.unwrap_or(f64::NAN).to_le_bytes());
+                let hash = rls_cache_hash(
+                    "unified-text",
+                    &payload,
+                    #[cfg(feature = "security")]
+                    caller,
+                    #[cfg(feature = "security")]
+                    rls,
+                );
+                let (mut snap, version) = core.analysis_snapshot_versioned();
+                if let Some(bytes) = core.result_cache().get(hash, version) {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
+                #[cfg(feature = "security")]
+                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                (snap, version, hash)
+            };
             let plan = match eg_plan::uql::parse(&text) {
                 Ok(plan) => plan,
                 Err(e) => return Ok(Response::err(req_id, e.render(&text))),
             };
+            #[cfg(not(feature = "result-cache"))]
             let snap = rls_snapshot(
                 &core,
                 #[cfg(feature = "security")]
@@ -113,7 +201,12 @@ pub(crate) async fn try_handle(
             })
             .await
             {
-                Ok(Ok(rows)) => Response::ok(req_id, ResultPayload::raw(&rows)),
+                Ok(Ok(rows)) => {
+                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+                    #[cfg(feature = "result-cache")]
+                    core.result_cache().put(hash, version, bytes.clone());
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
                 Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
                 Err(resp) => resp,
             };
@@ -123,6 +216,29 @@ pub(crate) async fn try_handle(
         Method::CypherQuery { query } => {
             // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
             // (label index / VF2 / BFS), so it runs in a no-DataFusion Pi build.
+            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231) wraps
+            // it identically; this is the lean-Pi cached query path. The cache KEY folds
+            // in the caller's RLS context so agent A's filtered rows are never served to
+            // agent B, and the snapshot is RLS-filtered before execution.
+            #[cfg(feature = "result-cache")]
+            let (snap, version, hash) = {
+                let hash = rls_cache_hash(
+                    "cypher",
+                    query.as_bytes(),
+                    #[cfg(feature = "security")]
+                    caller,
+                    #[cfg(feature = "security")]
+                    rls,
+                );
+                let (mut snap, version) = core.analysis_snapshot_versioned();
+                if let Some(bytes) = core.result_cache().get(hash, version) {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
+                #[cfg(feature = "security")]
+                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                (snap, version, hash)
+            };
+            #[cfg(not(feature = "result-cache"))]
             let snap = rls_snapshot(
                 &core,
                 #[cfg(feature = "security")]
@@ -133,7 +249,12 @@ pub(crate) async fn try_handle(
             let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query))
                 .await
             {
-                Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    #[cfg(feature = "result-cache")]
+                    core.result_cache().put(hash, version, bytes.clone());
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
                 Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
                 Err(resp) => resp,
             };
@@ -199,8 +320,10 @@ fn run_unified(
 /// `security` feature the owned snapshot is filtered down to the rows `caller` may
 /// see BEFORE it reaches any query surface (SQL/Cypher/unified), so no surface can
 /// exfiltrate a forbidden row. Without the feature this is exactly
-/// `core.analysis_snapshot()` (zero overhead, behavior unchanged).
-#[cfg(any(feature = "query", feature = "cypher"))]
+/// `core.analysis_snapshot()` (zero overhead, behavior unchanged). Used on the
+/// `not(result-cache)` path; with the result cache the same `filter_view` is applied
+/// inline on the versioned snapshot so the version pairs atomically with the filter.
+#[cfg(all(any(feature = "query", feature = "cypher"), not(feature = "result-cache")))]
 fn rls_snapshot(
     core: &Arc<GraphCore>,
     #[cfg(feature = "security")] caller: Option<&str>,
@@ -211,6 +334,45 @@ fn rls_snapshot(
     #[cfg(feature = "security")]
     rls.filter_view(caller.unwrap_or(""), &mut snap);
     snap
+}
+
+/// ⚠ THE RLS-AWARE RESULT-CACHE KEY (CONCEPT:KG-2.233 × KG-2.231 — the headline
+/// reconciliation). RLS makes a query's RESULT agent-specific: agent A and agent B
+/// running the SAME query text see DIFFERENT rows (A cannot see B's private nodes).
+/// The result cache is keyed by `(query-hash, version)`; if that hash ignored the
+/// caller, agent A's cached (A-filtered) result could be served to agent B for the
+/// same query text — a cross-agent data leak.
+///
+/// Fix (option a, "include the caller's RLS-key in the cache key"): when RLS is
+/// ACTIVE (`rls.has_rules()` — at least one identity registered, i.e. the engine is
+/// in multi-tenant enforcing mode), we fold the caller's RLS context into the hash
+/// `kind` so a different caller keys to a different cache slot. The agent_id IS the
+/// complete RLS visibility key: `IsolationLayer::filter_view`/`can_see_row` resolve
+/// a row's visibility for a caller PURELY from that caller's agent_id against the
+/// registered identities (owner / explicit grants / manager-of / System role), so
+/// two requests with the same agent_id always get the byte-identical filtered view,
+/// and two with different agent_ids may not — exactly the cache-key equivalence we
+/// need. When RLS is INACTIVE (single-tenant, `has_rules()==false`, or the `security`
+/// feature is off) the salt is empty and the key is the plain `(kind, payload)` —
+/// zero behavior change from the cache-only branch.
+#[cfg(all(feature = "result-cache", any(feature = "query", feature = "cypher")))]
+fn rls_cache_hash(
+    kind: &str,
+    payload: &[u8],
+    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
+) -> u128 {
+    #[cfg(feature = "security")]
+    {
+        // RLS active ⇒ namespace the hash by the caller's visibility key (agent_id).
+        // The `rls:` prefix keeps it distinct from any other kind. RLS inactive ⇒
+        // fall through to the plain key so single-tenant caching is byte-identical.
+        if rls.has_rules() {
+            let salted_kind = format!("rls:{}:{}", caller.unwrap_or(""), kind);
+            return ResultCache::hash_query(&salted_kind, payload);
+        }
+    }
+    ResultCache::hash_query(kind, payload)
 }
 
 #[cfg(all(test, feature = "security", feature = "query", feature = "cypher"))]
@@ -326,5 +488,463 @@ mod rls_no_exfiltrate_tests {
             .iter()
             .any(|blob| String::from_utf8_lossy(blob).contains("secret_b"));
         assert!(!any_secret, "cypher exfiltrated secret_b");
+    }
+}
+
+// ── Version-keyed result cache, end-to-end through dispatch (CONCEPT:KG-2.233) ──
+//
+// Proves the cache over the REAL `dispatch` entrypoint (auth → routing → handler →
+// cache → Cypher), on the lean Pi path (cypher, NO DataFusion):
+//   1. the SAME query twice on an UNCHANGED graph HITS (didn't recompute, proven by
+//      the cache hit counter) and returns identical bytes;
+//   2. a WRITE bumps `version()` → the next identical query MISSES and recomputes a
+//      CORRECT (changed) result;
+//   3. the CDC feed invalidates a SECOND instance's cache for that graph
+//      (cross-replica coherence): a write on A, replayed as a CDC event to B,
+//      retires B's cached result so B recomputes.
+#[cfg(all(
+    test,
+    feature = "result-cache",
+    feature = "cypher",
+    feature = "streaming"
+))]
+mod result_cache_dispatch_tests {
+    use crate::channels::ChannelManager;
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request, Response, ResultPayload};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use crate::server::dispatch;
+    use crate::server::state::ServerState;
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, Semaphore};
+
+    const SECRET: &str = "result-cache-test-secret";
+
+    fn state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: Arc::new(DashMap::new()),
+        }))
+    }
+
+    fn req(id: u64, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        }
+    }
+
+    async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node: &str, label: &str) {
+        let props = serde_json::json!({ "type": label });
+        let bytes = rmp_serde::to_vec_named(&props).unwrap();
+        let r = dispatch(
+            state,
+            req(
+                id,
+                Method::AddNode {
+                    node_id: node.into(),
+                    properties_msgpack: bytes,
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "AddNode failed: {:?}", r.error);
+    }
+
+    fn raw(resp: &Response) -> Vec<u8> {
+        match &resp.result {
+            Some(ResultPayload::Raw(b)) => b.clone(),
+            other => panic!("expected Raw result, got {other:?}"),
+        }
+    }
+
+    const Q: &str = "MATCH (n:Person) RETURN n";
+
+    fn cache_stats(core: &Arc<crate::graph::GraphCore>) -> (u64, u64) {
+        core.result_cache().stats()
+    }
+
+    async fn core_of(state: &Arc<RwLock<ServerState>>) -> Arc<crate::graph::GraphCore> {
+        state
+            .read()
+            .await
+            .registry
+            .get("__commons__")
+            .unwrap()
+            .core
+            .clone()
+    }
+
+    #[tokio::test]
+    async fn hit_on_unchanged_then_write_invalidates() {
+        let state = state();
+        add_node(&state, 1, "p1", "Person").await;
+        add_node(&state, 2, "p2", "Person").await;
+
+        let core = core_of(&state).await;
+        let (h0, m0) = cache_stats(&core);
+
+        // First query: cold MISS, computes + caches.
+        let r1 = dispatch(&state, req(10, Method::CypherQuery { query: Q.into() })).await;
+        assert!(r1.error.is_none());
+        let bytes1 = raw(&r1);
+        let (h1, m1) = cache_stats(&core);
+        assert_eq!((h1 - h0, m1 - m0), (0, 1), "first query is a miss");
+
+        // Second identical query on the UNCHANGED graph: HIT, identical bytes, no
+        // recompute (the hit counter moved, the miss counter did not).
+        let r2 = dispatch(&state, req(11, Method::CypherQuery { query: Q.into() })).await;
+        assert_eq!(raw(&r2), bytes1, "cached bytes identical to computed");
+        let (h2, m2) = cache_stats(&core);
+        assert_eq!((h2 - h1, m2 - m1), (1, 0), "second query hit the cache");
+
+        // A WRITE bumps version → the cached entry is now unreachable.
+        let v_before = core.version();
+        add_node(&state, 3, "p3", "Person").await;
+        assert_ne!(core.version(), v_before, "write must bump version");
+
+        // Same query again: MISS (recompute), and the result is CORRECT (now 3 rows).
+        let r3 = dispatch(&state, req(12, Method::CypherQuery { query: Q.into() })).await;
+        assert!(r3.error.is_none());
+        let bytes3 = raw(&r3);
+        assert_ne!(
+            bytes3, bytes1,
+            "result changed after the write (recomputed)"
+        );
+        let (h3, m3) = cache_stats(&core);
+        assert_eq!(
+            (h3 - h2, m3 - m2),
+            (0, 1),
+            "post-write query missed + recomputed"
+        );
+
+        // And it is cached again at the new version: the next identical query HITS.
+        let r4 = dispatch(&state, req(13, Method::CypherQuery { query: Q.into() })).await;
+        assert_eq!(raw(&r4), bytes3);
+        let (h4, _m4) = cache_stats(&core);
+        assert_eq!(h4 - h3, 1, "post-write result is itself cached + re-hit");
+    }
+
+    #[tokio::test]
+    async fn cdc_drives_cross_instance_invalidation() {
+        // Two independent in-process instances A and B (separate registries/caches),
+        // each holding the SAME logical graph + the SAME data.
+        let a = state();
+        let b = state();
+        for (id, n) in [(1u64, "p1"), (2, "p2")] {
+            add_node(&a, id, n, "Person").await;
+            add_node(&b, id, n, "Person").await;
+        }
+        let core_b = core_of(&b).await;
+
+        // Warm B's cache: query B once (miss) then again (hit) — B is now serving a
+        // cached result for the graph.
+        let _ = dispatch(&b, req(20, Method::CypherQuery { query: Q.into() })).await;
+        let r_hit = dispatch(&b, req(21, Method::CypherQuery { query: Q.into() })).await;
+        let (h_before, _m) = cache_stats(&core_b);
+        assert!(h_before >= 1, "B should have a warm cache hit");
+        let bytes_b_old = raw(&r_hit);
+
+        // A WRITE lands on A. A emits a CDC event into its feed (the dispatch shell
+        // does this for every durable mutation). Grab A's CDC feed.
+        add_node(&a, 3, "p3", "Person").await;
+        let hub_a = {
+            let s = a.read().await;
+            s.cdc.clone().unwrap()
+        };
+        // A produced at least one CDC event for the AddNode.
+        let events = hub_a.read("__commons__", 0, 0).unwrap();
+        assert!(!events.is_empty(), "A's write must emit a CDC event");
+
+        // COHERENCE: drain A's feed into B → B invalidates its local cache for the
+        // graph (bumps B's version). This is the cross-replica invalidation signal.
+        let v_b_before = core_b.version();
+        let next =
+            crate::server::cache_coherence::drain_and_invalidate(&b, &hub_a, "__commons__", 0, 0)
+                .await
+                .unwrap();
+        assert!(next > 0, "drained at least one event");
+        assert_ne!(
+            core_b.version(),
+            v_b_before,
+            "B's version bumped on the remote change"
+        );
+
+        // B's previously-cached result is now unreachable: the SAME query MISSES.
+        let (h2, m2) = cache_stats(&core_b);
+        let r_after = dispatch(&b, req(22, Method::CypherQuery { query: Q.into() })).await;
+        let (h3, m3) = cache_stats(&core_b);
+        assert_eq!(
+            (h3 - h2, m3 - m2),
+            (0, 1),
+            "after CDC invalidation B recomputes (miss), not a stale hit"
+        );
+        // The recompute SUCCEEDS over B's own (unreplicated) data and is non-empty —
+        // proving the post-invalidation read recomputes a valid result rather than
+        // erroring or serving a stale hit. (Cypher row ORDER isn't stable, so we don't
+        // byte-compare to the pre-invalidation bytes; the load-bearing proof is the
+        // miss counter above — invalidation fired.)
+        assert!(r_after.error.is_none());
+        assert!(!raw(&r_after).is_empty());
+        assert!(!bytes_b_old.is_empty());
+    }
+}
+
+// ── ⚠ RLS × result-cache: NO cross-agent leak (CONCEPT:KG-2.233 × KG-2.231) ──
+//
+// THE headline reconciliation proof. With RLS ACTIVE, agent A and agent B run the
+// SAME query text against the SAME graph and the SAME version, yet:
+//   * A's cached (A-filtered) result is NEVER served to B — B's identical query is a
+//     cache MISS (the rls-aware key differs by agent_id) and recomputes B's OWN view;
+//   * the bytes B receives do NOT contain A's private node — no exfiltration through
+//     the cache;
+//   * a SECOND A query IS a hit (A's key is stable), proving caching still works
+//     per-agent (we didn't just disable the cache under RLS).
+#[cfg(all(test, feature = "result-cache", feature = "cypher", feature = "security"))]
+mod rls_aware_cache_no_cross_agent_leak {
+    use crate::channels::ChannelManager;
+    use crate::isolation::{AgentRole, IsolationLayer};
+    use crate::protocol::{Method, Request, Response, ResultPayload};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use crate::server::dispatch;
+    use crate::server::state::ServerState;
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, Semaphore};
+
+    const SECRET: &str = "rls-cache-test-secret";
+
+    fn state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: Arc::new(DashMap::new()),
+        }))
+    }
+
+    /// A request as `agent_id`.
+    fn req_as(id: u64, agent_id: &str, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: Some(agent_id.into()),
+            method,
+        }
+    }
+
+    fn raw(resp: &Response) -> Vec<u8> {
+        match &resp.result {
+            Some(ResultPayload::Raw(b)) => b.clone(),
+            other => panic!("expected Raw result, got {other:?}"),
+        }
+    }
+
+    async fn register(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str) {
+        let r = dispatch(
+            state,
+            req_as(
+                id,
+                agent,
+                Method::RegisterIdentity {
+                    agent_id: agent.into(),
+                    role: AgentRole::Agent,
+                    teams: vec![],
+                    signature: String::new(),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "RegisterIdentity failed: {:?}", r.error);
+    }
+
+    /// Add a node with RLS owner/visibility props (the `_owner`/`_visibility`
+    /// convention `IsolationLayer::filter_view` reads).
+    async fn add_rls_node(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        node: &str,
+        label: &str,
+        owner: &str,
+        visibility: &str,
+    ) {
+        let props = serde_json::json!({
+            "type": label,
+            "_owner": owner,
+            "_visibility": visibility,
+        });
+        let bytes = rmp_serde::to_vec_named(&props).unwrap();
+        let r = dispatch(
+            state,
+            req_as(
+                id,
+                owner,
+                Method::AddNode {
+                    node_id: node.into(),
+                    properties_msgpack: bytes,
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "AddNode failed: {:?}", r.error);
+    }
+
+    async fn core_of(state: &Arc<RwLock<ServerState>>) -> Arc<crate::graph::GraphCore> {
+        state
+            .read()
+            .await
+            .registry
+            .get("__commons__")
+            .unwrap()
+            .core
+            .clone()
+    }
+
+    // The SAME query text both agents run. It matches BOTH nodes by label, so RLS is
+    // the only thing that differentiates their result sets.
+    const Q: &str = "MATCH (n:Secret) RETURN n";
+
+    #[tokio::test]
+    async fn agent_a_cached_result_is_not_served_to_agent_b() {
+        let state = state();
+        // Activate RLS: register two peer agents (no manager/grant between them).
+        register(&state, 1, "alice").await;
+        register(&state, 2, "bob").await;
+        // A private :Secret node owned by alice (bob must NEVER see it), plus a public
+        // :Secret node both can see — so neither agent's result is empty.
+        add_rls_node(&state, 10, "alice_secret", "Secret", "alice", "private").await;
+        add_rls_node(&state, 11, "shared", "Secret", "alice", "public").await;
+
+        let core = core_of(&state).await;
+
+        // ── Alice queries Q: cold MISS, computes + caches under alice's rls-key. Her
+        //    filtered view sees BOTH nodes (she owns the private one + the public one).
+        let (h0, m0) = core.result_cache().stats();
+        let ra1 = dispatch(&state, req_as(20, "alice", Method::CypherQuery { query: Q.into() })).await;
+        assert!(ra1.error.is_none());
+        let alice_bytes = raw(&ra1);
+        let (h1, m1) = core.result_cache().stats();
+        assert_eq!((h1 - h0, m1 - m0), (0, 1), "alice's first query is a cold miss");
+        let alice_str = String::from_utf8_lossy(&alice_bytes);
+        assert!(
+            alice_str.contains("alice_secret"),
+            "alice must see her own private node: {alice_str}"
+        );
+
+        // ── Bob runs the IDENTICAL query text on the UNCHANGED graph (same version).
+        //    If the cache were NOT rls-aware, bob would HIT alice's entry and receive
+        //    `alice_secret` — a cross-agent leak. With the rls-aware key it MISSES
+        //    (different agent_id ⇒ different key) and recomputes BOB's filtered view.
+        let rb = dispatch(&state, req_as(21, "bob", Method::CypherQuery { query: Q.into() })).await;
+        assert!(rb.error.is_none());
+        let bob_bytes = raw(&rb);
+        let (h2, m2) = core.result_cache().stats();
+        assert_eq!(
+            (h2 - h1, m2 - m1),
+            (0, 1),
+            "bob's identical query MISSES the rls-aware cache (no cross-agent hit)"
+        );
+        // THE leak assertions: bob's bytes must NOT differ-by-leak — no alice_secret.
+        let bob_str = String::from_utf8_lossy(&bob_bytes);
+        assert!(
+            !bob_str.contains("alice_secret"),
+            "EXFILTRATION via cache: bob received alice's private node: {bob_str}"
+        );
+        assert!(
+            bob_str.contains("shared"),
+            "bob must still see the public node: {bob_str}"
+        );
+        assert_ne!(
+            bob_bytes, alice_bytes,
+            "bob's RLS-filtered result must differ from alice's (no shared cache slot)"
+        );
+
+        // ── Alice repeats Q: now it HITS her own entry (caching still works per-agent;
+        //    we didn't simply disable the cache under RLS), and serves her bytes back.
+        let ra2 = dispatch(&state, req_as(22, "alice", Method::CypherQuery { query: Q.into() })).await;
+        let (h3, m3) = core.result_cache().stats();
+        assert_eq!(
+            (h3 - h2, m3 - m2),
+            (1, 0),
+            "alice's repeat query HITS her own rls-aware cache slot"
+        );
+        assert_eq!(raw(&ra2), alice_bytes, "alice's cached bytes are her own");
     }
 }
