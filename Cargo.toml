@@ -379,6 +379,14 @@ tokio-postgres = "0.7"
 # Compile the `.wat` WASM UDF fixtures to wasm in the server-dispatch UDF test
 # (CONCEPT:KG-2.228). Only compiled for tests with `--features wasm-udf`.
 wat = "1"
+# Integration tests in `tests/` construct a full `ServerState` literal directly, so
+# they must be able to name the crates behind the feature-gated fields the lib's own
+# (`crate::`-pathed) test literals use: `parking_lot::Mutex` for the `compute-dist`
+# matview store and `eg_wasm::UdfRegistry` for the `wasm-udf` registry. Already linked
+# by the lib under node/cluster — declaring them here only makes the names resolvable
+# from an integration test (e.g. `tests/pgwire_roundtrip.rs` under `--features cluster`).
+parking_lot = "0.12"
+eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
 
 [profile.release]
 opt-level = 3

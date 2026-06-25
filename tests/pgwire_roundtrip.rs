@@ -71,8 +71,28 @@ fn state_with(
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
+        #[cfg(feature = "blob")]
+        blob: None,
+        #[cfg(feature = "blob")]
+        blob_cursor_ttl_secs: 300,
         #[cfg(feature = "raft")]
         raft: None,
+        #[cfg(feature = "raft")]
+        multi_raft: None,
+        #[cfg(feature = "tsdb")]
+        tsdb_store: None,
+        #[cfg(feature = "rdf-redb")]
+        rdf_quads: None,
+        #[cfg(feature = "streaming")]
+        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: Arc::new(parking_lot::Mutex::new(
+            epistemic_graph::raft::pregel::MatViewStore::new(),
+        )),
+        #[cfg(feature = "federation")]
+        foreign_sources: Arc::new(DashMap::new()),
     }))
 }
 
@@ -697,8 +717,28 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
+        #[cfg(feature = "blob")]
+        blob: None,
+        #[cfg(feature = "blob")]
+        blob_cursor_ttl_secs: 300,
         #[cfg(feature = "raft")]
         raft: None,
+        #[cfg(feature = "raft")]
+        multi_raft: None,
+        #[cfg(feature = "tsdb")]
+        tsdb_store: None,
+        #[cfg(feature = "rdf-redb")]
+        rdf_quads: None,
+        #[cfg(feature = "streaming")]
+        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: Arc::new(parking_lot::Mutex::new(
+            epistemic_graph::raft::pregel::MatViewStore::new(),
+        )),
+        #[cfg(feature = "federation")]
+        foreign_sources: Arc::new(DashMap::new()),
     }))
 }
 
