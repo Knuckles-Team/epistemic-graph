@@ -97,6 +97,8 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         matviews: std::sync::Arc::new(parking_lot::Mutex::new(
             crate::raft::pregel::MatViewStore::new(),
         )),
+        #[cfg(feature = "federation")]
+        foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
     }));
     // M2 rehydration: load the durable graph data from redb into the registry before
     // Raft starts (the real boot path's `load_all`). A fresh dir loads 0; a restarted

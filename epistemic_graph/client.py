@@ -1982,6 +1982,49 @@ class QueryClient:
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
+    async def register_foreign_source(self, name: str, source: dict[str, Any]) -> str:
+        """Register a named EXTERNAL source for query federation (CONCEPT:KG-2.232,
+        Lane P), returning the registered name.
+
+        ``source`` is the externally-tagged ``ForeignSourceSpec``: either a REMOTE
+        epistemic-graph engine, queried over the engine's own transport::
+
+            {"RemoteEngine": {
+                "endpoint": "host:port", "graph": "__commons__",
+                "secret": "<remote hmac secret>",
+                "uql": "MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}",
+            }}
+
+        or a generic HTTP/JSON API (a pure-Rust rustls client on the engine side)::
+
+            {"HttpJson": {
+                "url": "https://api.example.com/papers",
+                "json_path": "data",
+                "field_map": {"id": "doi", "score": "relevance"},
+            }}
+
+        A federated :meth:`unified` / :meth:`uql` plan reads such a source as a
+        ``RowSet`` via a ``ForeignScan`` op and composes it with the local
+        graph/vector/SQL ops in ONE plan — e.g. JOIN a foreign source with the local
+        graph::
+
+            [
+                {"Scan": {"label": "Doc"}},
+                {"Filter": {"preds": [{"GtNum": {"prop": "year", "n": 2023.0}}]}},
+                {"ForeignScan": {"source": {"HttpJson": {...}}, "join": True}},
+                {"Rank": {"query": [1.0, 0.0, 0.0, 0.0]}},
+                {"Limit": {"k": 10}},
+            ]
+
+        A ``ForeignScan`` with ``join`` true intersects the foreign rows with the
+        current candidate set (foreign∩local, keyed on id); ``join`` false makes it a
+        pure SOURCE that REPLACES the input (like ``Scan``). Requires a server built
+        with the ``federation`` feature.
+        """
+        return await self._client._send(
+            "RegisterForeignSource", {"name": name, "source": source}
+        )
+
     @staticmethod
     def _rows_to_dicts(result: Any) -> list[dict[str, Any]]:
         """Zip a ``{columns, rows}`` query result into per-row dicts. Shared by

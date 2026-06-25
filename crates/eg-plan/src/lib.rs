@@ -64,6 +64,10 @@ pub mod uql;
 
 #[cfg(feature = "query")]
 pub mod exec;
+// The federation foreign-source seam (CONCEPT:KG-2.232) — the `ForeignSource` trait +
+// the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
+#[cfg(feature = "federation")]
+pub mod federation;
 #[cfg(feature = "query")]
 pub mod oracle;
 
@@ -75,6 +79,11 @@ pub mod rowset;
 
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
+
+// Re-export the federation surface so a caller naming a foreign source goes through
+// eg-plan: the trait + the spec-dispatcher.
+#[cfg(feature = "federation")]
+pub use federation::{source_for, ForeignSource};
 
 // Re-export the lexical surface (CONCEPT:KG-2.215) so a caller wiring a text plan
 // names them through eg-plan: the BM25 index, the hit row, and the RRF helper.
@@ -94,3 +103,8 @@ mod text_tests;
 // (CONCEPT:KG-2.220).
 #[cfg(all(test, feature = "owl"))]
 mod owl_tests;
+
+// The federation foreign-scan + compose-join-with-local proofs (CONCEPT:KG-2.232):
+// a mock HTTP/JSON source joined with the local graph in ONE plan == the manual join.
+#[cfg(all(test, feature = "federation"))]
+mod federation_tests;

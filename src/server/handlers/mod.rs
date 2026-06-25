@@ -58,3 +58,10 @@ pub(crate) mod wasm_udf;
 // fall to the graph_ops not-available catch-all.
 #[cfg(feature = "compute-dist")]
 pub(crate) mod dist_compute;
+// Query federation / foreign sources (CONCEPT:KG-2.232, feature `federation`).
+// RegisterForeignSource records a named foreign source on ServerState (the inline-spec
+// `Op::ForeignScan` path runs through the unified-query handler). A build without
+// `federation` omits the module and the variant falls to the graph_ops not-available
+// catch-all.
+#[cfg(feature = "federation")]
+pub(crate) mod federation;
