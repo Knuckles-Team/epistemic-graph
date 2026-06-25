@@ -251,9 +251,7 @@ fn fuse_rrf(
 /// then flow — like any RowSet — into a downstream `Traverse`/`Rank`/`Filter`/`Limit`.
 #[cfg(feature = "owl")]
 fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet {
-    use eg_rdf::owl::{
-        asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner,
-    };
+    use eg_rdf::owl::{asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner};
 
     // Axioms: an explicit ontology document, else the triples already in the graph.
     let triples = if ontology.trim().is_empty() {
