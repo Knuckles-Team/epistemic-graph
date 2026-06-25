@@ -1000,6 +1000,18 @@ pub enum Method {
     CypherQuery {
         query: String,
     },
+    // Read-only GraphQL query surface (CONCEPT:KG-2.235). A GraphQL `query`
+    // operation whose root fields are node TYPES (label-scan + `first`/`limit` +
+    // property-equality args) with nested EDGE selections (relationship traversal),
+    // compiled to scans + BFS over the SAME GraphView the Cypher executor reads
+    // (eg-graphql — pure-Rust, NO async-graphql/DataFusion). Returns the GraphQL
+    // `{"data": …}` JSON via `ResultPayload::raw`. Gated behind the facade `graphql`
+    // feature (kept OUT of pi/default — async-graphql-free but still node/cluster/
+    // full only); in a build without it the variant falls to the not-built catch-all.
+    #[cfg(feature = "graphql")]
+    GraphQl {
+        query: String,
+    },
 
     // ── Unified cross-modal query (CONCEPT:KG-2.208/209) ──────────────────
     // ONE plan that filters (relational/DataFusion) → traverses (graph/BFS) →
