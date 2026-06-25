@@ -19,6 +19,11 @@ ann = ["dep:eg-ann"]
 # Additionally persist the ANN codes into the engine's redb durable tier
 # (CONCEPT:KG-2.195) rather than only the mmap files.
 ann-redb = ["ann", "eg-ann/redb"]
+# Engine-level security (CONCEPT:KG-2.231): per-agent Row-Level Security view filter
+# in the read/plan path (`isolation::IsolationLayer::filter_view`). Pure-Rust — no
+# dep (the visibility convention is a node-property check). Gated so a non-security
+# build links nothing extra.
+security = []
 
 [dependencies]
 eg-types = { path = "../eg-types" }

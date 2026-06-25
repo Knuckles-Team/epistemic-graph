@@ -21,9 +21,27 @@ use crate::redb_store::{self, GraphDump};
 /// Owns `{persist_dir}/graph.redb` and commits synchronously.
 pub(super) struct EmbeddedRedbStore {
     db: Database,
+    /// Encryption-at-rest cipher (CONCEPT:KG-2.231), resolved once from
+    /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at open. `None` ⇒ encryption off ⇒ durable
+    /// format unchanged. Only present in a `security` build.
+    #[cfg(feature = "security")]
+    cipher: Option<crate::crypto::ValueCipher>,
 }
 
 impl EmbeddedRedbStore {
+    /// The durable-crypto handle threaded into the shared redb_store read/write path.
+    #[inline]
+    fn crypto(&self) -> redb_store::DurableCrypto<'_> {
+        #[cfg(feature = "security")]
+        {
+            redb_store::DurableCrypto::new(self.cipher.as_ref())
+        }
+        #[cfg(not(feature = "security"))]
+        {
+            redb_store::DurableCrypto::none()
+        }
+    }
+
     /// Open (or create) the durable store under `persist_dir`, ensuring every table
     /// exists (so a fresh DB's read-path `open_table` doesn't error on a missing
     /// table) — identical bootstrap to the server's `RedbBackend::open`.
@@ -43,9 +61,16 @@ impl EmbeddedRedbStore {
                 .map_err(|e| e.to_string())?;
             wtx.open_table(redb_store::GRAPH_META)
                 .map_err(|e| e.to_string())?;
+            #[cfg(feature = "security")]
+            wtx.open_table(redb_store::AUDIT)
+                .map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            #[cfg(feature = "security")]
+            cipher: crate::crypto::ValueCipher::from_env(),
+        })
     }
 
     /// Commit one durable mutation INLINE with `Durability::Immediate`
@@ -63,6 +88,7 @@ impl EmbeddedRedbStore {
             &mut ops,
             &mut raft_log_ops,
             redb::Durability::Immediate,
+            self.crypto(),
         )
     }
 
@@ -80,12 +106,12 @@ impl EmbeddedRedbStore {
     /// Snapshot the whole registry dump into redb in one durable transaction.
     pub(super) fn checkpoint(&self, dumps: Vec<GraphDump>) -> Result<usize, String> {
         let mut pending = Vec::new();
-        redb_store::apply_checkpoint(&self.db, &mut pending, dumps)
+        redb_store::apply_checkpoint(&self.db, &mut pending, dumps, self.crypto())
     }
 
     /// Read the entire durable store back into per-graph dumps (boot recovery).
     pub(super) fn load_all(&self) -> Result<Vec<GraphDump>, String> {
-        redb_store::read_all_dumps(&self.db)
+        redb_store::read_all_dumps(&self.db, self.crypto())
     }
 
     /// Durably PURGE every row for a deleted graph (nodes/edges/ledger/semantic +
