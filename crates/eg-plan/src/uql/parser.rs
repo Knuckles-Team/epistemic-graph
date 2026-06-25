@@ -40,19 +40,21 @@
 //! | `RANK BY ~[1.0,0.0]`                 | `Rank { query: [1.0, 0.0] }`       |
 //! | `LIMIT 10`                           | `Limit { k: 10 }`                  |
 //!
-//! ### Forward-compat seams (documented, NOT built this increment)
-//! The grammar leaves clean extension points so the deferred Ops are a grammar+Op
-//! ADDITION, never a redesign:
-//!  * **time / asof (Lane F)** — the `@` sigil is already lexed; reserve
-//!    `AS OF @<ts>` / `WINDOW <dur>` as a trailing `scan`/`stage` clause feeding a
-//!    future `Op::AsOf`/`Op::Window`.
-//!  * **text-rank (Lane G4)** — `RANK BY ~"text query"` already accepts a *string*
-//!    vector_ref; a future `Op::TextRank { query: String }` is selected when the
-//!    `vector_ref` is a string the planner cannot resolve to an embedding handle
-//!    (this increment treats a string as a named-embedding placeholder error until
-//!    that Op lands — see [`VectorRef`]).
-//!  * **reason (datalog fixpoint)** — reserve a `REASON <rel> {n}` stage mapping to a
-//!    future `Op::Reason`; it slots into `stage` with no other change.
+//! ### Surface clauses for the newer ops (CONCEPT:KG-2.235)
+//! The query-language-polish increment lands the clauses the planner ops shipped
+//! WITHOUT a UQL surface — each lowers to ONE `Op`, slotting into `stage` with no
+//! redesign:
+//!  * **time** — `AS OF @<ts>` ⇒ `Op::AsOf { ts }` (the `@` sigil is the timestamp
+//!    prefix) and `WINDOW <dur>` ⇒ `Op::Window { secs }` (a bare number is seconds; a
+//!    `s`/`m`/`h`/`d` unit suffix scales it). RowSet-CONTEXT ops (the per-row temporal
+//!    selection / windowed aggregate is the eg-tsdb seam); always available.
+//!  * **federation** — `FOREIGN "<name>"` ⇒ `Op::Foreign { name }` (the cross-source
+//!    pull is the federation seam); always available.
+//!  * **owl** — `REASON <Class>` ⇒ `Op::Reason { target_class, ontology:"" }`,
+//!    feature-gated to `owl` (the feature that compiles the variant + executor).
+//!  * **text-rank** — `TEXT "<q>"` ⇒ `Op::RankText { query }`, feature-gated to
+//!    `text`. (Distinct from the `RANK BY ~"…"` named-vector seam below, which stays a
+//!    reserved error: a named EMBEDDING handle has no resolver yet.)
 
 use eg_types::wire::{Op, Plan, Pred};
 
@@ -156,7 +158,12 @@ impl<'a> Parser<'a> {
         Ok(ops)
     }
 
-    /// `stage = traverse | rank | limit | filter`. Dispatched on the leading keyword.
+    /// `stage = traverse | rank | text | limit | filter | asof | window | foreign |
+    /// reason`. Dispatched on the leading keyword. The time/federation/owl/text
+    /// clauses (CONCEPT:KG-2.235) each lower to ONE `Op`; the owl (`REASON`) + text
+    /// (`TEXT`) clauses are feature-gated to the same feature as the `Op` they lower
+    /// to, so a build without that feature gives a clear "not in this build" error
+    /// rather than a phantom Op.
     fn parse_stage(&mut self, ops: &mut Vec<Op>) -> Result<(), UqlError> {
         if self.peek_kw("TRAVERSE") {
             self.bump();
@@ -164,6 +171,9 @@ impl<'a> Parser<'a> {
         } else if self.peek_kw("RANK") {
             self.bump();
             ops.push(self.parse_rank()?);
+        } else if self.peek_kw("TEXT") {
+            self.bump();
+            ops.push(self.parse_text()?);
         } else if self.peek_kw("LIMIT") {
             self.bump();
             ops.push(self.parse_limit()?);
@@ -171,9 +181,24 @@ impl<'a> Parser<'a> {
             self.bump();
             let preds = self.parse_pred_list()?;
             ops.push(Op::Filter { preds });
+        } else if self.peek_kw("AS") {
+            // `AS OF @<ts>`
+            self.bump();
+            ops.push(self.parse_asof()?);
+        } else if self.peek_kw("WINDOW") {
+            self.bump();
+            ops.push(self.parse_window()?);
+        } else if self.peek_kw("FOREIGN") {
+            self.bump();
+            ops.push(self.parse_foreign()?);
+        } else if self.peek_kw("REASON") {
+            self.bump();
+            ops.push(self.parse_reason()?);
         } else {
-            return Err(self
-                .err_here("expected a pipeline stage (`TRAVERSE`, `RANK`, `LIMIT`, or `WHERE`)"));
+            return Err(self.err_here(
+                "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `LIMIT`, \
+                 `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, or `REASON`)",
+            ));
         }
         Ok(())
     }
@@ -262,6 +287,125 @@ impl<'a> Parser<'a> {
     fn parse_limit(&mut self) -> Result<Op, UqlError> {
         let k = self.expect_usize("a `LIMIT` count")?;
         Ok(Op::Limit { k })
+    }
+
+    /// `asof = "AS" "OF" "@" num` → `Op::AsOf { ts }` (CONCEPT:KG-2.235). The time
+    /// instant is a unix-seconds number prefixed by the `@` sigil (already lexed).
+    fn parse_asof(&mut self) -> Result<Op, UqlError> {
+        self.expect_kw("OF")?;
+        self.expect(&Tok::At, "`@` before the AS-OF timestamp (`AS OF @<ts>`)")?;
+        let ts = self.expect_num("an AS-OF timestamp (unix seconds)")?;
+        Ok(Op::AsOf { ts })
+    }
+
+    /// `window = "WINDOW" num [ unit ]` → `Op::Window { secs }` (CONCEPT:KG-2.235). A
+    /// bare number is seconds; an optional unit suffix (`s`/`m`/`h`/`d`) scales it.
+    fn parse_window(&mut self) -> Result<Op, UqlError> {
+        let n = self.expect_num("a WINDOW duration (`WINDOW <dur>`)")?;
+        let scale = match self.peek_kind() {
+            Some(Tok::Ident(u)) => {
+                let s = match u.to_ascii_lowercase().as_str() {
+                    "s" | "sec" | "secs" => Some(1.0),
+                    "m" | "min" | "mins" => Some(60.0),
+                    "h" | "hr" | "hrs" => Some(3600.0),
+                    "d" | "day" | "days" => Some(86_400.0),
+                    _ => None,
+                };
+                match s {
+                    Some(scale) => {
+                        self.bump();
+                        scale
+                    }
+                    // An un-recognized trailing word is the NEXT thing, not a unit.
+                    None => 1.0,
+                }
+            }
+            _ => 1.0,
+        };
+        Ok(Op::Window { secs: n * scale })
+    }
+
+    /// `foreign = "FOREIGN" ( string | ident )` → `Op::Foreign { name }`
+    /// (CONCEPT:KG-2.235). The federation source name (a registered peer).
+    fn parse_foreign(&mut self) -> Result<Op, UqlError> {
+        let name = match self.peek_kind() {
+            Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
+                let s = s.clone();
+                self.bump();
+                s
+            }
+            _ => {
+                return Err(
+                    self.err_here("expected a FOREIGN source name (`FOREIGN \"<name>\"`)")
+                )
+            }
+        };
+        Ok(Op::Foreign { name })
+    }
+
+    /// `reason = "REASON" (ident | string)` → `Op::Reason` (CONCEPT:KG-2.235). The
+    /// OWL-inferred members of the named class seed the RowSet. Feature-gated to `owl`
+    /// — the feature that compiles the `Op::Reason` variant + its executor.
+    #[cfg(feature = "owl")]
+    fn parse_reason(&mut self) -> Result<Op, UqlError> {
+        let target_class = match self.peek_kind() {
+            Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
+                let s = s.clone();
+                self.bump();
+                s
+            }
+            _ => return Err(self.err_here("expected a class name (`REASON <Class>`)")),
+        };
+        Ok(Op::Reason {
+            target_class,
+            ontology: String::new(),
+        })
+    }
+
+    /// `REASON` in a build WITHOUT `owl`: the `Op::Reason` variant is cfg'd out, so the
+    /// clause is accepted lexically but rejected with a clear "not in this build"
+    /// message (never a phantom Op, never a panic).
+    #[cfg(not(feature = "owl"))]
+    fn parse_reason(&mut self) -> Result<Op, UqlError> {
+        // Consume the class token so the error caret points at `REASON`, not past it.
+        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`REASON` requires the OWL reasoner (build feature `owl`/`owl-plan`); \
+             not available in this build",
+        ))
+    }
+
+    /// `text = "TEXT" string` → `Op::RankText { query }` (CONCEPT:KG-2.235). Re-ranks
+    /// the candidate RowSet by BM25 relevance to the natural-language query. Feature-
+    /// gated to `text` — the feature that compiles the `Op::RankText` variant + the
+    /// lexical index executor.
+    #[cfg(feature = "text")]
+    fn parse_text(&mut self) -> Result<Op, UqlError> {
+        match self.peek_kind() {
+            Some(Tok::Str(s)) => {
+                let query = s.clone();
+                self.bump();
+                Ok(Op::RankText { query })
+            }
+            _ => Err(self.err_here("expected a quoted query (`TEXT \"<q>\"`)")),
+        }
+    }
+
+    /// `TEXT` in a build WITHOUT `text`: the `Op::RankText` variant is cfg'd out, so the
+    /// clause is accepted lexically but rejected with a clear message.
+    #[cfg(not(feature = "text"))]
+    fn parse_text(&mut self) -> Result<Op, UqlError> {
+        if matches!(self.peek_kind(), Some(Tok::Str(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`TEXT` requires the BM25 lexical index (build feature `text`); \
+             not available in this build",
+        ))
     }
 
     /// `pred_list = pred { "AND" pred }`.

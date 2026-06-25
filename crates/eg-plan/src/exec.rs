@@ -164,6 +164,13 @@ fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
         #[cfg(feature = "wasm-udf")]
         Op::Udf { id } => udf_transform(ctx, &input, id),
 
+        // TIME / FEDERATION context ops (CONCEPT:KG-2.235). RowSet-preserving markers
+        // the UQL `AS OF @<ts>` / `WINDOW <dur>` / `FOREIGN "<name>"` clauses lower to.
+        // The temporal point-read / windowed aggregate (eg-tsdb) and the cross-source
+        // pull (federation) are downstream seams; today they pass the rows through so a
+        // composed plan that carries them runs unchanged.
+        Op::AsOf { .. } | Op::Window { .. } | Op::Foreign { .. } => Ok(input),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
 }
