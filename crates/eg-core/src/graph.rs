@@ -177,6 +177,14 @@ pub struct GraphCore {
     /// off authoritative mode) means a miss is a genuine absence — behavior is then
     /// byte-for-byte unchanged. See `crate::read_through`.
     read_through: RwLock<Option<Arc<dyn crate::read_through::ReadThrough>>>,
+    /// Version-keyed query-RESULT cache (CONCEPT:KG-2.233, feature `result-cache`).
+    /// Caches the serialized bytes of a read query (`Sql`/`Cypher`/`Sparql`/
+    /// `UnifiedQuery`) keyed by `(query-hash, version())`. A repeated identical query
+    /// on an UNCHANGED graph hits; any write bumps `version` so the next lookup keys
+    /// on a new version and misses (recompute) — staleness is impossible by
+    /// construction. Bounded LRU, pure-Rust, so it folds into the lean Pi tier.
+    #[cfg(feature = "result-cache")]
+    result_cache: crate::result_cache::ResultCache,
 }
 
 impl Default for GraphCore {
@@ -396,7 +404,18 @@ impl GraphCore {
             property_index: RwLock::new(None),
             index_manager: crate::index::IndexManager::with_default_indexes(),
             read_through: RwLock::new(None),
+            #[cfg(feature = "result-cache")]
+            result_cache: crate::result_cache::ResultCache::new(),
         }
+    }
+
+    /// The version-keyed query-result cache (CONCEPT:KG-2.233). The query handlers
+    /// consult it before executing a read and populate it after a miss; correctness
+    /// rests on `version()` keying (a write bumps the version, retiring every prior
+    /// result). See `crate::result_cache`.
+    #[cfg(feature = "result-cache")]
+    pub fn result_cache(&self) -> &crate::result_cache::ResultCache {
+        &self.result_cache
     }
 
     /// The unified secondary-index registry/seam (CONCEPT:KG-2.213). A planner
@@ -437,6 +456,25 @@ impl GraphCore {
         // changed an indexed property value or added/removed a node, so the cached
         // `value → ids` maps are stale and are rebuilt (over the same demanded keys)
         // on the next `nodes_by_property` lookup.
+        *self.property_index.write() = None;
+    }
+
+    /// Invalidate cached query results for a CHANGE that landed elsewhere
+    /// (CONCEPT:KG-2.233 — distributed cache coherence). A replica tailing the CDC
+    /// feed calls this when it observes a REMOTE write for this graph: it bumps the
+    /// local `version` (so any cached result keyed on the old version becomes
+    /// unreachable) AND drops the cache directly (belt-and-braces — the local data
+    /// itself may be rehydrated separately). Unlike `mark_dirty`, this is for a write
+    /// that did NOT flow through this node's local write path, so the version must be
+    /// advanced explicitly to retire stale cached reads.
+    #[cfg(feature = "result-cache")]
+    pub fn invalidate_for_remote_change(&self) {
+        self.version
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.result_cache.invalidate_all();
+        // The label/property indexes are also derived state; retire them too so a
+        // subsequent local read after a remote-applied change rebuilds them.
+        *self.label_index.write() = None;
         *self.property_index.write() = None;
     }
 
@@ -1101,6 +1139,12 @@ impl GraphCore {
         self.edge_properties.clear();
         self.ledger.lock().clear();
         *self.semantic_store.write() = crate::compute::semantic::SemanticStore::new();
+        // Drop every cached query result (CONCEPT:KG-2.233): `clear` (and `hibernate`,
+        // which reuses it) wipes the graph WITHOUT bumping `version`, so the
+        // version-keyed cache must be invalidated directly or a post-wipe lookup at the
+        // unchanged version could serve a stale result.
+        #[cfg(feature = "result-cache")]
+        self.result_cache.invalidate_all();
     }
 
     /// Hibernate this graph's in-memory state (CONCEPT:KG-2.224 — cold-tenant
@@ -1116,6 +1160,44 @@ impl GraphCore {
         let freed = self.node_count();
         self.clear();
         freed
+    }
+
+    /// Offload this graph's whole in-RAM state to a cold tier (CONCEPT:KG-2.233),
+    /// then hibernate the RAM. Serializes the graph (`to_msgpack`), pushes it to the
+    /// cold store, and only then drops the RAM — so the bytes are safely in the cold
+    /// tier before RAM is freed. Returns the node count freed. The NEXT access calls
+    /// [`Self::rehydrate_from_cold`] to bring it back. Read-mostly cold tenants thus
+    /// spill RAM→redb→object-store and back without data loss.
+    #[cfg(feature = "cold-tier")]
+    pub fn offload_to_cold(
+        &self,
+        graph_name: &str,
+        tier: &dyn crate::cold_tier::ColdTier,
+    ) -> Result<usize, String> {
+        let bytes = self.to_msgpack()?;
+        tier.offload(graph_name, &bytes)?;
+        Ok(self.hibernate())
+    }
+
+    /// Rehydrate this graph from the cold tier (CONCEPT:KG-2.233): fetch its
+    /// offloaded blob and reload it via `from_msgpack`, then drop the cold copy. A
+    /// no-op returning `Ok(false)` when the graph was not offloaded (already hot or
+    /// never cold). On success the graph's full topology/edges/properties/vectors are
+    /// back in RAM, exactly as before the offload.
+    #[cfg(feature = "cold-tier")]
+    pub fn rehydrate_from_cold(
+        &self,
+        graph_name: &str,
+        tier: &dyn crate::cold_tier::ColdTier,
+    ) -> Result<bool, String> {
+        match tier.rehydrate(graph_name)? {
+            Some(bytes) => {
+                self.from_msgpack(&bytes)?;
+                tier.remove(graph_name)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     pub fn from_msgpack(&self, msgpack: &[u8]) -> Result<(), String> {
@@ -1284,6 +1366,34 @@ impl GraphCore {
         }
     }
 
+    /// An [`analysis_snapshot`](Self::analysis_snapshot) paired with the OCC
+    /// `version()` read UNDER the same topology read lock (CONCEPT:KG-2.233). Taking
+    /// both atomically lets the result cache store a query's bytes under exactly the
+    /// version the snapshot reflects: a topology write bumps `version` via
+    /// `mark_dirty` only while holding the topo WRITE lock, mutually exclusive with
+    /// the read lock held here — so the `(view, version)` pair is point-in-time
+    /// consistent and a cache entry can never claim a version newer than its data.
+    #[cfg(feature = "result-cache")]
+    pub fn analysis_snapshot_versioned(&self) -> (GraphView, u64) {
+        let topo = self.topo.read();
+        let version = self.version();
+        let view = GraphView {
+            graph: topo.graph.clone(),
+            node_map: topo.node_map.clone(),
+            node_properties: self
+                .node_properties
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect(),
+            edge_properties: self
+                .edge_properties
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect(),
+        };
+        (view, version)
+    }
+
     // ── Graph Forking ────────────────────────────────────────────────────
 
     /// Deep-clone into a new, independent LIVE graph (fresh locks).
@@ -1317,6 +1427,9 @@ impl GraphCore {
             // A fork is a fresh, detached graph (not registered, not backed by the
             // durable tier), so it carries no read-through (CONCEPT:KG-2.191).
             read_through: RwLock::new(None),
+            // A fork starts with an empty result cache (its own version line).
+            #[cfg(feature = "result-cache")]
+            result_cache: crate::result_cache::ResultCache::new(),
         }
     }
 
@@ -2006,6 +2119,12 @@ mod tests {
 
     #[test]
     fn property_index_returns_correct_ids() {
+        // Hold the env lock + pin the cap to default: sibling tests mutate
+        // `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` globally, which would otherwise
+        // race this default-cap test under parallel execution.
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
         // Demand-driven: indexing `team` on first call. Equality lookup.
         let mut blue = core.nodes_by_property("team", "blue").unwrap();
@@ -2025,6 +2144,9 @@ mod tests {
 
     #[test]
     fn property_index_invalidates_after_mutation() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
         assert_eq!(core.nodes_by_property("team", "red").unwrap(), vec!["n2"]);
         let v0 = core.version();
@@ -2051,6 +2173,9 @@ mod tests {
 
     #[test]
     fn property_index_composite_lookup() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
         // team=blue AND type=Tool -> n3, n4 (n1 is blue but Agent).
         let mut got = core
@@ -2068,7 +2193,7 @@ mod tests {
 
     #[test]
     fn property_index_bounded_cap_falls_back() {
-        let _g = PROP_ENV_LOCK.lock().unwrap();
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES", "1");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
@@ -2084,7 +2209,7 @@ mod tests {
 
     #[test]
     fn property_index_seed_opt_in() {
-        let _g = PROP_ENV_LOCK.lock().unwrap();
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES", " team , type ");
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
         let core = prop_graph();
