@@ -284,6 +284,21 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             match s.registry.delete_graph(graph_name) {
                 Ok(()) => {
                     crate::metrics::drop_graph(graph_name);
+                    // In-memory teardown (CONCEPT:KG-2.237) — distinct from the durable
+                    // purge below. The registry entry (the live GraphCore) is gone, but
+                    // per-graph state keyed by NAME elsewhere in ServerState would
+                    // survive and shadow a same-name recreate. Drop it so the recreate
+                    // starts truly clean every cycle:
+                    //  • the write-coalescer's cached writer — its worker owns an
+                    //    `Arc<GraphCore>` of THIS (deleted) incarnation; left cached,
+                    //    `writer_for` returns it on recreate (it is name-keyed and
+                    //    ignores the new core) and routes the new tenant's writes into
+                    //    the orphaned core — silently dropping them in RAM. THIS is the
+                    //    tenant-churn corruption.
+                    //  • the per-graph in-flight semaphore (no data, but bounds an
+                    //    unbounded entry leak across many churn cycles).
+                    s.write_coalescer.remove(graph_name);
+                    s.per_graph_inflight.remove(graph_name);
                     // Authoritative durable purge (CONCEPT:KG-2.221): the registry
                     // entry is gone from RAM, but the graph's durable rows (nodes/
                     // edges/ledger/semantic/graph_meta, keyed by the sanitized name)

@@ -1876,6 +1876,157 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// CONCEPT:KG-2.237 — MANY repeated create→delete→recreate cycles on the SAME
+    /// graph name must NOT enter a corrupted in-memory state that silently drops the
+    /// recreated graph's writes (the vault-lane `__secrets__` failure). DISTINCT from
+    /// KG-2.221 (durable redb purge): here every read is served HOT from RAM (no
+    /// eviction, no reload) so the bug is purely the in-memory per-graph state keyed
+    /// by name that DeleteGraph failed to reset — specifically the write-coalescer's
+    /// cached `GraphWriter`, whose worker owns an `Arc<GraphCore>` of the DELETED
+    /// incarnation. On recreate, `writer_for` returned the STALE writer (keyed by
+    /// name) and routed the new tenant's writes into the orphaned core; the registry's
+    /// fresh GraphCore stayed empty, so a hot RAM read saw nothing. The corruption
+    /// accumulates: it appears the first cycle the coalescer batched a write.
+    ///
+    /// Tested for BOTH a plain name and a `__…__`-style reserved name (the report saw
+    /// it on `__secrets__`). 50 cycles, each writing a DIFFERENT node so a stale read
+    /// can't masquerade as a fresh one.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn many_recreate_cycles_keep_inmemory_writes_visible() {
+        use crate::protocol::{Request, ResultPayload};
+        use crate::server::persistence::read_through::BackendReadThroughFactory;
+        use crate::server::{compute_auth_token, dispatch};
+
+        const SECRET: &str = "redb-churn";
+        const CYCLES: u64 = 50;
+
+        for graph in ["g", "__secrets__"] {
+            let dir = std::env::temp_dir().join(format!(
+                "eg-redb-churn-{}-{}",
+                std::process::id(),
+                graph.trim_matches('_')
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            let dir_s = dir.to_string_lossy().to_string();
+
+            let backend: Arc<dyn crate::server::persistence::PersistenceBackend> =
+                Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 256).expect("open"));
+            let state = new_state_auth(Some(dir_s.clone()), true);
+            {
+                let mut s = state.write().await;
+                s.auth_secret = SECRET.to_string();
+                s.persistence = Some(backend.clone());
+                let factory = Arc::new(BackendReadThroughFactory::new(backend.clone()));
+                s.registry.set_read_through_factory(factory);
+            }
+
+            let req = |id: u64, method: Method| Request {
+                id,
+                graph: graph.to_string(),
+                auth_token: compute_auth_token(SECRET, id),
+                agent_id: None,
+                method,
+            };
+
+            let mut id = 0u64;
+            let mut next = || {
+                id += 1;
+                id
+            };
+
+            for cycle in 0..CYCLES {
+                // create
+                let c = dispatch(
+                    &state,
+                    req(
+                        next(),
+                        Method::CreateGraph {
+                            graph_name: graph.into(),
+                            graph_type: GraphType::Global,
+                        },
+                    ),
+                )
+                .await;
+                assert!(c.error.is_none(), "cycle {cycle} create: {:?}", c.error);
+
+                // write a node UNIQUE to this cycle
+                let node = format!("n{cycle}");
+                let a = dispatch(
+                    &state,
+                    req(
+                        next(),
+                        Method::AddNode {
+                            node_id: node.clone(),
+                            properties_msgpack: props(serde_json::json!({"cycle": cycle})),
+                        },
+                    ),
+                )
+                .await;
+                assert!(a.error.is_none(), "cycle {cycle} add: {:?}", a.error);
+
+                // read it back HOT from RAM (no eviction) — the new tenant's write
+                // MUST be visible. This is where a stale coalescer routes the write
+                // into the deleted core and the fresh core reads back empty.
+                let r = dispatch(
+                    &state,
+                    req(
+                        next(),
+                        Method::GetNodeProperties {
+                            node_id: node.clone(),
+                        },
+                    ),
+                )
+                .await;
+                let got = match r.result {
+                    Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
+                    Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
+                    other => panic!("cycle {cycle} unexpected get result: {other:?}"),
+                };
+                assert_eq!(
+                    got,
+                    Some(props(serde_json::json!({"cycle": cycle}))),
+                    "graph {graph:?} cycle {cycle}: recreated tenant's write to {node:?} \
+                     was silently dropped (in-memory churn corruption)"
+                );
+
+                // IN-MEMORY proof: NodeCount reads the registry's live GraphCore
+                // directly (NO durable read-through), so it sees ONLY what actually
+                // landed in RAM. The recreated graph must hold EXACTLY this cycle's one
+                // node. If the stale coalescer routed the write to the deleted core,
+                // the live core is empty and this is 0 — the durable read-through above
+                // would otherwise MASK the corruption by serving redb.
+                let nc = dispatch(&state, req(next(), Method::NodeCount)).await;
+                let count = match nc.result {
+                    Some(ResultPayload::Count(c)) => c,
+                    other => panic!("cycle {cycle} unexpected node-count result: {other:?}"),
+                };
+                assert_eq!(
+                    count, 1,
+                    "graph {graph:?} cycle {cycle}: recreated tenant's live GraphCore must hold \
+                     exactly the 1 node written this cycle (in-memory write was dropped)"
+                );
+
+                // delete (skip on the last cycle so we leave the graph live)
+                if cycle + 1 < CYCLES {
+                    let d = dispatch(
+                        &state,
+                        req(
+                            next(),
+                            Method::DeleteGraph {
+                                graph_name: graph.into(),
+                            },
+                        ),
+                    )
+                    .await;
+                    assert!(d.error.is_none(), "cycle {cycle} delete: {:?}", d.error);
+                }
+            }
+
+            backend.shutdown();
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     /// CONCEPT:KG-2.187 — full dispatch path under AUTHORITATIVE mode: a write acked
     /// through `dispatch` is durable in redb WITHOUT any checkpoint, and reloads via
     /// redb `load_all` (the authoritative source). This proves the commit-before-ack
