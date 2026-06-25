@@ -37,3 +37,9 @@ RefreshMatView
 # thin nodes/edges/graph client; bind here until a Python UDF sub-client is added.
 RegisterUdf
 RunUdf
+# Engine-level security (CONCEPT:KG-2.231, `security` feature): AuditVerify walks a
+# graph's hash-chained tamper-evident audit log and reports OK or the first break. It
+# is an engine-side maintenance/forensic op routed through dispatch (the audit
+# subsystem), not a nodes/edges/graph client call; bind here until a Python security
+# sub-client is added.
+AuditVerify
