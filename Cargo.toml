@@ -285,6 +285,19 @@ node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", 
 # the cluster tier links raft AND pgwire AND the distributed-compute coordinator (and
 # transitively datafusion via `query`).
 cluster = ["node", "raft", "pgwire", "compute-dist"]
+# `pi-max` = the genuinely-Pi-3-friendly MAXIMAL build: every PURE-RUST feature that
+# fits a Pi WITHOUT a C toolchain and WITHOUT DataFusion. It is `pi` (server + graph +
+# algorithms + redb + cypher + ann + rdf + sparql + owl + streaming + result-cache +
+# cold-tier + cost) PLUS the remaining pure-Rust, no-DataFusion features: `tsdb`
+# (native time-series, redb-backed, NO DataFusion), `blob` (native redb CAS, NO
+# object_store SDK), and `security` (RLS + audit chain + ChaCha20-Poly1305
+# encryption-at-rest, all RustCrypto pure-Rust — NO ring/openssl/C). It deliberately
+# EXCLUDES `query`/`graphql` (DataFusion), `text` (Tantivy/zstd-sys C dep), `pgwire`,
+# `raft`/`openraft`, `wasm-udf` (wasmtime/cranelift), `federation` (rustls/ring),
+# `blob-s3`/`cold-tier-s3`/`compute-dist`. The Pi contract holds: a `--features pi-max`
+# build links NO datafusion / tantivy / openraft / pgwire / ring / openssl / zstd-sys /
+# C-toolchain dep (asserted by `cargo tree`). It sits between `pi` and `full`.
+pi-max = ["pi", "tsdb", "blob", "security"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
@@ -419,3 +432,20 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Size-optimized release profile for the "contains-all smallest" pre-packaged build
+# (the Pi never compiles — wheels are cross-built in CI, so the C-dep/long compile is
+# a build-host concern only). Inherits `release` but trades runtime speed for a
+# smaller stripped binary: opt-level "z" (optimize for size), fat LTO + a single
+# codegen unit (max cross-crate inlining/dead-code elimination), strip symbols.
+# `panic = "unwind"` is DELIBERATE and OVERRIDES the `release` `abort`: this is a
+# DATABASE — unwind keeps a panic recoverable at the dispatch boundary instead of
+# aborting the whole process and masking a recoverable error. Normal `release` builds
+# are unaffected (this is a separate named profile).
+[profile.release-tiny]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "unwind"
