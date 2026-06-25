@@ -102,7 +102,7 @@ impl PlanExt for Plan {
     }
 }
 
-fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         Op::Scan { label } => Ok(scan_label(ctx.view, label)),
 
@@ -193,11 +193,22 @@ fn foreign_scan(
     join: bool,
 ) -> Result<RowSet, String> {
     let foreign = crate::federation::source_for(source).fetch()?;
+    Ok(fuse_foreign(input, foreign, join))
+}
+
+/// Fuse a foreign RowSet with the local candidate set the SAME way for EVERY foreign
+/// kind (remote-engine / HTTP-JSON / external-SQL): `join=false` ⇒ the foreign rows
+/// REPLACE the input (a pure source); `join=true` ⇒ intersect keyed on id, preserving
+/// the input's order (a foreign∩local JOIN). Factored out so a compose-join proof can
+/// exercise the EXACT fuse the executor runs against a mock-fetched foreign RowSet,
+/// without standing up a live external DB.
+#[cfg(feature = "federation")]
+pub(crate) fn fuse_foreign(input: RowSet, foreign: RowSet, join: bool) -> RowSet {
     if join && !input.is_empty() {
         let keep = foreign.id_set();
-        Ok(input.intersect_keep_order(&keep))
+        input.intersect_keep_order(&keep)
     } else {
-        Ok(foreign)
+        foreign
     }
 }
 

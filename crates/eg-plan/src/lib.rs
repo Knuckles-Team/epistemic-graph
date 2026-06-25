@@ -108,3 +108,9 @@ mod owl_tests;
 // a mock HTTP/JSON source joined with the local graph in ONE plan == the manual join.
 #[cfg(all(test, feature = "federation"))]
 mod federation_tests;
+
+// The external-SQL federation proofs (CONCEPT:KG-2.239): an external relational-SQL
+// source (`ForeignSourceSpec::Sql`) joined with the local graph in ONE plan == the
+// manual join, plus the real sqlx DSN path errors cleanly when unreachable.
+#[cfg(all(test, feature = "federation-sql"))]
+mod federation_sql_tests;
