@@ -67,6 +67,54 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
             json_path,
             field_map,
         }),
+        ForeignSourceSpec::Sql {
+            dsn,
+            query,
+            id_field,
+            score_field,
+        } => sql_source(dsn, query, id_field, score_field.as_deref()),
+    }
+}
+
+// ── kind (c): an EXTERNAL relational-SQL database (CONCEPT:KG-2.239) ─────────────
+
+/// Build the SQL foreign source. With `federation-sql` it is the real [`SqlSource`]
+/// (a pure-Rust/rustls sqlx client). WITHOUT it — a `federation`-only build — the `Sql`
+/// wire variant still exists (it is pure serde, so it registers + serializes fine), but
+/// there is no driver linked, so `fetch()` errors with a clear "rebuild with
+/// federation-sql" message rather than panicking or silently yielding nothing.
+fn sql_source<'a>(
+    dsn: &'a str,
+    query: &'a str,
+    id_field: &'a str,
+    score_field: Option<&'a str>,
+) -> Box<dyn ForeignSource + 'a> {
+    #[cfg(feature = "federation-sql")]
+    {
+        Box::new(SqlSource {
+            dsn,
+            query,
+            id_field,
+            score_field,
+        })
+    }
+    #[cfg(not(feature = "federation-sql"))]
+    {
+        let _ = (dsn, query, id_field, score_field);
+        Box::new(SqlUnavailable)
+    }
+}
+
+/// The not-built placeholder for the `Sql` kind when `federation-sql` is off.
+#[cfg(not(feature = "federation-sql"))]
+struct SqlUnavailable;
+
+#[cfg(not(feature = "federation-sql"))]
+impl ForeignSource for SqlUnavailable {
+    fn fetch(&self) -> Result<RowSet, String> {
+        Err("federation: a Sql foreign source needs a server built with the \
+             `federation-sql` feature (no SQL driver in this build)"
+            .into())
     }
 }
 
@@ -264,6 +312,152 @@ impl ForeignSource for HttpJsonSource<'_> {
         });
         Ok(RowSet::from_rows(rows))
     }
+}
+
+// ── kind (c) impl: external relational-SQL (CONCEPT:KG-2.239, feature `federation-sql`) ─
+
+/// Reads rows from an EXTERNAL relational DB (Postgres/MySQL) over a pure-Rust/rustls
+/// `sqlx` client. Borrows the spec fields (no clones). The DSN scheme picks the dialect
+/// (`postgres://`/`postgresql://` ⇒ Postgres, `mysql://` ⇒ MySQL); each row's `id_field`
+/// column becomes the row id and the optional `score_field` becomes the row score.
+///
+/// `fetch()` is SYNC (the executor runs it on the blocking pool, exactly like the SQL /
+/// vector legs) but `sqlx` is async, so it spins a small current-thread tokio runtime to
+/// drive the connect+query to completion. This pairs a per-call connection — connection
+/// pooling + pushdown to the external DB are documented follow-ups.
+#[cfg(feature = "federation-sql")]
+pub struct SqlSource<'a> {
+    dsn: &'a str,
+    query: &'a str,
+    id_field: &'a str,
+    score_field: Option<&'a str>,
+}
+
+#[cfg(feature = "federation-sql")]
+impl ForeignSource for SqlSource<'_> {
+    fn fetch(&self) -> Result<RowSet, String> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("federation: build tokio runtime: {e}"))?;
+        rt.block_on(self.fetch_async())
+    }
+}
+
+#[cfg(feature = "federation-sql")]
+impl SqlSource<'_> {
+    async fn fetch_async(&self) -> Result<RowSet, String> {
+        let scheme = self.dsn.split(':').next().unwrap_or("");
+        match scheme {
+            "postgres" | "postgresql" => self.fetch_postgres().await,
+            "mysql" | "mariadb" => self.fetch_mysql().await,
+            other => Err(format!(
+                "federation: unsupported SQL dsn scheme '{other}' (expected postgres:// or mysql://)"
+            )),
+        }
+    }
+
+    async fn fetch_postgres(&self) -> Result<RowSet, String> {
+        use sqlx::Connection;
+        let mut conn = sqlx::postgres::PgConnection::connect(self.dsn)
+            .await
+            .map_err(|e| format!("federation: connect postgres: {e}"))?;
+        let rows = sqlx::query(self.query)
+            .fetch_all(&mut conn)
+            .await
+            .map_err(|e| format!("federation: postgres query: {e}"))?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(self.project_pg_row(row)?);
+        }
+        Ok(RowSet::from_rows(out))
+    }
+
+    async fn fetch_mysql(&self) -> Result<RowSet, String> {
+        use sqlx::Connection;
+        let mut conn = sqlx::mysql::MySqlConnection::connect(self.dsn)
+            .await
+            .map_err(|e| format!("federation: connect mysql: {e}"))?;
+        let rows = sqlx::query(self.query)
+            .fetch_all(&mut conn)
+            .await
+            .map_err(|e| format!("federation: mysql query: {e}"))?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(self.project_my_row(row)?);
+        }
+        Ok(RowSet::from_rows(out))
+    }
+
+    fn project_pg_row(&self, row: &sqlx::postgres::PgRow) -> Result<(String, Option<f32>), String> {
+        use sqlx::Row;
+        let id = pg_col_to_id(row, self.id_field)?;
+        // Read the score as f64 (float8/numeric-via-double) or f32 (float4) — a NULL or a
+        // non-numeric column yields no score rather than erroring (the score is optional).
+        let score = self.score_field.and_then(|sf| {
+            row.try_get::<f64, _>(sf)
+                .map(|v| v as f32)
+                .or_else(|_| row.try_get::<f32, _>(sf))
+                .ok()
+        });
+        Ok((id, score))
+    }
+
+    fn project_my_row(&self, row: &sqlx::mysql::MySqlRow) -> Result<(String, Option<f32>), String> {
+        use sqlx::Row;
+        let id = my_col_to_id(row, self.id_field)?;
+        let score = self.score_field.and_then(|sf| {
+            row.try_get::<f64, _>(sf)
+                .map(|v| v as f32)
+                .or_else(|_| row.try_get::<f32, _>(sf))
+                .ok()
+        });
+        Ok((id, score))
+    }
+}
+
+/// Read the `id_field` column of a Postgres row as a String id, trying the common id
+/// SQL types in order (text, then integer, then float). A column that decodes as none of
+/// these errors clearly (rather than silently dropping the row).
+#[cfg(feature = "federation-sql")]
+fn pg_col_to_id(row: &sqlx::postgres::PgRow, col: &str) -> Result<String, String> {
+    use sqlx::Row;
+    if let Ok(s) = row.try_get::<String, _>(col) {
+        return Ok(s);
+    }
+    if let Ok(n) = row.try_get::<i64, _>(col) {
+        return Ok(n.to_string());
+    }
+    if let Ok(n) = row.try_get::<i32, _>(col) {
+        return Ok(n.to_string());
+    }
+    if let Ok(f) = row.try_get::<f64, _>(col) {
+        return Ok(f.to_string());
+    }
+    Err(format!(
+        "federation: id column '{col}' is not a string/int/float (cast it to text in the query)"
+    ))
+}
+
+/// MySQL counterpart of [`pg_col_to_id`].
+#[cfg(feature = "federation-sql")]
+fn my_col_to_id(row: &sqlx::mysql::MySqlRow, col: &str) -> Result<String, String> {
+    use sqlx::Row;
+    if let Ok(s) = row.try_get::<String, _>(col) {
+        return Ok(s);
+    }
+    if let Ok(n) = row.try_get::<i64, _>(col) {
+        return Ok(n.to_string());
+    }
+    if let Ok(n) = row.try_get::<i32, _>(col) {
+        return Ok(n.to_string());
+    }
+    if let Ok(f) = row.try_get::<f64, _>(col) {
+        return Ok(f.to_string());
+    }
+    Err(format!(
+        "federation: id column '{col}' is not a string/int/float (cast it to text in the query)"
+    ))
 }
 
 // ── shared helpers ─────────────────────────────────────────────────────────────

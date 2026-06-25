@@ -2023,6 +2023,18 @@ class QueryClient:
                 "field_map": {"id": "doi", "score": "relevance"},
             }}
 
+        or an EXTERNAL relational-SQL database — Postgres/MySQL (CONCEPT:KG-2.239); the
+        engine runs the SQL OUT to the foreign RDBMS over a pure-Rust/rustls ``sqlx``
+        client and fuses the rows in-plan (the "engine federates external SQL" half that
+        sql-mcp alone cannot give). Requires a server built with ``federation-sql``::
+
+            {"Sql": {
+                "dsn": "postgres://user:pw@host:5432/papers",
+                "query": "SELECT doi, relevance FROM cited WHERE published > 2023",
+                "id_field": "doi",
+                "score_field": "relevance",
+            }}
+
         A federated :meth:`unified` / :meth:`uql` plan reads such a source as a
         ``RowSet`` via a ``ForeignScan`` op and composes it with the local
         graph/vector/SQL ops in ONE plan — e.g. JOIN a foreign source with the local
