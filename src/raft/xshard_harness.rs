@@ -78,6 +78,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         matviews: std::sync::Arc::new(parking_lot::Mutex::new(
             crate::raft::pregel::MatViewStore::new(),
         )),
+        #[cfg(feature = "federation")]
+        foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
     }))
 }
 

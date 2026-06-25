@@ -67,6 +67,13 @@ compute-dist = []
 # Engine-level security (CONCEPT:KG-2.231): gates the `AuditVerify` Method variant +
 # the `AuditReport` wire DTO. Pure serde — no dep.
 security = []
+# Query federation / foreign sources (CONCEPT:KG-2.232, Lane P): gates the
+# `ForeignSourceSpec`/`HttpFieldMap` wire DTOs + the `Op::ForeignScan` variant of the
+# cross-modal plan AST + the `RegisterForeignSource` Method. The `ForeignScan` op lives
+# inside the `query`-gated `Op` enum, so this implies `query`. PURE serde — the actual
+# transport (the remote-engine client + the rustls HTTP client) lives in eg-plan behind
+# its own gate; this only adds wire variants.
+federation = ["query"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
