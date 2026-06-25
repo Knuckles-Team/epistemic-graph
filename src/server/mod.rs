@@ -3029,6 +3029,7 @@ ex:myHeart a ex:HumanHeart .
                 Method::OwlReason {
                     ontology: String::new(),
                     target_class: "http://example.org/HumanComponent".into(),
+                    min_confidence: 0.0,
                 },
             ),
         )
@@ -3039,6 +3040,9 @@ ex:myHeart a ex:HumanHeart .
             other => panic!("expected Raw(OwlReasonResult), got {other:?}"),
         };
         assert!(res.consistent, "ontology is consistent");
+        // Confidence is aligned + present (hard ontology ⇒ all 1.0).
+        assert_eq!(res.subclasses.len(), res.subclass_conf.len());
+        assert_eq!(res.instances.len(), res.instance_conf.len());
         // The EL-derived subsumption is in the hierarchy.
         assert!(res.subclasses.contains(&(
             "<http://example.org/HumanHeart>".into(),
@@ -3049,6 +3053,99 @@ ex:myHeart a ex:HumanHeart .
             "<http://example.org/myHeart>".into(),
             "<http://example.org/HumanComponent>".into()
         )));
+    }
+
+    /// DISTRIBUTED OwlReason over TWO graphs derives the SAME entailment a single graph
+    /// would (CONCEPT:KG-2.236). The shared TBox + p1 live in graph A; p2 lives in graph
+    /// B; `OwlReasonDistributed{[A,B]}` unions them and infers p2 ⊑ ScholarlyWork — an
+    /// entailment NEITHER shard alone reaches (B has no axioms).
+    #[cfg(feature = "owl")]
+    #[tokio::test]
+    async fn test_owl_reason_distributed_two_graphs() {
+        let state = test_state();
+        // Graph A: the TBox + individual p1.
+        let tbox = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Paper rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] .
+[ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] rdfs:subClassOf ex:ScholarlyWork .
+ex:Article rdfs:subClassOf ex:Paper .
+ex:p1 a ex:Paper .
+"#;
+        for (g, doc) in [
+            ("__commons__", tbox),
+            (
+                "shard:b",
+                "@prefix ex: <http://example.org/> .\nex:p2 a ex:Article .\n",
+            ),
+        ] {
+            if g == "shard:b" {
+                assert_ok(
+                    &dispatch(
+                        &state,
+                        request(
+                            10,
+                            "__commons__",
+                            None,
+                            Method::CreateGraph {
+                                graph_name: "shard:b".into(),
+                                graph_type: GraphType::Commons,
+                            },
+                        ),
+                    )
+                    .await,
+                );
+            }
+            assert_ok(
+                &dispatch(
+                    &state,
+                    request(
+                        11,
+                        g,
+                        None,
+                        Method::AddTriples {
+                            turtle: doc.into(),
+                            ntriples: String::new(),
+                        },
+                    ),
+                )
+                .await,
+            );
+        }
+
+        let r = dispatch(
+            &state,
+            request(
+                12,
+                "__commons__",
+                None,
+                Method::OwlReasonDistributed {
+                    graphs: vec!["__commons__".into(), "shard:b".into()],
+                    ontology: String::new(),
+                    target_class: "http://example.org/ScholarlyWork".into(),
+                    min_confidence: 0.0,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::OwlReasonResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlReasonResult), got {other:?}"),
+        };
+        // p2 (Article, on shard B) is inferred ScholarlyWork via the TBox on shard A —
+        // ONLY the union reaches it.
+        assert!(
+            res.instances.contains(&(
+                "<http://example.org/p2>".into(),
+                "<http://example.org/ScholarlyWork>".into()
+            )),
+            "distributed union must infer p2 ⊑ ScholarlyWork; instances={:?}",
+            res.instances
+        );
+        assert_eq!(res.instances.len(), res.instance_conf.len());
+        assert!(res.consistent);
     }
 
     // ── Streaming / CDC / subscriptions / triggers (CONCEPT:KG-2.229/230) ──
