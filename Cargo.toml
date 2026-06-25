@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm", "crates/eg-graphql"]
 
 [package]
 name = "epistemic-graph"
@@ -104,6 +104,14 @@ federation = ["dep:eg-plan", "eg-plan/federation", "eg-types/federation", "query
 # HARD requirement of the lean Pi tier. A `cypher`-only build links no DataFusion
 # (the Pi proof).
 cypher = ["dep:eg-query", "eg-query/cypher"]
+# Native GraphQL READ surface (CONCEPT:KG-2.235): a GraphQL query compiled to scans +
+# BFS over the GraphView via the eg-graphql crate (schema-from-graph + a hand-written
+# parser + resolver). PURE-RUST — NO async-graphql (evaluated: ~80+ transitive crates +
+# a proc-macro schema-derive, too heavy for Pi) — so the Pi contract holds. But GraphQL
+# is NOT a Pi requirement, so it is kept OUT of pi/default and folded into node/cluster/
+# full. `eg-types/graphql` carries the `Method::GraphQl` variant. Needs `server` (the
+# handler routes through dispatch).
+graphql = ["dep:eg-graphql", "eg-types/graphql", "server"]
 # Native time-series store + TS primitives (CONCEPT:KG-2.210/211). Pulls eg-tsdb's
 # redb chunk store + the native ASOF/gap-fill/time_bucket/OHLC/decay primitives —
 # NO DataFusion (the Pi contract holds: a `tsdb`-only build links no DataFusion).
@@ -249,7 +257,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -269,7 +277,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
@@ -300,6 +308,10 @@ eg-tsdb = { path = "crates/eg-tsdb", optional = true }
 # build links none of them (asserted by cargo tree). Its `rdf-redb` quad table rides
 # the facade `redb` feature.
 eg-rdf = { path = "crates/eg-rdf", optional = true }
+# Optional native GraphQL read surface (feature `graphql`, CONCEPT:KG-2.235). Pure-Rust
+# (schema-from-graph + hand-written parser/resolver, NO async-graphql), pulled only when
+# enabled so a default/pi build links none of it.
+eg-graphql = { path = "crates/eg-graphql", optional = true }
 # Optional WASM-sandboxed UDF runtime (feature `wasm-udf`, CONCEPT:KG-2.228). Pulls
 # wasmtime + cranelift only when enabled, so a default/pi build links neither
 # (asserted by cargo tree). The sandboxed `UdfRegistry` lives on ServerState.

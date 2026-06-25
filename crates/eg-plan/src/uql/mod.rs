@@ -216,4 +216,151 @@ mod tests {
             }]
         );
     }
+
+    // ── CONCEPT:KG-2.235 — surface clauses for the newer ops ─────────────────
+
+    /// `AS OF @<ts>` parses to `Op::AsOf { ts }` (the time CONTEXT op). Proof:
+    /// parse → the hand-built Plan.
+    #[test]
+    fn as_of_clause_parses_to_asof_op() {
+        let p = parse("MATCH (:Event) |> AS OF @1700000000 |> LIMIT 5").unwrap();
+        assert_eq!(
+            p.ops,
+            vec![
+                Op::Scan {
+                    label: "Event".into()
+                },
+                Op::AsOf {
+                    ts: 1_700_000_000.0
+                },
+                Op::Limit { k: 5 },
+            ]
+        );
+    }
+
+    /// `WINDOW <dur>` parses to `Op::Window { secs }`; a bare number is seconds and a
+    /// unit suffix scales it (`1h` == `3600`).
+    #[test]
+    fn window_clause_units_scale_to_seconds() {
+        let bare = parse("MATCH (:Event) |> WINDOW 3600").unwrap();
+        let unit = parse("MATCH (:Event) |> WINDOW 1 h").unwrap();
+        assert_eq!(bare.ops[1], Op::Window { secs: 3600.0 });
+        assert_eq!(unit.ops[1], Op::Window { secs: 3600.0 });
+        let mins = parse("MATCH (:Event) |> WINDOW 30 m").unwrap();
+        assert_eq!(mins.ops[1], Op::Window { secs: 1800.0 });
+    }
+
+    /// `FOREIGN "<name>"` parses to `Op::Foreign { name }` (the federation CONTEXT op).
+    #[test]
+    fn foreign_clause_parses_to_foreign_op() {
+        let p = parse("MATCH (:Doc) |> FOREIGN \"peer-east\" |> LIMIT 3").unwrap();
+        assert_eq!(
+            p.ops,
+            vec![
+                Op::Scan {
+                    label: "Doc".into()
+                },
+                Op::Foreign {
+                    name: "peer-east".into()
+                },
+                Op::Limit { k: 3 },
+            ]
+        );
+    }
+
+    /// A COMPOSED query that threads the time + federation clauses with the core ops
+    /// parses to the full hand-built Plan — proof the new clauses compose, not just
+    /// parse in isolation.
+    #[test]
+    fn composed_time_federation_query_parses() {
+        let text = "MATCH (:Event) WHERE level > 3 \
+                    |> FOREIGN \"peer-west\" \
+                    |> AS OF @1700000000 |> WINDOW 1 h \
+                    |> TRAVERSE -[:CAUSED]->{1,2} \
+                    |> LIMIT 10";
+        let p = parse(text).unwrap();
+        let hand = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "level".into(),
+                    n: 3.0,
+                }],
+            },
+            Op::Foreign {
+                name: "peer-west".into(),
+            },
+            Op::AsOf {
+                ts: 1_700_000_000.0,
+            },
+            Op::Window { secs: 3600.0 },
+            Op::Traverse {
+                rel: "CAUSED".into(),
+                min: 1,
+                max: 2,
+            },
+            Op::Limit { k: 10 },
+        ]);
+        assert_eq!(p, hand);
+    }
+
+    /// `AS` without `OF` is a clear error.
+    #[test]
+    fn as_without_of_is_clear() {
+        let e = parse("MATCH (:Event) |> AS @1").unwrap_err();
+        assert!(e.msg.contains("OF"), "got: {}", e.msg);
+    }
+
+    /// `REASON <Class>` lowers to `Op::Reason` (owl feature only).
+    #[cfg(feature = "owl")]
+    #[test]
+    fn reason_clause_parses_to_reason_op() {
+        let p = parse("MATCH (:Thing) |> REASON Mammal |> LIMIT 5").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::Reason {
+                target_class: "Mammal".into(),
+                ontology: String::new(),
+            }
+        );
+    }
+
+    /// Without the `owl` feature the `REASON` clause is rejected with a clear message.
+    #[cfg(not(feature = "owl"))]
+    #[test]
+    fn reason_clause_not_in_build() {
+        let e = parse("MATCH (:Thing) |> REASON Mammal").unwrap_err();
+        assert!(
+            e.msg.contains("OWL reasoner") || e.msg.contains("not available"),
+            "got: {}",
+            e.msg
+        );
+    }
+
+    /// `TEXT "<q>"` lowers to `Op::RankText` (text feature only).
+    #[cfg(feature = "text")]
+    #[test]
+    fn text_clause_parses_to_ranktext_op() {
+        let p = parse("MATCH (:Doc) |> TEXT \"graph databases\" |> LIMIT 5").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::RankText {
+                query: "graph databases".into()
+            }
+        );
+    }
+
+    /// Without the `text` feature the `TEXT` clause is rejected with a clear message.
+    #[cfg(not(feature = "text"))]
+    #[test]
+    fn text_clause_not_in_build() {
+        let e = parse("MATCH (:Doc) |> TEXT \"q\"").unwrap_err();
+        assert!(
+            e.msg.contains("lexical index") || e.msg.contains("not available"),
+            "got: {}",
+            e.msg
+        );
+    }
 }

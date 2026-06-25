@@ -179,6 +179,15 @@ pub enum Op {
     /// AFTER a local source op replaces the input (it is a source, not a transform),
     /// exactly like `Scan`/`Reason`/`SparqlBgp`. Gated by `federation` (the HTTP client
     /// is rustls/pure-Rust and kept OUT of the Pi tier — the Pi contract).
+    ///
+    /// `ForeignScan` is the RESOLVED federation EXECUTOR (it carries a fully-specified
+    /// [`ForeignSourceSpec`] and actually fetches+joins). The UQL `FOREIGN "<name>"`
+    /// clause (CONCEPT:KG-2.235) instead lowers to the lighter [`Op::Foreign`] name
+    /// MARKER below — the parser only has a name, and resolving that name to a concrete
+    /// `ForeignSourceSpec` requires the server-side `foreign_sources` registry that
+    /// eg-plan (below the server) cannot reach. The two are complementary: `Foreign`
+    /// is the named-reference surface, `ForeignScan` is the resolved executor a
+    /// server/planner constructs.
     #[cfg(feature = "federation")]
     ForeignScan {
         source: ForeignSourceSpec,
@@ -189,6 +198,27 @@ pub enum Op {
         #[serde(default)]
         join: bool,
     },
+    /// TIME (`AS OF @<ts>`, CONCEPT:KG-2.235) — pin the RowSet to a point-in-time
+    /// `ts` (unix seconds). A RowSet-preserving CONTEXT op: it carries the snapshot
+    /// instant the time-series legs read at; the current unified executor passes the
+    /// rows through unchanged (the per-row temporal selection is the eg-tsdb seam).
+    /// Lowered from the `AS OF @<ts>` UQL clause so a temporal query has ONE surface;
+    /// always available under `query` (the time CONTEXT carries no DataFusion).
+    AsOf { ts: f64 },
+    /// TIME (`WINDOW <dur>`, CONCEPT:KG-2.235) — declare a trailing time window of
+    /// `secs` seconds for the windowed time-series aggregate. A RowSet-preserving
+    /// CONTEXT op paired with `AsOf`; passes the rows through unchanged today (the
+    /// windowed aggregate is the eg-tsdb seam) but lets the `WINDOW <dur>` UQL clause
+    /// lower to ONE plan AST. Always available under `query`.
+    Window { secs: f64 },
+    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235) — mark the seed as drawn from
+    /// the named foreign source `name` (a registered federation peer). A RowSet
+    /// CONTEXT op: today it passes the rows through (the cross-source pull is the
+    /// federation seam) but gives the `FOREIGN "<name>"` UQL clause a plan AST to lower
+    /// to. Always available under `query`. The RESOLVED-source executor is the
+    /// `federation`-gated [`Op::ForeignScan`] above; see its note for why the UQL
+    /// name marker stays distinct from the resolved spec.
+    Foreign { name: String },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }

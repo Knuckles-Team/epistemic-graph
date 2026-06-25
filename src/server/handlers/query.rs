@@ -26,7 +26,7 @@ use std::sync::Arc;
 use super::super::compute::compute_off_lock;
 use crate::graph::GraphCore;
 use crate::protocol::Method;
-#[cfg(any(feature = "query", feature = "cypher"))]
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 use crate::protocol::{Response, ResultPayload};
 #[cfg(feature = "result-cache")]
 use eg_core::result_cache::ResultCache;
@@ -212,6 +212,58 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
+        #[cfg(feature = "graphql")]
+        Method::GraphQl { query } => {
+            // GraphQL READ surface (CONCEPT:KG-2.235): compile the GraphQL query to
+            // scans + BFS over the SAME off-lock snapshot the Cypher path uses, via the
+            // pure-Rust eg-graphql resolver (NO async-graphql / DataFusion). The result
+            // is the GraphQL `{"data": …}` JSON, returned via `ResultPayload::Raw`.
+            //
+            // GraphQL runs under the SAME version-keyed, RLS-aware result cache the
+            // SQL/Cypher/SPARQL paths do (CONCEPT:KG-2.233 × KG-2.231): the cache KEY
+            // folds in the caller's RLS context so agent A's filtered `{data}` is NEVER
+            // served to agent B for the same GraphQL query text, and the snapshot is
+            // RLS-FILTERED to the caller's visible rows BEFORE the resolver runs — a
+            // GraphQL read cannot leak rows across agents any more than a Cypher read.
+            #[cfg(feature = "result-cache")]
+            let (snap, version, hash) = {
+                let hash = rls_cache_hash(
+                    "graphql",
+                    query.as_bytes(),
+                    #[cfg(feature = "security")]
+                    caller,
+                    #[cfg(feature = "security")]
+                    rls,
+                );
+                let (mut snap, version) = core.analysis_snapshot_versioned();
+                if let Some(bytes) = core.result_cache().get(hash, version) {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
+                #[cfg(feature = "security")]
+                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                (snap, version, hash)
+            };
+            #[cfg(not(feature = "result-cache"))]
+            let snap = rls_snapshot(
+                &core,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                rls,
+            );
+            let resp =
+                match compute_off_lock(req_id, move || eg_graphql::execute(&snap, &query)).await {
+                    Ok(Ok(value)) => {
+                        let bytes = rmp_serde::to_vec_named(&value).unwrap_or_default();
+                        #[cfg(feature = "result-cache")]
+                        core.result_cache().put(hash, version, bytes.clone());
+                        Response::ok(req_id, ResultPayload::Raw(bytes))
+                    }
+                    Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
+                    Err(resp) => resp,
+                };
+            Ok(resp)
+        }
         #[cfg(feature = "cypher")]
         Method::CypherQuery { query } => {
             // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
@@ -324,7 +376,7 @@ fn run_unified(
 /// `not(result-cache)` path; with the result cache the same `filter_view` is applied
 /// inline on the versioned snapshot so the version pairs atomically with the filter.
 #[cfg(all(
-    any(feature = "query", feature = "cypher"),
+    any(feature = "query", feature = "cypher", feature = "graphql"),
     not(feature = "result-cache")
 ))]
 fn rls_snapshot(
@@ -358,7 +410,10 @@ fn rls_snapshot(
 /// need. When RLS is INACTIVE (single-tenant, `has_rules()==false`, or the `security`
 /// feature is off) the salt is empty and the key is the plain `(kind, payload)` —
 /// zero behavior change from the cache-only branch.
-#[cfg(all(feature = "result-cache", any(feature = "query", feature = "cypher")))]
+#[cfg(all(
+    feature = "result-cache",
+    any(feature = "query", feature = "cypher", feature = "graphql")
+))]
 fn rls_cache_hash(
     kind: &str,
     payload: &[u8],
@@ -970,5 +1025,93 @@ mod rls_aware_cache_no_cross_agent_leak {
             "alice's repeat query HITS her own rls-aware cache slot"
         );
         assert_eq!(raw(&ra2), alice_bytes, "alice's cached bytes are her own");
+    }
+
+    // The SAME GraphQL query both agents run. It selects every `:Secret` node's id, so
+    // — exactly like the Cypher case — RLS is the ONLY thing differentiating the two
+    // agents' result sets. Locks in reconciliation #1: a GraphQL read must go through
+    // the SAME RLS-aware result-cache compose and never leak across agents.
+    #[cfg(feature = "graphql")]
+    const GQL: &str = "{ Secret { id } }";
+
+    #[cfg(feature = "graphql")]
+    #[tokio::test]
+    async fn agent_a_graphql_cached_result_is_not_served_to_agent_b() {
+        let state = state();
+        register(&state, 1, "alice").await;
+        register(&state, 2, "bob").await;
+        add_rls_node(&state, 10, "alice_secret", "Secret", "alice", "private").await;
+        add_rls_node(&state, 11, "shared", "Secret", "alice", "public").await;
+
+        let core = core_of(&state).await;
+
+        // Alice: cold MISS, cached under alice's rls-key; her view sees both nodes.
+        let (h0, m0) = core.result_cache().stats();
+        let ra1 = dispatch(
+            &state,
+            req_as(20, "alice", Method::GraphQl { query: GQL.into() }),
+        )
+        .await;
+        assert!(ra1.error.is_none(), "alice GraphQL failed: {:?}", ra1.error);
+        let alice_bytes = raw(&ra1);
+        let (h1, m1) = core.result_cache().stats();
+        assert_eq!(
+            (h1 - h0, m1 - m0),
+            (0, 1),
+            "alice's first GraphQL query is a cold miss"
+        );
+        let alice_str = String::from_utf8_lossy(&alice_bytes);
+        assert!(
+            alice_str.contains("alice_secret"),
+            "alice must see her own private node via GraphQL: {alice_str}"
+        );
+
+        // Bob: IDENTICAL GraphQL text on the UNCHANGED graph. An rls-UNAWARE cache would
+        // serve him alice's entry (leak). The rls-aware key MISSES (different agent_id)
+        // and recomputes BOB's filtered view.
+        let rb = dispatch(
+            &state,
+            req_as(21, "bob", Method::GraphQl { query: GQL.into() }),
+        )
+        .await;
+        assert!(rb.error.is_none(), "bob GraphQL failed: {:?}", rb.error);
+        let bob_bytes = raw(&rb);
+        let (h2, m2) = core.result_cache().stats();
+        assert_eq!(
+            (h2 - h1, m2 - m1),
+            (0, 1),
+            "bob's identical GraphQL query MISSES the rls-aware cache (no cross-agent hit)"
+        );
+        let bob_str = String::from_utf8_lossy(&bob_bytes);
+        assert!(
+            !bob_str.contains("alice_secret"),
+            "EXFILTRATION via GraphQL cache: bob received alice's private node: {bob_str}"
+        );
+        assert!(
+            bob_str.contains("shared"),
+            "bob must still see the public node via GraphQL: {bob_str}"
+        );
+        assert_ne!(
+            bob_bytes, alice_bytes,
+            "bob's RLS-filtered GraphQL result must differ from alice's (no shared slot)"
+        );
+
+        // Alice repeats: HITS her own per-agent slot (caching still works under RLS).
+        let ra2 = dispatch(
+            &state,
+            req_as(22, "alice", Method::GraphQl { query: GQL.into() }),
+        )
+        .await;
+        let (h3, m3) = core.result_cache().stats();
+        assert_eq!(
+            (h3 - h2, m3 - m2),
+            (1, 0),
+            "alice's repeat GraphQL query HITS her own rls-aware cache slot"
+        );
+        assert_eq!(
+            raw(&ra2),
+            alice_bytes,
+            "alice's cached GraphQL bytes are her own"
+        );
     }
 }

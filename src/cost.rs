@@ -697,6 +697,8 @@ mod tests {
                 matviews: Arc::new(parking_lot::Mutex::new(
                     crate::raft::pregel::MatViewStore::new(),
                 )),
+                #[cfg(feature = "federation")]
+                foreign_sources: Arc::new(dashmap::DashMap::new()),
             }));
             // Wire the durable read-through exactly like main.rs under authoritative mode.
             {

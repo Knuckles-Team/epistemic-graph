@@ -814,13 +814,18 @@ async fn dispatch_graph_op(
             Err(m) => m,
         };
         // Read-only query surface — SQL (CONCEPT:KG-2.178, DataFusion behind
-        // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`): borrows
-        // the graph core for an off-lock snapshot, runs on the blocking pool. Gated
-        // on EITHER feature so CypherQuery still routes in a cypher-only (no-
-        // DataFusion) Pi build; the handler's per-method arm falls through (Err) when
-        // ITS feature is off, so Sql/CypherQuery then reach the graph_ops
-        // not-available catch-all. Slim builds with NEITHER feature omit this line.
-        #[cfg(any(feature = "query", feature = "cypher"))]
+        // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`) AND GraphQL
+        // (CONCEPT:KG-2.235, pure-Rust eg-graphql behind `graphql`): borrows the graph
+        // core for an off-lock snapshot, runs on the blocking pool. Gated on ANY of the
+        // three features so CypherQuery still routes in a cypher-only (no-DataFusion) Pi
+        // build and GraphQl routes in a graphql build; the handler's per-method arm
+        // falls through (Err) when ITS feature is off, so Sql/CypherQuery/GraphQl then
+        // reach the graph_ops not-available catch-all. GraphQL — like SQL/Cypher/SPARQL
+        // — runs UNDER the SAME RLS-aware result-cache compose (`caller`/`&rls` threaded
+        // in, the cache key folds the caller's RLS context, the snapshot is RLS-filtered
+        // to the caller) so a GraphQL read NEVER leaks across agents. Slim builds with
+        // NONE of the three omit this line.
+        #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
         let method = match handlers::query::try_handle(
             req_id,
             core.clone(),

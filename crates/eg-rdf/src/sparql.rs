@@ -13,8 +13,13 @@
 //! Increment-1 algebra coverage: BGP (triple-pattern match + join on shared vars),
 //! FILTER (Bound + comparison + And/Or/Not), OPTIONAL (left-join), UNION, JOIN,
 //! PROJECT, DISTINCT, SLICE, and a BASIC fixed-length property path (`p1/p2` seq
-//! and a single predicate). Aggregates / sub-SELECT / SERVICE / variable-length
-//! paths are deferred (see the findings "SPARQL completeness").
+//! and a single predicate).
+//!
+//! Completeness increment (CONCEPT:KG-2.235): aggregates (`COUNT`/`SUM`/`AVG`/`MIN`/
+//! `MAX` with `GROUP BY` — the `Group`+`Extend` algebra), the fuller property paths
+//! (`p+` / `p*` / `p?`, alternative `a|b`, inverse `^p`, and their nesting), and the
+//! `GRAPH ?g { … }` named-graph form (a single dataset here ⇒ `?g` binds the request
+//! graph). Sub-SELECT / SERVICE stay deferred (see the findings "SPARQL completeness").
 //!
 //! Performance note (carried from the spike): this evaluator does a full scan per
 //! triple pattern + a materialized join. That is the documented naive-evaluator gap
@@ -24,7 +29,9 @@
 use std::collections::HashMap;
 
 use eg_core::graph::GraphView;
-use spargebra::algebra::{Expression, GraphPattern, PropertyPathExpression};
+use spargebra::algebra::{
+    AggregateExpression, AggregateFunction, Expression, GraphPattern, PropertyPathExpression,
+};
 use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::Query;
 
@@ -148,6 +155,59 @@ fn eval_pattern(view: &GraphView, p: &GraphPattern) -> Result<Vec<Solution>, Str
             Ok(l)
         }
         GraphPattern::Project { inner, .. } => eval_pattern(view, inner),
+        // GROUP BY + aggregates (CONCEPT:KG-2.235). `Group` produces one solution per
+        // group binding the GROUP BY vars + the aggregate-result vars; the wrapping
+        // `Extend` (below) re-binds those to the projected names. With no GROUP BY var
+        // the whole result is one group (`SELECT (COUNT(*) AS ?n) …`).
+        GraphPattern::Group {
+            inner,
+            variables,
+            aggregates,
+        } => {
+            let rows = eval_pattern(view, inner)?;
+            Ok(eval_group(rows, variables, aggregates))
+        }
+        // BIND / the aggregate-projection rename. `Extend` binds `variable` to the
+        // value of `expression` in each solution. We evaluate the (already-aggregated
+        // or scalar) expression and bind it; an unevaluable expression leaves it
+        // unbound (SPARQL: an error in Extend yields no binding for that var).
+        GraphPattern::Extend {
+            inner,
+            variable,
+            expression,
+        } => {
+            let rows = eval_pattern(view, inner)?;
+            Ok(rows
+                .into_iter()
+                .map(|mut s| {
+                    if let Some(val) = expr_str(expression, &s) {
+                        s.insert(variable.as_str().to_string(), Binding::Literal(val));
+                    }
+                    s
+                })
+                .collect())
+        }
+        // GRAPH ?g { … } (CONCEPT:KG-2.235). The engine evaluates over ONE graph (the
+        // request graph), so the named-graph form binds `?g` to that single graph's
+        // name and evaluates the inner pattern against it. A constant graph IRI passes
+        // through (it selects the same single dataset).
+        GraphPattern::Graph { name, inner } => {
+            let inner_sols = eval_pattern(view, inner)?;
+            match name {
+                NamedNodePattern::Variable(v) => {
+                    // ONE dataset here: `?g` binds the (single) request graph's IRI.
+                    let g = Binding::Node(DEFAULT_GRAPH_IRI.to_string());
+                    Ok(inner_sols
+                        .into_iter()
+                        .map(|mut s| {
+                            s.entry(v.as_str().to_string()).or_insert_with(|| g.clone());
+                            s
+                        })
+                        .collect())
+                }
+                NamedNodePattern::NamedNode(_) => Ok(inner_sols),
+            }
+        }
         GraphPattern::Distinct { inner } => {
             let mut seen = std::collections::HashSet::new();
             Ok(eval_pattern(view, inner)?
@@ -182,6 +242,136 @@ fn canonical_solution(s: &Solution) -> String {
     format!("{kv:?}")
 }
 
+/// The IRI `?g` binds to in a `GRAPH ?g {}` over the single request dataset.
+const DEFAULT_GRAPH_IRI: &str = "<urn:eg:graph:default>";
+
+// ── GROUP BY + aggregates (CONCEPT:KG-2.235) ────────────────────────────────────
+
+/// Evaluate `GROUP BY group_vars` + the `aggregates` over `rows`. Returns one
+/// solution per distinct group-key, binding each group-by var to its value AND each
+/// aggregate-result var (the internal name spargebra assigns) to the computed scalar.
+/// The wrapping `Extend` re-binds those internal vars to the user's projected names.
+fn eval_group(
+    rows: Vec<Solution>,
+    group_vars: &[spargebra::term::Variable],
+    aggregates: &[(spargebra::term::Variable, AggregateExpression)],
+) -> Vec<Solution> {
+    use std::collections::BTreeMap;
+
+    // Bucket rows by the tuple of group-by values (a stable string key keeps the
+    // result deterministic). With no GROUP BY var, ALL rows fall in one "" group.
+    let mut groups: BTreeMap<String, Vec<Solution>> = BTreeMap::new();
+    for row in rows {
+        let key = group_vars
+            .iter()
+            .map(|v| {
+                row.get(v.as_str())
+                    .map(|b| b.as_str().to_string())
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("\u{1f}");
+        groups.entry(key).or_default().push(row);
+    }
+
+    let mut out = Vec::new();
+    for (_key, members) in groups {
+        let mut sol = Solution::new();
+        // Carry the group-by var values (taken from the first member of the group).
+        if let Some(first) = members.first() {
+            for gv in group_vars {
+                if let Some(b) = first.get(gv.as_str()) {
+                    sol.insert(gv.as_str().to_string(), b.clone());
+                }
+            }
+        }
+        // Compute each aggregate over the group's members.
+        for (out_var, agg) in aggregates {
+            let value = compute_aggregate(agg, &members);
+            sol.insert(out_var.as_str().to_string(), Binding::Literal(value));
+        }
+        out.push(sol);
+    }
+    out
+}
+
+/// Compute ONE aggregate over a group's member solutions, returning its lexical value.
+fn compute_aggregate(agg: &AggregateExpression, members: &[Solution]) -> String {
+    match agg {
+        // COUNT(*) — count solutions (DISTINCT counts distinct whole solutions).
+        AggregateExpression::CountSolutions { distinct } => {
+            let n = if *distinct {
+                let mut seen = std::collections::HashSet::new();
+                members
+                    .iter()
+                    .filter(|s| seen.insert(canonical_solution(s)))
+                    .count()
+            } else {
+                members.len()
+            };
+            n.to_string()
+        }
+        AggregateExpression::FunctionCall {
+            name,
+            expr,
+            distinct,
+        } => {
+            // The per-row values of the aggregated expression (skipping unbound rows).
+            let mut vals: Vec<String> = members.iter().filter_map(|s| expr_str(expr, s)).collect();
+            if *distinct {
+                let mut seen = std::collections::HashSet::new();
+                vals.retain(|v| seen.insert(v.clone()));
+            }
+            agg_over(name, &vals)
+        }
+    }
+}
+
+/// Apply an aggregate function to the already-collected per-row lexical values.
+fn agg_over(func: &AggregateFunction, vals: &[String]) -> String {
+    let nums: Vec<f64> = vals.iter().filter_map(|v| v.parse::<f64>().ok()).collect();
+    match func {
+        AggregateFunction::Count => vals.len().to_string(),
+        AggregateFunction::Sum => fmt_num(nums.iter().sum::<f64>()),
+        AggregateFunction::Avg => {
+            if nums.is_empty() {
+                "0".to_string()
+            } else {
+                fmt_num(nums.iter().sum::<f64>() / nums.len() as f64)
+            }
+        }
+        AggregateFunction::Min => {
+            if nums.is_empty() {
+                vals.iter().min().cloned().unwrap_or_default()
+            } else {
+                fmt_num(nums.iter().cloned().fold(f64::INFINITY, f64::min))
+            }
+        }
+        AggregateFunction::Max => {
+            if nums.is_empty() {
+                vals.iter().max().cloned().unwrap_or_default()
+            } else {
+                fmt_num(nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+            }
+        }
+        AggregateFunction::GroupConcat { separator } => {
+            vals.join(separator.as_deref().unwrap_or(" "))
+        }
+        AggregateFunction::Sample => vals.first().cloned().unwrap_or_default(),
+        AggregateFunction::Custom(_) => String::new(),
+    }
+}
+
+/// Format an f64 aggregate result without a trailing `.0` for integral values, so a
+/// `SUM`/`COUNT` of integers reads as an integer (matching the stored lexical form).
+fn fmt_num(n: f64) -> String {
+    if n.fract() == 0.0 {
+        format!("{}", n as i64)
+    } else {
+        format!("{n}")
+    }
+}
+
 // ── BGP — match each triple pattern, join on shared variables ───────────────────
 
 fn eval_bgp(view: &GraphView, patterns: &[TriplePattern]) -> Vec<Solution> {
@@ -204,32 +394,165 @@ fn eval_bgp(view: &GraphView, patterns: &[TriplePattern]) -> Vec<Solution> {
     acc
 }
 
-/// A BASIC property path. spargebra DESUGARS a sequence path (`p1/p2/…`) into a BGP
-/// with anonymous-bnode intermediates (handled by the BGP matcher + [`bnode_var`]),
-/// so the only `GraphPattern::Path` node that reaches here is a single predicate (a
-/// `NamedNode` path). We rewrite it to one triple pattern and match it; the
-/// variable-length forms (`p+`, `p*`, alt, inverse) overlap the engine's `Traverse`
-/// and are an explicit deferred (findings "SPARQL completeness").
+/// Property-path evaluation (CONCEPT:KG-2.235). spargebra DESUGARS a sequence path
+/// (`p1/p2`) into a BGP with anonymous-bnode intermediates, so a single-predicate
+/// path reaching here is handled by the one-triple-pattern matcher. The variable-
+/// length / combinator forms (`p+`, `p*`, `p?`, alternative `a|b`, inverse `^p`, and
+/// their nesting) are evaluated by [`path_pairs`]: it computes the `(start, end)`
+/// resource pairs the path connects, then binds subject/object against them.
 fn eval_path(
     view: &GraphView,
     subject: &TermPattern,
     path: &PropertyPathExpression,
     object: &TermPattern,
 ) -> Result<Vec<Solution>, String> {
-    match path {
-        PropertyPathExpression::NamedNode(n) => {
-            let pred = oxrdf::NamedNode::new(n.as_str()).map_err(|e| e.to_string())?;
-            let tp = TriplePattern {
-                subject: subject.clone(),
-                predicate: NamedNodePattern::NamedNode(pred),
-                object: object.clone(),
-            };
-            Ok(match_triple_pattern(view, &tp))
-        }
-        other => Err(format!(
-            "eg-rdf SPARQL: property-path operator not yet supported ({other:?})"
-        )),
+    // A single named predicate stays the literal/edge triple-pattern matcher (it also
+    // matches literal-valued predicates, which the resource-only path engine doesn't).
+    if let PropertyPathExpression::NamedNode(n) = path {
+        let pred = oxrdf::NamedNode::new(n.as_str()).map_err(|e| e.to_string())?;
+        let tp = TriplePattern {
+            subject: subject.clone(),
+            predicate: NamedNodePattern::NamedNode(pred),
+            object: object.clone(),
+        };
+        return Ok(match_triple_pattern(view, &tp));
     }
+
+    // The combinator forms resolve over RESOURCE edges (a property path connects nodes,
+    // not literals). Enumerate the connected pairs, then bind the subject/object terms.
+    let pairs = path_pairs(view, path)?;
+    let mut out = Vec::new();
+    for (s, o) in pairs {
+        let mut sol = Solution::new();
+        if !bind_subject(subject, &s, &mut sol) {
+            continue;
+        }
+        if !bind_object_node(object, &o, &mut sol) {
+            continue;
+        }
+        out.push(sol);
+    }
+    Ok(out)
+}
+
+/// All `(start, end)` resource-node id pairs the property `path` connects, over the
+/// GraphView's typed edges. Recurses on the path combinators:
+///   * `NamedNode(p)`  → every edge typed `p`.
+///   * `Reverse(p)`    → the pairs of `p` flipped (`^p`).
+///   * `Sequence(a,b)` → join: `a` then `b` (shared midpoint).
+///   * `Alternative(a,b)` → the union of both.
+///   * `OneOrMore(p)`  → transitive closure (`p+`, ≥1 hop).
+///   * `ZeroOrMore(p)` → reflexive-transitive closure (`p*`, incl. identity on EVERY
+///     node, per SPARQL `x p* x`).
+///   * `ZeroOrOne(p)`  → `p` ∪ identity (`p?`).
+fn path_pairs(
+    view: &GraphView,
+    path: &PropertyPathExpression,
+) -> Result<Vec<(String, String)>, String> {
+    Ok(match path {
+        PropertyPathExpression::NamedNode(n) => edge_pairs(view, n.as_str()),
+        PropertyPathExpression::Reverse(inner) => path_pairs(view, inner)?
+            .into_iter()
+            .map(|(s, o)| (o, s))
+            .collect(),
+        PropertyPathExpression::Sequence(a, b) => {
+            let left = path_pairs(view, a)?;
+            let right = path_pairs(view, b)?;
+            let mut out = Vec::new();
+            for (s, mid) in &left {
+                for (rs, o) in &right {
+                    if rs == mid {
+                        out.push((s.clone(), o.clone()));
+                    }
+                }
+            }
+            dedup_pairs(out)
+        }
+        PropertyPathExpression::Alternative(a, b) => {
+            let mut out = path_pairs(view, a)?;
+            out.extend(path_pairs(view, b)?);
+            dedup_pairs(out)
+        }
+        PropertyPathExpression::OneOrMore(inner) => {
+            let base = path_pairs(view, inner)?;
+            transitive_closure(&base, false, view)
+        }
+        PropertyPathExpression::ZeroOrMore(inner) => {
+            let base = path_pairs(view, inner)?;
+            transitive_closure(&base, true, view)
+        }
+        PropertyPathExpression::ZeroOrOne(inner) => {
+            let mut out = path_pairs(view, inner)?;
+            // identity on every node (`x p? x`).
+            for id in view.node_properties.keys() {
+                out.push((id.clone(), id.clone()));
+            }
+            dedup_pairs(out)
+        }
+        PropertyPathExpression::NegatedPropertySet(_) => {
+            return Err("eg-rdf SPARQL: negated property set `!p` not supported".into());
+        }
+    })
+}
+
+/// Every `(subject, object)` resource pair carrying a typed edge `pred`.
+fn edge_pairs(view: &GraphView, pred: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for ((s, o), blobs) in &view.edge_properties {
+        for blob in blobs {
+            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+                if v.get("type").and_then(|x| x.as_str()) == Some(pred) {
+                    out.push((s.clone(), o.clone()));
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Transitive closure of `base` edge pairs. `reflexive` adds the identity pair on
+/// EVERY graph node (the `p*` semantics: `x p* x` for any `x`, even isolated nodes).
+fn transitive_closure(
+    base: &[(String, String)],
+    reflexive: bool,
+    view: &GraphView,
+) -> Vec<(String, String)> {
+    use std::collections::{HashMap, HashSet};
+    // adjacency.
+    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (s, o) in base {
+        adj.entry(s.as_str()).or_default().push(o.as_str());
+    }
+    let starts: HashSet<&str> = base.iter().map(|(s, _)| s.as_str()).collect();
+    let mut out: HashSet<(String, String)> = HashSet::new();
+    // BFS reachability (≥1 hop) from each start.
+    for &start in &starts {
+        let mut stack = vec![start];
+        let mut visited: HashSet<&str> = HashSet::new();
+        while let Some(cur) = stack.pop() {
+            if let Some(next) = adj.get(cur) {
+                for &n in next {
+                    if visited.insert(n) {
+                        out.insert((start.to_string(), n.to_string()));
+                        stack.push(n);
+                    }
+                }
+            }
+        }
+    }
+    if reflexive {
+        for id in view.node_properties.keys() {
+            out.insert((id.clone(), id.clone()));
+        }
+    }
+    out.into_iter().collect()
+}
+
+fn dedup_pairs(v: Vec<(String, String)>) -> Vec<(String, String)> {
+    use std::collections::HashSet;
+    let mut seen = HashSet::new();
+    v.into_iter().filter(|p| seen.insert(p.clone())).collect()
 }
 
 /// Resolve ONE triple pattern against the GraphView. Predicate may be an IRI or a
@@ -590,5 +913,158 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             rows.iter().any(|r| r[other_idx].is_none()),
             "bob's ?other must be None"
         );
+    }
+
+    // ── CONCEPT:KG-2.235 — SPARQL completeness ──────────────────────────────
+
+    /// Pull the single aggregate cell from a 1-row, 1-projected-var result.
+    fn agg_cell(res: &SparqlResult, var: &str) -> String {
+        assert_eq!(res.solutions.len(), 1, "expected ONE group, got {res:?}");
+        res.solutions[0].get(var).unwrap().as_str().to_string()
+    }
+
+    /// COUNT(*) over a BGP — the whole result is one group.
+    #[test]
+    fn aggregate_count_all() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT (COUNT(*) AS ?n) WHERE { ?p a ex:Person . }"#,
+        )
+        .unwrap();
+        // alice, bob, carol.
+        assert_eq!(agg_cell(&res, "n"), "3");
+    }
+
+    /// SUM(?age) over the three people = 30+25+40 = 95.
+    #[test]
+    fn aggregate_sum() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT (SUM(?age) AS ?total) WHERE { ?p ex:age ?age . }"#,
+        )
+        .unwrap();
+        assert_eq!(agg_cell(&res, "total"), "95");
+    }
+
+    /// GROUP BY a constant property + COUNT — every Person shares the same rdf:type,
+    /// so a GROUP BY ?type yields one group of 3.
+    #[test]
+    fn aggregate_group_by_count() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+            SELECT ?type (COUNT(?p) AS ?n) WHERE { ?p rdf:type ?type . }
+            GROUP BY ?type"#,
+        )
+        .unwrap();
+        // one group (ex:Person), count 3.
+        assert_eq!(res.solutions.len(), 1, "one group");
+        assert_eq!(
+            res.solutions[0].get("n").unwrap().as_str(),
+            "3",
+            "got {res:?}"
+        );
+    }
+
+    /// `p+` transitive closure: carol knows alice, alice knows bob ⇒
+    /// `ex:carol ex:knows+ ?who` reaches BOTH alice and bob.
+    #[test]
+    fn property_path_one_or_more() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?who WHERE { ex:carol ex:knows+ ?who . }"#,
+        )
+        .unwrap();
+        let mut who: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("who").map(|b| b.as_str().to_string()))
+            .collect();
+        who.sort();
+        assert_eq!(
+            who,
+            vec![
+                "<http://example.org/alice>".to_string(),
+                "<http://example.org/bob>".to_string()
+            ],
+            "got {who:?}"
+        );
+    }
+
+    /// `^p` inverse path: `ex:alice ^ex:knows ?who` ⇒ whoever knows alice = carol.
+    #[test]
+    fn property_path_inverse() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?who WHERE { ex:alice ^ex:knows ?who . }"#,
+        )
+        .unwrap();
+        let who: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("who").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(
+            who,
+            vec!["<http://example.org/carol>".to_string()],
+            "got {who:?}"
+        );
+    }
+
+    /// `a|b` alternative path — match either of two predicates (here `knows`
+    /// alternated with itself, so the result equals the plain `knows` pairs).
+    #[test]
+    fn property_path_alternative() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?who WHERE { ex:carol (ex:knows|ex:knows) ?who . }"#,
+        )
+        .unwrap();
+        let who: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("who").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(
+            who,
+            vec!["<http://example.org/alice>".to_string()],
+            "got {who:?}"
+        );
+    }
+
+    /// `GRAPH ?g { … }` — over the single dataset, the inner BGP resolves and `?g`
+    /// binds the request graph IRI.
+    #[test]
+    fn graph_named_form_binds_g() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?g ?name WHERE { GRAPH ?g { ex:alice ex:name ?name . } }"#,
+        )
+        .unwrap();
+        assert_eq!(res.solutions.len(), 1, "got {res:?}");
+        let s = &res.solutions[0];
+        assert_eq!(s.get("name").unwrap().as_str(), "Alice");
+        assert_eq!(s.get("g").unwrap().as_str(), DEFAULT_GRAPH_IRI);
     }
 }
