@@ -61,10 +61,18 @@ mod tests {
             pbytes(json!({"type":"Person","name":"Carol","age":40})),
         );
         core.add_node("d1".into(), pbytes(json!({"type":"Doc","title":"Graphs"})));
-        core.add_edge("alice".into(), "bob".into(), pbytes(json!({"relationship":"KNOWS"})))
-            .unwrap();
-        core.add_edge("bob".into(), "carol".into(), pbytes(json!({"relationship":"KNOWS"})))
-            .unwrap();
+        core.add_edge(
+            "alice".into(),
+            "bob".into(),
+            pbytes(json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "bob".into(),
+            "carol".into(),
+            pbytes(json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
         core.analysis_snapshot()
     }
 
@@ -155,11 +163,7 @@ mod tests {
 
         // ── (b) the KNOWS traversal from Alice — GraphQL nested edge vs
         //     `MATCH (a:Person {name:'Alice'})-[:KNOWS]->(b) RETURN b.name` ──
-        let gql2 = execute(
-            &view,
-            r#"{ Person(name: "Alice") { KNOWS { name } } }"#,
-        )
-        .unwrap();
+        let gql2 = execute(&view, r#"{ Person(name: "Alice") { KNOWS { name } } }"#).unwrap();
         let gql2_targets: Vec<String> = gql2["data"]["Person"][0]["KNOWS"]
             .as_array()
             .unwrap()

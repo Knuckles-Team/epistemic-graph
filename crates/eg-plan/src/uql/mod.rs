@@ -230,7 +230,9 @@ mod tests {
                 Op::Scan {
                     label: "Event".into()
                 },
-                Op::AsOf { ts: 1_700_000_000.0 },
+                Op::AsOf {
+                    ts: 1_700_000_000.0
+                },
                 Op::Limit { k: 5 },
             ]
         );
@@ -290,7 +292,9 @@ mod tests {
             Op::Foreign {
                 name: "peer-west".into(),
             },
-            Op::AsOf { ts: 1_700_000_000.0 },
+            Op::AsOf {
+                ts: 1_700_000_000.0,
+            },
             Op::Window { secs: 3600.0 },
             Op::Traverse {
                 rel: "CAUSED".into(),

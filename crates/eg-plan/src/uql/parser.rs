@@ -334,11 +334,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 s
             }
-            _ => {
-                return Err(
-                    self.err_here("expected a FOREIGN source name (`FOREIGN \"<name>\"`)")
-                )
-            }
+            _ => return Err(self.err_here("expected a FOREIGN source name (`FOREIGN \"<name>\"`)")),
         };
         Ok(Op::Foreign { name })
     }

@@ -200,7 +200,9 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
 }
 
 /// Split a field's args into (the `first`/`limit` cap, the property-equality filters).
-fn split_args(args: &[(String, GqlValue)]) -> Result<(Option<usize>, Vec<(String, Value)>), String> {
+fn split_args(
+    args: &[(String, GqlValue)],
+) -> Result<(Option<usize>, Vec<(String, Value)>), String> {
     let mut limit = None;
     let mut filters = Vec::new();
     for (k, v) in args {
