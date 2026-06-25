@@ -113,6 +113,24 @@ tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
 # Pi-lean and folded into pi/node/cluster/full. Needs `server` (the handler routes
 # through dispatch); `eg-types/streaming` carries the Method variants + wire DTOs.
 streaming = ["server", "eg-types/streaming"]
+# Version-keyed query-RESULT cache (CONCEPT:KG-2.233): caches the serialized bytes
+# of a read query (Sql/Cypher/Sparql/UnifiedQuery) on `GraphCore`, keyed by
+# `(query-hash, version())`. A repeated identical query on an UNCHANGED graph hits;
+# any write bumps the version → miss → recompute (staleness impossible). Pure-Rust
+# bounded LRU + hash (NO new dep, NO DataFusion/openraft/object_store), so it is
+# Pi-safe and folded into pi/node/cluster/full. The CDC feed (feature `streaming`)
+# drives cross-replica invalidation when both are present.
+result-cache = ["eg-core/result-cache"]
+# Cold object-store tier seam (CONCEPT:KG-2.233): a `ColdTier` trait (RAM→redb→
+# object-store) + an in-memory/redb default impl so a cold graph offloads its whole
+# serialized state and rehydrates on access (extends hibernation, CONCEPT:KG-2.224).
+# The trait + default are pure-Rust (Pi-safe), folded into pi/node/cluster/full. An
+# S3-backed impl lives behind the SEPARATE `cold-tier-s3` feature so the lean build
+# links NO object-store SDK.
+cold-tier = ["eg-core/cold-tier"]
+# S3/object-store ColdTier impl — reuses the blob `ChunkStore` S3 seam. SEPARATE,
+# NOT in any tier bundle, so only an explicit build links the object_store SDK.
+cold-tier-s3 = ["cold-tier", "blob-s3"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. CLUSTER-TIER ONLY —
 # OFF by default and NOT in `full`/`all`, so a default / `pi` / `full` build links
@@ -199,7 +217,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full` either — it ships only in `cluster`. `wasm-udf` IS folded in (node/cluster/
 # full carry the WASM UDF runtime). `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP)
 # so the standard full/all build is authoritative-by-default just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf"]
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "result-cache", "cold-tier"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -218,7 +236,7 @@ all = ["full"]
 #     the Pi-3 tier). NOT `text` (Tantivy's C dep must stay out of `pi`). The Pi
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
-pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming"]
+pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute

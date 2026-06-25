@@ -15,6 +15,11 @@ pub mod blob;
 // dep, folds into pi/node/cluster/full). A build without it compiles none of it.
 #[cfg(feature = "streaming")]
 pub mod cdc;
+// Distributed result-cache coherence over the CDC feed (CONCEPT:KG-2.233): a replica
+// tailing CDC invalidates its local version-keyed result cache on a remote write.
+// Needs BOTH the cache (`result-cache`) and the CDC feed (`streaming`).
+#[cfg(all(feature = "result-cache", feature = "streaming"))]
+pub mod cache_coherence;
 mod compute;
 mod dispatch;
 pub(crate) mod handlers;
