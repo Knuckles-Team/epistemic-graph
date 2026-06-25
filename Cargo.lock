@@ -1667,6 +1667,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-graphql"
+version = "0.1.0"
+dependencies = [
+ "eg-core",
+ "eg-query",
+ "petgraph",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-plan"
 version = "0.33.0"
 dependencies = [
@@ -1826,6 +1838,7 @@ dependencies = [
  "dashmap",
  "eg-compute",
  "eg-core",
+ "eg-graphql",
  "eg-plan",
  "eg-query",
  "eg-rdf",

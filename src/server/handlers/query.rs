@@ -26,7 +26,7 @@ use std::sync::Arc;
 use super::super::compute::compute_off_lock;
 use crate::graph::GraphCore;
 use crate::protocol::Method;
-#[cfg(any(feature = "query", feature = "cypher"))]
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 use crate::protocol::{Response, ResultPayload};
 
 /// Handle `Method::Sql` / `Method::CypherQuery`. `Err(method)` hands a non-query
@@ -97,6 +97,21 @@ pub(crate) async fn try_handle(
                 Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
                 Err(resp) => resp,
             };
+            Ok(resp)
+        }
+        #[cfg(feature = "graphql")]
+        Method::GraphQl { query } => {
+            // GraphQL READ surface (CONCEPT:KG-2.235): compile the GraphQL query to
+            // scans + BFS over the SAME off-lock snapshot the Cypher path uses, via the
+            // pure-Rust eg-graphql resolver (NO async-graphql / DataFusion). The result
+            // is the GraphQL `{"data": …}` JSON, returned via `ResultPayload::raw`.
+            let snap = core.analysis_snapshot();
+            let resp =
+                match compute_off_lock(req_id, move || eg_graphql::execute(&snap, &query)).await {
+                    Ok(Ok(value)) => Response::ok(req_id, ResultPayload::raw(&value)),
+                    Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
+                    Err(resp) => resp,
+                };
             Ok(resp)
         }
         #[cfg(feature = "cypher")]

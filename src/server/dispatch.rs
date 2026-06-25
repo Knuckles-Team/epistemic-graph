@@ -763,7 +763,7 @@ async fn dispatch_graph_op(
             // DataFusion) Pi build; the handler's per-method arm falls through (Err) when
             // ITS feature is off, so Sql/CypherQuery then reach the graph_ops
             // not-available catch-all. Slim builds with NEITHER feature omit this line.
-            #[cfg(any(feature = "query", feature = "cypher"))]
+            #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
             let method = match handlers::query::try_handle(req_id, core.clone(), method).await {
                 Ok(r) => break 'dispatch r,
                 Err(m) => m,

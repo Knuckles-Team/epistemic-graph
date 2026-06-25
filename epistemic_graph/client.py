@@ -1904,6 +1904,26 @@ class QueryClient:
         result = await self._client._send("CypherQuery", {"query": query})
         return self._rows_to_dicts(result)
 
+    async def graphql(self, query: str) -> dict[str, Any]:
+        """Run a GraphQL READ ``query`` and return the GraphQL ``{"data": …}`` dict
+        (CONCEPT:KG-2.235).
+
+        The query's root fields are node TYPES (labels) with optional ``first``/
+        ``limit`` and property-equality arguments and nested EDGE selections, e.g.::
+
+            { Person(name: "Alice", first: 10) { name KNOWS { name } } }
+
+        On the engine side it is compiled to scans + BFS over the SAME ``GraphView``
+        the Cypher executor reads (DEP-FREE — no async-graphql / DataFusion), so a
+        GraphQL query returns the SAME nodes/fields as the equivalent Cypher query.
+        Requires a server built with the ``graphql`` feature. Returns the parsed
+        GraphQL JSON (a ``Raw`` payload the transport already double-unpacks).
+
+        Mutations / subscriptions / fragments are not supported (read-only surface);
+        the engine returns a clear parse error for them.
+        """
+        return await self._client._send("GraphQl", {"query": query})
+
     async def unified(
         self,
         plan: list[dict[str, Any]],

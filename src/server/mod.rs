@@ -842,6 +842,121 @@ mod tests {
         );
     }
 
+    /// End-to-end (CONCEPT:KG-2.235): add the SAME alice-KNOWS->bob graph the Cypher
+    /// test builds, route `Method::GraphQl` through the FULL dispatch chain, and PROVE
+    /// the GraphQL result is the expected node/field set. When `cypher` is ALSO built,
+    /// cross-check that the GraphQL KNOWS traversal equals the served Cypher result for
+    /// the same question — the GraphQL==Cypher equivalence over the served surface.
+    /// (graphql feature)
+    #[cfg(feature = "graphql")]
+    #[tokio::test]
+    async fn test_graphql_routes_and_equals_cypher() {
+        let state = test_state();
+        let add = |id: u64, node_id: &str, ty: &str, name: &str| {
+            request(
+                id,
+                "__commons__",
+                None,
+                Method::AddNode {
+                    node_id: node_id.to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"type": ty, "name": name}),
+                    )
+                    .unwrap(),
+                },
+            )
+        };
+        assert_ok(&dispatch(&state, add(1, "alice", "Person", "Alice")).await);
+        assert_ok(&dispatch(&state, add(2, "bob", "Person", "Bob")).await);
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    3,
+                    "__commons__",
+                    None,
+                    Method::AddEdge {
+                        source_id: "alice".into(),
+                        target_id: "bob".into(),
+                        properties_msgpack: rmp_serde::to_vec_named(
+                            &serde_json::json!({"relationship": "KNOWS"}),
+                        )
+                        .unwrap(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // GraphQL: Alice + her KNOWS targets' names.
+        let gql = dispatch(
+            &state,
+            request(
+                10,
+                "__commons__",
+                None,
+                Method::GraphQl {
+                    query: r#"{ Person(name: "Alice") { name KNOWS { name } } }"#.into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&gql);
+        let value: serde_json::Value = match gql.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected Raw(json), got {:?}", other),
+        };
+        let alice = &value["data"]["Person"][0];
+        assert_eq!(alice["name"].as_str(), Some("Alice"));
+        let gql_knows: Vec<String> = alice["KNOWS"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["name"].as_str().unwrap().to_string())
+            .collect();
+        // alice KNOWS bob.
+        assert_eq!(gql_knows, vec!["Bob".to_string()]);
+
+        // When cypher is ALSO built: prove GraphQL == Cypher over the SAME served
+        // dispatch for the same question (the equivalence proof, served form).
+        #[cfg(feature = "cypher")]
+        {
+            let cy = dispatch(
+                &state,
+                request(
+                    11,
+                    "__commons__",
+                    None,
+                    Method::CypherQuery {
+                        query: "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.name = 'Alice' \
+                                RETURN b.name"
+                            .into(),
+                    },
+                ),
+            )
+            .await;
+            assert_ok(&cy);
+            let qr = match cy.result {
+                Some(ResultPayload::Raw(bytes)) => {
+                    rmp_serde::from_slice::<crate::protocol::QueryResult>(&bytes).unwrap()
+                }
+                other => panic!("expected Raw(QueryResult), got {:?}", other),
+            };
+            let cy_knows: Vec<String> = qr
+                .rows
+                .iter()
+                .map(|b| {
+                    let cells: Vec<serde_json::Value> = rmp_serde::from_slice(b).unwrap();
+                    cells[0].as_str().unwrap().to_string()
+                })
+                .collect();
+            assert_eq!(
+                gql_knows, cy_knows,
+                "GraphQL KNOWS traversal must equal the served Cypher result"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_bad_auth_token_rejected() {
         let state = test_state();

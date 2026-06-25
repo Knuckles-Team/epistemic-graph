@@ -1,0 +1,43 @@
+# eg-graphql — native GraphQL READ surface over the property-graph (CONCEPT:KG-2.235).
+#
+# Sits in the DAG ABOVE eg-core (parallel to eg-rdf/eg-query): it derives a GraphQL
+# schema FROM the live graph (node `type` labels → GraphQL object types, typed edges →
+# fields) and compiles a GraphQL query to scans + BFS over the SAME `GraphView` the
+# Cypher/unified executor reads. So a GraphQL query is "more scans over the one
+# substrate" — proven to return the SAME nodes/fields as the equivalent Cypher query.
+#
+# Pi discipline: the WHOLE surface is a hand-written parser + resolver — PURE RUST, NO
+# async-graphql (evaluated: ~80+ transitive crates + a proc-macro schema-derive, too
+# heavy for the Pi tier). The facade gates it behind `graphql`, folded into node/
+# cluster/full but OUT of `pi`/`default`, so a Pi build links nothing here.
+[package]
+name = "eg-graphql"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Native GraphQL read surface for the epistemic-graph engine: schema-from-graph + a resolver that compiles a GraphQL query to GraphView scans/traversals (pure-Rust, no async-graphql)"
+license = "MIT"
+
+[lib]
+name = "eg_graphql"
+
+[features]
+# The whole crate is gated by the facade `graphql` feature; this crate has no inner
+# optionality (it always builds dep-free over eg-core). A default (no-feature) build of
+# the crate IS the surface — the facade simply doesn't depend on it unless `graphql` is
+# on, which is what keeps it out of the Pi tree.
+default = []
+
+[dependencies]
+eg-core = { path = "../eg-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rmp-serde = "1.3"
+# Variable-hop / single-hop edge traversal over GraphView's StableDiGraph. Already
+# linked transitively via eg-core; pin the same minor. NOT a new heavy dep.
+petgraph = { version = "0.6.4", features = ["serde-1"] }
+
+[dev-dependencies]
+# The equivalence test runs the SAME query through the engine's real Cypher executor
+# (eg-query/cypher — dep-free, no DataFusion) and asserts GraphQL == Cypher.
+eg-query = { path = "../eg-query", features = ["cypher"] }
