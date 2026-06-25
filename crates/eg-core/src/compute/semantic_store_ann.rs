@@ -217,6 +217,17 @@ impl SemanticStore {
     pub fn is_empty(&self) -> bool {
         self.embeddings.is_empty()
     }
+
+    /// Approximate resident bytes held by the embedding vectors (CONCEPT:KG-2.234):
+    /// the sum of every stored vector's `len × 4` (f32). Used by the per-tenant
+    /// memory-budget estimate; the IVF-PQ index built on top is rebuildable and not
+    /// counted (the raw vectors are the durable footprint).
+    pub fn embedding_bytes(&self) -> u64 {
+        self.embeddings
+            .values()
+            .map(|v| (v.len() * std::mem::size_of::<f32>()) as u64)
+            .sum()
+    }
 }
 
 /// Pure-Rust dot product.

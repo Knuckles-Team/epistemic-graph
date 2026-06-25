@@ -216,6 +216,16 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Cost / efficiency (CONCEPT:KG-2.234, Lane V) ──────────────
+        #[cfg(feature = "cost")]
+        Method::ResourceStats => {
+            let snapshot = crate::cost::collect_resource_stats(state).await;
+            match serde_json::to_value(&snapshot) {
+                Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
+                Err(e) => Response::err(req.id, format!("ResourceStats serialization: {e}")),
+            }
+        }
+
         // ── Multi-tenant graph management ────────────────────────────
         Method::CreateGraph {
             graph_name,
