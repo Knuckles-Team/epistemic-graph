@@ -1019,7 +1019,11 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             .iter()
             .filter_map(|s| s.get("who").map(|b| b.as_str().to_string()))
             .collect();
-        assert_eq!(who, vec!["<http://example.org/carol>".to_string()], "got {who:?}");
+        assert_eq!(
+            who,
+            vec!["<http://example.org/carol>".to_string()],
+            "got {who:?}"
+        );
     }
 
     /// `a|b` alternative path — match either of two predicates (here `knows`
@@ -1039,7 +1043,11 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             .iter()
             .filter_map(|s| s.get("who").map(|b| b.as_str().to_string()))
             .collect();
-        assert_eq!(who, vec!["<http://example.org/alice>".to_string()], "got {who:?}");
+        assert_eq!(
+            who,
+            vec!["<http://example.org/alice>".to_string()],
+            "got {who:?}"
+        );
     }
 
     /// `GRAPH ?g { … }` — over the single dataset, the inner BGP resolves and `?g`

@@ -257,9 +257,7 @@ impl P<'_> {
                 "mutation" => {
                     return Err(self.err("GraphQL mutations are not supported (read-only surface)"))
                 }
-                "subscription" => {
-                    return Err(self.err("GraphQL subscriptions are not supported"))
-                }
+                "subscription" => return Err(self.err("GraphQL subscriptions are not supported")),
                 "fragment" => return Err(self.err("GraphQL fragments are not supported")),
                 _ => {} // a bare selection set whose first field is a Name
             }
@@ -417,7 +415,10 @@ mod tests {
         assert_eq!(person.name, "Person");
         assert_eq!(person.args.len(), 2);
         assert_eq!(person.args[0], ("first".into(), GqlValue::Int(2)));
-        assert_eq!(person.args[1], ("name".into(), GqlValue::Str("Alice".into())));
+        assert_eq!(
+            person.args[1],
+            ("name".into(), GqlValue::Str("Alice".into()))
+        );
         assert_eq!(person.selection.len(), 2);
         assert_eq!(person.selection[0].name, "name");
         let knows = &person.selection[1];
