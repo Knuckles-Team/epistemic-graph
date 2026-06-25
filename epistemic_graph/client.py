@@ -2394,28 +2394,63 @@ class RdfClient:
         self,
         ontology: str | None = None,
         target_class: str | None = None,
+        min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Run the native OWL 2 (EL⁺ + RL) reasoner over the connection's graph and
-        materialize entailments (CONCEPT:KG-2.219). Classifies the OWL axioms already
-        in the graph (loaded via :meth:`add_triples`) plus any extra ``ontology``
-        Turtle, then returns::
+        materialize entailments — confidence-weighted (CONCEPT:KG-2.219 / KG-2.236).
+        Classifies the OWL axioms already in the graph (loaded via :meth:`add_triples`)
+        plus any extra ``ontology`` Turtle, then returns::
 
             {
-                "subclasses": [[sub, sup], ...],   # the classification hierarchy
+                "subclasses": [[sub, sup], ...],    # the classification hierarchy
+                "subclass_conf": [c, ...],          # per-subsumption confidence in [0,1],
+                                                    #   aligned index-for-index
                 "instances":  [[inst, class], ...], # inferred memberships (incl. ones
                                                     #   reached only through ∃-restrictions
-                                                    #   / role chains)
+                                                    #   / role chains), conf >= min_confidence
+                "instance_conf": [c, ...],          # per-membership confidence in [0,1]
                 "consistent": bool,                 # False if a class is unsatisfiable
                 "unsatisfiable": [class, ...],
             }
 
-        Pass ``target_class`` to restrict ``instances`` to that class's inferred
-        members. Read-only — it does NOT mutate the graph. Requires a server built
-        with the ``owl`` feature.
+        Axioms may carry an ``eg:confidence`` annotation and facts their per-node
+        ``confidence`` (decayed by age on the Ebbinghaus curve); the closure propagates
+        them — a derived entailment's confidence is ``axiom_conf x product(premise_conf)``
+        (max over alternative derivations). ``min_confidence`` (tau) drops entailments
+        below the threshold. ``target_class`` restricts ``instances`` to that class's
+        inferred members. Read-only. Requires a server built with the ``owl`` feature.
         """
         return await self._client._send(
             "OwlReason",
-            {"ontology": ontology or "", "target_class": target_class or ""},
+            {
+                "ontology": ontology or "",
+                "target_class": target_class or "",
+                "min_confidence": float(min_confidence),
+            },
+        )
+
+    async def owl_reason_distributed(
+        self,
+        graphs: list[str],
+        ontology: str | None = None,
+        target_class: str | None = None,
+        min_confidence: float = 0.0,
+    ) -> dict[str, Any]:
+        """Distributed (cross-shard) confidence-weighted OWL reasoning over the UNION of
+        ``graphs`` (CONCEPT:KG-2.236). Gathers each graph/shard's TBox axioms + decayed-
+        confidence type facts, runs ONE weighted EL⁺/RL closure over the union (the
+        cross-shard union-read seam), and returns the SAME shape as :meth:`owl_reason` —
+        provably identical to reasoning over the same axioms in a single graph. The
+        single-shard fast path stays :meth:`owl_reason`. Read-only; ``owl`` feature.
+        """
+        return await self._client._send(
+            "OwlReasonDistributed",
+            {
+                "graphs": list(graphs),
+                "ontology": ontology or "",
+                "target_class": target_class or "",
+                "min_confidence": float(min_confidence),
+            },
         )
 
 
