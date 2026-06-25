@@ -1041,6 +1041,22 @@ pub enum Method {
         reorder_filter_selectivity: Option<f64>,
     },
 
+    // ── Query federation / foreign sources (CONCEPT:KG-2.232, Lane P) ───────
+    // Register a named EXTERNAL source so a UnifiedQuery `Op::ForeignScan` can read it
+    // as a RowSet and compose it with the local graph/vector/SQL ops in ONE plan. The
+    // actual cross-engine/HTTP transport lives in eg-plan behind the `federation` gate;
+    // this is the registration surface. Gated behind the facade `federation` feature;
+    // in a slim/Pi build the variant falls to the not-built catch-all.
+    /// Register (or replace) a foreign RowSet source under `name`. `source` is the
+    /// [`crate::wire::ForeignSourceSpec`] (a remote engine or an HTTP/JSON API). A
+    /// later `ForeignScan` can name this registered source by id (the registry-backed
+    /// form) instead of inlining the whole spec. Returns the name on success.
+    #[cfg(feature = "federation")]
+    RegisterForeignSource {
+        name: String,
+        source: crate::wire::ForeignSourceSpec,
+    },
+
     // ── WASM-sandboxed UDF / extension model (CONCEPT:KG-2.228) ─────────────
     // An agent pushes a custom compute function as a WebAssembly module the engine
     // runs SANDBOXED (wasmtime, fuel + memory limits, NO host capabilities). Gated
