@@ -100,3 +100,14 @@ features = ["node", "ast-extended"]
 # `pi` via the `[tool.maturin] features` default above — the pi recipe must be the
 # ONLY feature set selected, or the resulting wheel would re-link DataFusion and
 # break the Pi contract.
+#
+# ── Size-optimized "contains-all smallest" + pi-max wheels ──
+# maturin forwards `--profile` to cargo, so build the size-optimized binary (the
+# `[profile.release-tiny]` in Cargo.toml: opt-level z + fat LTO + strip, panic=unwind)
+# with `--profile release-tiny`. The Pi never compiles — CI cross-builds these wheels
+# (`.github/workflows/release-build.yml`: `wheels-full-tiny`, `wheels-pi` matrix).
+#
+#   # contains-all smallest (every single-node feature, smallest binary)
+#   maturin build --profile release-tiny --no-default-features --features full,ast-extended
+#   # Pi-3 maximal: pure-Rust, NO DataFusion / Tantivy / C (pi + tsdb + blob + security)
+#   maturin build --profile release-tiny --no-default-features --features pi-max,ast-extended
