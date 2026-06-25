@@ -50,13 +50,29 @@ pub(crate) async fn try_handle(
         #[cfg(feature = "sparql")]
         Method::Sparql { query } => {
             // Off-lock snapshot + blocking-pool idiom, identical to SQL/Cypher.
+            // Version-keyed result cache (CONCEPT:KG-2.233): a repeated SPARQL on an
+            // unchanged graph serves cached bytes; any write bumps `version()` → miss.
+            #[cfg(feature = "result-cache")]
+            let (snap, version, hash) = {
+                let hash =
+                    eg_core::result_cache::ResultCache::hash_query("sparql", query.as_bytes());
+                let (snap, version) = core.analysis_snapshot_versioned();
+                if let Some(bytes) = core.result_cache().get(hash, version) {
+                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                }
+                (snap, version, hash)
+            };
+            #[cfg(not(feature = "result-cache"))]
             let snap = core.analysis_snapshot();
             let resp =
                 match compute_off_lock(req_id, move || eg_rdf::sparql::run(&snap, &query)).await {
                     Ok(Ok(result)) => {
                         let (vars, rows) = result.to_rows();
                         let wire = crate::protocol::SparqlResult { vars, rows };
-                        Response::ok(req_id, ResultPayload::raw(&wire))
+                        let bytes = rmp_serde::to_vec_named(&wire).unwrap_or_default();
+                        #[cfg(feature = "result-cache")]
+                        core.result_cache().put(hash, version, bytes.clone());
+                        Response::ok(req_id, ResultPayload::Raw(bytes))
                     }
                     Ok(Err(msg)) => Response::err(req_id, format!("SPARQL error: {msg}")),
                     Err(resp) => resp,
