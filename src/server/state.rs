@@ -154,4 +154,17 @@ pub struct ServerState {
     /// + triggers off it. PURE in-memory (bounded ring + Notify) — no second redb file.
     #[cfg(feature = "streaming")]
     pub cdc: Option<Arc<crate::server::cdc::CdcHub>>,
+    /// WASM-sandboxed UDF registry (CONCEPT:KG-2.228, feature `wasm-udf`). Holds the
+    /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`; `RunUdf` + the
+    /// `Op::Udf` plan op look up + run them sandboxed (fuel + memory limits, NO host
+    /// caps). Always present (empty) with the feature on — UDFs are process-global, not
+    /// per-graph. Behind `Arc` so the off-lock compute path clones a handle cheaply.
+    #[cfg(feature = "wasm-udf")]
+    pub udf_registry: Arc<eg_wasm::UdfRegistry>,
+    /// Materialized views of distributed-compute results (CONCEPT:KG-2.227, feature
+    /// `compute-dist`). The in-RAM index of named, incrementally-maintained matviews;
+    /// the durable copy lives in redb (the handler persists + reloads on boot). Mutex
+    /// because a `CreateMatView`/`RefreshMatView` mutates it off the registry lock.
+    #[cfg(feature = "compute-dist")]
+    pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
 }

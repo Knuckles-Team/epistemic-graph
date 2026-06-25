@@ -30,6 +30,11 @@ text = ["query", "dep:eg-text", "eg-text/tantivy", "eg-types/text"]
 # ops live inside the `query`-gated `Op` enum, beside the DataFusion FILTER leg). A
 # default/Pi build sets neither feature → no eg-rdf reasoner/evaluator linked here.
 owl = ["query", "dep:eg-rdf", "eg-rdf/owl", "eg-rdf/sparql", "eg-types/owl-plan"]
+# The WASM `Udf` TRANSFORM op (CONCEPT:KG-2.228): run a registered, sandboxed
+# WebAssembly UDF over the current RowSet inside a UnifiedQuery plan. Pulls eg-wasm's
+# wasmtime runtime + turns on the `wasm-udf` wire variant in eg-types. IMPLIES `query`
+# (the op lives in the `query`-gated `Op` enum). A default/Pi build links no wasmtime.
+wasm-udf = ["query", "dep:eg-wasm", "eg-wasm/wasm-udf", "eg-types/wasm-udf"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -41,6 +46,10 @@ eg-core = { path = "../eg-core" }
 # The relational FILTER leg is real DataFusion via eg-query's schema-on-read
 # `nodes` provider — gated behind `query` so a default build links none of it.
 eg-query = { path = "../eg-query", optional = true }
+# The WASM UDF runtime backing the `Udf` op (feature `wasm-udf`, CONCEPT:KG-2.228).
+# Optional + only referenced under #[cfg(feature = "wasm-udf")]; a default/Pi build
+# links no wasmtime/cranelift.
+eg-wasm = { path = "../eg-wasm", optional = true }
 # The lexical BM25 index + RRF fusion (feature `text`, CONCEPT:KG-2.215). Optional +
 # only referenced under #[cfg(feature = "text")], so a default/Pi build links no
 # eg-text and therefore no Tantivy/zstd-sys (verified by `cargo tree`).
@@ -66,3 +75,6 @@ eg-query = { path = "../eg-query", features = ["sql"] }
 # mapping and reasons over it, so the test target names eg-rdf directly with its
 # owl/sparql surfaces. (Only compiled with `--features owl`.)
 eg-rdf = { path = "../eg-rdf", features = ["owl", "sparql"] }
+# The `Udf` op test compiles a tiny `.wat` fixture to wasm in-test (only with
+# `--features wasm-udf`). The sandbox itself never needs a text parser — only the test.
+wat = "1"
