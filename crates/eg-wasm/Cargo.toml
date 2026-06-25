@@ -1,0 +1,46 @@
+# eg-wasm — WASM-sandboxed UDF/extension runtime (CONCEPT:KG-2.228).
+#
+# A leaf crate that runs an agent-supplied WebAssembly module SANDBOXED over a
+# `RowSet` (input rows → output rows). The sandbox has:
+#   * FUEL metering — an infinite-loop UDF is KILLED (trap), not a hang.
+#   * a hard MEMORY limit — a UDF that grows linear memory past the cap traps.
+#   * NO host capabilities — a fresh `wasmtime::Linker` with NOTHING linked, so the
+#     module cannot touch fs/net/clock/env. Pure compute: bytes in → bytes out over
+#     two host functions the engine itself provides (alloc + the result region).
+#
+# Heavy (wasmtime pulls cranelift + a C-ish build via the `cranelift` backend), so it
+# is OFF by default and folded ONLY into node/cluster/full via the facade `wasm-udf`
+# feature — NEVER `pi`/`default` (the Pi contract: no wasmtime/cranelift in the tree).
+[package]
+name = "eg-wasm"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "WASM-sandboxed UDF runtime (wasmtime, fuel + memory limits, no host capabilities) for the epistemic-graph engine"
+license = "MIT"
+
+[lib]
+name = "eg_wasm"
+
+[features]
+default = []
+# The wasmtime runtime + the sandbox. Pulls cranelift (the compiling backend). Gated
+# so a default/pi build links NO wasmtime/cranelift (asserted by cargo tree).
+wasm-udf = ["dep:wasmtime"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+# The WASM runtime (feature `wasm-udf`). We pin a conservative, widely-used line and
+# disable default features we do not need (we keep `cranelift` — the compiling backend
+# — and `runtime`; we explicitly do NOT enable `wasi`, `component-model`, etc., so the
+# guest gets NO host syscalls). `wat` stays OFF in the lib; tests turn it on.
+wasmtime = { version = "27", optional = true, default-features = false, features = [
+    "cranelift",
+    "runtime",
+] }
+
+[dev-dependencies]
+# Compile the tiny `.wat` test modules to wasm in-test (the sandbox itself never needs
+# a text parser — only the test fixtures do).
+wat = "1"

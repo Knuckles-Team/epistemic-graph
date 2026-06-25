@@ -74,6 +74,12 @@ async fn make_state_with_backend(
         rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+            crate::raft::pregel::MatViewStore::new(),
+        )),
     }))
 }
 
@@ -570,4 +576,316 @@ async fn two_groups_one_node_commit_independently() {
     multi.stop_listener();
     backend.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ── Distributed graph compute (CONCEPT:KG-2.227) ─────────────────────────────
+//
+// These prove the cross-shard Pregel engine produces the SAME result as the
+// single-graph algorithm run over the UNION graph: a graph split across two shard
+// graphs, computed distributed, equals the whole graph computed in one core. Plus the
+// incremental connected-components variant equals a from-scratch run on a delta. They
+// build a minimal ServerState (no Raft groups needed — the engine reads each shard
+// graph's snapshot from the registry) over an in-memory-only backend.
+#[cfg(feature = "compute-dist")]
+mod dist_compute {
+    use super::*;
+    use crate::protocol::{DistAlgo, GraphType};
+    use crate::raft::pregel::{self, DistResult};
+
+    fn props(n: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({"type": "N", "id": n})).unwrap()
+    }
+
+    /// Build a state with two shard graphs `shA`/`shB`, the union's nodes partitioned
+    /// across them (a node lives in the shard named in `placement`), and EVERY edge
+    /// added to the shard that owns its SOURCE. Returns the state + a single-graph
+    /// `union` core holding the WHOLE graph for the reference comparison.
+    async fn two_shard_state(
+        nodes: &[&str],
+        edges: &[(&str, &str)],
+        placement: &dyn Fn(&str) -> &'static str,
+    ) -> (
+        Arc<RwLock<ServerState>>,
+        std::sync::Arc<crate::graph::GraphCore>,
+    ) {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-pregel-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir.to_string_lossy().to_string(), FsyncPolicy::Each, 256)
+                .expect("open redb"),
+        );
+        let state = make_state_with_backend(&dir.to_string_lossy(), backend).await;
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("shA", GraphType::Global, None)
+                .unwrap();
+            s.registry
+                .create_graph("shB", GraphType::Global, None)
+                .unwrap();
+            for n in nodes {
+                let g = placement(n);
+                s.registry
+                    .get(g)
+                    .unwrap()
+                    .core
+                    .add_node(n.to_string(), props(n));
+            }
+            for (u, v) in edges {
+                // The edge's endpoints must both exist in the owning shard for petgraph
+                // to add it, so we ensure the target node exists in the source's shard
+                // too (a cross-shard edge's far endpoint is mirrored as a bare node).
+                let g = placement(u);
+                let core = &s.registry.get(g).unwrap().core;
+                if !core.has_node(v) {
+                    core.add_node(v.to_string(), props(v));
+                }
+                core.add_edge(u.to_string(), v.to_string(), props(u))
+                    .unwrap();
+            }
+        }
+
+        // The single-graph reference: the WHOLE union in ONE core.
+        let union = std::sync::Arc::new(crate::graph::GraphCore::new());
+        for n in nodes {
+            union.add_node(n.to_string(), props(n));
+        }
+        for (u, v) in edges {
+            union
+                .add_edge(u.to_string(), v.to_string(), props(u))
+                .unwrap();
+        }
+        (state, union)
+    }
+
+    /// Round a score map for tolerant float comparison.
+    fn score_map(rows: &[(String, f64)]) -> std::collections::BTreeMap<String, i64> {
+        rows.iter()
+            .map(|(k, v)| (k.clone(), (v * 1e6).round() as i64))
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cross_shard_pagerank_matches_single_graph() {
+        // A union graph split across two shards by a parity rule. Distributed PageRank
+        // over the two shards must match the single-graph power iteration on the union.
+        let nodes = ["a", "b", "c", "d", "e", "f"];
+        let edges = [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("c", "d"), // cross-shard edge (c in shA, d in shB)
+            ("d", "e"),
+            ("e", "f"),
+            ("f", "d"),
+        ];
+        let place = |n: &str| -> &'static str {
+            if matches!(n, "a" | "b" | "c") {
+                "shA"
+            } else {
+                "shB"
+            }
+        };
+        let (state, union) = two_shard_state(&nodes, &edges, &place).await;
+
+        let dist = pregel::run_distributed(
+            &state,
+            &["shA".into(), "shB".into()],
+            &DistAlgo::PageRank {
+                damping: 0.85,
+                iterations: 50,
+            },
+        )
+        .await
+        .unwrap();
+        let DistResult::Scores(dist_scores) = dist else {
+            panic!("expected scores")
+        };
+
+        let single = crate::algorithms::pagerank(&union.topology_snapshot(), 0.85, 50);
+        assert_eq!(
+            score_map(&dist_scores),
+            score_map(&single),
+            "cross-shard PageRank must equal single-graph PageRank on the union"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cross_shard_connected_components_matches_single_graph() {
+        // Two components: {a,b,c} (in shA) and {d,e} (split shA/shB) — a cross-shard
+        // component. Distributed CC must produce the SAME partition as single-graph CC.
+        let nodes = ["a", "b", "c", "d", "e"];
+        let edges = [("a", "b"), ("b", "c"), ("d", "e")];
+        let place = |n: &str| -> &'static str {
+            if matches!(n, "a" | "b" | "d") {
+                "shA"
+            } else {
+                "shB"
+            }
+        };
+        let (state, union) = two_shard_state(&nodes, &edges, &place).await;
+
+        let dist = pregel::run_distributed(
+            &state,
+            &["shA".into(), "shB".into()],
+            &DistAlgo::ConnectedComponents,
+        )
+        .await
+        .unwrap();
+        let DistResult::Labels(dist_labels) = dist else {
+            panic!("expected labels")
+        };
+
+        // Reference: single-graph CC partition. Compare as "same-component" equivalence
+        // (the label VALUE differs by indexing, so compare which nodes share a label).
+        let single = crate::algorithms::connected_components(&union.topology_snapshot());
+        let mut single_comp: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (ci, comp) in single.iter().enumerate() {
+            for n in comp {
+                single_comp.insert(n.clone(), ci);
+            }
+        }
+        let dist_map: std::collections::HashMap<String, i64> = dist_labels.into_iter().collect();
+
+        // Two nodes share a distributed label IFF they share a single-graph component.
+        for i in &nodes {
+            for j in &nodes {
+                let same_dist = dist_map[*i] == dist_map[*j];
+                let same_single = single_comp[*i] == single_comp[*j];
+                assert_eq!(
+                    same_dist, same_single,
+                    "cross-shard CC partition must match single-graph for ({i},{j})"
+                );
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn incremental_cc_equals_from_scratch() {
+        // Start with two separate components, compute CC, then add a cross-shard edge
+        // that MERGES them. The incremental recompute (seeded from the prior labeling,
+        // re-propagating only the affected region) must equal a from-scratch CC.
+        let nodes = ["a", "b", "c", "d"];
+        let edges = [("a", "b"), ("c", "d")]; // two components {a,b}, {c,d}
+        let place = |n: &str| -> &'static str {
+            if matches!(n, "a" | "c") {
+                "shA"
+            } else {
+                "shB"
+            }
+        };
+        let (state, _union) = two_shard_state(&nodes, &edges, &place).await;
+
+        let graphs = ["shA".to_string(), "shB".to_string()];
+        let prior = match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
+            .await
+            .unwrap()
+        {
+            DistResult::Labels(l) => l,
+            _ => panic!("labels"),
+        };
+
+        // DELTA: add edge b→c, merging the two components. b lives in shB; add there.
+        {
+            let s = state.read().await;
+            let core = &s.registry.get("shB").unwrap().core;
+            if !core.has_node("c") {
+                core.add_node("c".to_string(), props("c"));
+            }
+            core.add_edge("b".to_string(), "c".to_string(), props("b"))
+                .unwrap();
+        }
+
+        // Incremental: only b and c are affected by the new edge.
+        let affected: std::collections::HashSet<String> =
+            ["b".to_string(), "c".to_string()].into_iter().collect();
+        let incr = pregel::incremental_connected_components(&state, &graphs, &prior, &affected)
+            .await
+            .unwrap();
+
+        // From scratch over the same (post-delta) graphs.
+        let scratch = match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
+            .await
+            .unwrap()
+        {
+            DistResult::Labels(l) => l,
+            _ => panic!("labels"),
+        };
+
+        // Compare partitions (same-component equivalence — label values are stable here
+        // because both seed from the same vertex indexing, but compare structurally to
+        // be robust).
+        let im: std::collections::HashMap<String, i64> = incr.into_iter().collect();
+        let sm: std::collections::HashMap<String, i64> = scratch.into_iter().collect();
+        for i in &nodes {
+            for j in &nodes {
+                assert_eq!(
+                    im[*i] == im[*j],
+                    sm[*i] == sm[*j],
+                    "incremental CC partition must equal from-scratch for ({i},{j})"
+                );
+            }
+        }
+        // All four now in one component (the merge took effect).
+        assert!(
+            nodes.iter().all(|n| sm[*n] == sm["a"]),
+            "the cross-shard merge must unite all four nodes"
+        );
+    }
+}
+
+// ── Materialized view durability (CONCEPT:KG-2.227) ──────────────────────────
+//
+// A materialized view round-trips through the redb durable tier: the handler computes
+// + persists it, and a fresh scan (the boot reload path) recovers the SAME view. Tests
+// the redb matview_put/matview_scan + the MatView serde, the durability half of the
+// matview lifecycle.
+#[cfg(feature = "compute-dist")]
+mod matview {
+    use super::*;
+    use crate::protocol::DistAlgo;
+    use crate::raft::pregel::{DistResult, MatView};
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn matview_persists_and_reloads_from_redb() {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-matview-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let backend =
+            RedbBackend::open(dir.to_string_lossy().to_string(), FsyncPolicy::Each, 256).unwrap();
+
+        let view = MatView {
+            name: "ranks".into(),
+            graphs: vec!["shA".into(), "shB".into()],
+            algo: DistAlgo::PageRank {
+                damping: 0.85,
+                iterations: 20,
+            },
+            result: DistResult::Scores(vec![("a".into(), 0.5), ("b".into(), 0.3)]),
+        };
+        let blob = rmp_serde::to_vec_named(&view).unwrap();
+        backend.matview_put("ranks", blob).await.unwrap();
+
+        // The boot reload path: scan recovers the SAME view, byte-for-byte.
+        let scanned = backend.matview_scan().unwrap();
+        assert_eq!(scanned.len(), 1, "exactly one matview persisted");
+        let (name, recovered_blob) = &scanned[0];
+        assert_eq!(name, "ranks");
+        let recovered: MatView = rmp_serde::from_slice(recovered_blob).unwrap();
+        assert_eq!(
+            recovered, view,
+            "matview must round-trip through redb unchanged"
+        );
+
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

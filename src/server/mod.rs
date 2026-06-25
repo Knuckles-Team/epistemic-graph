@@ -34,6 +34,10 @@ pub mod txn;
 // `server::{handle_connection,serve_uds,serve_tcp}` — used by main.rs/persist.rs/tests.
 pub use auth::compute_auth_token;
 pub use dispatch::dispatch;
+// Distributed-compute materialized-view boot reload (CONCEPT:KG-2.227): the binary
+// calls this on startup to repopulate the in-RAM matview index from redb.
+#[cfg(feature = "compute-dist")]
+pub use handlers::dist_compute::reload_matviews;
 pub use persistence::PersistenceBackend;
 pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
 pub use transport::{handle_connection, run_idle_watcher, serve_tcp, ShutdownCoordinator};
@@ -104,6 +108,12 @@ mod tests {
             rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }))
     }
 
@@ -930,6 +940,12 @@ mod tests {
             rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -1009,6 +1025,12 @@ mod tests {
             rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -1094,6 +1116,12 @@ mod tests {
             rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -1279,6 +1307,12 @@ mod tests {
             rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
@@ -3254,5 +3288,116 @@ ex:myHeart a ex:HumanHeart .
             "long-poll woke on the in-window write"
         );
         assert_eq!(batch.events[0].node_id, "late");
+    }
+
+    /// End-to-end WASM UDF through the SERVER dispatch (CONCEPT:KG-2.228): RegisterUdf
+    /// compiles+caches a sandboxed module, then RunUdf runs it over a payload and the
+    /// output round-trips — AND an infinite-loop UDF registered the same way is
+    /// FUEL-KILLED (a trap error response), never a hang. Proves the Method surface +
+    /// the off-reactor sandboxed execution path, not just the eg-wasm unit tests.
+    #[cfg(feature = "wasm-udf")]
+    #[tokio::test]
+    async fn run_udf_through_dispatch_runs_sandboxed_and_fuel_kills_infinite_loop() {
+        let state = test_state();
+
+        // An identity UDF (echoes its input bytes) and an infinite-loop UDF.
+        let identity = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1)
+                (global $n (mut i32) (i32.const 1024))
+                (func (export "alloc") (param $l i32) (result i32)
+                    (local $p i32) (local.set $p (global.get $n))
+                    (global.set $n (i32.add (global.get $n) (local.get $l))) (local.get $p))
+                (func (export "udf") (param $p i32) (param $l i32) (result i64)
+                    (i64.or (i64.shl (i64.extend_i32_u (local.get $p)) (i64.const 32))
+                            (i64.extend_i32_u (local.get $l)))))"#,
+        )
+        .unwrap();
+        let infinite = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1)
+                (func (export "alloc") (param $l i32) (result i32) (i32.const 1024))
+                (func (export "udf") (param $p i32) (param $l i32) (result i64)
+                    (loop $f (br $f)) (i64.const 0)))"#,
+        )
+        .unwrap();
+
+        // Register both (process-global; the request graph is just the ACL anchor).
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::RegisterUdf {
+                        id: "echo".into(),
+                        wasm: identity,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    2,
+                    "__commons__",
+                    None,
+                    Method::RegisterUdf {
+                        id: "spin".into(),
+                        wasm: infinite,
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // RunUdf "echo" over a payload → the SAME bytes back (sandboxed round-trip).
+        let payload = b"rows-over-the-wire".to_vec();
+        let resp = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::RunUdf {
+                    id: "echo".into(),
+                    input: payload.clone(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        match resp.result {
+            Some(ResultPayload::Raw(out)) => assert_eq!(out, payload, "identity UDF echoes input"),
+            other => panic!("expected Raw output, got {other:?}"),
+        }
+
+        // RunUdf "spin" → the infinite loop is FUEL-KILLED: an error response, not a hang.
+        let start = std::time::Instant::now();
+        let resp = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::RunUdf {
+                    id: "spin".into(),
+                    input: b"x".to_vec(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            resp.error.is_some(),
+            "infinite-loop UDF must be killed (error), got ok: {:?}",
+            resp.result
+        );
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "fuel kill must be fast, not a hang"
+        );
     }
 }
