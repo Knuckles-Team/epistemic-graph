@@ -566,6 +566,12 @@ impl Classification {
     }
 }
 
+/// A subsumption-RHS axiom indexed by its trigger conjunct: `(consequent, label, conf)`
+/// — used for the CR-sub (`B ⊑ C`) and CR-some⁻ (`∃r.D ⊑ E`) rules.
+type RhsAxiom = (Concept, String, f64);
+/// An existential-RHS axiom `B ⊑ ∃r.D` indexed by `B`: `(role, filler, label, conf)`.
+type SomeRhsAxiom = (String, Concept, String, f64);
+
 /// A reusable completion state so a DELTA can re-run incrementally (CONCEPT:KG-2.219).
 /// Holds the normalised axioms + the current `S`/`R` closure; [`Reasoner::classify`]
 /// runs the fixpoint, [`Reasoner::add_axioms`] adds axioms and re-runs only the new
@@ -687,13 +693,13 @@ impl Reasoner {
         // Pre-index axioms by their trigger for O(1) rule lookup. Each entry carries
         // the axiom's confidence as the last tuple element (CONCEPT:KG-2.236).
         // single-conjunct sub: B -> [(C, axiom_label, conf)]
-        let mut sub_index: HashMap<String, Vec<(Concept, String, f64)>> = HashMap::new();
+        let mut sub_index: HashMap<String, Vec<RhsAxiom>> = HashMap::new();
         // conjunctive sub: list of (conjuncts, C, label, conf)
         let mut conj_axioms: Vec<(Vec<String>, Concept, String, f64)> = Vec::new();
         // existential RHS: B -> [(r, D, label, conf)]  (B ⊑ ∃r.D)
-        let mut some_rhs: HashMap<String, Vec<(String, Concept, String, f64)>> = HashMap::new();
+        let mut some_rhs: HashMap<String, Vec<SomeRhsAxiom>> = HashMap::new();
         // existential LHS: (r, D) -> [(E, label, conf)]  (∃r.D ⊑ E)
-        let mut some_lhs: HashMap<(String, String), Vec<(Concept, String, f64)>> = HashMap::new();
+        let mut some_lhs: HashMap<(String, String), Vec<RhsAxiom>> = HashMap::new();
 
         for g in &self.ont.gcis {
             let rhs = g.rhs.clone();
@@ -1031,10 +1037,6 @@ impl Reasoner {
             }
         }
         changed
-    }
-
-    fn add_role(&mut self, r: &str, a: &str, b: &str) -> bool {
-        self.add_role_weighted(r, a, b, 1.0)
     }
 
     /// Add (or raise the confidence of) a role pair `(r,(a,b))`.
