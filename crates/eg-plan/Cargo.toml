@@ -51,6 +51,15 @@ federation = [
     "dep:sha2",
     "dep:hex",
 ]
+# EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
+# — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
+# running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the
+# `runtime-tokio-rustls` TLS backend (PURE-RUST rustls — NEVER openssl) + a small
+# current-thread tokio runtime to drive the async driver from the sync `fetch()` (on the
+# blocking pool). IMPLIES `federation`. HEAVY (a SQL driver + a TLS stack), so it is OFF
+# by default and the facade folds it into node/cluster/full but NEVER `pi` — the Pi
+# contract: a `pi` build links no sqlx/postgres/mysql/openssl.
+federation-sql = ["federation", "dep:sqlx", "dep:tokio"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -89,6 +98,22 @@ ureq = { version = "2.10", optional = true }
 hmac = { version = "0.12", optional = true }
 sha2 = { version = "0.10", optional = true }
 hex = { version = "0.4", optional = true }
+# ── external-SQL federation (CONCEPT:KG-2.239, feature `federation-sql`) — optional +
+# only referenced under #[cfg(feature = "federation-sql")], so a default/Pi/`federation`
+# build links NEITHER, and a `pi` tree carries no sqlx/postgres/mysql. ──
+# `sqlx` with the PURE-RUST rustls TLS backend (`runtime-tokio-rustls`) — NEVER openssl.
+# `postgres` + `mysql` give two dialects through one async API; `macros`/`migrate` are
+# off (no compile-time DB / no proc-macro). default-features = false drops the native-tls
+# default so the only TLS in the tree is rustls.
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "mysql",
+], optional = true }
+# A small current-thread tokio runtime to drive sqlx's async API from the SYNC `fetch()`
+# (which the executor already runs on the blocking pool). Minimal feature set — NOT
+# "full".
+tokio = { version = "1.38", features = ["rt", "net", "time"], optional = true }
 # Variable-length-hop TRAVERSE BFS over GraphView's StableDiGraph (EdgeRef). Already
 # linked transitively via eg-core; pin the same minor. NOT a new heavy dep, and the
 # graph leg is dep-free (ships in a default/Pi build).
