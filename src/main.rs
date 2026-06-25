@@ -785,6 +785,50 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── Per-tenant memory budget enforcer (CONCEPT:KG-2.234, Lane V) ─────
+    // Tracks an approximate resident-RAM estimate per TENANT (a tenant owns one or more
+    // graphs) and evicts/hibernates a tenant's coldest graphs when it exceeds its byte
+    // budget, with a global ceiling + fair per-tenant caps so one hot tenant can't starve
+    // others. ONE knob (EPISTEMIC_GRAPH_MEMORY_BUDGET) turns it on; the default auto-sizes
+    // to 70% of system RAM. Off when the ceiling resolves to 0. Reuses the durability-
+    // gated eviction + hibernation ops, so it never loses data. Periodic — never on the
+    // write hot path. Complements the per-GRAPH node cap above (this adds the per-TENANT
+    // byte dimension on top).
+    #[cfg(feature = "cost")]
+    {
+        let cost_config = epistemic_graph::cost::CostConfig::from_env();
+        if cost_config.enabled() {
+            let budget_state = state.clone();
+            info!(
+                "Memory budget: global ceiling {} bytes, per-tenant {} bytes, swept every {}s \
+                 (CONCEPT:KG-2.234)",
+                cost_config.global_ceiling_bytes,
+                cost_config.per_tenant_budget_bytes,
+                cost_config.interval_secs
+            );
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+                    cost_config.interval_secs,
+                ));
+                ticker.tick().await; // consume the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    let (evicted, hibernated) =
+                        epistemic_graph::cost::enforce_memory_budgets(&budget_state, cost_config)
+                            .await;
+                    if evicted > 0 || hibernated > 0 {
+                        tracing::info!(
+                            "Memory budget: evicted {} node(s), hibernated {} graph(s) to keep \
+                             tenants under budget",
+                            evicted,
+                            hibernated
+                        );
+                    }
+                }
+            });
+        }
+    }
+
     // ── OCC transaction TTL sweep (CONCEPT:KG-2.180 safety rail) ─────────
     // Auto-roll-back transactions idle past the TTL so an abandoned client never
     // leaks a staged transaction forever. An abandoned txn never committed, so it

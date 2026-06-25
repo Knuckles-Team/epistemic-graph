@@ -387,6 +387,16 @@ pub enum Method {
     Health,
     Shutdown,
     Checkpoint,
+
+    // ── Cost / Efficiency (CONCEPT:KG-2.234, Lane V) ──────────────────
+    /// Return a structured resource snapshot for autoscaling: per-graph + per-tenant
+    /// resident memory, node/edge counts, queue depth / in-flight, hibernated-vs-
+    /// resident counts, eviction rate, plus a process-wide aggregate. The signals an
+    /// external autoscaler (agent-utilities OS-5.27) consumes to scale shards. Read
+    /// via `ResultPayload::Json` (a `ResourceSnapshot`). Gated by `cost`; a build
+    /// without it falls to the dispatch "not available" catch-all.
+    #[cfg(feature = "cost")]
+    ResourceStats,
     Reconcile {
         graph_name: String,
         #[serde(with = "serde_bytes")]
