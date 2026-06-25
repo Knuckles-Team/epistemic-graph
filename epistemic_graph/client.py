@@ -2850,6 +2850,18 @@ class EpistemicGraphClient:
     async def health(self) -> dict[str, Any]:
         return await self._send("Health")
 
+    async def resource_stats(self) -> dict[str, Any]:
+        """Return the per-tenant / per-graph resource snapshot (CONCEPT:KG-2.234).
+
+        The autoscale signals an external autoscaler (agent-utilities OS-5.27)
+        consumes in ONE round-trip: per-graph + per-tenant resident memory, node/edge
+        counts, in-flight admission depth, hibernated-vs-resident counts, and the
+        cumulative budget eviction/hibernation totals, plus a process aggregate.
+        Requires an engine built ``--features cost`` (pi/node/cluster/full); an engine
+        without it returns the "not available in this build" error.
+        """
+        return await self._send("ResourceStats")
+
     async def supports(self, op: str) -> bool:
         """True if the connected engine advertises protocol op ``op``.
 

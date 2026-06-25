@@ -169,6 +169,29 @@ mod imp {
              write_batches_total for the average batch size (ops per lock acquisition)",
             &["graph"],
         );
+        // ── Cost / efficiency autoscale signals (CONCEPT:KG-2.234, Lane V) ──
+        static ref GRAPH_MEMORY_BYTES: IntGaugeVec = gauge_vec(
+            "epistemic_graph_graph_memory_bytes",
+            "Approximate resident RAM per graph (node/edge property blobs + topology \
+             overhead + embedding vectors), updated by the budget sweep",
+            &["graph"],
+        );
+        static ref GRAPH_HIBERNATED: IntGaugeVec = gauge_vec(
+            "epistemic_graph_graph_hibernated",
+            "1 if the graph is hibernated (in-RAM state dropped, durable in redb), 0 if \
+             resident — by graph",
+            &["graph"],
+        );
+        static ref BUDGET_EVICTIONS: IntCounter = counter(
+            "epistemic_graph_budget_evictions_total",
+            "LRU nodes evicted by the per-tenant memory-budget enforcer (the eviction \
+             rate an autoscaler watches: sustained eviction = memory pressure)",
+        );
+        static ref BUDGET_HIBERNATIONS: IntCounter = counter(
+            "epistemic_graph_budget_hibernations_total",
+            "Cold graphs hibernated (in-RAM state dropped) by the budget enforcer to keep \
+             a tenant under its memory budget",
+        );
     }
 
     /// Map a graph name onto the bounded label space.
@@ -213,11 +236,37 @@ mod imp {
         GRAPH_EDGES.with_label_values(&[&label]).set(edges);
     }
 
+    /// Set the per-graph resident-memory estimate gauge (CONCEPT:KG-2.234), in bytes.
+    pub fn set_graph_memory(graph: &str, bytes: i64) {
+        GRAPH_MEMORY_BYTES
+            .with_label_values(&[&graph_label(graph)])
+            .set(bytes);
+    }
+
+    /// Mark a graph hibernated (1) or resident (0) (CONCEPT:KG-2.234).
+    pub fn set_graph_hibernated(graph: &str, hibernated: bool) {
+        GRAPH_HIBERNATED
+            .with_label_values(&[&graph_label(graph)])
+            .set(hibernated as i64);
+    }
+
+    /// Record `n` LRU nodes evicted by the per-tenant budget enforcer (CONCEPT:KG-2.234).
+    pub fn budget_evicted(n: u64) {
+        BUDGET_EVICTIONS.inc_by(n);
+    }
+
+    /// Record one graph hibernated by the budget enforcer (CONCEPT:KG-2.234).
+    pub fn budget_hibernated() {
+        BUDGET_HIBERNATIONS.inc();
+    }
+
     /// Forget a deleted graph: drop its series and free its label slot.
     pub fn drop_graph(graph: &str) {
         let _ = GRAPH_NODES.remove_label_values(&[graph]);
         let _ = GRAPH_EDGES.remove_label_values(&[graph]);
         let _ = GRAPH_OPS.remove_label_values(&[graph]);
+        let _ = GRAPH_MEMORY_BYTES.remove_label_values(&[graph]);
+        let _ = GRAPH_HIBERNATED.remove_label_values(&[graph]);
         SEEN_GRAPHS.lock().remove(graph);
     }
 
@@ -276,6 +325,10 @@ mod imp {
     pub fn busy_rejected() {}
     pub fn graph_op(_graph: &str) {}
     pub fn set_graph_size(_graph: &str, _nodes: i64, _edges: i64) {}
+    pub fn set_graph_memory(_graph: &str, _bytes: i64) {}
+    pub fn set_graph_hibernated(_graph: &str, _hibernated: bool) {}
+    pub fn budget_evicted(_n: u64) {}
+    pub fn budget_hibernated() {}
     pub fn drop_graph(_graph: &str) {}
     pub fn checkpoint_completed(_seconds: f64) {}
     pub fn auth_failure() {}
