@@ -29,6 +29,74 @@ pub enum Pred {
     LtNum { prop: String, n: f64 },
 }
 
+/// A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`
+/// (CONCEPT:KG-2.232, Lane P). A federated query reads rows from a source OUTSIDE
+/// the local engine and composes them with the local graph/vector/SQL ops — so a
+/// `ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`. Two
+/// kinds, behind one wire enum; the `ForeignSource` trait in eg-plan turns each into
+/// a [`crate::RowSet`].
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ForeignSourceSpec {
+    /// A REMOTE epistemic-graph engine, reached over the SAME length-prefixed
+    /// MessagePack + HMAC transport this engine speaks. The federation client
+    /// connects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`
+    /// (UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,
+    /// and projects the result rows into a local RowSet. `secret` is the remote's
+    /// HMAC-SHA256 auth secret (empty ⇒ the remote runs insecure). This composes the
+    /// engine with ANOTHER engine without a Python round-trip — the cross-engine
+    /// federation seam.
+    RemoteEngine {
+        /// `host:port` of the remote engine's TCP listener.
+        endpoint: String,
+        /// The remote graph to query (e.g. `__commons__`).
+        graph: String,
+        /// HMAC-SHA256 secret of the remote (empty ⇒ remote is insecure).
+        #[serde(default)]
+        secret: String,
+        /// A UQL query run on the remote (its rows seed the RowSet). When empty, `cypher`
+        /// is used instead.
+        #[serde(default)]
+        uql: String,
+        /// A Cypher query run on the remote when `uql` is empty (must `RETURN` an id
+        /// column named by `id_field`).
+        #[serde(default)]
+        cypher: String,
+        /// For the Cypher path: the RETURN column that carries the node id. Ignored on
+        /// the UQL path (a UQL plan's rows are already `[id, score?]`).
+        #[serde(default)]
+        id_field: String,
+    },
+    /// A GENERIC HTTP/JSON source. The federation client issues an HTTP GET to `url`
+    /// (pure-Rust rustls client — NOT openssl, gated OUT of the Pi tier), walks the
+    /// JSON response to the array at `json_path` (a dotted path, e.g. `data.items`),
+    /// and maps each element into a RowSet row via `field_map`: the element field
+    /// named `field_map.id` becomes the row id, and (optionally) `field_map.score`
+    /// becomes the row score. Any external REST API thereby becomes a joinable RowSet.
+    HttpJson {
+        /// The HTTP(S) URL to GET.
+        url: String,
+        /// Dotted path to the JSON array of rows (empty ⇒ the response is itself the
+        /// array).
+        #[serde(default)]
+        json_path: String,
+        /// Maps a JSON element to a RowSet row (which field is the id / the score).
+        field_map: HttpFieldMap,
+    },
+}
+
+/// Which JSON element fields become a RowSet row's id / score (for
+/// [`ForeignSourceSpec::HttpJson`]).
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HttpFieldMap {
+    /// The element field whose value is the row id (stringified).
+    pub id: String,
+    /// The element field whose numeric value is the row score (absent ⇒ unscored).
+    #[serde(default)]
+    pub score: Option<String>,
+}
+
 /// One cross-modal operator. A [`Plan`] is an ordered list of these — a pipeline
 /// where each op `(RowSet) -> RowSet`. This increment binds SQL + graph + vector
 /// (`Scan | Filter | Traverse | Rank | Limit`); reasoning/blob ops are later
@@ -102,6 +170,25 @@ pub enum Op {
     /// lives in eg-wasm behind its own gate; this is just the wire variant).
     #[cfg(feature = "wasm-udf")]
     Udf { id: String },
+    /// SOURCE (federation) — read rows from an EXTERNAL source and seed the RowSet
+    /// (CONCEPT:KG-2.232, Lane P). `source` is either a REMOTE epistemic-graph engine
+    /// (queried over the same transport) or a generic HTTP/JSON API — see
+    /// [`ForeignSourceSpec`]. The resulting RowSet then flows — like any other source
+    /// op — into a downstream `Filter`/`Traverse`/`Rank`/`Limit`, so a federated query
+    /// JOINS a foreign source with the LOCAL graph in ONE plan. A `ForeignScan` placed
+    /// AFTER a local source op replaces the input (it is a source, not a transform),
+    /// exactly like `Scan`/`Reason`/`SparqlBgp`. Gated by `federation` (the HTTP client
+    /// is rustls/pure-Rust and kept OUT of the Pi tier — the Pi contract).
+    #[cfg(feature = "federation")]
+    ForeignScan {
+        source: ForeignSourceSpec,
+        /// When this `ForeignScan` is NOT the first op, intersect its rows with the
+        /// current candidate set (a foreign∩local JOIN keyed on id) instead of
+        /// replacing the input. The default (false) makes it a pure source. The
+        /// preceding rows' ORDER is preserved on an intersect.
+        #[serde(default)]
+        join: bool,
+    },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }

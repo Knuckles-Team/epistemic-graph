@@ -167,4 +167,12 @@ pub struct ServerState {
     /// because a `CreateMatView`/`RefreshMatView` mutates it off the registry lock.
     #[cfg(feature = "compute-dist")]
     pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
+    /// Registered FOREIGN sources for query federation (CONCEPT:KG-2.232, feature
+    /// `federation`), keyed by name. `RegisterForeignSource` inserts a
+    /// [`eg_types::wire::ForeignSourceSpec`] here so it can be reused by name; the
+    /// inline-spec `Op::ForeignScan` path does not need it. Process-global (a foreign
+    /// endpoint is not per-graph), lock-free on read. Always present (empty) with the
+    /// feature on.
+    #[cfg(feature = "federation")]
+    pub foreign_sources: Arc<DashMap<String, eg_types::wire::ForeignSourceSpec>>,
 }
