@@ -102,6 +102,25 @@ pub enum Op {
     /// lives in eg-wasm behind its own gate; this is just the wire variant).
     #[cfg(feature = "wasm-udf")]
     Udf { id: String },
+    /// TIME (`AS OF @<ts>`, CONCEPT:KG-2.235) — pin the RowSet to a point-in-time
+    /// `ts` (unix seconds). A RowSet-preserving CONTEXT op: it carries the snapshot
+    /// instant the time-series legs read at; the current unified executor passes the
+    /// rows through unchanged (the per-row temporal selection is the eg-tsdb seam).
+    /// Lowered from the `AS OF @<ts>` UQL clause so a temporal query has ONE surface;
+    /// always available under `query` (the time CONTEXT carries no DataFusion).
+    AsOf { ts: f64 },
+    /// TIME (`WINDOW <dur>`, CONCEPT:KG-2.235) — declare a trailing time window of
+    /// `secs` seconds for the windowed time-series aggregate. A RowSet-preserving
+    /// CONTEXT op paired with `AsOf`; passes the rows through unchanged today (the
+    /// windowed aggregate is the eg-tsdb seam) but lets the `WINDOW <dur>` UQL clause
+    /// lower to ONE plan AST. Always available under `query`.
+    Window { secs: f64 },
+    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235) — mark the seed as drawn from
+    /// the named foreign source `name` (a registered federation peer). A RowSet
+    /// CONTEXT op: today it passes the rows through (the cross-source pull is the
+    /// federation seam) but gives the `FOREIGN "<name>"` UQL clause a plan AST to lower
+    /// to. Always available under `query`.
+    Foreign { name: String },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
