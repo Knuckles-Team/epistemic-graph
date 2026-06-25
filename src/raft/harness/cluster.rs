@@ -91,6 +91,10 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
+        #[cfg(feature = "rdf-redb")]
+        rdf_quads: None,
+        #[cfg(feature = "streaming")]
+        cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
         udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
         #[cfg(feature = "compute-dist")]

@@ -113,6 +113,19 @@ tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
 # Pi-lean and folded into pi/node/cluster/full. Needs `server` (the handler routes
 # through dispatch); `eg-types/streaming` carries the Method variants + wire DTOs.
 streaming = ["server", "eg-types/streaming"]
+# Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V —
+# cost/efficiency). Tracks an approximate resident-RAM estimate per tenant/graph and
+# enforces a configurable budget: a tenant over budget has its COLDEST graphs evicted
+# (durability-gated LRU, reusing the KG-2.191 path) and hibernated (KG-2.224) until it
+# is back under cap, with a global memory ceiling + fair per-tenant caps so one hot
+# tenant cannot starve others. Surfaces the autoscaler-facing signals an external
+# autoscaler (agent-utilities OS-5.27) consumes via a `ResourceStats` Method + the
+# Prometheus metrics endpoint. PURE-RUST (no DataFusion/openraft/object_store — the
+# enforcer is a periodic sweep over the registry + the existing evict/hibernate ops),
+# so it folds into pi/node/cluster/full and the Pi contract holds. Needs `server` (the
+# budget enforcer + ResourceStats handler live on ServerState + the dispatch path);
+# `eg-types/cost` carries the `ResourceStats` Method + the snapshot wire DTOs.
+cost = ["server", "eg-types/cost"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. CLUSTER-TIER ONLY —
 # OFF by default and NOT in `full`/`all`, so a default / `pi` / `full` build links
@@ -199,7 +212,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full` either — it ships only in `cluster`. `wasm-udf` IS folded in (node/cluster/
 # full carry the WASM UDF runtime). `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP)
 # so the standard full/all build is authoritative-by-default just like pi/node/cluster.
-full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf"]
+full = ["compute", "server", "query", "cypher", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -218,7 +231,7 @@ all = ["full"]
 #     the Pi-3 tier). NOT `text` (Tantivy's C dep must stay out of `pi`). The Pi
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
-pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming"]
+pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "cost"]
 node = ["pi", "query", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute

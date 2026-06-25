@@ -64,6 +64,12 @@ pub mod wal_service;
 // lives in the server-gated top-level crate alongside wal_service.
 #[cfg(feature = "server")]
 pub mod write_coalescer;
+// Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V). The budget
+// enforcer (periodic over-budget eviction/hibernation), the per-tenant resident-RAM
+// tracking, the ResourceStats snapshot, and the capacity-planning cost model. PURE-RUST
+// (a sweep over the registry reusing the existing evict/hibernate ops); gated on `cost`.
+#[cfg(feature = "cost")]
+pub mod cost;
 // In-engine Raft replication (CONCEPT:KG-2.188) — cluster tier only, behind the
 // `raft` feature. A default/pi/full build links no openraft. The module is
 // self-`#![cfg(feature = "raft")]`-gated; this `mod` line is also gated so it does
