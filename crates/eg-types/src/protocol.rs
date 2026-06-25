@@ -291,6 +291,10 @@ pub enum Method {
     ApplyLedger {
         transactions: Vec<String>,
     },
+    // Tamper-evident audit log verification (CONCEPT:KG-2.231, feature `security`):
+    // walk the target graph's hash-chained audit log and report OK or the first break.
+    #[cfg(feature = "security")]
+    AuditVerify,
 
     // ── Subgraph & Matching ──────────────────────────────────────────
     GetSubgraph {
@@ -1487,6 +1491,20 @@ pub enum DistAlgo {
     ConnectedComponents,
     /// BFS levels from `source` — every reachable vertex labeled with its hop distance.
     Bfs { source: String },
+}
+
+/// Outcome of walking a graph's tamper-evident hash-chained audit log
+/// (CONCEPT:KG-2.231, `Method::AuditVerify`). `ok` is true when every entry's stored
+/// hash matches the recomputed chain hash AND the sequence is contiguous from 0;
+/// `first_broken_seq` carries the position of the first detected break.
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditReport {
+    pub graph: String,
+    pub ok: bool,
+    pub entries: u64,
+    pub first_broken_seq: Option<u64>,
+    pub detail: String,
 }
 
 /// Materialized result of a `Method::Sql` query (CONCEPT:KG-2.178). Returned via

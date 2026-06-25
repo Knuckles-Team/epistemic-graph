@@ -150,6 +150,21 @@ enum Cmd {
         graph: String,
         reply: std::sync::mpsc::Sender<Result<Option<GraphDump>, String>>,
     },
+    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:KG-2.231).
+    /// Flushes pending first so the walk reflects the latest durable entries, then
+    /// scans `(graph, 0..)` and reports OK or the first break.
+    #[cfg(feature = "security")]
+    AuditVerify {
+        graph: String,
+        reply: std::sync::mpsc::Sender<Result<crate::protocol::AuditReport, String>>,
+    },
+    /// TEST-ONLY tamper of one audit entry (see `test_tamper_audit_entry`).
+    #[cfg(all(test, feature = "security"))]
+    TestTamperAudit {
+        graph: String,
+        seq: u64,
+        reply: std::sync::mpsc::Sender<Result<(), String>>,
+    },
     /// **Cross-modal ACID commit (CONCEPT:KG-2.225).** Land a graph, vector, blob-ref,
     /// and property write-set for ONE graph in ONE `WriteTransaction`, all-or-nothing,
     /// awaiting its durable fsync (commit-before-ack). On any error nothing lands: the
@@ -296,13 +311,35 @@ impl RedbBackend {
             wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
             wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
             wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+            #[cfg(feature = "security")]
+            wtx.open_table(crate::redb_store::AUDIT)
+                .map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
         let dropped = Arc::new(AtomicU64::new(0));
+        // Encryption-at-rest (CONCEPT:KG-2.231): resolve the value-blob cipher ONCE at
+        // open from EPISTEMIC_GRAPH_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
+        // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
+        #[cfg(feature = "security")]
+        let cipher = crate::crypto::ValueCipher::from_env();
+        #[cfg(feature = "security")]
+        if cipher.is_some() {
+            tracing::info!(
+                "redb encryption-at-rest ENABLED (value blobs sealed with ChaCha20-Poly1305)"
+            );
+        }
         let handle = std::thread::Builder::new()
             .name("eg-redb-writer".into())
-            .spawn(move || run(rx, db, policy))
+            .spawn(move || {
+                run(
+                    rx,
+                    db,
+                    policy,
+                    #[cfg(feature = "security")]
+                    cipher,
+                )
+            })
             .map_err(|e| e.to_string())?;
         Ok(Self {
             db_path,
@@ -315,6 +352,42 @@ impl RedbBackend {
     /// Total mutations dropped due to channel saturation (observability).
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// TEST-ONLY: flip a byte in the stored audit entry `(graph, seq)` to simulate
+    /// tampering, so the verify path can prove detection. Routed through the owner
+    /// thread (exclusive file lock).
+    #[cfg(all(test, feature = "security"))]
+    pub fn test_tamper_audit_entry(&self, graph_fname: &str, seq: u64) -> Result<(), String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::TestTamperAudit {
+                graph: graph_fname.to_string(),
+                seq,
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped tamper reply".to_string())?
+    }
+
+    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:KG-2.231).
+    /// Routed through the owner thread (exclusive file lock), which flushes pending
+    /// writes first so the walk reflects the latest durable entries.
+    #[cfg(feature = "security")]
+    pub fn audit_verify_blocking(
+        &self,
+        graph_fname: &str,
+    ) -> Result<crate::protocol::AuditReport, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::AuditVerify {
+                graph: graph_fname.to_string(),
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped audit_verify reply".to_string())?
     }
 
     /// Read ONE graph's durable rows back as an owned dump (CONCEPT:KG-2.224 — tenant
@@ -608,7 +681,7 @@ impl PersistenceBackend for RedbBackend {
         }
     }
 
-    #[cfg(feature = "raft")]
+    #[cfg(any(feature = "raft", feature = "security"))]
     fn as_redb(&self) -> Option<&RedbBackend> {
         Some(self)
     }
@@ -896,7 +969,18 @@ impl RedbBackend {
 
 // ── off-reactor group-commit writer thread ───────────────────────────────
 
-fn run(rx: Receiver<Cmd>, db: Database, policy: FsyncPolicy) {
+fn run(
+    rx: Receiver<Cmd>,
+    db: Database,
+    policy: FsyncPolicy,
+    #[cfg(feature = "security")] cipher: Option<crate::crypto::ValueCipher>,
+) {
+    // Build the durable-crypto handle ONCE (borrows the owned cipher for the thread's
+    // lifetime). No-op handle when encryption is off / not compiled.
+    #[cfg(feature = "security")]
+    let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
+    #[cfg(not(feature = "security"))]
+    let crypto = crate::redb_store::DurableCrypto::none();
     let tick = match policy {
         FsyncPolicy::Interval(d) => d,
         _ => Duration::from_millis(1000),
@@ -908,21 +992,21 @@ fn run(rx: Receiver<Cmd>, db: Database, policy: FsyncPolicy) {
     loop {
         match rx.recv_timeout(tick) {
             Ok(cmd) => {
-                if handle_cmd(cmd, &db, &mut pending, policy) {
+                if handle_cmd(cmd, &db, &mut pending, policy, crypto) {
                     // shutdown: flush whatever is pending durably, then stop.
-                    commit_and_notify(&db, &mut pending, Durability::Immediate);
+                    commit_and_notify(&db, &mut pending, Durability::Immediate, crypto);
                     break;
                 }
                 // Drain the rest of the burst so it coalesces into one commit.
                 let mut stop = false;
                 while let Ok(cmd) = rx.try_recv() {
-                    if handle_cmd(cmd, &db, &mut pending, policy) {
+                    if handle_cmd(cmd, &db, &mut pending, policy, crypto) {
                         stop = true;
                         break;
                     }
                 }
                 if stop {
-                    commit_and_notify(&db, &mut pending, Durability::Immediate);
+                    commit_and_notify(&db, &mut pending, Durability::Immediate, crypto);
                     return;
                 }
                 // Any awaiting commit-before-ack op in the batch MUST be made durable
@@ -934,7 +1018,7 @@ fn run(rx: Receiver<Cmd>, db: Database, policy: FsyncPolicy) {
                         FsyncPolicy::Off => Durability::None,
                         _ => Durability::Immediate,
                     };
-                    commit_and_notify(&db, &mut pending, durability);
+                    commit_and_notify(&db, &mut pending, durability, crypto);
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
@@ -943,10 +1027,10 @@ fn run(rx: Receiver<Cmd>, db: Database, policy: FsyncPolicy) {
                     FsyncPolicy::Off => Durability::None,
                     _ => Durability::Immediate,
                 };
-                commit_and_notify(&db, &mut pending, durability);
+                commit_and_notify(&db, &mut pending, durability, crypto);
             }
             Err(RecvTimeoutError::Disconnected) => {
-                commit_and_notify(&db, &mut pending, Durability::Immediate);
+                commit_and_notify(&db, &mut pending, Durability::Immediate, crypto);
                 break;
             }
         }
@@ -978,7 +1062,13 @@ impl Pending {
 /// Returns true if the writer should stop. `Mutation` is buffered into `pending`
 /// (committed at the next group boundary); `Checkpoint` is applied + committed
 /// immediately (it carries its own reply).
-fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolicy) -> bool {
+fn handle_cmd(
+    cmd: Cmd,
+    db: &Database,
+    pending: &mut Pending,
+    policy: FsyncPolicy,
+    crypto: crate::redb_store::DurableCrypto<'_>,
+) -> bool {
     match cmd {
         Cmd::Mutation {
             graph,
@@ -997,7 +1087,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
                     FsyncPolicy::Off => Durability::None,
                     _ => Durability::Immediate,
                 };
-                commit_and_notify(db, pending, durability);
+                commit_and_notify(db, pending, durability, crypto);
             }
             false
         }
@@ -1009,7 +1099,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
         } => {
             // Flush pending mutations first so a graph's rows and its meta land in a
             // consistent order, then durably write the graph_meta row.
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let res = write_graph_meta(db, &graph, &name, graph_type);
             let _ = done.send(res);
             false
@@ -1018,7 +1108,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             // Flush pending mutations first so we never purge a graph and then
             // re-apply a buffered op for it out of order, then drop ALL of its rows
             // (incl. graph_meta) in one durable transaction.
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(purge_graph_rows(db, &graph));
             false
         }
@@ -1029,8 +1119,8 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
         } => {
             // Flush pending (incl. any awaited ops) so the read reflects the latest
             // durable state, then point-read the node row.
-            commit_and_notify(db, pending, Durability::Immediate);
-            let _ = reply.send(read_one_node(db, &graph, &node_id));
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(read_one_node(db, &graph, &node_id, crypto));
             false
         }
         Cmd::Checkpoint { graphs, reply } => {
@@ -1038,13 +1128,13 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             // first — the checkpoint path only folds graph `ops`, not log ops, so a
             // pending log entry must be committed on its own before the checkpoint.
             if !pending.raft_log_ops.is_empty() {
-                commit_and_notify(db, pending, Durability::Immediate);
+                commit_and_notify(db, pending, Durability::Immediate, crypto);
             }
             // Fold any buffered mutations into the same durable commit first so the
             // checkpoint reflects them, then overwrite each graph's rows. The
             // checkpoint commits durably, so any awaited ops it absorbed are durable
             // too — notify their waiters with the checkpoint's success/failure.
-            let res = apply_checkpoint(db, &mut pending.ops, graphs);
+            let res = apply_checkpoint(db, &mut pending.ops, graphs, crypto);
             let waiters = std::mem::take(&mut pending.waiters);
             let signal = res.as_ref().map(|_| ()).map_err(|e| e.clone());
             for w in waiters {
@@ -1055,15 +1145,51 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
         }
         Cmd::Load { reply } => {
             // Flush pending so the read sees the latest, then scan the owned DB.
-            commit_and_notify(db, pending, Durability::Immediate);
-            let _ = reply.send(read_all_dumps(db));
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(read_all_dumps(db, crypto));
             false
         }
         Cmd::ReadGraphDump { graph, reply } => {
             // Flush pending so the rehydrated dump reflects the latest durable state,
             // then range-scan ONE graph's rows (CONCEPT:KG-2.224).
-            commit_and_notify(db, pending, Durability::Immediate);
-            let _ = reply.send(read_graph_dump(db, &graph));
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(read_graph_dump(db, &graph, crypto));
+            false
+        }
+        #[cfg(feature = "security")]
+        Cmd::AuditVerify { graph, reply } => {
+            // Flush pending so the chain walk includes the latest durable audit
+            // entries, then verify the hash chain (CONCEPT:KG-2.231).
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(crate::redb_store::verify_audit(db, &graph));
+            false
+        }
+        #[cfg(all(test, feature = "security"))]
+        Cmd::TestTamperAudit { graph, seq, reply } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res = (|| {
+                let wtx = db.begin_write().map_err(|e| e.to_string())?;
+                {
+                    let mut audit = wtx
+                        .open_table(crate::redb_store::AUDIT)
+                        .map_err(|e| e.to_string())?;
+                    let original = audit
+                        .get((graph.as_str(), seq))
+                        .map_err(|e| e.to_string())?
+                        .ok_or_else(|| "no such audit entry".to_string())?
+                        .value()
+                        .to_vec();
+                    let mut mutated = original;
+                    let last = mutated.len() - 1;
+                    mutated[last] ^= 0xFF;
+                    audit
+                        .insert((graph.as_str(), seq), mutated.as_slice())
+                        .map_err(|e| e.to_string())?;
+                }
+                wtx.commit().map_err(|e| e.to_string())?;
+                Ok(())
+            })();
+            let _ = reply.send(res);
             false
         }
         Cmd::CrossModalCommit {
@@ -1076,8 +1202,8 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             // Flush pending first so this cross-modal txn observes the latest durable
             // state (its vector read-modify-write of the SEMANTIC blob must start from
             // the committed store), then land ALL modalities in ONE WriteTransaction.
-            commit_and_notify(db, pending, Durability::Immediate);
-            let res = commit_crossmodal(db, &graph, &methods, &vectors, &blob_refs);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res = commit_crossmodal(db, &graph, &methods, &vectors, &blob_refs, crypto);
             let _ = done.send(res);
             false
         }
@@ -1106,7 +1232,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             hi,
             reply,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(read_raft_log_range(db, group_id, lo, hi));
             false
         }
@@ -1115,7 +1241,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             from,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(delete_raft_log_from(db, group_id, from));
             false
         }
@@ -1124,12 +1250,12 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             upto,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(purge_raft_log_upto(db, group_id, upto));
             false
         }
         Cmd::RaftLogBounds { group_id, reply } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(raft_log_bounds(db, group_id));
             false
         }
@@ -1141,7 +1267,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
         } => {
             // Flush pending first so meta ordering is consistent with the log, then
             // durably write the meta row in its own transaction.
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(put_raft_meta(db, group_id, &key, &val));
             false
         }
@@ -1150,7 +1276,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             key,
             reply,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(get_raft_meta(db, group_id, &key));
             false
         }
@@ -1160,7 +1286,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             slice,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(put_xshard_prepare(db, &txn_id, group_id, &slice));
             false
         }
@@ -1169,7 +1295,7 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             commit,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(put_xshard_decision(db, &txn_id, commit));
             false
         }
@@ -1178,34 +1304,34 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
             group_id,
             done,
         } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(clear_xshard_prepare(db, &txn_id, group_id));
             false
         }
         Cmd::XshardDecisionClear { txn_id, done } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(clear_xshard_decision(db, &txn_id));
             false
         }
         Cmd::XshardScanPrepares { reply } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(scan_xshard_prepares(db));
             false
         }
         Cmd::XshardDecisionGet { txn_id, reply } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(get_xshard_decision(db, &txn_id));
             false
         }
         #[cfg(feature = "compute-dist")]
         Cmd::MatViewPut { name, blob, done } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = done.send(crate::redb_store::put_matview(db, &name, &blob));
             false
         }
         #[cfg(feature = "compute-dist")]
         Cmd::MatViewScan { reply } => {
-            commit_and_notify(db, pending, Durability::Immediate);
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(crate::redb_store::scan_matviews(db));
             false
         }
@@ -1217,11 +1343,22 @@ fn handle_cmd(cmd: Cmd, db: &Database, pending: &mut Pending, policy: FsyncPolic
 /// batch's result (CONCEPT:KG-2.187). Coalescing is preserved: N awaiting writers
 /// ride one `WriteTransaction` / one fsync and are all notified after it commits.
 /// A waiter is only signalled `Ok` once its op is provably on disk.
-fn commit_and_notify(db: &Database, pending: &mut Pending, durability: Durability) {
+fn commit_and_notify(
+    db: &Database,
+    pending: &mut Pending,
+    durability: Durability,
+    crypto: crate::redb_store::DurableCrypto<'_>,
+) {
     if pending.is_empty() {
         return;
     }
-    let res = commit_ops(db, &mut pending.ops, &mut pending.raft_log_ops, durability);
+    let res = commit_ops(
+        db,
+        &mut pending.ops,
+        &mut pending.raft_log_ops,
+        durability,
+        crypto,
+    );
     let waiters = std::mem::take(&mut pending.waiters);
     let signal = res.map(|_| ());
     for w in waiters {
@@ -2434,6 +2571,76 @@ mod tests {
             assert!(!durable_node, "node never landed durably");
         }
         backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// AuditVerify dispatch round-trip (CONCEPT:KG-2.231): durable writes build a
+    /// hash-chained audit log; `Method::AuditVerify` over the served dispatch returns
+    /// `ok=true`; tampering an entry makes the served verify report the break.
+    #[cfg(feature = "security")]
+    #[tokio::test]
+    async fn audit_verify_dispatch_detects_tamper() {
+        use crate::protocol::{AuditReport, Request, ResultPayload};
+        use crate::server::{compute_auth_token, dispatch};
+
+        const SECRET: &str = "audit-secret";
+        let dir = std::env::temp_dir().join(format!("eg-audit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+
+        let backend = Arc::new(
+            RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("open redb backend"),
+        );
+        let state = new_state_auth(Some(dir_s.clone()), true);
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend.clone());
+        }
+        let req = |id: u64, method: Method| Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        };
+
+        // Two durable writes → two chained audit entries (commit-before-ack durable).
+        for (rid, nid) in [(1u64, "n1"), (2, "n2")] {
+            let r = dispatch(
+                &state,
+                req(
+                    rid,
+                    Method::AddNode {
+                        node_id: nid.into(),
+                        properties_msgpack: props(serde_json::json!({"v": rid})),
+                    },
+                ),
+            )
+            .await;
+            assert!(r.error.is_none(), "add failed: {:?}", r.error);
+        }
+
+        // Served AuditVerify ⇒ ok.
+        let decode = |r: crate::protocol::Response| -> AuditReport {
+            match r.result {
+                Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+                other => panic!("expected raw AuditReport, got {other:?}"),
+            }
+        };
+        let report = decode(dispatch(&state, req(3, Method::AuditVerify)).await);
+        assert!(report.ok, "clean chain should verify: {report:?}");
+        assert_eq!(report.entries, 2);
+
+        // Tamper the audit table directly under the writer-thread DB, then re-verify.
+        backend
+            .test_tamper_audit_entry(&crate::persist::sanitize("__commons__"), 0)
+            .expect("tamper");
+        let broken = decode(dispatch(&state, req(4, Method::AuditVerify)).await);
+        assert!(!broken.ok, "tamper should be detected");
+        assert_eq!(broken.first_broken_seq, Some(0));
+
+        backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
