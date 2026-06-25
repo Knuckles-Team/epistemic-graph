@@ -558,6 +558,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // durable mutation; the streaming handler reads/maintains/serves off it.
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+            epistemic_graph::raft::pregel::MatViewStore::new(),
+        )),
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
@@ -885,6 +891,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // ── Distributed-compute materialized-view reload (CONCEPT:KG-2.227) ───────
+    // On every boot, reload any persisted matviews from the redb durable tier into
+    // the in-RAM index so `GetMatView` serves them immediately. A no-op when no
+    // matviews were ever created / no redb backend is configured.
+    #[cfg(feature = "compute-dist")]
+    match epistemic_graph::server::reload_matviews(&state).await {
+        Ok(0) => {}
+        Ok(n) => info!("Reloaded {n} materialized view(s) from redb (CONCEPT:KG-2.227)"),
+        Err(e) => tracing::warn!("materialized-view reload skipped: {e}"),
     }
 
     // ── Graceful shutdown coordination (reference-counted) ────────────────
