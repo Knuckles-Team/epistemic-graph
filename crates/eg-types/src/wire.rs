@@ -83,6 +83,32 @@ pub enum ForeignSourceSpec {
         /// Maps a JSON element to a RowSet row (which field is the id / the score).
         field_map: HttpFieldMap,
     },
+    /// An EXTERNAL relational-SQL database (Postgres/MySQL/…) (CONCEPT:KG-2.239). The
+    /// federation client connects to `dsn`, runs `query`, and maps each result row to a
+    /// RowSet row: the column named `id_field` becomes the row id (stringified), and
+    /// (optionally) `score_field` becomes the row score. This lets ONE unified plan JOIN
+    /// an external SQL table with the LOCAL graph/vector — the "engine federates external
+    /// SQL" half that sql-mcp alone cannot give: sql-mcp speaks SQL to the engine, this
+    /// lets the engine speak SQL OUT to a foreign RDBMS and fuse the rows in-plan.
+    ///
+    /// This wire variant is PURE serde (it carries only the DSN + query strings), so it
+    /// is present whenever `federation` is on. The actual SQL *driver* (a pure-Rust /
+    /// rustls client — NEVER openssl) lives in eg-plan behind its own `federation-sql`
+    /// gate and is folded OUT of the Pi tier (the Pi contract: no SQL driver / rustls /
+    /// openssl). A `federation` build WITHOUT `federation-sql` accepts + registers a
+    /// `Sql` spec but errors clearly if a plan actually tries to fetch it.
+    Sql {
+        /// The external database DSN (e.g. `postgres://user:pw@host:5432/db`).
+        dsn: String,
+        /// The SQL query to run against the external DB. Its result columns are mapped
+        /// to RowSet rows via `id_field` / `score_field`.
+        query: String,
+        /// The result column whose value is the row id (stringified).
+        id_field: String,
+        /// The result column whose numeric value is the row score (absent ⇒ unscored).
+        #[serde(default)]
+        score_field: Option<String>,
+    },
 }
 
 /// Which JSON element fields become a RowSet row's id / score (for
