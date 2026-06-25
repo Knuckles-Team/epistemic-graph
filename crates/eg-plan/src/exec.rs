@@ -276,7 +276,7 @@ fn fuse_rrf(
 /// then flow — like any RowSet — into a downstream `Traverse`/`Rank`/`Filter`/`Limit`.
 #[cfg(feature = "owl")]
 fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet {
-    use eg_rdf::owl::{asserted_types_from_view, instances_of, Reasoner};
+    use eg_rdf::owl::{asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner};
 
     // Axioms: an explicit ontology document, else the triples already in the graph.
     let triples = if ontology.trim().is_empty() {
@@ -285,13 +285,23 @@ fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet
         eg_rdf::mapping::parse_turtle(ontology).unwrap_or_default()
     };
     let mut reasoner = Reasoner::from_triples(&triples);
-    let cls = reasoner.classify();
+    // Confidence-weighted (CONCEPT:KG-2.236): each inferred member carries its
+    // membership confidence as the RowSet SCORE, so a bare `Reason` plan is already
+    // ranked by confidence and composes with a downstream vector `Rank`/`Limit`. The
+    // closure is identical to the unweighted one for a HARD ontology (every score 1.0).
+    let cls = reasoner.classify_weighted();
 
-    // Asserted instance→class assignments from the live graph's folded `type`.
-    let asserted = asserted_types_from_view(view);
+    // Asserted instance→class assignments + their per-fact confidence. `now = 0` keeps
+    // the time-decay NEUTRAL inside the structural plan op (the time-aware decay is the
+    // server `OwlReason` surface, which threads the real wall-clock `now`); the AXIOM
+    // confidence still flows through into the score.
+    let asserted = asserted_types_with_confidence_from_view(view, 0, 0.0);
     let target = normalize_class(target_class);
-    let members = instances_of(&cls, &asserted, &target);
-    RowSet::from_ids(members)
+    let scored: Vec<(String, f32)> = instances_of_weighted(&cls, &asserted, &target, 0.0)
+        .into_iter()
+        .map(|(id, conf)| (id, conf as f32))
+        .collect();
+    RowSet::from_scored(scored)
 }
 
 /// SOURCE (SPARQL): the node bindings of `var` in the SPARQL `query` over the view
