@@ -27,6 +27,10 @@ use crate::schema::{decode, node_labels, Schema};
 /// Cypher surface's implicit bound — one Response per Request).
 const MAX_ROOT_ROWS: usize = 50_000;
 
+/// The split of a field's args: an optional `first`/`limit` cap + the property-equality
+/// filters (`(key, expected-value)` pairs).
+type ArgSplit = (Option<usize>, Vec<(String, Value)>);
+
 /// Parse + execute a GraphQL query string over `view`, returning the GraphQL-shaped
 /// `{"data": { … }}` JSON. A parse error or an unknown root type is an `Err`.
 pub fn execute(view: &GraphView, query: &str) -> Result<Value, String> {
@@ -200,9 +204,7 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
 }
 
 /// Split a field's args into (the `first`/`limit` cap, the property-equality filters).
-fn split_args(
-    args: &[(String, GqlValue)],
-) -> Result<(Option<usize>, Vec<(String, Value)>), String> {
+fn split_args(args: &[(String, GqlValue)]) -> Result<ArgSplit, String> {
     let mut limit = None;
     let mut filters = Vec::new();
     for (k, v) in args {

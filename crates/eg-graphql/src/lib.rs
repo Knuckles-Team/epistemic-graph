@@ -16,11 +16,11 @@
 //! `async-graphql` is the standard Rust GraphQL crate, but it pulls ~80+ transitive
 //! crates plus a proc-macro schema-derive — too heavy for the Pi tier, and it wants a
 //! STATIC `#[derive(SimpleObject)]` schema whereas ours is DERIVED FROM the graph at
-//! runtime. The read subset here (one query op; root node-type fields; `first`/`limit`
-//! + property-equality args; scalar + nested-edge selection) is small enough that a
-//! hand-written tokenizer + recursive-descent parser + a resolver is simpler AND keeps
-//! the surface Pi-excludable. The facade gates the whole crate behind `graphql`
-//! (folded into node/cluster/full, OUT of pi/default), so a Pi build links none of it.
+//! runtime. The read subset here (one query op; root node-type fields with
+//! `first`/`limit` and property-equality args; scalar + nested-edge selection) is small
+//! enough that a hand-written tokenizer + recursive-descent parser + resolver keeps
+//! the surface simpler AND Pi-excludable. The facade gates the whole crate behind
+//! `graphql` (node/cluster/full, OUT of pi/default), so a Pi build links none of it.
 //!
 //! ## Deferred (documented)
 //! Mutations, subscriptions, fragments, variables, directives, interfaces/unions, and
