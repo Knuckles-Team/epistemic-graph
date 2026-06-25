@@ -164,7 +164,32 @@ fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
         #[cfg(feature = "wasm-udf")]
         Op::Udf { id } => udf_transform(ctx, &input, id),
 
+        #[cfg(feature = "federation")]
+        Op::ForeignScan { source, join } => foreign_scan(input, source, *join),
+
         Op::Limit { k } => Ok(input.limit(*k)),
+    }
+}
+
+/// SOURCE (federation): read rows from an EXTERNAL source — a remote epistemic-graph
+/// engine or a generic HTTP/JSON API (CONCEPT:KG-2.232) — into the RowSet. When `join`
+/// is false the foreign rows REPLACE the input (a pure source, like `Scan`). When
+/// `join` is true the foreign rows are intersected with the current candidate set keyed
+/// on id (a foreign∩local JOIN), preserving the input's order — so a plan can seed
+/// locally, then narrow to ids a foreign source also returns. The `fetch()` runs
+/// synchronously on the blocking pool, exactly like the SQL/vector legs.
+#[cfg(feature = "federation")]
+fn foreign_scan(
+    input: RowSet,
+    source: &eg_types::wire::ForeignSourceSpec,
+    join: bool,
+) -> Result<RowSet, String> {
+    let foreign = crate::federation::source_for(source).fetch()?;
+    if join && !input.is_empty() {
+        let keep = foreign.id_set();
+        Ok(input.intersect_keep_order(&keep))
+    } else {
+        Ok(foreign)
     }
 }
 
