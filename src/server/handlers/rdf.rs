@@ -67,88 +67,170 @@ pub(crate) async fn try_handle(
         Method::OwlReason {
             ontology,
             target_class,
-        } => Ok(handle_owl_reason(req_id, &core, ontology, target_class).await),
+            min_confidence,
+        } => Ok(handle_owl_reason(req_id, &core, ontology, target_class, min_confidence).await),
         other => Err(other),
     }
 }
 
+/// Top-level routing for the cross-shard `OwlReasonDistributed` method (CONCEPT:KG-2.236).
+/// It is NOT graph-scoped (it unions several graphs), so dispatch routes it here directly
+/// with `state` rather than through `dispatch_graph_op`. `Err(method)` ⇒ not mine.
+#[cfg(feature = "owl")]
+pub(crate) async fn try_handle_distributed(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    method: Method,
+) -> Result<Response, Method> {
+    match method {
+        Method::OwlReasonDistributed {
+            graphs,
+            ontology,
+            target_class,
+            min_confidence,
+        } => Ok(handle_owl_reason_distributed(
+            state,
+            req_id,
+            graphs,
+            ontology,
+            target_class,
+            min_confidence,
+        )
+        .await),
+        other => Err(other),
+    }
+}
+
+/// The decay half-life (seconds) the reasoner uses to age type facts — the SAME source
+/// of truth as the maintenance decay loop (`GRAPH_SERVICE_DECAY_HALF_LIFE`, default 7d).
+#[cfg(feature = "owl")]
+fn decay_half_life_secs() -> f64 {
+    std::env::var("GRAPH_SERVICE_DECAY_HALF_LIFE")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|h| *h > 0.0)
+        .unwrap_or(604_800.0)
+}
+
+/// Wall-clock unix seconds — the `now` the Ebbinghaus fact-decay is measured against.
+#[cfg(feature = "owl")]
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Run the native OWL 2 reasoner over an off-lock snapshot and materialize entailments
-/// (CONCEPT:KG-2.219). Read-only — classification/consistency over the graph's axioms
-/// (+ any extra `ontology` Turtle); returns the derived subsumptions, the inferred
-/// instance memberships (optionally restricted to `target_class`), and consistency.
+/// (CONCEPT:KG-2.219 / KG-2.236). Read-only — confidence-weighted classification /
+/// consistency over the graph's axioms (+ any extra `ontology` Turtle); returns the
+/// derived subsumptions + per-entailment confidence, the inferred instance memberships
+/// (optionally restricted to `target_class`, thresholded by `min_confidence`), and
+/// consistency.
 #[cfg(feature = "owl")]
 async fn handle_owl_reason(
     req_id: u64,
     core: &Arc<GraphCore>,
     ontology: String,
     target_class: String,
+    min_confidence: f64,
 ) -> Response {
     let snap = core.analysis_snapshot();
-    let resp =
-        match compute_off_lock(req_id, move || owl_reason(&snap, &ontology, &target_class)).await {
-            Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
-            Ok(Err(msg)) => Response::err(req_id, format!("OwlReason error: {msg}")),
-            Err(resp) => resp,
-        };
+    let now = now_secs();
+    let hl = decay_half_life_secs();
+    let resp = match compute_off_lock(req_id, move || {
+        owl_reason(&[&snap], &ontology, &target_class, now, hl, min_confidence)
+    })
+    .await
+    {
+        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Err(msg)) => Response::err(req_id, format!("OwlReason error: {msg}")),
+        Err(resp) => resp,
+    };
     resp
 }
 
-/// Classify the graph (+ optional extra axioms) and project the wire result.
+/// DISTRIBUTED reasoning over the UNION of `graphs` (CONCEPT:KG-2.236). Gathers each
+/// graph's off-lock snapshot (the cross-shard union-read seam), then runs the SAME
+/// weighted closure as the single-graph path over the unioned axioms + facts.
 #[cfg(feature = "owl")]
-fn owl_reason(
-    view: &crate::graph::GraphView,
-    ontology: &str,
-    target_class: &str,
-) -> Result<crate::protocol::OwlReasonResult, String> {
-    use eg_rdf::owl::{asserted_types_from_view, instances_of, tbox_triples_from_view, Reasoner};
-
-    // Axioms: graph's own TBox, plus any supplied Turtle ontology.
-    let mut triples = tbox_triples_from_view(view);
-    if !ontology.trim().is_empty() {
-        triples.extend(eg_rdf::mapping::parse_turtle(ontology)?);
-    }
-    let mut reasoner = Reasoner::from_triples(&triples);
-    let cls = reasoner.classify();
-
-    // Derived named-class subsumptions (the full classification hierarchy).
-    let mut subclasses: Vec<(String, String)> = Vec::new();
-    for (sub, sups) in &cls.subsumers {
-        for sup in sups {
-            subclasses.push((sub.clone(), sup.clone()));
-        }
-    }
-
-    // Inferred instance memberships.
-    let asserted = asserted_types_from_view(view);
-    let instances: Vec<(String, String)> = if target_class.trim().is_empty() {
-        let mat = eg_rdf::owl::materialize_instances(&cls, &asserted);
-        let mut out = Vec::new();
-        for (inst, classes) in mat {
-            for c in classes {
-                out.push((inst.clone(), c));
-            }
-        }
-        out
-    } else {
-        let target = if target_class.starts_with('<') {
-            target_class.to_string()
-        } else {
-            format!(
-                "<{}>",
-                target_class.trim_start_matches('<').trim_end_matches('>')
-            )
-        };
-        instances_of(&cls, &asserted, &target)
-            .into_iter()
-            .map(|inst| (inst, target.clone()))
+async fn handle_owl_reason_distributed(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graphs: Vec<String>,
+    ontology: String,
+    target_class: String,
+    min_confidence: f64,
+) -> Response {
+    // Gather each shard's snapshot under the registry lock, release before compute.
+    let snaps: Vec<crate::graph::GraphView> = {
+        let s = state.read().await;
+        graphs
+            .iter()
+            .filter_map(|name| s.registry.get(name).map(|e| e.core.analysis_snapshot()))
             .collect()
     };
+    let now = now_secs();
+    let hl = decay_half_life_secs();
+    let resp = match compute_off_lock(req_id, move || {
+        let views: Vec<&crate::graph::GraphView> = snaps.iter().collect();
+        owl_reason(&views, &ontology, &target_class, now, hl, min_confidence)
+    })
+    .await
+    {
+        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Err(msg)) => Response::err(req_id, format!("OwlReasonDistributed error: {msg}")),
+        Err(resp) => resp,
+    };
+    resp
+}
+
+/// Classify the UNION of `views` (+ optional extra axioms) with confidence propagation
+/// and project the wire result. One view = the single-graph fast path; many views = the
+/// distributed cross-shard path. Both go through `eg_rdf::owl::reason_distributed_weighted`.
+#[cfg(feature = "owl")]
+fn owl_reason(
+    views: &[&crate::graph::GraphView],
+    ontology: &str,
+    target_class: &str,
+    now: u64,
+    half_life: f64,
+    min_confidence: f64,
+) -> Result<crate::protocol::OwlReasonResult, String> {
+    let extra = if ontology.trim().is_empty() {
+        Vec::new()
+    } else {
+        eg_rdf::mapping::parse_turtle(ontology)?
+    };
+    let res = eg_rdf::owl::reason_distributed_weighted(
+        views,
+        &extra,
+        now,
+        half_life,
+        target_class,
+        min_confidence,
+    );
+
+    let mut subclasses = Vec::with_capacity(res.subclasses.len());
+    let mut subclass_conf = Vec::with_capacity(res.subclasses.len());
+    for (sub, sup, c) in res.subclasses {
+        subclasses.push((sub, sup));
+        subclass_conf.push(c);
+    }
+    let mut instances = Vec::with_capacity(res.instances.len());
+    let mut instance_conf = Vec::with_capacity(res.instances.len());
+    for (inst, class, c) in res.instances {
+        instances.push((inst, class));
+        instance_conf.push(c);
+    }
 
     Ok(crate::protocol::OwlReasonResult {
         subclasses,
+        subclass_conf,
         instances,
-        consistent: cls.consistent,
-        unsatisfiable: cls.unsatisfiable.into_iter().collect(),
+        instance_conf,
+        consistent: res.consistent,
+        unsatisfiable: res.unsatisfiable,
     })
 }
 

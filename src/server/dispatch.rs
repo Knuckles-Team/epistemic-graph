@@ -586,6 +586,20 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Distributed OWL reasoning (CONCEPT:KG-2.236) ─────────────
+        // Cross-shard: reasons over the UNION of several graphs, so it self-routes
+        // here (with `state` to gather each shard's snapshot) BEFORE the per-graph
+        // chain — never through `dispatch_graph_op`, which targets a single `req.graph`.
+        // Gated `owl`: in a build without it the variant isn't in the enum.
+        #[cfg(feature = "owl")]
+        Method::OwlReasonDistributed { .. } => {
+            match handlers::rdf::try_handle_distributed(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: the only variant routed here is OwlReasonDistributed.
+                Err(_) => Response::err(req.id, "owl distributed dispatch routing error"),
+            }
+        }
+
         // ── Graph operations (dispatch to target graph) ──────────────
         _ => {
             dispatch_graph_op(

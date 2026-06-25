@@ -1377,6 +1377,35 @@ pub enum Method {
         /// inferred members) — the materialize-one-class shape. Empty ⇒ all classes.
         #[serde(default)]
         target_class: String,
+        /// Confidence threshold τ in `[0,1]` (CONCEPT:KG-2.236). The result carries a
+        /// per-entailment confidence (axioms/facts may be uncertain; the closure
+        /// propagates it — `eg:confidence` annotations × the per-node confidence ×
+        /// Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are
+        /// returned. `0.0` (default) keeps everything (and a HARD ontology yields all
+        /// `1.0`, so the surface is backwards-identical when nothing is uncertain).
+        #[serde(default)]
+        min_confidence: f64,
+    },
+    /// DISTRIBUTED confidence-weighted OWL reasoning over the UNION of `graphs`
+    /// (CONCEPT:KG-2.236): gathers each graph/shard's TBox axioms + decayed-confidence
+    /// type facts, runs ONE weighted EL⁺/RL closure over the union (the cross-shard
+    /// union-read seam — KG-2.171), and returns the SAME [`OwlReasonResult`] a
+    /// single-graph `OwlReason` would over the same axioms in one graph. The single-
+    /// shard fast path stays `OwlReason`. Read-only. Gated `owl`.
+    #[cfg(feature = "owl")]
+    OwlReasonDistributed {
+        /// The graphs (shards) whose axioms + facts to union and reason over.
+        graphs: Vec<String>,
+        /// Extra OWL axioms as Turtle (a shared TBox over the sharded ABox; empty ⇒
+        /// only the axioms already present across the graphs).
+        #[serde(default)]
+        ontology: String,
+        /// Restrict instance memberships to this class (empty ⇒ all classes).
+        #[serde(default)]
+        target_class: String,
+        /// Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`).
+        #[serde(default)]
+        min_confidence: f64,
     },
 
     // ── Streaming / CDC / subscriptions / reactivity (CONCEPT:KG-2.229/230) ──
@@ -1520,11 +1549,21 @@ pub struct OwlReasonResult {
     /// Derived named-class subsumptions `(sub, sup)` (the reflexive/asserted ones are
     /// included; the closure is the full classification hierarchy).
     pub subclasses: Vec<(String, String)>,
+    /// Per-subsumption confidence in `[0,1]` (CONCEPT:KG-2.236), ALIGNED index-for-index
+    /// with `subclasses`. `1.0` for a hard/asserted subsumption; the propagated
+    /// `axiom_conf × ∏ premise_conf` (max over alternative derivations) for an uncertain
+    /// one. A fully-hard ontology yields all `1.0`.
+    pub subclass_conf: Vec<f64>,
     /// Inferred instance memberships `(instance, class)` — every individual mapped to
     /// every class it (provably) belongs to, INCLUDING classes reached only through
     /// existential restrictions / role chains. When `target_class` was set, restricted
-    /// to that class's members.
+    /// to that class's members. Only memberships with confidence `≥ min_confidence`.
     pub instances: Vec<(String, String)>,
+    /// Per-membership confidence in `[0,1]` (CONCEPT:KG-2.236), ALIGNED index-for-index
+    /// with `instances`: the type fact's confidence (per-node confidence × Ebbinghaus
+    /// decay) × the subsumption confidence — so an old/decayed or weakly-asserted fact
+    /// yields a lower-confidence membership.
+    pub instance_conf: Vec<f64>,
     /// `true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).
     pub consistent: bool,
     /// Named classes derived to be unsatisfiable (`A ⊑ ⊥`); empty when consistent.
