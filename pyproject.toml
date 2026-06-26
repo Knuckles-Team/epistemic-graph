@@ -52,6 +52,14 @@ all = [
     "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full]",
 ]
 
+# Pre-bundled agent skills for operating the engine (the AI-native database):
+# troubleshooting / deploy / migrations. Discovered via the same
+# ``agent_utilities.skill_providers`` group AU uses, so skill-installer /
+# ``agent-utilities install-skills`` drops them into every agent tool alongside the
+# agent-utilities skills — the engine ships AI knowing how to operate itself.
+[project.entry-points."agent_utilities.skill_providers"]
+epistemic-graph = "epistemic_graph.skills"
+
 [tool.ruff]
 line-length = 88
 target-version = "py310"
@@ -73,6 +81,9 @@ min_confidence = 95
 python-source = "."
 bindings = "bin"
 strip = true
+# Ship the pre-bundled operations skills (SKILL.md + any refs) as package data so the
+# entry-point above resolves them in an installed wheel, not just an editable checkout.
+include = ["epistemic_graph/skills/**/*"]
 # DEFAULT WHEEL = the `node` tier bundle (CONCEPT:KG-2.223 — the auto-bundled
 # engine). The shipped binary is a MAX-FUNCTIONALITY single-process tiny DB:
 # durable redb-authoritative store + cypher + SQL (query/DataFusion) + ann + tsdb +
