@@ -22,6 +22,19 @@ import msgpack
 logger = logging.getLogger(__name__)
 
 
+class ResultTooLargeError(RuntimeError):
+    """Raised when an unbounded read (e.g. ``nodes.list()`` / ``GetNodes``) would
+    return more than the engine's configured node cap
+    (``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES``, CONCEPT:KG-2.264).
+
+    The engine refuses to serialize a pathological full-graph dump (which would
+    overrun/reset the connection) and instead returns a typed ``RESULT_TOO_LARGE``
+    error. Catch this to fall back to a bounded query — ``nodes.list_by_label(
+    label, limit)`` or pagination. Subclasses :class:`RuntimeError`, so existing
+    ``except RuntimeError`` handlers keep working.
+    """
+
+
 class NodeClient:
     """CONCEPT:KG-2.0 — Topology Node Namespace"""
 
@@ -63,6 +76,15 @@ class NodeClient:
         )
 
     async def list(self) -> builtins.list[tuple[str, str]]:
+        """Dump EVERY node in the graph (unbounded full-graph read).
+
+        On a large graph this is refused by the engine's overload backstop
+        (CONCEPT:KG-2.264): if the graph has more than
+        ``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`` nodes (default 50_000), this raises
+        :class:`ResultTooLargeError` instead of materializing a gigabyte-scale
+        frame that would reset the connection. Use :meth:`list_by_label` (which is
+        bounded by ``limit``) or paginate for large graphs.
+        """
         return await self._client._send("GetNodes")
 
     async def list_by_label(
@@ -3086,6 +3108,12 @@ class EpistemicGraphClient:
         resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
+            # The engine's overload backstop (CONCEPT:KG-2.264) returns a typed
+            # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
+            # a dedicated, catchable exception (still a RuntimeError subclass) so a
+            # caller can fall back to a bounded query without string-matching.
+            if isinstance(err_msg, str) and err_msg.startswith("RESULT_TOO_LARGE"):
+                raise ResultTooLargeError(err_msg)
             raise RuntimeError(err_msg)
         result = resp.get("result")
         # Compact result encoding (engine Phase C-D): heavy algorithm results and
