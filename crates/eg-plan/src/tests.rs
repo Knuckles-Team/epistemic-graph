@@ -443,3 +443,75 @@ mod temporal_tests {
         ));
     }
 }
+
+/// Graph-native reranker proofs (CONCEPT:KG-2.254) — node-distance + mentions.
+#[cfg(test)]
+mod rerank_tests {
+    use crate::algebra::{Op, Plan};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    // a -> b -> c ; d -> b (so b has 2 incoming, c has 1, a/d have 0).
+    fn topo() -> GraphCore {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "d"] {
+            core.add_node(id.into(), blob(json!({"type": "N"})));
+        }
+        for (s, t) in [("a", "b"), ("b", "c"), ("d", "b")] {
+            core.add_edge(s.into(), t.into(), blob(json!({"relationship": "R"})))
+                .unwrap();
+        }
+        core
+    }
+
+    #[test]
+    fn node_distance_orders_by_proximity() {
+        let core = topo();
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &sem);
+        let out = Plan::new(vec![
+            Op::Scan { label: "N".into() },
+            Op::RankNodeDistance { center: "a".into() },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        // a(0) > b(1) > c(2) > d(unreachable, 0-score, last by id tie).
+        let ids = out.ids();
+        assert_eq!(ids[0], "a");
+        assert_eq!(ids[1], "b");
+        assert_eq!(ids[2], "c");
+        assert_eq!(ids[3], "d"); // unreachable from a → score 0
+    }
+
+    #[test]
+    fn mentions_orders_by_incoming_count() {
+        let core = topo();
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &sem);
+        let out = Plan::new(vec![Op::Scan { label: "N".into() }, Op::RankMentions {}])
+            .execute(&ctx)
+            .unwrap();
+        // b has 2 incoming (most-mentioned) → ranks first.
+        assert_eq!(out.ids()[0], "b");
+    }
+
+    #[test]
+    fn uql_rerank_keywords_parse() {
+        use crate::uql::parse;
+        let p = parse("MATCH (:N) |> RERANK NODE_DISTANCE FROM a").unwrap();
+        assert!(matches!(
+            p.ops.last(),
+            Some(Op::RankNodeDistance { center }) if center == "a"
+        ));
+        let q = parse("MATCH (:N) |> RERANK MENTIONS").unwrap();
+        assert!(matches!(q.ops.last(), Some(Op::RankMentions {})));
+    }
+}
