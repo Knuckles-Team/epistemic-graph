@@ -1935,7 +1935,7 @@ dependencies = [
 
 [[package]]
 name = "epistemic-graph"
-version = "0.34.0"
+version = "1.0.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
