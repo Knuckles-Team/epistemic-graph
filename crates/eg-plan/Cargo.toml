@@ -30,6 +30,13 @@ text = ["query", "dep:eg-text", "eg-text/tantivy", "eg-types/text"]
 # ops live inside the `query`-gated `Op` enum, beside the DataFusion FILTER leg). A
 # default/Pi build sets neither feature → no eg-rdf reasoner/evaluator linked here.
 owl = ["query", "dep:eg-rdf", "eg-rdf/owl", "eg-rdf/sparql", "eg-types/owl-plan"]
+# Forwards eg-rdf's opt-in lossless redb quad table. eg-rdf's `load_triples` takes a
+# `#[cfg(feature = "rdf-redb")]`-gated trailing `quads` arg; the owl compose-oracle test
+# (which calls it) must add that arg under the SAME cfg, so eg-plan needs a matching
+# feature to stay in lockstep when the workspace `--all-features` build turns rdf-redb on
+# in eg-rdf. Adds NO new dep beyond eg-rdf's own (redb), and only when `owl` already
+# pulled eg-rdf. A default/Pi build (no owl) links nothing here.
+rdf-redb = ["eg-rdf?/rdf-redb"]
 # The WASM `Udf` TRANSFORM op (CONCEPT:KG-2.228): run a registered, sandboxed
 # WebAssembly UDF over the current RowSet inside a UnifiedQuery plan. Pulls eg-wasm's
 # wasmtime runtime + turns on the `wasm-udf` wire variant in eg-types. IMPLIES `query`

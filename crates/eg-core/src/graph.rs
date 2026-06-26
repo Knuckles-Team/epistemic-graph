@@ -460,6 +460,12 @@ impl<'a> GraphTxn<'a> {
     /// supplied fully-formed by the caller (it should carry `valid_from = valid_at`
     /// and a `supersedes` provenance pointer). Returns `Ok(())` once the new edge is
     /// added (endpoints must exist), after invalidating the prior.
+    // The nine args are three irreducible groups of distinct primitives — the new
+    // edge (source, target, properties), the prior edge to close (source, target,
+    // relationship) and the two bitemporal timestamps (valid_at, tx_now). Bundling
+    // them into a struct would add ceremony at every call site without making any
+    // group clearer, so a scoped allow is the right call here.
+    #[allow(clippy::too_many_arguments)]
     pub fn supersede_edge(
         &mut self,
         new_source: String,

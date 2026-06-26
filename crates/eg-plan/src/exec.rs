@@ -392,9 +392,11 @@ fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> Row
         TimeAxis::Transaction => ("tx_from", "tx_to"),
     };
     if input.is_empty() {
-        let ids = view.node_properties.iter().filter_map(|(id, blob)| {
-            live_at(blob.as_slice(), ts, from_key, until_key).then(|| id.clone())
-        });
+        let ids = view
+            .node_properties
+            .iter()
+            .filter(|(_, blob)| live_at(blob.as_slice(), ts, from_key, until_key))
+            .map(|(id, _)| id.clone());
         return RowSet::from_ids(ids);
     }
     let kept: HashSet<&str> = input
