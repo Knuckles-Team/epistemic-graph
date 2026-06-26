@@ -14,6 +14,7 @@
 
 use crate::compute::semantic_ann::{AnnIndex, ANN_BUILD_THRESHOLD};
 use parking_lot::RwLock;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -232,28 +233,48 @@ impl SemanticStore {
         );
     }
 
-    /// Brute-force cosine similarity search for small collections.
+    /// Brute-force cosine similarity search. CONCEPT:EG-014 — this is the path EVERY
+    /// query takes until the ANN index warms (and after every restart), so it is
+    /// rayon-parallel across all cores with a partial-select top-k. The per-vector
+    /// distance uses the SIMD-friendly chunked `dot_product` below. String ids are
+    /// cloned only for the surviving top-k, never for all 168k candidates.
     fn brute_force_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
         let query_norm = dot_product(query_embedding, query_embedding).sqrt();
-        if query_norm == 0.0 {
+        if query_norm == 0.0 || n_results == 0 {
             return Vec::new();
         }
-        let mut scores: Vec<(String, f32)> = self
+        let inv_qnorm = 1.0 / query_norm;
+        // Parallel distance map — borrows ids (no clone) so the 168k-candidate fan-out
+        // stays pointer-cheap. rayon's adaptive splitting makes this a no-op-overhead
+        // sequential pass for tiny stores and a full 24-core fan-out for large ones.
+        let mut scored: Vec<(&String, f32)> = self
             .embeddings
-            .iter()
+            .par_iter()
             .filter_map(|(node_id, emb)| {
                 let emb_norm = dot_product(emb, emb).sqrt();
                 if emb_norm == 0.0 {
                     None
                 } else {
-                    let similarity = dot_product(query_embedding, emb) / (query_norm * emb_norm);
-                    Some((node_id.clone(), similarity))
+                    let similarity = dot_product(query_embedding, emb) * inv_qnorm / emb_norm;
+                    Some((node_id, similarity))
                 }
             })
             .collect();
-        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scores.truncate(n_results);
-        scores
+        // Top-k: partial-select the k best (O(n)) then sort only that prefix, rather
+        // than a full O(n log n) sort of all candidates.
+        let cmp_desc = |a: &(&String, f32), b: &(&String, f32)| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        };
+        let k = n_results.min(scored.len());
+        if k < scored.len() {
+            scored.select_nth_unstable_by(k.saturating_sub(1), cmp_desc);
+            scored.truncate(k);
+        }
+        scored.sort_by(cmp_desc);
+        scored
+            .into_iter()
+            .map(|(id, sim)| (id.clone(), sim))
+            .collect()
     }
 
     /// Persist the eg-ann index (codes + meta + id map) for a no-rebuild reopen.
@@ -306,14 +327,102 @@ impl SemanticStore {
     }
 }
 
-/// Pure-Rust dot product.
+/// SIMD-friendly dot product (CONCEPT:EG-014). Accumulating into a single `f32`
+/// serializes the floating-point dependency chain and defeats vectorization; instead
+/// we accumulate into 8 independent lanes over `chunks_exact(8)` slices. The fixed
+/// length-8 inner loop is bounds-check-free (the compiler proves `len == 8`) and maps
+/// to one packed 256-bit AVX2 multiply-add per chunk, so a 1024-dim dot product is
+/// ~128 vector ops instead of 1024 scalar ones. The tail (< 8 elems) is scalar.
+#[inline]
 fn dot_product(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+    let mut acc = [0.0f32; 8];
+    let mut ca = a.chunks_exact(8);
+    let mut cb = b.chunks_exact(8);
+    for (x, y) in ca.by_ref().zip(cb.by_ref()) {
+        for l in 0..8 {
+            acc[l] += x[l] * y[l];
+        }
+    }
+    let mut s = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
+    for (x, y) in ca.remainder().iter().zip(cb.remainder()) {
+        s += x * y;
+    }
+    s
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Plain scalar reference for the SIMD-kernel A/B check.
+    fn scalar_dot(a: &[f32], b: &[f32]) -> f32 {
+        a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+    }
+
+    #[test]
+    fn simd_dot_product_matches_scalar_within_epsilon() {
+        // CONCEPT:EG-014 — the 8-lane chunked dot product must equal the scalar one
+        // for ALL lengths, including non-multiples of 8 (the `chunks_exact` tail).
+        for &len in &[0usize, 1, 7, 8, 9, 15, 16, 31, 1000, 1024] {
+            let a: Vec<f32> = (0..len).map(|i| (i as f32 * 0.013).sin()).collect();
+            let b: Vec<f32> = (0..len).map(|i| (i as f32 * 0.021 + 1.0).cos()).collect();
+            let s = scalar_dot(&a, &b);
+            let v = dot_product(&a, &b);
+            assert!(
+                (s - v).abs() <= 1e-3 * (1.0 + s.abs()),
+                "len={len}: simd {v} vs scalar {s}"
+            );
+        }
+    }
+
+    #[test]
+    fn parallel_brute_force_matches_sequential_topk() {
+        // CONCEPT:EG-014 — the rayon-parallel brute force + partial-select top-k must
+        // return exactly the same top-k (ids and order) as a naive sequential cosine
+        // scan. N below ANN_BUILD_THRESHOLD so `semantic_search` takes the brute path.
+        let dim = 64;
+        let n = 2000;
+        let mut store = SemanticStore::new();
+        let mut seed = 7u64;
+        let mut rng = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((seed >> 33) as f32 / (1u64 << 31) as f32) - 0.5
+        };
+        let mut vecs: Vec<(String, Vec<f32>)> = Vec::new();
+        for i in 0..n {
+            let v: Vec<f32> = (0..dim).map(|_| rng()).collect();
+            store.add_embedding(format!("n{i}"), v.clone());
+            vecs.push((format!("n{i}"), v));
+        }
+        let query: Vec<f32> = (0..dim).map(|_| rng()).collect();
+        let k = 25;
+
+        let got = store.semantic_search(&query, k);
+
+        // Independent sequential reference (scalar cosine).
+        let qn = scalar_dot(&query, &query).sqrt();
+        let mut want: Vec<(String, f32)> = vecs
+            .iter()
+            .filter_map(|(id, v)| {
+                let vn = scalar_dot(v, v).sqrt();
+                if vn == 0.0 {
+                    None
+                } else {
+                    Some((id.clone(), scalar_dot(&query, v) / (qn * vn)))
+                }
+            })
+            .collect();
+        want.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        want.truncate(k);
+
+        assert_eq!(got.len(), k);
+        let got_ids: Vec<&String> = got.iter().map(|(id, _)| id).collect();
+        let want_ids: Vec<&String> = want.iter().map(|(id, _)| id).collect();
+        assert_eq!(got_ids, want_ids, "parallel top-k must match sequential");
+        for ((_, gs), (_, ws)) in got.iter().zip(want.iter()) {
+            assert!((gs - ws).abs() <= 1e-4, "score parity: {gs} vs {ws}");
+        }
+    }
 
     #[test]
     fn brute_force_below_threshold() {

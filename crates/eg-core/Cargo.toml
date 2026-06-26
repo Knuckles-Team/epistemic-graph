@@ -16,8 +16,10 @@ default = []
 # persisted index reopens WITHOUT rebuilding from raw vectors. OFF by default;
 # the facade folds it into the durable tiers. Pure-Rust, no GPU/native-ML deps.
 # `tracing` carries the CONCEPT:EG-013 warm/build-throughput spans (no-op without a
-# subscriber, so zero cost in the default build).
-ann = ["dep:eg-ann", "dep:tracing"]
+# subscriber, so zero cost in the default build). `rayon` (CONCEPT:EG-014) drives
+# the all-core parallel brute-force fallback — the path EVERY semantic_search hits
+# until the ANN index warms (and after every restart).
+ann = ["dep:eg-ann", "dep:tracing", "dep:rayon"]
 # Additionally persist the ANN codes into the engine's redb durable tier
 # (CONCEPT:KG-2.195) rather than only the mmap files.
 ann-redb = ["ann", "eg-ann/redb"]
@@ -51,3 +53,5 @@ hex = "0.4"
 aho-corasick = "1.1"
 # CONCEPT:EG-013 — semantic ANN build/warm tracing spans (only under `ann`).
 tracing = { version = "0.1", optional = true }
+# CONCEPT:EG-014 — all-core parallel brute-force fallback (only under `ann`).
+rayon = { version = "1.10", optional = true }

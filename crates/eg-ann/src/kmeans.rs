@@ -11,19 +11,34 @@ use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 
-/// Squared Euclidean distance between two equal-length slices.
+/// Squared Euclidean distance between two equal-length slices. CONCEPT:EG-014 —
+/// SIMD-friendly: 8 independent accumulator lanes over `chunks_exact(8)` (no FP
+/// dependency chain, no per-element bounds check) so it autovectorizes to packed
+/// AVX2 over the 1024-dim contiguous slices. Hot in the brute-force fallback, the
+/// coarse cell scan, the SQ8 refine, and the worst-fit re-seed.
 #[inline]
 pub fn sq_dist(a: &[f32], b: &[f32]) -> f32 {
-    let mut d = 0.0f32;
-    for i in 0..a.len() {
-        let diff = a[i] - b[i];
+    let mut acc = [0.0f32; 8];
+    let mut ca = a.chunks_exact(8);
+    let mut cb = b.chunks_exact(8);
+    for (x, y) in ca.by_ref().zip(cb.by_ref()) {
+        for l in 0..8 {
+            let diff = x[l] - y[l];
+            acc[l] += diff * diff;
+        }
+    }
+    let mut d = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
+    for (x, y) in ca.remainder().iter().zip(cb.remainder()) {
+        let diff = x - y;
         d += diff * diff;
     }
     d
 }
 
-/// Squared distance with an early-out once the running sum exceeds `bound`
-/// (used in the hot assignment loop to skip far centroids).
+/// Squared distance with an early-out once the running sum exceeds `bound`. The
+/// branch-per-element BLOCKS vectorization, so this is kept ONLY for the k-means
+/// assignment loop (`nearest_centroid`), where pruning far centroids early wins more
+/// than vectorization would; everything else uses the vectorized `sq_dist`.
 #[inline]
 fn sq_dist_bounded(v: &[f32], centroids: &[f32], base: usize, dim: usize, bound: f32) -> f32 {
     let mut d = 0.0f32;
