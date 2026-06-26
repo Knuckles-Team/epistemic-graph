@@ -41,14 +41,26 @@ enforces the absence of PyO3 in source and built wheels.
   against a committed baseline). This is the FFI-free equivalent of a generated
   binding's compile-time check.
 
-## Tiered-backend reality (correcting a related assumption)
+## Durability reality (correcting a stale assumption)
 
-This crate is **L1 only**: an in-memory `petgraph` core plus local MessagePack
-snapshots (`src/persist.rs`) for fast warm restart. The snapshot is a *cache*,
-not a system of record. The **durable** tier (PostgreSQL / pggraph) and any
-LadybugDB L2 live in `agent-utilities`' backend layer, selected via
-`create_backend()` — not in this repo. SPARQL is currently limited to
-rudimentary `INSERT/DELETE DATA` parsing in `ApplyMutation`; full SPARQL is not
-implemented. Trust scoring and human-in-the-loop gating are **not** engine
-features — they live in the agent-utilities orchestration layer
-(request/grant-approval, risk-veto, blast-radius).
+> **Updated.** This section previously described the crate as "L1 only", a cache in
+> front of a separate PostgreSQL/LadybugDB durable tier. That **L0/L1/L2/L3** tier
+> vocabulary is gone — the engine is now a **durable source of truth in its own
+> right** (CONCEPT:KG-2.195, "the flip").
+
+Built with the `redb` feature (folded into every deployment tier — `pi` / `pi-max` /
+`node` / `cluster` / `full`), the persist dir is the **authoritative store**: an acked
+write is fsynced to redb before the Response (commit-before-ack) and survives `kill -9`.
+The optional Postgres/pg-age, neo4j, falkordb, or ladybug backends in `agent-utilities`
+are now **mirrors** written-through for interop / BI / DR — not the system of record.
+The opt-in `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot` mode reverts to the older
+rebuildable-cache behavior, where the local `.mp` snapshot exists only for fast warm
+restart.
+
+SPARQL is no longer rudimentary: the engine ships a native **SPARQL 1.1 SELECT** surface
+(spargebra → GraphView scans, CONCEPT:KG-2.218) plus an **OWL 2 EL⁺/RL reasoner**
+(CONCEPT:KG-2.219), both composable into the unified planner. Trust scoring and
+human-in-the-loop gating remain **not** engine features — they live in the
+agent-utilities orchestration layer (request/grant-approval, risk-veto, blast-radius).
+See [the master-of-all engine](architecture/engine.md) for the durable + reasoning
+architecture.

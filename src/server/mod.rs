@@ -3083,6 +3083,8 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
                           ?p ex:knows ?o . FILTER (?age > 28)
                         }"#
                     .into(),
+                    base_iri: String::new(),
+                    type_convention: String::new(),
                 },
             ),
         )

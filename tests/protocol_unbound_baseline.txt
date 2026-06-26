@@ -8,20 +8,6 @@ CompactNodesByType
 DiffAgainst
 Fork
 GetTriples
-# Blob substrate (CONCEPT:KG-2.206, `blob` feature): a streamed content-addressed
-# media store served over the protocol but not yet surfaced through the thin
-# Python client. These are low-level cursor/chunk/refcount/GC ops driven by the
-# engine-side media pipeline (`:Media-[:HAS_BLOB]->:Blob`), not the client.nodes/
-# edges/graph API; bind them here when a Python media sub-client is added.
-BlobBegin
-BlobChunkPut
-BlobCommit
-BlobFetchBegin
-BlobChunkGet
-BlobFetchEnd
-BlobRef
-BlobUnref
-BlobGc
 # Distributed graph compute (CONCEPT:KG-2.227, `compute-dist` feature, cluster tier):
 # cross-shard Pregel + the materialized-view lifecycle. These are cluster-orchestrated
 # server ops driven by the engine's multi-Raft coordinator, not the thin client's
