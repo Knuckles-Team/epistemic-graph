@@ -543,6 +543,31 @@ class GraphOperationsClient:
             "ComputeSimilarityEdges", {"threshold": threshold}
         )
 
+    async def resolve_candidates(
+        self,
+        sim_threshold: float = 0.8,
+        merge_threshold: float = 0.92,
+        node_type: str | None = None,
+    ) -> list[dict]:
+        """Native entity-resolution candidate generation (CONCEPT:KG-2.260).
+
+        Composes embedding similarity + clustering server-side into ONE read op and
+        returns merge proposals — each ``{canonical, members, score, kind}`` where
+        ``kind`` is ``"same_as"`` (mergeable duplicates) or ``"extends"`` (a
+        subtype/version link). READ/propose only: nothing is mutated; apply accepted
+        proposals via ``batch_update``. This is the escalation tier the
+        agent-utilities dedup ladder routes its residual through instead of an
+        O(N²) client-side embedding pass.
+        """
+        return await self._client._send(
+            "ResolveCandidates",
+            {
+                "sim_threshold": sim_threshold,
+                "merge_threshold": merge_threshold,
+                "node_type": node_type,
+            },
+        )
+
 
 class AnalyticsClient:
     """CONCEPT:KG-2.6 — Analytics and Centrality Namespace"""
@@ -1889,6 +1914,7 @@ _HEAVY_RPC_METHODS = frozenset(
         "CommunityDetection",
         "CommunityDetectEphemeral",
         "ComputeSimilarityEdges",
+        "ResolveCandidates",
         "BatchCosineSimilarity",
         "FindSimilarPairs",
         "SpectralCluster",

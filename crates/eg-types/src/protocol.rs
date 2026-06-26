@@ -271,6 +271,16 @@ pub enum Method {
     ComputeSimilarityEdges {
         threshold: f64,
     },
+    /// Native entity-resolution candidate generator (CONCEPT:KG-2.260) — composes
+    /// embedding similarity + clustering into one server-side READ op that returns
+    /// merge proposals (same_as / extends). Never mutates; the client applies via
+    /// `BatchUpdate`. The escalation tier for the agent-utilities dedup ladder.
+    ResolveCandidates {
+        sim_threshold: f64,
+        merge_threshold: f64,
+        #[serde(default)]
+        node_type: Option<String>,
+    },
 
     // ── Lifecycle ────────────────────────────────────────────────────
     PruneByLifecycle {
