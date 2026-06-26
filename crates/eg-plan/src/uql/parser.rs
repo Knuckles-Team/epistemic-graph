@@ -56,7 +56,7 @@
 //!    `text`. (Distinct from the `RANK BY ~"…"` named-vector seam below, which stays a
 //!    reserved error: a named EMBEDDING handle has no resolver yet.)
 
-use eg_types::wire::{Op, Plan, Pred};
+use eg_types::wire::{Op, Plan, Pred, TimeAxis};
 
 use super::lexer::{lex, Tok, Token};
 
@@ -289,13 +289,32 @@ impl<'a> Parser<'a> {
         Ok(Op::Limit { k })
     }
 
-    /// `asof = "AS" "OF" "@" num` → `Op::AsOf { ts }` (CONCEPT:KG-2.235). The time
-    /// instant is a unix-seconds number prefixed by the `@` sigil (already lexed).
+    /// `asof = "AS" "OF" [ "TX" | "VALID" ] "@" num` → `Op::AsOf { ts, axis }`
+    /// (CONCEPT:KG-2.235 / KG-2.250). The optional axis keyword selects the timeline:
+    /// `TX` (or `TRANSACTION`) pins transaction time ("what we BELIEVED at ts"); the
+    /// default / `VALID` pins valid time ("what was TRUE at ts"). The instant is a
+    /// unix-seconds number prefixed by the `@` sigil (already lexed).
     fn parse_asof(&mut self) -> Result<Op, UqlError> {
         self.expect_kw("OF")?;
-        self.expect(&Tok::At, "`@` before the AS-OF timestamp (`AS OF @<ts>`)")?;
+        let axis = match self.peek_kind() {
+            Some(Tok::Ident(w))
+                if w.eq_ignore_ascii_case("tx") || w.eq_ignore_ascii_case("transaction") =>
+            {
+                self.bump();
+                TimeAxis::Transaction
+            }
+            Some(Tok::Ident(w)) if w.eq_ignore_ascii_case("valid") => {
+                self.bump();
+                TimeAxis::Valid
+            }
+            _ => TimeAxis::Valid,
+        };
+        self.expect(
+            &Tok::At,
+            "`@` before the AS-OF timestamp (`AS OF [TX] @<ts>`)",
+        )?;
         let ts = self.expect_num("an AS-OF timestamp (unix seconds)")?;
-        Ok(Op::AsOf { ts })
+        Ok(Op::AsOf { ts, axis })
     }
 
     /// `window = "WINDOW" num [ unit ]` → `Op::Window { secs }` (CONCEPT:KG-2.235). A
