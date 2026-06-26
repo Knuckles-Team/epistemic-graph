@@ -1194,6 +1194,12 @@ fn import_module(node: Node, source: &[u8]) -> Option<String> {
 /// the output is 1:1 with — and in the same order as — the input. This is the
 /// engine-side primitive behind the `ParseFiles` protocol op: one round-trip
 /// instead of N.
+// CONCEPT:EG-011 — span AST parse throughput (mirrors the Python-side phase spans).
+// `n_files`/`total_bytes` are carried as span fields; a no-op without a subscriber.
+#[tracing::instrument(
+    skip(files),
+    fields(n_files = files.len(), total_bytes = files.iter().map(|(_, b)| b.len()).sum::<usize>())
+)]
 pub fn parse_files(files: &[(String, Vec<u8>)]) -> Vec<ParseResult> {
     use rayon::prelude::*;
     files

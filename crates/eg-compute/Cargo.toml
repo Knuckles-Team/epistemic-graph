@@ -53,6 +53,10 @@ rayon = "1.10"
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
+# Lightweight tracing spans for AST parse/index throughput (CONCEPT:EG-011). The
+# `tracing` facade compiles to a no-op unless a subscriber is installed, so this
+# adds no runtime cost to a default build.
+tracing = "0.1"
 
 # Optional, domain-gated heavy deps.
 nalgebra = { version = "0.32", features = ["serde"], optional = true }
@@ -79,3 +83,17 @@ tree-sitter-php = { version = "0.23", optional = true }
 tree-sitter-bash = { version = "0.23", optional = true }
 tree-sitter-scala = { version = "0.23", optional = true }
 tree-sitter-lua = { version = "0.2", optional = true }
+
+# Criterion harness for the AST parse-throughput baseline bench (CONCEPT:EG-012).
+# DEV-only — never linked into the engine binary.
+[dev-dependencies]
+criterion = "0.5"
+
+# AST parse-throughput baseline (CONCEPT:EG-012). `parse_files` lives behind the
+# `ast` grammars, so the bench is gated to it (a default `cargo check --benches`
+# skips it). Run: `cargo bench -p eg-compute --features ast --bench parse_bench`.
+[[bench]]
+name = "parse_bench"
+path = "benches/parse_bench.rs"
+harness = false
+required-features = ["ast"]

@@ -69,6 +69,28 @@ mod imp {
         m
     }
 
+    // CONCEPT:EG-011 — labelled-histogram helper for the write-lock-gap series.
+    // Mirrors `counter_vec`/`gauge_vec` (register-on-build), with a caller-supplied
+    // bucket layout so the lock-gap metrics can span sub-ms .. tens-of-seconds.
+    fn histogram_vec(name: &str, help: &str, labels: &[&str], buckets: Vec<f64>) -> HistogramVec {
+        let m = HistogramVec::new(HistogramOpts::new(name, help).buckets(buckets), labels)
+            .expect("valid metric");
+        REGISTRY
+            .register(Box::new(m.clone()))
+            .expect("unique metric");
+        m
+    }
+
+    // CONCEPT:EG-011 — write-lock-gap bucket layout. The starvation we measure
+    // (semantic_search 0.02s idle → 14s under the `__commons__` firehose) spans
+    // five orders of magnitude: an uncontended batch holds the topology lock for
+    // tens of microseconds, while a starved writer can wait tens of seconds behind
+    // the ingestion stream. An exponential ladder from 0.1ms to ~90s resolves both
+    // the fast tail and the pathological wait without unbounded cardinality.
+    fn lock_gap_buckets() -> Vec<f64> {
+        prometheus::exponential_buckets(0.0001, 2.5, 16).expect("valid bucket spec")
+    }
+
     lazy_static! {
         static ref REGISTRY: Registry = Registry::new();
         static ref SEEN_GRAPHS: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
@@ -168,6 +190,27 @@ mod imp {
             "Single-op writes applied via the coalescer, by graph. Divide by \
              write_batches_total for the average batch size (ops per lock acquisition)",
             &["graph"],
+        );
+        // ── Write-lock-gap histograms (CONCEPT:EG-011) ──
+        // The contention this measures: under the `__commons__` ingestion firehose a
+        // read (semantic_search) goes 0.02s idle → 14s, because writers serialize on
+        // the per-graph topology write lock and a reader/late-writer queues behind the
+        // batch in flight. WAIT is the starvation cost (enqueue → lock acquired); HOLD
+        // is the contention cost (how long each batch keeps the lock). (HOLD × batch
+        // rate) is the fraction of wall-clock the lock is unavailable to readers.
+        static ref WRITE_LOCK_WAIT: HistogramVec = histogram_vec(
+            "epistemic_graph_write_lock_wait_seconds",
+            "Time a coalesced write waited from enqueue to acquiring the per-graph \
+             topology write lock (the starvation cost), by graph",
+            &["graph"],
+            lock_gap_buckets(),
+        );
+        static ref WRITE_LOCK_HOLD: HistogramVec = histogram_vec(
+            "epistemic_graph_write_lock_hold_seconds",
+            "Time the per-graph topology write lock was held to apply one coalesced \
+             batch (the contention cost — readers/other writers block for this), by graph",
+            &["graph"],
+            lock_gap_buckets(),
         );
         // ── Cost / efficiency autoscale signals (CONCEPT:KG-2.234, Lane V) ──
         static ref GRAPH_MEMORY_BYTES: IntGaugeVec = gauge_vec(
@@ -301,6 +344,23 @@ mod imp {
             .inc_by(ops as u64);
     }
 
+    /// Observe the time one write waited from enqueue to acquiring the per-graph
+    /// topology write lock (CONCEPT:EG-011) — the starvation cost a reader/late-writer
+    /// pays behind the `__commons__` ingestion firehose.
+    pub fn observe_write_lock_wait(graph: &str, seconds: f64) {
+        WRITE_LOCK_WAIT
+            .with_label_values(&[&graph_label(graph)])
+            .observe(seconds);
+    }
+
+    /// Observe the time the per-graph topology write lock was held to apply one
+    /// coalesced batch (CONCEPT:EG-011) — the contention cost; reads block for this.
+    pub fn observe_write_lock_hold(graph: &str, seconds: f64) {
+        WRITE_LOCK_HOLD
+            .with_label_values(&[&graph_label(graph)])
+            .observe(seconds);
+    }
+
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
         let encoder = TextEncoder::new();
@@ -335,6 +395,8 @@ mod imp {
     pub fn access_denied() {}
     pub fn wal_append_dropped() {}
     pub fn write_batch_committed(_graph: &str, _ops: usize) {}
+    pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
+    pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
     pub fn render() -> String {
         String::new()
     }
@@ -393,6 +455,9 @@ mod tests {
         access_denied();
         busy_rejected();
         checkpoint_completed(0.02);
+        // CONCEPT:EG-011 — write-lock-gap histograms register + render.
+        observe_write_lock_wait("agent:metrics-test", 0.003);
+        observe_write_lock_hold("agent:metrics-test", 0.0005);
 
         let out = render();
         // Note: the per-graph label series (graph_ops_total{graph=...}, graph_nodes,
@@ -413,6 +478,8 @@ mod tests {
             "epistemic_graph_busy_rejections_total",
             "epistemic_graph_checkpoint_duration_seconds_count",
             "epistemic_graph_checkpoint_last_success_timestamp_seconds",
+            "epistemic_graph_write_lock_wait_seconds_bucket",
+            "epistemic_graph_write_lock_hold_seconds_bucket",
         ] {
             assert!(out.contains(needle), "missing {needle} in:\n{out}");
         }
