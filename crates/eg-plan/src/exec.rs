@@ -147,6 +147,10 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             Ok(RowSet::from_scored(scored))
         }
 
+        Op::RankNodeDistance { center } => Ok(rank_node_distance(ctx.view, input, center)),
+
+        Op::RankMentions {} => Ok(rank_mentions(ctx.view, input)),
+
         #[cfg(feature = "text")]
         Op::RankText { query } => Ok(rank_text(ctx, &input, query)),
 
@@ -407,6 +411,97 @@ fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> Row
         .map(|r| r.id.as_str())
         .collect();
     input.intersect_keep_order(&kept)
+}
+
+// ── graph-native rerankers (CONCEPT:KG-2.254) ───────────────────────────────────
+
+/// RANK by inverse shortest-path hop distance from `center` over the topology
+/// (Graphiti's `node_distance`). Score `1/(1+hops)`; an unreachable or absent-center
+/// candidate scores 0 but is kept (degrade, never err — mirrors `Rank` over an empty
+/// store). Unweighted BFS from `center` following OUTGOING edges (the same topology
+/// the `Traverse` leg walks). Order follows score desc, ties by id for determinism.
+fn rank_node_distance(view: &GraphView, input: RowSet, center: &str) -> RowSet {
+    use petgraph::visit::EdgeRef;
+    let candidates = input.id_set();
+    if candidates.is_empty() {
+        return input;
+    }
+    // BFS hop distances from center over the whole topology.
+    let mut dist: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    if let Some(&start) = view.node_map.get(center) {
+        let mut visited: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
+        visited.insert(start);
+        dist.insert(center.to_string(), 0);
+        let mut frontier = vec![start];
+        let mut depth = 0usize;
+        while !frontier.is_empty() {
+            depth += 1;
+            let mut next = Vec::new();
+            for &node in &frontier {
+                for e in view
+                    .graph
+                    .edges_directed(node, petgraph::Direction::Outgoing)
+                {
+                    let nbr = e.target();
+                    if visited.insert(nbr) {
+                        dist.entry(view.graph[nbr].clone()).or_insert(depth);
+                        next.push(nbr);
+                    }
+                }
+            }
+            frontier = next;
+        }
+    }
+    let scored: Vec<(String, f32)> = input
+        .rows()
+        .iter()
+        .map(|r| {
+            let s = match dist.get(&r.id) {
+                Some(&h) => 1.0 / (1.0 + h as f32),
+                None => 0.0,
+            };
+            (r.id.clone(), s)
+        })
+        .collect();
+    RowSet::from_scored(sort_by_score_desc(scored))
+}
+
+/// RANK by provenance salience: how many edges point AT each candidate (incoming-edge
+/// count), normalized to the max in the set (Graphiti's `episode_mentions`). Pure
+/// topology, dep-free. Ties broken by id for determinism.
+fn rank_mentions(view: &GraphView, input: RowSet) -> RowSet {
+    let counts: Vec<(String, f32)> = input
+        .rows()
+        .iter()
+        .map(|r| {
+            let c = view
+                .node_map
+                .get(&r.id)
+                .map(|&idx| {
+                    view.graph
+                        .edges_directed(idx, petgraph::Direction::Incoming)
+                        .count()
+                })
+                .unwrap_or(0);
+            (r.id.clone(), c as f32)
+        })
+        .collect();
+    let max = counts.iter().map(|(_, c)| *c).fold(0.0f32, f32::max);
+    let scored: Vec<(String, f32)> = counts
+        .into_iter()
+        .map(|(id, c)| (id, if max > 0.0 { c / max } else { 0.0 }))
+        .collect();
+    RowSet::from_scored(sort_by_score_desc(scored))
+}
+
+/// Stable score-desc sort (ties by id) so a reranker's output is deterministic.
+fn sort_by_score_desc(mut scored: Vec<(String, f32)>) -> Vec<(String, f32)> {
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored
 }
 
 // ── the relational FILTER leg — real DataFusion via eg-query ────────────────────

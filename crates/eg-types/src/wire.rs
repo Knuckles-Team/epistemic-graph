@@ -149,6 +149,17 @@ pub enum Op {
     Traverse { rel: String, min: usize, max: usize },
     /// RANK (vector) — re-order by cosine similarity to `query` (SemanticStore kNN).
     Rank { query: Vec<f32> },
+    /// RANK (graph distance, CONCEPT:KG-2.254) — re-order the candidate set by inverse
+    /// shortest-path hop distance from `center` over the graph topology, score
+    /// `1/(1+hops)` (unreachable → 0). A graph-NATIVE reranker (Graphiti's
+    /// `node_distance`): proximity to a focal node, fused alongside vector/BM25. Reuses
+    /// the same BFS the `Traverse` leg uses; dep-free, so it ships under base `query`.
+    RankNodeDistance { center: String },
+    /// RANK (provenance salience, CONCEPT:KG-2.254) — re-order the candidate set by how
+    /// many edges MENTION each node (incoming-edge count), score normalized to the max
+    /// in the set. Graphiti's `episode_mentions` salience: a node many episodes point at
+    /// ranks higher. Topology-only, dep-free, base `query`.
+    RankMentions {},
     /// RANK (lexical, BM25) — re-order the candidate set by BM25 relevance to the
     /// natural-language `query` string over the text index (CONCEPT:KG-2.215). A
     /// sibling of the vector `Rank`: it produces a score-per-id over the SAME RowSet
