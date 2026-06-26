@@ -191,6 +191,9 @@ impl<'a> Parser<'a> {
         } else if self.peek_kw("FOREIGN") {
             self.bump();
             ops.push(self.parse_foreign()?);
+        } else if self.peek_kw("RERANK") {
+            self.bump();
+            ops.push(self.parse_rerank()?);
         } else if self.peek_kw("REASON") {
             self.bump();
             ops.push(self.parse_reason()?);
@@ -356,6 +359,33 @@ impl<'a> Parser<'a> {
             _ => return Err(self.err_here("expected a FOREIGN source name (`FOREIGN \"<name>\"`)")),
         };
         Ok(Op::Foreign { name })
+    }
+
+    /// `rerank = "RERANK" ( "NODE_DISTANCE" "FROM" id | "MENTIONS" )` → a graph-native
+    /// reranker op (CONCEPT:KG-2.254). `NODE_DISTANCE FROM <id>` re-orders by proximity
+    /// to a focal node; `MENTIONS` re-orders by incoming-edge (provenance) salience.
+    fn parse_rerank(&mut self) -> Result<Op, UqlError> {
+        if self.peek_kw("MENTIONS") {
+            self.bump();
+            return Ok(Op::RankMentions {});
+        }
+        if self.peek_kw("NODE_DISTANCE") {
+            self.bump();
+            self.expect_kw("FROM")?;
+            let center = match self.peek_kind() {
+                Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
+                    let s = s.clone();
+                    self.bump();
+                    s
+                }
+                _ => {
+                    return Err(self
+                        .err_here("expected a center node id (`RERANK NODE_DISTANCE FROM <id>`)"))
+                }
+            };
+            return Ok(Op::RankNodeDistance { center });
+        }
+        Err(self.err_here("expected `NODE_DISTANCE FROM <id>` or `MENTIONS` after RERANK"))
     }
 
     /// `reason = "REASON" (ident | string)` → `Op::Reason` (CONCEPT:KG-2.235). The
