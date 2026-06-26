@@ -1255,7 +1255,14 @@ mod blob_dispatch_tests {
             let r = dispatch(state, req(*next_id, Method::BlobChunkGet { cursor, idx })).await;
             *next_id += 1;
             match r.result {
-                Some(ResultPayload::PropertiesMsgpack(bytes)) => out.extend(bytes),
+                // The chunk travels as a `Raw` MessagePack `bin` (serde_bytes) so the
+                // Python client recovers raw bytes via its second `unpackb`; decode
+                // that here to reassemble the original content.
+                Some(ResultPayload::Raw(packed)) => {
+                    let bytes: serde_bytes::ByteBuf = rmp_serde::from_slice(&packed)
+                        .expect("BlobChunkGet Raw decode");
+                    out.extend(bytes.into_vec());
+                }
                 other => panic!("BlobChunkGet: {:?} / {:?}", other, r.error),
             }
         }
