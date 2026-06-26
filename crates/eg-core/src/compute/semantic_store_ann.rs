@@ -17,20 +17,34 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Threshold below which we use brute-force (index overhead not worth it).
 const BRUTE_FORCE_THRESHOLD: usize = 32;
 /// Rebuild/compact the index once tombstoned rows exceed this fraction of total.
 const COMPACT_TOMBSTONE_PCT: f32 = 0.30;
 
+// CONCEPT:EG-013 — index readiness state. The cold-start bug was that the FIRST
+// `semantic_search` after a restart triggered a full IVF-PQ+OPQ build INLINE on the
+// request path (single-threaded SVD over a 1024² matrix + k-means over 168k vectors
+// → minutes, pegging one core, never finishing within the request timeout). The
+// index now builds OFF the query path (`warm`, run by a background warm-on-start
+// task) and persists across restarts; the query path checks this flag and serves a
+// fast exact brute-force result while the index is still `Cold`, instead of building.
+const STATE_COLD: u8 = 0;
+const STATE_READY: u8 = 1;
+
 pub struct SemanticStore {
     embeddings: HashMap<String, Vec<f32>>,
-    /// Lazily-built eg-ann IVF-PQ index. `None` until the store crosses
-    /// `ANN_BUILD_THRESHOLD`; rebuilt lazily from `embeddings` after a snapshot
-    /// load (the index is `#[serde(skip)]`, exactly like the HNSW backend).
+    /// eg-ann IVF-PQ index. `None` until the store is WARMED (off the query path)
+    /// or a persisted index is reopened. The index is `#[serde(skip)]`, so a fresh
+    /// snapshot load starts `Cold`; it is NEVER built inline on a search.
     index: RwLock<Option<AnnIndex>>,
     /// LIVE embedding count the index reflects (staleness check after load).
     built_len: RwLock<usize>,
+    /// CONCEPT:EG-013 — `STATE_COLD`/`STATE_READY`. `Ready` ⟺ `index` is `Some` and
+    /// reflects the current embeddings. Read on every search to decide ANN-vs-brute.
+    state: AtomicU8,
 }
 
 impl Clone for SemanticStore {
@@ -39,6 +53,7 @@ impl Clone for SemanticStore {
             embeddings: self.embeddings.clone(),
             index: RwLock::new(None),
             built_len: RwLock::new(0),
+            state: AtomicU8::new(STATE_COLD),
         }
     }
 }
@@ -75,6 +90,7 @@ impl<'de> Deserialize<'de> for SemanticStore {
             embeddings: raw.embeddings,
             index: RwLock::new(None),
             built_len: RwLock::new(0),
+            state: AtomicU8::new(STATE_COLD),
         })
     }
 }
@@ -91,6 +107,7 @@ impl SemanticStore {
             embeddings: HashMap::new(),
             index: RwLock::new(None),
             built_len: RwLock::new(0),
+            state: AtomicU8::new(STATE_COLD),
         }
     }
 
@@ -113,9 +130,10 @@ impl SemanticStore {
             Some(ann) => {
                 // Incremental insert (overwrite tombstones the prior row).
                 if !ann.add(&node_id, &embedding) {
-                    // Dimension drift → drop the index, rebuild on next search.
+                    // Dimension drift → drop the index; a background warm rebuilds it.
                     *idx = None;
                     *self.built_len.write() = 0;
+                    self.state.store(STATE_COLD, Ordering::Release);
                     return;
                 }
                 *self.built_len.write() = live_len;
@@ -138,16 +156,52 @@ impl SemanticStore {
         if self.embeddings.len() < BRUTE_FORCE_THRESHOLD.max(ANN_BUILD_THRESHOLD) {
             return self.brute_force_search(query_embedding, n_results);
         }
-        self.ensure_index();
-        match self.index.read().as_ref() {
-            Some(ann) => ann.search(query_embedding, n_results),
-            None => self.brute_force_search(query_embedding, n_results),
+        // CONCEPT:EG-013 — NEVER build the index inline on the request path. Use the
+        // ANN index only if it has been warmed AND still reflects the current
+        // embeddings; otherwise serve an EXACT brute-force result (sub-second even at
+        // 168k×1024) while the background warm task builds/loads the index. `try_read`
+        // means a search that races an in-progress `warm` (which holds the index
+        // write lock) falls straight through to brute force instead of blocking.
+        if self.state.load(Ordering::Acquire) == STATE_READY {
+            if let Some(guard) = self.index.try_read() {
+                if let Some(ann) = guard.as_ref() {
+                    if *self.built_len.read() == self.embeddings.len() {
+                        return ann.search(query_embedding, n_results);
+                    }
+                }
+            }
         }
+        self.brute_force_search(query_embedding, n_results)
     }
 
-    /// Ensure the index reflects the current embeddings (rebuilt lazily once after
-    /// load / once the store crosses the build threshold).
-    fn ensure_index(&self) {
+    /// True once a fresh ANN index is resident (the "semantic index ready" signal).
+    pub fn is_ready(&self) -> bool {
+        self.state.load(Ordering::Acquire) == STATE_READY
+            && *self.built_len.read() == self.embeddings.len()
+    }
+
+    /// True if a resident index reflects the CURRENT embedding count (no staleness).
+    /// Used by the warm task to decide whether a reopened persisted index is usable
+    /// as-is or must be rebuilt because the store grew since it was saved.
+    pub fn index_matches_len(&self) -> bool {
+        self.index.read().is_some() && *self.built_len.read() == self.embeddings.len()
+    }
+
+    /// CONCEPT:EG-013 — build the IVF-PQ index OFF the query path. Called by the
+    /// background warm-on-start task (and `save_index`), NEVER by `semantic_search`.
+    /// No-op for stores below the build threshold (brute force is exact + fast).
+    /// `label` is the graph name, for the build-throughput log line.
+    pub fn warm(&self, label: &str) {
+        if self.embeddings.len() < BRUTE_FORCE_THRESHOLD.max(ANN_BUILD_THRESHOLD) {
+            return;
+        }
+        self.ensure_index(label);
+    }
+
+    /// Ensure the index reflects the current embeddings. Builds (IVF-PQ train +
+    /// encode) if absent or stale and flips the store to `Ready`. This is the
+    /// expensive path — it is run only off the request path (`warm`/`save_index`).
+    fn ensure_index(&self, label: &str) {
         {
             let idx = self.index.read();
             if idx.is_some() && *self.built_len.read() == self.embeddings.len() {
@@ -158,12 +212,24 @@ impl SemanticStore {
         if idx.is_some() && *self.built_len.read() == self.embeddings.len() {
             return; // another thread built it while we waited
         }
+        let n = self.embeddings.len();
+        let span = tracing::info_span!("ann_index_build", graph = label, n_vectors = n);
+        let _g = span.enter();
+        let start = std::time::Instant::now();
         *idx = AnnIndex::build(&self.embeddings);
-        *self.built_len.write() = if idx.is_some() {
-            self.embeddings.len()
-        } else {
-            0
-        };
+        let built = idx.is_some();
+        *self.built_len.write() = if built { n } else { 0 };
+        self.state.store(
+            if built { STATE_READY } else { STATE_COLD },
+            Ordering::Release,
+        );
+        tracing::info!(
+            graph = label,
+            n_vectors = n,
+            build_ms = start.elapsed().as_millis() as u64,
+            ready = built,
+            "semantic ANN index build complete (CONCEPT:EG-013)"
+        );
     }
 
     /// Brute-force cosine similarity search for small collections.
@@ -194,7 +260,7 @@ impl SemanticStore {
     /// Builds the index first if it isn't resident. Errors if there is nothing to
     /// index (empty / below the build threshold).
     pub fn save_index(&self, dir: &Path) -> std::io::Result<()> {
-        self.ensure_index();
+        self.ensure_index("save_index");
         match self.index.read().as_ref() {
             Some(ann) => ann.save(dir),
             None => Err(std::io::Error::other(
@@ -211,6 +277,10 @@ impl SemanticStore {
         let n = ann.live_len();
         *self.index.write() = Some(ann);
         *self.built_len.write() = n;
+        // Reopened WITHOUT rebuilding — flip to Ready so searches use it immediately.
+        // (If the store grew since the save, `built_len != embeddings.len()` and the
+        // search staleness check falls back to brute force until a re-warm.)
+        self.state.store(STATE_READY, Ordering::Release);
         Ok(())
     }
 
@@ -302,7 +372,9 @@ mod tests {
             store.add_embedding(format!("n{i}"), v.clone());
             vecs.push((format!("n{i}"), v));
         }
-        // Force a search to build the index.
+        // Build the index OFF the query path (warm), then query the ANN path.
+        store.warm("test");
+        assert!(store.is_ready(), "warm must make the store Ready");
         let q = &vecs[100].1;
         let before = store.semantic_search(q, 10);
         assert!(!before.is_empty());
@@ -316,8 +388,13 @@ mod tests {
             embeddings: store.embeddings.clone(),
             index: RwLock::new(None),
             built_len: RwLock::new(0),
+            state: AtomicU8::new(STATE_COLD),
         };
         reloaded.load_index(&tmp).unwrap();
+        assert!(
+            reloaded.is_ready(),
+            "no-rebuild reload must leave the store Ready"
+        );
         let after = reloaded.semantic_search(q, 10);
         assert_eq!(
             before.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
@@ -325,5 +402,57 @@ mod tests {
             "no-rebuild reload must match"
         );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn search_never_builds_inline_cold_start_is_brute_force() {
+        // CONCEPT:EG-013 — the cold-start fix. A large store loaded fresh (index
+        // `None`, state `Cold`, exactly the post-restart shape) must answer searches
+        // WITHOUT triggering an inline IVF-PQ build: the store stays Cold and serves
+        // exact brute-force results. Only `warm` (off the query path) builds it.
+        let dim = 32;
+        let n = ANN_BUILD_THRESHOLD + 500;
+        let mut store = SemanticStore::new();
+        let mut seed = 999u64;
+        let mut rng = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((seed >> 33) as f32 / (1u64 << 31) as f32) - 0.5
+        };
+        let centers: Vec<Vec<f32>> = (0..40)
+            .map(|_| (0..dim).map(|_| rng() * 2.0).collect())
+            .collect();
+        let mut query = vec![0.0f32; dim];
+        for i in 0..n {
+            let c = &centers[i % centers.len()];
+            let v: Vec<f32> = (0..dim).map(|j| c[j] + rng() * 0.2).collect();
+            if i == 100 {
+                query = v.clone();
+            }
+            store.add_embedding(format!("n{i}"), v);
+        }
+
+        // COLD: no index has ever been built (no warm, no save).
+        assert!(!store.is_ready(), "fresh load must be Cold");
+        assert!(store.index.read().is_none(), "no index resident yet");
+
+        // A search must NOT build the index — it serves brute force and stays Cold.
+        let cold = store.semantic_search(&query, 10);
+        assert!(!cold.is_empty(), "cold search still returns (brute force)");
+        assert_eq!(cold[0].0, "n100", "brute force is exact: self is top-1");
+        assert!(
+            !store.is_ready(),
+            "the query path must NOT have built the index inline"
+        );
+        assert!(
+            store.index.read().is_none(),
+            "the query path must leave the index unbuilt (no inline rebuild)"
+        );
+
+        // Warming (off the query path) makes it Ready; searches then use the index.
+        store.warm("test");
+        assert!(store.is_ready(), "warm builds the index and flips to Ready");
+        let warm = store.semantic_search(&query, 10);
+        assert!(!warm.is_empty());
+        assert_eq!(warm[0].0, "n100", "ANN path self is top-1");
     }
 }

@@ -41,6 +41,14 @@ pub(crate) fn sanitize(name: &str) -> String {
         .collect()
 }
 
+/// CONCEPT:EG-013 — directory holding the persisted eg-ann semantic index for
+/// graph `name` (beside its `{fname}.mp` snapshot). The index is reopened from here
+/// WITHOUT rebuilding from raw vectors on the next restart (the no-rebuild win),
+/// turning the one-time IVF-PQ build into a one-time-ever cost.
+pub fn annidx_dir(persist_dir: &str, name: &str) -> std::path::PathBuf {
+    Path::new(persist_dir).join(format!("{}.annidx", sanitize(name)))
+}
+
 /// Atomically write `bytes` to `path` (temp file in the same dir + rename).
 ///
 /// The tmp file's contents are `fsync`'d BEFORE the rename: a rename is only
