@@ -824,6 +824,30 @@ pub(crate) async fn try_handle(
                 Err(resp) => resp,
             }
         }
+        Method::ResolveCandidates {
+            sim_threshold,
+            merge_threshold,
+            node_type,
+        } => {
+            // Entity-resolution candidate generation (KG-2.260): embedding
+            // similarity + clustering composed into one READ/propose op. Same
+            // off-lock discipline as ComputeSimilarityEdges (it shares the O(V²)
+            // cosine pass). Returns merge proposals; never mutates the graph.
+            let snap = { core.analysis_snapshot() };
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::resolve_candidates(
+                    &snap,
+                    sim_threshold,
+                    merge_threshold,
+                    node_type.as_deref(),
+                )
+            })
+            .await
+            {
+                Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                Err(resp) => resp,
+            }
+        }
         Method::PruneByLifecycle {
             max_age_secs,
             min_score,
