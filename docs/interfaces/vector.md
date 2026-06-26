@@ -1,0 +1,58 @@
+# Vector / ANN interface
+
+The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index (`eg-ann`) as the
+`SemanticStore` backend — no faiss, no GPU at serve time, no rebuild-on-load. It is Pi-lean and folded
+into every durable serving tier.
+
+> Status snapshot: single-shard ANN is production-grade and fully supported. Cross-shard kNN merge and
+> hybrid metadata pre-filtering are roadmap. See the [capability matrix](../capabilities.md#vector-ann-eg-ann-eg-core).
+
+## What the index is
+
+```mermaid
+flowchart LR
+    V["raw vector"] --> OPQ["OPQ rotation<br/>(learned, polar/SVD)"]
+    OPQ --> IVF["IVF coarse<br/>quantizer (k-means)"]
+    IVF --> PQ["PQ codes<br/>(8-bit, 256-entry codebooks)"]
+    OPQ --> SQ8["SQ8 refine copy<br/>(1 byte/dim)"]
+    PQ --> SRCH["ADC candidate scan"]
+    SQ8 --> RR["over-fetch + re-rank<br/>(near-exact)"]
+    SRCH --> RR --> TOPK["top-k"]
+```
+
+- **IVF-PQ**: an inverted-file coarse quantizer plus product-quantized residual codes scored by
+  asymmetric distance computation (ADC).
+- **OPQ**: a learned orthogonal rotation (alternating rotate → train-PQ → polar/SVD update) applied
+  before PQ; `opq_iters = 0` falls back to plain IVF-PQ.
+- **SQ8 refine**: a scalar-quantized (1 byte/dim) copy of the rotated vectors; search over-fetches
+  `refine_factor × k` ADC candidates and re-ranks them by near-exact SQ8 distance (recall ≥ 0.95 in
+  tests).
+
+## Persistence — reopen without rebuild
+
+The headline win: a persisted index **reopens without re-training or reconstructing f32 vectors**. On
+`open`, the metadata is bincode-loaded, `codes.bin` / `refine.bin` are mmapped, and posting lists are
+rebuilt in a single O(N) integer pass. Writes are atomic (temp + rename). A redb-backed variant
+(`ann-redb`) persists the codes into the durable tier too.
+
+## Brute-force fallback & warming
+
+- Below a build threshold (a few thousand vectors), or while the index is `Cold` or a warm holds the
+  write lock, search uses a **rayon-parallel, SIMD (AVX2) brute-force** scan over a contiguous arena
+  with cached L2 norms and a partial-select top-k. This is exact and always available.
+- The ANN index is built **off the query path** by a background warm-on-start task; searches never block
+  on indexing.
+- Cosine similarity is served via normalized-L2 (`cos = 1 − d/2`); overwrites tombstone the prior row,
+  and a VACUUM compaction reclaims them.
+
+## Using it
+
+Vector rank is a first-class planner op — `Rank { query }` — so an ANN search composes with graph
+traversal, SQL filters, and BM25 text in one [UQL](../uql.md) pipeline:
+
+```text
+MATCH (:Doc) WHERE year > 2024
+  |> RANK BY ~[0.1, 0.9, 0.0]
+  |> LIMIT 10
+```
+</content>
