@@ -1423,9 +1423,27 @@ pub enum Method {
     /// Evaluate a SPARQL 1.1 SELECT over the request's graph (CONCEPT:KG-2.218).
     /// Returns a `Raw` [`SparqlResult`] (`{vars, rows}`; each row a cell list aligned
     /// to `vars`, an unbound cell is `nil`). Read-only. Gated `sparql`.
+    ///
+    /// `base_iri` + `type_convention` carry an OPTIONAL LPG→RDF projection vocabulary
+    /// (CONCEPT:KG-2.240). Both default to empty ⇒ the IDENTITY projection (node-type
+    /// and property keys emitted verbatim, no `rdf:type` synthesis), which preserves
+    /// the prior behavior for every existing caller. A caller (e.g. agent-utilities)
+    /// that sets `base_iri = "http://agent-utilities.dev/ontology#"` +
+    /// `type_convention = "camel"` makes the engine project the LIVE property graph
+    /// into that vocabulary — `<node> rdf:type <base + CamelCase(type)>` and
+    /// `<node> <base + prop> <v>` — so a by-class query (`?s a au:Agent`) resolves
+    /// natively. The engine itself hardcodes NO ontology URL; the vocabulary is the
+    /// caller's.
     #[cfg(feature = "sparql")]
     Sparql {
         query: String,
+        /// Projection base namespace IRI. Empty ⇒ identity projection.
+        #[serde(default)]
+        base_iri: String,
+        /// `rdf:type` object naming: `"camel"` ⇒ CamelCase the type local name under
+        /// `base_iri`; empty / `"raw"` ⇒ verbatim. Only meaningful with `base_iri`.
+        #[serde(default)]
+        type_convention: String,
     },
     /// Run the native OWL 2 (EL⁺ + RL) reasoner over the request's graph and
     /// materialize entailments (CONCEPT:KG-2.219). Classifies the OWL axioms already

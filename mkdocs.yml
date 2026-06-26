@@ -88,12 +88,21 @@ nav:
   - Home: index.md
   - Engine:
       - Technical Overview: overview.md
+      - Master-of-all Engine: architecture/engine.md
+      - Tiers & Binaries: architecture/tiers.md
+      - Engine Modes: engine-modes.md
       - Service Mode: service_mode.md
+  - Deploy & Operate:
       - Deployment (database): deployment.md
-      - Rust Compute Guide: RUST_COMPUTE_GUIDE.md
+      - Cost Model & Capacity: cost-model.md
       - Binary Promotion (deploy): deploy/binary-promotion.md
+      - Rust Compute Guide: RUST_COMPUTE_GUIDE.md
+  - Architecture:
+      - Transport Boundary (ADR): transport_boundary_adr.md
+      - Per-Graph Write Coalescer: architecture/write-coalescer.md
+      - Index Manager: architecture/index-manager.md
+      - Correctness Harness: architecture/correctness-harness.md
   - Performance:
       - Transport Benchmarks: benchmarks.md
-      - Per-Graph Write Coalescer: architecture/write-coalescer.md
   - Reference:
       - Concept Registry: concepts.md

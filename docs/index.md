@@ -1,36 +1,58 @@
 # Epistemic Graph
 
-`epistemic-graph` is the Rust-native compute engine for the agent-utilities
-ecosystem. It consolidates graph algorithms, quantitative finance, data science
-primitives, AST analysis, and OWL/Datalog reasoning into a single
-high-performance binary, exposed to Python out-of-process through a long-running
-Tokio daemon that speaks length-prefixed **MessagePack over Unix Domain Sockets
-(or TCP)** and authenticates with **HMAC-SHA256**.
+`epistemic-graph` is the unified, Rust-native **"master-of-all" data & compute engine** for the
+agent-utilities ecosystem. It collapses a graph database, vector index, SQL warehouse, triple-store +
+OWL reasoner, time-series DB, content-addressed blob store, and full-text index into **one durable
+engine** with **one cross-modal `RowSet` planner**, exposed to Python out-of-process over
+length-prefixed **MessagePack on UDS/TCP** (HMAC-authenticated, no PyO3) or embedded in-process on the
+edge.
 
-This site collects the engineering references for operating and extending the
-engine. Use the navigation to move between the technical overview, the service-mode
-operations guide, the Rust compute reference, the measured transport benchmarks,
-and the concept registry.
+It is **durable by default** (redb-authoritative — an acked write survives `kill -9`) and scales by
+configuration alone, from a Raspberry Pi single binary to a multi-node Raft cluster with cross-shard
+transactions.
 
-## Documentation map
+```mermaid
+flowchart LR
+    EDGE["Pi / edge<br/>embedded or pi-tier binary"]
+    NODE["single durable server<br/>node / full tier"]
+    CLUSTER["HA cluster<br/>Raft + pgwire + cross-shard 2PC"]
+    EDGE --> NODE --> CLUSTER
+```
 
-- [Technical Overview](overview.md) — the compiled Rust data structures and the
-  graph algorithms (topological sort, cycle detection, shortest path, blast radius,
-  PageRank, community detection) that the engine exposes.
-- [Service Mode](service_mode.md) — running the engine as a daemon: socket and TCP
-  endpoints, authentication, sharding, and health management.
-- [Rust Compute Guide](RUST_COMPUTE_GUIDE.md) — the architecture of the compute
-  modules and the procedure for adding a new capability across the protocol, server,
-  and client layers.
-- [Transport Benchmarks](benchmarks.md) — measured per-operation latency over the
-  MessagePack transport, with reproduction instructions.
-- [Concept Registry](concepts.md) — the stable `CONCEPT` identifiers that trace the
-  engine's core ideas across code and documentation.
+## Start here
 
-## Design principle
+- **[Technical Overview](overview.md)** — the crate DAG, the unified `RowSet` planner pipeline, and the
+  always-on graph algorithms. Read this first.
+- **[Master-of-all engine](architecture/engine.md)** — the deep architecture: durability, cross-modal
+  ACID, RDF/OWL mapping, the RLS request path, streaming/CDC, federation, multi-Raft + cross-shard 2PC,
+  and the tenant lifecycle.
 
-Every invocation crosses a process boundary: serialize, socket round-trip,
-deserialize. A call is not a cheap function call. Batch work into a single
-round-trip over data already resident in the graph, and keep tight per-element math
-in-process — the [Rust Compute Guide](RUST_COMPUTE_GUIDE.md) explains how this shapes
-every caller.
+## Operate & deploy
+
+- **[Tiers & binaries](architecture/tiers.md)** — the feature-composition map and the four prebuilt
+  binaries (pi / pi-max / node / cluster) plus the contains-all `full` build.
+- **[Engine modes](engine-modes.md)** — the remote → shared-local → autostart resolver, the auto-bundled
+  tiny engine, and the embedded in-process path.
+- **[Deployment (database)](deployment.md)** — Docker, prebuilt wheels, single-node, and HA-cluster
+  recipes for every scale.
+- **[Service Mode](service_mode.md)** — the wire protocol, authentication, multi-graph management,
+  isolation policy, and Prometheus metrics.
+- **[Cost model & capacity](cost-model.md)** — the per-tenant memory budget, autoscale signals, and
+  Pi→cluster footprint planning.
+
+## Reference
+
+- **[Rust Compute Guide](RUST_COMPUTE_GUIDE.md)** — adding a capability across protocol/server/client.
+- **[Transport Benchmarks](benchmarks.md)** — measured per-operation latency over MessagePack.
+- **[Concept Registry](concepts.md)** — the stable `CONCEPT` identifiers that trace the engine's ideas.
+- **[Binary promotion](deploy/binary-promotion.md)** — shipping a new engine binary into the homelab.
+- Architecture deep-dives: [Write coalescer](architecture/write-coalescer.md) ·
+  [Index manager](architecture/index-manager.md) · [Correctness harness](architecture/correctness-harness.md).
+
+## Design principle: design for a network boundary
+
+Every out-of-process invocation crosses a process boundary — serialize, socket round-trip, deserialize.
+A call is **not** a cheap function call. **Batch, never per-element:** ship work into a single
+round-trip over data already resident in the graph (one all-pairs op, not a Python loop), and keep
+tight per-element math in-process. The [Rust Compute Guide](RUST_COMPUTE_GUIDE.md) explains how this
+shapes every caller.

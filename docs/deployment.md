@@ -15,6 +15,11 @@ connection configuration, the configuration surface, and the database architectu
 
 ## Deployment tiers (cargo feature flags)
 
+> This section is the **build-recipe** view of the tiers. For the conceptual
+> **feature-composition map** (which features each tier contains, why the Pi contract
+> partitions them, and the prebuilt binary sizes) see
+> [Tiers & binaries](architecture/tiers.md).
+
 The server binary is built for one tier; pick the smallest that fits. Build with
 `--build-arg EG_FEATURES=...` (see [`docker/Dockerfile`](../docker/Dockerfile)).
 
@@ -213,7 +218,7 @@ flowchart TD
             WAL[wal.rs — write-ahead log]
             WC[write_coalescer.rs]
             REDB[(redb_store — authoritative on disk)]
-            RAFT[raft — openraft replication, cluster tier]
+            RAFT["raft — openraft replication, cluster tier"]
         end
     end
 
@@ -233,7 +238,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Single["Single-node"]
-        A1[agent / MCP container] -->|TCP 9100| S1[(epistemic-graph<br/>redb @ eg-data)]
+        A1[agent / MCP container] -->|TCP 9100| S1[("epistemic-graph<br/>redb @ eg-data")]
         GOS[graph-os front-end] -->|UDS / TCP| S1
     end
 
@@ -253,10 +258,10 @@ with a redb read-through for evicted nodes.
 ```mermaid
 flowchart LR
     W[Client write] --> WAL[Write-ahead log]
-    WAL --> WC[Write coalescer<br/>group commit]
+    WAL --> WC["Write coalescer<br/>group commit"]
     WC --> REDB[(redb authoritative store)]
     REDB -->|commit| ACK[ACK to client]
-    REDB -.read-through.-> CACHE[In-RAM GraphCore<br/>LRU eviction]
+    REDB -.read-through.-> CACHE["In-RAM GraphCore<br/>LRU eviction"]
 
     subgraph Model["Stored entities"]
         direction LR

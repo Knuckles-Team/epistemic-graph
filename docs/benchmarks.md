@@ -79,24 +79,26 @@ sets scale the host count proportionally (e.g. 520 kB/agent → ~780 hosts). Thi
 
 ## Scaling & HA reality
 
-Read the multi-shard numbers above with these architectural facts in mind:
+Read the multi-shard numbers above with these architectural facts in mind. (The
+durability/HA picture has changed with the redb-authoritative flip and the cluster
+tier — see [the master-of-all engine](architecture/engine.md).)
 
-- **Sharding is client-side.** A "shard" is an independent
-  `epistemic-graph-server` process with its own UDS socket and its own graph
-  universe. The Python `ShardRouter` (`epistemic_graph/pool.py`) maps each
-  graph name to a shard with rendezvous/HRW hashing over
-  `GRAPH_SERVICE_ENDPOINTS`. The servers do not know about each other: there
-  is no server-side coordination, no rebalancing on membership change (HRW
-  remaps only the affected graphs, but nothing migrates their data), and no
-  cross-shard queries.
-- **No replication / no HA.** Each graph is held in exactly one process's
-  memory. A crashed shard means its graphs are unavailable until the process
-  restarts and reloads the last snapshot; there is no failover replica.
-- **RPO = checkpoint interval.** Durability is periodic RDB-style
-  snapshotting (`--persist-dir`, `--checkpoint-interval`, default 300 s) plus
-  checkpoint-on-shutdown. There is no write-ahead log, so a hard crash loses
-  all writes since the last completed checkpoint. Set the interval to your
-  tolerable data-loss window.
+- **Two ways to scale out.** *Client-side sharding* (any tier): independent
+  `epistemic-graph-server` processes, each its own graph universe, with the Python
+  `ShardRouter` (`epistemic_graph/pool.py`) mapping a graph name to a shard by
+  rendezvous/HRW hashing over `GRAPH_SERVICE_ENDPOINTS`. *Server-side multi-Raft*
+  (cluster tier): the engine replicates its authoritative store across nodes, with
+  online resharding (re-point ownership, not copy rows) and cross-shard 2PC for
+  transactions that span groups.
+- **Durable by default (redb-authoritative).** A committed write is fsynced to redb
+  *before* the client is acked (commit-before-ack); an acked write survives a hard
+  crash. A restarted shard re-opens its authoritative redb store — it does not depend
+  on the checkpoint interval to avoid data loss.
+- **HA in the cluster tier.** `openraft` replicates the authoritative store across
+  nodes with automatic leader failover, so a crashed node's graphs stay available on a
+  replica. (The opt-in `snapshot` backend is the older single-process
+  rebuildable-cache mode, where RPO = checkpoint interval and there is no replication —
+  it is no longer the default.)
 - **What the 100M projection assumes.** The extrapolation above is
   arithmetic, not a load test: it assumes (1) ~52 kB marginal RSS per agent —
   measured on *bounded 40-node subgraphs*, so larger working sets scale the
