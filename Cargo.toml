@@ -248,7 +248,7 @@ owl = ["sparql", "eg-rdf/owl", "eg-types/owl"]
 owl-plan = ["owl", "query", "eg-plan/owl", "eg-types/owl-plan"]
 # Opt-in lossless redb `quads` table for multi-valued-literal predicates the
 # property blob can't hold (CONCEPT:KG-2.217). Rides the engine `redb` tier.
-rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb"]
+rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb", "eg-plan?/rdf-redb"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).

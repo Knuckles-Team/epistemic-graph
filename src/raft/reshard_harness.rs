@@ -60,6 +60,18 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
+        #[cfg(feature = "rdf-redb")]
+        rdf_quads: None,
+        #[cfg(feature = "streaming")]
+        cdc: None,
+        #[cfg(feature = "wasm-udf")]
+        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+        #[cfg(feature = "compute-dist")]
+        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+            crate::raft::pregel::MatViewStore::new(),
+        )),
+        #[cfg(feature = "federation")]
+        foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
     }))
 }
 
