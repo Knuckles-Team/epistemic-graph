@@ -83,14 +83,72 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+# ─────────────────────────────────────────────────────────────────────────
+# Rust CI parity — mirrors .github/workflows/rust-ci.yml `lint-and-test` PLUS a
+# representative wheel build from release-build.yml, so `pre-commit run` catches
+# locally everything CI checks (no more push-then-discover). The FAST gates (fmt,
+# clippy, lower-crate + slim-server tests) run on the default `pre-commit` stage.
+# The HEAVY gates (the ~9-min facade-full test matrix and the maturin wheel smoke
+# ~release LTO) are staged `pre-push` + `manual` so they don't tax every commit
+# but still run in the parity check via:
+#   pre-commit run --all-files --hook-stage pre-push   # or: --hook-stage manual
+# ─────────────────────────────────────────────────────────────────────────
 - repo: local
   hooks:
-  - id: cargo-test
-    name: cargo test
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo test --quiet; fi'
+  # rust-ci gate 1 — workspace format check.
+  - id: cargo-fmt
+    name: cargo fmt --all --check (rust-ci parity)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo fmt --all --check; fi'
     language: system
     pass_filenames: false
     always_run: true
+  # rust-ci gates 2-4 — clippy every crate all-features + the two slim variants,
+  # each with -D warnings (a lint is a hard error, exactly as CI).
+  - id: cargo-clippy
+    name: cargo clippy -D warnings (workspace all-features + 2 slim variants)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo clippy --workspace --all-features --all-targets -- -D warnings; cargo clippy --no-default-features --features graph,algorithms -- -D warnings; cargo clippy --no-default-features --features server --all-targets -- -D warnings; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+  # rust-ci gates 5 + 7 — the FAST test legs (lower crates all-features, then the
+  # slim-server feature-gating guard row). Replaces the old weak `cargo test
+  # --quiet`. Gate 6 (facade full) is heavy → its own pre-push/manual hook below.
+  - id: cargo-test
+    name: cargo test (lower crates all-features + slim server)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-types -p eg-core -p eg-compute --all-features; cargo test -p epistemic-graph --no-default-features --features server; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+  # rust-ci gate 6 — facade full test matrix (~9 min). Too slow for every commit:
+  # staged pre-push + manual so it runs on push and in the parity check.
+  - id: cargo-test-full
+    name: cargo test -p epistemic-graph --features full (HEAVY — pre-push/manual)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo test -p epistemic-graph --features full; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
+  # release-build.yml parity — build ONE representative wheel (the `node` tier, the
+  # default MATURIN_FEATURES) through the real maturin bin-binding wheel path:
+  #   * --locked        → catches Cargo.lock drift, the class of blocker that broke
+  #                       the release wheel build (version bump w/o lock sync).
+  #   * --no-default-features --features node,ast-extended
+  #                     → only the tier bundle is selected (no `[tool.maturin]`
+  #                       feature-union), so a tier-specific compile error that the
+  #                       rust-ci feature-matrix does NOT cover (pi/node tiers are
+  #                       absent there) is caught here.
+  # DEBUG build (no --release): the release fat-LTO link of this binary is ~25 min,
+  # far too slow for a hook; the failures this guards against (lock drift, tier
+  # compile errors, maturin config) all reproduce in a debug build, which is the
+  # lightest faithful check. CI still does the full --release manylinux build.
+  # HEAVY-ish → pre-push + manual.
+  - id: wheel-smoke
+    name: wheel smoke — maturin build node tier, --locked (HEAVY — pre-push/manual)
+    entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then maturin build --locked --no-default-features --features node,ast-extended --out "${TMPDIR:-/tmp}/eg-wheel-smoke"; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
 - repo: local
   hooks:
   - id: pytest
