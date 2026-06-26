@@ -15,6 +15,37 @@ use parking_lot::Mutex;
 /// response and OOM the shared process.
 pub const MAX_BATCH_IDS: usize = 100_000;
 
+/// Default cap on the number of nodes a `GetNodes`-style FULL-graph dump may
+/// return before the engine refuses to build the response (CONCEPT:KG-2.264 —
+/// intelligent overload backstop). Tunable via
+/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`. An unbounded `GetNodes` on a large
+/// graph (e.g. `__commons__` with 166K+ nodes, each carrying a 1024-dim
+/// embedding) serializes the WHOLE graph into ONE response frame — a
+/// gigabyte-scale payload that overruns/resets the client connection (the
+/// client sees `ConnectionReset`, which looks like a crash but the engine is
+/// fine). Past this cap the handler returns a typed `RESULT_TOO_LARGE` error
+/// telling the caller to use a bounded query (`get_nodes_by_label` /
+/// pagination) INSTEAD of building the pathological frame.
+pub const DEFAULT_MAX_RESPONSE_NODES: usize = 50_000;
+
+/// Resolve the `GetNodes` full-dump node cap, read ONCE from
+/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` (CONCEPT:KG-2.264). Cached in a
+/// `OnceLock` so the env var is parsed a single time at first use, matching the
+/// "read once at startup" discipline without threading a new field through every
+/// `ServerState` construction site. A value of `0` disables the guard (no cap —
+/// for an operator who knowingly wants the old unbounded behavior); any other
+/// absent/non-parsable value falls back to [`DEFAULT_MAX_RESPONSE_NODES`].
+pub fn max_response_nodes() -> usize {
+    use std::sync::OnceLock;
+    static CAP: OnceLock<usize> = OnceLock::new();
+    *CAP.get_or_init(|| {
+        std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_NODES")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(DEFAULT_MAX_RESPONSE_NODES)
+    })
+}
+
 /// Read the OCC-transaction TTL + open-txn caps from the environment
 /// (CONCEPT:KG-2.180), with the documented defaults. Centralized so every
 /// `ServerState` construction site gets the same knobs without re-reading env.
