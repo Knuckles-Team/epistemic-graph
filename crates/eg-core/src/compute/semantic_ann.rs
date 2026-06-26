@@ -61,32 +61,26 @@ pub struct AnnIndex {
 }
 
 impl AnnIndex {
-    /// Train on a sample of `embeddings` and encode them all. `embeddings` must be
-    /// non-empty and dimension-consistent (callers pass the resident store).
-    pub fn build(embeddings: &HashMap<String, Vec<f32>>) -> Option<Self> {
-        let dim = embeddings.values().next().map(|v| v.len())?;
-        if dim == 0 {
+    /// Train on a sample of the embeddings and encode them all. CONCEPT:EG-015 — the
+    /// store now holds embeddings in ONE contiguous row-major `data` buffer (`dim`
+    /// floats per row) with a parallel `ids` table, so the index builds by streaming
+    /// `data.chunks_exact(dim)` instead of iterating a scattered `HashMap`. `ids` must
+    /// be non-empty and `data.len() == ids.len() * dim` (the resident arena).
+    pub fn build(ids: &[String], data: &[f32], dim: usize) -> Option<Self> {
+        if dim == 0 || ids.is_empty() || data.len() < dim {
             return None;
         }
-        let normalized: Vec<(String, Vec<f32>)> = embeddings
-            .iter()
-            .filter(|(_, v)| v.len() == dim)
-            .map(|(id, v)| (id.clone(), normalize(v)))
-            .collect();
-        if normalized.is_empty() {
-            return None;
-        }
-        let n = normalized.len();
+        let n = ids.len();
 
         // Train on a sample (≈ nlist×40 vectors, capped) — never the full set at
-        // scale. Here the store is RAM-resident so we sample by stride.
+        // scale. The arena is RAM-resident so we sample contiguous rows by stride.
         let nlist = nlist_for(n);
         let sample_target = (nlist * 40).clamp(1, n);
         let stride = (n / sample_target).max(1);
-        let sample: Vec<Vec<f32>> = normalized
-            .iter()
+        let sample: Vec<Vec<f32>> = data
+            .chunks_exact(dim)
             .step_by(stride)
-            .map(|(_, v)| v.clone())
+            .map(normalize)
             .collect();
 
         let params = IvfPqParams {
@@ -101,13 +95,14 @@ impl AnnIndex {
 
         let mut row_to_id = Vec::with_capacity(n);
         let mut id_to_row = HashMap::with_capacity(n);
-        let items: Vec<(u64, Vec<f32>)> = normalized
-            .into_iter()
+        let items: Vec<(u64, Vec<f32>)> = data
+            .chunks_exact(dim)
+            .zip(ids.iter())
             .enumerate()
-            .map(|(row, (id, v))| {
+            .map(|(row, (v, id))| {
                 id_to_row.insert(id.clone(), row as u64);
-                row_to_id.push(id);
-                (row as u64, v)
+                row_to_id.push(id.clone());
+                (row as u64, normalize(v))
             })
             .collect();
         index.add(&items);
