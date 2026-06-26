@@ -132,6 +132,12 @@ impl SemanticStore {
         }
     }
 
+    /// Raw stored embedding for `node_id`, if present (CONCEPT:KG-2.255 — the MMR
+    /// reranker needs per-candidate vectors to compute pairwise diversity).
+    pub fn get_embedding(&self, node_id: &str) -> Option<Vec<f32>> {
+        self.embeddings.get(node_id).cloned()
+    }
+
     pub fn add_embedding(&mut self, node_id: String, embedding: Vec<f32>) {
         let is_update = self.embeddings.contains_key(&node_id);
         self.embeddings.insert(node_id.clone(), embedding.clone());

@@ -369,6 +369,12 @@ impl<'a> Parser<'a> {
             self.bump();
             return Ok(Op::RankMentions {});
         }
+        if self.peek_kw("MMR") {
+            self.bump();
+            let lambda = self.expect_num("an MMR lambda (`RERANK MMR <lambda> <k>`)")? as f32;
+            let k = self.expect_usize("an MMR k count")?;
+            return Ok(Op::RankMmr { lambda, k });
+        }
         if self.peek_kw("NODE_DISTANCE") {
             self.bump();
             self.expect_kw("FROM")?;
@@ -385,7 +391,9 @@ impl<'a> Parser<'a> {
             };
             return Ok(Op::RankNodeDistance { center });
         }
-        Err(self.err_here("expected `NODE_DISTANCE FROM <id>` or `MENTIONS` after RERANK"))
+        Err(self.err_here(
+            "expected `NODE_DISTANCE FROM <id>`, `MENTIONS`, or `MMR <lambda> <k>` after RERANK",
+        ))
     }
 
     /// `reason = "REASON" (ident | string)` → `Op::Reason` (CONCEPT:KG-2.235). The

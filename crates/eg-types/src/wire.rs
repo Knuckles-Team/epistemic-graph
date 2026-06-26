@@ -123,10 +123,6 @@ pub struct HttpFieldMap {
     pub score: Option<String>,
 }
 
-/// One cross-modal operator. A [`Plan`] is an ordered list of these — a pipeline
-/// where each op `(RowSet) -> RowSet`. This increment binds SQL + graph + vector
-/// (`Scan | Filter | Traverse | Rank | Limit`); reasoning/blob ops are later
-/// increments. The algorithm lives in `eg-plan`; this is the wire DTO.
 /// Which timeline an [`Op::AsOf`] instant pins (bi-temporal, KG-2.250).
 #[cfg(feature = "query")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -138,6 +134,10 @@ pub enum TimeAxis {
     Transaction,
 }
 
+/// One cross-modal operator. A [`Plan`] is an ordered list of these — a pipeline
+/// where each op `(RowSet) -> RowSet`. This increment binds SQL + graph + vector
+/// (`Scan | Filter | Traverse | Rank | Limit`); reasoning/blob ops are later
+/// increments. The algorithm lives in `eg-plan`; this is the wire DTO.
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Op {
@@ -160,6 +160,14 @@ pub enum Op {
     /// in the set. Graphiti's `episode_mentions` salience: a node many episodes point at
     /// ranks higher. Topology-only, dep-free, base `query`.
     RankMentions {},
+    /// RANK (MMR diversity, CONCEPT:KG-2.255) — re-order the candidate set by Maximal
+    /// Marginal Relevance: greedily pick the next item maximizing
+    /// `lambda*rel - (1-lambda)*max_sim_to_already_picked`, where rel is the item's
+    /// incoming relevance score (from a prior `Rank`) and sim is cosine over stored
+    /// embeddings. Reduces near-duplicate redundancy in the top-k — the diversity
+    /// reranker Graphiti does NOT have. `k` caps how many to re-rank (0 ⇒ all). Reads
+    /// `ctx.semantic` (always present), so base `query`.
+    RankMmr { lambda: f32, k: usize },
     /// RANK (lexical, BM25) — re-order the candidate set by BM25 relevance to the
     /// natural-language `query` string over the text index (CONCEPT:KG-2.215). A
     /// sibling of the vector `Rank`: it produces a score-per-id over the SAME RowSet
@@ -167,18 +175,15 @@ pub enum Op {
     /// index lives in eg-text behind its own gate; this is just the wire variant).
     #[cfg(feature = "text")]
     RankText { query: String },
-    /// FUSE (hybrid) — reciprocal-rank-fusion of the results of two SUB-PLANS over the
-    /// same seed (typically a vector `Rank` branch and a lexical `RankText` branch)
-    /// into ONE ranked RowSet (CONCEPT:KG-2.215). The modern hybrid-retrieval pattern:
-    /// fuse the RANKS (not the incomparable BM25/cosine scores) so a doc strong in
-    /// BOTH modalities out-ranks one strong in only one. `k` is the RRF damping
-    /// constant (use `eg_text::RRF_K` = 60 by convention; `0.0` ⇒ that default).
+    /// FUSE (hybrid) — reciprocal-rank-fusion of N SUB-PLAN `branches` over the SAME
+    /// seed into ONE ranked RowSet (CONCEPT:KG-2.215 / KG-2.253). The modern hybrid-
+    /// retrieval pattern, generalized past two legs: fuse the RANKS (not the
+    /// incomparable BM25/cosine/distance scores) so a doc strong across MORE branches
+    /// out-ranks one strong in only one. The canonical tri-modal hybrid is
+    /// `branches = [[Rank{vec}], [RankText{q}], [RankNodeDistance{c}]]`. `k` is the RRF
+    /// damping constant (use `eg_text::RRF_K` = 60 by convention; `0.0` ⇒ that default).
     #[cfg(feature = "text")]
-    FuseRrf {
-        left: Vec<Op>,
-        right: Vec<Op>,
-        k: f32,
-    },
+    FuseRrf { branches: Vec<Vec<Op>>, k: f32 },
     /// SOURCE (semantic, OWL) — seed the RowSet with every individual the native OWL 2
     /// reasoner INFERS to be a member of `target_class` (CONCEPT:KG-2.219/220). The
     /// reasoner classifies the graph's TBox (the OWL axioms loaded as RDF) and returns

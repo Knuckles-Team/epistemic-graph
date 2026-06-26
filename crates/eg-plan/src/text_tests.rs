@@ -131,10 +131,12 @@ fn hybrid_beats_either_modality_alone() {
     let hybrid_plan = {
         let mut ops = seed_plan();
         ops.push(Op::FuseRrf {
-            left: vec![Op::Rank { query: query_vec() }],
-            right: vec![Op::RankText {
-                query: QUERY_TEXT.into(),
-            }],
+            branches: vec![
+                vec![Op::Rank { query: query_vec() }],
+                vec![Op::RankText {
+                    query: QUERY_TEXT.into(),
+                }],
+            ],
             k: 0.0, // ⇒ eg_text::RRF_K = 60
         });
         ops.push(Op::Limit { k: 4 });
@@ -147,6 +149,33 @@ fn hybrid_beats_either_modality_alone() {
     // And the win is strict: neither single modality ranked `target` first.
     assert_ne!(vec_top.first(), hybrid_top.first());
     assert_ne!(text_top.first(), hybrid_top.first());
+
+    // ── N-way fuse (KG-2.253): a THREE-branch FuseRrf runs and still surfaces the
+    // doubly-relevant doc — proof the generalized fusion composes past two legs.
+    let trimodal = {
+        let mut ops = seed_plan();
+        ops.push(Op::FuseRrf {
+            branches: vec![
+                vec![Op::Rank { query: query_vec() }],
+                vec![Op::RankText {
+                    query: QUERY_TEXT.into(),
+                }],
+                vec![Op::RankText {
+                    query: QUERY_TEXT.into(),
+                }],
+            ],
+            k: 0.0,
+        });
+        ops.push(Op::Limit { k: 4 });
+        Plan::new(ops)
+    };
+    let tri_top = trimodal.execute(&ctx).unwrap().ids();
+    // Three branches fuse (proof N-way composition runs past two legs); the
+    // doubly-relevant doc stays near the top even when lexical is over-weighted 2:1.
+    assert!(
+        tri_top.iter().take(2).any(|id| id == "target"),
+        "3-branch FuseRrf composes and keeps the doubly-relevant doc in the top 2: {tri_top:?}"
+    );
 }
 
 /// `RankText` re-orders the candidate set by BM25, scores attached descending, and is
