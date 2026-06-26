@@ -253,3 +253,193 @@ fn udf_op_without_registry_errs() {
         .expect_err("Udf without a registry must err");
     assert!(err.contains("registry"), "got: {err}");
 }
+
+/// Bi-temporal `AS OF` execution proofs (CONCEPT:KG-2.250). The planner now filters
+/// the RowSet by validity/transaction windows instead of passing rows through.
+#[cfg(test)]
+mod temporal_tests {
+    use crate::algebra::{Op, Plan};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::TimeAxis;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// Three Events with valid windows [100,200), [150,∞), [300,400).
+    fn temporal_core() -> GraphCore {
+        let core = GraphCore::new();
+        core.add_node(
+            "e1".into(),
+            blob(json!({"type":"Event","valid_from":100,"valid_until":200})),
+        );
+        core.add_node("e2".into(), blob(json!({"type":"Event","valid_from":150})));
+        core.add_node(
+            "e3".into(),
+            blob(json!({"type":"Event","valid_from":300,"valid_until":400})),
+        );
+        core
+    }
+
+    #[test]
+    fn as_of_valid_time_filters_window() {
+        let core = temporal_core();
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        // @175 → e1 (live 100..200) and e2 (live 150..∞); NOT e3 (starts 300).
+        let at175 = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::AsOf {
+                ts: 175.0,
+                axis: TimeAxis::Valid,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        let mut ids = at175.ids();
+        ids.sort();
+        assert_eq!(ids, vec!["e1".to_string(), "e2".to_string()]);
+
+        // @350 → only e3 (e1 expired at 200; e2 started 150 but... still live →
+        // e2 IS live at 350 since it has no end). So @350 → {e2, e3}.
+        let at350 = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::AsOf {
+                ts: 350.0,
+                axis: TimeAxis::Valid,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        let mut ids = at350.ids();
+        ids.sort();
+        assert_eq!(ids, vec!["e2".to_string(), "e3".to_string()]);
+
+        // boundary: @200 excludes e1 (half-open [100,200)).
+        let at200 = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::AsOf {
+                ts: 200.0,
+                axis: TimeAxis::Valid,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert!(!at200.ids().contains(&"e1".to_string()));
+    }
+
+    #[test]
+    fn as_of_preserves_rank_order() {
+        let core = temporal_core();
+        let view = core.analysis_snapshot();
+        let mut sem = SemanticStore::new();
+        // rank order to [1,0,0]: e2 > e1 ; e3 far. All live at @175 except e3.
+        sem.add_embedding("e1".into(), vec![0.8, 0.6, 0.0]);
+        sem.add_embedding("e2".into(), vec![0.99, 0.1, 0.0]);
+        sem.add_embedding("e3".into(), vec![0.0, 0.0, 1.0]);
+        let ctx = PlanCtx::new(&view, &sem);
+
+        let ranked_then_filtered = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0],
+            },
+            Op::AsOf {
+                ts: 175.0,
+                axis: TimeAxis::Valid,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        // e2 ranks above e1, and both survive @175; e3 dropped. Order preserved.
+        assert_eq!(
+            ranked_then_filtered.ids(),
+            vec!["e2".to_string(), "e1".to_string()]
+        );
+    }
+
+    #[test]
+    fn as_of_transaction_axis_distinguishes_belief_from_truth() {
+        // A fact valid [100,200) that we believed [100,250): superseded at tx 250,
+        // its valid window closed at 200.
+        let core = GraphCore::new();
+        core.add_node(
+            "f".into(),
+            blob(json!({
+                "type":"Event","valid_from":100,"valid_until":200,
+                "tx_from":100,"tx_to":250
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        // valid-time @220: NOT true any more (valid window ended 200).
+        let valid_220 = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::AsOf {
+                ts: 220.0,
+                axis: TimeAxis::Valid,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert!(valid_220.ids().is_empty());
+
+        // transaction-time @220: we STILL believed it then (tx window 100..250).
+        let tx_220 = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::AsOf {
+                ts: 220.0,
+                axis: TimeAxis::Transaction,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert_eq!(tx_220.ids(), vec!["f".to_string()]);
+
+        // transaction-time @300: belief retracted (tx_to 250).
+        let tx_300 = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::AsOf {
+                ts: 300.0,
+                axis: TimeAxis::Transaction,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert!(tx_300.ids().is_empty());
+    }
+
+    #[test]
+    fn uql_as_of_tx_keyword_parses_and_filters() {
+        use crate::uql::parse;
+        let p = parse("MATCH (:Event) |> AS OF TX @150").unwrap();
+        assert!(matches!(
+            p.ops.last(),
+            Some(Op::AsOf {
+                axis: TimeAxis::Transaction,
+                ..
+            })
+        ));
+    }
+}
