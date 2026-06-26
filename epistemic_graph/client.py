@@ -2405,15 +2405,35 @@ class RdfClient:
         faithful — the inverse of :meth:`add_triples`)."""
         return await self._client._send("GetRdf")
 
-    async def sparql(self, query: str) -> list[dict[str, str | None]]:
+    async def sparql(
+        self,
+        query: str,
+        base_iri: str = "",
+        type_convention: str = "",
+    ) -> list[dict[str, str | None]]:
         """Run a SPARQL 1.1 ``SELECT`` over the connection's graph and return a list
         of row dicts keyed by projected variable (``None`` for an unbound OPTIONAL
         variable). Requires a server built with the ``sparql`` feature.
 
+        ``base_iri`` + ``type_convention`` select the LPG→RDF projection vocabulary
+        (CONCEPT:KG-2.240). Both default to empty ⇒ the IDENTITY projection (node-type
+        and property keys emitted verbatim, no ``rdf:type`` synthesis), preserving the
+        prior behavior. A caller that passes ``base_iri`` (e.g. agent-utilities'
+        ``http://agent-utilities.dev/ontology#``) + ``type_convention="camel"`` makes
+        the engine project the live property graph into that vocabulary, so a by-class
+        query (``?s a au:Agent``) resolves natively — the engine, not rdflib, answers.
+
         The engine returns ``{"vars": [...], "rows": [[cell, ...], ...]}`` (a ``Raw``
         payload the transport already double-unpacks); we zip each row to its vars.
         """
-        result = await self._client._send("Sparql", {"query": query})
+        result = await self._client._send(
+            "Sparql",
+            {
+                "query": query,
+                "base_iri": base_iri,
+                "type_convention": type_convention,
+            },
+        )
         if not result:
             return []
         vars_: list[str] = result.get("vars", [])
