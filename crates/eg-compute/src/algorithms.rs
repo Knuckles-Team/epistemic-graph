@@ -988,6 +988,164 @@ pub fn compute_similarity_edges(core: &GraphView, threshold: f64) -> Vec<(String
     results
 }
 
+/// One proposed entity-resolution action emitted by [`resolve_candidates`].
+///
+/// `kind` is `"same_as"` (a true-duplicate cluster — safe to merge onto
+/// `canonical`) or `"extends"` (a subtype/version relationship between distinct
+/// entities — link, don't merge). The op is **read/propose only**: it never
+/// mutates the graph, so the client decides whether to apply via `BatchUpdate`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MergeProposal {
+    pub canonical: String,
+    pub members: Vec<String>,
+    pub score: f64,
+    pub kind: String,
+}
+
+/// Native entity-resolution candidate generator (CONCEPT:KG-2.260).
+///
+/// Composes the existing embedding + clustering primitives into ONE server-side
+/// read op so the agent-utilities dedup ladder's residual escalates here instead
+/// of an O(N²) client-side embedding pass:
+///   1. collect entity nodes carrying an embedding (optionally filtered by type);
+///   2. all-pairs cosine ≥ `sim_threshold` (rayon, off-lock by the caller);
+///   3. union-find clusters over SAME-TYPE pairs ≥ `merge_threshold` → `same_as`
+///      proposals (canonical = highest-degree member, sift-kg `resolver.py:190`);
+///   4. high-sim pairs across DIFFERENT types → `extends` proposals (the
+///      duplicates-vs-variants split; the OWL subclass refinement happens in the
+///      ontology layer downstream).
+///
+/// Returns proposals only — applying them is the client's decision.
+pub fn resolve_candidates(
+    core: &GraphView,
+    sim_threshold: f64,
+    merge_threshold: f64,
+    node_type: Option<&str>,
+) -> Vec<MergeProposal> {
+    use rayon::prelude::*;
+
+    // (id, embedding, node_type) for embedded nodes, optionally type-filtered.
+    let nodes: Vec<(String, Vec<f64>, String)> = core
+        .node_properties
+        .iter()
+        .filter_map(|(node_id, props_json)| {
+            let val: serde_json::Value = serde_json::from_slice(props_json).ok()?;
+            let vec: Vec<f64> = serde_json::from_value(val.get("embedding")?.clone()).ok()?;
+            if vec.is_empty() {
+                return None;
+            }
+            let nt = val
+                .get("node_type")
+                .or_else(|| val.get("type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if let Some(filter) = node_type {
+                if nt != filter {
+                    return None;
+                }
+            }
+            Some((node_id.clone(), vec, nt))
+        })
+        .collect();
+
+    if nodes.len() < 2 {
+        return Vec::new();
+    }
+
+    // All-pairs cosine ≥ sim_threshold (the candidate floor).
+    let pairs: Vec<(usize, usize, f64)> = (0..nodes.len())
+        .into_par_iter()
+        .flat_map(|i| {
+            let mut local = Vec::new();
+            for j in (i + 1)..nodes.len() {
+                let s = cosine_similarity(&nodes[i].1, &nodes[j].1);
+                if s >= sim_threshold {
+                    local.push((i, j, s));
+                }
+            }
+            local
+        })
+        .collect();
+    if pairs.is_empty() {
+        return Vec::new();
+    }
+
+    // Union-find over SAME-TYPE pairs ≥ merge_threshold (the same_as bar).
+    let mut parent: Vec<usize> = (0..nodes.len()).collect();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+    let mut degree = vec![0usize; nodes.len()];
+    let mut extends_pairs: Vec<(usize, usize, f64)> = Vec::new();
+    for &(i, j, s) in &pairs {
+        degree[i] += 1;
+        degree[j] += 1;
+        if s >= merge_threshold && nodes[i].2 == nodes[j].2 {
+            let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+            if ri != rj {
+                parent[ri] = rj;
+            }
+        } else {
+            // weak (sim below merge bar) OR cross-type high-sim → variant link
+            extends_pairs.push((i, j, s));
+        }
+    }
+
+    // same_as clusters
+    let mut clusters: std::collections::HashMap<usize, Vec<usize>> =
+        std::collections::HashMap::new();
+    for idx in 0..nodes.len() {
+        let root = find(&mut parent, idx);
+        clusters.entry(root).or_default().push(idx);
+    }
+    let mut proposals: Vec<MergeProposal> = Vec::new();
+    let mut clustered: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for members in clusters.values() {
+        if members.len() < 2 {
+            continue;
+        }
+        for &m in members {
+            clustered.insert(m);
+        }
+        // canonical = highest-degree member (most corroborating similar neighbours)
+        let canonical_idx = *members
+            .iter()
+            .max_by_key(|&&m| degree[m])
+            .unwrap_or(&members[0]);
+        let score = pairs
+            .iter()
+            .filter(|(i, j, _)| members.contains(i) && members.contains(j))
+            .map(|(_, _, s)| *s)
+            .fold(0.0_f64, f64::max);
+        proposals.push(MergeProposal {
+            canonical: nodes[canonical_idx].0.clone(),
+            members: members.iter().map(|&m| nodes[m].0.clone()).collect(),
+            score,
+            kind: "same_as".to_string(),
+        });
+    }
+
+    // extends proposals (cross-type / weak high-sim pairs not already merged)
+    for &(i, j, s) in &extends_pairs {
+        if find(&mut parent, i) == find(&mut parent, j) {
+            continue; // already in one same_as cluster
+        }
+        proposals.push(MergeProposal {
+            canonical: nodes[i].0.clone(),
+            members: vec![nodes[i].0.clone(), nodes[j].0.clone()],
+            score: s,
+            kind: "extends".to_string(),
+        });
+    }
+
+    proposals
+}
+
 /// Cosine similarity between two vectors.
 fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     if a.len() != b.len() || a.is_empty() {
@@ -1580,5 +1738,75 @@ mod community_tests {
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .unwrap();
         assert_eq!(top.0, "hub", "the cut vertex must have the max betweenness");
+    }
+}
+
+#[cfg(test)]
+mod resolve_candidates_tests {
+    use super::*;
+    use crate::graph::GraphCore;
+
+    fn pe(emb: &[f64], ntype: &str) -> Vec<u8> {
+        // JSON-encoded props (resolve_candidates reads embedding via serde_json,
+        // matching compute_similarity_edges).
+        serde_json::to_vec(&serde_json::json!({"type": ntype, "embedding": emb})).unwrap()
+    }
+
+    #[test]
+    fn same_type_near_duplicates_propose_same_as() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), pe(&[1.0, 0.0, 0.0], "Concept"));
+        g.add_node("b".into(), pe(&[0.99, 0.01, 0.0], "Concept")); // ~dup of a
+        g.add_node("c".into(), pe(&[0.0, 0.0, 1.0], "Concept")); // distinct
+        let snap = g.analysis_snapshot();
+
+        let proposals = resolve_candidates(&snap, 0.8, 0.95, None);
+        let same_as: Vec<_> = proposals.iter().filter(|p| p.kind == "same_as").collect();
+        assert_eq!(same_as.len(), 1, "a~b should form one same_as cluster");
+        let members: std::collections::HashSet<&str> =
+            same_as[0].members.iter().map(|s| s.as_str()).collect();
+        assert!(members.contains("a") && members.contains("b"));
+        assert!(!members.contains("c"), "distinct node must not be merged");
+    }
+
+    #[test]
+    fn cross_type_similarity_proposes_extends_not_merge() {
+        let g = GraphCore::new();
+        g.add_node("base".into(), pe(&[1.0, 0.0, 0.0], "Model"));
+        g.add_node("variant".into(), pe(&[0.99, 0.01, 0.0], "ModelVersion")); // similar, other type
+        let snap = g.analysis_snapshot();
+
+        let proposals = resolve_candidates(&snap, 0.8, 0.95, None);
+        // cross-type high similarity → extends, never same_as
+        assert!(proposals.iter().all(|p| p.kind == "extends"));
+        assert_eq!(proposals.len(), 1);
+        let m: std::collections::HashSet<&str> =
+            proposals[0].members.iter().map(|s| s.as_str()).collect();
+        assert!(m.contains("base") && m.contains("variant"));
+    }
+
+    #[test]
+    fn node_type_filter_restricts_candidates() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), pe(&[1.0, 0.0, 0.0], "Concept"));
+        g.add_node("b".into(), pe(&[0.99, 0.01, 0.0], "Concept"));
+        g.add_node("x".into(), pe(&[1.0, 0.0, 0.0], "Other"));
+        let snap = g.analysis_snapshot();
+
+        let proposals = resolve_candidates(&snap, 0.8, 0.95, Some("Concept"));
+        // only the Concept nodes are considered
+        for p in &proposals {
+            for m in &p.members {
+                assert!(m == "a" || m == "b", "Other-typed node must be excluded");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_when_too_few_nodes() {
+        let g = GraphCore::new();
+        g.add_node("only".into(), pe(&[1.0, 0.0], "Concept"));
+        let snap = g.analysis_snapshot();
+        assert!(resolve_candidates(&snap, 0.8, 0.95, None).is_empty());
     }
 }
