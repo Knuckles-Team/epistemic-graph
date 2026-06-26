@@ -10,51 +10,67 @@
 //! Dependency-free (no DataFusion, no regex) so the whole front-end ships in a
 //! default/Pi build — only EXECUTION is `query`-gated.
 //!
-//! ## Grammar (EBNF) — the bound-this-increment subset
+//! ## Grammar (EBNF) — the full surface
+//!
+//! Kept in lockstep with the user reference at `docs/uql.md` (prose, examples, the
+//! Op-mapping cheat sheet, and gotchas live there).
 //!
 //! ```text
-//! query      = scan { "|>" stage } ;
-//! scan       = "MATCH" "(" [ ":" ] label ")" [ "WHERE" pred_list ] ;
-//! stage      = traverse | rank | limit | filter ;
+//! query      = source { "|>" stage } ;
+//! source     = "MATCH" "(" [ ":" ] label ")" [ "WHERE" pred_list ]
+//!            | "REASON" class | "FOREIGN" string ;
+//! stage      = filter | traverse | rank | text | fuse | rerank
+//!            | asof | window | foreign | reason | limit ;
 //! filter     = "WHERE" pred_list ;                         (* a later-stage filter *)
 //! traverse   = "TRAVERSE" edge ;
 //! edge       = "-" "[" ":" rel "]" "->" [ hop_range ]
 //!            | rel [ hop_range ] ;                          (* bare-rel shorthand    *)
 //! hop_range  = "{" int [ ( "," | ".." ) int ] "}" ;        (* {2} = {2,2}; {1,3}    *)
-//! rank       = "RANK" "BY" "~" vector_ref ;
-//! vector_ref = "[" num { "," num } "]"                     (* inline literal vector *)
-//!            | string                                       (* named embedding ref  *)
-//!            | ident ;
+//! rank       = "RANK" "BY" "~" "[" num { "," num } "]" ;    (* inline literal vector *)
+//! text       = "TEXT" string ;                              (* BM25 lexical rank     *)
+//! fuse       = "FUSE" "[" branch "]" { "[" branch "]" } ;   (* N-way RRF hybrid      *)
+//! branch     = stage { "|>" stage } ;
+//! rerank     = "RERANK" ( "NODE_DISTANCE" "FROM" id
+//!                       | "MENTIONS" | "MMR" num int ) ;    (* graph-native rerankers *)
+//! asof       = "AS" "OF" [ "TX" | "VALID" ] "@" num ;       (* bi-temporal point-in-time *)
+//! window     = "WINDOW" num [ unit ] ;                      (* s | m | h | d         *)
 //! limit      = "LIMIT" int ;
 //! pred_list  = pred { "AND" pred } ;
 //! pred       = prop ( ">" | "<" | ( "=" | "==" ) ) value ;
 //! value      = num | string | ident ;
+//! id         = ident | string ;     (* QUOTE ids with `-` `.` `:` `@` — the lexer
+//!                                       splits `-`, so `kg-2.0` must be `"kg-2.0"` *)
 //! ```
 //!
 //! ### Op mapping (each grammar production → one `wire::Op`)
-//! | UQL                                  | `Op`                               |
-//! |--------------------------------------|------------------------------------|
-//! | `MATCH (:Doc)`                       | `Scan { label: "Doc" }`            |
-//! | `WHERE year > 2024 AND lang = 'en'`  | `Filter { preds: [GtNum, Eq] }`    |
+//! | UQL                                  | `Op`                                   |
+//! |--------------------------------------|----------------------------------------|
+//! | `MATCH (:Doc)`                       | `Scan { label: "Doc" }`                |
+//! | `WHERE year > 2024 AND lang = 'en'`  | `Filter { preds: [GtNum, Eq] }`        |
 //! | `TRAVERSE -[:CITES]->{1,2}`          | `Traverse { rel:"CITES",min:1,max:2 }` |
-//! | `RANK BY ~[1.0,0.0]`                 | `Rank { query: [1.0, 0.0] }`       |
-//! | `LIMIT 10`                           | `Limit { k: 10 }`                  |
+//! | `RANK BY ~[1.0,0.0]`                 | `Rank { query: [1.0, 0.0] }`           |
+//! | `TEXT "graphs"`                      | `RankText { query: "graphs" }`         |
+//! | `FUSE [..] [..]`                     | `FuseRrf { branches, k }`              |
+//! | `RERANK NODE_DISTANCE FROM "n1"`     | `RankNodeDistance { center: "n1" }`    |
+//! | `RERANK MENTIONS`                    | `RankMentions {}`                      |
+//! | `RERANK MMR 0.5 10`                  | `RankMmr { lambda: 0.5, k: 10 }`       |
+//! | `AS OF @t` / `AS OF TX @t`           | `AsOf { ts, axis: Valid|Transaction }` |
+//! | `WINDOW 1 h`                         | `Window { secs: 3600 }`                |
+//! | `FOREIGN "peer"`                     | `Foreign { name: "peer" }`             |
+//! | `REASON Mammal`                      | `Reason { target_class: "Mammal" }`    |
+//! | `LIMIT 10`                           | `Limit { k: 10 }`                      |
 //!
-//! ### Surface clauses for the newer ops (CONCEPT:KG-2.235)
-//! The query-language-polish increment lands the clauses the planner ops shipped
-//! WITHOUT a UQL surface — each lowers to ONE `Op`, slotting into `stage` with no
-//! redesign:
-//!  * **time** — `AS OF @<ts>` ⇒ `Op::AsOf { ts }` (the `@` sigil is the timestamp
-//!    prefix) and `WINDOW <dur>` ⇒ `Op::Window { secs }` (a bare number is seconds; a
-//!    `s`/`m`/`h`/`d` unit suffix scales it). RowSet-CONTEXT ops (the per-row temporal
-//!    selection / windowed aggregate is the eg-tsdb seam); always available.
-//!  * **federation** — `FOREIGN "<name>"` ⇒ `Op::Foreign { name }` (the cross-source
-//!    pull is the federation seam); always available.
-//!  * **owl** — `REASON <Class>` ⇒ `Op::Reason { target_class, ontology:"" }`,
-//!    feature-gated to `owl` (the feature that compiles the variant + executor).
-//!  * **text-rank** — `TEXT "<q>"` ⇒ `Op::RankText { query }`, feature-gated to
-//!    `text`. (Distinct from the `RANK BY ~"…"` named-vector seam below, which stays a
-//!    reserved error: a named EMBEDDING handle has no resolver yet.)
+//! ### Feature gating (on EXECUTION, not parsing)
+//!  * **time** (CONCEPT:KG-2.250) — `AS OF [TX|VALID] @<ts>` is a real bi-temporal
+//!    point-in-time FILTER (valid time = "what was true"; `TX` = transaction time =
+//!    "what we believed"); `WINDOW <dur>` ⇒ `Op::Window`. Dep-free; base `query`.
+//!  * **rerank** (CONCEPT:KG-2.254/2.255) — graph-native `NODE_DISTANCE`/`MENTIONS` and
+//!    diversity `MMR <lambda> <k>`. Dep-free; base `query`.
+//!  * **fuse / text** (CONCEPT:KG-2.253) — `FUSE`/`TEXT` gated to `text`; a non-`text`
+//!    build parses them but errors at run time.
+//!  * **federation** — `FOREIGN "<name>"` (resolve: `federation`). **owl** — `REASON
+//!    <Class>` gated to `owl`. `RANK BY ~"…"` (named handle) stays a reserved error
+//!    (no server-side embedder resolver — embed client-side, pass the literal vector).
 
 use eg_types::wire::{Op, Plan, Pred, TimeAxis};
 

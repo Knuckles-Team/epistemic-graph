@@ -89,6 +89,7 @@ nav:
   - Engine:
       - Technical Overview: overview.md
       - Master-of-all Engine: architecture/engine.md
+      - UQL Query Language: uql.md
       - Tiers & Binaries: architecture/tiers.md
       - Engine Modes: engine-modes.md
       - Service Mode: service_mode.md
