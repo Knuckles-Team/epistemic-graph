@@ -277,6 +277,42 @@ pub(crate) async fn try_handle(
             g.remove_edge(source_id, target_id);
             Response::ok(req_id, ResultPayload::String("ok".to_string()))
         }
+        Method::InvalidateEdge {
+            source_id,
+            target_id,
+            relationship,
+            invalid_at,
+            tx_now,
+        } => {
+            let g = &*core;
+            let n = g.invalidate_edge(&source_id, &target_id, &relationship, invalid_at, tx_now);
+            Response::ok(req_id, ResultPayload::Count(n as u64))
+        }
+        Method::SupersedeEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+            prior_source,
+            prior_target,
+            prior_relationship,
+            valid_at,
+            tx_now,
+        } => {
+            let g = &*core;
+            match g.supersede_edge(
+                source_id,
+                target_id,
+                properties_msgpack,
+                &prior_source,
+                &prior_target,
+                &prior_relationship,
+                valid_at,
+                tx_now,
+            ) {
+                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                Err(e) => Response::err(req_id, e),
+            }
+        }
         Method::HasEdge {
             source_id,
             target_id,

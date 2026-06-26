@@ -387,6 +387,99 @@ impl<'a> GraphTxn<'a> {
         push_ledger(&mut self.ledger.lock(), log);
         true
     }
+
+    /// Non-destructively CLOSE the temporal windows of a contradicted edge
+    /// (CONCEPT:KG-2.251). Sets the matching edge's `valid_until = invalid_at`
+    /// (event-time close) and `tx_to = tx_now` (belief retracted) — it does NOT
+    /// remove the edge, so an `AS OF` before `invalid_at` still sees the fact and the
+    /// `AS OF TX` history of what-we-believed is preserved. Matches the edge(s)
+    /// between `(source_id, target_id)` whose `relationship`/`type` == `relationship`
+    /// and that are not already closed at or before `invalid_at`. Returns how many
+    /// edge blobs were updated. Deterministic in its args, so it replays identically
+    /// from the WAL / on a Raft follower.
+    pub fn invalidate_edge(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+        relationship: &str,
+        invalid_at: u64,
+        tx_now: u64,
+    ) -> usize {
+        let key = (source_id.to_string(), target_id.to_string());
+        let mut entry = match self.edge_properties.get_mut(&key) {
+            Some(e) => e,
+            None => return 0,
+        };
+        let mut updated = 0usize;
+        for blob in entry.value_mut().iter_mut() {
+            let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+                continue;
+            };
+            let Some(obj) = val.as_object_mut() else {
+                continue;
+            };
+            let rel_matches = obj
+                .get("relationship")
+                .or_else(|| obj.get("type"))
+                .and_then(|v| v.as_str())
+                == Some(relationship);
+            if !rel_matches {
+                continue;
+            }
+            // Skip an edge already closed at or before this instant (idempotent).
+            let already_closed = obj
+                .get("valid_until")
+                .and_then(|v| v.as_u64())
+                .is_some_and(|vu| vu <= invalid_at);
+            if already_closed {
+                continue;
+            }
+            obj.insert("valid_until".into(), serde_json::json!(invalid_at));
+            obj.insert("tx_to".into(), serde_json::json!(tx_now));
+            if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                *blob = Arc::new(reenc);
+                updated += 1;
+            }
+        }
+        if updated > 0 {
+            push_ledger(
+                &mut self.ledger.lock(),
+                format!(
+                    "INVALIDATE_EDGE|{}|{}|{}|{}|{}",
+                    source_id, target_id, relationship, invalid_at, tx_now
+                ),
+            );
+        }
+        updated
+    }
+
+    /// Atomically SUPERSEDE a prior edge with a new one (CONCEPT:KG-2.251) under the
+    /// single held write guard: close the prior edge's validity window
+    /// (`valid_until = valid_at`, `tx_to = tx_now`) and insert the new edge — never
+    /// deleting the prior, so the full history survives. The new edge's blob is
+    /// supplied fully-formed by the caller (it should carry `valid_from = valid_at`
+    /// and a `supersedes` provenance pointer). Returns `Ok(())` once the new edge is
+    /// added (endpoints must exist), after invalidating the prior.
+    pub fn supersede_edge(
+        &mut self,
+        new_source: String,
+        new_target: String,
+        new_properties_msgpack: Vec<u8>,
+        prior_source: &str,
+        prior_target: &str,
+        prior_relationship: &str,
+        valid_at: u64,
+        tx_now: u64,
+    ) -> Result<(), String> {
+        self.invalidate_edge(
+            prior_source,
+            prior_target,
+            prior_relationship,
+            valid_at,
+            tx_now,
+        );
+        self.add_edge(new_source, new_target, new_properties_msgpack)
+    }
 }
 
 impl GraphCore {
@@ -527,6 +620,46 @@ impl GraphCore {
     ) -> bool {
         self.txn()
             .compare_and_set_fields(node_id, conditions, updates)
+    }
+
+    /// One-shot non-destructive edge invalidation (CONCEPT:KG-2.251). See
+    /// [`GraphTxn::invalidate_edge`]; runs under one topology write guard.
+    pub fn invalidate_edge(
+        &self,
+        source_id: &str,
+        target_id: &str,
+        relationship: &str,
+        invalid_at: u64,
+        tx_now: u64,
+    ) -> usize {
+        self.txn()
+            .invalidate_edge(source_id, target_id, relationship, invalid_at, tx_now)
+    }
+
+    /// One-shot atomic edge supersession (CONCEPT:KG-2.251). See
+    /// [`GraphTxn::supersede_edge`]; the close-prior + insert-new run under ONE guard.
+    #[allow(clippy::too_many_arguments)]
+    pub fn supersede_edge(
+        &self,
+        new_source: String,
+        new_target: String,
+        new_properties_msgpack: Vec<u8>,
+        prior_source: &str,
+        prior_target: &str,
+        prior_relationship: &str,
+        valid_at: u64,
+        tx_now: u64,
+    ) -> Result<(), String> {
+        self.txn().supersede_edge(
+            new_source,
+            new_target,
+            new_properties_msgpack,
+            prior_source,
+            prior_target,
+            prior_relationship,
+            valid_at,
+            tx_now,
+        )
     }
 
     pub fn has_node(&self, node_id: &str) -> bool {
@@ -2161,6 +2294,83 @@ mod tests {
             core.add_node(id.into(), props(val));
         }
         core
+    }
+
+    // ── non-destructive edge invalidation / supersession (CONCEPT:KG-2.251) ──
+
+    #[test]
+    fn invalidate_edge_closes_windows_without_deleting() {
+        let core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({"type": "E"})));
+        core.add_node("b".into(), props(serde_json::json!({"type": "E"})));
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"relationship": "LIKES", "valid_from": 100, "tx_from": 100})),
+        )
+        .unwrap();
+
+        let n = core.invalidate_edge("a", "b", "LIKES", 200, 250);
+        assert_eq!(n, 1);
+
+        // The edge still EXISTS (non-destructive) with closed windows.
+        let blobs = core.get_edge_properties("a", "b");
+        assert_eq!(blobs.len(), 1);
+        let v: serde_json::Value = rmp_serde::from_slice(&blobs[0]).unwrap();
+        assert_eq!(v.get("valid_until").and_then(|x| x.as_u64()), Some(200));
+        assert_eq!(v.get("tx_to").and_then(|x| x.as_u64()), Some(250));
+
+        // Idempotent: re-invalidating at/after the close instant is a no-op.
+        assert_eq!(core.invalidate_edge("a", "b", "LIKES", 200, 300), 0);
+        // A different relationship between the same pair is untouched.
+        assert_eq!(core.invalidate_edge("a", "b", "HATES", 200, 250), 0);
+    }
+
+    #[test]
+    fn supersede_edge_is_atomic_close_plus_insert() {
+        let core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({"type": "E"})));
+        core.add_node("b".into(), props(serde_json::json!({"type": "E"})));
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"relationship": "LIKES", "valid_from": 100, "tx_from": 100})),
+        )
+        .unwrap();
+
+        core.supersede_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({
+                "relationship": "DISLIKES", "valid_from": 200, "tx_from": 200,
+                "supersedes": "a:b:LIKES"
+            })),
+            "a",
+            "b",
+            "LIKES",
+            200,
+            200,
+        )
+        .unwrap();
+
+        // Both edges coexist: the prior LIKES (closed at 200) + the new DISLIKES.
+        let blobs = core.get_edge_properties("a", "b");
+        assert_eq!(blobs.len(), 2);
+        let rels: Vec<(String, Option<u64>)> = blobs
+            .iter()
+            .map(|b| {
+                let v: serde_json::Value = rmp_serde::from_slice(b).unwrap();
+                (
+                    v.get("relationship")
+                        .and_then(|x| x.as_str())
+                        .unwrap()
+                        .to_string(),
+                    v.get("valid_until").and_then(|x| x.as_u64()),
+                )
+            })
+            .collect();
+        assert!(rels.contains(&("LIKES".to_string(), Some(200))));
+        assert!(rels.contains(&("DISLIKES".to_string(), None)));
     }
 
     #[test]

@@ -138,6 +138,31 @@ pub enum Method {
         source_id: String,
         target_id: String,
     },
+    /// Non-destructively CLOSE a contradicted edge's temporal windows (KG-2.251):
+    /// sets `valid_until = invalid_at` and `tx_to = tx_now` on the matching edge
+    /// instead of deleting it, so an `AS OF` before `invalid_at` still sees the fact.
+    /// A durable mutation (WAL-replayed deterministically from its explicit args).
+    InvalidateEdge {
+        source_id: String,
+        target_id: String,
+        relationship: String,
+        invalid_at: u64,
+        tx_now: u64,
+    },
+    /// Atomically supersede a prior edge with a new one (KG-2.251): close the prior
+    /// edge's validity window and insert `properties_msgpack` as the new edge under
+    /// one write guard. Non-destructive — the prior edge survives for history.
+    SupersedeEdge {
+        source_id: String,
+        target_id: String,
+        #[serde(with = "serde_bytes")]
+        properties_msgpack: Vec<u8>,
+        prior_source: String,
+        prior_target: String,
+        prior_relationship: String,
+        valid_at: u64,
+        tx_now: u64,
+    },
     HasEdge {
         source_id: String,
         target_id: String,

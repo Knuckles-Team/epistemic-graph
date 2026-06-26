@@ -191,6 +191,63 @@ class EdgeClient:
             "RemoveEdge", {"source_id": source_id, "target_id": target_id}
         )
 
+    async def invalidate(
+        self,
+        source_id: str,
+        target_id: str,
+        relationship: str,
+        invalid_at: int,
+        tx_now: int,
+    ) -> int:
+        """Non-destructively close a contradicted edge's temporal windows (KG-2.251).
+
+        Sets the matching edge's ``valid_until = invalid_at`` and ``tx_to = tx_now``
+        instead of deleting it, so an ``AS OF`` before ``invalid_at`` still sees the
+        fact. Returns the number of edge blobs updated.
+        """
+        return await self._client._send(
+            "InvalidateEdge",
+            {
+                "source_id": source_id,
+                "target_id": target_id,
+                "relationship": relationship,
+                "invalid_at": int(invalid_at),
+                "tx_now": int(tx_now),
+            },
+        )
+
+    async def supersede(
+        self,
+        source_id: str,
+        target_id: str,
+        prior_source: str,
+        prior_target: str,
+        prior_relationship: str,
+        valid_at: int,
+        tx_now: int,
+        properties: dict[str, Any] | None = None,
+    ) -> None:
+        """Atomically supersede a prior edge with a new one (KG-2.251).
+
+        Closes the prior edge's validity window AND inserts the new edge under one
+        write guard — non-destructive, so the prior edge survives for history. The
+        new edge's ``properties`` should carry ``valid_from = valid_at`` and a
+        ``supersedes`` provenance pointer.
+        """
+        await self._client._send(
+            "SupersedeEdge",
+            {
+                "source_id": source_id,
+                "target_id": target_id,
+                "properties_msgpack": list(msgpack.packb(properties or {})),
+                "prior_source": prior_source,
+                "prior_target": prior_target,
+                "prior_relationship": prior_relationship,
+                "valid_at": int(valid_at),
+                "tx_now": int(tx_now),
+            },
+        )
+
     async def has(self, source_id: str, target_id: str) -> bool:
         return await self._client._send(
             "HasEdge", {"source_id": source_id, "target_id": target_id}

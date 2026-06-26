@@ -44,6 +44,8 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::CompareAndSetNodeFields { .. }
             | Method::AddEdge { .. }
             | Method::RemoveEdge { .. }
+            | Method::InvalidateEdge { .. }
+            | Method::SupersedeEdge { .. }
             | Method::BatchUpdate { .. }
             | Method::ClearGraph
     )
@@ -180,6 +182,38 @@ pub fn apply(core: &GraphCore, m: &Method) {
             source_id,
             target_id,
         } => core.remove_edge(source_id.clone(), target_id.clone()),
+        // Deterministic replay (KG-2.251): re-close the same window / re-supersede.
+        // Idempotent — replaying over the already-closed pre-image is a no-op.
+        Method::InvalidateEdge {
+            source_id,
+            target_id,
+            relationship,
+            invalid_at,
+            tx_now,
+        } => {
+            let _ = core.invalidate_edge(source_id, target_id, relationship, *invalid_at, *tx_now);
+        }
+        Method::SupersedeEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+            prior_source,
+            prior_target,
+            prior_relationship,
+            valid_at,
+            tx_now,
+        } => {
+            let _ = core.supersede_edge(
+                source_id.clone(),
+                target_id.clone(),
+                properties_msgpack.clone(),
+                prior_source,
+                prior_target,
+                prior_relationship,
+                *valid_at,
+                *tx_now,
+            );
+        }
         Method::BatchUpdate { operations_msgpack } => {
             let _ = crate::algorithms::batch_update(core, operations_msgpack);
         }
