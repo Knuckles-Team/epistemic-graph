@@ -120,16 +120,36 @@ pub fn kmeans(
             .map(|v| nearest_centroid(v, &centroids, dim, k))
             .collect();
 
-        // Accumulate sums + counts.
-        let mut sums = vec![0.0f64; k * dim];
-        let mut counts = vec![0u64; k];
-        for (v, &a) in data.iter().zip(assign.iter()) {
-            counts[a] += 1;
-            let base = a * dim;
-            for d in 0..dim {
-                sums[base + d] += v[d] as f64;
-            }
-        }
+        // Accumulate sums + counts. CONCEPT:EG-013 — the per-iteration accumulation
+        // is O(n*dim) (the coarse quantizer at dim=1024, n≈16k is ~16M adds/iter);
+        // fold per-thread partials then reduce so it runs across all cores instead
+        // of a single-threaded scan.
+        let (sums, counts) = data
+            .par_iter()
+            .zip(assign.par_iter())
+            .fold(
+                || (vec![0.0f64; k * dim], vec![0u64; k]),
+                |(mut sums, mut counts), (v, &a)| {
+                    counts[a] += 1;
+                    let base = a * dim;
+                    for d in 0..dim {
+                        sums[base + d] += v[d] as f64;
+                    }
+                    (sums, counts)
+                },
+            )
+            .reduce(
+                || (vec![0.0f64; k * dim], vec![0u64; k]),
+                |(mut s1, mut c1), (s2, c2)| {
+                    for (a, b) in s1.iter_mut().zip(s2.iter()) {
+                        *a += *b;
+                    }
+                    for (a, b) in c1.iter_mut().zip(c2.iter()) {
+                        *a += *b;
+                    }
+                    (s1, c1)
+                },
+            );
 
         for c in 0..k {
             if counts[c] == 0 {
