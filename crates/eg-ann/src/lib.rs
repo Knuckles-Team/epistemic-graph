@@ -90,6 +90,27 @@ mod tests {
     }
 
     #[test]
+    fn simd_sq_dist_matches_scalar_within_epsilon() {
+        // CONCEPT:EG-014 — the 8-lane chunked `sq_dist` must equal a naive scalar
+        // squared-distance for ALL lengths, including non-multiples of 8.
+        fn scalar_sq_dist(a: &[f32], b: &[f32]) -> f32 {
+            a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum()
+        }
+        for &len in &[0usize, 1, 7, 8, 9, 15, 16, 31, 128, 1000, 1024] {
+            let a: Vec<f32> = (0..len).map(|i| (i as f32 * 0.017).sin() * 3.0).collect();
+            let b: Vec<f32> = (0..len)
+                .map(|i| (i as f32 * 0.029 + 2.0).cos() * 3.0)
+                .collect();
+            let s = scalar_sq_dist(&a, &b);
+            let v = kmeans::sq_dist(&a, &b);
+            assert!(
+                (s - v).abs() <= 1e-3 * (1.0 + s.abs()),
+                "len={len}: simd {v} vs scalar {s}"
+            );
+        }
+    }
+
+    #[test]
     fn train_add_search_self_retrieval() {
         let dim = 64;
         let data = clustered_vecs(5000, dim, 50, 1);
