@@ -1,313 +1,241 @@
 # epistemic-graph
 
 <p align="center">
-  <b>Unified Rust-Native Compute Engine for AI Agent Infrastructure</b><br>
-  <sub>Consolidates graph operations, quantitative finance, data science, AST analysis, and OWL reasoning into a single high-performance binary.</sub>
+  <b>The unified, Rust-native "master-of-all" data & compute engine for AI agent infrastructure</b><br>
+  <sub>Graph · vector · SQL · RDF/SPARQL · OWL-2 · time-series · content-addressed BLOB · full-text · reasoning —
+  one durable engine, one unified planner, from a Raspberry Pi to a replicated cluster.</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.34.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/language-Rust%20%7C%20Python-orange" alt="Language">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
-> **Documentation** — The architecture, service-mode operations, Rust compute
-> reference, measured transport benchmarks, and concept registry for the engine are
-> maintained in the [official documentation](https://knuckles-team.github.io/epistemic-graph/).
+> **Documentation** — The full architecture, the tier/binary map, deployment recipes for every
+> scale, the engine-resolution modes, the service-mode protocol, the Rust compute reference, and the
+> concept registry live in the [official documentation](https://knuckles-team.github.io/epistemic-graph/).
 
-> **This is the compute engine for
-> [`agent-utilities`](https://github.com/Knuckles-Team/agent-utilities)** — a
-> standalone Rust service reached out-of-process over MessagePack/UDS (no PyO3).
-> You can use it on its own (binary + pure-Python client), or let `agent-utilities`
-> drive it. Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-## Architecture
-
-The `epistemic-graph` crate is the **singular computation engine** for the agent-utilities ecosystem. All high-performance operations route through this crate, exposed to Python **out-of-process** over a long-running Tokio service speaking length-prefixed **MessagePack over Unix Domain Sockets (default) or TCP**, authenticated with HMAC-SHA256. There is **no PyO3 / in-process FFI** — the engine runs as a separate process (`maturin` ships it as `bindings = "bin"`), so callers cross a network boundary, not a function call. This is enforced by `scripts/check_no_pyo3.sh`.
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                    epistemic-graph                        │
-│                                                          │
-│  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌───────────┐  │
-│  │  Graph   │  │ Finance  │  │  Data   │  │ Reasoning │  │
-│  │  Core    │  │ Engine   │  │ Science │  │  Engine   │  │
-│  │(petgraph)│  │          │  │         │  │ (Datalog) │  │
-│  └─────────┘  └──────────┘  └─────────┘  └───────────┘  │
-│  ┌─────────┐  ┌──────────┐  ┌─────────┐                 │
-│  │   AST   │  │ Semantic │  │  Algo   │                 │
-│  │ Parser  │  │  Store   │  │ Library │                 │
-│  └─────────┘  └──────────┘  └─────────┘                 │
-│                                                          │
-│  ╔════════════════════════════════════════════════════╗   │
-│  ║  Tokio Server (UDS/TCP + HMAC-SHA256 auth)        ║   │
-│  ╚════════════════════════════════════════════════════╝   │
-│           ↕ length-prefixed MessagePack (UDS / TCP)      │
-│  ╔════════════════════════════════════════════════════╗   │
-│  ║  Python: EpistemicGraph class                     ║   │
-│  ╚════════════════════════════════════════════════════╝   │
-└──────────────────────────────────────────────────────────┘
-```
-
-## Features
-
-### Core Graph Engine (CONCEPT:KG-2.2)
-- **petgraph-backed**: Native-compiled Rust graph structures
-- **Temporal Knowledge Graph (TKG)**: Ebbinghaus Forgetting Curve and fact decay natively integrated
-- **Topological Sort**: Sub-millisecond DAG resolving
-- **DFS Cycle Detection**: Returns precise cycle paths
-- **Shortest Path**: Efficient unweighted BFS traversal
-- **Blast Radius**: Transitive impact analysis to configurable depth
-- **PageRank & PPR**: Centrality computation
-- **Community Detection**: Louvain-style graph clustering
-- **VF2 Subgraph Isomorphism**: Pattern matching queries
-- **Reactive State Ledger**: Transaction log with replay for backend persistence
-
-### Finance Engine (CONCEPT:QF-1.0)
-- **Portfolio Optimization**: Mean-variance (MVO), min-variance, risk-parity, efficient frontier
-- **Risk Metrics**: VaR (historical + Monte Carlo), CVaR, Sortino, Calmar, max drawdown
-- **Regime Detection**: Hidden Markov Model (Baum-Welch + Viterbi)
-- **Signal Generation**: Rolling Z-score, EWMA, momentum, alpha combination, information coefficient
-- **Execution Algorithms**: TWAP/VWAP scheduling, market impact estimation, LOB matching
-- **Pairs Trading**: Spread signal generation and regime-aware position sizing
-
-### Data Science Engine (CONCEPT:DS-1.0)
-- **OLS Regression**: Gradient descent with configurable learning rate and epochs
-- **K-Means Clustering**: Parallel centroid computation
-- **PCA**: Eigenvalue decomposition via power iteration
-- **Dataset Statistics**: Mean, std, min, max, correlation matrix
-- **Estimators**: ridge / lasso / elasticnet / decisiontree / randomforest / gradientboosting / adaboost / svr (replaces sklearn on the hot path)
-- **Training loss / optimizer kernels (CONCEPT:KG-2.22)**: `softmax` / `log_softmax`, `cross_entropy` (+grad), `dpo_loss` (Bradley-Terry, +grads), `grpo_surrogate` (PPO clip, +grad), `kl_divergence` (Schulman k3), `adam_step` / `sgd_step` — the pure-Rust performance path for the in-house training substrate, mirroring `data-science-mcp trainers/objectives.py`. `client.datascience.{...}`.
-
-### Reasoning Engine (CONCEPT:KG-2.23)
-- **Transitive/Symmetric Inference**: Compiled Datalog closures
-- **Domain/Range Rules**: OWL-style type inference
-- **Property Chain Composition**: Multi-hop rule chaining
-
-### AST Parser
-- **Multi-Language**: 9 languages via tree-sitter — Python, Rust, TypeScript, JavaScript, Go, Java, C, C++, C# (`src/parser/tree_sitter.rs::lang_for_path`)
-- **Full Granularity**: Functions, classes, methods, imports stored as `Symbol` nodes
-- **Repository Ingestion**: Directory walker with automatic graph population
+> **This is the compute & storage engine for
+> [`agent-utilities`](https://github.com/Knuckles-Team/agent-utilities)** — a standalone Rust service
+> reached out-of-process over MessagePack/UDS (no PyO3), or embedded in-process. You can run it on its
+> own (binary + pure-Python client), or let `agent-utilities` drive it. Contributing? See
+> [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-## Cargo Feature Flags
+## What it is
 
-| Feature | Description | Dependencies |
-|---------|-------------|--------------|
-| `ast` | Tree-sitter AST parser | `tree-sitter`, language grammars |
-| `finance` | Quantitative finance engine | (pure Rust) |
-| `datascience` | ML primitives | (pure Rust) |
-| `reasoning` | OWL/Datalog reasoning | (pure Rust) |
-| `compute` | All compute features | `finance` + `datascience` + `reasoning` |
-| `server` | Tokio UDS/TCP server | `tokio`, `hmac`, `rmp-serde` |
-| `full` | Everything | `compute` + `server` + `ast` |
-| `all` | Alias for `full` | (same as `full`) |
+`epistemic-graph` collapses what is normally a rack of separate systems — a graph database, a vector
+index, a SQL warehouse, a triple-store + reasoner, a time-series DB, a blob store, a search index — into
+**one durable engine with one unified query planner**. Every modality is a first-class citizen of the
+same `RowSet` algebra, so a single plan can seed candidates from an OWL inference or a SPARQL pattern,
+filter them with SQL, traverse the graph, re-rank by vector similarity *and* BM25 text, fuse the two,
+and run a sandboxed WASM UDF — without ever leaving the engine or marshalling data back to Python.
 
-### Build examples
+It is **durable by default**: built with the `redb` feature (folded into every deployment tier), the
+persist dir is the **authoritative source of truth** and an acked write survives `kill -9`
+(commit-before-ack). It scales by configuration alone — the *same binary family* runs as an embedded
+in-process library on a Pi, a single durable server, or a multi-node Raft cluster with cross-shard
+transactions.
 
-```bash
-# Library only (default, no server)
-cargo build
+### The unified substrate (one engine, every modality)
 
-# With compute modules
-cargo build --features compute
+| Modality | What it gives you | Surfaced as |
+|----------|-------------------|-------------|
+| **Property graph** | petgraph `StableDiGraph` core, traversal, PageRank, centrality, community, VF2, blast-radius | always-on |
+| **Vector / ANN** | native pure-Rust IVF-PQ + OPQ + SQ8-refine index; reopens without rebuilding | `ann` |
+| **SQL** | DataFusion `SELECT` over `nodes`/`edges`, predicate pushdown, cross-modal plans | `query` |
+| **Postgres wire** | psql / BI tools / ORMs speak SQL over pg-wire (SCRAM auth maps to agent identity) | `pgwire` |
+| **RDF / SPARQL** | RDF dataset mapped onto the property graph; SPARQL 1.1 SELECT (oxrdf/spargebra) | `rdf` / `sparql` |
+| **OWL 2 reasoning** | EL⁺ completion + RL rules, classification/consistency, confidence-weighted + time-decayed | `owl` |
+| **Time-series** | native redb-backed TS store: ASOF, gap-fill, time_bucket, OHLC, Ebbinghaus decay | `tsdb` |
+| **Content-addressed BLOB** | streamed CAS bytes tier under multimodal `:Media`/`:Blob` (redb-native or S3) | `blob` |
+| **Full-text** | Tantivy BM25 inverted index, lexical `RankText` + reciprocal-rank fusion | `text` |
+| **GraphQL** | pure-Rust GraphQL read surface compiled to scans + BFS | `graphql` |
+| **Finance / data-science** | portfolio/risk/regime/HFT, OLS/trees/SVR estimators (replaces numpy/sklearn on the hot path) | `finance` / `datascience` |
 
-# Full build including server binary
-cargo build --features full
+All of it sits behind **one `RowSet` planner** whose ops compose freely —
+`Scan · Filter · Traverse · Rank · RankText · FuseRrf · Reason · SparqlBgp · Udf · ForeignScan · AsOf · Window · Foreign · Limit`.
+See **[docs/overview.md](docs/overview.md)** for the pipeline and **[docs/architecture/engine.md](docs/architecture/engine.md)**
+for the full architecture.
 
-# Run all tests
-cargo test --lib --features compute
+---
+
+## Architecture at a glance
+
+```mermaid
+flowchart TB
+    subgraph Clients["Clients"]
+        AU["agent-utilities / graph-os"]
+        PY["epistemic_graph Python client"]
+        PG["psql / BI / ORM"]
+        EMB["Embedded in-process caller (Pi/edge)"]
+    end
+
+    subgraph Engine["epistemic-graph-server (one Rust process)"]
+        T["Transport: length-prefixed MessagePack over UDS / TCP, HMAC-SHA256"]
+        SEC["Security: per-agent RLS + audit chain + encryption-at-rest"]
+        PLAN["Unified RowSet planner (cost-reordered, cross-modal)"]
+        CORE["GraphCore: petgraph + ledger + result cache"]
+
+        subgraph Modalities["Modalities (feature-gated, one core)"]
+            VEC["Vector ANN (eg-ann)"]
+            SQL["SQL (eg-query / DataFusion)"]
+            RDF["RDF / SPARQL / OWL (eg-rdf)"]
+            TS["Time-series (eg-tsdb)"]
+            TXT["Full-text (eg-text)"]
+            BLOB["BLOB CAS (blob)"]
+            WASM["WASM UDF (eg-wasm)"]
+        end
+
+        subgraph Durability["Durability and distribution"]
+            REDB[("redb authoritative store")]
+            RAFT["Multi-Raft replication + cross-shard 2PC (cluster)"]
+            CDC["CDC / streaming / subscriptions"]
+        end
+    end
+
+    AU --> T
+    PY --> T
+    PG --> SQL
+    EMB --> CORE
+    T --> SEC --> PLAN --> CORE
+    CORE --> Modalities
+    CORE --> REDB
+    REDB <--> RAFT
+    CORE --> CDC
 ```
+
+---
+
+## Deployment tiers and the four prebuilt binaries
+
+The same engine ships as a small family of prebuilt, size-optimized binaries (`release-tiny` profile).
+A Pi **pulls a prebuilt wheel and never compiles**. Full build/wheel recipes are in
+**[docs/deployment.md](docs/deployment.md)**; the feature-composition map is in
+**[docs/architecture/tiers.md](docs/architecture/tiers.md)**.
+
+| Binary | Approx. size | Adds over the tier below | For |
+|--------|--------------|--------------------------|-----|
+| **pi** | ~6.46 MB | redb-authoritative + cypher + ann + rdf/sparql/owl + streaming + result-cache + cost (NO DataFusion / Tantivy / Raft) | Raspberry Pi / edge, ultra-lean |
+| **pi-max** | ~6.96 MB | + tsdb + blob + security — **all pure-Rust, still no C toolchain / no DataFusion** | Pi-3 "everything without a C compiler" |
+| **node** | (single-node) | + DataFusion SQL + GraphQL + Tantivy text + wasm-udf + federation (incl. external SQL) + finance/datascience/ast | single durable server |
+| **cluster** | (HA) | + Raft replication + pgwire + distributed Pregel compute + cross-shard 2PC | multi-node HA / SQL clients |
+| **full** | ~58.67 MB | every single-node feature, size-optimized (the "contains-all smallest"; no raft/pgwire) | workstation / one binary, every feature |
+
+Every tier is **redb-authoritative** — the persist dir is a durable source of truth at every scale.
+The stale "tiny = SQLite/LadybugDB" and "L0/L1/L2/L3 tier" vocabulary is gone: **tiny is just the
+auto-started `pi`-tier engine binary** — the engine is the one store at every scale.
+
+---
+
+## Three engine modes + the auto-bundle
+
+`agent-utilities` reaches an engine through **one resolver** (`EngineResolver`, CONCEPT:OS-5.63) by a
+single precedence — no per-entrypoint code:
+
+```
+remote  ->  shared-local  ->  autostart
+```
+
+A configured remote (Docker on another host) is used as-is and never autostarts; a co-located engine
+already serving is reused; otherwise a **detached, supervised** engine is autostarted under a
+first-one-wins lock and **reference-counted idle-shuts-down** after its last client disconnects (or
+runs forever in the persistent lifecycle). Details + the decision flow: **[docs/engine-modes.md](docs/engine-modes.md)**.
+
+For the embedded/edge story, the `embedded` feature gives a SQLite/DuckDB-style in-process handle
+(`EmbeddedEngine`) over the *same* GraphCore + redb durable rows — no Tokio, no socket, no HMAC — the
+"100M agents, a local engine each" path.
+
+---
+
+## Distribution & durability
+
+The architecture is durable and highly-available — what was once a single in-memory process is now a
+replicated source of truth:
+
+- **redb-authoritative by default.** A committed write is fsynced to redb *before* the client is acked
+  (commit-before-ack); an acked write survives a hard crash. Eviction is read-through-safe (an evicted
+  node is served back from redb, never lost), and the writer applies backpressure rather than dropping.
+- **In-engine Raft replication (cluster tier).** `openraft` replicates the authoritative redb store
+  across nodes; the Raft log shares the one `graph.redb` (a log append + its graph mutation coalesce
+  into one fsync). Leader failover is automatic. Off ⇒ the write path is byte-for-byte single-node.
+- **Cross-shard 2PC + online resharding + tenant hibernation.** A transaction spanning multiple Raft
+  groups commits atomically via presumed-abort two-phase commit, surviving coordinator/participant
+  crashes. Tenants reshard with zero downtime (re-point ownership, not copy rows) and cold tenants
+  hibernate to the durable tier, rehydrating on access.
+- **Cross-modal ACID.** A graph mutation + a vector upsert + a blob reference land in **one** redb
+  `WriteTransaction` — all modalities commit together or none do.
+
+> Earlier docs described "no replication, no HA, RPO = checkpoint interval, no WAL". That described the
+> opt-in rebuildable-cache mode (`EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot`) and is no longer the
+> default — the stock engine is a durable, replicable source of truth.
+
+---
+
+## Security & isolation
+
+- **Auth is mandatory.** Every RPC carries `HMAC-SHA256(secret, request_id)`; the server refuses to
+  start with an empty secret (`--allow-insecure` opts out, dev only).
+- **Per-agent Row-Level Security.** Once any identity is registered, the read/plan-path `GraphView` is
+  filtered to the rows the caller may see *before* any query surface (SQL/Cypher/SPARQL/GraphQL/unified)
+  touches it — **no cross-agent leak on any query language**. The result cache keys on the caller's RLS
+  context, so one agent's filtered result is never served to another.
+- **Encryption-at-rest** (`security`): redb durable value blobs are ChaCha20-Poly1305 AEAD-sealed
+  (pure-Rust RustCrypto, no ring/openssl); keys stay plaintext so range scans work.
+- **Hash-chained tamper-evident audit log** over every durable mutation; `AuditVerify` walks it.
+
+See **[docs/service_mode.md](docs/service_mode.md)** for the protocol, auth, and isolation policy.
 
 ---
 
 ## Quickstart
 
-### 1. Installation
-
-```bash
-uv pip install -e .
-# or
-pip install -e .
-```
-
-### 2. Python Usage
-
-The client speaks to the out-of-process engine and exposes capabilities through
-typed namespaces (`g.nodes`, `g.edges`, `g.graph`, `g.finance`, `g.datascience`,
-`g.reasoning`, ...). Use `SyncEpistemicGraphClient` for blocking code or
-`EpistemicGraphClient` for async.
+### Out-of-process (the standard path)
 
 ```python
 from epistemic_graph import SyncEpistemicGraphClient
 
-# Connect to the running engine (starts/attaches to the UDS service)
-g = SyncEpistemicGraphClient()
+g = SyncEpistemicGraphClient()                    # connects/attaches to the UDS engine
 
-# Graph operations
 g.nodes.add("AgentA", {"type": "coordinator"})
 g.nodes.add("AgentB", {"type": "worker"})
 g.edges.add("AgentA", "AgentB", {"weight": 1.5})
-
 print("Order:", g.graph.topological_sort())
-print("Cycle:", g.graph.find_cycle())
 
-# Finance — portfolio optimization
-weights = g.finance.optimize_portfolio([0.1, 0.15, 0.08], [[0.04, 0.01, 0.005], ...], 0.02)
-
-# Finance — risk metrics
+# Finance / data-science compute, all one round-trip each
 metrics = g.finance.risk_metrics([0.01, -0.02, 0.03, -0.005, 0.02])
-
-# Data Science — regression
 coeffs = g.datascience.linear_regression([[1.0, 2.0], [3.0, 4.0]], [3.0, 7.0])
 
-# Reasoning — OWL/RDFS forward chaining (CONCEPT:KG-2.17)
-# Materialises inferred edges/types in-graph and returns the inferred triples.
-result = g.reasoning.reason(
-    subclass_relations=[("Dog", "Animal")],
-    transitive_properties=["ancestor"],
-)
+# OWL/RDFS forward chaining — materialises inferred edges/types in-graph
+result = g.reasoning.reason(subclass_relations=[("Dog", "Animal")],
+                            transitive_properties=["ancestor"])
 print("Inferred:", result["inferred_count"], "triples")
 ```
 
----
+### Embedded in-process (Pi / edge, `embedded` feature)
 
-## Security: Authentication & Tenant Isolation
+The `EmbeddedEngine` handle drives the same GraphCore + redb durable rows with no server, socket, or
+HMAC — open a persist dir and call core ops as plain methods (SQLite/DuckDB-style).
 
-- **Auth is mandatory.** Every request carries an `HMAC-SHA256(secret, request_id)`
-  token. The server **refuses to start with an empty secret** — set
-  `GRAPH_SERVICE_AUTH_SECRET` (or `--auth-secret`). To intentionally run
-  unauthenticated (development only) pass `--allow-insecure` or set
-  `EPISTEMIC_GRAPH_ALLOW_INSECURE=1`; the server then starts with a prominent
-  `SECURITY:` warning naming the bind addresses.
-- **ACLs are enforced in dispatch.** Once any identity is registered
-  (`client.consensus.register_identity`), every graph-targeted operation is
-  checked by the isolation layer (`src/isolation.rs`): peer agent graphs are
-  denied, managers reach subordinate graphs, team graphs are member-read /
-  manager-write, `global:` graphs are read-only, and `__commons__` stays open to
-  all authenticated agents. Callers identify themselves with the optional
-  `agent_id` field (`EpistemicGraphClient.connect(..., agent_id="worker1")`).
-  With **zero registered identities nothing is checked** — single-tenant
-  deployments are unchanged. Violations return `ACCESS_DENIED: ...` errors.
-- **TCP has no TLS.** The optional TCP listener is plaintext; keep it on
-  loopback or behind a TLS-terminating proxy / WireGuard / SSH tunnel.
-
-See [docs/service_mode.md](docs/service_mode.md) for the full protocol,
-policy table, and examples.
-
----
-
-## Engine Internals
-
-Capabilities living in the binary beyond the headline features:
-
-- **HNSW semantic store** (`src/compute/semantic.rs`) — per-graph embedding
-  store with an `hnsw_rs` approximate-nearest-neighbor index for O(log n)
-  cosine search, falling back to brute force below 32 embeddings. Served over
-  the protocol as `AddEmbedding` / `SemanticSearch`; search results are
-  re-weighted by temporal confidence decay (Ebbinghaus) before ranking.
-- **Lock-free heavy compute** (CONCEPT:KG-2.51) — CPU-heavy read-only
-  operations (semantic search, PageRank, betweenness, community detection,
-  MST, similarity edges, VF2, lifecycle metrics) never run while holding the
-  per-graph lock: dispatch takes a cheap structural snapshot
-  (`GraphCore::topology_snapshot` / `analysis_snapshot`) under the read lock
-  and computes on the tokio blocking pool, so a large analytics request no
-  longer stalls writers on that graph. Single-pass O(V+E) ops stay under-lock
-  (a snapshot would cost as much as the computation).
-- **Prometheus metrics** (`src/metrics.rs`, cargo feature `metrics`, on by
-  default; CONCEPT:KG-2.51) — per-op request counters + latency histograms,
-  in-flight / admission-permit gauges, BUSY-rejection counter, per-graph op
-  counters and node/edge gauges (bounded label cardinality), checkpoint
-  duration/timestamp, and auth-failure / ACL-denial counters. Exposed by a
-  dependency-free HTTP listener on `--metrics-addr` /
-  `GRAPH_SERVICE_METRICS_ADDR` (disabled when unset; e.g. `127.0.0.1:9101`),
-  entirely separate from the MessagePack RPC transports.
-- **Parser symbol metadata** (`src/parser/tree_sitter.rs`) — beyond raw
-  symbols, each parse extracts per-symbol metadata (name, kind, line,
-  docstring, argument list) plus import edges, and stamps every symbol with a
-  stable language label so the graph can answer per-language queries
-  ("all Java symbols") and compute per-language metrics.
-- **Spectral clustering** (`src/compute/spectral.rs`) — a normalized-Laplacian
-  spectral cluster navigator. **Source-only today:** the module is not
-  compiled into the crate (excluded from `compute/mod.rs`) and the
-  `SpectralCluster` protocol method returns a deprecation error pointing at
-  the `datascience` primitives (`kmeans`/`pca`).
-- **Hypergraph interaction encoding** (`src/compute/hypergraph.rs`) — a seeded
-  2-layer MLP positional-interaction encoder with an encoder cache, used to
-  embed (position, position) interactions into fixed-width vectors. Compiled,
-  but its `HypergraphEncodeInteraction` protocol method is deprecated in favor
-  of the `datascience` primitives.
-- **Execution orchestrator** (`src/execution/orchestrator.rs`) — scaffold for
-  executing compiled task graphs (topological scheduling of `TaskGraphSpec`).
-  **Not wired into the crate** (no `execution` module in `lib.rs`); orchestration
-  currently lives in agent-utilities, which compiles task graphs client-side.
-
----
-
-## Scaling & HA Reality
-
-What the architecture does and does not give you (measured numbers in
-[docs/benchmarks.md](docs/benchmarks.md)):
-
-- **Sharding is client-side.** Shards are independent server processes, one
-  graph universe each; the Python `ShardRouter` (`epistemic_graph/pool.py`)
-  picks a shard per graph name with rendezvous/HRW hashing over
-  `GRAPH_SERVICE_ENDPOINTS`. There is no server-side coordination, rebalancing,
-  or cross-shard query.
-- **No replication, no HA.** Each graph lives in exactly one process's memory.
-  If a shard dies, its graphs are unavailable until the process restarts and
-  reloads its last snapshot.
-- **RPO = checkpoint interval.** Durability is periodic snapshotting
-  (`--persist-dir`, default every 300 s) plus checkpoint-on-shutdown; a crash
-  loses writes since the last checkpoint. There is no WAL.
-- **The 100M-agent figure is a projection**, not a load test: it assumes
-  ~52 kB resident per agent (measured on bounded 40-node subgraphs), 64 GB RAM
-  per host, and linear shard scaling — arithmetic that yields ~78 hosts.
-
----
-
-## Development & Test
-
-### Run Unit Tests
-```bash
-# Rust tests (29 compute + graph tests)
-cargo test --lib --features compute
-
-# Python tests
-uv run pytest
-```
-
-### Format and Lint
-```bash
-pre-commit run --all-files
-```
+> **Batch, never per-element.** Every out-of-process call is a serialize -> socket -> deserialize round
+> trip, not a function call. Ship work as one batch op over data already in the graph; keep tight
+> per-element math in-process. See [AGENTS.md](AGENTS.md) and [docs/RUST_COMPUTE_GUIDE.md](docs/RUST_COMPUTE_GUIDE.md).
 
 ---
 
 ## Documentation
 
-- [Technical Overview](docs/overview.md) — Rust-side structures and graph algorithm layouts.
-- [Concept Registry](docs/concepts.md) — Registered `CONCEPT` bridges.
-- [AI Agent Handbook](AGENTS.md) — Quick command sheet for coding assistants.
-- [Changelog](CHANGELOG.md) — Progression of updates and releases.
-
----
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `GRAPH_SERVICE_AUTH_SECRET` | HMAC-SHA256 secret for inter-process authentication (**required** — the server refuses to start without it unless the insecure opt-out is set) |
-| `EPISTEMIC_GRAPH_ALLOW_INSECURE` | `1`/`true`: explicit opt-out allowing an empty auth secret (development only; logs a prominent warning) |
-| `GRAPH_SERVICE_SOCKET` | Path to Unix Domain Socket for UDS communication |
-| `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints consumed by the Python `ShardRouter` |
-| `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess load is shed with `BUSY` |
-| `GRAPH_SERVICE_METRICS_ADDR` | Prometheus `/metrics` HTTP listener address (e.g. `127.0.0.1:9101`). Disabled when unset |
-| `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
+- [Technical Overview](docs/overview.md) — the crate DAG, the unified RowSet planner pipeline, the modalities.
+- [Master-of-all engine](docs/architecture/engine.md) — the deep architecture: planner, distribution, security, streaming, federation, multimodal.
+- [Tiers & binaries](docs/architecture/tiers.md) — the feature-composition map and the four prebuilt binaries.
+- [Engine modes](docs/engine-modes.md) — remote -> shared-local -> autostart + the auto-bundle.
+- [Deployment (database)](docs/deployment.md) — Docker / wheels / single-node / HA cluster recipes for every scale.
+- [Service Mode](docs/service_mode.md) — protocol, auth, isolation, metrics.
+- [Cost model & capacity](docs/cost-model.md) — per-tenant memory budget + autoscale signals.
+- [Rust Compute Guide](docs/RUST_COMPUTE_GUIDE.md) · [Transport Benchmarks](docs/benchmarks.md) · [Concept Registry](docs/concepts.md).
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).

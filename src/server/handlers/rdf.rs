@@ -54,7 +54,16 @@ pub(crate) async fn try_handle(
         #[cfg(feature = "rdf")]
         Method::GetRdf => Ok(handle_get_rdf(state, req_id, graph_name, &core).await),
         #[cfg(feature = "sparql")]
-        Method::Sparql { query } => {
+        Method::Sparql {
+            query,
+            base_iri,
+            type_convention,
+        } => {
+            // LPG→RDF projection vocabulary (CONCEPT:KG-2.240). An empty `base_iri` ⇒
+            // the identity projection (verbatim keys), so existing callers are
+            // unchanged; a caller-supplied namespace + CamelCase convention projects
+            // the live property graph into that vocabulary.
+            let proj = eg_rdf::sparql::Projection::from_wire(&base_iri, &type_convention);
             // Off-lock snapshot + blocking-pool idiom, identical to SQL/Cypher.
             // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): a
             // repeated SPARQL on an unchanged graph serves cached bytes; any write
@@ -62,7 +71,10 @@ pub(crate) async fn try_handle(
             // (the agent_id when RLS is active) so agent A's filtered SELECT result is
             // never served to agent B; the snapshot is then RLS-FILTERED to the caller's
             // visible rows BEFORE SPARQL evaluation, so a SELECT can't exfiltrate a
-            // forbidden row.
+            // forbidden row. The key also folds in the projection vocabulary so a raw
+            // and a namespaced query of the SAME text never alias.
+            #[cfg(feature = "result-cache")]
+            let cache_key = format!("{query}\u{0}{base_iri}\u{0}{type_convention}");
             #[cfg(feature = "result-cache")]
             let (snap, version, hash) = {
                 #[cfg(feature = "security")]
@@ -72,11 +84,11 @@ pub(crate) async fn try_handle(
                     } else {
                         "sparql".to_string()
                     };
-                    eg_core::result_cache::ResultCache::hash_query(&kind, query.as_bytes())
+                    eg_core::result_cache::ResultCache::hash_query(&kind, cache_key.as_bytes())
                 };
                 #[cfg(not(feature = "security"))]
                 let hash =
-                    eg_core::result_cache::ResultCache::hash_query("sparql", query.as_bytes());
+                    eg_core::result_cache::ResultCache::hash_query("sparql", cache_key.as_bytes());
                 let (mut snap, version) = core.analysis_snapshot_versioned();
                 if let Some(bytes) = core.result_cache().get(hash, version) {
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
@@ -93,19 +105,22 @@ pub(crate) async fn try_handle(
                 rls.filter_view(caller.unwrap_or(""), &mut snap);
                 snap
             };
-            let resp =
-                match compute_off_lock(req_id, move || eg_rdf::sparql::run(&snap, &query)).await {
-                    Ok(Ok(result)) => {
-                        let (vars, rows) = result.to_rows();
-                        let wire = crate::protocol::SparqlResult { vars, rows };
-                        let bytes = rmp_serde::to_vec_named(&wire).unwrap_or_default();
-                        #[cfg(feature = "result-cache")]
-                        core.result_cache().put(hash, version, bytes.clone());
-                        Response::ok(req_id, ResultPayload::Raw(bytes))
-                    }
-                    Ok(Err(msg)) => Response::err(req_id, format!("SPARQL error: {msg}")),
-                    Err(resp) => resp,
-                };
+            let resp = match compute_off_lock(req_id, move || {
+                eg_rdf::sparql::run_projected(&snap, &query, &proj)
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let (vars, rows) = result.to_rows();
+                    let wire = crate::protocol::SparqlResult { vars, rows };
+                    let bytes = rmp_serde::to_vec_named(&wire).unwrap_or_default();
+                    #[cfg(feature = "result-cache")]
+                    core.result_cache().put(hash, version, bytes.clone());
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("SPARQL error: {msg}")),
+                Err(resp) => resp,
+            };
             Ok(resp)
         }
         #[cfg(feature = "owl")]
