@@ -497,7 +497,7 @@ mod tests {
             assert!(!va.node_properties.contains_key("b_private"));
             assert!(va.node_properties.contains_key("shared_public"));
             assert!(va.node_properties.contains_key("legacy_unowned"));
-            assert!(va.node_map.get("b_private").is_none());
+            assert!(!va.node_map.contains_key("b_private"));
             // The edge touching the hidden node is dropped (no existence leak).
             assert!(!va
                 .edge_properties
