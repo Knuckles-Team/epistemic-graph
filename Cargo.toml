@@ -437,7 +437,14 @@ eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
 
 [profile.release]
 opt-level = 3
-lto = "fat"
+# thin (not fat) LTO. EVIDENCED: the aarch64 wheel cross-build (zig/qemu under
+# maturin-action) fat-LTO-ing the full DataFusion/Tantivy tree exhausts the CI runner —
+# publish-pypi `linux (aarch64)` FAILED on a fat-LTO commit (910633b) and PASSED on the
+# otherwise-identical thin-LTO commit (9682237). thin LTO keeps ~all the runtime perf at
+# a fraction of the link-time memory, so the cross-built `--release` wheels build in CI.
+# (Distinct from the Release Build node-leg failure, which was a duplicate --manylinux
+# arg — fixed in release-build.yml.)
+lto = "thin"
 codegen-units = 1
 # unwind (not abort): the engine is a long-running multi-tenant server — a panic in one
 # request/handler must unwind, NOT abort the whole process and kill every tenant's graph.
