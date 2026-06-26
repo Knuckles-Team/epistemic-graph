@@ -434,6 +434,21 @@ wat = "1"
 # from an integration test (e.g. `tests/pgwire_roundtrip.rs` under `--features cluster`).
 parking_lot = "0.12"
 eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
+# Criterion harness for the write-coalescer contention bench (CONCEPT:EG-012).
+# DEV-only — never linked into the engine binary; zero release-build impact.
+criterion = "0.5"
+
+# Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-012): N
+# concurrent producers fan single-op writes into ONE graph, swept across the batch
+# window so the lock-acquisition / throughput contention curve is visible. The
+# coalescer is Tokio-based and lives behind the `server` feature, so this bench is
+# gated to it (a default `cargo check --benches` skips it). Flamegraph-ready via
+# `cargo flamegraph --features server --bench write_coalescer_bench`.
+[[bench]]
+name = "write_coalescer_bench"
+path = "benches/write_coalescer_bench.rs"
+harness = false
+required-features = ["server"]
 
 [profile.release]
 opt-level = 3

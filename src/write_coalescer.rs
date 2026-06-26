@@ -37,7 +37,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use tokio::sync::{mpsc, oneshot};
@@ -165,7 +165,10 @@ impl Default for CoalescerConfig {
 /// Per-graph write coalescer: a bounded channel + one drain worker over a graph's
 /// [`GraphCore`]. Cloneable via `Arc`; held in [`WriteCoalescerRegistry`].
 pub struct GraphWriter {
-    tx: mpsc::Sender<WriteOp>,
+    // CONCEPT:EG-011 — the channel carries the op's enqueue `Instant` alongside it so
+    // the worker can record `write_lock_wait` = (lock acquired − enqueued). Stamped in
+    // `try_enqueue`/`apply_one_inline`, so producer call sites are unchanged.
+    tx: mpsc::Sender<(Instant, WriteOp)>,
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
 }
@@ -174,7 +177,7 @@ impl GraphWriter {
     /// Spawn the drain worker for `core` (one Tokio task that owns the receiver and
     /// the only writer of this graph's topology lock on the coalesced path).
     pub fn spawn(graph_name: String, core: Arc<GraphCore>, config: CoalescerConfig) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel::<WriteOp>(config.queue_capacity);
+        let (tx, rx) = mpsc::channel::<(Instant, WriteOp)>(config.queue_capacity);
         let stats = Arc::new(BatchStats::default());
         tokio::spawn(run_worker(graph_name, core, rx, config, stats.clone()));
         Arc::new(Self { tx, config, stats })
@@ -195,10 +198,12 @@ impl GraphWriter {
     ///   the op (still owning its reply sender) is handed BACK so the caller applies
     ///   it inline and replies itself. Coalescing is an optimization, never a stall.
     pub fn try_enqueue(&self, op: WriteOp) -> Result<(), WriteOp> {
-        match self.tx.try_send(op) {
+        // CONCEPT:EG-011 — stamp the enqueue instant here (the moment the producer
+        // hands the op off) so the worker measures the true enqueue→acquire wait.
+        match self.tx.try_send((Instant::now(), op)) {
             Ok(()) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(op))
-            | Err(mpsc::error::TrySendError::Closed(op)) => Err(op),
+            Err(mpsc::error::TrySendError::Full((_, op)))
+            | Err(mpsc::error::TrySendError::Closed((_, op))) => Err(op),
         }
     }
 
@@ -208,7 +213,9 @@ impl GraphWriter {
     /// same channel whether the op was batched or applied inline. Counted in the
     /// same stats as the batched path.
     pub fn apply_one_inline(&self, core: &Arc<GraphCore>, graph_name: &str, op: WriteOp) {
-        apply_batch(core, graph_name, vec![op], &self.stats);
+        // CONCEPT:EG-011 — stamp now; the inline fallback acquires the lock essentially
+        // immediately, so its recorded wait reflects only the (tiny) acquire cost.
+        apply_batch(core, graph_name, vec![(Instant::now(), op)], &self.stats);
     }
 
     /// The active batch size, for diagnostics/tests.
@@ -221,11 +228,12 @@ impl GraphWriter {
 async fn run_worker(
     graph_name: String,
     core: Arc<GraphCore>,
-    mut rx: mpsc::Receiver<WriteOp>,
+    mut rx: mpsc::Receiver<(Instant, WriteOp)>,
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
 ) {
-    let mut batch: Vec<WriteOp> = Vec::with_capacity(config.max_batch);
+    // CONCEPT:EG-011 — each entry carries its enqueue instant (set by `try_enqueue`).
+    let mut batch: Vec<(Instant, WriteOp)> = Vec::with_capacity(config.max_batch);
     while let Some(first) = rx.recv().await {
         batch.push(first);
 
@@ -261,13 +269,32 @@ async fn run_worker(
 /// Apply a whole batch under ONE `core.txn()` (one `topo.write()` acquisition),
 /// replying on each op's oneshot. The single guard makes the batch atomic w.r.t.
 /// other writers/readers — same as a single inline op, just amortized.
-fn apply_batch(core: &Arc<GraphCore>, graph_name: &str, batch: Vec<WriteOp>, stats: &BatchStats) {
+fn apply_batch(
+    core: &Arc<GraphCore>,
+    graph_name: &str,
+    batch: Vec<(Instant, WriteOp)>,
+    stats: &BatchStats,
+) {
     if batch.is_empty() {
         return;
     }
     let n = batch.len();
+    // CONCEPT:EG-011 — span the batch apply so the hot write path is a trace span
+    // carrying the graph + batch size (mirrors the AST/ANN phase spans).
+    let _span = tracing::debug_span!("write_coalescer.apply_batch", graph = graph_name, batch = n)
+        .entered();
     let mut txn = core.txn(); // ← the SINGLE lock acquisition for the whole batch.
-    for op in batch {
+    // CONCEPT:EG-011 — the topology write lock is now HELD. Record each op's wait
+    // (enqueue → acquire) = the starvation it paid behind the firehose, then time the
+    // hold window (acquire → release) = the contention readers/other writers block on.
+    let acquired = Instant::now();
+    for (enqueued, _) in &batch {
+        crate::metrics::observe_write_lock_wait(
+            graph_name,
+            acquired.saturating_duration_since(*enqueued).as_secs_f64(),
+        );
+    }
+    for (_, op) in batch {
         match op {
             WriteOp::AddNode {
                 node_id,
@@ -313,6 +340,8 @@ fn apply_batch(core: &Arc<GraphCore>, graph_name: &str, batch: Vec<WriteOp>, sta
         }
     }
     drop(txn); // release the lock; reads + the next batch can proceed.
+    // CONCEPT:EG-011 — hold = acquire → release: the window readers were blocked.
+    crate::metrics::observe_write_lock_hold(graph_name, acquired.elapsed().as_secs_f64());
     stats.record(n);
     crate::metrics::write_batch_committed(graph_name, n);
 }

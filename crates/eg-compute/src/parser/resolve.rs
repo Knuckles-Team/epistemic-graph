@@ -76,6 +76,11 @@ struct ClassDef {
 /// Parse a batch of `(file_path, source_bytes)` and resolve cross-file edges in
 /// one pass. The batch IS the resolution scope: a repository (or a delta set)
 /// should be shipped together so intra-repo calls/imports resolve.
+// CONCEPT:EG-011 — span the parse+resolve indexing pass (AST throughput trace).
+#[tracing::instrument(
+    skip(files),
+    fields(n_files = files.len(), total_bytes = files.iter().map(|(_, b)| b.len()).sum::<usize>())
+)]
 pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
     let results = super::tree_sitter::parse_files(files);
     resolve(files, &results)

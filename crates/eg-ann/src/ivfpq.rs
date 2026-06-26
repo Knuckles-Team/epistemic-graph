@@ -123,6 +123,11 @@ pub struct IvfPq {
 impl IvfPq {
     /// Train the OPQ rotation + coarse + PQ codebooks on a representative sample.
     /// Returns an empty (no rows) index ready for `add`.
+    // CONCEPT:EG-011 — span ANN index-build (train) throughput; no-op without a subscriber.
+    #[tracing::instrument(
+        skip(params, training),
+        fields(n_training = training.len(), nlist = params.nlist, m = params.m)
+    )]
     pub fn train(params: &IvfPqParams, training: &[Vec<f32>]) -> Self {
         let dim = params.dim;
         assert!(
@@ -237,6 +242,8 @@ impl IvfPq {
 
     /// Encode + append a batch of `(id, vector)`. Append-only IVF-list insert — no
     /// rebuild. Both the PQ code and the SQ8 refine row are written.
+    // CONCEPT:EG-011 — span ANN incremental-build (add) throughput; no-op without a subscriber.
+    #[tracing::instrument(skip(self, items), fields(n_items = items.len(), dim = self.dim))]
     pub fn add(&mut self, items: &[(u64, Vec<f32>)]) {
         let dim = self.dim;
         let encoded: Vec<EncodedRow> = items

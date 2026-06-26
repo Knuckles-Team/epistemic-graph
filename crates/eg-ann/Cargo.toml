@@ -22,6 +22,9 @@ rand_chacha = "0.3"
 # Durable codes tier — reuse the engine's embedded KV. OFF by default; only the
 # mmap file format is in the default build. Folded into the `redb` facade feature.
 redb = { version = "4.1", optional = true }
+# Lightweight tracing spans for ANN train/add throughput (CONCEPT:EG-011). The
+# `tracing` facade is a no-op unless a subscriber is installed (zero default cost).
+tracing = "0.1"
 
 [features]
 default = []
