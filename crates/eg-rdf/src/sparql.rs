@@ -56,6 +56,132 @@ impl Binding {
     }
 }
 
+/// LPG→RDF projection vocabulary (CONCEPT:KG-2.240). Controls how the live property
+/// graph is projected into RDF terms during SPARQL evaluation. The engine stays
+/// GENERAL — it hardcodes NO ontology URL; the namespace + class-naming convention
+/// are supplied by the caller (e.g. agent-utilities passes its `au:` namespace +
+/// CamelCase so the engine projection matches its rdflib materialization).
+///
+/// [`Projection::raw`] (the default) is the IDENTITY projection: node-type and
+/// property keys are emitted verbatim and `rdf:type` is NOT synthesized from the node
+/// `type` field (it comes only from explicit typing edges, the prior behavior). When
+/// a `base_iri` is set, native LPG keys are projected under it; with `camel_type` the
+/// `rdf:type` object local name is CamelCased.
+#[derive(Clone, Debug, Default)]
+pub struct Projection {
+    /// Base namespace IRI for projected node/property/type local names. `None` ⇒
+    /// identity (the key is already a complete term, e.g. an RDF-loaded `<iri>`).
+    pub base_iri: Option<String>,
+    /// CamelCase the `rdf:type` object local name (matches AU's `.title()` mapping).
+    pub camel_type: bool,
+}
+
+/// The `rdf:type` predicate IRI (bare, no angle brackets — predicates compare bare).
+const RDF_TYPE_IRI: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+
+impl Projection {
+    /// The identity projection (verbatim keys, no `rdf:type` synthesis).
+    pub fn raw() -> Self {
+        Self::default()
+    }
+
+    /// Build from the wire `(base_iri, type_convention)` pair. An empty `base_iri`
+    /// ⇒ identity. `type_convention == "camel"` ⇒ CamelCase the `rdf:type` object.
+    pub fn from_wire(base_iri: &str, type_convention: &str) -> Self {
+        if base_iri.is_empty() {
+            return Self::raw();
+        }
+        Self {
+            base_iri: Some(base_iri.to_string()),
+            camel_type: type_convention.eq_ignore_ascii_case("camel"),
+        }
+    }
+
+    /// Project a graph node KEY to its subject/object binding string. Identity returns
+    /// the key verbatim (RDF-loaded ids are already `<iri>`). Namespaced wraps a BARE
+    /// local id as `<base + id_with_spaces_underscored>` (matching AU's `_uri`), but
+    /// passes through a key that is already a term (`<iri>` / `_:bnode`).
+    fn node_iri(&self, key: &str) -> String {
+        match &self.base_iri {
+            None => key.to_string(),
+            Some(base) => {
+                if key.starts_with('<') || key.starts_with("_:") {
+                    key.to_string()
+                } else {
+                    format!("<{}{}>", base, key.replace(' ', "_"))
+                }
+            }
+        }
+    }
+
+    /// Project a property / edge-relation KEY to its predicate IRI (bare — predicates
+    /// compare without angle brackets). Identity returns it verbatim; namespaced
+    /// prefixes a BARE key but passes through one that is already an IRI.
+    fn pred_iri(&self, key: &str) -> String {
+        match &self.base_iri {
+            None => key.to_string(),
+            Some(base) => {
+                if key.contains("://") || key.starts_with("urn:") {
+                    key.to_string()
+                } else {
+                    format!("{base}{key}")
+                }
+            }
+        }
+    }
+
+    /// Project the `rdf:type` OBJECT (the node `type` value) to its class binding
+    /// string. `None` in identity mode (no synthesis — `rdf:type` is edge-sourced).
+    /// Namespaced: `<base + CamelCase(type)>` when `camel_type`, else the verbatim
+    /// (space-underscored) local name.
+    fn type_object_iri(&self, ty: &str) -> Option<String> {
+        let base = self.base_iri.as_ref()?;
+        let local = if self.camel_type {
+            camel_case(ty)
+        } else {
+            ty.replace(' ', "_")
+        };
+        Some(format!("<{base}{local}>"))
+    }
+}
+
+/// CamelCase a local name to mirror AU's `s.replace(" ", "_").title().replace("_", "")`
+/// (e.g. `agent` → `Agent`, `world_model` → `WorldModel`). A letter is uppercased when
+/// it follows a non-letter (word start), else lowercased; non-letters are kept then the
+/// underscores are removed.
+fn camel_case(s: &str) -> String {
+    let pre = s.replace(' ', "_");
+    let mut out = String::with_capacity(pre.len());
+    let mut prev_is_alpha = false;
+    for c in pre.chars() {
+        if c.is_alphabetic() {
+            if prev_is_alpha {
+                out.extend(c.to_lowercase());
+            } else {
+                out.extend(c.to_uppercase());
+            }
+            prev_is_alpha = true;
+        } else {
+            out.push(c);
+            prev_is_alpha = false;
+        }
+    }
+    out.replace('_', "")
+}
+
+/// Extract the lexical value of a node property cell. A typed RDF cell is the JSON
+/// object `{value, datatype, lang}` (the `AddTriples` shape); a native-LPG scalar is a
+/// bare string / number / bool. Arrays / objects-without-`value` / null ⇒ `None`.
+fn cell_lexical(cell: &serde_json::Value) -> Option<String> {
+    match cell {
+        serde_json::Value::Object(m) => m.get("value").and_then(|v| v.as_str()).map(String::from),
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
 /// A materialized SELECT result: the projected variable order + the solution rows.
 #[derive(Debug, Clone)]
 pub struct SparqlResult {
@@ -87,17 +213,32 @@ pub fn parse_query(q: &str) -> Result<Query, String> {
     Query::parse(q, None).map_err(|e| format!("sparql parse: {e}"))
 }
 
-/// Parse + evaluate a SPARQL SELECT over the GraphView in one call.
+/// Parse + evaluate a SPARQL SELECT over the GraphView in one call, using the IDENTITY
+/// LPG→RDF projection (verbatim keys). See [`run_projected`] to supply a vocabulary.
 pub fn run(view: &GraphView, query_str: &str) -> Result<SparqlResult, String> {
-    let q = parse_query(query_str)?;
-    evaluate(view, &q)
+    run_projected(view, query_str, &Projection::raw())
 }
 
-/// Evaluate a parsed SELECT query over the GraphView.
-pub fn evaluate(view: &GraphView, query: &Query) -> Result<SparqlResult, String> {
+/// Parse + evaluate a SPARQL SELECT, projecting the live property graph into RDF terms
+/// under `proj` (CONCEPT:KG-2.240). With [`Projection::raw`] this equals [`run`].
+pub fn run_projected(
+    view: &GraphView,
+    query_str: &str,
+    proj: &Projection,
+) -> Result<SparqlResult, String> {
+    let q = parse_query(query_str)?;
+    evaluate(view, &q, proj)
+}
+
+/// Evaluate a parsed SELECT query over the GraphView under the projection `proj`.
+pub fn evaluate(
+    view: &GraphView,
+    query: &Query,
+    proj: &Projection,
+) -> Result<SparqlResult, String> {
     match query {
         Query::Select { pattern, .. } => {
-            let solutions = eval_pattern(view, pattern)?;
+            let solutions = eval_pattern(view, pattern, proj)?;
             let vars = collect_vars(pattern);
             Ok(SparqlResult { vars, solutions })
         }
@@ -117,24 +258,28 @@ fn collect_vars(p: &GraphPattern) -> Vec<String> {
 }
 
 /// The algebra walker.
-fn eval_pattern(view: &GraphView, p: &GraphPattern) -> Result<Vec<Solution>, String> {
+fn eval_pattern(
+    view: &GraphView,
+    p: &GraphPattern,
+    proj: &Projection,
+) -> Result<Vec<Solution>, String> {
     match p {
-        GraphPattern::Bgp { patterns } => Ok(eval_bgp(view, patterns)),
+        GraphPattern::Bgp { patterns } => Ok(eval_bgp(view, patterns, proj)),
         GraphPattern::Path {
             subject,
             path,
             object,
-        } => eval_path(view, subject, path, object),
+        } => eval_path(view, subject, path, object, proj),
         GraphPattern::Filter { expr, inner } => {
-            let inner_sols = eval_pattern(view, inner)?;
+            let inner_sols = eval_pattern(view, inner, proj)?;
             Ok(inner_sols
                 .into_iter()
                 .filter(|s| eval_filter(expr, s))
                 .collect())
         }
         GraphPattern::Join { left, right } => {
-            let l = eval_pattern(view, left)?;
-            let r = eval_pattern(view, right)?;
+            let l = eval_pattern(view, left, proj)?;
+            let r = eval_pattern(view, right, proj)?;
             Ok(hash_join(&l, &r))
         }
         GraphPattern::LeftJoin {
@@ -144,17 +289,17 @@ fn eval_pattern(view: &GraphView, p: &GraphPattern) -> Result<Vec<Solution>, Str
         } => {
             // OPTIONAL: keep every left solution; extend with a compatible right
             // (passing the optional FILTER) where one exists.
-            let l = eval_pattern(view, left)?;
-            let r = eval_pattern(view, right)?;
+            let l = eval_pattern(view, left, proj)?;
+            let r = eval_pattern(view, right, proj)?;
             Ok(left_join(&l, &r, expression.as_ref()))
         }
         GraphPattern::Union { left, right } => {
-            let mut l = eval_pattern(view, left)?;
-            let mut r = eval_pattern(view, right)?;
+            let mut l = eval_pattern(view, left, proj)?;
+            let mut r = eval_pattern(view, right, proj)?;
             l.append(&mut r);
             Ok(l)
         }
-        GraphPattern::Project { inner, .. } => eval_pattern(view, inner),
+        GraphPattern::Project { inner, .. } => eval_pattern(view, inner, proj),
         // GROUP BY + aggregates (CONCEPT:KG-2.235). `Group` produces one solution per
         // group binding the GROUP BY vars + the aggregate-result vars; the wrapping
         // `Extend` (below) re-binds those to the projected names. With no GROUP BY var
@@ -164,7 +309,7 @@ fn eval_pattern(view: &GraphView, p: &GraphPattern) -> Result<Vec<Solution>, Str
             variables,
             aggregates,
         } => {
-            let rows = eval_pattern(view, inner)?;
+            let rows = eval_pattern(view, inner, proj)?;
             Ok(eval_group(rows, variables, aggregates))
         }
         // BIND / the aggregate-projection rename. `Extend` binds `variable` to the
@@ -176,7 +321,7 @@ fn eval_pattern(view: &GraphView, p: &GraphPattern) -> Result<Vec<Solution>, Str
             variable,
             expression,
         } => {
-            let rows = eval_pattern(view, inner)?;
+            let rows = eval_pattern(view, inner, proj)?;
             Ok(rows
                 .into_iter()
                 .map(|mut s| {
@@ -192,7 +337,7 @@ fn eval_pattern(view: &GraphView, p: &GraphPattern) -> Result<Vec<Solution>, Str
         // name and evaluates the inner pattern against it. A constant graph IRI passes
         // through (it selects the same single dataset).
         GraphPattern::Graph { name, inner } => {
-            let inner_sols = eval_pattern(view, inner)?;
+            let inner_sols = eval_pattern(view, inner, proj)?;
             match name {
                 NamedNodePattern::Variable(v) => {
                     // ONE dataset here: `?g` binds the (single) request graph's IRI.
@@ -210,18 +355,18 @@ fn eval_pattern(view: &GraphView, p: &GraphPattern) -> Result<Vec<Solution>, Str
         }
         GraphPattern::Distinct { inner } => {
             let mut seen = std::collections::HashSet::new();
-            Ok(eval_pattern(view, inner)?
+            Ok(eval_pattern(view, inner, proj)?
                 .into_iter()
                 .filter(|s| seen.insert(canonical_solution(s)))
                 .collect())
         }
-        GraphPattern::Reduced { inner } => eval_pattern(view, inner),
+        GraphPattern::Reduced { inner } => eval_pattern(view, inner, proj),
         GraphPattern::Slice {
             inner,
             start,
             length,
         } => {
-            let all = eval_pattern(view, inner)?;
+            let all = eval_pattern(view, inner, proj)?;
             let end = length.map(|l| start + l).unwrap_or(all.len());
             Ok(all
                 .into_iter()
@@ -374,10 +519,10 @@ fn fmt_num(n: f64) -> String {
 
 // ── BGP — match each triple pattern, join on shared variables ───────────────────
 
-fn eval_bgp(view: &GraphView, patterns: &[TriplePattern]) -> Vec<Solution> {
+fn eval_bgp(view: &GraphView, patterns: &[TriplePattern], proj: &Projection) -> Vec<Solution> {
     let mut acc: Vec<Solution> = vec![Solution::new()];
     for tp in patterns {
-        let matches = match_triple_pattern(view, tp);
+        let matches = match_triple_pattern(view, tp, proj);
         let mut next = Vec::new();
         for base in &acc {
             for m in &matches {
@@ -405,6 +550,7 @@ fn eval_path(
     subject: &TermPattern,
     path: &PropertyPathExpression,
     object: &TermPattern,
+    proj: &Projection,
 ) -> Result<Vec<Solution>, String> {
     // A single named predicate stays the literal/edge triple-pattern matcher (it also
     // matches literal-valued predicates, which the resource-only path engine doesn't).
@@ -415,12 +561,12 @@ fn eval_path(
             predicate: NamedNodePattern::NamedNode(pred),
             object: object.clone(),
         };
-        return Ok(match_triple_pattern(view, &tp));
+        return Ok(match_triple_pattern(view, &tp, proj));
     }
 
     // The combinator forms resolve over RESOURCE edges (a property path connects nodes,
     // not literals). Enumerate the connected pairs, then bind the subject/object terms.
-    let pairs = path_pairs(view, path)?;
+    let pairs = path_pairs(view, path, proj)?;
     let mut out = Vec::new();
     for (s, o) in pairs {
         let mut sol = Solution::new();
@@ -448,16 +594,17 @@ fn eval_path(
 fn path_pairs(
     view: &GraphView,
     path: &PropertyPathExpression,
+    proj: &Projection,
 ) -> Result<Vec<(String, String)>, String> {
     Ok(match path {
-        PropertyPathExpression::NamedNode(n) => edge_pairs(view, n.as_str()),
-        PropertyPathExpression::Reverse(inner) => path_pairs(view, inner)?
+        PropertyPathExpression::NamedNode(n) => edge_pairs(view, n.as_str(), proj),
+        PropertyPathExpression::Reverse(inner) => path_pairs(view, inner, proj)?
             .into_iter()
             .map(|(s, o)| (o, s))
             .collect(),
         PropertyPathExpression::Sequence(a, b) => {
-            let left = path_pairs(view, a)?;
-            let right = path_pairs(view, b)?;
+            let left = path_pairs(view, a, proj)?;
+            let right = path_pairs(view, b, proj)?;
             let mut out = Vec::new();
             for (s, mid) in &left {
                 for (rs, o) in &right {
@@ -469,23 +616,24 @@ fn path_pairs(
             dedup_pairs(out)
         }
         PropertyPathExpression::Alternative(a, b) => {
-            let mut out = path_pairs(view, a)?;
-            out.extend(path_pairs(view, b)?);
+            let mut out = path_pairs(view, a, proj)?;
+            out.extend(path_pairs(view, b, proj)?);
             dedup_pairs(out)
         }
         PropertyPathExpression::OneOrMore(inner) => {
-            let base = path_pairs(view, inner)?;
-            transitive_closure(&base, false, view)
+            let base = path_pairs(view, inner, proj)?;
+            transitive_closure(&base, false, view, proj)
         }
         PropertyPathExpression::ZeroOrMore(inner) => {
-            let base = path_pairs(view, inner)?;
-            transitive_closure(&base, true, view)
+            let base = path_pairs(view, inner, proj)?;
+            transitive_closure(&base, true, view, proj)
         }
         PropertyPathExpression::ZeroOrOne(inner) => {
-            let mut out = path_pairs(view, inner)?;
+            let mut out = path_pairs(view, inner, proj)?;
             // identity on every node (`x p? x`).
             for id in view.node_properties.keys() {
-                out.push((id.clone(), id.clone()));
+                let iri = proj.node_iri(id);
+                out.push((iri.clone(), iri));
             }
             dedup_pairs(out)
         }
@@ -495,15 +643,19 @@ fn path_pairs(
     })
 }
 
-/// Every `(subject, object)` resource pair carrying a typed edge `pred`.
-fn edge_pairs(view: &GraphView, pred: &str) -> Vec<(String, String)> {
+/// Every `(subject, object)` resource pair carrying a typed edge whose projected
+/// predicate IRI equals `pred` (the path predicate, already a full IRI from spargebra).
+/// Subject/object are projected node IRIs so pairs match query terms + bind consistently.
+fn edge_pairs(view: &GraphView, pred: &str, proj: &Projection) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
             if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                if v.get("type").and_then(|x| x.as_str()) == Some(pred) {
-                    out.push((s.clone(), o.clone()));
-                    break;
+                if let Some(rel) = v.get("type").and_then(|x| x.as_str()) {
+                    if proj.pred_iri(rel) == pred {
+                        out.push((proj.node_iri(s), proj.node_iri(o)));
+                        break;
+                    }
                 }
             }
         }
@@ -517,6 +669,7 @@ fn transitive_closure(
     base: &[(String, String)],
     reflexive: bool,
     view: &GraphView,
+    proj: &Projection,
 ) -> Vec<(String, String)> {
     use std::collections::{HashMap, HashSet};
     // adjacency.
@@ -543,7 +696,8 @@ fn transitive_closure(
     }
     if reflexive {
         for id in view.node_properties.keys() {
-            out.insert((id.clone(), id.clone()));
+            let iri = proj.node_iri(id);
+            out.insert((iri.clone(), iri));
         }
     }
     out.into_iter().collect()
@@ -555,58 +709,84 @@ fn dedup_pairs(v: Vec<(String, String)>) -> Vec<(String, String)> {
     v.into_iter().filter(|p| seen.insert(p.clone())).collect()
 }
 
-/// Resolve ONE triple pattern against the GraphView. Predicate may be an IRI or a
-/// variable; object an IRI/literal/variable; subject an IRI/bnode/variable.
-fn match_triple_pattern(view: &GraphView, tp: &TriplePattern) -> Vec<Solution> {
+/// Resolve ONE triple pattern against the GraphView under the LPG→RDF projection
+/// `proj`. Predicate may be an IRI or a variable; object an IRI/literal/variable;
+/// subject an IRI/bnode/variable. Subject/object resource IRIs, property/edge predicate
+/// IRIs, and the synthesized `rdf:type` object are all produced by `proj` so the
+/// projected triples match the caller's vocabulary (CONCEPT:KG-2.240).
+fn match_triple_pattern(view: &GraphView, tp: &TriplePattern, proj: &Projection) -> Vec<Solution> {
     let mut out = Vec::new();
 
-    // EDGE patterns: object is a resource. Scan edges.
+    // EDGE patterns: object is a resource. Scan edges; project subject/predicate/object.
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
             let v: serde_json::Value = match rmp_serde::from_slice(blob.as_slice()) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            let Some(pred) = v.get("type").and_then(|x| x.as_str()) else {
+            let Some(rel) = v.get("type").and_then(|x| x.as_str()) else {
                 continue;
             };
             let mut sol = Solution::new();
-            if !bind_subject(&tp.subject, s, &mut sol) {
+            if !bind_subject(&tp.subject, &proj.node_iri(s), &mut sol) {
                 continue;
             }
-            if !bind_predicate_iri(&tp.predicate, pred, &mut sol) {
+            if !bind_predicate_iri(&tp.predicate, &proj.pred_iri(rel), &mut sol) {
                 continue;
             }
-            if !bind_object_node(&tp.object, o, &mut sol) {
+            if !bind_object_node(&tp.object, &proj.node_iri(o), &mut sol) {
                 continue;
             }
             out.push(sol);
         }
     }
 
-    // LITERAL patterns: object is a literal. Scan node property cells.
+    // NODE patterns: scan node property cells.
     for (id, blob) in &view.node_properties {
         let v: serde_json::Value = match rmp_serde::from_slice(blob.as_slice()) {
             Ok(v) => v,
             Err(_) => continue,
         };
         let Some(obj) = v.as_object() else { continue };
+        let subj_iri = proj.node_iri(id);
+
+        // `rdf:type` synthesis from the node `type`/`node_type` field. In the IDENTITY
+        // projection this is `None` (no synthesis — `rdf:type` comes from explicit
+        // typing edges, the prior behavior). Under a namespaced projection it yields
+        // `<subj> rdf:type <base + CamelCase(type)>`, matching AU's materialization.
+        if let Some(ty) = obj
+            .get("type")
+            .or_else(|| obj.get("node_type"))
+            .and_then(|x| x.as_str())
+        {
+            if let Some(type_obj) = proj.type_object_iri(ty) {
+                let mut sol = Solution::new();
+                if bind_subject(&tp.subject, &subj_iri, &mut sol)
+                    && bind_predicate_iri(&tp.predicate, RDF_TYPE_IRI, &mut sol)
+                    && bind_object_node(&tp.object, &type_obj, &mut sol)
+                {
+                    out.push(sol);
+                }
+            }
+        }
+
+        // LITERAL patterns: each scalar / typed-cell property → a literal triple.
         for (k, cell) in obj {
-            // `type` is exported as an rdf:type edge separately; skip here.
-            if k == "type" {
+            // `type`/`node_type` are emitted as `rdf:type` (above) / engine bookkeeping.
+            if k == "type" || k == "node_type" {
                 continue;
             }
-            let Some(lit_val) = cell.get("value").and_then(|x| x.as_str()) else {
+            let Some(lit_val) = cell_lexical(cell) else {
                 continue;
             };
             let mut sol = Solution::new();
-            if !bind_subject(&tp.subject, id, &mut sol) {
+            if !bind_subject(&tp.subject, &subj_iri, &mut sol) {
                 continue;
             }
-            if !bind_predicate_iri(&tp.predicate, k, &mut sol) {
+            if !bind_predicate_iri(&tp.predicate, &proj.pred_iri(k), &mut sol) {
                 continue;
             }
-            if !bind_object_literal(&tp.object, lit_val, &mut sol) {
+            if !bind_object_literal(&tp.object, &lit_val, &mut sol) {
                 continue;
             }
             out.push(sol);
@@ -1066,5 +1246,201 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         let s = &res.solutions[0];
         assert_eq!(s.get("name").unwrap().as_str(), "Alice");
         assert_eq!(s.get("g").unwrap().as_str(), DEFAULT_GRAPH_IRI);
+    }
+
+    // ── CONCEPT:KG-2.240 — LPG→RDF projection vocabulary ────────────────────────
+
+    /// The AU namespace + CamelCase projection — exactly what agent-utilities passes.
+    const AU_NS: &str = "http://agent-utilities.dev/ontology#";
+    fn au_proj() -> Projection {
+        Projection::from_wire(AU_NS, "camel")
+    }
+
+    /// A NATIVE property-graph view (the `add_node`/`add_edge` shape AU writes, NOT the
+    /// `AddTriples` RDF shape): node `type`/`name` are bare scalars, the edge is typed
+    /// `knows`. `alice` is an `agent`, `bob` a `world_model` (a multi-word type, to
+    /// exercise CamelCase). `alice knows bob`.
+    fn native_view() -> GraphView {
+        let core = eg_core::graph::GraphCore::new();
+        let mut txn = core.txn();
+        txn.add_node(
+            "alice".into(),
+            rmp_serde::to_vec_named(&serde_json::json!({"type":"agent","name":"Alice"})).unwrap(),
+        );
+        txn.add_node(
+            "bob".into(),
+            rmp_serde::to_vec_named(&serde_json::json!({"type":"world_model","name":"Bob"}))
+                .unwrap(),
+        );
+        txn.add_edge(
+            "alice".into(),
+            "bob".into(),
+            rmp_serde::to_vec_named(&serde_json::json!({"type":"knows"})).unwrap(),
+        )
+        .unwrap();
+        drop(txn);
+        core.analysis_snapshot()
+    }
+
+    /// `?s rdf:type au:Agent` resolves natively over the LPG — the original failure.
+    /// `agent`→`au:Agent` (CamelCase), so only alice matches; `world_model`→
+    /// `au:WorldModel`, so bob matches that class instead.
+    #[test]
+    fn projection_rdf_type_by_class() {
+        let view = native_view();
+        let proj = au_proj();
+        let res = run_projected(
+            &view,
+            "PREFIX au: <http://agent-utilities.dev/ontology#>\
+             SELECT ?s WHERE { ?s a au:Agent }",
+            &proj,
+        )
+        .unwrap();
+        let subs: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("s").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(
+            subs,
+            vec![format!("<{AU_NS}alice>")],
+            "only the agent-typed node is an au:Agent; got {subs:?}"
+        );
+
+        // The multi-word type CamelCases: bob is an au:WorldModel.
+        let res2 = run_projected(
+            &view,
+            "PREFIX au: <http://agent-utilities.dev/ontology#>\
+             SELECT ?s WHERE { ?s a au:WorldModel }",
+            &proj,
+        )
+        .unwrap();
+        let subs2: Vec<String> = res2
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("s").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(subs2, vec![format!("<{AU_NS}bob>")], "got {subs2:?}");
+    }
+
+    /// A by-property literal query projects the property key under `au:` and matches the
+    /// native scalar value.
+    #[test]
+    fn projection_by_property_literal() {
+        let view = native_view();
+        let res = run_projected(
+            &view,
+            "PREFIX au: <http://agent-utilities.dev/ontology#>\
+             SELECT ?s WHERE { ?s au:name \"Alice\" }",
+            &au_proj(),
+        )
+        .unwrap();
+        let subs: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("s").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(subs, vec![format!("<{AU_NS}alice>")], "got {subs:?}");
+    }
+
+    /// The typed edge projects to `au:knows` between `au:`-namespaced node IRIs.
+    #[test]
+    fn projection_edge() {
+        let view = native_view();
+        let res = run_projected(
+            &view,
+            "PREFIX au: <http://agent-utilities.dev/ontology#>\
+             SELECT ?o WHERE { au:alice au:knows ?o }",
+            &au_proj(),
+        )
+        .unwrap();
+        let objs: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("o").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(objs, vec![format!("<{AU_NS}bob>")], "got {objs:?}");
+    }
+
+    /// The full `?s ?p ?o` projection emits EXACTLY the AU-vocabulary triples that AU's
+    /// rdflib `_build_rdf_graph` materializes from the same LPG: a CamelCased `rdf:type`
+    /// per node under `au:`, each scalar property under `au:`, and the typed edge under
+    /// `au:` between `au:` node IRIs. This is the engine==rdflib vocabulary contract.
+    #[test]
+    fn projection_full_triple_set_matches_au_convention() {
+        let view = native_view();
+        let res = run_projected(&view, "SELECT ?s ?p ?o WHERE { ?s ?p ?o }", &au_proj()).unwrap();
+        let triples: std::collections::HashSet<(String, String, String)> = res
+            .solutions
+            .iter()
+            .map(|sol| {
+                (
+                    sol.get("s").unwrap().as_str().to_string(),
+                    sol.get("p").unwrap().as_str().to_string(),
+                    sol.get("o").unwrap().as_str().to_string(),
+                )
+            })
+            .collect();
+        let rdf_type = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type".to_string();
+        let expected: std::collections::HashSet<(String, String, String)> = [
+            (
+                format!("<{AU_NS}alice>"),
+                rdf_type.clone(),
+                format!("<{AU_NS}Agent>"),
+            ),
+            (
+                format!("<{AU_NS}bob>"),
+                rdf_type,
+                format!("<{AU_NS}WorldModel>"),
+            ),
+            (
+                format!("<{AU_NS}alice>"),
+                format!("{AU_NS}name"),
+                "Alice".into(),
+            ),
+            (
+                format!("<{AU_NS}bob>"),
+                format!("{AU_NS}name"),
+                "Bob".into(),
+            ),
+            (
+                format!("<{AU_NS}alice>"),
+                format!("{AU_NS}knows"),
+                format!("<{AU_NS}bob>"),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            triples, expected,
+            "projected triple set must match AU's vocabulary"
+        );
+    }
+
+    /// The IDENTITY projection (the default) does NOT synthesize `rdf:type` from the
+    /// node `type` field (it stays edge-sourced) and emits keys verbatim — so existing
+    /// callers are byte-for-byte unchanged. Here a native LPG under the raw projection
+    /// yields the bare-id `knows` edge + bare scalar literals, and NO `rdf:type`.
+    #[test]
+    fn identity_projection_unchanged() {
+        let view = native_view();
+        let res = run(&view, "SELECT ?s ?p ?o WHERE { ?s ?p ?o }").unwrap();
+        let preds: std::collections::HashSet<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("p").map(|b| b.as_str().to_string()))
+            .collect();
+        assert!(
+            preds.contains("knows"),
+            "raw edge predicate is bare; got {preds:?}"
+        );
+        assert!(
+            preds.contains("name"),
+            "raw scalar literal predicate is bare"
+        );
+        assert!(
+            !preds.iter().any(|p| p.contains("rdf-syntax-ns#type")),
+            "identity projection synthesizes NO rdf:type; got {preds:?}"
+        );
     }
 }
