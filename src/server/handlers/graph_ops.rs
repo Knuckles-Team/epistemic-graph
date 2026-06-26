@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use super::super::access::check_graph_access;
 use super::super::compute::{compute_off_lock, weight_semantic_results};
-use super::super::state::{ServerState, MAX_BATCH_IDS};
+use super::super::state::{max_response_nodes, ServerState, MAX_BATCH_IDS};
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
@@ -48,6 +48,28 @@ async fn resolve_union_cores(
     Ok(cores)
 }
 
+/// Intelligent overload backstop for the `GetNodes` full-graph dump
+/// (CONCEPT:KG-2.264). Given the graph's node `count` and the configured `cap`,
+/// returns `Some(error_message)` when the dump would exceed the cap (so the
+/// handler can refuse with a typed `RESULT_TOO_LARGE` error instead of building
+/// a gigabyte-scale frame that resets the client connection), or `None` when the
+/// dump is within bounds and safe to materialize. A `cap` of `0` disables the
+/// guard entirely (the unbounded legacy behavior, for an operator who opts in via
+/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES=0`). Pure + side-effect-free so the
+/// threshold logic is unit-tested directly, independent of process-global env.
+fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
+    if cap != 0 && count > cap {
+        Some(format!(
+            "RESULT_TOO_LARGE: GetNodes would return {count} nodes (> cap {cap}); \
+             the full-graph dump is refused to protect the connection. Use a \
+             bounded query instead (get_nodes_by_label(label, limit) or \
+             paginate), or raise EPISTEMIC_GRAPH_MAX_RESPONSE_NODES."
+        ))
+    } else {
+        None
+    }
+}
+
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
 /// chain (it owns the catch-all), so it returns a `Response` directly.
 pub(crate) async fn try_handle(
@@ -77,6 +99,17 @@ pub(crate) async fn try_handle(
         }
         Method::GetNodes => {
             let g = &*core;
+            // Intelligent overload backstop (CONCEPT:KG-2.264): a `GetNodes` is an
+            // UNBOUNDED full-graph dump. On a large graph (e.g. `__commons__` with
+            // 166K+ nodes carrying 1024-dim embeddings) materializing every node's
+            // properties into ONE response frame is a gigabyte-scale payload that
+            // overruns/resets the client connection. Check the cheap topology count
+            // BEFORE building the Vec, and return a typed, catchable error instead of
+            // the pathological frame. `cap == 0` disables the guard. The bounded
+            // reads (`GetNodesByLabel`, per-id) are intentionally unaffected.
+            if let Some(msg) = oversize_dump_error(g.node_count(), max_response_nodes()) {
+                return Response::err(req_id, msg);
+            }
             let nodes: Vec<(String, serde_json::Value)> = g
                 .get_nodes()
                 .into_iter()
@@ -1099,5 +1132,45 @@ pub(crate) async fn try_handle(
             "Method not available in this server build (unknown method, or a \
              feature — finance/datascience/reasoning/query — not enabled)",
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // CONCEPT:KG-2.264 — the GetNodes overload backstop decision logic.
+
+    #[test]
+    fn under_cap_returns_no_error_so_data_is_served() {
+        // A graph at or below the cap is dumped normally — the guard is inert.
+        assert_eq!(oversize_dump_error(0, 50_000), None);
+        assert_eq!(oversize_dump_error(1, 50_000), None);
+        assert_eq!(oversize_dump_error(49_999, 50_000), None);
+        // Exactly at the cap is allowed (the guard fires only when EXCEEDED).
+        assert_eq!(oversize_dump_error(50_000, 50_000), None);
+    }
+
+    #[test]
+    fn over_cap_returns_typed_error_not_a_giant_payload() {
+        // The pathological full-graph dump (e.g. 166K __commons__ nodes with
+        // 1024-dim embeddings) is refused with a clean, catchable error rather
+        // than serialized into one gigabyte-scale frame that resets the client.
+        let err = oversize_dump_error(166_000, 50_000)
+            .expect("over-cap dump must produce an error, not the data");
+        assert!(err.starts_with("RESULT_TOO_LARGE"), "got: {err}");
+        // The message must steer the caller to the bounded alternative.
+        assert!(err.contains("get_nodes_by_label"), "got: {err}");
+        assert!(
+            err.contains("166000") && err.contains("50000"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn zero_cap_disables_the_guard() {
+        // An operator can opt back into the unbounded legacy behavior with
+        // EPISTEMIC_GRAPH_MAX_RESPONSE_NODES=0 — no error even for a huge graph.
+        assert_eq!(oversize_dump_error(10_000_000, 0), None);
     }
 }
