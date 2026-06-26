@@ -437,9 +437,15 @@ eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
 
 [profile.release]
 opt-level = 3
-lto = "fat"
+# thin (not fat) LTO: fat-LTO of the full DataFusion/Tantivy dep tree at opt-level 3
+# exhausts CI runner memory (~7-14 GB) on the `node`/default wheel cross-build, while
+# the size-optimized `release-tiny` (opt-level z) fits. thin LTO keeps ~all the runtime
+# perf at a fraction of the link-time memory, so a stock `--release` wheel builds in CI.
+lto = "thin"
 codegen-units = 1
-panic = "abort"
+# unwind (not abort): the engine is a long-running multi-tenant server — a panic in one
+# request/handler must unwind, NOT abort the whole process and kill every tenant's graph.
+panic = "unwind"
 strip = true
 
 # Size-optimized release profile for the "contains-all smallest" pre-packaged build
