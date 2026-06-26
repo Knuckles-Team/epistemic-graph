@@ -53,7 +53,7 @@ fn store_handles_out_of_order_appends() {
             &["v".into()],
             &[
                 Point::single(5 * NS, 5.0),
-                Point::single(1 * NS, 1.0),
+                Point::single(NS, 1.0),
                 Point::single(3 * NS, 3.0),
             ],
         )
@@ -336,7 +336,7 @@ fn append_and_scan_throughput_sane() {
     let (_d, store) = open();
     let n = 200_000usize;
     let hz_ns = NS; // 1 point/second
-    let bucket_ns = 3_600 * NS as i64 as u64; // 1h buckets → ~3600 pts/chunk
+    let bucket_ns = 3_600 * NS as u64; // 1h buckets → ~3600 pts/chunk
     let pts: Vec<Point> = (0..n)
         .map(|i| Point::single(i as i64 * hz_ns, i as f64))
         .collect();
