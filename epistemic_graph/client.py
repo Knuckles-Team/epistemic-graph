@@ -2620,6 +2620,105 @@ class StreamingClient:
         )
 
 
+class BlobClient:
+    """CONCEPT:KG-2.206 — Streamed content-addressed BLOB namespace.
+
+    Store / fetch large media (image / audio / video) bytes as a content-addressed,
+    deduplicated, refcount-GC'd blob beside the graph. The whole file is never
+    resident on either side: an upload streams as N fixed-size chunks sharing ONE
+    server-side cursor (each chunk hashed + stored on arrival), a commit assembles
+    the manifest → a stable blob digest; a fetch mirrors it (open cursor → pull
+    chunks → reassemble). Identical bytes ⇒ identical digest ⇒ ZERO new chunks
+    (dedup). Requires a server built with the ``blob`` feature (folded into
+    ``node``/``pi-max``/``full``) AND a persist dir.
+
+    The CONTENT lives here keyed by digest (graph-independent); a caller links it
+    into the graph with a ``:MediaAsset``/``:Media`` node + a ``blob_ref`` (the
+    cross-modal ACID path, CONCEPT:KG-2.225). Usage::
+
+        digest = await client.blob.store(image_bytes)        # content-addressed
+        same   = await client.blob.store(image_bytes)        # == digest, deduped
+        out    = await client.blob.fetch(digest)             # == image_bytes
+        await client.blob.incref(digest)                     # a :Media now refs it
+    """
+
+    #: Default chunk size for an upload when the caller passes none. Matches the
+    #: engine default; small enough that one chunk is never a large allocation.
+    DEFAULT_CHUNK_SIZE = 1 << 20  # 1 MiB
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def begin(self, chunk_size: int = 0) -> int:
+        """Open an upload cursor (server allocates an id). ``chunk_size`` 0 ⇒ engine
+        default. Push chunks with :meth:`chunk_put`, finalize with :meth:`commit`."""
+        return await self._client._send("BlobBegin", {"chunk_size": int(chunk_size)})
+
+    async def chunk_put(self, cursor: int, data: bytes) -> int:
+        """Push one chunk into an open upload cursor (hashed + stored on arrival).
+        Returns the running chunk count on the cursor."""
+        return await self._client._send(
+            "BlobChunkPut", {"cursor": int(cursor), "data": data}
+        )
+
+    async def commit(self, cursor: int) -> str:
+        """Finalize an upload cursor → store the manifest content-addressed; returns
+        the blob digest (the hash of the manifest, a stable content address)."""
+        return await self._client._send("BlobCommit", {"cursor": int(cursor)})
+
+    async def store(self, data: bytes, *, chunk_size: int = 0) -> str:
+        """Store ``data`` as a content-addressed blob in ONE call (begin → stream
+        chunks → commit) and return its digest. Streams in ``chunk_size`` chunks
+        (default :attr:`DEFAULT_CHUNK_SIZE`) so a large payload is never re-buffered
+        whole server-side. Identical bytes always yield the same digest (dedup)."""
+        cs = int(chunk_size) or self.DEFAULT_CHUNK_SIZE
+        cursor = await self.begin(cs)
+        for off in range(0, len(data), cs):
+            await self.chunk_put(cursor, data[off : off + cs])
+        return await self.commit(cursor)
+
+    async def fetch_begin(self, digest: str) -> tuple[int, int]:
+        """Open a fetch cursor for ``digest``; returns ``(cursor, n_chunks)``."""
+        cursor, n = await self._client._send("BlobFetchBegin", {"digest": digest})
+        return int(cursor), int(n)
+
+    async def chunk_get(self, cursor: int, idx: int) -> bytes:
+        """Pull chunk ``idx`` of an open fetch cursor as raw bytes."""
+        out = await self._client._send(
+            "BlobChunkGet", {"cursor": int(cursor), "idx": int(idx)}
+        )
+        return bytes(out)
+
+    async def fetch_end(self, cursor: int) -> bool:
+        """Close a fetch cursor (idempotent)."""
+        return await self._client._send("BlobFetchEnd", {"cursor": int(cursor)})
+
+    async def fetch(self, digest: str) -> bytes:
+        """Fetch a whole blob by digest in ONE call (open → pull every chunk →
+        reassemble → close). Returns the exact stored bytes."""
+        cursor, n = await self.fetch_begin(digest)
+        try:
+            chunks = [await self.chunk_get(cursor, i) for i in range(n)]
+        finally:
+            await self.fetch_end(cursor)
+        return b"".join(chunks)
+
+    async def incref(self, digest: str) -> int:
+        """Increment a blob's GC refcount (a ``:Media`` node now references it).
+        Returns the new count."""
+        return await self._client._send("BlobRef", {"digest": digest})
+
+    async def unref(self, digest: str) -> int:
+        """Decrement a blob's GC refcount (a reference was removed). Returns the new
+        count; a blob at 0 is eligible for the next :meth:`gc`."""
+        return await self._client._send("BlobUnref", {"digest": digest})
+
+    async def gc(self) -> tuple[int, int]:
+        """Run the refcount mark-and-sweep GC; returns ``(blobs, chunks)`` reclaimed."""
+        blobs, chunks = await self._client._send("BlobGc")
+        return int(blobs), int(chunks)
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -2689,6 +2788,7 @@ class EpistemicGraphClient:
         self.timeseries = TimeSeriesClient(self)
         self.rdf = RdfClient(self)
         self.streaming = StreamingClient(self)
+        self.blob = BlobClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -2999,6 +3099,7 @@ class SyncEpistemicGraphClient:
         self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
         self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
         self.streaming = self._SyncWrapper(self._client.streaming, self._loop)
+        self.blob = self._SyncWrapper(self._client.blob, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""
