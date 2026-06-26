@@ -63,6 +63,15 @@ pub struct NodeData {
     /// End of temporal validity window (epoch seconds), if applicable.
     #[serde(default)]
     pub valid_until: Option<u64>,
+    /// Start of the transaction-time window — when the engine BEGAN believing
+    /// this fact (epoch seconds). Distinct from `valid_from` (when the fact became
+    /// true in the world). Together they make the store bi-temporal (KG-2.249).
+    #[serde(default)]
+    pub tx_from: Option<u64>,
+    /// End of the transaction-time window — when the engine STOPPED believing this
+    /// fact (e.g. it was superseded). `None` while currently believed.
+    #[serde(default)]
+    pub tx_to: Option<u64>,
 }
 
 fn default_confidence() -> f64 {
@@ -87,6 +96,8 @@ impl NodeData {
             confidence: 1.0,
             valid_from: Some(now),
             valid_until: None,
+            tx_from: Some(now),
+            tx_to: None,
         }
     }
 
@@ -127,6 +138,8 @@ impl NodeData {
                     .unwrap_or(1.0),
                 valid_from: val.get("valid_from").and_then(|v| v.as_u64()),
                 valid_until: val.get("valid_until").and_then(|v| v.as_u64()),
+                tx_from: val.get("tx_from").and_then(|v| v.as_u64()),
+                tx_to: val.get("tx_to").and_then(|v| v.as_u64()),
             }
         } else {
             NodeData::new(id, "unknown".to_string())
@@ -153,6 +166,12 @@ impl NodeData {
                 if let Some(vu) = self.valid_until {
                     obj.insert("valid_until".to_string(), serde_json::json!(vu));
                 }
+                if let Some(tf) = self.tx_from {
+                    obj.insert("tx_from".to_string(), serde_json::json!(tf));
+                }
+                if let Some(tt) = self.tx_to {
+                    obj.insert("tx_to".to_string(), serde_json::json!(tt));
+                }
                 if let Ok(s) = serde_json::to_string(&val) {
                     return s;
                 }
@@ -165,6 +184,8 @@ impl NodeData {
             "confidence": self.confidence,
             "valid_from": self.valid_from,
             "valid_until": self.valid_until,
+            "tx_from": self.tx_from,
+            "tx_to": self.tx_to,
         })
         .to_string()
     }
@@ -195,6 +216,14 @@ pub struct EdgeData {
     /// End of temporal validity window (epoch seconds), if applicable.
     #[serde(default)]
     pub valid_until: Option<u64>,
+    /// Start of the transaction-time window — when the engine began believing
+    /// this edge (epoch seconds). See [`NodeData::tx_from`] (KG-2.249).
+    #[serde(default)]
+    pub tx_from: Option<u64>,
+    /// End of the transaction-time window — when this edge was superseded/retracted.
+    /// `None` while currently believed; set by the invalidation path (KG-2.251).
+    #[serde(default)]
+    pub tx_to: Option<u64>,
 }
 
 fn default_weight() -> f64 {
@@ -211,6 +240,8 @@ impl EdgeData {
             confidence: 1.0,
             valid_from: None,
             valid_until: None,
+            tx_from: None,
+            tx_to: None,
         }
     }
 
@@ -240,6 +271,8 @@ impl EdgeData {
                     .unwrap_or(1.0),
                 valid_from: val.get("valid_from").and_then(|v| v.as_u64()),
                 valid_until: val.get("valid_until").and_then(|v| v.as_u64()),
+                tx_from: val.get("tx_from").and_then(|v| v.as_u64()),
+                tx_to: val.get("tx_to").and_then(|v| v.as_u64()),
             }
         } else {
             EdgeData::new("RELATED_TO".to_string())
@@ -262,6 +295,12 @@ impl EdgeData {
                 if let Some(vu) = self.valid_until {
                     obj.insert("valid_until".to_string(), serde_json::json!(vu));
                 }
+                if let Some(tf) = self.tx_from {
+                    obj.insert("tx_from".to_string(), serde_json::json!(tf));
+                }
+                if let Some(tt) = self.tx_to {
+                    obj.insert("tx_to".to_string(), serde_json::json!(tt));
+                }
                 if let Ok(s) = serde_json::to_string(&val) {
                     return s;
                 }
@@ -273,6 +312,8 @@ impl EdgeData {
             "confidence": self.confidence,
             "valid_from": self.valid_from,
             "valid_until": self.valid_until,
+            "tx_from": self.tx_from,
+            "tx_to": self.tx_to,
         })
         .to_string()
     }
@@ -327,4 +368,77 @@ pub struct ContextView {
     pub edges: Vec<(String, String, Vec<u8>)>,
     pub budget_used: u32,
     pub budget_max: u32,
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod bitemporal_tests {
+    use super::*;
+
+    #[test]
+    fn node_new_sets_both_time_axes() {
+        let n = NodeData::new("n1".into(), "Episode".into());
+        assert!(n.valid_from.is_some());
+        assert!(
+            n.tx_from.is_some(),
+            "transaction-time start must be set on new"
+        );
+        assert_eq!(n.valid_until, None);
+        assert_eq!(n.tx_to, None);
+    }
+
+    #[test]
+    fn node_msgpack_roundtrip_preserves_tx_fields() {
+        let mut n = NodeData::new("n1".into(), "Episode".into());
+        n.valid_from = Some(100);
+        n.valid_until = Some(200);
+        n.tx_from = Some(150);
+        n.tx_to = Some(250);
+        let bytes = rmp_serde::to_vec_named(&n).expect("serialize");
+        let back: NodeData = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(back.valid_from, Some(100));
+        assert_eq!(back.valid_until, Some(200));
+        assert_eq!(back.tx_from, Some(150));
+        assert_eq!(back.tx_to, Some(250));
+    }
+
+    #[test]
+    fn old_node_blob_without_tx_decodes_as_none() {
+        // A pre-bitemporal MessagePack blob has no tx_from/tx_to keys.
+        let json = r#"{"type":"Episode","valid_from":100,"valid_until":200}"#;
+        let n = NodeData::from_json_props("n1".into(), json);
+        assert_eq!(n.valid_from, Some(100));
+        assert_eq!(n.tx_from, None, "missing tx_from must default to None");
+        assert_eq!(n.tx_to, None);
+    }
+
+    #[test]
+    fn node_json_props_roundtrip_preserves_tx_fields() {
+        let mut n = NodeData::new("n1".into(), "Episode".into());
+        n.tx_from = Some(11);
+        n.tx_to = Some(22);
+        let json = n.to_json_props();
+        let back = NodeData::from_json_props("n1".into(), &json);
+        assert_eq!(back.tx_from, Some(11));
+        assert_eq!(back.tx_to, Some(22));
+    }
+
+    #[test]
+    fn edge_msgpack_roundtrip_and_old_blob_default() {
+        let mut e = EdgeData::new("LIKES".into());
+        e.valid_from = Some(100);
+        e.tx_from = Some(100);
+        e.valid_until = Some(200);
+        e.tx_to = Some(200);
+        let bytes = rmp_serde::to_vec_named(&e).expect("serialize");
+        let back: EdgeData = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(back.valid_until, Some(200));
+        assert_eq!(back.tx_to, Some(200));
+
+        let old = EdgeData::from_json_props(r#"{"relationship":"LIKES","valid_from":100}"#);
+        assert_eq!(old.valid_from, Some(100));
+        assert_eq!(old.tx_from, None);
+        assert_eq!(old.tx_to, None);
+    }
 }

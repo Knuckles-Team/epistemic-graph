@@ -24,6 +24,7 @@ use eg_core::graph::GraphView;
 
 use crate::algebra::{Op, Plan, Pred};
 use crate::rowset::RowSet;
+use eg_types::wire::TimeAxis;
 
 /// Everything an operator might touch, gathered from ONE consistent snapshot. In a
 /// handler this is exactly what is already available off-lock: the `GraphView`
@@ -167,13 +168,18 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "federation")]
         Op::ForeignScan { source, join } => foreign_scan(input, source, *join),
 
-        // TIME / FEDERATION context ops (CONCEPT:KG-2.235). RowSet-preserving markers
-        // the UQL `AS OF @<ts>` / `WINDOW <dur>` / `FOREIGN "<name>"` clauses lower to.
-        // The temporal point-read / windowed aggregate (eg-tsdb) and the cross-source
-        // pull (federation) are downstream seams; today they pass the rows through so a
-        // composed plan that carries them runs unchanged. (`FOREIGN "<name>"` is the
-        // name MARKER; the resolved federation EXECUTOR is `ForeignScan` above.)
-        Op::AsOf { .. } | Op::Window { .. } | Op::Foreign { .. } => Ok(input),
+        // TIME — `AS OF [TX] @<ts>` is a real RowSet-narrowing temporal filter
+        // (CONCEPT:KG-2.250): drop rows whose fact is not live at `ts` on the chosen
+        // timeline. Dep-free blob scan (no DataFusion), so it runs in the Pi tier.
+        Op::AsOf { ts, axis } => Ok(as_of_filter(ctx.view, input, *ts, *axis)),
+
+        // FEDERATION / WINDOW context ops (CONCEPT:KG-2.235). RowSet-preserving markers
+        // the UQL `WINDOW <dur>` / `FOREIGN "<name>"` clauses lower to. The windowed
+        // aggregate (eg-tsdb) and the cross-source pull (federation) are downstream
+        // seams; today they pass the rows through so a composed plan that carries them
+        // runs unchanged. (`FOREIGN "<name>"` is the name MARKER; the resolved
+        // federation EXECUTOR is `ForeignScan` above.)
+        Op::Window { .. } | Op::Foreign { .. } => Ok(input),
 
         Op::Limit { k } => Ok(input.limit(*k)),
     }
@@ -357,6 +363,50 @@ fn scan_label(view: &GraphView, label: &str) -> RowSet {
         (v.get("type").and_then(|t| t.as_str()) == Some(label)).then(|| id.clone())
     });
     RowSet::from_ids(ids)
+}
+
+// ── the temporal AS OF leg — bi-temporal point-in-time filter (KG-2.250) ────────
+
+/// True when the fact in `blob` is live at instant `ts` on the chosen timeline.
+/// Half-open window `[from, until)` in epoch seconds: a missing `from` means
+/// "has always been" (0); a missing `until` means "still current" (open). Decodes
+/// the SAME blob `scan_label` reads — dep-free, so the time path runs in the Pi tier.
+fn live_at(blob: &[u8], ts: u64, from_key: &str, until_key: &str) -> bool {
+    let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+        return false;
+    };
+    let from = v.get(from_key).and_then(|x| x.as_u64()).unwrap_or(0);
+    let until = v.get(until_key).and_then(|x| x.as_u64());
+    from <= ts && until.is_none_or(|u| ts < u)
+}
+
+/// Narrow `input` to rows live at `ts` on the `axis` timeline (CONCEPT:KG-2.250).
+/// Order-preserving (a vector-`Rank`-then-`AS OF` plan stays ranked, via
+/// [`RowSet::intersect_keep_order`]). When `input` is empty the op acts as a source,
+/// yielding every node live at `ts`.
+fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> RowSet {
+    let ts = ts.max(0.0) as u64;
+    let (from_key, until_key) = match axis {
+        TimeAxis::Valid => ("valid_from", "valid_until"),
+        TimeAxis::Transaction => ("tx_from", "tx_to"),
+    };
+    if input.is_empty() {
+        let ids = view.node_properties.iter().filter_map(|(id, blob)| {
+            live_at(blob.as_slice(), ts, from_key, until_key).then(|| id.clone())
+        });
+        return RowSet::from_ids(ids);
+    }
+    let kept: HashSet<&str> = input
+        .rows()
+        .iter()
+        .filter(|r| {
+            view.node_properties
+                .get(r.id.as_str())
+                .is_some_and(|b| live_at(b.as_slice(), ts, from_key, until_key))
+        })
+        .map(|r| r.id.as_str())
+        .collect();
+    input.intersect_keep_order(&kept)
 }
 
 // ── the relational FILTER leg — real DataFusion via eg-query ────────────────────

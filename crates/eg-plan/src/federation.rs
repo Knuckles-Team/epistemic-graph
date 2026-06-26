@@ -112,9 +112,11 @@ struct SqlUnavailable;
 #[cfg(not(feature = "federation-sql"))]
 impl ForeignSource for SqlUnavailable {
     fn fetch(&self) -> Result<RowSet, String> {
-        Err("federation: a Sql foreign source needs a server built with the \
+        Err(
+            "federation: a Sql foreign source needs a server built with the \
              `federation-sql` feature (no SQL driver in this build)"
-            .into())
+                .into(),
+        )
     }
 }
 

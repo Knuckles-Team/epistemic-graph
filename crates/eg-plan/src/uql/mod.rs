@@ -37,7 +37,7 @@ pub use parser::{parse, UqlError};
 #[cfg(test)]
 mod tests {
     use super::parse;
-    use eg_types::wire::{Op, Plan, Pred};
+    use eg_types::wire::{Op, Plan, Pred, TimeAxis};
 
     /// THE faithfulness proof: the documented pipeline query parses to the BYTE-
     /// IDENTICAL Plan a hand-built test constructs — the same AST the oracle test in
@@ -231,7 +231,8 @@ mod tests {
                     label: "Event".into()
                 },
                 Op::AsOf {
-                    ts: 1_700_000_000.0
+                    ts: 1_700_000_000.0,
+                    axis: TimeAxis::Valid,
                 },
                 Op::Limit { k: 5 },
             ]
@@ -294,6 +295,7 @@ mod tests {
             },
             Op::AsOf {
                 ts: 1_700_000_000.0,
+                axis: TimeAxis::Valid,
             },
             Op::Window { secs: 3600.0 },
             Op::Traverse {

@@ -39,7 +39,14 @@ fn sql_foreign_join_with_local_equals_manual_join() {
     let ctx = PlanCtx::new(&fx.view, &fx.semantic);
 
     // ── run the LOCAL pre-foreign sub-plan: Scan(Doc) -> Filter(year > 2023) ──
-    let local = apply(&Op::Scan { label: "Doc".into() }, RowSet::new(), &ctx).unwrap();
+    let local = apply(
+        &Op::Scan {
+            label: "Doc".into(),
+        },
+        RowSet::new(),
+        &ctx,
+    )
+    .unwrap();
     let local = apply(
         &Op::Filter {
             preds: vec![eg_types::wire::Pred::GtNum {
@@ -64,7 +71,14 @@ fn sql_foreign_join_with_local_equals_manual_join() {
     let fused = fuse_foreign(local, mock_sql_rows(), true);
 
     // ── the post-foreign sub-plan: Rank(vector) -> Limit ──
-    let fused = apply(&Op::Rank { query: query.clone() }, fused, &ctx).unwrap();
+    let fused = apply(
+        &Op::Rank {
+            query: query.clone(),
+        },
+        fused,
+        &ctx,
+    )
+    .unwrap();
     let fused = apply(&Op::Limit { k: 10 }, fused, &ctx).unwrap();
 
     // ── the manual join (the oracle) ──
@@ -86,7 +100,11 @@ fn sql_foreign_join_with_local_equals_manual_join() {
         manual,
         "federated external-SQL ∩ local plan must equal the manual join"
     );
-    assert_eq!(fused.ids(), vec!["d2", "d4"], "ranked: d2 (closest) then d4");
+    assert_eq!(
+        fused.ids(),
+        vec!["d2", "d4"],
+        "ranked: d2 (closest) then d4"
+    );
 }
 
 /// A `ForeignScan{Sql, join=false}` is a pure SOURCE — the external SQL rows REPLACE the
@@ -95,11 +113,22 @@ fn sql_foreign_join_with_local_equals_manual_join() {
 fn sql_foreign_scan_as_a_pure_source_replaces_the_input() {
     let fx = crate::fixture::build();
     let ctx = PlanCtx::new(&fx.view, &fx.semantic);
-    let local = apply(&Op::Scan { label: "Doc".into() }, RowSet::new(), &ctx).unwrap();
+    let local = apply(
+        &Op::Scan {
+            label: "Doc".into(),
+        },
+        RowSet::new(),
+        &ctx,
+    )
+    .unwrap();
     let out = fuse_foreign(local, mock_sql_rows(), false);
     let mut ids = out.ids();
     ids.sort();
-    assert_eq!(ids, vec!["d2", "d4"], "external-SQL source replaced the local scan");
+    assert_eq!(
+        ids,
+        vec!["d2", "d4"],
+        "external-SQL source replaced the local scan"
+    );
 }
 
 /// The REAL DSN path is wired + compiles: `source_for(&Sql{..})` builds the live

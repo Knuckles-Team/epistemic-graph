@@ -127,6 +127,17 @@ pub struct HttpFieldMap {
 /// where each op `(RowSet) -> RowSet`. This increment binds SQL + graph + vector
 /// (`Scan | Filter | Traverse | Rank | Limit`); reasoning/blob ops are later
 /// increments. The algorithm lives in `eg-plan`; this is the wire DTO.
+/// Which timeline an [`Op::AsOf`] instant pins (bi-temporal, KG-2.250).
+#[cfg(feature = "query")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TimeAxis {
+    /// Valid (event) time — "what was TRUE at the instant" (`valid_from`/`valid_until`).
+    #[default]
+    Valid,
+    /// Transaction time — "what we BELIEVED at the instant" (`tx_from`/`tx_to`).
+    Transaction,
+}
+
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Op {
@@ -224,13 +235,17 @@ pub enum Op {
         #[serde(default)]
         join: bool,
     },
-    /// TIME (`AS OF @<ts>`, CONCEPT:KG-2.235) — pin the RowSet to a point-in-time
-    /// `ts` (unix seconds). A RowSet-preserving CONTEXT op: it carries the snapshot
-    /// instant the time-series legs read at; the current unified executor passes the
-    /// rows through unchanged (the per-row temporal selection is the eg-tsdb seam).
-    /// Lowered from the `AS OF @<ts>` UQL clause so a temporal query has ONE surface;
-    /// always available under `query` (the time CONTEXT carries no DataFusion).
-    AsOf { ts: f64 },
+    /// TIME (`AS OF [TX] @<ts>`, CONCEPT:KG-2.235 / KG-2.250) — pin the RowSet to a
+    /// point-in-time `ts` (unix seconds) and DROP rows not live at that instant. A
+    /// RowSet-narrowing temporal filter executed in `eg-plan` (dep-free blob scan, no
+    /// DataFusion — Pi-safe). `axis` selects the timeline: `Valid` = "what was TRUE at
+    /// ts" (`valid_from`/`valid_until`); `Transaction` = "what we BELIEVED at ts"
+    /// (`tx_from`/`tx_to`). `#[serde(default)]` keeps older plans (no axis) as valid-time.
+    AsOf {
+        ts: f64,
+        #[serde(default)]
+        axis: TimeAxis,
+    },
     /// TIME (`WINDOW <dur>`, CONCEPT:KG-2.235) — declare a trailing time window of
     /// `secs` seconds for the windowed time-series aggregate. A RowSet-preserving
     /// CONTEXT op paired with `AsOf`; passes the rows through unchanged today (the
