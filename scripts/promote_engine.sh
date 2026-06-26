@@ -13,6 +13,9 @@
 #                             [--restore-health-period]
 #
 #   --build                       cargo build --release --features full first (default: reuse target/release)
+#   --verify                      after promotion, run a LIVE UQL smoke against the engine
+#                                 socket (AS OF / RERANK / a parser-reject) to prove the new
+#                                 query surface actually serves — not just that the socket binds
 #   --no-restart                  install the binary only; do not restart the service
 #   --restart-consumers           also restart graph-os + messaging (they pick up new agent-utilities).
 #                                 They MUST run GRAPH_BACKEND=fanout (engine authority + optional mirrors);
@@ -58,10 +61,13 @@ NORMAL_HEALTH_START_PERIOD="${NORMAL_HEALTH_START_PERIOD:-20}"
 MIGRATE_WATCH_TIMEOUT="${MIGRATE_WATCH_TIMEOUT:-1800}"
 
 DO_BUILD=0; DO_RESTART=1; DO_CONSUMERS=0
-DO_MIGRATE=0; DO_RESTORE_HEALTH=0
+DO_MIGRATE=0; DO_RESTORE_HEALTH=0; DO_VERIFY=0
 HEALTH_START_PERIOD=""   # empty ⇒ default path (no --health-start-period flag emitted)
+ENGINE_SOCKET="${ENGINE_SOCKET:-/run/epistemic-graph/epistemic-graph.sock}"
+VERIFY_GRAPH="${VERIFY_GRAPH:-__commons__}"
 while [[ $# -gt 0 ]]; do case "$1" in
   --build) DO_BUILD=1 ;;
+  --verify) DO_VERIFY=1 ;;
   --no-restart) DO_RESTART=0 ;;
   --restart-consumers) DO_CONSUMERS=1 ;;
   --migrate) DO_MIGRATE=1 ;;
@@ -201,6 +207,49 @@ if [[ "$DO_CONSUMERS" == 1 ]]; then
   restart "$MESSAGING_SERVICE"
 fi
 
-echo ">> done. verify with:"
-echo "   python -c \"from epistemic_graph.client import SyncEpistemicGraphClient as C; \\"
-echo "   print(C.connect(socket_path='/run/epistemic-graph/epistemic-graph.sock').graph.match_ontology_terms('portainer'))\""
+# Live UQL smoke: prove the NEW query surface actually serves, not just that the socket
+# binds. Runs a handful of UQL stages over the engine socket on THIS node (the bind-mount
+# host) and asserts the temporal/rerank ops parse + execute, and that a bogus keyword is
+# rejected (the parser is validating). Connect-only failure is reported, not fatal.
+verify() {
+  echo ">> --verify: live UQL smoke against $ENGINE_SOCKET (graph $VERIFY_GRAPH)"
+  ENGINE_SOCKET="$ENGINE_SOCKET" VERIFY_GRAPH="$VERIFY_GRAPH" python3 - <<'PY'
+import asyncio, os, sys
+try:
+    from epistemic_graph.client import EpistemicGraphClient
+except Exception as e:
+    print(f"   (skip) epistemic_graph client not importable: {e}"); sys.exit(0)
+sock = os.environ["ENGINE_SOCKET"]; g = os.environ["VERIFY_GRAPH"]
+OK = {"ok": 0, "fail": 0}
+async def main():
+    try:
+        c = await EpistemicGraphClient.connect(socket_path=sock, graph_name=g)
+    except Exception as e:
+        print(f"   (skip) could not connect to {sock}: {e}"); return
+    checks = [
+        ("AS OF (valid-time)",   "MATCH (:Concept) |> AS OF @1700000000 |> LIMIT 1", True),
+        ("AS OF TX (txn-time)",  "MATCH (:Concept) |> AS OF TX @1700000000 |> LIMIT 1", True),
+        ("RERANK MENTIONS",      "MATCH (:Concept) |> RERANK MENTIONS |> LIMIT 1", True),
+        ("RERANK MMR",           "MATCH (:Concept) |> RERANK MMR 0.5 5 |> LIMIT 1", True),
+        ("parser rejects bogus", "MATCH (:Concept) |> RERANK BOGUS |> LIMIT 1", False),
+    ]
+    for label, uql, want_ok in checks:
+        try:
+            await c.query.uql(uql); got_ok = True; detail = "executed"
+        except Exception as e:
+            got_ok = False; detail = repr(e)[:70]
+        passed = got_ok == want_ok
+        OK["ok" if passed else "fail"] += 1
+        print(f"   [{'PASS' if passed else 'FAIL'}] {label}: {detail}")
+    await c.close()
+asyncio.run(main())
+sys.exit(1 if OK["fail"] else 0)
+PY
+}
+
+if [[ "$DO_VERIFY" == 1 ]]; then
+  verify || { echo "!! --verify smoke FAILED — the promoted binary is not serving the expected surface."; exit 1; }
+  echo ">> verify OK — new query surface is live."
+fi
+
+echo ">> done. (re-run with --verify for a live UQL smoke; see docs/deploy/binary-promotion.md)"

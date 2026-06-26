@@ -160,9 +160,10 @@ store entirely).
   into a restart loop. Use `promote_engine.sh --migrate [--restore-health-period]` (CONCEPT:OS-5.62),
   or pass `--health-start-period <secs>` directly. See
   [Authoritative migration (first boot)](#authoritative-migration-first-boot).
-- **Consumers must be `GRAPH_BACKEND=fanout`, never `tiered`.** The `tiered` backend was removed;
-  a stale consumer fails bootstrap with "A persistent graph backend is required" / "Unknown
-  graph backend type 'tiered'".
+- **Consumers should be `GRAPH_BACKEND=fanout` (or `epistemic_graph`), not `tiered`.** The `tiered`
+  backend was removed. A stale `tiered` value is now **migrated forward to `epistemic_graph`
+  at boot with a warning** (so a consumer no longer hard-crashes on it), but the warning fires
+  every start — fix the deployment env to `fanout`/`epistemic_graph` on the manager to silence it.
 - **`stop-first`, never `start-first`.** Single-socket service; start-first can't bind twice.
 - **Worker vs manager.** `RW710` is a worker — `docker service ...` must run on `R820`
   (`docker node ls` shows the Leader). `docker ps`/`docker inspect` work locally.
@@ -173,3 +174,40 @@ store entirely).
   `python -c "import epistemic_graph; print(epistemic_graph.__file__)"`.)
 - **Rollback:** `mv .venv/bin/epistemic-graph-server.bak-<ts> .venv/bin/epistemic-graph-server`
   then restart the engine service.
+
+## Verify the new surface actually serves (`--verify`)
+
+A bound socket only proves the engine *started* — not that it serves the capabilities you
+just shipped. `scripts/promote_engine.sh --verify` (or run it standalone after a restart)
+runs a **live UQL smoke** against the engine socket and asserts the new query surface
+executes and that the parser validates:
+
+```bash
+scripts/promote_engine.sh --build --migrate --restore-health-period --verify
+```
+
+It checks `AS OF @t` (valid-time), `AS OF TX @t` (transaction-time), `RERANK MENTIONS`,
+`RERANK MMR`, and that a bogus `RERANK` keyword is **rejected** (proof the parser is live,
+not a stale binary). Connect-only failure is reported, not fatal; a real surface mismatch
+exits non-zero. Override `ENGINE_SOCKET` / `VERIFY_GRAPH` if needed. See
+[UQL](../uql.md) for the query surface this exercises.
+
+## When you can't reach the manager (worker-only fallback)
+
+The clean path restarts via `ssh R820 docker service update` (the manager). If you are on the
+worker (`RW710`) **without** manager SSH and must still cycle the engine:
+
+1. **Stage the binary** with `--no-restart` (atomic + backup, no service touch).
+2. **Cycle the local task:** `docker rm -f <engine-container-on-this-node>` — Swarm reschedules
+   a fresh task that re-execs the new bind-mounted binary. (`docker restart` can fail with a
+   **zombie PID** if the old process didn't reap children; `rm -f` is the reliable cycle.)
+3. **Expect transient churn / duplicates.** An out-of-band cycle makes Swarm think the task
+   died and may briefly run **two** tasks in the slot; for single-socket services the second
+   fails to bind and is reaped. For the `graph-os-host` daemon, two instances contend on the
+   host-lock until one wins. Wait for exactly one `healthy` task
+   (`docker ps -f name=<svc> -f health=healthy`) and `docker rm -f` any stray.
+4. **First boot is slow** (snapshot/`.mp`→redb load binds the socket only when done) — wait for
+   `Listening on UDS` in the engine logs before `--verify`.
+
+This is a fallback. Prefer the manager `docker service update` path (clean reschedule, no
+duplicate churn) whenever you can reach `R820`.
