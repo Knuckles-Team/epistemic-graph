@@ -88,11 +88,22 @@ nav:
   - Home: index.md
   - Engine:
       - Technical Overview: overview.md
+      - Capabilities & Parity Matrix: capabilities.md
+      - Universal-DB Parity Roadmap: roadmap.md
       - Master-of-all Engine: architecture/engine.md
-      - UQL Query Language: uql.md
+      - UQL & Unified Planner: uql.md
       - Tiers & Binaries: architecture/tiers.md
       - Engine Modes: engine-modes.md
       - Service Mode: service_mode.md
+  - Interfaces:
+      - SQL & pgwire: interfaces/sql.md
+      - SPARQL & RDF: interfaces/sparql.md
+      - Cypher: interfaces/cypher.md
+      - GraphQL: interfaces/graphql.md
+      - Vector / ANN: interfaces/vector.md
+      - Time-series: interfaces/timeseries.md
+      - Key-value & Blob: interfaces/kv-blob.md
+      - Ontology Lifecycle: interfaces/ontology.md
   - Deploy & Operate:
       - Deployment (database): deployment.md
       - Cost Model & Capacity: cost-model.md
