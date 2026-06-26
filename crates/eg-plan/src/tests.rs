@@ -513,5 +513,42 @@ mod rerank_tests {
         ));
         let q = parse("MATCH (:N) |> RERANK MENTIONS").unwrap();
         assert!(matches!(q.ops.last(), Some(Op::RankMentions {})));
+        let m = parse("MATCH (:N) |> RERANK MMR 0.3 5").unwrap();
+        assert!(matches!(
+            m.ops.last(),
+            Some(Op::RankMmr { lambda, k }) if (*lambda - 0.3).abs() < 1e-6 && *k == 5
+        ));
+    }
+
+    #[test]
+    fn mmr_demotes_near_duplicate_for_diversity() {
+        // a & b are near-identical (redundant); c is orthogonal. Relevance to the
+        // query ranks a > b > c. MMR with low lambda should pick c BEFORE b (b is
+        // redundant with the already-picked a), giving [a, c, b] not [a, b, c].
+        let core = GraphCore::new();
+        for id in ["a", "b", "c"] {
+            core.add_node(id.into(), blob(json!({"type": "N"})));
+        }
+        let view = core.analysis_snapshot();
+        let mut sem = SemanticStore::new();
+        sem.add_embedding("a".into(), vec![1.0, 0.0, 0.0]);
+        sem.add_embedding("b".into(), vec![0.99, 0.01, 0.0]); // ~duplicate of a
+        sem.add_embedding("c".into(), vec![0.0, 1.0, 0.0]); // orthogonal
+        let ctx = PlanCtx::new(&view, &sem);
+
+        let out = Plan::new(vec![
+            Op::Scan { label: "N".into() },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0],
+            },
+            Op::RankMmr { lambda: 0.3, k: 0 },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert_eq!(
+            out.ids(),
+            vec!["a".to_string(), "c".to_string(), "b".to_string()],
+            "MMR must surface the diverse 'c' ahead of the redundant 'b'"
+        );
     }
 }

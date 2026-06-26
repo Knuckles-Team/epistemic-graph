@@ -151,11 +151,13 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 
         Op::RankMentions {} => Ok(rank_mentions(ctx.view, input)),
 
+        Op::RankMmr { lambda, k } => Ok(rank_mmr(ctx.semantic, input, *lambda, *k)),
+
         #[cfg(feature = "text")]
         Op::RankText { query } => Ok(rank_text(ctx, &input, query)),
 
         #[cfg(feature = "text")]
-        Op::FuseRrf { left, right, k } => fuse_rrf(ctx, &input, left, right, *k),
+        Op::FuseRrf { branches, k } => fuse_rrf(ctx, &input, branches, *k),
 
         #[cfg(feature = "owl")]
         Op::Reason {
@@ -267,32 +269,27 @@ fn rank_text(ctx: &PlanCtx, input: &RowSet, query: &str) -> RowSet {
     RowSet::from_scored(scored)
 }
 
-/// FUSE (hybrid): run the `left` and `right` SUB-PLANS over the SAME `input` seed
+/// FUSE (hybrid): run each of the N SUB-PLAN `branches` over the SAME `input` seed
 /// (snapshot-isolated, same `ctx`), then reciprocal-rank-fuse their ranked id lists
-/// into one RowSet (CONCEPT:KG-2.215). Each branch is a normal `Vec<Op>` plan — so
-/// the canonical hybrid is `left = [Rank{vec}]`, `right = [RankText{q}]`, but any two
-/// ranking sub-plans compose. RRF fuses the RANKS (not the incomparable cosine/BM25
-/// score scales), so a doc strong in BOTH branches out-ranks one strong in only one
-/// — the property that makes the fused query beat either branch alone.
+/// into one RowSet (CONCEPT:KG-2.215 / KG-2.253). Each branch is a normal `Vec<Op>`
+/// plan, so the canonical tri-modal hybrid is `[[Rank{vec}], [RankText{q}],
+/// [RankNodeDistance{c}]]`, but any number of ranking sub-plans compose. RRF fuses the
+/// RANKS (not the incomparable cosine/BM25/distance scales), so a doc strong across
+/// MORE branches out-ranks one strong in only one — the property that makes the fused
+/// query beat any single branch alone.
 #[cfg(feature = "text")]
-fn fuse_rrf(
-    ctx: &PlanCtx,
-    input: &RowSet,
-    left: &[Op],
-    right: &[Op],
-    k: f32,
-) -> Result<RowSet, String> {
-    let run_branch = |ops: &[Op]| -> Result<Vec<String>, String> {
+fn fuse_rrf(ctx: &PlanCtx, input: &RowSet, branches: &[Vec<Op>], k: f32) -> Result<RowSet, String> {
+    let mut ranked: Vec<Vec<String>> = Vec::with_capacity(branches.len());
+    for branch in branches {
         let mut cur = input.clone();
-        for op in ops {
+        for op in branch {
             cur = apply(op, cur, ctx)?;
         }
-        Ok(cur.ids())
-    };
-    let l = run_branch(left)?;
-    let r = run_branch(right)?;
+        ranked.push(cur.ids());
+    }
     let k = if k > 0.0 { k } else { eg_text::RRF_K };
-    let fused = eg_text::rrf_fuse(&[&l, &r], k);
+    let refs: Vec<&[String]> = ranked.iter().map(|v| v.as_slice()).collect();
+    let fused = eg_text::rrf_fuse(&refs, k);
     Ok(RowSet::from_scored(fused))
 }
 
@@ -492,6 +489,74 @@ fn rank_mentions(view: &GraphView, input: RowSet) -> RowSet {
         .map(|(id, c)| (id, if max > 0.0 { c / max } else { 0.0 }))
         .collect();
     RowSet::from_scored(sort_by_score_desc(scored))
+}
+
+/// RANK by Maximal Marginal Relevance (CONCEPT:KG-2.255): greedily re-order the
+/// candidates trading off relevance against diversity. Relevance is each row's
+/// incoming score (from a prior `Rank`; defaults to a uniform rank-decay when scores
+/// are absent). Similarity is cosine over the candidates' stored embeddings. Picks the
+/// item maximizing `lambda*rel - (1-lambda)*max_sim_to_selected` each step. `k` caps
+/// the output (0 ⇒ all). Candidates with no embedding still participate (sim treated as
+/// 0, so they are neither boosted nor penalized for diversity). Degrades to the input
+/// order when there are no embeddings at all (never errs).
+fn rank_mmr(semantic: &SemanticStore, input: RowSet, lambda: f32, k: usize) -> RowSet {
+    let rows = input.rows();
+    let n = rows.len();
+    if n <= 1 {
+        return input;
+    }
+    let lambda = lambda.clamp(0.0, 1.0);
+    // Relevance per row: use the carried score; if a row lacks one, fall back to a
+    // position-based decay so earlier (already-ranked) rows are more relevant.
+    let rel: Vec<f32> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| r.score.unwrap_or(1.0 / (1.0 + i as f32)))
+        .collect();
+    let embs: Vec<Option<Vec<f32>>> = rows.iter().map(|r| semantic.get_embedding(&r.id)).collect();
+    let limit = if k == 0 { n } else { k.min(n) };
+
+    let mut selected: Vec<usize> = Vec::with_capacity(limit);
+    let mut remaining: Vec<usize> = (0..n).collect();
+    while selected.len() < limit && !remaining.is_empty() {
+        // pick the remaining index with the best MMR score
+        let mut best_pos = 0usize;
+        let mut best_val = f32::NEG_INFINITY;
+        for (pos, &idx) in remaining.iter().enumerate() {
+            let max_sim = selected
+                .iter()
+                .filter_map(|&s| match (&embs[idx], &embs[s]) {
+                    (Some(a), Some(b)) => Some(cosine(a, b)),
+                    _ => None,
+                })
+                .fold(0.0f32, f32::max);
+            let mmr = lambda * rel[idx] - (1.0 - lambda) * max_sim;
+            // tie-break deterministically by id
+            if mmr > best_val || (mmr == best_val && rows[idx].id < rows[remaining[best_pos]].id) {
+                best_val = mmr;
+                best_pos = pos;
+            }
+        }
+        selected.push(remaining.remove(best_pos));
+    }
+    let out: Vec<(String, f32)> = selected
+        .iter()
+        .enumerate()
+        .map(|(rank, &idx)| (rows[idx].id.clone(), 1.0 / (1.0 + rank as f32)))
+        .collect();
+    RowSet::from_scored(out)
+}
+
+/// Cosine similarity over two equal-length vectors (0 on degenerate input).
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let nb: f32 = b.iter().map(|y| y * y).sum::<f32>().sqrt();
+    if na == 0.0 || nb == 0.0 {
+        0.0
+    } else {
+        dot / (na * nb)
+    }
 }
 
 /// Stable score-desc sort (ties by id) so a reranker's output is deterministic.
