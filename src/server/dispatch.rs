@@ -1259,8 +1259,8 @@ mod blob_dispatch_tests {
                 // Python client recovers raw bytes via its second `unpackb`; decode
                 // that here to reassemble the original content.
                 Some(ResultPayload::Raw(packed)) => {
-                    let bytes: serde_bytes::ByteBuf = rmp_serde::from_slice(&packed)
-                        .expect("BlobChunkGet Raw decode");
+                    let bytes: serde_bytes::ByteBuf =
+                        rmp_serde::from_slice(&packed).expect("BlobChunkGet Raw decode");
                     out.extend(bytes.into_vec());
                 }
                 other => panic!("BlobChunkGet: {:?} / {:?}", other, r.error),

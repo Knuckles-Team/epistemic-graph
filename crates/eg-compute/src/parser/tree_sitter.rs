@@ -89,8 +89,7 @@ fn lang_for_path_extended(_ext: &str) -> Option<(Language, &'static str)> {
 /// mirrored by the Python file-discovery walk.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "go", "rs", "java", "c",
-    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs",
-    // SQL DDL (CONCEPT:KG-2.212):
+    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs", // SQL DDL (CONCEPT:KG-2.212):
     "sql", "ddl", // extended tier (CONCEPT:KG-2.106):
     "rb", "php", "sh", "bash", "scala", "sc", "lua",
 ];
@@ -159,7 +158,9 @@ fn object_reference_name(node: Node, source: &[u8]) -> Option<String> {
 fn references_target(parent: Node, source: &[u8]) -> Option<(String, Option<String>)> {
     let mut c = parent.walk();
     let children: Vec<Node> = parent.children(&mut c).collect();
-    let kw = children.iter().position(|ch| ch.kind() == "keyword_references")?;
+    let kw = children
+        .iter()
+        .position(|ch| ch.kind() == "keyword_references")?;
     let obj = children[kw + 1..]
         .iter()
         .find(|ch| ch.kind() == "object_reference")?;

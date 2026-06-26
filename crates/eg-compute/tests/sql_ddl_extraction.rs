@@ -25,14 +25,26 @@ fn extracts_tables_columns_fks_and_view() {
     assert_eq!(node("table:users").unwrap().node_type, "DatabaseTable");
     assert_eq!(node("table:sessions").unwrap().node_type, "DatabaseTable");
     // View.
-    assert_eq!(node("view:active_sessions").unwrap().node_type, "DatabaseView");
+    assert_eq!(
+        node("view:active_sessions").unwrap().node_type,
+        "DatabaseView"
+    );
     // Columns + flags.
     let pk = node("column:users.user_id").unwrap();
     assert_eq!(pk.node_type, "DatabaseColumn");
-    assert_eq!(pk.properties.get("primary_key").map(String::as_str), Some("true"));
+    assert_eq!(
+        pk.properties.get("primary_key").map(String::as_str),
+        Some("true")
+    );
     let email = node("column:users.email").unwrap();
-    assert_eq!(email.properties.get("unique").map(String::as_str), Some("true"));
-    assert_eq!(email.properties.get("not_null").map(String::as_str), Some("true"));
+    assert_eq!(
+        email.properties.get("unique").map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(
+        email.properties.get("not_null").map(String::as_str),
+        Some("true")
+    );
 
     let edge = |s: &str, t: &str, ty: &str| {
         res.edges
