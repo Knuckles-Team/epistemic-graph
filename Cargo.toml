@@ -463,6 +463,17 @@ path = "benches/write_coalescer_bench.rs"
 harness = false
 required-features = ["server"]
 
+# Redb durable group-commit micro-linger reproduction (CONCEPT:EG-024): N concurrent
+# authoritative writers fanned into ONE redb backend, swept across the linger knob so
+# the ops-per-fsync (batch-size) win over the commit-on-drain baseline is visible.
+# Needs the redb backend + tokio server runtime, so it is gated to `--features full`
+# (a default `cargo check --benches` skips it). DEV-only; never linked into the binary.
+[[bench]]
+name = "redb_group_commit_bench"
+path = "benches/redb_group_commit_bench.rs"
+harness = false
+required-features = ["full"]
+
 [profile.release]
 opt-level = 3
 # thin (not fat) LTO. EVIDENCED: the aarch64 wheel cross-build (zig/qemu under
