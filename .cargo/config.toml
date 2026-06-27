@@ -1,0 +1,28 @@
+# CONCEPT:EG-015/EG-016 — AVX2 build flag for the semantic store's SIMD kernels.
+#
+# EG-014's 8-lane chunked `dot_product`/`l2_norm` are written to vectorize, but the
+# default `x86-64` baseline only guarantees SSE2 (128-bit / 4-wide f32). Raising the
+# target to `x86-64-v3` enables AVX2 + FMA (256-bit / 8-wide f32), so the kernel emits
+# one packed multiply-add per 8 lanes — the win the 8-lane accumulator was designed
+# for, and the lever EG-014 left on the table on the brute-force/ANN-build path.
+#
+# This flag is OPT-IN, NOT a repo-wide default, on purpose:
+#   * `target-cpu=x86-64-v3` bakes AVX2 instructions into the binary. On a host that
+#     lacks AVX2 the process SIGILLs (illegal instruction). The fleet is heterogeneous
+#     — some build/CI hosts are only x86-64-v2 (SSE4.2, no AVX) — so forcing v3 for
+#     every `cargo build`/`cargo test`/`cargo run` would crash on those hosts.
+#   * aarch64 (GB10/ARM) keeps its native NEON codegen regardless (the cfg below is
+#     x86_64-Linux scoped), so this never touches non-x86 arches.
+#
+# Enable it ONLY for the x86 release/deploy build on AVX2-capable homelab hosts
+# (Dell R-series, etc.), either by exporting RUSTFLAGS for that build:
+#
+#     RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --features full
+#
+# or by uncommenting the target block below in the deploy checkout:
+#
+# [target.'cfg(all(target_arch = "x86_64", target_os = "linux"))']
+# rustflags = ["-C", "target-cpu=x86-64-v3"]
+#
+# (Use `target-cpu=native` instead for a single-host build; `x86-64-v3` is the safe
+# portable AVX2 baseline across the R-series fleet.)

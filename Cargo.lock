@@ -1890,6 +1890,7 @@ dependencies = [
  "eg-core",
  "eg-types",
  "petgraph",
+ "redb",
  "rmp-serde",
  "serde",
  "serde_json",
