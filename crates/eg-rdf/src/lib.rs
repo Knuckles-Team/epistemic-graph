@@ -57,3 +57,12 @@ pub mod update;
 /// oxttl-parsed ontology. Pure Rust; behind `owl` (implies `rdf`).
 #[cfg(feature = "owl")]
 pub mod owl;
+
+/// EG-021 — user-defined custom rules + instance-level (ABox) OWL 2 RL / Datalog
+/// reasoning with `owl:sameAs` equality, run in one confidence-propagating
+/// forward-chaining fixpoint. The second Stardog-parity gap (custom rules) plus the
+/// instance side of the broader OWL-2 axioms (`owl.rs` covers the TBox/concept side).
+/// [`rules::run_rule_reasoning`] / [`rules::run_rule_reasoning_on_view`] are the
+/// server-op-ready entry points (a `RunRules` op is a thin pass-through). Behind `owl`.
+#[cfg(feature = "owl")]
+pub mod rules;
