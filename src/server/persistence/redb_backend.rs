@@ -2384,26 +2384,37 @@ mod tests {
     /// `FsyncPolicy::Each` would commit per-drained-batch regardless, so we use
     /// `Interval` (the live authoritative cadence) where, pre-EG-024, a drained
     /// channel commits immediately at ~1 op/fsync.
+    /// Serializes the env-mutating linger tests. `EPISTEMIC_GRAPH_REDB_GROUP_*` are
+    /// process-global and read once inside `RedbBackend::open`, so two parallel tests
+    /// setting different values would race the config read (the disabled test could
+    /// observe the coalesce test's `2000`). Hold this across set_var → open →
+    /// remove_var; `open` is sync so there is no await under the guard.
+    static LINGER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[tokio::test(flavor = "multi_thread")]
     async fn micro_linger_coalesces_concurrent_writers() {
-        // Explicit, deterministic knobs (don't depend on ambient env).
-        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "2000");
-        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW", "256");
         let dir = std::env::temp_dir().join(format!("eg-redb-linger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = Arc::new(
-            RedbBackend::open(
-                dir_s.clone(),
-                // Long interval so the ONLY thing that commits a batch is the barrier
-                // path (+ its micro-linger), never the tick.
-                FsyncPolicy::Interval(Duration::from_millis(500)),
-                512,
-            )
-            .expect("open"),
-        );
-        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
-        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW");
+        let backend = {
+            // Explicit, deterministic knobs; serialized vs the other env-mutating test.
+            let _env = LINGER_ENV_LOCK.lock().unwrap();
+            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "2000");
+            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW", "256");
+            let b = Arc::new(
+                RedbBackend::open(
+                    dir_s.clone(),
+                    // Long interval so the ONLY thing that commits a batch is the barrier
+                    // path (+ its micro-linger), never the tick.
+                    FsyncPolicy::Interval(Duration::from_millis(500)),
+                    512,
+                )
+                .expect("open"),
+            );
+            std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
+            std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW");
+            b
+        };
 
         let stats = backend.commit_stats();
         let n = 256usize;
@@ -2455,19 +2466,24 @@ mod tests {
     /// the baseline the bench measures against and proves the knob is a real opt-out.
     #[tokio::test(flavor = "multi_thread")]
     async fn micro_linger_disabled_preserves_durability() {
-        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "0");
         let dir = std::env::temp_dir().join(format!("eg-redb-nolinger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = Arc::new(
-            RedbBackend::open(
-                dir_s.clone(),
-                FsyncPolicy::Interval(Duration::from_millis(50)),
-                256,
-            )
-            .expect("open"),
-        );
-        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
+        let backend = {
+            // Serialized vs the coalesce test so its `2000` can't leak into our `open`.
+            let _env = LINGER_ENV_LOCK.lock().unwrap();
+            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "0");
+            let b = Arc::new(
+                RedbBackend::open(
+                    dir_s.clone(),
+                    FsyncPolicy::Interval(Duration::from_millis(50)),
+                    256,
+                )
+                .expect("open"),
+            );
+            std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
+            b
+        };
 
         let stats = backend.commit_stats();
         let n = 64usize;
