@@ -39,6 +39,18 @@
 //!
 //! With NO persist dir the engine is in-memory only (a scratch graph), exactly like
 //! the server with no persist dir.
+//!
+//! ## SQLite-equivalent SQL (CONCEPT:EG-022 / EG-018)
+//!
+//! SQLite is *embedded* — its equivalence here is this in-process mode PLUS arbitrary
+//! SQL user tables. On a `query` build [`EmbeddedEngine::sql_exec`] runs `CREATE
+//! TABLE` / `INSERT` / `SELECT` (and `ALTER`/`DROP TABLE`) against a single-file user-
+//! table store (`{persist_dir}/sql_tables.redb`) WITHOUT a server, socket, or auth —
+//! open a file, create tables, insert rows, query them, durably. A `SELECT` reads the
+//! user tables AND the knowledge graph in ONE DataFusion plan (the SAME path the
+//! out-of-process pgwire shim serves), and the table file uses the SAME name/layout
+//! the shim uses, so a table created embedded is visible out-of-process and vice-versa
+//! (one store, two transports — exactly like the redb graph tier).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -96,6 +108,13 @@ struct Inner {
     /// In-memory-only when there is no durable store.
     #[cfg(not(feature = "redb"))]
     _persist: Option<std::path::PathBuf>,
+    /// SQLite-equivalent arbitrary user-table store (CONCEPT:EG-018 / EG-022),
+    /// present on a `query` build. A single-file `{persist_dir}/sql_tables.redb` when
+    /// durable, else an ephemeral temp file (SQLite's `:memory:` analogue). `sql_exec`
+    /// runs CREATE TABLE / INSERT / SELECT against it WITHOUT a server — the embedded
+    /// half of the user-table SQL surface the pgwire shim serves out-of-process.
+    #[cfg(feature = "query")]
+    tables: eg_query::TableStore,
 }
 
 impl EmbeddedEngine {
@@ -150,20 +169,50 @@ impl EmbeddedEngine {
                 }
                 _ => None,
             };
+            #[cfg(feature = "query")]
+            let tables = Self::open_table_store(persist_dir.as_deref(), options.durable)?;
             Ok(Self {
-                inner: Arc::new(Inner { registry, store }),
+                inner: Arc::new(Inner {
+                    registry,
+                    store,
+                    #[cfg(feature = "query")]
+                    tables,
+                }),
             })
         }
 
         #[cfg(not(feature = "redb"))]
         {
+            #[cfg(feature = "query")]
+            let tables = Self::open_table_store(persist_dir.as_deref(), options.durable)?;
+            #[cfg(not(feature = "query"))]
             let _ = options;
             Ok(Self {
                 inner: Arc::new(Inner {
                     registry: RwLock::new(GraphRegistry::new()),
                     _persist: persist_dir,
+                    #[cfg(feature = "query")]
+                    tables,
                 }),
             })
+        }
+    }
+
+    /// Open the SQLite-equivalent user-table store (CONCEPT:EG-018 / EG-022): a
+    /// single-file `{persist_dir}/sql_tables.redb` when durable (the SAME filename the
+    /// pgwire shim uses, so a table created embedded is visible out-of-process and
+    /// vice-versa), else an ephemeral temp file (the `:memory:` analogue).
+    #[cfg(feature = "query")]
+    fn open_table_store(
+        persist_dir: Option<&Path>,
+        durable: bool,
+    ) -> Result<eg_query::TableStore, String> {
+        match (persist_dir, durable) {
+            (Some(dir), true) => {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                eg_query::TableStore::open(dir.join("sql_tables.redb"))
+            }
+            _ => eg_query::TableStore::open_temp().map(|(s, _path)| s),
         }
     }
 
@@ -427,6 +476,68 @@ impl EmbeddedEngine {
         eg_query::exec_cypher(&snap, cypher)
     }
 
+    /// Execute a SQL statement SQLite-style, in-process, WITHOUT a server
+    /// (CONCEPT:EG-022 / EG-018). This is the embedded equivalence to SQLite: open a
+    /// file → `CREATE TABLE` / `INSERT` / `SELECT` over arbitrary user tables, durably,
+    /// with no socket and no auth.
+    ///
+    /// * `CREATE TABLE` / `ALTER TABLE` / `DROP TABLE` mutate the single-file user-
+    ///   table store (`{persist_dir}/sql_tables.redb`).
+    /// * `INSERT INTO <table> … VALUES …` durably appends rows (commit-before-return).
+    /// * `SELECT …` runs over the graph snapshot AND the user tables in ONE DataFusion
+    ///   plan (the SAME path the pgwire shim serves), so a SELECT can read a user table,
+    ///   JOIN it to the graph, or both.
+    ///
+    /// Node-graph DML (`INSERT INTO nodes …`, `UPDATE/DELETE` over the graph) is NOT
+    /// handled here — use the typed `add_node`/`add_edge`/`remove_*` methods for the
+    /// graph. Available with the `query` feature.
+    #[cfg(feature = "query")]
+    pub fn sql_exec(
+        &self,
+        graph: &str,
+        sql: &str,
+    ) -> Result<eg_query::TypedQueryResult, String> {
+        use eg_query::StatementKind;
+        let store = &self.inner.tables;
+        match eg_query::classify(sql)? {
+            // SELECT / WITH: the read path over the graph snapshot + the user tables.
+            // Auto-create the (possibly empty) graph so a table-only SELECT works
+            // without a pre-existing graph, matching the firehose write path.
+            StatementKind::Read => {
+                let snap = self.core(graph, true)?.analysis_snapshot();
+                eg_query::exec_sql_typed_with_tables(&snap, store, sql)
+            }
+            StatementKind::CreateTable(plan) => {
+                let columns = to_store_columns(&plan.columns)?;
+                let schema = eg_query::TableSchema {
+                    name: plan.name,
+                    columns,
+                };
+                store.create_table(&schema, plan.if_not_exists)?;
+                Ok(status_result("CREATE TABLE"))
+            }
+            StatementKind::DropTable(plan) => {
+                store.drop_table(&plan.name, plan.if_exists)?;
+                Ok(status_result("DROP TABLE"))
+            }
+            StatementKind::AlterTable(plan) => {
+                let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
+                let column = columns.into_iter().next().expect("one column");
+                store.add_column(&plan.name, column)?;
+                Ok(status_result("ALTER TABLE"))
+            }
+            StatementKind::InsertTable(ins) => {
+                let n = store.insert_rows(&ins.table, &ins.columns, &ins.rows)?;
+                Ok(count_result(n))
+            }
+            other => Err(format!(
+                "embedded sql_exec supports user-table DDL/DML (CREATE/ALTER/DROP \
+                 TABLE, INSERT … VALUES) + SELECT; for node-graph mutations use the \
+                 typed add_node/add_edge/remove_* methods (statement: {other:?})"
+            )),
+        }
+    }
+
     // ── durability control ───────────────────────────────────────────────
 
     /// Snapshot the WHOLE registry (nodes, edges, ledger, semantic vectors) into
@@ -462,6 +573,48 @@ impl EmbeddedEngine {
     pub fn close(self) -> Result<usize, String> {
         let n = self.checkpoint()?;
         Ok(n)
+    }
+}
+
+/// Resolve classify `ColumnDef`s (raw SQL type spellings) into store [`Column`]s
+/// (CONCEPT:EG-018). Mirrors the pgwire shim's `to_store_columns`, but on the public
+/// eg-query API so the embedded path adds no cross-crate coupling.
+#[cfg(feature = "query")]
+fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column>, String> {
+    cols.iter()
+        .map(|c| {
+            let ty = eg_query::ColumnType::parse(&c.type_name)?;
+            Ok(eg_query::Column {
+                name: c.name.clone(),
+                ty,
+                nullable: c.nullable,
+                primary_key: c.primary_key,
+            })
+        })
+        .collect()
+}
+
+/// A one-row `status` result for a DDL statement (CREATE/ALTER/DROP TABLE).
+#[cfg(feature = "query")]
+fn status_result(tag: &str) -> eg_query::TypedQueryResult {
+    eg_query::TypedQueryResult {
+        columns: vec![eg_query::TypedColumn {
+            name: "status".to_string(),
+            ty: eg_query::PgColType::Text,
+        }],
+        rows: vec![vec![serde_json::Value::String(tag.to_string())]],
+    }
+}
+
+/// A one-row `inserted` count result for an INSERT statement.
+#[cfg(feature = "query")]
+fn count_result(n: usize) -> eg_query::TypedQueryResult {
+    eg_query::TypedQueryResult {
+        columns: vec![eg_query::TypedColumn {
+            name: "inserted".to_string(),
+            ty: eg_query::PgColType::Int8,
+        }],
+        rows: vec![vec![serde_json::Value::from(n as i64)]],
     }
 }
 

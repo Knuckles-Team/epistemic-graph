@@ -1,16 +1,23 @@
-//! eg-graphql — a native GraphQL **read** surface over the engine's property-graph
-//! (CONCEPT:KG-2.235, Lane M query-language polish).
-//!
-//! It does two things, both pure-Rust (NO async-graphql):
+//! eg-graphql — a native GraphQL surface over the engine's property-graph
+//! (CONCEPT:KG-2.235 reads; CONCEPT:EG-019 writes), all pure-Rust (NO async-graphql):
 //!   * [`Schema::from_view`] — derives a GraphQL schema by introspecting a live
 //!     `GraphView` (node labels → object types, properties → scalar fields, edge
 //!     relationship types → object fields). The schema tracks the real graph with no
-//!     hand-maintained SDL.
-//!   * [`execute`] — compiles a parsed GraphQL query to scans + BFS over the SAME
+//!     hand-maintained SDL; [`Schema::to_mutation_sdl`] renders the matching write
+//!     vocabulary.
+//!   * [`execute`] — compiles a parsed GraphQL QUERY to scans + BFS over the SAME
 //!     `GraphView` the Cypher / unified executor reads, returning GraphQL-shaped
 //!     `{"data": …}` JSON. It reuses the engine's own label-index + edge primitives, so
 //!     a GraphQL query returns the SAME nodes/fields as the equivalent Cypher query
 //!     (proven by the `graphql_equals_cypher` test below).
+//!   * [`execute_mutation`] — maps a GraphQL MUTATION (`createNode`/`updateNode`/
+//!     `deleteNode`/`addEdge`/`removeEdge`) onto eg-core's native write ops over the
+//!     live `GraphCore`, then shapes the affected node with the same selection-resolver
+//!     the query path uses (CONCEPT:EG-019).
+//!   * [`subscribe`] / [`subscribe_versioned`] — a poll over the current matches for a
+//!     GraphQL SUBSCRIPTION (a query that streams); the OCC `version()` lets a watcher
+//!     re-render only on change. A full push transport is a documented deferral
+//!     (see `crate::subscription`).
 //!
 //! ## Why a hand-written parser (async-graphql evaluated, rejected)
 //! `async-graphql` is the standard Rust GraphQL crate, but it pulls ~80+ transitive
@@ -23,16 +30,21 @@
 //! `graphql` (node/cluster/full, OUT of pi/default), so a Pi build links none of it.
 //!
 //! ## Deferred (documented)
-//! Mutations, subscriptions, fragments, variables, directives, interfaces/unions, and
+//! A push subscription transport (a `tokio::sync::broadcast` change-stream — see
+//! `crate::subscription`), fragments, variables, directives, interfaces/unions, and
 //! relay-style connection pagination. A parse error names the unsupported construct.
 
+pub mod mutation;
 pub mod parser;
 pub mod resolver;
 pub mod schema;
+pub mod subscription;
 
-pub use parser::{parse, GqlError, Query};
+pub use mutation::execute as execute_mutation;
+pub use parser::{parse, parse_operation, GqlError, Mutation, Operation, Query, Subscription};
 pub use resolver::{execute, execute_query};
 pub use schema::Schema;
+pub use subscription::{poll as subscribe, poll_versioned as subscribe_versioned};
 
 #[cfg(test)]
 mod tests {
@@ -42,6 +54,37 @@ mod tests {
 
     fn pbytes(v: Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// The live `GraphCore` behind the fixture (writes operate on this).
+    fn core_fixture() -> GraphCore {
+        let core = GraphCore::new();
+        core.add_node(
+            "alice".into(),
+            pbytes(json!({"type":"Person","name":"Alice","age":30})),
+        );
+        core.add_node(
+            "bob".into(),
+            pbytes(json!({"type":"Person","name":"Bob","age":25})),
+        );
+        core.add_node(
+            "carol".into(),
+            pbytes(json!({"type":"Person","name":"Carol","age":40})),
+        );
+        core.add_node("d1".into(), pbytes(json!({"type":"Doc","title":"Graphs"})));
+        core.add_edge(
+            "alice".into(),
+            "bob".into(),
+            pbytes(json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "bob".into(),
+            "carol".into(),
+            pbytes(json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
+        core
     }
 
     /// alice/bob/carol People + a Doc; alice-KNOWS->bob, bob-KNOWS->carol. The SAME
@@ -190,5 +233,165 @@ mod tests {
             "GraphQL KNOWS traversal must equal the Cypher traversal"
         );
         assert_eq!(gql2_targets, vec!["Bob"]);
+    }
+
+    // ── writes (CONCEPT:EG-019) ───────────────────────────────────────────────────
+
+    /// THE core write→read proof: a `createNode` mutation makes a node a subsequent
+    /// query sees, with the values supplied in `props`.
+    #[test]
+    fn mutation_create_then_query_sees_it() {
+        let core = core_fixture();
+        let res = execute_mutation(
+            &core,
+            r#"mutation {
+                createNode(label: "Person", id: "dave", props: {name: "Dave", age: 50}) {
+                    id
+                    name
+                }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(res["data"]["createNode"]["id"], json!("dave"));
+        assert_eq!(res["data"]["createNode"]["name"], json!("Dave"));
+
+        // A fresh query over the post-write snapshot sees Dave.
+        let view = core.analysis_snapshot();
+        let q = execute(&view, r#"{ Person(name: "Dave") { name age } }"#).unwrap();
+        let people = q["data"]["Person"].as_array().unwrap();
+        assert_eq!(people.len(), 1);
+        assert_eq!(people[0]["name"], json!("Dave"));
+        assert_eq!(people[0]["age"], json!(50));
+    }
+
+    /// `updateNode` merges props; the query then reflects the new value.
+    #[test]
+    fn mutation_update_round_trips() {
+        let core = core_fixture();
+        let res = execute_mutation(
+            &core,
+            r#"mutation { updateNode(id: "alice", props: {age: 31, city: "NYC"}) { id age city } }"#,
+        )
+        .unwrap();
+        assert_eq!(res["data"]["updateNode"]["age"], json!(31));
+        assert_eq!(res["data"]["updateNode"]["city"], json!("NYC"));
+
+        let view = core.analysis_snapshot();
+        let q = execute(&view, r#"{ Person(name: "Alice") { age city name } }"#).unwrap();
+        assert_eq!(q["data"]["Person"][0]["age"], json!(31));
+        assert_eq!(q["data"]["Person"][0]["city"], json!("NYC"));
+        // untouched fields survive the merge.
+        assert_eq!(q["data"]["Person"][0]["name"], json!("Alice"));
+    }
+
+    /// `updateNode` on a missing node is a clear error.
+    #[test]
+    fn mutation_update_missing_node_errors() {
+        let core = core_fixture();
+        let e = execute_mutation(&core, r#"mutation { updateNode(id: "ghost", props: {x: 1}) { id } }"#)
+            .unwrap_err();
+        assert!(e.contains("not found"), "got {e}");
+    }
+
+    /// `deleteNode` removes the node; the query no longer sees it.
+    #[test]
+    fn mutation_delete_round_trips() {
+        let core = core_fixture();
+        let res =
+            execute_mutation(&core, r#"mutation { deleteNode(id: "carol") }"#).unwrap();
+        assert_eq!(res["data"]["deleteNode"]["deleted"], json!(true));
+        assert_eq!(res["data"]["deleteNode"]["id"], json!("carol"));
+
+        let view = core.analysis_snapshot();
+        let q = execute(&view, "{ Person { name } }").unwrap();
+        let names: Vec<&str> = q["data"]["Person"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        assert!(!names.contains(&"Carol"), "Carol should be gone, got {names:?}");
+    }
+
+    /// `addEdge` creates a relationship the query traversal then follows.
+    #[test]
+    fn mutation_add_edge_round_trips() {
+        let core = core_fixture();
+        // alice -KNOWS-> carol is NOT in the fixture; add it.
+        let res = execute_mutation(
+            &core,
+            r#"mutation { addEdge(from: "alice", to: "carol", type: "KNOWS", props: {since: 2020}) }"#,
+        )
+        .unwrap();
+        assert_eq!(res["data"]["addEdge"]["added"], json!(true));
+        assert_eq!(res["data"]["addEdge"]["type"], json!("KNOWS"));
+
+        let view = core.analysis_snapshot();
+        let q = execute(&view, r#"{ Person(name: "Alice") { KNOWS { name } } }"#).unwrap();
+        let mut targets: Vec<&str> = q["data"]["Person"][0]["KNOWS"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["name"].as_str().unwrap())
+            .collect();
+        targets.sort();
+        assert_eq!(targets, vec!["Bob", "Carol"]);
+    }
+
+    /// `removeEdge` drops the relationship; the traversal no longer follows it.
+    #[test]
+    fn mutation_remove_edge_round_trips() {
+        let core = core_fixture();
+        execute_mutation(&core, r#"mutation { removeEdge(from: "alice", to: "bob") }"#).unwrap();
+
+        let view = core.analysis_snapshot();
+        let q = execute(&view, r#"{ Person(name: "Alice") { KNOWS { name } } }"#).unwrap();
+        assert_eq!(q["data"]["Person"][0]["KNOWS"].as_array().unwrap().len(), 0);
+    }
+
+    /// `addEdge` to a missing endpoint surfaces the engine's error.
+    #[test]
+    fn mutation_add_edge_missing_endpoint_errors() {
+        let core = core_fixture();
+        let e = execute_mutation(
+            &core,
+            r#"mutation { addEdge(from: "alice", to: "ghost", type: "KNOWS") }"#,
+        )
+        .unwrap_err();
+        assert!(e.contains("not found"), "got {e}");
+    }
+
+    /// A subscription POLL returns the current matches (same shape as a query) and the
+    /// versioned poll advances after a write.
+    #[test]
+    fn subscription_polls_current_matches() {
+        let core = core_fixture();
+        let view = core.analysis_snapshot();
+        let res = subscribe(&view, "subscription { Person { name } }").unwrap();
+        assert_eq!(res["data"]["Person"].as_array().unwrap().len(), 3);
+
+        // versioned poll: version advances once a mutation lands, so a watcher knows to
+        // re-render.
+        let (_d0, v0) = subscribe_versioned(&core, "subscription { Person { name } }").unwrap();
+        execute_mutation(
+            &core,
+            r#"mutation { createNode(label: "Person", id: "eve", props: {name: "Eve"}) { id } }"#,
+        )
+        .unwrap();
+        let (d1, v1) = subscribe_versioned(&core, "subscription { Person { name } }").unwrap();
+        assert!(v1 > v0, "version must advance after a write ({v0} -> {v1})");
+        assert_eq!(d1["data"]["Person"].as_array().unwrap().len(), 4);
+    }
+
+    /// The mutation SDL renders the write vocabulary, tied back to the graph's labels.
+    #[test]
+    fn mutation_sdl_renders() {
+        let view = fixture();
+        let sdl = Schema::from_view(&view).to_mutation_sdl();
+        assert!(sdl.contains("type Mutation"));
+        assert!(sdl.contains("createNode(label: String!"));
+        assert!(sdl.contains("addEdge(from: ID!"));
+        // the per-graph label comment ties generic ops to real types.
+        assert!(sdl.contains("Person"));
     }
 }
