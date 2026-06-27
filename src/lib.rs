@@ -72,6 +72,11 @@ pub mod wal_service;
 // lives in the server-gated top-level crate alongside wal_service.
 #[cfg(feature = "server")]
 pub mod write_coalescer;
+// Hardware capacity auto-detection (CONCEPT:EG-028). Derives the concurrency / buffer /
+// per-graph node-cap DEFAULTS from (cpu_count, total_RAM) so the SAME binary is lean +
+// OOM-safe on a Raspberry Pi 3 (4 cores / 1 GiB) and exploits a 64-core / 247 GiB box.
+// PURE-RUST (available_parallelism + /proc/meminfo), no deps; always compiled.
+pub mod autosize;
 // Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V). The budget
 // enforcer (periodic over-budget eviction/hibernation), the per-tenant resident-RAM
 // tracking, the ResourceStats snapshot, and the capacity-planning cost model. PURE-RUST
