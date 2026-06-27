@@ -1524,6 +1524,8 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }))
     }
 

@@ -586,6 +586,24 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Key→Value (CONCEPT:EG-022) ───────────────────────────────
+        // Namespaced KV, NOT graph-scoped: a pair is keyed by (namespace, key) and
+        // lives off the node/edge graph, so route at the top level (like blob/txn)
+        // before the per-graph chain. The variants only exist with the `kv` feature;
+        // without it they aren't in the enum and a slim build can't reach this arm.
+        #[cfg(feature = "kv")]
+        Method::KvGet { .. }
+        | Method::KvPut { .. }
+        | Method::KvDelete { .. }
+        | Method::KvScan { .. }
+        | Method::KvCas { .. } => {
+            match crate::server::kv::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: every variant matched above is a kv method.
+                Err(_) => Response::err(req.id, "kv dispatch routing error"),
+            }
+        }
+
         // ── Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230) ───
         // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
         // side — emitting changes — lives in the dispatch_graph_op write-side-effect
@@ -1154,6 +1172,8 @@ mod blob_dispatch_tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }))
     }
 

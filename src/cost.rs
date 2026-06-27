@@ -699,6 +699,8 @@ mod tests {
                 )),
                 #[cfg(feature = "federation")]
                 foreign_sources: Arc::new(dashmap::DashMap::new()),
+                #[cfg(feature = "kv")]
+                kv: None,
             }));
             // Wire the durable read-through exactly like main.rs under authoritative mode.
             {

@@ -149,6 +149,25 @@ fn default_tcp_fallback_addr() -> String {
         .unwrap_or_else(|| "127.0.0.1:8765".to_string())
 }
 
+/// Resolve an optional listener bind address from a deploy-supplied value
+/// (CONCEPT:EG-022 — deploy-configurable listeners). The auxiliary HTTP listeners
+/// (Prometheus metrics, SPARQL, pgwire) are all opt-in; this lets a deploy turn one
+/// on WITHOUT a full `host:port` and WITHOUT a code change:
+///   * `None` / empty / `0`|`off`|`false`|`no`|`disabled` ⇒ `None` (listener off).
+///   * `1`|`on`|`true`|`yes`|`enabled` ⇒ the safe localhost default `default_addr`.
+///   * a bare port (`9101`) ⇒ `127.0.0.1:9101` (loopback — never `0.0.0.0`).
+///   * anything else ⇒ taken verbatim as the bind address (an operator pinning a
+///     specific interface keeps full control, including binding non-loopback).
+fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
+    let v = value.map(str::trim).filter(|s| !s.is_empty())?;
+    match v.to_ascii_lowercase().as_str() {
+        "0" | "off" | "false" | "no" | "disabled" => None,
+        "1" | "on" | "true" | "yes" | "enabled" => Some(default_addr.to_string()),
+        _ if v.chars().all(|c| c.is_ascii_digit()) => Some(format!("127.0.0.1:{v}")),
+        _ => Some(v.to_string()),
+    }
+}
+
 /// True if any legacy snapshot (`.mp`) or WAL (`.wal`) file exists in `dir` —
 /// the trigger for the one-time redb-authoritative migration (CONCEPT:KG-2.187).
 fn legacy_snapshots_present(dir: &str) -> bool {
@@ -520,6 +539,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         (cursors, ttl)
     };
 
+    // ── Generic Key→Value store (CONCEPT:EG-022, feature `kv`) ───────────
+    // A durable `{persist_dir}/kv.redb` when a persist dir is set, else an in-memory
+    // scratch map. Built BEFORE `persist_dir` is moved into the struct. A store-open
+    // failure is fatal at boot (loud + early), same discipline as the other stores.
+    #[cfg(feature = "kv")]
+    let kv: Option<Arc<epistemic_graph::server::kv::KvStore>> =
+        match epistemic_graph::server::kv::KvStore::open(args.persist_dir.as_deref()) {
+            Ok(s) => {
+                if s.is_durable() {
+                    info!("Key→Value store (kv): durable kv.redb (CONCEPT:EG-022)");
+                } else {
+                    info!("Key→Value store (kv): in-memory scratch — no persist dir");
+                }
+                Some(Arc::new(s))
+            }
+            Err(e) => {
+                eprintln!("error: failed to open kv store: {e}");
+                std::process::exit(1);
+            }
+        };
+
     let state = Arc::new(RwLock::new(ServerState {
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
@@ -572,12 +612,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         )),
         #[cfg(feature = "federation")]
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+        #[cfg(feature = "kv")]
+        kv,
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
-    // Opt-in: bound only when --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is
-    // set, so shards never collide on a default port.
-    if let Some(ref metrics_addr) = args.metrics_addr {
+    // Opt-in + deploy-configurable (CONCEPT:EG-022): bound only when
+    // --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is set. A bare enable token
+    // (`1`/`on`/…) binds the safe localhost default `127.0.0.1:9101`; a bare port
+    // binds loopback:port; a full addr is honored verbatim — so a deploy turns the
+    // listener on without a code change, and shards still never collide by default.
+    let metrics_addr = resolve_listener_addr(args.metrics_addr.as_deref(), "127.0.0.1:9101");
+    if let Some(ref metrics_addr) = metrics_addr {
         #[cfg(feature = "metrics")]
         {
             let listener = tokio::net::TcpListener::bind(metrics_addr).await?;
@@ -600,8 +646,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // sparql-http` AND --sparql-addr / EPISTEMIC_GRAPH_SPARQL_ADDR is set. With the
     // feature off, or unset, this is a no-op and the engine runs exactly as before.
+    // Deploy-configurable (CONCEPT:EG-022): a bare enable token binds the safe
+    // localhost default `127.0.0.1:7878`; a bare port binds loopback:port; a full
+    // addr is honored verbatim.
+    let sparql_addr = resolve_listener_addr(args.sparql_addr.as_deref(), "127.0.0.1:7878");
     #[cfg(feature = "sparql-http")]
-    if let Some(ref sparql_addr) = args.sparql_addr {
+    if let Some(ref sparql_addr) = sparql_addr {
         let listener = tokio::net::TcpListener::bind(sparql_addr).await?;
         info!(
             "SPARQL: serving W3C SPARQL 1.1 Protocol on http://{}/sparql",
@@ -613,7 +663,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     #[cfg(not(feature = "sparql-http"))]
-    if args.sparql_addr.is_some() {
+    if sparql_addr.is_some() {
         tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
     }
 
@@ -621,17 +671,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
     // `--features pgwire` AND EPISTEMIC_GRAPH_PGWIRE_ADDR is set. With the feature
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
+    // Deploy-configurable (CONCEPT:EG-022): the addr is env-driven
+    // (EPISTEMIC_GRAPH_PGWIRE_ADDR); a bare enable token binds the safe localhost
+    // default `127.0.0.1:5433`, a bare port binds loopback:port, a full addr verbatim.
+    // pgwire's OWN internals are untouched — only the bind addr is resolved here.
     #[cfg(feature = "pgwire")]
-    if let Ok(pg_addr) = std::env::var(epistemic_graph::server::pgwire::PGWIRE_ADDR_ENV) {
-        if !pg_addr.trim().is_empty() {
-            let pg_state = state.clone();
-            let addr = pg_addr.clone();
-            tokio::spawn(async move {
-                if let Err(e) = epistemic_graph::server::pgwire::serve(&addr, pg_state).await {
-                    tracing::error!("pgwire server error: {}", e);
-                }
-            });
-        }
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::pgwire::PGWIRE_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:5433",
+    ) {
+        let pg_state = state.clone();
+        info!("pgwire: serving Postgres wire protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::pgwire::serve(&addr, pg_state).await {
+                tracing::error!("pgwire server error: {}", e);
+            }
+        });
     }
 
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
