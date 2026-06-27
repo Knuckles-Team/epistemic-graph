@@ -34,15 +34,21 @@
 //!
 //! ## Scope of this increment (documented follow-ups)
 //!
-//! * **One group today.** Every graph routes to [`DEFAULT_GROUP`] so behavior matches
-//!   the single-group path; the manager + routing + group lifecycle + multi-group
-//!   isolation are exercised by tests, so splitting a keyspace into its own group
-//!   later is a routing change, not a storage change.
+//! * **One group by default.** With no ring configured every graph routes to
+//!   [`DEFAULT_GROUP`] so behavior matches the single-group path; the manager +
+//!   routing + group lifecycle + multi-group isolation are exercised by tests.
+//!   [`multi::GroupRouter::set_group_ring`] / [`multi::MultiRaft::configure_group_ring`]
+//!   now SPREAD un-pinned graphs across N groups on a stable hash ring
+//!   (CONCEPT:KG-2.266) — splitting a keyspace is a routing change, not a storage
+//!   change.
 //! * **Group = transaction boundary.** One graph belongs to one group; a txn stays
 //!   inside a group. Cross-group (2-phase) transactions are a SEPARATE, larger
 //!   project — NOT in this increment (documented follow-up CONCEPT:KG-2.207).
-//! * Other follow-ups: per-group snapshot scoping, leader balancing across groups,
-//!   heartbeat coalescing, and a pooled per-peer connection.
+//! * **M2 hardening (done):** pooled per-peer connections (CONCEPT:KG-2.265) and
+//!   per-group snapshot scoping (CONCEPT:KG-2.267) — see `docs/architecture/m2-raft-status.md`.
+//! * **M2 follow-ups (remaining):** leader balancing across groups and heartbeat
+//!   coalescing — both need a real multi-node cluster to exercise; scoped as
+//!   independent pick-up tasks in `docs/architecture/m2-raft-status.md`.
 //!
 //! ## Write-routing barrier
 //!
@@ -193,4 +199,9 @@ pub type PeerMap = BTreeMap<NodeId, BasicNode>;
 #[derive(Clone)]
 pub struct AppCtx {
     pub state: Arc<RwLock<ServerState>>,
+    /// The group router (CONCEPT:KG-2.266), present when the store runs under a
+    /// [`multi::MultiRaft`]. A group's snapshot dump uses it to SCOPE the dump to the
+    /// graphs in THIS group's tenant range (CONCEPT:KG-2.267). `None` ⇒ a direct /
+    /// single-store open dumps the whole registry (the unscoped scaffold behavior).
+    pub router: Option<Arc<multi::GroupRouter>>,
 }

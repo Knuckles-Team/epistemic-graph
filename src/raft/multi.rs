@@ -42,13 +42,39 @@ use super::{
     AppCtx, EgRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
 };
 
-/// Routes a graph name to the Raft group that owns it (CONCEPT:KG-2.205). One graph
-/// belongs to exactly one group. This increment maps everything to [`DEFAULT_GROUP`]
-/// (single-group behavior); an explicit override map lets a test / a later increment
-/// place specific graphs in other groups without a wire/storage change.
+/// Routes a graph name to the Raft group that owns it (CONCEPT:KG-2.205 +
+/// KG-2.266). One graph belongs to exactly one group. Resolution order:
+///
+/// 1. an explicit per-graph **override** ([`assign`], used by reshard + tests) —
+///    highest priority, a graph pinned to a specific group;
+/// 2. otherwise the **tenant-range ring** ([`set_group_ring`], CONCEPT:KG-2.266):
+///    the graph name hashes (stable FNV-1a) onto a sorted set of group ids, so
+///    un-pinned tenants SPREAD across groups instead of all landing on one;
+/// 3. otherwise [`DEFAULT_GROUP`].
+///
+/// With NO ring configured (the default) every un-pinned graph maps to
+/// [`DEFAULT_GROUP`] — byte-for-byte the single-group scaffold behavior.
+///
+/// [`assign`]: GroupRouter::assign
+/// [`set_group_ring`]: GroupRouter::set_group_ring
 #[derive(Default)]
 pub struct GroupRouter {
     overrides: DashMap<String, GroupId>,
+    /// The tenant-range ring (CONCEPT:KG-2.266): a sorted, de-duplicated set of group
+    /// ids that un-pinned graphs hash-distribute across. EMPTY ⇒ single-group default.
+    ring: parking_lot::RwLock<Vec<GroupId>>,
+}
+
+/// Stable, deterministic FNV-1a hash of a graph name → ring slot. Stable forever and
+/// identical on every node (NOT the randomized `RandomState`), so all nodes route a
+/// given tenant to the SAME group. Routing is recomputed live, never persisted.
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
 }
 
 impl GroupRouter {
@@ -56,12 +82,32 @@ impl GroupRouter {
         Self::default()
     }
 
-    /// The group that owns `graph_name`. Defaults to [`DEFAULT_GROUP`].
+    /// The group that owns `graph_name`. Override → tenant-range ring → [`DEFAULT_GROUP`].
     pub fn group_of(&self, graph_name: &str) -> GroupId {
-        self.overrides
-            .get(graph_name)
-            .map(|g| *g)
-            .unwrap_or(DEFAULT_GROUP)
+        if let Some(g) = self.overrides.get(graph_name) {
+            return *g;
+        }
+        let ring = self.ring.read();
+        if ring.is_empty() {
+            return DEFAULT_GROUP;
+        }
+        ring[(fnv1a(graph_name) % ring.len() as u64) as usize]
+    }
+
+    /// Configure the tenant-range ring (CONCEPT:KG-2.266): un-pinned graphs
+    /// hash-distribute across these group ids. The set is sorted + de-duplicated so
+    /// the mapping is stable regardless of input order. Pass an EMPTY slice to
+    /// collapse back to the single-group default. Replaces any prior ring.
+    pub fn set_group_ring(&self, groups: &[GroupId]) {
+        let mut ring: Vec<GroupId> = groups.to_vec();
+        ring.sort_unstable();
+        ring.dedup();
+        *self.ring.write() = ring;
+    }
+
+    /// The current tenant-range ring (sorted group ids); empty ⇒ single-group default.
+    pub fn group_ring(&self) -> Vec<GroupId> {
+        self.ring.read().clone()
     }
 
     /// Pin a graph to a specific group (used by multi-group setups/tests). One graph
@@ -130,6 +176,9 @@ pub struct MultiRaft {
     /// The shared M2 backend handle every group's store is opened over.
     backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
     ctx: AppCtx,
+    /// Shared per-peer outbound connection pool (CONCEPT:KG-2.265) — one per node,
+    /// reused by every group's network clients.
+    pool: Arc<network::PeerPool>,
     listener_handle: tokio::task::JoinHandle<()>,
     /// Per-tenant migration locks (CONCEPT:KG-2.224). A reshard or hibernate of a
     /// graph takes its lock so the two cannot race / interleave for one tenant; ops
@@ -171,6 +220,7 @@ impl MultiRaft {
             router: Arc::new(GroupRouter::new()),
             backend,
             ctx,
+            pool: network::PeerPool::new(),
             listener_handle,
             tenant_locks: Arc::new(DashMap::new()),
         }))
@@ -208,6 +258,30 @@ impl MultiRaft {
         self.router.clone()
     }
 
+    /// The node's shared per-peer connection pool (CONCEPT:KG-2.265) — exposed for
+    /// metrics/tests (e.g. asserting RPCs reused a warm connection).
+    pub fn pool(&self) -> Arc<network::PeerPool> {
+        self.pool.clone()
+    }
+
+    /// Configure a tenant-range ring of `n_groups` groups (CONCEPT:KG-2.266) and bring
+    /// each up on THIS node, distributing un-pinned graphs across them. Group ids are
+    /// `0..n_groups` (so [`DEFAULT_GROUP`] = 0 is always in the ring). Each group is a
+    /// single-member bootstrap on this node — the multi-NODE membership join per group
+    /// is a separate follow-up (see the M2 status doc). `n_groups <= 1` leaves the ring
+    /// empty (the single-group default), so this is a safe superset.
+    pub async fn configure_group_ring(self: &Arc<Self>, n_groups: u64) -> Result<(), String> {
+        if n_groups <= 1 {
+            return Ok(());
+        }
+        let groups: Vec<GroupId> = (0..n_groups).collect();
+        for &gid in &groups {
+            self.ensure_group(gid).await?;
+        }
+        self.router.set_group_ring(&groups);
+        Ok(())
+    }
+
     /// The shared `ServerState` (registry + persistence) every group applies into —
     /// reached via the manager's [`AppCtx`]. Used by the cross-shard 2PC coordinator
     /// (CONCEPT:KG-2.222) to validate slices against live group state.
@@ -232,7 +306,13 @@ impl MultiRaft {
         if self.groups.read().await.contains_key(&gid) {
             return Err(format!("group {gid} already open on node {}", self.node_id));
         }
-        let store = EgStore::open(gid, self.backend.clone(), self.ctx.clone())?;
+        // The store's ctx carries the router so its snapshot dump is SCOPED to this
+        // group's tenant-range graphs (CONCEPT:KG-2.267), not the whole registry.
+        let store_ctx = AppCtx {
+            state: self.ctx.state.clone(),
+            router: Some(self.router.clone()),
+        };
+        let store = EgStore::open(gid, self.backend.clone(), store_ctx)?;
         let raft_config = Arc::new(
             Config {
                 cluster_name: format!("epistemic-graph-g{gid}"),
@@ -245,7 +325,7 @@ impl MultiRaft {
             .map_err(|e| format!("invalid raft config: {e}"))?,
         );
         let (log_store, state_machine) = Adaptor::new(store);
-        let network = network::GroupNetworkFactory::new(gid, self.node_id);
+        let network = network::GroupNetworkFactory::new(gid, self.node_id, self.pool.clone());
         let raft: EgRaft =
             openraft::Raft::new(self.node_id, raft_config, network, log_store, state_machine)
                 .await

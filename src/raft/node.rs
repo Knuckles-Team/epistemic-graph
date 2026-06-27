@@ -37,6 +37,7 @@ pub async fn start(
     };
     let ctx = AppCtx {
         state: state.clone(),
+        router: None,
     };
 
     let multi = MultiRaft::start(cfg.node_id, cfg.bind_addr.clone(), backend, ctx).await?;
