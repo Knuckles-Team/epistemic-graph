@@ -38,6 +38,11 @@ text = ["query"]
 # Blob ──` Method variants so a build without `blob` drops them from the enum (they
 # then fall to the dispatch "not available in this build" catch-all).
 blob = []
+# Generic namespaced Key→Value surface (CONCEPT:EG-022): gates the `// ── Key→Value
+# ──` Method variants (`KvGet`/`KvPut`/`KvDelete`/`KvScan`/`KvCas`). PURE serde — no
+# heavy dep — so it folds into node/full; a build without it drops the variants (→
+# the dispatch "not available in this build" catch-all).
+kv = []
 # Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230): gates the `// ── Streaming
 # ──` Method variants + the CDC/continuous-query/watch/trigger wire DTOs. PURE serde
 # — no heavy dep — so it folds into pi/node/cluster/full; a build without it drops
