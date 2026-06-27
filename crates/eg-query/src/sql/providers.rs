@@ -759,6 +759,44 @@ mod provider_tests {
         assert_eq!(got[2], TableProviderFilterPushDown::Unsupported);
     }
 
+    /// CONCEPT:EG-020: a USER table (not the graph `nodes`) registered through the
+    /// SAME `NodesTableProvider` pushdown path — a `WHERE col = literal` resolves
+    /// through the secondary index, and `supports_filters_pushdown` reports the
+    /// equality `Inexact` (pushed + re-checked). This is the proof the user-table
+    /// scan uses the index, mirroring the `nodes` provider.
+    #[test]
+    fn user_table_pushdown_uses_index() {
+        use crate::tables::provider::materialize;
+        use crate::tables::schema::{Cell, Column, ColumnType, TableSchema};
+        use datafusion::logical_expr::{col, lit};
+
+        let schema = TableSchema {
+            name: "prices".into(),
+            columns: vec![
+                Column::new("symbol", ColumnType::Text, false, false),
+                Column::new("px", ColumnType::Double, true, false),
+            ],
+        };
+        let rows = vec![
+            vec![Cell::Text("AAPL".into()), Cell::Float(1.0)],
+            vec![Cell::Text("MSFT".into()), Cell::Float(2.0)],
+            vec![Cell::Text("AAPL".into()), Cell::Float(3.0)],
+        ];
+        let (arrow_schema, batch) = materialize(&schema, &rows).unwrap();
+        let p = NodesTableProvider::new(arrow_schema, batch);
+
+        // The index resolves `symbol = 'AAPL'` to exactly the two matching rows.
+        let hits = p.registry.lookup("symbol", &"AAPL".to_string()).unwrap();
+        assert_eq!(hits.len(), 2, "two AAPL rows resolved via the index");
+
+        // The equality is pushed (Inexact); a non-equality stays a Filter.
+        let eq = col("symbol").eq(lit("AAPL"));
+        let gt = col("px").gt(lit(1.5_f64));
+        let got = p.supports_filters_pushdown(&[&eq, &gt]).unwrap();
+        assert_eq!(got[0], TableProviderFilterPushDown::Inexact);
+        assert_eq!(got[1], TableProviderFilterPushDown::Unsupported);
+    }
+
     /// The bounded cap: with cap=1, a second distinct column overflows and `lookup`
     /// returns `None` (caller serves the full batch — still correct via `Inexact`).
     #[test]

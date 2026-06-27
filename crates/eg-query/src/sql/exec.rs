@@ -167,10 +167,13 @@ fn build_ctx(
     // CONCEPT:EG-018: register each user table (a MemTable over its scanned rows)
     // alongside the graph projection, and remember its schema for the catalog so a
     // reflecting driver sees it in `pg_class`/`information_schema`.
+    // CONCEPT:EG-020: register each user table through the SAME secondary-index
+    // pushdown provider the `nodes` table uses (`NodesTableProvider` is generic
+    // equality-pushdown over an Arrow batch), so a `WHERE col = 'x'` on a user table
+    // narrows rows via the index instead of scanning the whole batch.
     let mut user_relations: Vec<(String, SchemaRef)> = Vec::with_capacity(user_tables.len());
     for (name, schema, batch) in user_tables {
-        let table = MemTable::try_new(schema.clone(), vec![vec![batch]])
-            .map_err(|e| format!("user table `{name}` mem table: {e}"))?;
+        let table = NodesTableProvider::new(schema.clone(), batch);
         ctx.register_table(name.as_str(), Arc::new(table))
             .map_err(|e| format!("register user table `{name}`: {e}"))?;
         user_relations.push((name, schema));

@@ -22,7 +22,8 @@
 use serde_json::Value;
 
 use super::plan::{
-    CompareOp, CypherQuery, Direction, EdgePat, NodePat, Pattern, Predicate, ReturnItem,
+    CompareOp, CypherQuery, Direction, EdgePat, NodePat, Pattern, Predicate, ReturnItem, SetItem,
+    Statement, WriteOp, WriteQuery,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -34,6 +35,8 @@ enum Tok {
     RParen,
     LBracket,
     RBracket,
+    LBrace,
+    RBrace,
     Colon,
     Dot,
     Comma,
@@ -77,6 +80,14 @@ fn tokenize(input: &str) -> Result<Vec<Tok>, String> {
             }
             ']' => {
                 out.push(Tok::RBracket);
+                i += 1;
+            }
+            '{' => {
+                out.push(Tok::LBrace);
+                i += 1;
+            }
+            '}' => {
+                out.push(Tok::RBrace);
                 i += 1;
             }
             ':' => {
@@ -236,44 +247,6 @@ impl Parser {
         }
     }
 
-    fn parse_query(&mut self) -> Result<CypherQuery, String> {
-        self.eat_keyword("MATCH")?;
-        let pattern = self.parse_pattern()?;
-
-        let where_clause = if self.peek_keyword("WHERE") {
-            self.eat_keyword("WHERE")?;
-            self.parse_predicates()?
-        } else {
-            Vec::new()
-        };
-
-        self.eat_keyword("RETURN")?;
-        let returns = self.parse_return_items()?;
-
-        let limit = if self.peek_keyword("LIMIT") {
-            self.eat_keyword("LIMIT")?;
-            match self.next() {
-                Some(Tok::Num(n)) if n >= 0.0 && n.fract() == 0.0 => Some(n as usize),
-                other => return Err(format!("expected integer after LIMIT, found {other:?}")),
-            }
-        } else {
-            None
-        };
-
-        if self.pos != self.toks.len() {
-            return Err(format!(
-                "trailing tokens after query: {:?}",
-                &self.toks[self.pos..]
-            ));
-        }
-        Ok(CypherQuery {
-            pattern,
-            where_clause,
-            returns,
-            limit,
-        })
-    }
-
     fn parse_pattern(&mut self) -> Result<Pattern, String> {
         let start = self.parse_node()?;
         let mut hops = Vec::new();
@@ -298,8 +271,39 @@ impl Parser {
             self.next();
             label = Some(self.ident()?);
         }
+        // optional inline property map `{k: v, …}` (write path; CONCEPT:EG-020).
+        let props = if matches!(self.peek(), Some(Tok::LBrace)) {
+            Some(self.parse_prop_map()?)
+        } else {
+            None
+        };
         self.expect(&Tok::RParen)?;
-        Ok(NodePat { var, label })
+        Ok(NodePat { var, label, props })
+    }
+
+    /// Parse an inline `{ key: literal, … }` property map (CONCEPT:EG-020). Keys are
+    /// identifiers; values are literals (string/number/bool). An empty `{}` is valid.
+    fn parse_prop_map(&mut self) -> Result<Vec<(String, Value)>, String> {
+        self.expect(&Tok::LBrace)?;
+        let mut out = Vec::new();
+        if matches!(self.peek(), Some(Tok::RBrace)) {
+            self.next();
+            return Ok(out);
+        }
+        loop {
+            let key = self.ident()?;
+            self.expect(&Tok::Colon)?;
+            let val = self.parse_literal()?;
+            out.push((key, val));
+            match self.peek() {
+                Some(Tok::Comma) => {
+                    self.next();
+                }
+                _ => break,
+            }
+        }
+        self.expect(&Tok::RBrace)?;
+        Ok(out)
     }
 
     /// Edge forms: `-[:REL]->`, `-[:REL*1..3]->`, `<-[:REL]-`. Direction is set by
@@ -312,6 +316,11 @@ impl Parser {
             other => return Err(format!("expected edge start, found {other:?}")),
         };
         self.expect(&Tok::LBracket)?;
+        // optional edge variable `[r:REL]` (used by DELETE r on the write path).
+        let mut var = None;
+        if let Some(Tok::Ident(_)) = self.peek() {
+            var = Some(self.ident()?);
+        }
         let mut rel_type = None;
         if matches!(self.peek(), Some(Tok::Colon)) {
             self.next();
@@ -322,6 +331,12 @@ impl Parser {
             self.next();
             var_len = Some(self.parse_range()?);
         }
+        // optional inline edge property map (write path).
+        let props = if matches!(self.peek(), Some(Tok::LBrace)) {
+            Some(self.parse_prop_map()?)
+        } else {
+            None
+        };
         self.expect(&Tok::RBracket)?;
         // closing arrow
         match direction {
@@ -332,6 +347,8 @@ impl Parser {
             rel_type,
             direction,
             var_len,
+            var,
+            props,
         })
     }
 
@@ -430,16 +447,196 @@ impl Parser {
         };
         Ok(ReturnItem { var, prop })
     }
+
+    // ── write statements (CONCEPT:EG-020) ────────────────────────────────────
+
+    /// Whether the next token begins a write clause.
+    fn at_write_clause(&self) -> bool {
+        self.peek_keyword("CREATE")
+            || self.peek_keyword("MERGE")
+            || self.peek_keyword("SET")
+            || self.peek_keyword("DELETE")
+            || self.peek_keyword("DETACH")
+    }
+
+    /// Parse a whole statement: a read (`MATCH … RETURN`) or a write
+    /// (`[MATCH …] CREATE/MERGE/SET/DELETE … [RETURN …]`) (CONCEPT:EG-020).
+    fn parse_statement(&mut self) -> Result<Statement, String> {
+        // A statement that opens with a write clause has no MATCH.
+        if self.at_write_clause() {
+            let ops = self.parse_write_clauses()?;
+            let returns = self.parse_optional_return()?;
+            self.finish()?;
+            return Ok(Statement::Write(WriteQuery {
+                match_pattern: None,
+                where_clause: Vec::new(),
+                ops,
+                returns,
+            }));
+        }
+
+        // Otherwise it must open with MATCH.
+        self.eat_keyword("MATCH")?;
+        let pattern = self.parse_pattern()?;
+        let where_clause = if self.peek_keyword("WHERE") {
+            self.eat_keyword("WHERE")?;
+            self.parse_predicates()?
+        } else {
+            Vec::new()
+        };
+
+        // `MATCH … RETURN …` ⇒ a plain read (the unchanged snapshot path).
+        if self.peek_keyword("RETURN") {
+            self.eat_keyword("RETURN")?;
+            let returns = self.parse_return_items()?;
+            let limit = self.parse_optional_limit()?;
+            self.finish()?;
+            return Ok(Statement::Read(CypherQuery {
+                pattern,
+                where_clause,
+                returns,
+                limit,
+            }));
+        }
+
+        // `MATCH … <write clause>+ [RETURN …]` ⇒ a write over the matched binding.
+        let ops = self.parse_write_clauses()?;
+        let returns = self.parse_optional_return()?;
+        self.finish()?;
+        Ok(Statement::Write(WriteQuery {
+            match_pattern: Some(pattern),
+            where_clause,
+            ops,
+            returns,
+        }))
+    }
+
+    /// Parse one-or-more consecutive write clauses (CONCEPT:EG-020).
+    fn parse_write_clauses(&mut self) -> Result<Vec<WriteOp>, String> {
+        let mut ops = Vec::new();
+        while self.at_write_clause() {
+            ops.push(self.parse_write_clause()?);
+        }
+        if ops.is_empty() {
+            return Err("expected a write clause (CREATE/MERGE/SET/DELETE)".into());
+        }
+        Ok(ops)
+    }
+
+    fn parse_write_clause(&mut self) -> Result<WriteOp, String> {
+        if self.peek_keyword("CREATE") {
+            self.eat_keyword("CREATE")?;
+            let pattern = self.parse_pattern()?;
+            Ok(WriteOp::Create(pattern))
+        } else if self.peek_keyword("MERGE") {
+            self.eat_keyword("MERGE")?;
+            let node = self.parse_node()?;
+            if !self.peek_is_end_of_merge() {
+                return Err("MERGE supports a single `(n:Label {props})` node in this subset".into());
+            }
+            Ok(WriteOp::Merge(node))
+        } else if self.peek_keyword("SET") {
+            self.eat_keyword("SET")?;
+            let items = self.parse_set_items()?;
+            Ok(WriteOp::Set(items))
+        } else {
+            // DELETE or DETACH DELETE.
+            let detach = if self.peek_keyword("DETACH") {
+                self.eat_keyword("DETACH")?;
+                true
+            } else {
+                false
+            };
+            self.eat_keyword("DELETE")?;
+            let vars = self.parse_var_list()?;
+            Ok(WriteOp::Delete { vars, detach })
+        }
+    }
+
+    /// MERGE node parsing stops at end-of-input or the next clause keyword.
+    fn peek_is_end_of_merge(&self) -> bool {
+        self.peek().is_none() || self.at_write_clause() || self.peek_keyword("RETURN")
+    }
+
+    fn parse_set_items(&mut self) -> Result<Vec<SetItem>, String> {
+        let mut items = vec![self.parse_set_item()?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            items.push(self.parse_set_item()?);
+        }
+        Ok(items)
+    }
+
+    fn parse_set_item(&mut self) -> Result<SetItem, String> {
+        let var = self.ident()?;
+        self.expect(&Tok::Dot)?;
+        let prop = self.ident()?;
+        self.expect(&Tok::Eq)?;
+        let value = self.parse_literal()?;
+        Ok(SetItem { var, prop, value })
+    }
+
+    fn parse_var_list(&mut self) -> Result<Vec<String>, String> {
+        let mut vars = vec![self.ident()?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            vars.push(self.ident()?);
+        }
+        Ok(vars)
+    }
+
+    fn parse_optional_return(&mut self) -> Result<Vec<ReturnItem>, String> {
+        if self.peek_keyword("RETURN") {
+            self.eat_keyword("RETURN")?;
+            self.parse_return_items()
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    fn parse_optional_limit(&mut self) -> Result<Option<usize>, String> {
+        if self.peek_keyword("LIMIT") {
+            self.eat_keyword("LIMIT")?;
+            match self.next() {
+                Some(Tok::Num(n)) if n >= 0.0 && n.fract() == 0.0 => Ok(Some(n as usize)),
+                other => Err(format!("expected integer after LIMIT, found {other:?}")),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn finish(&mut self) -> Result<(), String> {
+        if self.pos != self.toks.len() {
+            return Err(format!(
+                "trailing tokens after statement: {:?}",
+                &self.toks[self.pos..]
+            ));
+        }
+        Ok(())
+    }
 }
 
-/// Parse a Cypher-subset query string into the [`CypherQuery`] AST.
+/// Parse a Cypher-subset query string into the [`CypherQuery`] AST (READ path —
+/// unchanged). Errors on a write statement so the read executor never silently
+/// mishandles one.
 pub fn parse(input: &str) -> Result<CypherQuery, String> {
+    match parse_statement(input)? {
+        Statement::Read(q) => Ok(q),
+        Statement::Write(_) => {
+            Err("this is a write statement; use the Cypher write path (exec_cypher_write)".into())
+        }
+    }
+}
+
+/// Parse a Cypher-subset statement — a read or a write (CONCEPT:EG-020).
+pub fn parse_statement(input: &str) -> Result<Statement, String> {
     let toks = tokenize(input)?;
     if toks.is_empty() {
         return Err("empty query".into());
     }
     let mut p = Parser { toks, pos: 0 };
-    p.parse_query()
+    p.parse_statement()
 }
 
 #[cfg(test)]
