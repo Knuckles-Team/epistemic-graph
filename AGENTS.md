@@ -202,8 +202,15 @@ fix). A `GroupRouter` maps `graph_name → GroupId`. This increment runs **one g
 routing, group create/open/close lifecycle, and multi-group isolation are exercised
 by tests. **Group = transaction boundary:** one graph belongs to one group and a txn
 stays inside a group — **no cross-group transactions yet** (documented follow-up
-CONCEPT:KG-2.207). Other documented follow-ups: per-group snapshot scoping, leader
-balancing across groups, heartbeat coalescing, and a pooled per-peer connection.
+CONCEPT:KG-2.207).
+
+**M2 hardening (CONCEPT:KG-2.265/266/267).** Pooled per-peer Raft connections
+(`PeerPool` reuses warm `TcpStream`s across RPCs + groups, KG-2.265),
+group-per-tenant-range routing (`GroupRouter` hash ring + `configure_group_ring`,
+KG-2.266), and per-group snapshot scoping (`dump_graphs` filtered by the router on
+`AppCtx`, KG-2.267) are **done + lib-tested**. Remaining M2 follow-ups —
+**leader balancing across groups** and **heartbeat coalescing** — need a real
+multi-node cluster to exercise; see `docs/architecture/m2-raft-status.md`.
 
 ---
 
