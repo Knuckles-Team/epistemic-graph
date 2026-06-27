@@ -57,6 +57,8 @@ fn state_with(
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
         auth_secret: "test".to_string(),
+        #[cfg(feature = "kv")]
+        kv: None,
         persist_dir: None,
         persistence,
         redb_authoritative,
@@ -703,6 +705,8 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         isolation,
         channels: ChannelManager::new(),
         auth_secret: secret.to_string(),
+        #[cfg(feature = "kv")]
+        kv: None,
         persist_dir: None,
         persistence: None,
         redb_authoritative: false,
