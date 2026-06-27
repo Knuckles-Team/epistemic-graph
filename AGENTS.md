@@ -114,6 +114,31 @@ the old single-`graph.redb` path** (the Pi degrades here, and existing deploymen
 the on-disk layout is detected and honored at open. Under an active Raft node, K is
 forced to 1 (the Raft store wraps the single writer; multi-Raft sharding is M2).
 
+**Snapshot reads off the writer (CONCEPT:EG-027).** redb 4.1 is MVCC: a
+`Database::begin_read()` opens a consistent read snapshot that runs CONCURRENTLY with
+the single writer (no writer involvement, no commit). The point-read / read-through
+path (`read_node`, only hit on a RAM miss — the KG-2.191 eviction read-through) now
+serves the evicted node DIRECTLY off a `begin_read()` snapshot on the TARGET SHARD's
+shared `Database` (routed by the SAME EG-026 `shard_for`), so a read NEVER routes
+through the writer thread's channel and NEVER forces a group-commit. Previously a
+read-through was sent as `Cmd::ReadNode` over the writer's blocking channel and
+forced a `Durability::Immediate` commit first — coupling reads to the write
+bottleneck (worst on a Pi, where eviction/read-through is common, and now worse
+cross-shard). **Consistency model: reads see the latest COMMITTED state per shard.**
+Commit-before-ack (KG-2.187) guarantees any ACKED write is already committed, so a
+`begin_read()` opened after that ack sees it; writes still buffered in the writer's
+`Pending` are not yet acked (no happens-before to any reader), so dropping the old
+forced commit changes no observable read result. Eviction stays durability-gated (a
+node leaves RAM only after redb confirms it on disk), so an evicted node is always
+served. The writer thread owns the SOLE strong `Arc<Database>` per shard; the read
+path holds a `Weak` and `upgrade()`s it per read (a second handle on the same file
+would hit redb's exclusive per-process file lock — so reads share the handle, they do
+not re-open). Holding a `Weak` (not a strong clone) keeps the file-lock lifetime
+identical to before EG-027: the lock releases exactly when the writer thread exits on
+`shutdown`, so an in-process reopen of the same persist dir still succeeds. The
+`Cmd::ReadNode` variant + handler are retained but no longer constructed (the writer
+loop is left byte-for-byte).
+
 ### Opt-in: the rebuildable-cache model (`EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot`)
 
 When the backend is `snapshot` (or the `redb` feature isn't compiled), the engine
