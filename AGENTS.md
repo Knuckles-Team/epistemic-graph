@@ -99,6 +99,21 @@ KG-2.191), read once at startup into `ServerState.redb_authoritative`:
   (off-reactor) instead of shedding a mutation. A durable write is never silently
   discarded.
 
+**Sharded K-way durable writer (CONCEPT:EG-026).** redb is single-writer-PER-FILE, so
+ONE `graph.redb` serialized every tenant's commits onto ONE core. The durable writer
+now shards by graph into **K independent redb files** (`graph-<n>.redb`), each with its
+OWN writer thread / bounded channel / `Pending` — so the EG-024 micro-linger, the
+EG-025 O(1) audit-tail cache, commit-before-ack, group-commit and backpressure all hold
+**per shard**, and K cores commit in parallel. A graph ALWAYS routes to the same shard
+(`FNV-1a(sanitized_name) % K`), keeping its data + audit chain + group-commit co-located
+and single-writer-correct; a transaction stays within one graph (group = txn boundary)
+so per-shard atomicity is preserved (no durable commit spans graphs/shards). K =
+`clamp(cpu/2, 1, 8)` (env `EPISTEMIC_GRAPH_REDB_SHARDS` overrides). **K=1 is byte-for-byte
+the old single-`graph.redb` path** (the Pi degrades here, and existing deployments + the
+`.mp`/`.wal`→redb migration are untouched). K is fixed per persist-dir once created —
+the on-disk layout is detected and honored at open. Under an active Raft node, K is
+forced to 1 (the Raft store wraps the single writer; multi-Raft sharding is M2).
+
 ### Opt-in: the rebuildable-cache model (`EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot`)
 
 When the backend is `snapshot` (or the `redb` feature isn't compiled), the engine
@@ -441,6 +456,8 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` | Override authoritative mode. Unset ⇒ defaults ON when the redb backend is active (full/node/cluster/pi). Set `1` against a non-redb build ⇒ warns + ignored |
 | `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | Adaptive group-commit micro-linger (CONCEPT:EG-024), microseconds (default `1000` = 1ms; `0` disables = legacy commit-on-drain). When the `eg-redb-writer` is about to commit a SHALLOW barrier batch it spends ONE bounded `recv_timeout(linger)` letting concurrent in-flight authoritative writers fold into the SAME fsync (the profiled write ceiling was ~1 op/fsync from serial awaits). Durability is unchanged — writes still commit `Durability::Immediate` before their ack; only the batch widens |
 | `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` | Shallow-batch op threshold for the EG-024 micro-linger (default `32`, clamped 1..4096). The writer lingers only while `pending.ops.len()` is below this; a deeper batch already coalesces, so it commits immediately (adaptive — no added latency on a deep queue) |
+| `EPISTEMIC_GRAPH_REDB_SHARDS` | **Sharded K-way durable writer (CONCEPT:EG-026).** Number of independent redb files / writer threads K, overriding the auto-size `clamp(cpu/2, 1, 8)` (clamped 1..64). Each graph routes to a fixed shard by `FNV-1a(sanitized_name) % K`, so a 64-core box commits on K cores in parallel instead of one. **K=1 is byte-for-byte the pre-EG-026 path: ONE file `graph.redb`**; K>1 uses `graph-<n>.redb`. K is FIXED per persist-dir once created — the on-disk layout is detected + honored at open (changing K needs a migration; never strands data). Forced to **1 under an active Raft node** (multi-Raft sharding is M2) |
+| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | **Auto-sized early-flush op threshold (CONCEPT:EG-028b)**, per shard — replaces the old hardcoded `4096`. The writer flushes a `Pending` batch early once it holds this many ops (bounds writer RAM before the bounded channel saturates). Default ≈ half the WAL queue depth, clamped 256..16384 (with the legacy default queue 8192 this is exactly `4096` — unchanged; small on a Pi, large on a big box). Override clamped 64..1_048_576 |
 | `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints for the Python `ShardRouter` |
 | `EPISTEMIC_GRAPH_PGWIRE_ADDR` | When set (build `--features pgwire`), the pg-wire listener binds this address (documented loopback `127.0.0.1:5433`). Unset ⇒ no listener. A connecting driver/ORM introspects a SYNTHETIC read-only catalog (CONCEPT:KG-2.201: DataFusion `information_schema` + a supplemented `pg_catalog` `pg_namespace`/`pg_class`/`pg_attribute`/`pg_type` + `version()`/`current_schema()`/`current_database()`) then runs SQL over `nodes`/`edges` |
 | `EPISTEMIC_GRAPH_PGWIRE_GRAPH` | Default graph a fresh pg-wire connection runs against when the libpq `database` param is unset. Defaults to `__commons__` |
