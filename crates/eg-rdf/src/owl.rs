@@ -82,6 +82,31 @@ const OWL_SYMMETRIC_PROPERTY: &str = "http://www.w3.org/2002/07/owl#SymmetricPro
 const OWL_INVERSE_OF: &str = "http://www.w3.org/2002/07/owl#inverseOf";
 const OWL_DISJOINT_WITH: &str = "http://www.w3.org/2002/07/owl#disjointWith";
 
+// ── OWL 2 axioms added in EG-021 (broader EL⁺/RL coverage toward DL-lite) ─────
+/// `owl:equivalentProperty` — `r ≡ s` ⇒ `r ⊑ s` AND `s ⊑ r` (both role inclusions).
+const OWL_EQUIVALENT_PROPERTY: &str = "http://www.w3.org/2002/07/owl#equivalentProperty";
+/// `owl:allValuesFrom` — universal restriction `∀r.C`. Handled by the RL `cls-avf`
+/// propagation rule over the completion's R relation (sound, tractable; NOT full DL).
+const OWL_ALL_VALUES_FROM: &str = "http://www.w3.org/2002/07/owl#allValuesFrom";
+/// `owl:hasValue` — value restriction `∃r.{a}`. Modelled as an existential to the
+/// VALUE token (a nominal treated as a Named filler) so it composes through CR-some.
+const OWL_HAS_VALUE: &str = "http://www.w3.org/2002/07/owl#hasValue";
+/// `owl:unionOf` — only the SOUND EL direction `Cᵢ ⊑ (C₁ ⊔ … ⊔ Cₙ)` (each disjunct is
+/// subsumed by the union) is materialised; the case-split direction `A ⊑ C₁ ⊔ C₂` needs
+/// a DL tableau and is DEFERRED.
+const OWL_UNION_OF: &str = "http://www.w3.org/2002/07/owl#unionOf";
+/// `owl:FunctionalProperty` — `r(x,y) ∧ r(x,z) → y owl:sameAs z` (equality / merge).
+/// Instance-level; consumed by the [`crate::rules`] Datalog/equality engine.
+const OWL_FUNCTIONAL_PROPERTY: &str = "http://www.w3.org/2002/07/owl#FunctionalProperty";
+/// `owl:InverseFunctionalProperty` — `r(y,x) ∧ r(z,x) → y owl:sameAs z` (a key).
+const OWL_INVERSE_FUNCTIONAL_PROPERTY: &str =
+    "http://www.w3.org/2002/07/owl#InverseFunctionalProperty";
+/// `owl:sameAs` — individual equality (instance-level; [`crate::rules`] equality closure).
+const OWL_SAME_AS: &str = "http://www.w3.org/2002/07/owl#sameAs";
+/// `owl:differentFrom` — individual inequality; a derived `sameAs` over a `differentFrom`
+/// pair is a clash (instance-level inconsistency, reported by [`crate::rules`]).
+const OWL_DIFFERENT_FROM: &str = "http://www.w3.org/2002/07/owl#differentFrom";
+
 /// Annotation property carrying an axiom's confidence in `[0, 1]` (CONCEPT:KG-2.236):
 /// `ex:Heart eg:confidence "0.8"` attaches `0.8` to the axiom(s) whose SUBJECT is
 /// `ex:Heart` (e.g. `Heart ⊑ …`). Absent ⇒ `1.0` (a hard axiom). This is the epistemic
@@ -175,6 +200,19 @@ pub struct Ontology {
     pub ranges: Vec<(String, String)>,
     /// `A ⊓ B ⊑ ⊥` disjointness (EL — derives ⊥ on a shared instance/subclass).
     pub disjoint: Vec<(String, String, String)>,
+    /// `owl:allValuesFrom` universal restrictions (EG-021): `(sub_class, role, filler,
+    /// label, conf)` meaning `sub_class ⊑ ∀role.filler`. Applied by the RL `cls-avf`
+    /// completion rule (CR-allValues): a role witness of a `sub_class` is forced into
+    /// `filler`. Sound + tractable; the only universal-restriction shape we admit.
+    pub all_values: Vec<(String, String, String, String, f64)>,
+    /// `owl:FunctionalProperty` roles (EG-021) — instance equality generators.
+    pub functional: BTreeSet<String>,
+    /// `owl:InverseFunctionalProperty` roles (EG-021).
+    pub inverse_functional: BTreeSet<String>,
+    /// Asserted `owl:sameAs` individual pairs (EG-021).
+    pub same_as: Vec<(String, String)>,
+    /// Asserted `owl:differentFrom` individual pairs (EG-021).
+    pub different_from: Vec<(String, String)>,
     /// Every named class IRI mentioned (so classification can iterate the signature).
     pub classes: BTreeSet<String>,
 }
@@ -221,12 +259,30 @@ fn term_key(t: &Term) -> String {
 
 /// Parse an OWL ontology (the EL + RL axioms we support) from a triple stream.
 ///
-/// Recognised: `rdfs:subClassOf` (incl. an `owl:Restriction`/`someValuesFrom` or an
-/// `owl:intersectionOf` on either side), `owl:equivalentClass`, `rdfs:subPropertyOf`,
+/// Recognised: `rdfs:subClassOf` (incl. an `owl:Restriction`/`someValuesFrom`,
+/// `owl:hasValue`, or `owl:allValuesFrom`, or an `owl:intersectionOf`/`owl:unionOf` on
+/// either side), `owl:equivalentClass`, `rdfs:subPropertyOf`, `owl:equivalentProperty`,
 /// `owl:propertyChainAxiom`, `owl:TransitiveProperty`, `owl:SymmetricProperty`,
-/// `owl:inverseOf`, `rdfs:domain`/`rdfs:range`, `owl:disjointWith`. Everything else is
-/// ignored (we stay in the EL+RL envelope by construction — see crate docs / the
-/// deferred-DL note).
+/// `owl:inverseOf`, `owl:FunctionalProperty`, `owl:InverseFunctionalProperty`,
+/// `rdfs:domain`/`rdfs:range`, `owl:disjointWith`, `owl:sameAs`, `owl:differentFrom`.
+///
+/// ## OWL-2 coverage (EG-021) and the DEFERRED DL constructs
+///
+/// The goal is **DL-lite / EL++**, NOT full OWL-2 DL. What IS covered (soundly, in the
+/// monotone EL⁺/RL completion + the instance-level [`crate::rules`] engine):
+/// `equivalentClass`/`equivalentProperty` (both directions), `someValuesFrom` &
+/// `hasValue` existential/value restrictions, `allValuesFrom` via the RL `cls-avf`
+/// rule, `intersectionOf` (LHS conjunction), `unionOf` (the sound `Cᵢ ⊑ union` /
+/// `union ⊑ D` direction only), property chains + `TransitiveProperty`,
+/// `Symmetric`/`inverseOf`, `Functional`/`InverseFunctionalProperty` (→ `owl:sameAs`
+/// merges), `sameAs`/`differentFrom` equality with clash detection, and `disjointWith`.
+///
+/// **DEFERRED** (need a full DL TABLEAU — out of the tractable envelope, intentionally
+/// NOT implemented): general negation / `complementOf`, cardinality restrictions beyond
+/// the functional case (`min`/`max`/`exactCardinality`, `owl:qualifiedCardinality`),
+/// reasoning-by-cases over a `unionOf` SUPERCLASS (`A ⊑ C₁ ⊔ C₂`), `oneOf` enumerated
+/// classes as full nominals, and `hasKey` beyond inverse-functional. Anything else is
+/// ignored — the engine stays sound by construction.
 pub fn parse_ontology(triples: &[Triple]) -> Ontology {
     let idx = TripleIndex::build(triples);
     let mut ont = Ontology::default();
@@ -251,40 +307,125 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
         let o = &t.object;
         match p {
             RDFS_SUBCLASS_OF => {
-                if let (Some(lhs), Some(rhs)) = (
-                    parse_class_expr(&idx, &s),
-                    parse_class_expr(&idx, &term_key(o)),
-                ) {
+                let ok = term_key(o);
+                let c = conf_for(&s);
+                // C ⊑ ∀r.D (owl:allValuesFrom superclass) — RL cls-avf restriction.
+                if let Some((role, filler)) = parse_all_values(&idx, &ok) {
+                    if let Some(lhs) = parse_class_expr(&idx, &s) {
+                        for sub in lhs {
+                            if let Concept::Named(sub) = sub {
+                                ont.all_values.push((
+                                    sub.clone(),
+                                    role.clone(),
+                                    filler.clone(),
+                                    format!("{} ⊑ ∀{}.{}", short(&sub), short(&role), short(&filler)),
+                                    c,
+                                ));
+                                register_class(&mut ont, &sub);
+                                register_class(&mut ont, &filler);
+                            }
+                        }
+                    }
+                }
+                // (C₁ ⊔ … ⊔ Cₙ) ⊑ D (owl:unionOf subclass) ≡ each Cᵢ ⊑ D — sound EL.
+                else if let Some(disjuncts) = parse_union(&idx, &s) {
+                    if let Some(rhs) = parse_class_expr(&idx, &ok) {
+                        for d in disjuncts {
+                            push_subclass(
+                                &mut ont,
+                                vec![d.clone()],
+                                rhs.clone(),
+                                format!("{} ⊑ {} (∪-elim)", d.key(), short(&ok)),
+                                c,
+                            );
+                        }
+                    }
+                } else if let (Some(lhs), Some(rhs)) =
+                    (parse_class_expr(&idx, &s), parse_class_expr(&idx, &ok))
+                {
                     push_subclass(
                         &mut ont,
                         lhs,
                         rhs,
-                        format!("{} ⊑ {}", short(&s), short(&term_key(o))),
-                        conf_for(&s),
+                        format!("{} ⊑ {}", short(&s), short(&ok)),
+                        c,
                     );
                 }
             }
             OWL_EQUIVALENT_CLASS => {
                 let sk = term_key(o);
                 let c = conf_for(&s);
-                if let (Some(a), Some(b)) =
-                    (parse_class_expr(&idx, &s), parse_class_expr(&idx, &sk))
-                {
-                    // A ≡ B  ⇒  A ⊑ B  AND  B ⊑ A.
-                    push_subclass(
-                        &mut ont,
-                        a.clone(),
-                        b.clone(),
-                        format!("{} ≡ {} (→⊑)", short(&s), short(&sk)),
+                // A ≡ (C₁ ⊔ …): only the sound `Cᵢ ⊑ A` direction (union ⊑ A); the
+                // `A ⊑ union` case-split is DL-tableau territory and is deferred.
+                let mut handled_union = false;
+                for (named, union_node) in [(&s, &sk), (&sk, &s)] {
+                    if let (Some(Concept::Named(a)), Some(disjuncts)) = (
+                        parse_class_expr(&idx, named).and_then(|mut v| {
+                            (v.len() == 1).then(|| v.pop().unwrap())
+                        }),
+                        parse_union(&idx, union_node),
+                    ) {
+                        for d in disjuncts {
+                            push_subclass(
+                                &mut ont,
+                                vec![d.clone()],
+                                vec![Concept::Named(a.clone())],
+                                format!("{} ⊑ {} (≡∪-elim)", d.key(), short(&a)),
+                                c,
+                            );
+                        }
+                        handled_union = true;
+                    }
+                }
+                if !handled_union {
+                    if let (Some(a), Some(b)) =
+                        (parse_class_expr(&idx, &s), parse_class_expr(&idx, &sk))
+                    {
+                        // A ≡ B  ⇒  A ⊑ B  AND  B ⊑ A.
+                        push_subclass(
+                            &mut ont,
+                            a.clone(),
+                            b.clone(),
+                            format!("{} ≡ {} (→⊑)", short(&s), short(&sk)),
+                            c,
+                        );
+                        push_subclass(
+                            &mut ont,
+                            b,
+                            a,
+                            format!("{} ≡ {} (←⊑)", short(&s), short(&sk)),
+                            c,
+                        );
+                    }
+                }
+            }
+            OWL_EQUIVALENT_PROPERTY => {
+                if let Term::NamedNode(sup) = o {
+                    let sup = iri(sup.as_str());
+                    let c = conf_for(&s);
+                    // r ≡ s ⇒ r ⊑ s AND s ⊑ r.
+                    ont.sub_roles.push((
+                        s.clone(),
+                        sup.clone(),
+                        format!("{} ≡ {} (→⊑)", short(&s), short(&sup)),
                         c,
-                    );
-                    push_subclass(
-                        &mut ont,
-                        b,
-                        a,
-                        format!("{} ≡ {} (←⊑)", short(&s), short(&sk)),
+                    ));
+                    ont.sub_roles.push((
+                        sup.clone(),
+                        s.clone(),
+                        format!("{} ≡ {} (←⊑)", short(&s), short(&sup)),
                         c,
-                    );
+                    ));
+                }
+            }
+            OWL_SAME_AS => {
+                if let Term::NamedNode(b) = o {
+                    ont.same_as.push((s.clone(), iri(b.as_str())));
+                }
+            }
+            OWL_DIFFERENT_FROM => {
+                if let Term::NamedNode(b) = o {
+                    ont.different_from.push((s.clone(), iri(b.as_str())));
                 }
             }
             RDFS_SUBPROPERTY_OF => {
@@ -363,6 +504,12 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
                         OWL_SYMMETRIC_PROPERTY => {
                             ont.symmetric.insert(s.clone());
                         }
+                        OWL_FUNCTIONAL_PROPERTY => {
+                            ont.functional.insert(s.clone());
+                        }
+                        OWL_INVERSE_FUNCTIONAL_PROPERTY => {
+                            ont.inverse_functional.insert(s.clone());
+                        }
                         OWL_CLASS => register_class(&mut ont, &s),
                         _ => {}
                     }
@@ -412,12 +559,49 @@ fn parse_class_expr(idx: &TripleIndex, id: &str) -> Option<Vec<Concept>> {
         let f = conjunction_to_concept(filler_concept);
         return Some(vec![Concept::Some(role, Box::new(f))]);
     }
+    // Value restriction ∃r.{a} (owl:hasValue) — the value `a` is a NOMINAL, modelled as
+    // a Named filler token so `C ⊑ ∃r.{a}` and `∃r.{a} ⊑ D` compose to `C ⊑ D` through
+    // the existing CR-some rules (a sound class-level approximation of the nominal).
+    if let (Some(on_prop), Some(val)) = (
+        idx.first_object(id, OWL_ON_PROPERTY),
+        idx.first_object(id, OWL_HAS_VALUE),
+    ) {
+        let role = term_key(on_prop);
+        let value_token = format!("{{{}}}", term_key(val)); // {<...>} nominal marker
+        return Some(vec![Concept::Some(role, Box::new(Concept::Named(value_token)))]);
+    }
     // A named class / Thing / Nothing.
     if id.starts_with('<') || id == iri(OWL_THING) || id == iri(OWL_NOTHING) {
         return Some(vec![Concept::Named(id.to_string())]);
     }
     // A bare blank node with no restriction/intersection structure — unsupported.
     None
+}
+
+/// Parse an `owl:allValuesFrom` restriction rooted at `id`: `∀role.filler`. Returns
+/// `(role, filler)` (both canonical ids) when `id` is `[onProperty role; allValuesFrom
+/// C]` with a NAMED filler `C`; `None` otherwise (a non-named filler is not RL-tractable
+/// here and is skipped). Used to record an `all_values` (cls-avf) axiom (EG-021).
+fn parse_all_values(idx: &TripleIndex, id: &str) -> Option<(String, String)> {
+    let on_prop = idx.first_object(id, OWL_ON_PROPERTY)?;
+    let filler = idx.first_object(id, OWL_ALL_VALUES_FROM)?;
+    let role = term_key(on_prop);
+    let filler = term_key(filler);
+    // Only a named class filler is admitted (the RL cls-avf consequent is a class).
+    filler.starts_with('<').then_some((role, filler))
+}
+
+/// Parse an `owl:unionOf` expression rooted at `id` into its disjuncts (EG-021). Only
+/// the SOUND direction is consumed by callers (each disjunct ⊑ the union); the union as
+/// a SUPERCLASS (`A ⊑ C₁ ⊔ C₂`, reasoning-by-cases) is DEFERRED. `None` when `id` is not
+/// a union node.
+fn parse_union(idx: &TripleIndex, id: &str) -> Option<Vec<Concept>> {
+    let head = idx.first_object(id, OWL_UNION_OF)?;
+    let mut disjuncts = Vec::new();
+    for item in parse_rdf_list(idx, head) {
+        disjuncts.extend(parse_class_expr(idx, &term_key(&item))?);
+    }
+    (!disjuncts.is_empty()).then_some(disjuncts)
 }
 
 /// Fold a conjunction list to a single concept: a single conjunct passes through; a
@@ -489,7 +673,10 @@ fn register_concept_classes(ont: &mut Ontology, c: &Concept) {
 }
 
 fn register_class(ont: &mut Ontology, c: &str) {
-    if c.starts_with('<') {
+    // Named IRIs and hasValue NOMINAL tokens (`{<value>}`) both seed into the signature
+    // so the completion's S/R relations index them (a nominal filler must subsume
+    // itself for CR-some⁻ to compose `∃r.{a}` axioms — EG-021).
+    if c.starts_with('<') || c.starts_with('{') {
         ont.classes.insert(c.to_string());
     }
 }
@@ -746,6 +933,8 @@ impl Reasoner {
 
         // disjoint pairs by class for CR-disjoint.
         let disjoint: Vec<(String, String, String)> = self.ont.disjoint.clone();
+        // allValuesFrom axioms (cls-avf): (sub_class, role, filler, label, conf).
+        let all_values = self.ont.all_values.clone();
         let chains = self.ont.chains.clone();
         let sub_roles = self.ont.sub_roles.clone();
         let symmetric: Vec<String> = self.ont.symmetric.iter().cloned().collect();
@@ -946,6 +1135,30 @@ impl Reasoner {
                 }
             }
 
+            // CR-allValues (RL cls-avf): sub ⊑ ∀r.filler, sub ∈ S(A), (A,B) ∈ R(r) ⇒
+            // filler ∈ S(B). The universal restriction forces every r-witness of a
+            // `sub` member into `filler`. Sound + tractable; the one ∀-shape we admit.
+            for (sub, role, filler, label, axiom_conf) in &all_values {
+                if let Some(pairs) = self.r.get(role).cloned() {
+                    for (a, b) in &pairs {
+                        if self.s.get(a).map(|s| s.contains(sub)).unwrap_or(false) {
+                            let conf =
+                                self.cur_conf(a, sub) * self.cur_rconf(role, a, b) * axiom_conf;
+                            if self.add_sub(
+                                b,
+                                filler,
+                                "CR-allValues",
+                                vec![label.clone()],
+                                vec![(a.clone(), sub.clone())],
+                                conf,
+                            ) {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+
             // CR-chain: (A,B) ∈ R(r1), (B,C) ∈ R(r2), r1∘r2 ⊑ s ⇒ (A,C) ∈ R(s).
             for ch in &chains {
                 if ch.chain.len() == 2 {
@@ -1090,7 +1303,8 @@ impl Reasoner {
 fn collect_named(c: &Concept, out: &mut BTreeSet<String>) {
     match c {
         Concept::Named(n) => {
-            if n.starts_with('<') {
+            // IRIs and hasValue nominal tokens (`{<value>}`) — both must be seeded.
+            if n.starts_with('<') || n.starts_with('{') {
                 out.insert(n.clone());
             }
         }
@@ -1107,6 +1321,11 @@ fn merge_ontology(into: &mut Ontology, delta: Ontology) {
     into.domains.extend(delta.domains);
     into.ranges.extend(delta.ranges);
     into.disjoint.extend(delta.disjoint);
+    into.all_values.extend(delta.all_values);
+    into.functional.extend(delta.functional);
+    into.inverse_functional.extend(delta.inverse_functional);
+    into.same_as.extend(delta.same_as);
+    into.different_from.extend(delta.different_from);
     into.classes.extend(delta.classes);
 }
 
@@ -1995,6 +2214,95 @@ ex:Article eg:confidence "0.8" .
             .instances
             .iter()
             .any(|(i, c, _)| i == "<http://example.org/p3>" && c == sw));
+    }
+
+    // ── EG-021: broader OWL-2 axioms toward DL-lite ─────────────────────────────
+
+    /// `owl:equivalentProperty` is two-way subPropertyOf: a role pair under `r` also
+    /// holds under its equivalent `s` (and vice-versa). Proven via the R relation a
+    /// someValuesFrom witness creates.
+    #[test]
+    fn eg021_equivalent_property_both_ways() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:partOf owl:equivalentProperty ex:componentOf .
+ex:Heart rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ] .
+[ a owl:Restriction ; owl:onProperty ex:componentOf ; owl:someValuesFrom ex:Body ] rdfs:subClassOf ex:Embedded .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        // Heart ⊑ ∃partOf.Body ; partOf ≡ componentOf ⇒ Heart ⊑ ∃componentOf.Body ;
+        // ∃componentOf.Body ⊑ Embedded ⇒ Heart ⊑ Embedded.
+        assert!(
+            cls.entails_subclass("<http://example.org/Heart>", "<http://example.org/Embedded>"),
+            "equivalentProperty must carry the role witness; S(Heart)={:?}",
+            cls.subsumers.get("<http://example.org/Heart>")
+        );
+    }
+
+    /// `owl:allValuesFrom` (RL cls-avf): `Parent ⊑ ∀hasChild.Happy`, and a class with a
+    /// hasChild witness into some B forces `Happy ∈ S(B)`.
+    #[test]
+    fn eg021_all_values_from_propagates() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:HappyParent rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:allValuesFrom ex:Happy ] .
+ex:HappyParent rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:someValuesFrom ex:Kid ] .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        // HappyParent has a hasChild witness (the someValuesFrom Kid creates R(hasChild)
+        // with filler Kid); ∀hasChild.Happy then forces Kid ⊑ Happy.
+        assert!(
+            cls.entails_subclass("<http://example.org/Kid>", "<http://example.org/Happy>"),
+            "cls-avf must force the witness into Happy; S(Kid)={:?}",
+            cls.subsumers.get("<http://example.org/Kid>")
+        );
+    }
+
+    /// `owl:unionOf` (sound direction): each disjunct of a union is subsumed by a class
+    /// the union is a subclass of. `(Cat ⊔ Dog) ⊑ Pet` ⇒ `Cat ⊑ Pet` and `Dog ⊑ Pet`.
+    #[test]
+    fn eg021_union_of_subclass() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+[ owl:unionOf ( ex:Cat ex:Dog ) ] rdfs:subClassOf ex:Pet .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        assert!(cls.entails_subclass("<http://example.org/Cat>", "<http://example.org/Pet>"));
+        assert!(cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Pet>"));
+    }
+
+    /// `owl:hasValue` value restriction composes as a nominal existential: `Italian ⊑
+    /// ∃nationality.{Italy}` and `∃nationality.{Italy} ⊑ EUCitizen` ⇒ `Italian ⊑
+    /// EUCitizen`.
+    #[test]
+    fn eg021_has_value_restriction() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Italian rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:nationality ; owl:hasValue ex:Italy ] .
+[ a owl:Restriction ; owl:onProperty ex:nationality ; owl:hasValue ex:Italy ] rdfs:subClassOf ex:EUCitizen .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        assert!(
+            cls.entails_subclass("<http://example.org/Italian>", "<http://example.org/EUCitizen>"),
+            "hasValue nominal must compose; S(Italian)={:?}",
+            cls.subsumers.get("<http://example.org/Italian>")
+        );
     }
 
     /// `instances_of` materializes inferred class members from the live graph types —
