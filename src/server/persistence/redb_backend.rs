@@ -71,7 +71,8 @@ type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
 // Per-group Raft metadata (vote, applied-state pointers, last-purged), keyed by
 // `(group_id, key)`. Lives in `graph.redb` alongside the log; Raft-only, so it
 // stays here with the Raft helpers rather than in the shared graph store.
-const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
+pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> =
+    TableDefinition::new("raft_meta");
 
 // Time-series tables (CONCEPT:KG-2.210). The CANONICAL `(series_id, bucket_start)`
 // chunk schema is declared once in the eg-tsdb crate (where the store/query logic
@@ -406,7 +407,7 @@ impl RedbCommitStats {
 /// Stable FNV-1a routing of a graph's sanitized fname to a shard index (CONCEPT:EG-026).
 /// Deterministic across processes/restarts (NOT `DefaultHasher` randomness) — a graph
 /// MUST resolve to the same shard every boot or its durable rows become unreachable.
-fn shard_index(graph_fname: &str, k: usize) -> usize {
+pub(crate) fn shard_index(graph_fname: &str, k: usize) -> usize {
     if k <= 1 {
         return 0;
     }
@@ -420,7 +421,7 @@ fn shard_index(graph_fname: &str, k: usize) -> usize {
 
 /// The redb file name for shard `i` of `k` (CONCEPT:EG-026). K=1 keeps the legacy
 /// single-file name `graph.redb` for back-compat; K>1 uses `graph-<i>.redb`.
-fn shard_filename(k: usize, i: usize) -> String {
+pub(crate) fn shard_filename(k: usize, i: usize) -> String {
     if k <= 1 {
         "graph.redb".to_string()
     } else {
@@ -690,6 +691,13 @@ impl Shard {
 pub struct RedbBackend {
     /// The K shards (len >= 1). Index `shard_index(graph_fname, K)` owns a graph.
     shards: Vec<Shard>,
+    /// Optional tenant catalog OVERRIDE for graph→shard routing (CONCEPT:EG-031, M3).
+    /// `None` (the default) ⇒ pure EG-026 FNV-1a routing, byte-for-byte unchanged. When
+    /// `Some` AND it holds an explicit entry for a graph, that entry's shard wins
+    /// (enabling rebalanceable / resharded placement); a graph with no entry STILL
+    /// falls back to FNV-1a inside `TenantCatalog::resolve_shard`. So an empty catalog
+    /// is indistinguishable from no catalog — the seam never destabilizes EG-026.
+    catalog: Option<Arc<crate::server::persistence::tenant_catalog::TenantCatalog>>,
 }
 
 impl RedbBackend {
@@ -740,12 +748,35 @@ impl RedbBackend {
                 flush_threshold,
             )?);
         }
-        Ok(Self { shards })
+        Ok(Self {
+            shards,
+            catalog: None,
+        })
     }
 
-    /// The shard that owns `graph_fname` (stable routing, CONCEPT:EG-026).
+    /// Attach a tenant catalog to OVERRIDE graph→shard routing (CONCEPT:EG-031, M3).
+    /// Builder-style so the open path stays untouched; default (no call) = pure EG-026.
+    pub fn with_catalog(
+        mut self,
+        catalog: Arc<crate::server::persistence::tenant_catalog::TenantCatalog>,
+    ) -> Self {
+        self.catalog = Some(catalog);
+        self
+    }
+
+    /// The shard that owns `graph_fname` (stable routing, CONCEPT:EG-026 / EG-031).
+    ///
+    /// Routing seam: when a tenant catalog is attached AND holds an explicit entry for
+    /// this graph, the catalog's shard wins (M3 rebalanceable placement). Otherwise —
+    /// no catalog, or a graph the catalog has no entry for — this is the unchanged
+    /// EG-026 `FNV-1a(graph_fname) % K`. `resolve_shard` folds both cases + clamps to
+    /// the live shard count, so the override can never index out of range.
     fn shard_for(&self, graph_fname: &str) -> &Shard {
-        &self.shards[shard_index(graph_fname, self.shards.len())]
+        let idx = match &self.catalog {
+            Some(cat) => cat.resolve_shard(graph_fname, self.shards.len()),
+            None => shard_index(graph_fname, self.shards.len()),
+        };
+        &self.shards[idx]
     }
 
     /// Shard 0 — the single shard under K=1 and the home of GLOBAL (non-per-graph)
