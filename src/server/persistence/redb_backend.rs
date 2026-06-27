@@ -1225,6 +1225,15 @@ struct Pending {
     raft_log_ops: Vec<(u64, u64, Vec<u8>)>,
     /// One per awaited (commit-before-ack) op in this batch.
     waiters: Vec<oneshot::Sender<Result<(), String>>>,
+    /// O(1) per-graph audit-chain tail cache (CONCEPT:EG-025). Lives on `Pending`
+    /// because `Pending` is owned by the writer thread's `run` loop for the thread's
+    /// LIFETIME (not reset between batches) — so the cached `(seq, hash)` tail stays hot
+    /// across group commits, and the per-op range-scan that was burning the now
+    /// CPU-bound writer (post-EG-024) is gone. The writer is the sole AUDIT mutator, so
+    /// the in-memory tail is authoritative; it is seeded once per graph (incl. after a
+    /// restart) from a single scan inside `append_audit_entry`.
+    #[cfg(feature = "security")]
+    audit_tail: crate::redb_store::AuditTailCache,
 }
 
 impl Pending {
@@ -1380,7 +1389,17 @@ fn handle_cmd(
             // state (its vector read-modify-write of the SEMANTIC blob must start from
             // the committed store), then land ALL modalities in ONE WriteTransaction.
             commit_and_notify(db, pending, Durability::Immediate, crypto);
-            let res = commit_crossmodal(db, &graph, &methods, &vectors, &blob_refs, crypto);
+            let res = commit_crossmodal(
+                db,
+                &graph,
+                &methods,
+                &vectors,
+                &blob_refs,
+                crypto,
+                // Shares the writer's persistent tail cache (CONCEPT:EG-025).
+                #[cfg(feature = "security")]
+                &mut pending.audit_tail,
+            );
             let _ = done.send(res);
             false
         }
@@ -1535,6 +1554,9 @@ fn commit_and_notify(
         &mut pending.raft_log_ops,
         durability,
         crypto,
+        // O(1) audit-chain tail cache (CONCEPT:EG-025), persistent across batches.
+        #[cfg(feature = "security")]
+        &mut pending.audit_tail,
     );
     let waiters = std::mem::take(&mut pending.waiters);
     let signal = res.map(|_| ());

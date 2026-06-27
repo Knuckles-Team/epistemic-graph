@@ -83,12 +83,20 @@ impl EmbeddedRedbStore {
         }
         let mut ops = vec![(graph_fname.to_string(), method.clone())];
         let mut raft_log_ops = Vec::new();
+        // The embedded path commits ONE op per transaction in its own process, so a
+        // fresh per-call tail cache (CONCEPT:EG-025) seeds from one scan and is O(1) for
+        // the single op — identical cost to before. The hot, CPU-bound writer is the
+        // server's group-commit thread, which keeps its cache hot across batches.
+        #[cfg(feature = "security")]
+        let mut audit_tail = redb_store::AuditTailCache::new();
         redb_store::commit_ops(
             &self.db,
             &mut ops,
             &mut raft_log_ops,
             redb::Durability::Immediate,
             self.crypto(),
+            #[cfg(feature = "security")]
+            &mut audit_tail,
         )
     }
 
