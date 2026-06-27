@@ -76,8 +76,9 @@ use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
 
 use eg_query::{
-    DeleteNodes, InsertNodes, PgColType, StatementKind, TypedColumn, TypedQueryResult, UpdateNodes,
-    WhereEq,
+    AlterTablePlan, Column, ColumnType, CreateTablePlan, DeleteNodes, DeleteTable, DropTablePlan,
+    InsertNodes, InsertSelect, InsertTable, PgColType, StatementKind, TableSchema, TableStore,
+    TypedColumn, TypedQueryResult, UpdateNodes, UpdateTable, WhereEq,
 };
 
 use crate::server::ServerState;
@@ -94,6 +95,60 @@ pub const PGWIRE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_ADDR";
 /// Env var: the default graph a fresh connection runs against when the libpq
 /// `database` parameter is not supplied. Defaults to `__commons__`.
 pub const PGWIRE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_GRAPH";
+/// Env var: explicit path to the user-defined SQL table store redb file
+/// (CONCEPT:EG-018). When unset it derives from `GRAPH_SERVICE_PERSIST_DIR`
+/// (`<persist_dir>/sql_tables.redb`) so user tables live beside the graph durable
+/// tier; absent that, a process-temp file (in-memory-ish, lost on restart).
+pub const PGWIRE_SQL_TABLES_ENV: &str = "EPISTEMIC_GRAPH_SQL_TABLES_PATH";
+
+/// The process-wide user-table store. redb permits ONE `Database` handle per file
+/// per process, so every pgwire connection shares this single lazily-opened store
+/// (cheap to clone — an `Arc<Database>`). A `std::sync::Mutex` serializes the
+/// one-time open so two racing connections never double-open the file.
+static USER_TABLE_STORE: std::sync::Mutex<Option<TableStore>> = std::sync::Mutex::new(None);
+
+/// Resolve the durable path for the user-table store (see [`PGWIRE_SQL_TABLES_ENV`]).
+fn sql_tables_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var(PGWIRE_SQL_TABLES_ENV) {
+        if !p.is_empty() {
+            return std::path::PathBuf::from(p);
+        }
+    }
+    if let Ok(dir) = std::env::var("GRAPH_SERVICE_PERSIST_DIR") {
+        if !dir.is_empty() {
+            return std::path::Path::new(&dir).join("sql_tables.redb");
+        }
+    }
+    std::env::temp_dir().join("epistemic_graph_sql_tables.redb")
+}
+
+/// The shared user-table store, opening it on first use (CONCEPT:EG-018).
+fn user_table_store() -> PgWireResult<TableStore> {
+    let mut g = USER_TABLE_STORE.lock().unwrap();
+    if let Some(s) = g.as_ref() {
+        return Ok(s.clone());
+    }
+    let path = sql_tables_path();
+    let store = TableStore::open(&path)
+        .map_err(|e| user_err(format!("open user table store at {path:?}: {e}")))?;
+    *g = Some(store.clone());
+    Ok(store)
+}
+
+/// Resolve a classify `ColumnDef` (raw SQL type spelling) into a store [`Column`].
+fn to_store_columns(cols: &[eg_query::ColumnDef]) -> PgWireResult<Vec<Column>> {
+    cols.iter()
+        .map(|c| {
+            let ty = ColumnType::parse(&c.type_name).map_err(user_err)?;
+            Ok(Column {
+                name: c.name.clone(),
+                ty,
+                nullable: c.nullable,
+                primary_key: c.primary_key,
+            })
+        })
+        .collect()
+}
 
 /// Per-connection backend handler. Holds the shared `ServerState` and the current
 /// target graph (mutated by `SET graph = …`). One instance per connection so the
@@ -457,7 +512,10 @@ impl EngineBackend {
     async fn run_read(&self, graph: &str, sql: String) -> PgWireResult<TypedQueryResult> {
         let core = self.graph_core(graph).await?;
         let snap = core.analysis_snapshot();
-        tokio::task::spawn_blocking(move || eg_query::exec_sql_typed(&snap, &sql))
+        // CONCEPT:EG-018: register the user tables alongside the graph projection so a
+        // SELECT can read a user table, JOIN it to `nodes`/`edges`, or both in ONE plan.
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || eg_query::exec_sql_typed_with_tables(&snap, &store, &sql))
             .await
             .map_err(|e| user_err(format!("query task failed: {e}")))?
             .map_err(|msg| user_err(format!("SQL error: {msg}")))
@@ -503,7 +561,121 @@ impl EngineBackend {
             StatementKind::DeleteNodes(del) => {
                 self.run_delete(&graph, sql, del, result_format).await
             }
+            // ── arbitrary user-defined relational tables (CONCEPT:EG-018) ──────────
+            StatementKind::CreateTable(plan) => self.run_create_table(plan).await,
+            StatementKind::DropTable(plan) => self.run_drop_table(plan).await,
+            StatementKind::AlterTable(plan) => self.run_alter_table(plan).await,
+            StatementKind::InsertTable(ins) => self.run_insert_table(ins).await,
+            StatementKind::InsertSelect(ins) => self.run_insert_select(&graph, ins).await,
+            StatementKind::UpdateTable(upd) => self.run_update_table(upd).await,
+            StatementKind::DeleteTable(del) => self.run_delete_table(del).await,
         }
+    }
+
+    /// `CREATE TABLE` (CONCEPT:EG-018): record the schema in the durable redb table
+    /// catalog. The whole DDL commits (commit-before-ack) before the tag is returned.
+    async fn run_create_table(&self, plan: CreateTablePlan) -> PgWireResult<Response> {
+        let columns = to_store_columns(&plan.columns)?;
+        let schema = TableSchema {
+            name: plan.name,
+            columns,
+        };
+        let store = user_table_store()?;
+        let if_not_exists = plan.if_not_exists;
+        tokio::task::spawn_blocking(move || store.create_table(&schema, if_not_exists))
+            .await
+            .map_err(|e| user_err(format!("create table task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("CREATE TABLE")))
+    }
+
+    /// `DROP TABLE` (CONCEPT:EG-018): remove the catalog entry + every row.
+    async fn run_drop_table(&self, plan: DropTablePlan) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.drop_table(&plan.name, plan.if_exists))
+            .await
+            .map_err(|e| user_err(format!("drop table task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("DROP TABLE")))
+    }
+
+    /// `ALTER TABLE … ADD COLUMN` (CONCEPT:EG-018).
+    async fn run_alter_table(&self, plan: AlterTablePlan) -> PgWireResult<Response> {
+        let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
+        let column = columns.into_iter().next().expect("one column");
+        let store = user_table_store()?;
+        let table = plan.name;
+        tokio::task::spawn_blocking(move || store.add_column(&table, column))
+            .await
+            .map_err(|e| user_err(format!("alter table task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("ALTER TABLE")))
+    }
+
+    /// `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-018). Commit-before-ack.
+    async fn run_insert_table(&self, ins: InsertTable) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        let n = tokio::task::spawn_blocking(move || {
+            store.insert_rows(&ins.table, &ins.columns, &ins.rows)
+        })
+        .await
+        .map_err(|e| user_err(format!("insert task failed: {e}")))?
+        .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+    }
+
+    /// `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-018). Runs the SELECT
+    /// through the SAME DataFusion path (so it can JOIN user tables AND the graph),
+    /// then durably inserts the projected rows. The SELECT result column COUNT must
+    /// match the insert column list.
+    async fn run_insert_select(&self, graph: &str, ins: InsertSelect) -> PgWireResult<Response> {
+        let result = self.run_read(graph, ins.select_sql).await?;
+        if result.columns.len() != ins.columns.len() {
+            return Err(user_err(format!(
+                "INSERT … SELECT column count mismatch: {} target columns, {} selected",
+                ins.columns.len(),
+                result.columns.len()
+            )));
+        }
+        let store = user_table_store()?;
+        let rows = result.rows;
+        let n = tokio::task::spawn_blocking(move || {
+            store.insert_rows(&ins.table, &ins.columns, &rows)
+        })
+        .await
+        .map_err(|e| user_err(format!("insert-select task failed: {e}")))?
+        .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+    }
+
+    /// `UPDATE <user_table> SET … WHERE <col> = <literal>` (CONCEPT:EG-018).
+    async fn run_update_table(&self, upd: UpdateTable) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        let selector = eg_query::ColEq {
+            column: upd.selector.column,
+            value: upd.selector.value,
+        };
+        let n = tokio::task::spawn_blocking(move || {
+            store.update_where(&upd.table, &upd.set, &selector)
+        })
+        .await
+        .map_err(|e| user_err(format!("update task failed: {e}")))?
+        .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("UPDATE").with_rows(n)))
+    }
+
+    /// `DELETE FROM <user_table> WHERE <col> = <literal>` (CONCEPT:EG-018).
+    async fn run_delete_table(&self, del: DeleteTable) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        let selector = eg_query::ColEq {
+            column: del.selector.column,
+            value: del.selector.value,
+        };
+        let n = tokio::task::spawn_blocking(move || store.delete_where(&del.table, &selector))
+            .await
+            .map_err(|e| user_err(format!("delete task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("DELETE").with_rows(n)))
     }
 
     /// Resolve the node ids a simple-equality WHERE selects. `Id` is the fast path
@@ -895,8 +1067,9 @@ impl EngineBackend {
                     })
                     .collect())
             }
-            // Unclassifiable (e.g. SET graph) → no result columns.
-            Err(_) => Ok(Vec::new()),
+            // DDL / user-table DML (CONCEPT:EG-018) → no result columns (like a
+            // non-RETURNING write); and unclassifiable (e.g. SET graph) → none either.
+            Ok(_) | Err(_) => Ok(Vec::new()),
         }
     }
 }

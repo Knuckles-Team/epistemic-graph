@@ -34,8 +34,9 @@
 //!   * Writes to any table other than `nodes`.
 
 use datafusion::sql::sqlparser::ast::{
-    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, Insert, ObjectName,
-    SelectItem, SetExpr, Statement, TableFactor, Value as SqlValue, Values,
+    AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator, ColumnDef as SqlColumnDef,
+    ColumnOption, CreateTable, Delete, Expr, FromTable, Insert, ObjectName, ObjectType, SelectItem,
+    SetExpr, Statement, TableFactor, TableWithJoins, Value as SqlValue, Values,
 };
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -57,6 +58,102 @@ pub enum StatementKind {
     /// `DELETE FROM nodes WHERE …` — a simple WHERE predicate, routed to
     /// `remove_node` per matched node under a txn.
     DeleteNodes(DeleteNodes),
+
+    // ── arbitrary user-defined relational tables (CONCEPT:EG-018) ──────────────
+    /// `CREATE TABLE name (col type, …) [IF NOT EXISTS]` — a new user table whose
+    /// schema is recorded in the redb table catalog (NOT the graph projection).
+    CreateTable(CreateTablePlan),
+    /// `DROP TABLE [IF EXISTS] name` — remove a user table and all its rows.
+    DropTable(DropTablePlan),
+    /// `ALTER TABLE name ADD COLUMN col type` — append a column to a user table.
+    AlterTable(AlterTablePlan),
+    /// `INSERT INTO <user_table> (cols…) VALUES (…)[, …]` — literal multi-row insert
+    /// into a user table (not `nodes`).
+    InsertTable(InsertTable),
+    /// `INSERT INTO <user_table> (cols…) SELECT …` — insert the projected rows of a
+    /// SELECT (which may itself JOIN user tables AND the graph) into a user table.
+    InsertSelect(InsertSelect),
+    /// `UPDATE <user_table> SET … WHERE <col> = <literal>` — typed update of a user table.
+    UpdateTable(UpdateTable),
+    /// `DELETE FROM <user_table> WHERE <col> = <literal>` — typed delete from a user table.
+    DeleteTable(DeleteTable),
+}
+
+/// One column of a `CREATE TABLE` / `ALTER TABLE ADD COLUMN` (CONCEPT:EG-018). The
+/// `type_name` is the raw SQL type spelling (e.g. `BIGINT`, `DOUBLE PRECISION`,
+/// `TIMESTAMP`); the executor resolves it to a `tables::ColumnType`. `nullable` is
+/// false when `NOT NULL` (or `PRIMARY KEY`) was declared; `primary_key` records a
+/// column-level `PRIMARY KEY`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColumnDef {
+    pub name: String,
+    pub type_name: String,
+    pub nullable: bool,
+    pub primary_key: bool,
+}
+
+/// A decoded `CREATE TABLE` (CONCEPT:EG-018).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateTablePlan {
+    pub name: String,
+    pub columns: Vec<ColumnDef>,
+    pub if_not_exists: bool,
+}
+
+/// A decoded `DROP TABLE` (CONCEPT:EG-018).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DropTablePlan {
+    pub name: String,
+    pub if_exists: bool,
+}
+
+/// A decoded `ALTER TABLE … ADD COLUMN` (CONCEPT:EG-018).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlterTablePlan {
+    pub name: String,
+    pub add_column: ColumnDef,
+}
+
+/// A simple single-column equality WHERE on a user table (`WHERE <col> = <literal>`).
+/// Unlike [`WhereEq`] there is no `id` special-casing — a user table has no implicit
+/// id column, so every column (including one literally named `id`) is a plain column.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableWhereEq {
+    pub column: String,
+    pub value: Value,
+}
+
+/// A decoded literal `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-018).
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertTable {
+    pub table: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Value>>,
+}
+
+/// A decoded `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-018). The SELECT
+/// is kept as text and run through the SAME DataFusion path (so it can JOIN user
+/// tables and the graph), and its rows are then inserted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsertSelect {
+    pub table: String,
+    pub columns: Vec<String>,
+    pub select_sql: String,
+}
+
+/// A decoded `UPDATE <user_table> SET … WHERE <col> = <literal>` (CONCEPT:EG-018).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateTable {
+    pub table: String,
+    pub set: Map<String, Value>,
+    pub selector: TableWhereEq,
+}
+
+/// A decoded `DELETE FROM <user_table> WHERE <col> = <literal>` (CONCEPT:EG-018).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeleteTable {
+    pub table: String,
+    pub selector: TableWhereEq,
 }
 
 /// A simple single-column equality predicate, the only WHERE shape the wire DML
@@ -125,22 +222,26 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
         | Statement::ShowVariable { .. }
         | Statement::ShowColumns { .. }
         | Statement::ShowTables { .. } => Ok(StatementKind::Read),
-        Statement::Insert(insert) => classify_insert(insert).map(StatementKind::InsertNodes),
+        Statement::Insert(insert) => classify_any_insert(insert),
         Statement::Update {
             table,
             assignments,
             from,
             selection,
             returning,
-        } => classify_update(
-            table,
-            assignments,
-            from.as_ref(),
-            selection.as_ref(),
-            returning,
-        )
-        .map(StatementKind::UpdateNodes),
-        Statement::Delete(delete) => classify_delete(delete).map(StatementKind::DeleteNodes),
+        } => classify_any_update(table, assignments, from.as_ref(), selection.as_ref(), returning),
+        Statement::Delete(delete) => classify_any_delete(delete),
+        // ── DDL (CONCEPT:EG-018) ──────────────────────────────────────────────
+        Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
+        Statement::Drop {
+            object_type,
+            if_exists,
+            names,
+            ..
+        } => classify_drop(*object_type, *if_exists, names).map(StatementKind::DropTable),
+        Statement::AlterTable {
+            name, operations, ..
+        } => classify_alter_table(name, operations).map(StatementKind::AlterTable),
         other => Err(format!("unsupported statement: {other}")),
     }
 }
@@ -518,6 +619,290 @@ fn classify_delete(delete: &Delete) -> Result<DeleteNodes, String> {
         selector,
         returning: delete.returning.is_some(),
     })
+}
+
+// ── user-table dispatch + DDL/DML parsing (CONCEPT:EG-018) ───────────────────
+
+/// `nodes`/`edges` are the graph projection's reserved table names — a user
+/// `CREATE TABLE`/DML cannot use them, and DML routing sends them to the graph path.
+fn is_reserved_table(leaf: &str) -> bool {
+    leaf.eq_ignore_ascii_case("nodes") || leaf.eq_ignore_ascii_case("edges")
+}
+
+/// The bare (last-segment) name of an INSERT target.
+fn insert_leaf(insert: &Insert) -> String {
+    let s = insert.table_name.to_string();
+    s.rsplit('.').next().unwrap_or(&s).to_string()
+}
+
+/// Route an INSERT by target table: `nodes` → the graph node path (unchanged);
+/// `edges` → rejected (graph edge writes are not a wire DML shape); any other table
+/// → the user-table path (literal VALUES or `INSERT … SELECT`).
+fn classify_any_insert(insert: &Insert) -> Result<StatementKind, String> {
+    let leaf = insert_leaf(insert);
+    if leaf.eq_ignore_ascii_case("nodes") {
+        return classify_insert(insert).map(StatementKind::InsertNodes);
+    }
+    if leaf.eq_ignore_ascii_case("edges") {
+        return Err("INSERT is only supported on the `nodes` table".to_string());
+    }
+    classify_insert_table(insert, leaf)
+}
+
+/// Decode an `INSERT INTO <user_table> …` into either a literal [`InsertTable`] (a
+/// `VALUES` body) or an [`InsertSelect`] (a `SELECT`/`WITH` body run through DataFusion).
+fn classify_insert_table(insert: &Insert, table: String) -> Result<StatementKind, String> {
+    if insert.columns.is_empty() {
+        return Err(format!(
+            "INSERT INTO {table} requires an explicit column list"
+        ));
+    }
+    let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
+    let source = insert
+        .source
+        .as_ref()
+        .ok_or_else(|| format!("INSERT INTO {table} requires a VALUES or SELECT source"))?;
+    match source.body.as_ref() {
+        SetExpr::Values(Values { rows, .. }) => {
+            if rows.is_empty() {
+                return Err(format!("INSERT INTO {table} VALUES has no rows"));
+            }
+            let mut out_rows = Vec::with_capacity(rows.len());
+            for row in rows {
+                if row.len() != columns.len() {
+                    return Err(format!(
+                        "INSERT column/value count mismatch: {} columns, {} values",
+                        columns.len(),
+                        row.len()
+                    ));
+                }
+                let mut vals = Vec::with_capacity(row.len());
+                for expr in row {
+                    vals.push(expr_to_json(expr)?);
+                }
+                out_rows.push(vals);
+            }
+            Ok(StatementKind::InsertTable(InsertTable {
+                table,
+                columns,
+                rows: out_rows,
+            }))
+        }
+        // A SELECT/WITH/UNION source → INSERT … SELECT. Keep the source query as text;
+        // the executor runs it through the SAME DataFusion path (graph + user tables).
+        _ => Ok(StatementKind::InsertSelect(InsertSelect {
+            table,
+            columns,
+            select_sql: source.to_string(),
+        })),
+    }
+}
+
+/// Route an UPDATE by target table (mirrors [`classify_any_insert`]).
+fn classify_any_update(
+    table: &TableWithJoins,
+    assignments: &[Assignment],
+    from: Option<&TableWithJoins>,
+    selection: Option<&Expr>,
+    returning: &Option<Vec<SelectItem>>,
+) -> Result<StatementKind, String> {
+    let leaf = match &table.relation {
+        TableFactor::Table { name, .. } => {
+            let s = name.to_string();
+            s.rsplit('.').next().unwrap_or(&s).to_string()
+        }
+        _ => return Err("UPDATE target must be a table".to_string()),
+    };
+    if leaf.eq_ignore_ascii_case("nodes") {
+        return classify_update(table, assignments, from, selection, returning)
+            .map(StatementKind::UpdateNodes);
+    }
+    if leaf.eq_ignore_ascii_case("edges") {
+        return Err("UPDATE is only supported on the `nodes` table".to_string());
+    }
+    classify_update_table(leaf, table, assignments, from, selection)
+        .map(StatementKind::UpdateTable)
+}
+
+/// Decode `UPDATE <user_table> SET … WHERE <col> = <literal>`.
+fn classify_update_table(
+    table: String,
+    target: &TableWithJoins,
+    assignments: &[Assignment],
+    from: Option<&TableWithJoins>,
+    selection: Option<&Expr>,
+) -> Result<UpdateTable, String> {
+    if !target.joins.is_empty() {
+        return Err("UPDATE with a JOIN is not supported (EG-018 follow-up)".to_string());
+    }
+    if from.is_some() {
+        return Err("UPDATE … FROM is not supported (EG-018 follow-up)".to_string());
+    }
+    if assignments.is_empty() {
+        return Err(format!("UPDATE {table} requires at least one SET assignment"));
+    }
+    let mut set = Map::new();
+    for a in assignments {
+        let col = match &a.target {
+            AssignmentTarget::ColumnName(name) => last_ident(name),
+            AssignmentTarget::Tuple(_) => {
+                return Err("UPDATE tuple assignment is not supported".to_string())
+            }
+        };
+        set.insert(col, expr_to_json(&a.value)?);
+    }
+    let selector = decode_table_where(selection, "UPDATE", &table)?;
+    Ok(UpdateTable {
+        table,
+        set,
+        selector,
+    })
+}
+
+/// Route a DELETE by target table (mirrors [`classify_any_insert`]).
+fn classify_any_delete(delete: &Delete) -> Result<StatementKind, String> {
+    let tables = match &delete.from {
+        FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
+    };
+    let target = match tables.as_slice() {
+        [one] => one,
+        _ => return Err("DELETE FROM supports exactly one table".to_string()),
+    };
+    let leaf = match &target.relation {
+        TableFactor::Table { name, .. } => {
+            let s = name.to_string();
+            s.rsplit('.').next().unwrap_or(&s).to_string()
+        }
+        _ => return Err("DELETE target must be a table".to_string()),
+    };
+    if leaf.eq_ignore_ascii_case("nodes") {
+        return classify_delete(delete).map(StatementKind::DeleteNodes);
+    }
+    if leaf.eq_ignore_ascii_case("edges") {
+        return Err("DELETE is only supported on the `nodes` table".to_string());
+    }
+    if delete.using.is_some() || !target.joins.is_empty() {
+        return Err("DELETE … USING/JOIN is not supported (EG-018 follow-up)".to_string());
+    }
+    let selector = decode_table_where(delete.selection.as_ref(), "DELETE", &leaf)?;
+    Ok(StatementKind::DeleteTable(DeleteTable {
+        table: leaf,
+        selector,
+    }))
+}
+
+/// Decode a user-table WHERE clause into a single `<col> = <literal>` predicate (no
+/// `id` special-casing). A missing WHERE is rejected (no unscoped mass mutation).
+fn decode_table_where(
+    selection: Option<&Expr>,
+    verb: &str,
+    table: &str,
+) -> Result<TableWhereEq, String> {
+    let expr = selection
+        .ok_or_else(|| format!("{verb} {table} requires a WHERE clause (unscoped {verb} refused)"))?;
+    match expr {
+        Expr::BinaryOp { left, op, right } if *op == BinaryOperator::Eq => {
+            let column = ident_column(left)?;
+            let value = expr_to_json(right)?;
+            Ok(TableWhereEq { column, value })
+        }
+        other => Err(format!(
+            "{verb} {table} supports only a single `<column> = <literal>` WHERE \
+             (complex predicates are an EG-018 follow-up), got `{other}`"
+        )),
+    }
+}
+
+/// Decode `CREATE TABLE name (col type [NOT NULL] [PRIMARY KEY], …) [IF NOT EXISTS]`.
+fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
+    let name = last_ident(&ct.name);
+    if is_reserved_table(&name) {
+        return Err(format!(
+            "CREATE TABLE cannot use the reserved graph table name `{name}`"
+        ));
+    }
+    if ct.columns.is_empty() {
+        return Err("CREATE TABLE requires at least one column".to_string());
+    }
+    let mut columns = Vec::with_capacity(ct.columns.len());
+    for c in &ct.columns {
+        columns.push(decode_column_def(c)?);
+    }
+    Ok(CreateTablePlan {
+        name,
+        columns,
+        if_not_exists: ct.if_not_exists,
+    })
+}
+
+/// Decode one sqlparser column definition into a [`ColumnDef`]: name, raw type
+/// spelling, and the NULL/NOT NULL/PRIMARY KEY column options. A `PRIMARY KEY` column
+/// is implicitly `NOT NULL` (Postgres semantics).
+fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
+    let mut nullable = true;
+    let mut primary_key = false;
+    for opt in &c.options {
+        match &opt.option {
+            ColumnOption::NotNull => nullable = false,
+            ColumnOption::Null => nullable = true,
+            ColumnOption::Unique { is_primary, .. } if *is_primary => {
+                primary_key = true;
+                nullable = false;
+            }
+            _ => {}
+        }
+    }
+    Ok(ColumnDef {
+        name: c.name.value.clone(),
+        type_name: c.data_type.to_string(),
+        nullable,
+        primary_key,
+    })
+}
+
+/// Decode `DROP TABLE [IF EXISTS] name`. Only `TABLE` objects are handled here; any
+/// other `DROP …` is rejected so it isn't silently mis-routed.
+fn classify_drop(
+    object_type: ObjectType,
+    if_exists: bool,
+    names: &[ObjectName],
+) -> Result<DropTablePlan, String> {
+    if object_type != ObjectType::Table {
+        return Err(format!("DROP {object_type} is not supported (only DROP TABLE)"));
+    }
+    let name = match names {
+        [one] => last_ident(one),
+        _ => return Err("DROP TABLE supports exactly one table".to_string()),
+    };
+    if is_reserved_table(&name) {
+        return Err(format!("cannot DROP the reserved graph table `{name}`"));
+    }
+    Ok(DropTablePlan { name, if_exists })
+}
+
+/// Decode `ALTER TABLE name ADD COLUMN col type`. Only a single `ADD COLUMN`
+/// operation is supported in this increment; other ALTER ops are explicit follow-ups.
+fn classify_alter_table(
+    name: &ObjectName,
+    operations: &[AlterTableOperation],
+) -> Result<AlterTablePlan, String> {
+    let table = last_ident(name);
+    if is_reserved_table(&table) {
+        return Err(format!("cannot ALTER the reserved graph table `{table}`"));
+    }
+    let op = match operations {
+        [one] => one,
+        _ => return Err("ALTER TABLE supports exactly one ADD COLUMN per statement".to_string()),
+    };
+    match op {
+        AlterTableOperation::AddColumn { column_def, .. } => Ok(AlterTablePlan {
+            name: table,
+            add_column: decode_column_def(column_def)?,
+        }),
+        other => Err(format!(
+            "ALTER TABLE supports only ADD COLUMN in this increment, got `{other}`"
+        )),
+    }
 }
 
 /// Decode a WHERE clause into the single simple-equality predicate the wire DML
@@ -906,5 +1291,99 @@ mod tests {
         assert!(classify("NOTAKEYWORD 1").is_err());
         assert!(classify("").is_err());
         assert!(classify("SELECT 1; SELECT 2").is_err());
+    }
+
+    // ── user-defined table DDL/DML (CONCEPT:EG-018) ───────────────────────────
+
+    #[test]
+    fn create_table_decodes_columns_and_options() {
+        let k = classify(
+            "CREATE TABLE IF NOT EXISTS prices (ts TIMESTAMP NOT NULL, symbol TEXT, \
+             px DOUBLE, id BIGINT PRIMARY KEY)",
+        )
+        .unwrap();
+        let StatementKind::CreateTable(p) = k else {
+            panic!("expected CreateTable, got {k:?}");
+        };
+        assert!(p.if_not_exists);
+        assert_eq!(p.name, "prices");
+        assert_eq!(p.columns.len(), 4);
+        assert!(!p.columns[0].nullable, "TIMESTAMP NOT NULL");
+        assert!(p.columns[1].nullable, "TEXT defaults nullable");
+        assert!(p.columns[3].primary_key && !p.columns[3].nullable, "PK ⇒ NOT NULL");
+    }
+
+    #[test]
+    fn create_table_rejects_reserved_names() {
+        assert!(classify("CREATE TABLE nodes (id TEXT)").is_err());
+        assert!(classify("CREATE TABLE edges (src TEXT)").is_err());
+    }
+
+    #[test]
+    fn drop_and_alter_table_decode() {
+        let StatementKind::DropTable(d) = classify("DROP TABLE IF EXISTS prices").unwrap() else {
+            panic!("expected DropTable");
+        };
+        assert!(d.if_exists && d.name == "prices");
+
+        let StatementKind::AlterTable(a) =
+            classify("ALTER TABLE prices ADD COLUMN currency TEXT").unwrap()
+        else {
+            panic!("expected AlterTable");
+        };
+        assert_eq!(a.name, "prices");
+        assert_eq!(a.add_column.name, "currency");
+    }
+
+    #[test]
+    fn insert_into_user_table_multi_row() {
+        let k = classify("INSERT INTO prices (symbol, px) VALUES ('AAPL', 1.5), ('MSFT', 2.5)")
+            .unwrap();
+        let StatementKind::InsertTable(ins) = k else {
+            panic!("expected InsertTable, got {k:?}");
+        };
+        assert_eq!(ins.table, "prices");
+        assert_eq!(ins.columns, vec!["symbol".to_string(), "px".to_string()]);
+        assert_eq!(ins.rows.len(), 2);
+        assert_eq!(ins.rows[1][0], Value::String("MSFT".into()));
+    }
+
+    #[test]
+    fn insert_select_into_user_table() {
+        let k = classify("INSERT INTO out (a) SELECT id FROM nodes").unwrap();
+        let StatementKind::InsertSelect(ins) = k else {
+            panic!("expected InsertSelect, got {k:?}");
+        };
+        assert_eq!(ins.table, "out");
+        assert!(ins.select_sql.to_ascii_uppercase().contains("SELECT"));
+    }
+
+    #[test]
+    fn update_delete_user_table_simple_where() {
+        let StatementKind::UpdateTable(u) =
+            classify("UPDATE prices SET px = 9.9 WHERE symbol = 'AAPL'").unwrap()
+        else {
+            panic!("expected UpdateTable");
+        };
+        assert_eq!(u.table, "prices");
+        assert_eq!(u.selector.column, "symbol");
+        assert_eq!(u.set.get("px").unwrap(), &json_num(9.9));
+
+        let StatementKind::DeleteTable(d) =
+            classify("DELETE FROM prices WHERE symbol = 'MSFT'").unwrap()
+        else {
+            panic!("expected DeleteTable");
+        };
+        assert_eq!(d.selector.value, Value::String("MSFT".into()));
+    }
+
+    #[test]
+    fn update_user_table_requires_where() {
+        assert!(classify("UPDATE prices SET px = 1").is_err());
+        assert!(classify("DELETE FROM prices").is_err());
+    }
+
+    fn json_num(f: f64) -> Value {
+        serde_json::Number::from_f64(f).map(Value::Number).unwrap()
     }
 }
