@@ -235,6 +235,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting epistemic-graph-server");
     info!("  UDS: {}", socket_path);
+
+    // ── Hardware capacity auto-detection (CONCEPT:EG-028) ─────────────────
+    // Size the concurrency / buffer / per-graph node-cap DEFAULTS from
+    // (cpu_count, total_RAM) so the SAME binary is lean + OOM-safe on a Pi 3 and
+    // exploits a big box. Detected ONCE; each env var below still overrides its
+    // own default. Mirrors `available_parallelism()` (runtime sizing above) +
+    // CoalescerConfig::auto + cost.rs's /proc/meminfo read.
+    let host_capacity = epistemic_graph::autosize::detect_capacity();
+    info!(
+        "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/WAL/node-cap defaults)",
+        host_capacity.cpus,
+        host_capacity.total_ram_bytes / (1024 * 1024),
+        host_capacity.tier
+    );
     if let Some(ref tcp) = args.tcp_addr {
         info!("  TCP: {}", tcp);
     }
@@ -278,11 +292,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
+    // Default auto-sizes from cpu count (CONCEPT:EG-028): a Pi sheds early, a big
+    // box admits deep concurrency. Env override (when set > 0) still wins.
     let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
-        .unwrap_or(1024);
+        .unwrap_or_else(|| host_capacity.max_inflight());
     // Per-graph fairness cap (Phase C-D): default to a quarter of the global pool
     // so any one hot graph holds at most 25% of capacity and ~4 graphs can saturate
     // the server, instead of a single tenant monopolizing all in-flight slots.
@@ -382,11 +398,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let policy = epistemic_graph::wal_service::FsyncPolicy::from_env(
             std::env::var("EPISTEMIC_GRAPH_WAL_FSYNC").ok().as_deref(),
         );
+        // WAL channel depth: default auto-sizes from cpu count (CONCEPT:EG-028) so a
+        // Pi holds little and a big box absorbs bursts. Env override (>0) still wins.
+        // (`capacity` here is the queue depth; the host Capacity is `host_capacity`.)
         let capacity = std::env::var("EPISTEMIC_GRAPH_WAL_QUEUE")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
-            .unwrap_or(8192);
+            .unwrap_or_else(|| host_capacity.wal_queue());
         match backend_kind.as_str() {
             #[cfg(feature = "redb")]
             "redb" => {
@@ -919,12 +938,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The engine is a rebuildable cache over the durable backend, so a graph that
     // exceeds EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
     // — the backstop that makes a shard shed working set instead of OOM-killing
-    // every tenant. Off by default (0 = unbounded). The sweep is periodic so it
-    // never touches the write hot path.
-    let max_nodes_per_graph = std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(0);
+    // every tenant. The sweep is periodic so it never touches the write hot path.
+    //
+    // CONCEPT:EG-028 (Pi-OOM correctness): the DEFAULT now AUTO-SIZES from total RAM
+    // instead of being 0/unbounded. An unbounded default OOM-kills a 1 GiB Pi; a
+    // RAM-derived cap bounds a runaway graph's RESIDENT footprint with ZERO data loss
+    // — evicted nodes still serve from the durable redb tier (read-through eviction,
+    // CONCEPT:KG-2.191). A big box derives an effectively-unbounded cap, so it is not
+    // constrained. Setting the env to `0` is the explicit opt-out for "truly
+    // unbounded"; any explicit value still wins.
+    let max_nodes_per_graph = match std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH") {
+        Ok(v) => v.trim().parse::<usize>().unwrap_or_else(|_| host_capacity.node_cap()),
+        Err(_) => host_capacity.node_cap(),
+    };
     if max_nodes_per_graph > 0 {
         let cap_state = state.clone();
         let cap_interval = std::env::var("EPISTEMIC_GRAPH_MEMCAP_INTERVAL")
