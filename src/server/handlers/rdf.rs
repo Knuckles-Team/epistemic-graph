@@ -53,6 +53,14 @@ pub(crate) async fn try_handle(
         }
         #[cfg(feature = "rdf")]
         Method::GetRdf => Ok(handle_get_rdf(state, req_id, graph_name, &core).await),
+        #[cfg(feature = "rdf")]
+        Method::RemoveTriples { turtle, ntriples } => {
+            Ok(handle_remove_triples(req_id, &core, turtle, ntriples).await)
+        }
+        #[cfg(feature = "rdf")]
+        Method::DropNamedGraph => {
+            Ok(handle_drop_named_graph(state, req_id, graph_name, &core).await)
+        }
         #[cfg(feature = "sparql")]
         Method::Sparql {
             query,
@@ -356,6 +364,49 @@ async fn handle_get_rdf(
         Ok(nt) => Response::ok(req_id, ResultPayload::raw(&nt)),
         Err(e) => Response::err(req_id, format!("GetRdf error: {e}")),
     }
+}
+
+/// Physically RETRACT triples from the target graph (CONCEPT:EG-017) — the durable
+/// inverse of `AddTriples`. Routes through the reusable `eg_rdf::update::remove_triples`
+/// engine op (surgical: literal cells + the one matching typed edge). Returns the count.
+#[cfg(feature = "rdf")]
+async fn handle_remove_triples(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    turtle: String,
+    ntriples: String,
+) -> Response {
+    let triples = match parse_either(&turtle, &ntriples) {
+        Ok(t) => t,
+        Err(e) => return Response::err(req_id, e),
+    };
+    let removed = eg_rdf::update::remove_triples(core, &triples);
+    Response::ok(req_id, ResultPayload::Count(removed as u64))
+}
+
+/// DROP the target named graph's RDF content (CONCEPT:EG-017): clear the property-graph
+/// nodes/edges AND the lossless multi-valued-literal quad-store rows for this graph. The
+/// graph stays addressable (distinct from `DeleteGraph` evicting the registry entry).
+#[cfg(feature = "rdf")]
+async fn handle_drop_named_graph(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+) -> Response {
+    core.clear();
+    #[cfg(feature = "rdf-redb")]
+    {
+        let quads = state.read().await.rdf_quads.clone();
+        if let Some(store) = quads {
+            if let Err(e) = store.clear_graph(graph_name) {
+                return Response::err(req_id, format!("DropNamedGraph quad-store clear: {e}"));
+            }
+        }
+    }
+    #[cfg(not(feature = "rdf-redb"))]
+    let _ = (state, graph_name);
+    Response::ok(req_id, ResultPayload::String("ok".to_string()))
 }
 
 /// Parse exactly one of Turtle / N-Triples (whichever is non-empty).

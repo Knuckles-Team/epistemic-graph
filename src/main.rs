@@ -69,6 +69,12 @@ struct Args {
     #[arg(long, env = "GRAPH_SERVICE_METRICS_ADDR")]
     metrics_addr: Option<String>,
 
+    /// W3C SPARQL 1.1 Protocol HTTP listener address (e.g. 127.0.0.1:7878), feature
+    /// `sparql-http`. Disabled when unset. Lets existing Stardog/Jena/rdflib SPARQL
+    /// clients query + update the engine unchanged. Separate from the RPC transports.
+    #[arg(long, env = "EPISTEMIC_GRAPH_SPARQL_ADDR")]
+    sparql_addr: Option<String>,
+
     /// Self-terminate after N seconds with ZERO active connections (reference-
     /// counted idle shutdown). 0 or absent ⇒ NEVER self-terminate on idle: the
     /// engine is long-living/persistent and runs forever like a normal server.
@@ -588,6 +594,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--metrics-addr {} ignored: binary built without the `metrics` feature",
             metrics_addr
         );
+    }
+
+    // ── W3C SPARQL 1.1 HTTP endpoint (CONCEPT:EG-017) ────────────────────
+    // Opt-in AND feature-gated: the listener starts ONLY when built `--features
+    // sparql-http` AND --sparql-addr / EPISTEMIC_GRAPH_SPARQL_ADDR is set. With the
+    // feature off, or unset, this is a no-op and the engine runs exactly as before.
+    #[cfg(feature = "sparql-http")]
+    if let Some(ref sparql_addr) = args.sparql_addr {
+        let listener = tokio::net::TcpListener::bind(sparql_addr).await?;
+        info!(
+            "SPARQL: serving W3C SPARQL 1.1 Protocol on http://{}/sparql",
+            sparql_addr
+        );
+        let sparql_state = state.clone();
+        tokio::spawn(async move {
+            epistemic_graph::server::sparql_http::serve(listener, sparql_state).await;
+        });
+    }
+    #[cfg(not(feature = "sparql-http"))]
+    if args.sparql_addr.is_some() {
+        tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
     }
 
     // ── Postgres wire-protocol shim (CONCEPT:KG-2.189) ───────────────────

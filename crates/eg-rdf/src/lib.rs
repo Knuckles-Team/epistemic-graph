@@ -37,8 +37,20 @@ pub mod mapping;
 #[cfg(feature = "rdf-redb")]
 pub mod quads;
 
+/// Re-export the spargebra SPARQL algebra/term/update model so the engine (the
+/// `/sparql` HTTP endpoint) can name `Update` / `GraphUpdateOperation` without taking
+/// its own spargebra dependency.
+#[cfg(feature = "sparql")]
+pub use spargebra;
+
 #[cfg(feature = "sparql")]
 pub mod sparql;
+
+/// SPARQL 1.1 UPDATE executed over the native property-graph write ops (CONCEPT:EG-017):
+/// INSERT/DELETE DATA, DELETE/INSERT … WHERE, CLEAR/CREATE/DROP GRAPH, with named-graph
+/// routing through the `GraphStore` trait. Behind `sparql` (needs spargebra's Update).
+#[cfg(feature = "sparql")]
+pub mod update;
 
 /// W3 — the native OWL 2 (EL⁺ + RL) reasoner (CONCEPT:KG-2.219). Classification,
 /// consistency checking, incremental materialization + justifications over the
