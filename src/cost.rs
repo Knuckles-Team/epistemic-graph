@@ -269,13 +269,15 @@ pub async fn collect_resource_stats(state: &Arc<RwLock<ServerState>>) -> Resourc
             .collect();
         let permits = s.max_in_flight.available_permits();
         // The global admission semaphore was constructed with the configured max; recover
-        // it from the env so `in_flight = max - available` is exact (default 1024,
-        // matching `EPISTEMIC_GRAPH_MAX_INFLIGHT`).
+        // it from the env so `in_flight = max - available` is exact. The UNSET default
+        // now auto-sizes from host capacity (CONCEPT:EG-028) — the SAME derivation
+        // `main.rs` used to build the semaphore, so the gauge stays exact on a Pi and a
+        // big box alike (previously hard-coded 1024).
         let max = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
-            .unwrap_or(1024);
+            .unwrap_or_else(|| crate::autosize::detect_capacity().max_inflight());
         (entries, max, permits)
     };
     let in_flight = configured_max_inflight.saturating_sub(permits_available) as u64;
