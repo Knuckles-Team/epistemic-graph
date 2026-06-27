@@ -16,6 +16,17 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     ) {
         return true;
     }
+    // Key→Value mutations (CONCEPT:EG-022, feature `kv`). KV is namespace-scoped (NOT
+    // graph-scoped) and self-routes BEFORE `dispatch_graph_op`, so this classifier is
+    // not on the KV routing path — but it is the canonical read/write classifier, so
+    // `KvPut`/`KvDelete`/`KvCas` are recorded here as writes (`KvGet`/`KvScan` read).
+    #[cfg(feature = "kv")]
+    if matches!(
+        method,
+        Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. }
+    ) {
+        return true;
+    }
     matches!(
         method,
         Method::AddNode { .. }

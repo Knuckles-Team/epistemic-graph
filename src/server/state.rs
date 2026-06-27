@@ -206,4 +206,13 @@ pub struct ServerState {
     /// feature on.
     #[cfg(feature = "federation")]
     pub foreign_sources: Arc<DashMap<String, eg_types::wire::ForeignSourceSpec>>,
+    /// Generic namespaced Key→Value store (CONCEPT:EG-022, feature `kv`). `Some` on a
+    /// `kv` build: a durable `{persist_dir}/kv.redb` when a persist dir is set, else an
+    /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it
+    /// is independent of the graph registry + the write-coalescer (KV pairs are keyed by
+    /// `(namespace, key)`, not a graph). Its OWN redb file — NOT a second handle on
+    /// `graph.redb`. `None` ⇒ the Kv* variants fall to the dispatch "not available"
+    /// catch-all.
+    #[cfg(feature = "kv")]
+    pub kv: Option<Arc<crate::server::kv::KvStore>>,
 }

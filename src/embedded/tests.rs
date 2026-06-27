@@ -204,3 +204,43 @@ fn embedded_sql_query() {
     let res = eng.sql("g", "SELECT id FROM nodes").unwrap();
     assert!(!res.rows.is_empty(), "sql returned rows: {res:?}");
 }
+
+/// SQLite-equivalent (CONCEPT:EG-022 / EG-018): open a file → CREATE TABLE → INSERT →
+/// SELECT, in-process, no server — and the durable user-table rows survive a reopen of
+/// the SAME single-file store.
+#[cfg(feature = "query")]
+#[test]
+fn embedded_sqlite_equivalent_create_insert_select() {
+    let dir = tmp_dir("sqlite");
+    {
+        let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+        eng.sql_exec("kg", "CREATE TABLE prices (sym TEXT, px DOUBLE)")
+            .unwrap();
+        // INSERT … VALUES durably appends two rows.
+        let ins = eng
+            .sql_exec(
+                "kg",
+                "INSERT INTO prices (sym, px) VALUES ('AAPL', 1.5), ('MSFT', 2.5)",
+            )
+            .unwrap();
+        assert_eq!(ins.rows[0][0], serde_json::json!(2), "two rows inserted");
+        // SELECT them back, ordered.
+        let sel = eng
+            .sql_exec("kg", "SELECT sym, px FROM prices ORDER BY sym")
+            .unwrap();
+        let cols: Vec<&str> = sel.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(cols, vec!["sym", "px"]);
+        assert_eq!(sel.rows.len(), 2);
+        assert_eq!(sel.rows[0][0], serde_json::json!("AAPL"));
+    }
+    // Reopen the SAME dir: the durable user-table rows persist (single-file store).
+    let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+    let sel = eng.sql_exec("kg", "SELECT sym FROM prices ORDER BY sym").unwrap();
+    assert_eq!(
+        sel.rows.len(),
+        2,
+        "durable user-table rows survive reopen: {:?}",
+        sel.rows
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

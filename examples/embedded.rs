@@ -64,6 +64,24 @@ fn main() -> Result<(), String> {
         println!("cypher MATCH (n) returned {} row(s)", res.rows.len());
     }
 
+    // ── SQLite-equivalent SQL user tables (when built with `query`) ──────
+    // No server, no socket: CREATE TABLE / INSERT / SELECT in-process, durably,
+    // against a single-file user-table store (CONCEPT:EG-022 / EG-018).
+    #[cfg(feature = "query")]
+    {
+        engine.sql_exec("kg", "CREATE TABLE prices (sym TEXT, px DOUBLE)")?;
+        engine.sql_exec(
+            "kg",
+            "INSERT INTO prices (sym, px) VALUES ('AAPL', 1.5), ('MSFT', 2.5)",
+        )?;
+        let sel = engine.sql_exec("kg", "SELECT sym, px FROM prices ORDER BY sym")?;
+        println!(
+            "SQL SELECT returned {} row(s): {:?}",
+            sel.rows.len(),
+            sel.rows
+        );
+    }
+
     // ── Durably checkpoint + close, then reopen (proves durability) ──────
     let n = engine.close()?;
     println!("checkpointed {n} graph(s); reopening…");
