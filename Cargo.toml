@@ -27,6 +27,13 @@ name = "nemesis"
 path = "src/bin/nemesis.rs"
 required-features = ["harness"]
 
+# Offline K-shard migration tool (CONCEPT:EG-030, M3). Rewrites an existing durable
+# store into a NEW shard count K using EG-026 routing. Needs the redb backend.
+[[bin]]
+name = "migrate-shards"
+path = "src/bin/migrate_shards.rs"
+required-features = ["redb", "server"]
+
 # SQLite-style embedded usage (CONCEPT:KG-2.216). Needs the in-process library API.
 [[example]]
 name = "embedded"
