@@ -12,12 +12,22 @@
 #[cfg(feature = "sql")]
 pub mod sql;
 
+/// Arbitrary user-defined relational tables (CONCEPT:EG-018) — the durable redb
+/// table store + DataFusion materialization. Behind `sql` (needs Arrow/DataFusion/redb).
+#[cfg(feature = "sql")]
+pub mod tables;
+
 #[cfg(feature = "sql")]
 pub use sql::{
-    classify, exec_sql, exec_sql_cached, exec_sql_typed, infer_param_sites, returning_columns,
-    schema_probe_sql, DeleteNodes, InsertNode, InsertNodes, ParamLiteralType, ParamSite, PgColType,
-    QueryResult, SqlCache, StatementKind, TypedColumn, TypedQueryResult, UpdateNodes, WhereEq,
+    classify, exec_sql, exec_sql_cached, exec_sql_typed, exec_sql_typed_with_tables,
+    infer_param_sites, returning_columns, schema_probe_sql, AlterTablePlan, ColumnDef,
+    CreateTablePlan, DeleteNodes, DeleteTable, DropTablePlan, InsertNode, InsertNodes, InsertSelect,
+    InsertTable, ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache, StatementKind,
+    TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes, UpdateTable, WhereEq,
 };
+
+#[cfg(feature = "sql")]
+pub use tables::{Cell, ColEq, Column, ColumnType, TableSchema, TableStore};
 
 #[cfg(feature = "cypher")]
 pub mod cypher;
