@@ -19,10 +19,21 @@ flowchart LR
     EDGE --> NODE --> CLUSTER
 ```
 
+> **Honesty first.** Every capability is tracked operation-by-operation in the
+> **[capabilities & parity matrix](capabilities.md)** with a status tag (✅ supported · 🔶 in-progress ·
+> 🗺 roadmap), and the **[parity roadmap](roadmap.md)** names exactly which drop-in gaps are being
+> closed. If a doc and the code disagree, the code wins.
+
 ## Start here
 
+- **[Capabilities & parity matrix](capabilities.md)** — the operation-by-operation truth table per
+  interface. Read this to know exactly what works today.
 - **[Technical Overview](overview.md)** — the crate DAG, the unified `RowSet` planner pipeline, and the
-  always-on graph algorithms. Read this first.
+  always-on graph algorithms.
+- **Per-interface guides** — [SQL](interfaces/sql.md) · [SPARQL](interfaces/sparql.md) ·
+  [Cypher](interfaces/cypher.md) · [GraphQL](interfaces/graphql.md) · [Vector](interfaces/vector.md) ·
+  [Time-series](interfaces/timeseries.md) · [KV & Blob](interfaces/kv-blob.md) ·
+  [Ontology lifecycle](interfaces/ontology.md).
 - **[Master-of-all engine](architecture/engine.md)** — the deep architecture: durability, cross-modal
   ACID, RDF/OWL mapping, the RLS request path, streaming/CDC, federation, multi-Raft + cross-shard 2PC,
   and the tenant lifecycle.
