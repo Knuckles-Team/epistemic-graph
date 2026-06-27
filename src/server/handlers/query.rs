@@ -44,52 +44,61 @@ pub(crate) async fn try_handle(
     match method {
         #[cfg(feature = "query")]
         Method::Sql { query, .. } => {
-            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): a
-            // repeated identical SQL on an UNCHANGED graph serves the cached bytes
-            // without re-running DataFusion; any write bumped `version()` so the next
-            // lookup misses. The cache KEY incorporates the caller's RLS context (see
-            // `rls_cache_hash`) so agent A's filtered result is NEVER served to agent
-            // B for the same query text. The snapshot is then RLS-FILTERED to the
-            // caller's visible rows before execution, and is taken atomically with the
-            // version so cached bytes are stored under exactly the version they reflect.
-            #[cfg(feature = "result-cache")]
-            let (snap, version, hash) = {
-                let hash = rls_cache_hash(
-                    "sql",
-                    query.as_bytes(),
-                    #[cfg(feature = "security")]
-                    caller,
-                    #[cfg(feature = "security")]
-                    rls,
-                );
-                let (mut snap, version) = core.analysis_snapshot_versioned();
-                if let Some(bytes) = core.result_cache().get(hash, version) {
-                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
-                }
-                #[cfg(feature = "security")]
-                rls.filter_view(caller.unwrap_or(""), &mut snap);
-                (snap, version, hash)
+            // CONCEPT:EG-023 — `Method::Sql` now routes BOTH reads AND writes (was
+            // SELECT-only). Classify the statement with the SAME `eg_query::classify`
+            // the pgwire shim uses, then:
+            //   * a write (graph-node DML on `nodes`, or user-table DDL/DML) → the
+            //     classify+execute path pgwire uses (graph core writes + the shared
+            //     `TableStore`), so agent-utilities `graph_table`/`sql_exec` writes
+            //     LAND over the wire — see `exec_sql_write`;
+            //   * a read / transaction-control / unparseable statement → the
+            //     DataFusion read path, run tables-aware (`exec_sql_typed_with_tables`)
+            //     so a `SELECT` sees BOTH the graph AND user tables in one plan.
+            //
+            // The shared process-wide table store is resolved once here (cheap clone of
+            // the singleton). The read path is NOT version-keyed cached (a user-table
+            // write does not bump the graph `version()`, so caching it would risk
+            // staleness); the graph-only Cypher/SPARQL/GraphQL reads keep their caches.
+            let store = match crate::server::sql_tables::user_table_store() {
+                Ok(s) => s,
+                Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
             };
-            #[cfg(not(feature = "result-cache"))]
-            let snap = rls_snapshot(
-                &core,
-                #[cfg(feature = "security")]
-                caller,
-                #[cfg(feature = "security")]
-                rls,
-            );
-            let resp =
-                match compute_off_lock(req_id, move || eg_query::exec_sql(&snap, &query)).await {
-                    Ok(Ok(result)) => {
-                        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                        #[cfg(feature = "result-cache")]
-                        core.result_cache().put(hash, version, bytes.clone());
-                        Response::ok(req_id, ResultPayload::Raw(bytes))
-                    }
-                    Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
-                    Err(resp) => resp,
-                };
-            Ok(resp)
+            match eg_query::classify(&query) {
+                Ok(kind) if !matches!(kind, eg_query::StatementKind::Read) => {
+                    Ok(exec_sql_write(req_id, &core, &store, kind).await)
+                }
+                _ => {
+                    // Read (or an unparseable statement — exec surfaces the precise
+                    // parse error). RLS-filter the off-lock snapshot to the caller's
+                    // visible rows BEFORE execution so a SELECT cannot exfiltrate a
+                    // forbidden row.
+                    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+                    let mut snap = core.analysis_snapshot();
+                    #[cfg(feature = "security")]
+                    rls.filter_view(caller.unwrap_or(""), &mut snap);
+                    let resp = match compute_off_lock(req_id, move || {
+                        eg_query::exec_sql_typed_with_tables(&snap, &store, &query)
+                    })
+                    .await
+                    {
+                        Ok(Ok(typed)) => {
+                            let result = crate::protocol::QueryResult {
+                                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                                rows: typed
+                                    .rows
+                                    .iter()
+                                    .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
+                                    .collect(),
+                            };
+                            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                            Response::ok(req_id, ResultPayload::Raw(bytes))
+                        }
+                        Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
+                        Err(resp) => resp,
+                    };
+                    Ok(resp)
+                }
+            }
         }
         #[cfg(feature = "query")]
         Method::UnifiedQuery {
@@ -214,6 +223,33 @@ pub(crate) async fn try_handle(
         }
         #[cfg(feature = "graphql")]
         Method::GraphQl { query } => {
+            // GraphQL WRITE surface (CONCEPT:EG-019/EG-023): a `mutation { … }` document
+            // maps onto eg-core's native write ops over the LIVE `GraphCore` via
+            // `execute_mutation` (which bumps the OCC version / `mark_dirty` once it
+            // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
+            // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
+            if super::super::access::graphql_is_mutation(&query) {
+                let core_w = core.clone();
+                let resp = match compute_off_lock(req_id, move || {
+                    eg_graphql::execute_mutation(&core_w, &query)
+                })
+                .await
+                {
+                    Ok(Ok(value)) => {
+                        Response::ok(req_id, ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()))
+                    }
+                    Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
+                    Err(resp) => resp,
+                };
+                return Ok(resp);
+            }
+            // A `subscription { … }` is a read-only POLL of the current matches (a full
+            // push transport is a documented eg-graphql deferral); a `query { … }` is the
+            // ordinary read. Both run over the SAME RLS-filtered off-lock snapshot below.
+            let is_subscription = matches!(
+                eg_graphql::parse_operation(&query),
+                Ok(eg_graphql::Operation::Subscription(_))
+            );
             // GraphQL READ surface (CONCEPT:KG-2.235): compile the GraphQL query to
             // scans + BFS over the SAME off-lock snapshot the Cypher path uses, via the
             // pure-Rust eg-graphql resolver (NO async-graphql / DataFusion). The result
@@ -251,21 +287,49 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "security")]
                 rls,
             );
-            let resp =
-                match compute_off_lock(req_id, move || eg_graphql::execute(&snap, &query)).await {
-                    Ok(Ok(value)) => {
-                        let bytes = rmp_serde::to_vec_named(&value).unwrap_or_default();
-                        #[cfg(feature = "result-cache")]
-                        core.result_cache().put(hash, version, bytes.clone());
-                        Response::ok(req_id, ResultPayload::Raw(bytes))
-                    }
-                    Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
-                    Err(resp) => resp,
-                };
+            let resp = match compute_off_lock(req_id, move || {
+                if is_subscription {
+                    eg_graphql::subscribe(&snap, &query)
+                } else {
+                    eg_graphql::execute(&snap, &query)
+                }
+            })
+            .await
+            {
+                Ok(Ok(value)) => {
+                    let bytes = rmp_serde::to_vec_named(&value).unwrap_or_default();
+                    #[cfg(feature = "result-cache")]
+                    core.result_cache().put(hash, version, bytes.clone());
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
+                Err(resp) => resp,
+            };
             Ok(resp)
         }
         #[cfg(feature = "cypher")]
         Method::CypherQuery { query } => {
+            // Cypher WRITE surface (CONCEPT:EG-020/EG-023): a `CREATE`/`MERGE`/`SET`/
+            // `DELETE`/`REMOVE` statement is applied to the LIVE `GraphCore` via
+            // `exec_cypher_write` (native eg-core write ops — NO DataFusion; it calls
+            // `mark_dirty` once after the mutation). NOT cached, NOT RLS pre-filtered
+            // (writes are graph-ACL-gated upstream — this method classified Write). A
+            // read falls through to the RLS-aware cached snapshot path below.
+            if super::super::access::cypher_is_write(&query) {
+                let core_w = core.clone();
+                let resp = match compute_off_lock(req_id, move || {
+                    eg_query::exec_cypher_write(&core_w, &query)
+                })
+                .await
+                {
+                    Ok(Ok(result)) => {
+                        Response::ok(req_id, ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()))
+                    }
+                    Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+                    Err(resp) => resp,
+                };
+                return Ok(resp);
+            }
             // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
             // (label index / VF2 / BFS), so it runs in a no-DataFusion Pi build.
             // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231) wraps
@@ -365,6 +429,249 @@ fn run_unified(
         .iter()
         .map(|r| (r.id.clone(), r.score))
         .collect())
+}
+
+/// Execute a classified `Method::Sql` WRITE (CONCEPT:EG-023). Mirrors the pgwire shim's
+/// classify→execute write path, reusing the SAME engine primitives:
+///   * graph-node DML (`INSERT`/`UPDATE`/`DELETE` on `nodes`) → the live `GraphCore`
+///     write ops (`add_node` / `compare_and_set_fields` / `remove_node`) — the dispatch
+///     shell then `mark_dirty`s the graph (this method classified Write) so the next
+///     checkpoint persists it;
+///   * user-table DDL/DML → the shared durable `TableStore` (redb commit-before-ack,
+///     self-durable).
+/// Blocking work (redb commits, the node scan) runs on the blocking pool via
+/// `compute_off_lock`. Returns a `QueryResult`-shaped ack (`[tag]` column, one
+/// rows-affected row) so the client decodes a write response exactly like a read.
+#[cfg(feature = "query")]
+async fn exec_sql_write(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    store: &eg_query::TableStore,
+    kind: eg_query::StatementKind,
+) -> Response {
+    use eg_query::StatementKind as K;
+    match kind {
+        K::InsertNodes(ins) => {
+            let core = core.clone();
+            let r = compute_off_lock(req_id, move || {
+                let mut n = 0usize;
+                for node in ins.rows {
+                    let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
+                        .map_err(|e| format!("encode node properties: {e}"))?;
+                    core.add_node(node.node_id, blob);
+                    n += 1;
+                }
+                Ok::<usize, String>(n)
+            })
+            .await;
+            sql_write_ack(req_id, "INSERT", r)
+        }
+        K::UpdateNodes(upd) => {
+            let core = core.clone();
+            let r = compute_off_lock(req_id, move || {
+                let ids = matched_node_ids(&core, &upd.selector);
+                let conditions = serde_json::Map::new();
+                let mut n = 0usize;
+                for id in ids {
+                    if core.compare_and_set_fields(&id, &conditions, &upd.set) {
+                        n += 1;
+                    }
+                }
+                Ok::<usize, String>(n)
+            })
+            .await;
+            sql_write_ack(req_id, "UPDATE", r)
+        }
+        K::DeleteNodes(del) => {
+            let core = core.clone();
+            let r = compute_off_lock(req_id, move || {
+                let ids = matched_node_ids(&core, &del.selector);
+                let mut n = 0usize;
+                for id in ids {
+                    core.remove_node(id);
+                    n += 1;
+                }
+                Ok::<usize, String>(n)
+            })
+            .await;
+            sql_write_ack(req_id, "DELETE", r)
+        }
+        K::CreateTable(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                let columns = to_store_columns(&plan.columns)?;
+                let schema = eg_query::TableSchema {
+                    name: plan.name,
+                    columns,
+                };
+                store
+                    .create_table(&schema, plan.if_not_exists)
+                    .map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "CREATE TABLE", r)
+        }
+        K::DropTable(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store.drop_table(&plan.name, plan.if_exists).map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "DROP TABLE", r)
+        }
+        K::AlterTable(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
+                let column = columns.into_iter().next().ok_or("ALTER TABLE: no column")?;
+                store.add_column(&plan.name, column).map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "ALTER TABLE", r)
+        }
+        K::InsertTable(ins) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store.insert_rows(&ins.table, &ins.columns, &ins.rows)
+            })
+            .await;
+            sql_write_ack(req_id, "INSERT", r)
+        }
+        K::InsertSelect(ins) => {
+            // The SELECT half runs through the SAME tables-aware DataFusion path (so it
+            // can JOIN user tables AND the graph); its projected rows are then durably
+            // inserted. Column COUNT must match the insert column list.
+            let store = store.clone();
+            let snap = core.analysis_snapshot();
+            let r = compute_off_lock(req_id, move || {
+                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &ins.select_sql)?;
+                if read.columns.len() != ins.columns.len() {
+                    return Err(format!(
+                        "INSERT … SELECT column count mismatch: {} target columns, {} selected",
+                        ins.columns.len(),
+                        read.columns.len()
+                    ));
+                }
+                store.insert_rows(&ins.table, &ins.columns, &read.rows)
+            })
+            .await;
+            sql_write_ack(req_id, "INSERT", r)
+        }
+        K::UpdateTable(upd) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                let selector = eg_query::ColEq {
+                    column: upd.selector.column,
+                    value: upd.selector.value,
+                };
+                store.update_where(&upd.table, &upd.set, &selector)
+            })
+            .await;
+            sql_write_ack(req_id, "UPDATE", r)
+        }
+        K::DeleteTable(del) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                let selector = eg_query::ColEq {
+                    column: del.selector.column,
+                    value: del.selector.value,
+                };
+                store.delete_where(&del.table, &selector)
+            })
+            .await;
+            sql_write_ack(req_id, "DELETE", r)
+        }
+        // A single wire request cannot hold a multi-statement transaction across
+        // requests (the pgwire shim does — it is connection-stateful). These are
+        // accepted as benign no-op acks (Postgres-compatible) rather than errored, so a
+        // client that brackets statements in BEGIN/COMMIT over the wire still succeeds
+        // (each non-txn statement is already durably applied as it lands).
+        K::Begin => sql_write_ack(req_id, "BEGIN", Ok(Ok(0))),
+        K::Commit => sql_write_ack(req_id, "COMMIT", Ok(Ok(0))),
+        K::Rollback => sql_write_ack(req_id, "ROLLBACK", Ok(Ok(0))),
+        // `COPY … FROM STDIN` is a streamed, connection-stateful pgwire op (rows arrive
+        // as CopyData frames), with no single-request wire form.
+        K::CopyIn(_) => Response::err(
+            req_id,
+            "SQL error: COPY … FROM STDIN is a streaming pgwire operation, not available over Method::Sql".to_string(),
+        ),
+        // The caller only routes non-`Read` statements here.
+        K::Read => Response::err(req_id, "SQL error: read routed to write path".to_string()),
+    }
+}
+
+/// Build a `QueryResult`-shaped write ack and map the off-lock outcome (CONCEPT:EG-023).
+#[cfg(feature = "query")]
+fn sql_write_ack(
+    req_id: u64,
+    tag: &str,
+    outcome: Result<Result<usize, String>, Response>,
+) -> Response {
+    match outcome {
+        Ok(Ok(n)) => {
+            let result = crate::protocol::QueryResult {
+                columns: vec![tag.to_string()],
+                rows: vec![rmp_serde::to_vec_named(&vec![serde_json::Value::from(n as u64)])
+                    .unwrap_or_default()],
+            };
+            Response::ok(
+                req_id,
+                ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
+            )
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
+        Err(resp) => resp,
+    }
+}
+
+/// Resolve the node ids a simple-equality WHERE selects (CONCEPT:EG-023). Mirrors the
+/// pgwire `matched_ids`: `Id` is the fast path (the node if it exists); `Property`
+/// scans the node store once and matches the column's current value.
+#[cfg(feature = "query")]
+fn matched_node_ids(core: &GraphCore, selector: &eg_query::WhereEq) -> Vec<String> {
+    match selector {
+        eg_query::WhereEq::Id(id) => {
+            if core.has_node(id) {
+                vec![id.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+        eg_query::WhereEq::Property { column, value } => {
+            let mut out = Vec::new();
+            for (id, blob) in core.get_nodes() {
+                if let Ok(serde_json::Value::Object(obj)) =
+                    rmp_serde::from_slice::<serde_json::Value>(&blob)
+                {
+                    if obj.get(column).unwrap_or(&serde_json::Value::Null) == value {
+                        out.push(id);
+                    }
+                }
+            }
+            out
+        }
+    }
+}
+
+/// Resolve classify `ColumnDef`s (raw SQL type spellings) into store `Column`s
+/// (CONCEPT:EG-023 — mirrors the pgwire `to_store_columns`).
+#[cfg(feature = "query")]
+fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column>, String> {
+    cols.iter()
+        .map(|c| {
+            let ty = eg_query::ColumnType::parse(&c.type_name)?;
+            Ok(eg_query::Column {
+                name: c.name.clone(),
+                ty,
+                nullable: c.nullable,
+                primary_key: c.primary_key,
+                unique: c.unique,
+                serial: c.serial,
+                default: c.default.clone(),
+                check: c.check.clone(),
+            })
+        })
+        .collect()
 }
 
 /// Produce the off-lock `GraphView` the query planner consumes, with per-agent
@@ -1117,5 +1424,266 @@ mod rls_aware_cache_no_cross_agent_leak {
             alice_bytes,
             "alice's cached GraphQL bytes are her own"
         );
+    }
+}
+
+// ── Server-dispatch WRITE wiring (CONCEPT:EG-023) ─────────────────────────────────
+//
+// Proves the five EG-023 wirings land THROUGH the real `dispatch()` entrypoint a wire
+// request hits (auth → routing → handler → write): a GraphQL mutation creates a node a
+// later query sees; a Cypher CREATE is then visible to a MATCH; a wire `Sql`
+// CREATE TABLE + INSERT + SELECT round-trips; an `INSERT INTO nodes` is visible to a
+// SELECT; and the read paths still work.
+#[cfg(all(test, feature = "query", feature = "cypher", feature = "graphql"))]
+mod dispatch_write_tests {
+    use crate::channels::ChannelManager;
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request, Response, ResultPayload};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use crate::server::dispatch;
+    use crate::server::state::ServerState;
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, Semaphore};
+
+    const SECRET: &str = "dispatch-write-test-secret";
+
+    fn state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+        }))
+    }
+
+    fn req(id: u64, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        }
+    }
+
+    fn raw(resp: &Response) -> Vec<u8> {
+        match &resp.result {
+            Some(ResultPayload::Raw(b)) => b.clone(),
+            other => panic!("expected Raw result, got {other:?} / err {:?}", resp.error),
+        }
+    }
+
+    /// Decode a `Raw(QueryResult)` write/read response into `(columns, rows)` where each
+    /// row is the decoded `Vec<serde_json::Value>` cell list.
+    fn query_result(resp: &Response) -> (Vec<String>, Vec<Vec<serde_json::Value>>) {
+        let qr: crate::protocol::QueryResult = rmp_serde::from_slice(&raw(resp)).expect("QueryResult");
+        let rows = qr
+            .rows
+            .iter()
+            .map(|b| rmp_serde::from_slice::<Vec<serde_json::Value>>(b).expect("row cells"))
+            .collect();
+        (qr.columns, rows)
+    }
+
+    /// THE GraphQL write→read proof (CONCEPT:EG-019/EG-023): a `mutation { createNode … }`
+    /// dispatched over the wire creates a node a subsequent GraphQL query SEES.
+    #[tokio::test]
+    async fn graphql_mutation_creates_node_via_dispatch() {
+        let state = state();
+        let m = dispatch(
+            &state,
+            req(
+                1,
+                Method::GraphQl {
+                    query: r#"mutation { createNode(label: "Person", id: "dave", props: {name: "Dave", age: 50}) { id name } }"#.into(),
+                },
+            ),
+        )
+        .await;
+        assert!(m.error.is_none(), "mutation failed: {:?}", m.error);
+        let v: serde_json::Value = rmp_serde::from_slice(&raw(&m)).unwrap();
+        assert_eq!(v["data"]["createNode"]["id"], serde_json::json!("dave"));
+
+        // A fresh GraphQL query over the post-write graph sees Dave.
+        let q = dispatch(
+            &state,
+            req(2, Method::GraphQl { query: r#"{ Person(name: "Dave") { name age } }"#.into() }),
+        )
+        .await;
+        assert!(q.error.is_none(), "query failed: {:?}", q.error);
+        let qv: serde_json::Value = rmp_serde::from_slice(&raw(&q)).unwrap();
+        let people = qv["data"]["Person"].as_array().unwrap();
+        assert_eq!(people.len(), 1);
+        assert_eq!(people[0]["name"], serde_json::json!("Dave"));
+        assert_eq!(people[0]["age"], serde_json::json!(50));
+    }
+
+    /// THE Cypher write→read proof (CONCEPT:EG-020/EG-023): a `CREATE` dispatched over the
+    /// wire is then visible to a `MATCH` (which still runs the read path).
+    #[tokio::test]
+    async fn cypher_create_then_match_via_dispatch() {
+        let state = state();
+        let c = dispatch(
+            &state,
+            req(
+                1,
+                Method::CypherQuery {
+                    query: "CREATE (n:Widget {name: 'gizmo', qty: 7})".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(c.error.is_none(), "cypher CREATE failed: {:?}", c.error);
+
+        let r = dispatch(
+            &state,
+            req(
+                2,
+                Method::CypherQuery {
+                    query: "MATCH (n:Widget) RETURN n.name".into(),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "cypher MATCH failed: {:?}", r.error);
+        let (_cols, rows) = query_result(&r);
+        let names: Vec<String> = rows
+            .iter()
+            .map(|cells| cells[0].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, vec!["gizmo"], "MATCH must see the CREATEd node");
+    }
+
+    /// THE wire-SQL DDL/DML round-trip (CONCEPT:EG-023): `CREATE TABLE` + `INSERT` + a
+    /// `SELECT` that reads the user table back, all over `Method::Sql` through dispatch.
+    #[tokio::test]
+    async fn wire_sql_create_insert_select_round_trips() {
+        let state = state();
+        // Unique table name + DROP-IF-EXISTS so the process-global store is clean even on
+        // a re-run against a persisted temp store.
+        let table = format!("eg023_kv_{}", std::process::id());
+
+        let sql = |q: String| Method::Sql {
+            query: q,
+            params_msgpack: Vec::new(),
+        };
+
+        let d = dispatch(&state, req(1, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
+        assert!(d.error.is_none(), "DROP failed: {:?}", d.error);
+
+        let c = dispatch(
+            &state,
+            req(2, sql(format!("CREATE TABLE {table} (k TEXT, v BIGINT)"))),
+        )
+        .await;
+        assert!(c.error.is_none(), "CREATE TABLE failed: {:?}", c.error);
+
+        let i = dispatch(
+            &state,
+            req(
+                3,
+                sql(format!("INSERT INTO {table} (k, v) VALUES ('a', 1), ('b', 2)")),
+            ),
+        )
+        .await;
+        assert!(i.error.is_none(), "INSERT failed: {:?}", i.error);
+
+        let s = dispatch(
+            &state,
+            req(4, sql(format!("SELECT k, v FROM {table} ORDER BY k"))),
+        )
+        .await;
+        assert!(s.error.is_none(), "SELECT failed: {:?}", s.error);
+        let (cols, rows) = query_result(&s);
+        assert_eq!(cols, vec!["k", "v"]);
+        assert_eq!(rows.len(), 2, "two rows round-tripped through the table store");
+        assert_eq!(rows[0][0], serde_json::json!("a"));
+        assert_eq!(rows[0][1], serde_json::json!(1));
+        assert_eq!(rows[1][0], serde_json::json!("b"));
+        assert_eq!(rows[1][1], serde_json::json!(2));
+
+        // cleanup
+        let _ = dispatch(&state, req(5, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
+    }
+
+    /// `INSERT INTO nodes` over the wire lands in the graph core and a `SELECT` sees it —
+    /// the agent-utilities `graph_table`/`sql_exec` node-write path (CONCEPT:EG-023).
+    #[tokio::test]
+    async fn wire_sql_insert_node_then_select_via_dispatch() {
+        let state = state();
+        let sql = |q: &str| Method::Sql {
+            query: q.into(),
+            params_msgpack: Vec::new(),
+        };
+
+        let i = dispatch(
+            &state,
+            req(
+                1,
+                sql("INSERT INTO nodes (id, type, name) VALUES ('sqlnode', 'Gadget', 'Zed')"),
+            ),
+        )
+        .await;
+        assert!(i.error.is_none(), "INSERT INTO nodes failed: {:?}", i.error);
+
+        // SELECT over the graph projection sees the new node.
+        let s = dispatch(
+            &state,
+            req(2, sql("SELECT id FROM nodes WHERE id = 'sqlnode'")),
+        )
+        .await;
+        assert!(s.error.is_none(), "SELECT failed: {:?}", s.error);
+        let (_c, rows) = query_result(&s);
+        assert_eq!(rows.len(), 1, "the SQL-inserted node is visible to a SELECT");
+        assert_eq!(rows[0][0], serde_json::json!("sqlnode"));
+
+        // And a Cypher read sees it too (cross-surface).
+        let cy = dispatch(
+            &state,
+            req(3, Method::CypherQuery { query: "MATCH (n:Gadget) RETURN n.name".into() }),
+        )
+        .await;
+        assert!(cy.error.is_none(), "cypher read failed: {:?}", cy.error);
+        let (_c2, rows2) = query_result(&cy);
+        assert_eq!(rows2.len(), 1);
+        assert_eq!(rows2[0][0], serde_json::json!("Zed"));
     }
 }

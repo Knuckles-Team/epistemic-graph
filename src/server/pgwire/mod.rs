@@ -102,38 +102,12 @@ pub const PGWIRE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_GRAPH";
 /// tier; absent that, a process-temp file (in-memory-ish, lost on restart).
 pub const PGWIRE_SQL_TABLES_ENV: &str = "EPISTEMIC_GRAPH_SQL_TABLES_PATH";
 
-/// The process-wide user-table store. redb permits ONE `Database` handle per file
-/// per process, so every pgwire connection shares this single lazily-opened store
-/// (cheap to clone — an `Arc<Database>`). A `std::sync::Mutex` serializes the
-/// one-time open so two racing connections never double-open the file.
-static USER_TABLE_STORE: std::sync::Mutex<Option<TableStore>> = std::sync::Mutex::new(None);
-
-/// Resolve the durable path for the user-table store (see [`PGWIRE_SQL_TABLES_ENV`]).
-fn sql_tables_path() -> std::path::PathBuf {
-    if let Ok(p) = std::env::var(PGWIRE_SQL_TABLES_ENV) {
-        if !p.is_empty() {
-            return std::path::PathBuf::from(p);
-        }
-    }
-    if let Ok(dir) = std::env::var("GRAPH_SERVICE_PERSIST_DIR") {
-        if !dir.is_empty() {
-            return std::path::Path::new(&dir).join("sql_tables.redb");
-        }
-    }
-    std::env::temp_dir().join("epistemic_graph_sql_tables.redb")
-}
-
-/// The shared user-table store, opening it on first use (CONCEPT:EG-018).
+/// The shared user-table store, opening it on first use (CONCEPT:EG-018). Delegates to
+/// the process-wide `crate::server::sql_tables` singleton (CONCEPT:EG-023) so the pgwire
+/// shim and the wire `Method::Sql` DDL/DML path open the SAME redb file exactly once —
+/// redb permits one handle per file per process, so they MUST share.
 fn user_table_store() -> PgWireResult<TableStore> {
-    let mut g = USER_TABLE_STORE.lock().unwrap();
-    if let Some(s) = g.as_ref() {
-        return Ok(s.clone());
-    }
-    let path = sql_tables_path();
-    let store = TableStore::open(&path)
-        .map_err(|e| user_err(format!("open user table store at {path:?}: {e}")))?;
-    *g = Some(store.clone());
-    Ok(store)
+    crate::server::sql_tables::user_table_store().map_err(user_err)
 }
 
 /// Resolve a classify `ColumnDef` (raw SQL type spelling) into a store [`Column`].
