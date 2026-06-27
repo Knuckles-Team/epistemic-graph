@@ -84,6 +84,40 @@ impl QuadStore {
         Ok(n)
     }
 
+    /// Remove EVERY stored extra literal for `graph` (the lossless side of a
+    /// `DROP GRAPH` / `CLEAR GRAPH`). Returns how many rows were dropped. Idempotent.
+    pub fn clear_graph(&self, graph: &str) -> Result<usize, String> {
+        // Collect the in-prefix keys first (can't mutate while holding the range iter).
+        let keys: Vec<(String, String, u32)> = {
+            let rtx = self.db.begin_read().map_err(err)?;
+            let t = rtx.open_table(RDF_QUADS).map_err(err)?;
+            let lo = (graph, "", "", 0u32);
+            let hi = (graph, "\u{10FFFF}", "\u{10FFFF}", u32::MAX);
+            let mut keys = Vec::new();
+            for r in t.range(lo..=hi).map_err(err)? {
+                let (k, _v) = r.map_err(err)?;
+                let (g, s, p, ord) = k.value();
+                if g != graph {
+                    continue;
+                }
+                keys.push((s.to_string(), p.to_string(), ord));
+            }
+            keys
+        };
+        let n = keys.len();
+        if n > 0 {
+            let wtx = self.db.begin_write().map_err(err)?;
+            {
+                let mut t = wtx.open_table(RDF_QUADS).map_err(err)?;
+                for (s, p, ord) in &keys {
+                    t.remove((graph, s.as_str(), p.as_str(), *ord)).map_err(err)?;
+                }
+            }
+            wtx.commit().map_err(err)?;
+        }
+        Ok(n)
+    }
+
     /// Scan every stored extra literal for `graph` → `(subject, predicate, cell)`.
     pub fn scan_literals(
         &self,

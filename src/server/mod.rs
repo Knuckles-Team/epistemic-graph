@@ -32,6 +32,9 @@ pub mod persistence;
 // cargo feature (cluster tier). Default/pi/node builds compile NONE of it.
 #[cfg(feature = "pgwire")]
 pub mod pgwire;
+/// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
+#[cfg(feature = "sparql-http")]
+pub mod sparql_http;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged
