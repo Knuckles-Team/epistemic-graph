@@ -89,3 +89,4 @@ trace.txt
 .tmp/
 .pytest_tmp/
 .hypothesis/
+site/
