@@ -1399,6 +1399,54 @@ pub enum Method {
     #[cfg(feature = "blob")]
     BlobGc,
 
+    // ── Key→Value (CONCEPT:EG-022 — generic namespaced KV surface) ──────
+    // A drop-in KV store keyed by `(namespace, key)`, layered over the SAME durable
+    // redb substrate. NOT graph-scoped (a KV pair lives off the node/edge graph), so
+    // these self-route in dispatch like the Blob*/Ts* ops. Writes are durable
+    // commit-before-ack. The variants only exist with the `kv` feature; a build
+    // without it drops them from the enum (→ the dispatch "not available" catch-all).
+    /// Fetch the value bytes at `(namespace, key)`; result is the bytes or null.
+    #[cfg(feature = "kv")]
+    KvGet {
+        namespace: String,
+        key: String,
+    },
+    /// Store `value` at `(namespace, key)` (overwrite). Durable commit-before-ack.
+    /// `value` is a MessagePack `bin` (serde_bytes) — opaque bytes, stored verbatim.
+    #[cfg(feature = "kv")]
+    KvPut {
+        namespace: String,
+        key: String,
+        #[serde(with = "serde_bytes")]
+        value: Vec<u8>,
+    },
+    /// Delete `(namespace, key)`; returns whether the key existed.
+    #[cfg(feature = "kv")]
+    KvDelete {
+        namespace: String,
+        key: String,
+    },
+    /// Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`
+    /// (empty prefix ⇒ the whole namespace). `limit == 0` ⇒ no cap.
+    #[cfg(feature = "kv")]
+    KvScan {
+        namespace: String,
+        prefix: String,
+        limit: usize,
+    },
+    /// Atomic compare-and-swap: set `(namespace, key)` to `new` (`None` ⇒ delete) iff
+    /// the current value equals `expected` (both absent ⇒ the key must not exist).
+    /// Returns whether the swap happened. `expected`/`new` are MessagePack `bin`.
+    #[cfg(feature = "kv")]
+    KvCas {
+        namespace: String,
+        key: String,
+        #[serde(default, with = "serde_bytes")]
+        expected: Option<Vec<u8>>,
+        #[serde(default, with = "serde_bytes")]
+        new: Option<Vec<u8>>,
+    },
+
     // ── RDF/SPARQL (CONCEPT:KG-2.217 / KG-2.218 — native semantic-web surface) ──
     // The RDF dataset maps onto the SAME property-graph the rest of the engine uses
     // (resource object ⇒ typed edge `{type: predicate}`; literal object ⇒ a typed

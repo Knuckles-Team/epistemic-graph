@@ -82,6 +82,8 @@ async fn make_state_with_backend(
         )),
         #[cfg(feature = "federation")]
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+        #[cfg(feature = "kv")]
+        kv: None,
     }))
 }
 

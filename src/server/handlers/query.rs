@@ -620,6 +620,8 @@ mod result_cache_dispatch_tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }))
     }
 
@@ -859,6 +861,8 @@ mod rls_aware_cache_no_cross_agent_leak {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }))
     }
 

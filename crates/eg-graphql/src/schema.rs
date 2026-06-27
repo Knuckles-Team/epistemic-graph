@@ -85,6 +85,39 @@ impl Schema {
         self.types.contains_key(name)
     }
 
+    /// Render the GraphQL MUTATION SDL (CONCEPT:EG-019). The write surface is a small
+    /// fixed CRUD vocabulary over the property graph, mirroring the query schema's view
+    /// of it: `createNode` returns any of the graph's object types (`Node`), the edge
+    /// ops return an `Edge` descriptor. Input objects (`props`) are the untyped
+    /// `JSON`-shaped maps the property graph stores. The actual `type Query` / per-label
+    /// types come from [`Self::to_sdl`]; this renders only the `Mutation` root so the two
+    /// can be concatenated into one schema document.
+    pub fn to_mutation_sdl(&self) -> String {
+        // A `# types: …` comment ties the generic ops back to the graph's real labels,
+        // so an introspector sees which node types `createNode(label: …)` can produce.
+        let labels = self
+            .types
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut out = String::new();
+        if !labels.is_empty() {
+            out.push_str(&format!("# node types in this graph: {labels}\n"));
+        }
+        out.push_str("scalar JSON\n\n");
+        out.push_str("type Mutation {\n");
+        out.push_str("  createNode(label: String!, props: JSON, id: ID): Node\n");
+        out.push_str("  updateNode(id: ID!, props: JSON): Node\n");
+        out.push_str("  deleteNode(id: ID!): DeleteResult\n");
+        out.push_str("  addEdge(from: ID!, to: ID!, type: String!, props: JSON): Edge\n");
+        out.push_str("  removeEdge(from: ID!, to: ID!): Edge\n");
+        out.push_str("}\n\n");
+        out.push_str("type DeleteResult {\n  id: ID!\n  deleted: Boolean!\n}\n\n");
+        out.push_str("type Edge {\n  from: ID!\n  to: ID!\n  type: String\n}\n");
+        out
+    }
+
     /// Render a minimal GraphQL SDL for introspection / debugging. Scalar fields are
     /// `String` (the property-graph stores untyped JSON cells); edge fields are
     /// `[<rel>]` lists. The `Query` root exposes one `[Type]` field per type.
