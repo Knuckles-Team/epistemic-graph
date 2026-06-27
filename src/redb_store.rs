@@ -168,6 +168,8 @@ pub(crate) fn commit_ops(
     raft_log_ops: &mut Vec<(u64, u64, Vec<u8>)>,
     durability: Durability,
     crypto: DurableCrypto<'_>,
+    // O(1) audit-chain tail cache (CONCEPT:EG-025), owned by the caller across batches.
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
     if ops.is_empty() && raft_log_ops.is_empty() {
         return Ok(());
@@ -189,7 +191,7 @@ pub(crate) fn commit_ops(
             touched.insert(graph.clone());
             apply_method_rows(&graph, &method, &mut nodes, &mut edges, &mut ledger, crypto)?;
             #[cfg(feature = "security")]
-            append_audit_entry(&mut audit, &graph, &method)?;
+            append_audit_entry(&mut audit, audit_tail, &graph, &method)?;
         }
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
         for g in &touched {
@@ -244,6 +246,8 @@ pub(crate) fn commit_crossmodal(
     vectors: &[VectorUpsert],
     blob_refs: &[BlobRefRow],
     crypto: DurableCrypto<'_>,
+    // O(1) audit-chain tail cache (CONCEPT:EG-025), shared with the group-commit path.
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
@@ -259,7 +263,7 @@ pub(crate) fn commit_crossmodal(
         for method in methods {
             apply_method_rows(graph, method, &mut nodes, &mut edges, &mut ledger, crypto)?;
             #[cfg(feature = "security")]
-            append_audit_entry(&mut audit, graph, method)?;
+            append_audit_entry(&mut audit, audit_tail, graph, method)?;
         }
 
         // 2. Blob refs — a reserved `__blob__` node property pointing at the digest.
@@ -451,15 +455,46 @@ pub(crate) fn apply_method_rows(
     Ok(())
 }
 
+/// Per-graph audit-chain tail cache (CONCEPT:EG-025): `graph -> (last_seq, last_hash)`.
+///
+/// **Why this exists (profiling rationale).** After EG-024 (group-commit micro-linger)
+/// freed the disk, the single `eg-redb-writer` thread became ~99.9% CPU-bound in
+/// userspace. The hot spot was [`append_audit_entry`]: it range-scanned this graph's
+/// audit tail **per op** to find `(last_seq, last_hash)` — O(ops) B-tree walks inside
+/// the held `WriteTransaction`, and the cost GREW as EG-024 made batches bigger.
+///
+/// The redb file has a single exclusive writer, so within the server process the
+/// writer thread is the **only** mutator of the `AUDIT` table. That makes an in-memory
+/// tail authoritative: nothing else can advance a graph's chain behind our back, so we
+/// can keep `(seq, hash)` hot in RAM across the thread's lifetime and chain off it with
+/// **no scan**. The cache is seeded ONCE per graph from a single range-scan on first
+/// touch (which also re-seeds correctly after a restart), then updated in place on every
+/// append. `apply_checkpoint`/`purge_graph_rows`/`ClearGraph` never delete AUDIT rows,
+/// so the cached tail is never invalidated by those paths.
+#[cfg(feature = "security")]
+pub(crate) type AuditTailCache = std::collections::HashMap<String, (u64, crate::audit::Hash)>;
+
 /// Append ONE tamper-evident audit-chain entry for a durable mutation, inside the
-/// caller's open WriteTransaction (CONCEPT:KG-2.231). Reads the graph's current chain
-/// tail (last `(graph, seq)`) to get `prev_hash` + next `seq`, links the new entry,
-/// and inserts it. A method with no canonical audit line (e.g. a pure-compute op that
-/// slipped through) is skipped. The audit row rides the SAME transaction as the data
-/// mutation, so they are durable together. Only compiled/called under `security`.
+/// caller's open WriteTransaction (CONCEPT:KG-2.231; O(1) via CONCEPT:EG-025). Uses the
+/// cached per-graph chain tail (`last seq` + its hash) to get `prev_hash` + next `seq`,
+/// links the new entry, inserts it, and updates the cache to the just-appended entry —
+/// so the NEXT op chains off RAM with NO per-op range scan. On a cache miss (first touch
+/// of the graph since the writer opened — incl. after a restart) the tail is seeded from
+/// exactly ONE range-scan, then stays hot. A method with no canonical audit line (e.g. a
+/// pure-compute op that slipped through) is skipped. The audit row rides the SAME
+/// transaction as the data mutation, so they are durable together. Only compiled/called
+/// under `security`.
+///
+/// **Correctness:** the linked hash is computed identically to before
+/// (`link_hash(prev, graph, seq, line)`, prev = previous entry's hash, seq = prev+1 or
+/// genesis 0). The cache only replaces the *lookup* of `(prev_seq, prev_hash)`; the seed
+/// scan returns the exact same tail the old per-op scan did, and every subsequent value
+/// is the hash we just stored. So the persisted chain is byte-for-byte what the scanning
+/// version produced — tamper-evidence and `verify_audit` are unchanged.
 #[cfg(feature = "security")]
 pub(crate) fn append_audit_entry(
     audit: &mut redb::Table<(&str, u64), &[u8]>,
+    cache: &mut AuditTailCache,
     graph: &str,
     method: &Method,
 ) -> Result<(), String> {
@@ -467,34 +502,43 @@ pub(crate) fn append_audit_entry(
         Some(l) => l,
         None => return Ok(()),
     };
-    // Find the chain tail for this graph: the highest existing seq + its hash. Extract
-    // OWNED values so the read access-guards drop before the mutable `insert` below.
-    let tail: Option<(u64, crate::audit::Hash)> = {
-        let last = audit
-            .range((graph, 0u64)..)
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .take_while(|(k, _)| k.value().0 == graph)
-            .last();
-        match last {
-            Some((k, v)) => {
-                let seq = k.value().1;
-                let (_, hash, _) = crate::audit::decode_entry(v.value())
-                    .ok_or_else(|| "corrupt audit tail entry".to_string())?;
-                Some((seq, hash))
+    // O(1): chain off the cached tail; seed it from ONE scan only on first touch.
+    let (prev, next_seq) = match cache.get(graph) {
+        Some(&(seq, hash)) => (hash, seq + 1),
+        None => {
+            // First touch since open (or after restart): single range-scan to find the
+            // highest existing seq + its hash. Extract OWNED values so the read
+            // access-guards drop before the mutable `insert` below.
+            let tail: Option<(u64, crate::audit::Hash)> = {
+                let last = audit
+                    .range((graph, 0u64)..)
+                    .map_err(|e| e.to_string())?
+                    .filter_map(|r| r.ok())
+                    .take_while(|(k, _)| k.value().0 == graph)
+                    .last();
+                match last {
+                    Some((k, v)) => {
+                        let seq = k.value().1;
+                        let (_, hash, _) = crate::audit::decode_entry(v.value())
+                            .ok_or_else(|| "corrupt audit tail entry".to_string())?;
+                        Some((seq, hash))
+                    }
+                    None => None,
+                }
+            };
+            match tail {
+                Some((seq, hash)) => (hash, seq + 1),
+                None => (crate::audit::GENESIS, 0u64),
             }
-            None => None,
         }
-    };
-    let (prev, next_seq) = match tail {
-        Some((seq, hash)) => (hash, seq + 1),
-        None => (crate::audit::GENESIS, 0u64),
     };
     let hash = crate::audit::link_hash(&prev, graph, next_seq, line.as_bytes());
     let blob = crate::audit::encode_entry(&prev, &hash, line.as_bytes());
     audit
         .insert((graph, next_seq), blob.as_slice())
         .map_err(|e| e.to_string())?;
+    // Keep the tail hot: the next op (this batch or a later one) chains off RAM.
+    cache.insert(graph.to_string(), (next_seq, hash));
     Ok(())
 }
 
@@ -1048,7 +1092,16 @@ mod security_tests {
                 add_node_method("n1", serde_json::json!({"ssn": "SECRET-123-45-6789"})),
             )];
             let mut log = Vec::new();
-            commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto).unwrap();
+            let mut audit_tail = AuditTailCache::new();
+            commit_ops(
+                &db,
+                &mut ops,
+                &mut log,
+                Durability::Immediate,
+                crypto,
+                &mut audit_tail,
+            )
+            .unwrap();
         }
 
         // The raw on-disk redb bytes must NOT contain the plaintext secret.
@@ -1085,6 +1138,7 @@ mod security_tests {
         let db = open_db(&dir);
 
         // Three durable mutations → three chained audit entries.
+        let mut audit_tail = AuditTailCache::new();
         for (i, m) in [
             add_node_method("a", serde_json::json!({"v": 1})),
             add_node_method("b", serde_json::json!({"v": 2})),
@@ -1100,7 +1154,15 @@ mod security_tests {
             let _ = i;
             let mut ops = vec![("g".to_string(), m)];
             let mut log = Vec::new();
-            commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto).unwrap();
+            commit_ops(
+                &db,
+                &mut ops,
+                &mut log,
+                Durability::Immediate,
+                crypto,
+                &mut audit_tail,
+            )
+            .unwrap();
         }
 
         // A clean chain verifies.
@@ -1125,6 +1187,96 @@ mod security_tests {
         let broken = verify_audit(&db, "g").unwrap();
         assert!(!broken.ok, "tamper undetected");
         assert_eq!(broken.first_broken_seq, Some(1), "wrong break position");
+    }
+
+    /// CONCEPT:EG-025 — the O(1) tail-cache append produces an IDENTICAL, verifiable
+    /// chain to the old per-op scan across: (1) many ops in ONE commit batch
+    /// (intra-batch chaining off RAM), (2) several commit batches reusing the cache
+    /// (inter-batch), and (3) a fresh cache that must RE-SEED the tail from one scan
+    /// (the restart case) and continue the chain without a gap. Two interleaved graphs
+    /// prove per-graph isolation of the cache.
+    #[test]
+    fn audit_tail_cache_o1_append_builds_verifiable_chain_across_batches_and_restart() {
+        let dir = tempdir();
+        let crypto = DurableCrypto::none();
+        let db = open_db(&dir);
+
+        // Helper: commit a batch of (graph, node) AddNode ops through commit_ops with a
+        // caller-owned cache (mirrors the writer thread's persistent cache).
+        let commit_batch =
+            |db: &Database, cache: &mut AuditTailCache, batch: &[(&str, &str)]| {
+                let mut ops: Vec<(String, Method)> = batch
+                    .iter()
+                    .map(|(g, n)| (g.to_string(), add_node_method(n, serde_json::json!({"n": n}))))
+                    .collect();
+                let mut log = Vec::new();
+                commit_ops(db, &mut ops, &mut log, Durability::Immediate, crypto, cache).unwrap();
+            };
+
+        // Batch 1: 5 ops for "g1" + 3 ops for "g2" in ONE commit (intra-batch chaining,
+        // interleaved graphs). The cache seeds each graph once (genesis) then chains in RAM.
+        let mut cache = AuditTailCache::new();
+        commit_batch(
+            &db,
+            &mut cache,
+            &[
+                ("g1", "a"),
+                ("g2", "x"),
+                ("g1", "b"),
+                ("g1", "c"),
+                ("g2", "y"),
+                ("g1", "d"),
+                ("g2", "z"),
+                ("g1", "e"),
+            ],
+        );
+        // Cache must reflect the in-RAM tails: g1 saw 5 ops (seq 0..4), g2 saw 3 (seq 0..2).
+        assert_eq!(cache.get("g1").unwrap().0, 4, "g1 tail seq");
+        assert_eq!(cache.get("g2").unwrap().0, 2, "g2 tail seq");
+
+        // Batch 2: REUSE the same cache (inter-batch). No scan should be needed; the
+        // chain must continue seamlessly.
+        commit_batch(&db, &mut cache, &[("g1", "f"), ("g2", "w"), ("g1", "g")]);
+
+        // Batch 3: simulate a WRITER RESTART — a brand-new empty cache. The first touch
+        // of each graph must RE-SEED the tail from one range-scan and continue with NO gap.
+        let mut cache_after_restart = AuditTailCache::new();
+        commit_batch(&db, &mut cache_after_restart, &[("g1", "h"), ("g2", "v")]);
+        assert_eq!(
+            cache_after_restart.get("g1").unwrap().0,
+            7,
+            "g1 re-seeded tail continues (5+2 prior ⇒ next seq 7)"
+        );
+        assert_eq!(
+            cache_after_restart.get("g2").unwrap().0,
+            4,
+            "g2 re-seeded tail continues (3+1+1 prior ⇒ seq 4)"
+        );
+
+        // The FULL chains must verify clean (tamper-evidence intact, no gaps/breaks).
+        let r1 = verify_audit(&db, "g1").unwrap();
+        assert!(r1.ok, "g1 chain broken: {r1:?}");
+        assert_eq!(r1.entries, 8, "g1 entry count (5+2+1)");
+        let r2 = verify_audit(&db, "g2").unwrap();
+        assert!(r2.ok, "g2 chain broken: {r2:?}");
+        assert_eq!(r2.entries, 5, "g2 entry count (3+1+1)");
+
+        // And tamper-evidence still fires on the cache-built chain.
+        {
+            let wtx = db.begin_write().unwrap();
+            {
+                let mut audit = wtx.open_table(AUDIT).unwrap();
+                let orig = audit.get(("g1", 3u64)).unwrap().unwrap().value().to_vec();
+                let mut mutated = orig;
+                let last = mutated.len() - 1;
+                mutated[last] ^= 0xFF;
+                audit.insert(("g1", 3u64), mutated.as_slice()).unwrap();
+            }
+            wtx.commit().unwrap();
+        }
+        let broken = verify_audit(&db, "g1").unwrap();
+        assert!(!broken.ok, "tamper on cache-built chain undetected");
+        assert_eq!(broken.first_broken_seq, Some(3));
     }
 
     /// A throwaway temp dir under the scratch space.
