@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-#[cfg(any(feature = "sparql", feature = "owl"))]
+#[cfg(any(feature = "rdf", feature = "sparql", feature = "owl"))]
 use super::super::compute::compute_off_lock;
 use super::super::state::ServerState;
 use crate::graph::GraphCore;
@@ -137,7 +137,69 @@ pub(crate) async fn try_handle(
             target_class,
             min_confidence,
         } => Ok(handle_owl_reason(req_id, &core, ontology, target_class, min_confidence).await),
+        #[cfg(feature = "rdf")]
+        Method::RunRules {
+            ontology_ttl,
+            rules,
+            query_predicate,
+            min_confidence,
+            derived_only,
+        } => Ok(handle_run_rules(
+            req_id,
+            &core,
+            ontology_ttl,
+            rules,
+            query_predicate,
+            min_confidence,
+            derived_only,
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            rls,
+        )
+        .await),
         other => Err(other),
+    }
+}
+
+/// Run a parameterised custom-rule reasoning request over the request's graph view
+/// (CONCEPT:EG-021 / EG-023). Read-only: it reasons over an off-lock snapshot (its
+/// folded TBox axioms + asserted facts) plus any inline `ontology_ttl` and the user
+/// `rules`, then returns the inferred facts as a `Raw` [`eg_rdf::rules::RuleReasonResponse`].
+/// The snapshot is RLS-filtered to the caller's visible rows BEFORE reasoning, so the
+/// inference cannot surface a forbidden fact.
+#[cfg(feature = "rdf")]
+#[allow(clippy::too_many_arguments)]
+async fn handle_run_rules(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    ontology_ttl: String,
+    rules: Vec<String>,
+    query_predicate: Option<String>,
+    min_confidence: f64,
+    derived_only: bool,
+    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
+) -> Response {
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut snap = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    rls.filter_view(caller.unwrap_or(""), &mut snap);
+    let req = eg_rdf::rules::RuleReasonRequest {
+        ontology_ttl,
+        rules,
+        query_predicate,
+        min_confidence,
+        derived_only,
+    };
+    match compute_off_lock(req_id, move || {
+        eg_rdf::rules::run_rule_reasoning_on_view(&snap, &req)
+    })
+    .await
+    {
+        Ok(Ok(response)) => Response::ok(req_id, ResultPayload::raw(&response)),
+        Ok(Err(msg)) => Response::err(req_id, format!("RunRules error: {msg}")),
+        Err(resp) => resp,
     }
 }
 
@@ -417,5 +479,112 @@ fn parse_either(turtle: &str, ntriples: &str) -> Result<Vec<eg_rdf::oxrdf::Tripl
         (true, false) => eg_rdf::mapping::parse_ntriples(ntriples),
         (true, true) => Err("AddTriples: both `turtle` and `ntriples` are empty".into()),
         (false, false) => Err("AddTriples: provide exactly one of `turtle` or `ntriples`".into()),
+    }
+}
+
+// ── RunRules dispatch wiring (CONCEPT:EG-021 / EG-023) ────────────────────────────
+#[cfg(all(test, feature = "rdf"))]
+mod run_rules_dispatch_tests {
+    use crate::channels::ChannelManager;
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request, Response, ResultPayload};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use crate::server::dispatch;
+    use crate::server::state::ServerState;
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, Semaphore};
+
+    const SECRET: &str = "run-rules-test-secret";
+
+    fn state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+        }))
+    }
+
+    fn req(id: u64, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        }
+    }
+
+    /// A `RunRules` dispatched over the wire returns the DERIVED facts (CONCEPT:EG-023):
+    /// the `grandparent` entailment from the two `parent` ABox triples + the SWRL rule.
+    #[tokio::test]
+    async fn run_rules_returns_inferred_facts_via_dispatch() {
+        let state = state();
+        let resp: Response = dispatch(
+            &state,
+            req(
+                1,
+                Method::RunRules {
+                    ontology_ttl: "@prefix ex: <http://ex/> .\nex:alice ex:parent ex:bob .\nex:bob ex:parent ex:carol .\n".into(),
+                    rules: vec![
+                        "parent(?x,?y) ^ parent(?y,?z) -> grandparent(?x,?z) @0.8".into(),
+                    ],
+                    query_predicate: Some("grandparent".into()),
+                    min_confidence: 0.0,
+                    derived_only: true,
+                },
+            ),
+        )
+        .await;
+        assert!(resp.error.is_none(), "RunRules failed: {:?}", resp.error);
+        let bytes = match &resp.result {
+            Some(ResultPayload::Raw(b)) => b.clone(),
+            other => panic!("expected Raw, got {other:?}"),
+        };
+        let out: eg_rdf::rules::RuleReasonResponse =
+            rmp_serde::from_slice(&bytes).expect("RuleReasonResponse");
+        assert!(out.consistent);
+        assert_eq!(out.registered_rules.len(), 1);
+        assert_eq!(out.facts.len(), 1, "only the grandparent fact: {:?}", out.facts);
+        assert_eq!(out.facts[0].predicate, "grandparent");
+        assert!(out.facts[0].derived, "the returned fact is an inference");
     }
 }

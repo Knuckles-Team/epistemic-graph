@@ -1574,6 +1574,36 @@ pub enum Method {
         min_confidence: f64,
     },
 
+    // ── Custom-rule reasoning (CONCEPT:EG-021 / EG-023 — runtime SWRL/Datalog rules) ──
+    // Run a parameterised rule-reasoning request over the request's graph view (its
+    // folded TBox axioms + asserted facts) PLUS any inline `ontology_ttl` and the
+    // user `rules`, returning the inferred facts. Read-only (it reasons over an
+    // off-lock snapshot and never mutates the graph), so it routes through the normal
+    // `dispatch_graph_op` chain like `Sparql`/`OwlReason`. The fields mirror eg-rdf's
+    // `RuleReasonRequest` 1:1 (kept inline so the protocol crate — at the bottom of the
+    // DAG — carries no eg-rdf type); the handler rebuilds the request and calls
+    // `eg_rdf::run_rule_reasoning_on_view`. Result is a `Raw` `RuleReasonResponse`.
+    // Gated `rdf`; a build without it drops the variant → the dispatch not-built catch-all.
+    #[cfg(feature = "rdf")]
+    RunRules {
+        /// Optional Turtle carrying extra TBox axioms AND/OR ABox facts (empty ⇒ reason
+        /// over the graph's own folded axioms/facts only).
+        #[serde(default)]
+        ontology_ttl: String,
+        /// User rule strings (SWRL-ish / Datalog syntax).
+        #[serde(default)]
+        rules: Vec<String>,
+        /// When set, restrict the returned facts to this predicate (IRI or bare name).
+        #[serde(default)]
+        query_predicate: Option<String>,
+        /// Drop facts whose confidence is below this threshold.
+        #[serde(default)]
+        min_confidence: f64,
+        /// When true, return only the DERIVED facts (omit the asserted base).
+        #[serde(default)]
+        derived_only: bool,
+    },
+
     // ── Streaming / CDC / subscriptions / reactivity (CONCEPT:KG-2.229/230) ──
     // A reactive surface over the engine's per-graph durable change record (the
     // ledger). Every durable mutation the dispatch shell records also emits an

@@ -40,6 +40,12 @@ pub mod pgwire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
+// Process-wide user-defined relational table store (CONCEPT:EG-018/EG-023): the ONE
+// `eg_query::TableStore` (redb permits a single handle per file per process) shared by
+// BOTH the wire `Method::Sql` DDL/DML path and the pgwire shim, so a table created via
+// one surface is visible to the other. Behind `query` (TableStore needs eg-query/sql).
+#[cfg(feature = "query")]
+pub mod sql_tables;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged
