@@ -20,17 +20,19 @@ pub mod tables;
 #[cfg(feature = "sql")]
 pub use sql::{
     classify, exec_sql, exec_sql_cached, exec_sql_typed, exec_sql_typed_with_tables,
-    infer_param_sites, returning_columns, schema_probe_sql, AlterTablePlan, ColumnDef,
-    CreateTablePlan, DeleteNodes, DeleteTable, DropTablePlan, InsertNode, InsertNodes, InsertSelect,
-    InsertTable, ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache, StatementKind,
-    TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes, UpdateTable, WhereEq,
+    infer_param_sites, returning_columns, schema_probe_sql, AlterTablePlan, ColumnDef, CopyFormat,
+    CopyPlan, CreateTablePlan, DeleteNodes, DeleteTable, DropTablePlan, InsertNode, InsertNodes,
+    InsertSelect, InsertTable, ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache,
+    StatementKind, TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes, UpdateTable, WhereEq,
 };
 
 #[cfg(feature = "sql")]
-pub use tables::{Cell, ColEq, Column, ColumnType, TableSchema, TableStore};
+pub use tables::{
+    Cell, ColCheck, ColEq, Column, ColumnType, CmpOp, TableSchema, TableStore, TableTxn, TxnOp,
+};
 
 #[cfg(feature = "cypher")]
 pub mod cypher;
 
 #[cfg(feature = "cypher")]
-pub use cypher::exec_cypher;
+pub use cypher::{exec_cypher, exec_cypher_write};

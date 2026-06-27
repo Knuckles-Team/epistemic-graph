@@ -23,6 +23,10 @@ fn to_store_column(c: &eg_query::ColumnDef) -> Column {
         ty: ColumnType::parse(&c.type_name).expect("known column type"),
         nullable: c.nullable,
         primary_key: c.primary_key,
+        unique: c.unique,
+        serial: c.serial,
+        default: c.default.clone(),
+        check: c.check.clone(),
     }
 }
 
@@ -244,14 +248,14 @@ fn every_column_type_roundtrips() {
     let schema = TableSchema {
         name: "typed".into(),
         columns: vec![
-            Column { name: "i".into(), ty: ColumnType::Int, nullable: true, primary_key: false },
-            Column { name: "b".into(), ty: ColumnType::BigInt, nullable: true, primary_key: false },
-            Column { name: "f".into(), ty: ColumnType::Double, nullable: true, primary_key: false },
-            Column { name: "t".into(), ty: ColumnType::Text, nullable: true, primary_key: false },
-            Column { name: "o".into(), ty: ColumnType::Bool, nullable: true, primary_key: false },
-            Column { name: "ts".into(), ty: ColumnType::Timestamp, nullable: true, primary_key: false },
-            Column { name: "by".into(), ty: ColumnType::Bytes, nullable: true, primary_key: false },
-            Column { name: "j".into(), ty: ColumnType::Json, nullable: true, primary_key: false },
+            Column::new("i", ColumnType::Int, true, false),
+            Column::new("b", ColumnType::BigInt, true, false),
+            Column::new("f", ColumnType::Double, true, false),
+            Column::new("t", ColumnType::Text, true, false),
+            Column::new("o", ColumnType::Bool, true, false),
+            Column::new("ts", ColumnType::Timestamp, true, false),
+            Column::new("by", ColumnType::Bytes, true, false),
+            Column::new("j", ColumnType::Json, true, false),
         ],
     };
     store.create_table(&schema, false).unwrap();
