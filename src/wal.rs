@@ -34,7 +34,10 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // dispatch shell records the Method and `apply` below re-parses + re-applies it
     // deterministically on replay, exactly like `BatchUpdate`.
     #[cfg(feature = "rdf")]
-    if matches!(m, Method::AddTriples { .. }) {
+    if matches!(
+        m,
+        Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph
+    ) {
         return true;
     }
     matches!(
@@ -246,6 +249,28 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 );
             }
         }
+        // `RemoveTriples` (feature `rdf`, CONCEPT:EG-017): deterministic replay =
+        // re-parse the SAME source and re-retract. Idempotent — re-removing an absent
+        // triple is a no-op. The lossless quad store is durable on its own file.
+        #[cfg(feature = "rdf")]
+        Method::RemoveTriples { turtle, ntriples } => {
+            let parsed = if !turtle.trim().is_empty() {
+                eg_rdf::mapping::parse_turtle(turtle)
+            } else if !ntriples.trim().is_empty() {
+                eg_rdf::mapping::parse_ntriples(ntriples)
+            } else {
+                Ok(Vec::new())
+            };
+            if let Ok(triples) = parsed {
+                let _ = eg_rdf::update::remove_triples(core, &triples);
+            }
+        }
+        // `DropNamedGraph` (feature `rdf`, CONCEPT:EG-017): the named graph IS this
+        // registry graph, so dropping it clears the whole core. The quad-store rows are
+        // dropped durably on their own redb file at original execution, so replay only
+        // needs to rebuild the empty in-graph state.
+        #[cfg(feature = "rdf")]
+        Method::DropNamedGraph => core.clear(),
         _ => {}
     }
 }

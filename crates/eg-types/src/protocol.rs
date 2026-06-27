@@ -1430,6 +1430,29 @@ pub enum Method {
     /// `GetTriples` JSON triple-list (CONCEPT:KG-2.7). Read-only.
     #[cfg(feature = "rdf")]
     GetRdf,
+    /// Physically RETRACT triples from the request's graph (CONCEPT:EG-017) — the
+    /// inverse of `AddTriples`. Parses `turtle` OR `ntriples` (exactly one non-empty)
+    /// and surgically removes each triple (a literal triple drops the property cell; a
+    /// resource triple removes the one matching typed edge). DURABLE (WAL-replayed by
+    /// re-parsing + re-removing). This is the reusable retract op the ontology UNLOAD
+    /// path + SPARQL `DELETE DATA` build on. Returns a `Raw` count. Gated `rdf`.
+    #[cfg(feature = "rdf")]
+    RemoveTriples {
+        /// Turtle document (empty ⇒ use `ntriples`).
+        #[serde(default)]
+        turtle: String,
+        /// N-Triples document (empty ⇒ use `turtle`).
+        #[serde(default)]
+        ntriples: String,
+    },
+    /// DROP the request's named graph (CONCEPT:EG-017): physically clear ALL of its RDF
+    /// content — the property-graph nodes/edges AND the lossless multi-valued-literal
+    /// quad-store rows for this graph. DURABLE (WAL-replayed as a clear). The SPARQL
+    /// `DROP/CLEAR GRAPH` op + ontology lifecycle teardown route here. Returns a `Raw`
+    /// `"ok"`. Gated `rdf`. (Distinct from `DeleteGraph`, which evicts the registry
+    /// entry; this empties the graph's RDF while keeping the graph addressable.)
+    #[cfg(feature = "rdf")]
+    DropNamedGraph,
     /// Evaluate a SPARQL 1.1 SELECT over the request's graph (CONCEPT:KG-2.218).
     /// Returns a `Raw` [`SparqlResult`] (`{vars, rows}`; each row a cell list aligned
     /// to `vars`, an unbound cell is `nil`). Read-only. Gated `sparql`.

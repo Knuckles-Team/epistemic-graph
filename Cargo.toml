@@ -235,6 +235,12 @@ rdf = ["server", "dep:eg-rdf", "eg-rdf/rdf", "eg-types/rdf"]
 # Native SPARQL 1.1 surface (CONCEPT:KG-2.218): compiles spargebra's algebra to
 # GraphView scans (eg-rdf). IMPLIES `rdf`; pure-Rust (spargebra), no native dep.
 sparql = ["rdf", "eg-rdf/sparql", "eg-types/sparql"]
+# W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017): a minimal hand-rolled
+# HTTP/1.1 listener (the SAME dep-free idiom as the Prometheus `--metrics-addr`
+# exposition — NO axum/hyper/warp) so existing Stardog/Jena/rdflib SPARQL clients can
+# query + update the engine unchanged via `--sparql-addr`. IMPLIES `sparql` (+ `server`
+# for the Tokio listener). Pure-Rust; no new native dep. Folded into node/full.
+sparql-http = ["sparql", "server"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
@@ -266,7 +272,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "text", "sparql", "sparql-http", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -286,7 +292,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation", "federation-sql"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "text", "sparql", "sparql-http", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation", "federation-sql"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the

@@ -606,46 +606,45 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
+        // ApplyMutation carries a SPARQL UPDATE string (governance / CDC mutation).
+        // Replaced the legacy naive `{ <s> <p> <o> }` string-split shim with the REAL
+        // SPARQL 1.1 UPDATE executor (CONCEPT:EG-017): a full spargebra parse + the
+        // native merge-aware property-graph write ops (INSERT/DELETE DATA, DELETE/INSERT
+        // … WHERE, CLEAR/CREATE/DROP GRAPH). Single-graph: every graph term routes to the
+        // request graph's core (true named-graph routing lives on the /sparql endpoint,
+        // which has the registry). `event_type` is now advisory (the query is
+        // self-describing). Gated `sparql`; a non-sparql build rejects it explicitly.
         Method::ApplyMutation { event_type, query } => {
-            let g = &*core;
-
-            // Very rudimentary parsing to apply SPARQL changes to petgraph
-            // In a production system, a full SPARQL AST parser would be used here.
-            let is_insert = event_type == "TRIPLE_INSERT";
-
-            // Extract triples from "INSERT DATA { <A> <B> <C> }" using naive string splitting
-            // Format assumed: <s1> <p1> <o1> . <s2> <p2> <o2>
-            if let Some(brace_start) = query.find('{') {
-                if let Some(brace_end) = query.rfind('}') {
-                    let inner = &query[brace_start + 1..brace_end];
-                    let triples = inner.split('.');
-                    for t in triples {
-                        let tokens: Vec<&str> = t.split_whitespace().collect();
-                        if tokens.len() >= 3 {
-                            let s = tokens[0].trim_matches(|c| c == '<' || c == '>');
-                            let p = tokens[1].trim_matches(|c| c == '<' || c == '>');
-                            let o = tokens[2].trim_matches(|c| c == '<' || c == '>');
-
-                            if is_insert {
-                                g.add_node(s.to_string(), "{}".to_string().into_bytes());
-                                g.add_node(o.to_string(), "{}".to_string().into_bytes());
-                                let _ = g.add_edge(
-                                    s.to_string(),
-                                    o.to_string(),
-                                    format!("{{\"predicate\": \"{}\"}}", p).into_bytes(),
-                                );
-                            } else {
-                                // For delete, we just remove the edge matching the predicate
-                                g.remove_edge(s.to_string(), o.to_string());
-                            }
-                        }
+            #[cfg(feature = "sparql")]
+            {
+                let _ = event_type;
+                struct SingleCoreStore(Arc<GraphCore>);
+                impl eg_rdf::update::GraphStore for SingleCoreStore {
+                    fn core(&self, _graph: Option<&str>) -> Option<Arc<GraphCore>> {
+                        Some(self.0.clone())
                     }
                 }
+                let store = SingleCoreStore(core.clone());
+                match eg_rdf::update::execute_str(
+                    &query,
+                    &store,
+                    &eg_rdf::sparql::Projection::raw(),
+                ) {
+                    Ok(report) => match serde_json::to_value(&report) {
+                        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                        Err(e) => Response::err(req_id, e.to_string()),
+                    },
+                    Err(e) => Response::err(req_id, format!("ApplyMutation: {e}")),
+                }
             }
-            Response::ok(
-                req_id,
-                ResultPayload::String("mutation_applied".to_string()),
-            )
+            #[cfg(not(feature = "sparql"))]
+            {
+                let _ = (event_type, query, &core);
+                Response::err(
+                    req_id,
+                    "ApplyMutation (SPARQL UPDATE) requires the `sparql` feature".to_string(),
+                )
+            }
         }
         // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. Forward-chaining
         // OWL/RDFS inference over the target graph. Runs Datalog reasoning

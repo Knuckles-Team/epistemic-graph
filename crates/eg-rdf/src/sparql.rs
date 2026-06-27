@@ -213,6 +213,77 @@ pub fn parse_query(q: &str) -> Result<Query, String> {
     Query::parse(q, None).map_err(|e| format!("sparql parse: {e}"))
 }
 
+/// The bare IRI bound to `?g` (as `<…>`) for a `GRAPH ?g {}` over the single default
+/// dataset — the back-compat name a [`Dataset::single`] registers its view under.
+pub const DEFAULT_GRAPH_NAME: &str = "urn:eg:graph:default";
+
+/// An RDF dataset over live property-graph views (CONCEPT:EG-017 — true named-graph
+/// semantics): a DEFAULT graph plus zero-or-more NAMED graphs, each a `GraphView`.
+/// `GRAPH <g> { … }` evaluates against the matching named member (empty if absent);
+/// `GRAPH ?g { … }` ranges over the named members binding `?g` to each — instead of
+/// collapsing every named-graph form onto the single default graph (the prior behavior).
+pub struct Dataset<'a> {
+    default: &'a GraphView,
+    /// `(bare graph IRI, that graph's view)` — the named graphs of the dataset.
+    named: Vec<(String, &'a GraphView)>,
+}
+
+impl<'a> Dataset<'a> {
+    /// A single-graph dataset: `view` is the default graph AND is exposed as ONE named
+    /// graph under [`DEFAULT_GRAPH_NAME`], so a `GRAPH ?g { }` still resolves (`?g`
+    /// binds the default name) — the back-compatible single-dataset behavior.
+    pub fn single(view: &'a GraphView) -> Self {
+        Self {
+            default: view,
+            named: vec![(DEFAULT_GRAPH_NAME.to_string(), view)],
+        }
+    }
+
+    /// A multi-graph dataset. `default` is the default graph; `named` is the set of
+    /// named graphs keyed by their BARE graph IRI (no angle brackets).
+    pub fn new(default: &'a GraphView, named: Vec<(String, &'a GraphView)>) -> Self {
+        Self { default, named }
+    }
+
+    fn named_view(&self, iri: &str) -> Option<&'a GraphView> {
+        self.named
+            .iter()
+            .find(|(n, _)| n == iri)
+            .map(|(_, v)| *v)
+    }
+}
+
+/// The active evaluation context: the dataset, the graph the current scans resolve
+/// against (the default, or a `GRAPH`-scoped named graph), and the LPG→RDF projection.
+struct Ctx<'a> {
+    ds: &'a Dataset<'a>,
+    active: &'a GraphView,
+    proj: &'a Projection,
+}
+
+impl<'a> Ctx<'a> {
+    /// Re-scope the context to a different active graph (entering a `GRAPH` block).
+    fn with_active(&self, active: &'a GraphView) -> Ctx<'a> {
+        Ctx {
+            ds: self.ds,
+            active,
+            proj: self.proj,
+        }
+    }
+}
+
+/// The outcome of evaluating ANY SPARQL query form (CONCEPT:EG-017).
+#[derive(Debug, Clone)]
+pub enum QueryOutcome {
+    /// `SELECT` — a solution table.
+    Solutions(SparqlResult),
+    /// `ASK` — a boolean (`true` iff the pattern has ≥1 solution).
+    Boolean(bool),
+    /// `CONSTRUCT` / `DESCRIBE` — an RDF graph (a set of triples).
+    #[cfg(feature = "rdf")]
+    Graph(Vec<oxrdf::Triple>),
+}
+
 /// Parse + evaluate a SPARQL SELECT over the GraphView in one call, using the IDENTITY
 /// LPG→RDF projection (verbatim keys). See [`run_projected`] to supply a vocabulary.
 pub fn run(view: &GraphView, query_str: &str) -> Result<SparqlResult, String> {
@@ -221,29 +292,333 @@ pub fn run(view: &GraphView, query_str: &str) -> Result<SparqlResult, String> {
 
 /// Parse + evaluate a SPARQL SELECT, projecting the live property graph into RDF terms
 /// under `proj` (CONCEPT:KG-2.240). With [`Projection::raw`] this equals [`run`].
+/// Non-SELECT forms are coerced to a row table (see [`run_outcome`] for the typed form).
 pub fn run_projected(
     view: &GraphView,
     query_str: &str,
     proj: &Projection,
 ) -> Result<SparqlResult, String> {
-    let q = parse_query(query_str)?;
-    evaluate(view, &q, proj)
+    Ok(outcome_to_result(run_outcome(view, query_str, proj)?))
 }
 
-/// Evaluate a parsed SELECT query over the GraphView under the projection `proj`.
+/// Parse + evaluate a SPARQL query of ANY form (SELECT/ASK/CONSTRUCT/DESCRIBE) over a
+/// single GraphView, returning the typed [`QueryOutcome`] (CONCEPT:EG-017).
+pub fn run_outcome(
+    view: &GraphView,
+    query_str: &str,
+    proj: &Projection,
+) -> Result<QueryOutcome, String> {
+    let q = parse_query(query_str)?;
+    let ds = Dataset::single(view);
+    evaluate_outcome(&ds, &q, proj)
+}
+
+/// Parse + evaluate a SPARQL query over a multi-graph [`Dataset`] (named-graph aware).
+pub fn run_outcome_dataset(
+    ds: &Dataset,
+    query_str: &str,
+    proj: &Projection,
+) -> Result<QueryOutcome, String> {
+    let q = parse_query(query_str)?;
+    evaluate_outcome(ds, &q, proj)
+}
+
+/// Evaluate a parsed SELECT query over the GraphView (back-compat SELECT-only API).
 pub fn evaluate(
     view: &GraphView,
     query: &Query,
     proj: &Projection,
 ) -> Result<SparqlResult, String> {
+    let ds = Dataset::single(view);
+    match evaluate_outcome(&ds, query, proj)? {
+        QueryOutcome::Solutions(r) => Ok(r),
+        other => Ok(outcome_to_result(other)),
+    }
+}
+
+/// Evaluate a parsed query of ANY form over a [`Dataset`] under projection `proj`.
+///
+/// * `SELECT`    → the projected solution table.
+/// * `ASK`       → `true` iff the WHERE pattern yields ≥1 solution.
+/// * `CONSTRUCT` → the WHERE solutions instantiated against the template triples.
+/// * `DESCRIBE`  → the triples describing each bound resource (subject- AND
+///   object-position — a minimal concise bounded description over the active graph).
+pub fn evaluate_outcome(
+    ds: &Dataset,
+    query: &Query,
+    proj: &Projection,
+) -> Result<QueryOutcome, String> {
+    let ctx = Ctx {
+        ds,
+        active: ds.default,
+        proj,
+    };
     match query {
         Query::Select { pattern, .. } => {
-            let solutions = eval_pattern(view, pattern, proj)?;
+            let solutions = eval_pattern(&ctx, pattern)?;
             let vars = collect_vars(pattern);
-            Ok(SparqlResult { vars, solutions })
+            Ok(QueryOutcome::Solutions(SparqlResult { vars, solutions }))
         }
-        _ => Err("eg-rdf SPARQL supports SELECT only".into()),
+        Query::Ask { pattern, .. } => {
+            let solutions = eval_pattern(&ctx, pattern)?;
+            Ok(QueryOutcome::Boolean(!solutions.is_empty()))
+        }
+        #[cfg(feature = "rdf")]
+        Query::Construct {
+            template, pattern, ..
+        } => {
+            let solutions = eval_pattern(&ctx, pattern)?;
+            Ok(QueryOutcome::Graph(construct_graph(template, &solutions)))
+        }
+        #[cfg(feature = "rdf")]
+        Query::Describe { pattern, .. } => {
+            let solutions = eval_pattern(&ctx, pattern)?;
+            let vars = collect_vars(pattern);
+            Ok(QueryOutcome::Graph(describe_resources(&ctx, &vars, &solutions)))
+        }
+        #[cfg(not(feature = "rdf"))]
+        _ => Err("eg-rdf SPARQL: CONSTRUCT/DESCRIBE need the `rdf` feature".into()),
     }
+}
+
+/// Evaluate just a WHERE graph pattern over a dataset → its raw solutions. Used by the
+/// SPARQL UPDATE executor (`DELETE/INSERT … WHERE`) and DESCRIBE.
+pub fn eval_where(
+    ds: &Dataset,
+    pattern: &GraphPattern,
+    proj: &Projection,
+) -> Result<Vec<Solution>, String> {
+    let ctx = Ctx {
+        ds,
+        active: ds.default,
+        proj,
+    };
+    eval_pattern(&ctx, pattern)
+}
+
+/// Coerce any [`QueryOutcome`] to the flat wire [`SparqlResult`] row table: SELECT is
+/// passed through; ASK becomes a one-cell `?ask` table; a CONSTRUCT/DESCRIBE graph
+/// becomes an `?subject ?predicate ?object` table (N-Triples term lex:).
+fn outcome_to_result(outcome: QueryOutcome) -> SparqlResult {
+    match outcome {
+        QueryOutcome::Solutions(r) => r,
+        QueryOutcome::Boolean(b) => {
+            let mut sol = Solution::new();
+            sol.insert("ask".to_string(), Binding::Literal(b.to_string()));
+            SparqlResult {
+                vars: vec!["ask".to_string()],
+                solutions: vec![sol],
+            }
+        }
+        #[cfg(feature = "rdf")]
+        QueryOutcome::Graph(triples) => {
+            let vars = vec![
+                "subject".to_string(),
+                "predicate".to_string(),
+                "object".to_string(),
+            ];
+            let solutions = triples
+                .iter()
+                .map(|t| {
+                    let mut sol = Solution::new();
+                    sol.insert("subject".to_string(), Binding::Node(t.subject.to_string()));
+                    sol.insert(
+                        "predicate".to_string(),
+                        Binding::Node(t.predicate.to_string()),
+                    );
+                    sol.insert("object".to_string(), Binding::Literal(t.object.to_string()));
+                    sol
+                })
+                .collect();
+            SparqlResult { vars, solutions }
+        }
+    }
+}
+
+// ── CONSTRUCT / DESCRIBE (CONCEPT:EG-017) ───────────────────────────────────────
+
+/// Instantiate a CONSTRUCT template against each WHERE solution → the result graph.
+/// A pattern whose terms can't all be resolved/built for a given solution is skipped
+/// (SPARQL: an unbound or ill-typed template slot yields no triple for that solution).
+#[cfg(feature = "rdf")]
+fn construct_graph(template: &[TriplePattern], solutions: &[Solution]) -> Vec<oxrdf::Triple> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for sol in solutions {
+        for tp in template {
+            if let Some(t) = instantiate_triple(tp, sol) {
+                if seen.insert(t.to_string()) {
+                    out.push(t);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Resolve ONE template triple pattern against a solution to a concrete RDF triple.
+/// A constant literal keeps its datatype/lang (it is the oxrdf `Literal` verbatim); a
+/// variable-bound term carries only its lexical value (the `Binding` model is lexical),
+/// so a bound literal becomes a simple literal — the documented projection limitation.
+#[cfg(feature = "rdf")]
+fn instantiate_triple(tp: &TriplePattern, sol: &Solution) -> Option<oxrdf::Triple> {
+    use oxrdf::{NamedNode, Subject, Term, Triple};
+
+    let subject: Subject = match &tp.subject {
+        TermPattern::NamedNode(n) => Subject::NamedNode(n.clone()),
+        TermPattern::BlankNode(b) => Subject::BlankNode(b.clone()),
+        TermPattern::Variable(v) => node_str_to_subject(sol.get(v.as_str())?.as_str())?,
+        _ => return None,
+    };
+    let predicate: NamedNode = match &tp.predicate {
+        NamedNodePattern::NamedNode(n) => n.clone(),
+        NamedNodePattern::Variable(v) => {
+            NamedNode::new(strip_iri(sol.get(v.as_str())?.as_str())).ok()?
+        }
+    };
+    let object: Term = match &tp.object {
+        TermPattern::NamedNode(n) => Term::NamedNode(n.clone()),
+        TermPattern::BlankNode(b) => Term::BlankNode(b.clone()),
+        TermPattern::Literal(l) => Term::Literal(l.clone()),
+        TermPattern::Variable(v) => binding_to_term(sol.get(v.as_str())?),
+        #[allow(unreachable_patterns)]
+        _ => return None,
+    };
+    Some(Triple::new(subject, predicate, object))
+}
+
+/// Build the DESCRIBE graph: every resource bound (subject- or object-position) by the
+/// WHERE pattern's variables, described by all triples of the active graph that mention
+/// it (subject OR object position) — a minimal concise bounded description.
+#[cfg(feature = "rdf")]
+fn describe_resources(ctx: &Ctx, vars: &[String], solutions: &[Solution]) -> Vec<oxrdf::Triple> {
+    // The resource set: every binding across the projected vars whose value is a
+    // resource term (`<iri>` / `_:b`). A `DESCRIBE <iri>` constant arrives as an
+    // `Extend`-bound LITERAL lexically equal to `<iri>`, while a `DESCRIBE ?x` arrives
+    // as a `Node` binding — both are captured by the term-form check.
+    let mut resources: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for sol in solutions {
+        for v in vars {
+            if let Some(b) = sol.get(v) {
+                let s = b.as_str();
+                if s.starts_with('<') || s.starts_with("_:") {
+                    resources.insert(s.to_string());
+                }
+            }
+        }
+    }
+    // All triples of the active graph (term-string form), filtered to those touching a
+    // described resource in subject or object position.
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (s, p, o, o_is_node) in all_triples_terms(ctx) {
+        if !(resources.contains(&s) || (o_is_node && resources.contains(&o))) {
+            continue;
+        }
+        if let Some(t) = build_triple(&s, &p, &o, o_is_node) {
+            if seen.insert(t.to_string()) {
+                out.push(t);
+            }
+        }
+    }
+    out
+}
+
+/// Enumerate the active graph as `(subject, predicate, object, object_is_node)` projected
+/// term strings — the same projection the `?s ?p ?o` BGP scan produces.
+#[cfg(feature = "rdf")]
+fn all_triples_terms(ctx: &Ctx) -> Vec<(String, String, String, bool)> {
+    let view = ctx.active;
+    let proj = ctx.proj;
+    let mut out = Vec::new();
+    for ((s, o), blobs) in &view.edge_properties {
+        for blob in blobs {
+            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+                if let Some(rel) = v.get("type").and_then(|x| x.as_str()) {
+                    out.push((proj.node_iri(s), proj.pred_iri(rel), proj.node_iri(o), true));
+                }
+            }
+        }
+    }
+    for (id, blob) in &view.node_properties {
+        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+            continue;
+        };
+        let Some(obj) = v.as_object() else { continue };
+        let subj_iri = proj.node_iri(id);
+        if let Some(ty) = obj
+            .get("type")
+            .or_else(|| obj.get("node_type"))
+            .and_then(|x| x.as_str())
+        {
+            if let Some(type_obj) = proj.type_object_iri(ty) {
+                out.push((subj_iri.clone(), RDF_TYPE_IRI.to_string(), type_obj, true));
+            }
+        }
+        for (k, cell) in obj {
+            if k == "type" || k == "node_type" {
+                continue;
+            }
+            if let Some(lit_val) = cell_lexical(cell) {
+                out.push((subj_iri.clone(), proj.pred_iri(k), lit_val, false));
+            }
+        }
+    }
+    out
+}
+
+/// Parse a projected node-id string (`<iri>` / `_:b`) to an RDF subject; `None` else.
+#[cfg(feature = "rdf")]
+fn node_str_to_subject(id: &str) -> Option<oxrdf::Subject> {
+    use oxrdf::{BlankNode, NamedNode, Subject};
+    if let Some(iri) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
+        Some(Subject::NamedNode(NamedNode::new(iri).ok()?))
+    } else if let Some(b) = id.strip_prefix("_:") {
+        Some(Subject::BlankNode(BlankNode::new(b).ok()?))
+    } else {
+        None
+    }
+}
+
+/// Strip surrounding `<…>` from a node-iri term string for `NamedNode::new`.
+#[cfg(feature = "rdf")]
+fn strip_iri(s: &str) -> &str {
+    s.strip_prefix('<')
+        .and_then(|x| x.strip_suffix('>'))
+        .unwrap_or(s)
+}
+
+/// A solution binding → an RDF object term. A node binding parses as a resource (or a
+/// simple literal if it is not a term form); a literal binding is a simple literal.
+#[cfg(feature = "rdf")]
+fn binding_to_term(b: &Binding) -> oxrdf::Term {
+    use oxrdf::{Literal, Term};
+    match b {
+        Binding::Node(id) => match node_str_to_subject(id) {
+            Some(oxrdf::Subject::NamedNode(n)) => Term::NamedNode(n),
+            Some(oxrdf::Subject::BlankNode(bn)) => Term::BlankNode(bn),
+            _ => Term::Literal(Literal::new_simple_literal(b.as_str())),
+        },
+        Binding::Literal(v) => Term::Literal(Literal::new_simple_literal(v)),
+    }
+}
+
+/// Build an RDF triple from projected term strings (`object_is_node` distinguishes a
+/// resource object from a literal object).
+#[cfg(feature = "rdf")]
+fn build_triple(s: &str, p: &str, o: &str, object_is_node: bool) -> Option<oxrdf::Triple> {
+    use oxrdf::{Literal, NamedNode, Term, Triple};
+    let subj = node_str_to_subject(s)?;
+    let pred = NamedNode::new(strip_iri(p)).ok()?;
+    let obj = if object_is_node {
+        match node_str_to_subject(o)? {
+            oxrdf::Subject::NamedNode(n) => Term::NamedNode(n),
+            oxrdf::Subject::BlankNode(b) => Term::BlankNode(b),
+        }
+    } else {
+        Term::Literal(Literal::new_simple_literal(o))
+    };
+    Some(Triple::new(subj, pred, obj))
 }
 
 fn collect_vars(p: &GraphPattern) -> Vec<String> {
@@ -258,28 +633,24 @@ fn collect_vars(p: &GraphPattern) -> Vec<String> {
 }
 
 /// The algebra walker.
-fn eval_pattern(
-    view: &GraphView,
-    p: &GraphPattern,
-    proj: &Projection,
-) -> Result<Vec<Solution>, String> {
+fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
     match p {
-        GraphPattern::Bgp { patterns } => Ok(eval_bgp(view, patterns, proj)),
+        GraphPattern::Bgp { patterns } => Ok(eval_bgp(ctx, patterns)),
         GraphPattern::Path {
             subject,
             path,
             object,
-        } => eval_path(view, subject, path, object, proj),
+        } => eval_path(ctx, subject, path, object),
         GraphPattern::Filter { expr, inner } => {
-            let inner_sols = eval_pattern(view, inner, proj)?;
+            let inner_sols = eval_pattern(ctx, inner)?;
             Ok(inner_sols
                 .into_iter()
                 .filter(|s| eval_filter(expr, s))
                 .collect())
         }
         GraphPattern::Join { left, right } => {
-            let l = eval_pattern(view, left, proj)?;
-            let r = eval_pattern(view, right, proj)?;
+            let l = eval_pattern(ctx, left)?;
+            let r = eval_pattern(ctx, right)?;
             Ok(hash_join(&l, &r))
         }
         GraphPattern::LeftJoin {
@@ -289,17 +660,17 @@ fn eval_pattern(
         } => {
             // OPTIONAL: keep every left solution; extend with a compatible right
             // (passing the optional FILTER) where one exists.
-            let l = eval_pattern(view, left, proj)?;
-            let r = eval_pattern(view, right, proj)?;
+            let l = eval_pattern(ctx, left)?;
+            let r = eval_pattern(ctx, right)?;
             Ok(left_join(&l, &r, expression.as_ref()))
         }
         GraphPattern::Union { left, right } => {
-            let mut l = eval_pattern(view, left, proj)?;
-            let mut r = eval_pattern(view, right, proj)?;
+            let mut l = eval_pattern(ctx, left)?;
+            let mut r = eval_pattern(ctx, right)?;
             l.append(&mut r);
             Ok(l)
         }
-        GraphPattern::Project { inner, .. } => eval_pattern(view, inner, proj),
+        GraphPattern::Project { inner, .. } => eval_pattern(ctx, inner),
         // GROUP BY + aggregates (CONCEPT:KG-2.235). `Group` produces one solution per
         // group binding the GROUP BY vars + the aggregate-result vars; the wrapping
         // `Extend` (below) re-binds those to the projected names. With no GROUP BY var
@@ -309,7 +680,7 @@ fn eval_pattern(
             variables,
             aggregates,
         } => {
-            let rows = eval_pattern(view, inner, proj)?;
+            let rows = eval_pattern(ctx, inner)?;
             Ok(eval_group(rows, variables, aggregates))
         }
         // BIND / the aggregate-projection rename. `Extend` binds `variable` to the
@@ -321,7 +692,7 @@ fn eval_pattern(
             variable,
             expression,
         } => {
-            let rows = eval_pattern(view, inner, proj)?;
+            let rows = eval_pattern(ctx, inner)?;
             Ok(rows
                 .into_iter()
                 .map(|mut s| {
@@ -332,41 +703,47 @@ fn eval_pattern(
                 })
                 .collect())
         }
-        // GRAPH ?g { … } (CONCEPT:KG-2.235). The engine evaluates over ONE graph (the
-        // request graph), so the named-graph form binds `?g` to that single graph's
-        // name and evaluates the inner pattern against it. A constant graph IRI passes
-        // through (it selects the same single dataset).
-        GraphPattern::Graph { name, inner } => {
-            let inner_sols = eval_pattern(view, inner, proj)?;
-            match name {
-                NamedNodePattern::Variable(v) => {
-                    // ONE dataset here: `?g` binds the (single) request graph's IRI.
-                    let g = Binding::Node(DEFAULT_GRAPH_IRI.to_string());
-                    Ok(inner_sols
-                        .into_iter()
-                        .map(|mut s| {
-                            s.entry(v.as_str().to_string()).or_insert_with(|| g.clone());
-                            s
-                        })
-                        .collect())
+        // GRAPH … { … } — true named-graph scoping (CONCEPT:EG-017). A constant graph
+        // IRI re-scopes evaluation to THAT named graph (empty if it is not in the
+        // dataset). A variable `?g` ranges over EVERY named graph, evaluating the inner
+        // pattern against each and binding `?g` to its IRI (the union). This replaces
+        // the prior single-dataset collapse onto `DEFAULT_GRAPH_IRI`.
+        GraphPattern::Graph { name, inner } => match name {
+            NamedNodePattern::NamedNode(n) => match ctx.ds.named_view(n.as_str()) {
+                Some(v) => eval_pattern(&ctx.with_active(v), inner),
+                None => Ok(Vec::new()),
+            },
+            NamedNodePattern::Variable(v) => {
+                let mut out = Vec::new();
+                for (gname, gview) in &ctx.ds.named {
+                    let binding = Binding::Node(format!("<{gname}>"));
+                    for mut s in eval_pattern(&ctx.with_active(gview), inner)? {
+                        match s.get(v.as_str()) {
+                            Some(existing) if *existing != binding => continue,
+                            _ => {
+                                s.insert(v.as_str().to_string(), binding.clone());
+                            }
+                        }
+                        out.push(s);
+                    }
                 }
-                NamedNodePattern::NamedNode(_) => Ok(inner_sols),
+                Ok(out)
             }
-        }
+        },
         GraphPattern::Distinct { inner } => {
             let mut seen = std::collections::HashSet::new();
-            Ok(eval_pattern(view, inner, proj)?
+            Ok(eval_pattern(ctx, inner)?
                 .into_iter()
                 .filter(|s| seen.insert(canonical_solution(s)))
                 .collect())
         }
-        GraphPattern::Reduced { inner } => eval_pattern(view, inner, proj),
+        GraphPattern::Reduced { inner } => eval_pattern(ctx, inner),
         GraphPattern::Slice {
             inner,
             start,
             length,
         } => {
-            let all = eval_pattern(view, inner, proj)?;
+            let all = eval_pattern(ctx, inner)?;
             let end = length.map(|l| start + l).unwrap_or(all.len());
             Ok(all
                 .into_iter()
@@ -387,7 +764,9 @@ fn canonical_solution(s: &Solution) -> String {
     format!("{kv:?}")
 }
 
-/// The IRI `?g` binds to in a `GRAPH ?g {}` over the single request dataset.
+/// The IRI `?g` binds to in a `GRAPH ?g {}` over the single-graph dataset (the `<…>`
+/// wrapping of [`DEFAULT_GRAPH_NAME`]). Used by the named-graph back-compat test.
+#[cfg(test)]
 const DEFAULT_GRAPH_IRI: &str = "<urn:eg:graph:default>";
 
 // ── GROUP BY + aggregates (CONCEPT:KG-2.235) ────────────────────────────────────
@@ -519,10 +898,10 @@ fn fmt_num(n: f64) -> String {
 
 // ── BGP — match each triple pattern, join on shared variables ───────────────────
 
-fn eval_bgp(view: &GraphView, patterns: &[TriplePattern], proj: &Projection) -> Vec<Solution> {
+fn eval_bgp(ctx: &Ctx, patterns: &[TriplePattern]) -> Vec<Solution> {
     let mut acc: Vec<Solution> = vec![Solution::new()];
     for tp in patterns {
-        let matches = match_triple_pattern(view, tp, proj);
+        let matches = match_triple_pattern(ctx, tp);
         let mut next = Vec::new();
         for base in &acc {
             for m in &matches {
@@ -546,11 +925,10 @@ fn eval_bgp(view: &GraphView, patterns: &[TriplePattern], proj: &Projection) -> 
 /// their nesting) are evaluated by [`path_pairs`]: it computes the `(start, end)`
 /// resource pairs the path connects, then binds subject/object against them.
 fn eval_path(
-    view: &GraphView,
+    ctx: &Ctx,
     subject: &TermPattern,
     path: &PropertyPathExpression,
     object: &TermPattern,
-    proj: &Projection,
 ) -> Result<Vec<Solution>, String> {
     // A single named predicate stays the literal/edge triple-pattern matcher (it also
     // matches literal-valued predicates, which the resource-only path engine doesn't).
@@ -561,12 +939,12 @@ fn eval_path(
             predicate: NamedNodePattern::NamedNode(pred),
             object: object.clone(),
         };
-        return Ok(match_triple_pattern(view, &tp, proj));
+        return Ok(match_triple_pattern(ctx, &tp));
     }
 
     // The combinator forms resolve over RESOURCE edges (a property path connects nodes,
     // not literals). Enumerate the connected pairs, then bind the subject/object terms.
-    let pairs = path_pairs(view, path, proj)?;
+    let pairs = path_pairs(ctx, path)?;
     let mut out = Vec::new();
     for (s, o) in pairs {
         let mut sol = Solution::new();
@@ -591,20 +969,16 @@ fn eval_path(
 ///   * `ZeroOrMore(p)` → reflexive-transitive closure (`p*`, incl. identity on EVERY
 ///     node, per SPARQL `x p* x`).
 ///   * `ZeroOrOne(p)`  → `p` ∪ identity (`p?`).
-fn path_pairs(
-    view: &GraphView,
-    path: &PropertyPathExpression,
-    proj: &Projection,
-) -> Result<Vec<(String, String)>, String> {
+fn path_pairs(ctx: &Ctx, path: &PropertyPathExpression) -> Result<Vec<(String, String)>, String> {
     Ok(match path {
-        PropertyPathExpression::NamedNode(n) => edge_pairs(view, n.as_str(), proj),
-        PropertyPathExpression::Reverse(inner) => path_pairs(view, inner, proj)?
+        PropertyPathExpression::NamedNode(n) => edge_pairs(ctx, n.as_str()),
+        PropertyPathExpression::Reverse(inner) => path_pairs(ctx, inner)?
             .into_iter()
             .map(|(s, o)| (o, s))
             .collect(),
         PropertyPathExpression::Sequence(a, b) => {
-            let left = path_pairs(view, a, proj)?;
-            let right = path_pairs(view, b, proj)?;
+            let left = path_pairs(ctx, a)?;
+            let right = path_pairs(ctx, b)?;
             let mut out = Vec::new();
             for (s, mid) in &left {
                 for (rs, o) in &right {
@@ -616,23 +990,23 @@ fn path_pairs(
             dedup_pairs(out)
         }
         PropertyPathExpression::Alternative(a, b) => {
-            let mut out = path_pairs(view, a, proj)?;
-            out.extend(path_pairs(view, b, proj)?);
+            let mut out = path_pairs(ctx, a)?;
+            out.extend(path_pairs(ctx, b)?);
             dedup_pairs(out)
         }
         PropertyPathExpression::OneOrMore(inner) => {
-            let base = path_pairs(view, inner, proj)?;
-            transitive_closure(&base, false, view, proj)
+            let base = path_pairs(ctx, inner)?;
+            transitive_closure(&base, false, ctx)
         }
         PropertyPathExpression::ZeroOrMore(inner) => {
-            let base = path_pairs(view, inner, proj)?;
-            transitive_closure(&base, true, view, proj)
+            let base = path_pairs(ctx, inner)?;
+            transitive_closure(&base, true, ctx)
         }
         PropertyPathExpression::ZeroOrOne(inner) => {
-            let mut out = path_pairs(view, inner, proj)?;
+            let mut out = path_pairs(ctx, inner)?;
             // identity on every node (`x p? x`).
-            for id in view.node_properties.keys() {
-                let iri = proj.node_iri(id);
+            for id in ctx.active.node_properties.keys() {
+                let iri = ctx.proj.node_iri(id);
                 out.push((iri.clone(), iri));
             }
             dedup_pairs(out)
@@ -646,14 +1020,14 @@ fn path_pairs(
 /// Every `(subject, object)` resource pair carrying a typed edge whose projected
 /// predicate IRI equals `pred` (the path predicate, already a full IRI from spargebra).
 /// Subject/object are projected node IRIs so pairs match query terms + bind consistently.
-fn edge_pairs(view: &GraphView, pred: &str, proj: &Projection) -> Vec<(String, String)> {
+fn edge_pairs(ctx: &Ctx, pred: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for ((s, o), blobs) in &view.edge_properties {
+    for ((s, o), blobs) in &ctx.active.edge_properties {
         for blob in blobs {
             if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
                 if let Some(rel) = v.get("type").and_then(|x| x.as_str()) {
-                    if proj.pred_iri(rel) == pred {
-                        out.push((proj.node_iri(s), proj.node_iri(o)));
+                    if ctx.proj.pred_iri(rel) == pred {
+                        out.push((ctx.proj.node_iri(s), ctx.proj.node_iri(o)));
                         break;
                     }
                 }
@@ -668,8 +1042,7 @@ fn edge_pairs(view: &GraphView, pred: &str, proj: &Projection) -> Vec<(String, S
 fn transitive_closure(
     base: &[(String, String)],
     reflexive: bool,
-    view: &GraphView,
-    proj: &Projection,
+    ctx: &Ctx,
 ) -> Vec<(String, String)> {
     use std::collections::{HashMap, HashSet};
     // adjacency.
@@ -695,8 +1068,8 @@ fn transitive_closure(
         }
     }
     if reflexive {
-        for id in view.node_properties.keys() {
-            let iri = proj.node_iri(id);
+        for id in ctx.active.node_properties.keys() {
+            let iri = ctx.proj.node_iri(id);
             out.insert((iri.clone(), iri));
         }
     }
@@ -714,7 +1087,9 @@ fn dedup_pairs(v: Vec<(String, String)>) -> Vec<(String, String)> {
 /// subject an IRI/bnode/variable. Subject/object resource IRIs, property/edge predicate
 /// IRIs, and the synthesized `rdf:type` object are all produced by `proj` so the
 /// projected triples match the caller's vocabulary (CONCEPT:KG-2.240).
-fn match_triple_pattern(view: &GraphView, tp: &TriplePattern, proj: &Projection) -> Vec<Solution> {
+fn match_triple_pattern(ctx: &Ctx, tp: &TriplePattern) -> Vec<Solution> {
+    let view = ctx.active;
+    let proj = ctx.proj;
     let mut out = Vec::new();
 
     // EDGE patterns: object is a resource. Scan edges; project subject/predicate/object.
@@ -1442,5 +1817,163 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             !preds.iter().any(|p| p.contains("rdf-syntax-ns#type")),
             "identity projection synthesizes NO rdf:type; got {preds:?}"
         );
+    }
+
+    // ── CONCEPT:EG-017 — ASK / CONSTRUCT / DESCRIBE / named graphs ──────────────
+
+    /// ASK returns true when the pattern matches, false when it does not.
+    #[test]
+    fn ask_true_and_false() {
+        let view = loaded_view();
+        let t = run_outcome(
+            &view,
+            "PREFIX ex: <http://example.org/> ASK { ex:alice ex:name \"Alice\" }",
+            &Projection::raw(),
+        )
+        .unwrap();
+        assert!(matches!(t, QueryOutcome::Boolean(true)), "got {t:?}");
+        let f = run_outcome(
+            &view,
+            "PREFIX ex: <http://example.org/> ASK { ex:alice ex:name \"Zelda\" }",
+            &Projection::raw(),
+        )
+        .unwrap();
+        assert!(matches!(f, QueryOutcome::Boolean(false)), "got {f:?}");
+    }
+
+    /// CONSTRUCT instantiates its template — re-predicate `ex:knows` as `ex:friend`.
+    #[test]
+    fn construct_returns_expected_triples() {
+        let view = loaded_view();
+        let out = run_outcome(
+            &view,
+            r#"PREFIX ex: <http://example.org/>
+               CONSTRUCT { ?a ex:friend ?b } WHERE { ?a ex:knows ?b }"#,
+            &Projection::raw(),
+        )
+        .unwrap();
+        let QueryOutcome::Graph(triples) = out else {
+            panic!("expected a graph")
+        };
+        // carol knows alice; alice knows bob ⇒ two friend triples.
+        let mut got: Vec<String> = triples
+            .iter()
+            .map(|t| {
+                format!(
+                    "{} {}",
+                    t.subject,
+                    match &t.object {
+                        oxrdf::Term::NamedNode(n) => n.as_str().to_string(),
+                        other => other.to_string(),
+                    }
+                )
+            })
+            .collect();
+        got.sort();
+        assert!(triples
+            .iter()
+            .all(|t| t.predicate.as_str() == "http://example.org/friend"));
+        assert_eq!(
+            got,
+            vec![
+                "<http://example.org/alice> http://example.org/bob".to_string(),
+                "<http://example.org/carol> http://example.org/alice".to_string(),
+            ],
+            "got {got:?}"
+        );
+    }
+
+    /// DESCRIBE returns the triples about the resource (subject- and object-position).
+    #[test]
+    fn describe_returns_resource_triples() {
+        let view = loaded_view();
+        let out = run_outcome(
+            &view,
+            "PREFIX ex: <http://example.org/> DESCRIBE ex:alice",
+            &Projection::raw(),
+        )
+        .unwrap();
+        let QueryOutcome::Graph(triples) = out else {
+            panic!("expected a graph")
+        };
+        let alice = "<http://example.org/alice>";
+        // Every described triple must mention alice in subject or object position.
+        assert!(!triples.is_empty(), "alice has a description");
+        assert!(
+            triples
+                .iter()
+                .all(|t| t.subject.to_string() == alice || t.object.to_string() == alice),
+            "every DESCRIBE triple touches alice; got {triples:?}"
+        );
+        // Her own properties (name) are in subject position …
+        assert!(
+            triples
+                .iter()
+                .any(|t| t.subject.to_string() == alice
+                    && t.predicate.as_str() == "http://example.org/name"),
+            "alice's name is described"
+        );
+        // … and carol-knows-alice is in object position (CBD object side).
+        assert!(
+            triples.iter().any(|t| t.object.to_string() == alice
+                && t.predicate.as_str() == "http://example.org/knows"),
+            "the inbound knows edge is described"
+        );
+    }
+
+    /// Query-side named-graph isolation: a triple in graph A is not visible when the
+    /// `GRAPH <B>` form scopes to graph B.
+    #[test]
+    fn named_graph_query_isolation() {
+        let core_a = eg_core::graph::GraphCore::new();
+        let mut iris = IriStore::default();
+        load_triples(
+            &core_a,
+            &mut iris,
+            "a",
+            parse_turtle("@prefix ex: <http://ex/> . ex:a ex:p ex:b .").unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        let core_b = eg_core::graph::GraphCore::new();
+        load_triples(
+            &core_b,
+            &mut iris,
+            "b",
+            parse_turtle("@prefix ex: <http://ex/> . ex:c ex:p ex:d .").unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        let va = core_a.analysis_snapshot();
+        let vb = core_b.analysis_snapshot();
+        let default = GraphView::default();
+        let ds = Dataset::new(
+            &default,
+            vec![("http://g/a".to_string(), &va), ("http://g/b".to_string(), &vb)],
+        );
+        // ex:a is in graph A only — scoping to B yields nothing.
+        let in_b = run_outcome_dataset(
+            &ds,
+            "SELECT ?o WHERE { GRAPH <http://g/b> { <http://ex/a> <http://ex/p> ?o } }",
+            &Projection::raw(),
+        )
+        .unwrap();
+        let QueryOutcome::Solutions(rb) = in_b else {
+            panic!()
+        };
+        assert!(rb.solutions.is_empty(), "ex:a not visible in graph B");
+        // Scoping to A finds it.
+        let in_a = run_outcome_dataset(
+            &ds,
+            "SELECT ?o WHERE { GRAPH <http://g/a> { <http://ex/a> <http://ex/p> ?o } }",
+            &Projection::raw(),
+        )
+        .unwrap();
+        let QueryOutcome::Solutions(ra) = in_a else {
+            panic!()
+        };
+        assert_eq!(ra.solutions.len(), 1, "ex:a visible in graph A");
     }
 }
