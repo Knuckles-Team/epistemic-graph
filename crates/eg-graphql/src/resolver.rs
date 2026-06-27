@@ -20,7 +20,7 @@ use eg_core::graph::GraphView;
 use petgraph::visit::EdgeRef;
 use serde_json::{Map, Value};
 
-use crate::parser::{parse, Field, GqlValue, Query};
+use crate::parser::{gql_to_json, parse, Field, GqlValue, Query};
 use crate::schema::{decode, node_labels, Schema};
 
 /// Default cap on root-field rows when no `first`/`limit` arg is given (mirrors the
@@ -99,8 +99,10 @@ fn resolve_root(view: &GraphView, field: &Field) -> Result<Vec<Value>, String> {
     Ok(out)
 }
 
-/// Resolve a node's selection set into a JSON object.
-fn resolve_selection(
+/// Resolve a node's selection set into a JSON object. `pub(crate)` so the mutation
+/// executor (CONCEPT:EG-019) can shape the object it returns for a written node using
+/// the SAME selection-resolution the query path uses.
+pub(crate) fn resolve_selection(
     view: &GraphView,
     node_id: &str,
     val: &Value,
@@ -263,16 +265,5 @@ fn scalar_string(v: &Value) -> Option<String> {
         Value::Number(n) => Some(n.to_string()),
         Value::Bool(b) => Some(b.to_string()),
         _ => None,
-    }
-}
-
-fn gql_to_json(v: &GqlValue) -> Value {
-    match v {
-        GqlValue::Int(n) => Value::Number((*n).into()),
-        GqlValue::Float(f) => serde_json::Number::from_f64(*f)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-        GqlValue::Str(s) => Value::String(s.clone()),
-        GqlValue::Bool(b) => Value::Bool(*b),
     }
 }
