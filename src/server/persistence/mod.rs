@@ -36,6 +36,18 @@ pub mod snapshot_wal;
 #[cfg(feature = "redb")]
 pub mod redb_backend;
 
+// M3 — catalog-driven resharding (CONCEPT:EG-030 / EG-031). Both are redb-only:
+//   * `shard_migrate` — OFFLINE K-shard migration tool that rewrites an existing
+//     `graph.redb`/`graph-<n>.redb` set into a NEW K using the SAME EG-026 routing,
+//     preserving every durable row verbatim (incl. the tamper-evident audit chain).
+//   * `tenant_catalog` — durable graph/tenant→shard (and future →node) map + a
+//     read-only routing-override seam, defaulting to EG-026 FNV-1a when empty.
+#[cfg(feature = "redb")]
+pub mod shard_migrate;
+
+#[cfg(feature = "redb")]
+pub mod tenant_catalog;
+
 /// A durable persistence tier for the graph registry.
 ///
 /// `load_all`/`checkpoint_all` are async to match the existing `persist.rs`
