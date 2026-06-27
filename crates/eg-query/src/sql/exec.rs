@@ -23,6 +23,11 @@ use super::catalog::register_pg_catalog;
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, PagerankFunc};
 use super::udfs::{epistemic_decay_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf};
+use crate::tables::TableStore;
+
+/// One user table materialized for registration into the SQL context: its name plus
+/// the Arrow `(schema, batch)` scanned out of the redb store (CONCEPT:EG-018).
+type UserTable = (String, SchemaRef, arrow::record_batch::RecordBatch);
 
 /// Implicit max rows guarded into the result. Transport is one Response per
 /// Request (no streaming), so an unbounded SELECT would buffer the whole graph in
@@ -35,7 +40,25 @@ const MAX_ROWS: usize = 50_000;
 pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run(view, nodes, edges, sql)
+    run(view, nodes, edges, Vec::new(), sql)
+}
+
+/// Materialize EVERY user table in `store` into an Arrow `(name, schema, batch)` so
+/// it can be registered alongside `nodes`/`edges` (CONCEPT:EG-018). One redb scan
+/// per table; the unified-engine payoff is that the resulting tables join the graph
+/// in a single DataFusion plan.
+fn materialize_user_tables(store: &TableStore) -> Result<Vec<UserTable>, String> {
+    let mut out = Vec::new();
+    for name in store.list_tables()? {
+        let schema = match store.get_schema(&name)? {
+            Some(s) => s,
+            None => continue,
+        };
+        let rows = store.scan(&name)?;
+        let (arrow_schema, batch) = crate::tables::provider::materialize(&schema, &rows)?;
+        out.push((name, arrow_schema, batch));
+    }
+    Ok(out)
 }
 
 /// A coarse, Postgres-mappable column type derived from the Arrow result schema.
@@ -75,7 +98,23 @@ pub struct TypedQueryResult {
 pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run_typed(view, nodes, edges, sql)
+    run_typed(view, nodes, edges, Vec::new(), sql)
+}
+
+/// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-018). Identical
+/// to [`exec_sql_typed`] but every `CREATE TABLE` user table is registered as a
+/// DataFusion `TableProvider` alongside `nodes`/`edges`, so a SELECT can read a user
+/// table, JOIN it to the graph, or both in ONE plan. This is the read path the pgwire
+/// shim calls so `psql`/ORMs see user tables and the graph in the same database.
+pub fn exec_sql_typed_with_tables(
+    view: &GraphView,
+    store: &TableStore,
+    sql: &str,
+) -> Result<TypedQueryResult, String> {
+    let nodes = infer_nodes(view)?;
+    let edges = infer_edges(view)?;
+    let user = materialize_user_tables(store)?;
+    run_typed(view, nodes, edges, user, sql)
 }
 
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
@@ -89,7 +128,7 @@ pub fn exec_sql_cached(
     sql: &str,
 ) -> Result<QueryResult, String> {
     let tables = cache.tables_at(view, version)?;
-    run(view, tables.nodes, tables.edges, sql)
+    run(view, tables.nodes, tables.edges, Vec::new(), sql)
 }
 
 /// Build the shared `SessionContext` for a SQL run: register the `nodes`/`edges`
@@ -104,6 +143,7 @@ fn build_ctx(
     snap: Arc<GraphView>,
     nodes: (SchemaRef, arrow::record_batch::RecordBatch),
     edges: (SchemaRef, arrow::record_batch::RecordBatch),
+    user_tables: Vec<UserTable>,
 ) -> Result<SessionContext, String> {
     let nodes_schema = nodes.0.clone();
     let edges_schema = edges.0.clone();
@@ -124,6 +164,17 @@ fn build_ctx(
         .map_err(|e| format!("register nodes: {e}"))?;
     ctx.register_table("edges", Arc::new(edges_table))
         .map_err(|e| format!("register edges: {e}"))?;
+    // CONCEPT:EG-018: register each user table (a MemTable over its scanned rows)
+    // alongside the graph projection, and remember its schema for the catalog so a
+    // reflecting driver sees it in `pg_class`/`information_schema`.
+    let mut user_relations: Vec<(String, SchemaRef)> = Vec::with_capacity(user_tables.len());
+    for (name, schema, batch) in user_tables {
+        let table = MemTable::try_new(schema.clone(), vec![vec![batch]])
+            .map_err(|e| format!("user table `{name}` mem table: {e}"))?;
+        ctx.register_table(name.as_str(), Arc::new(table))
+            .map_err(|e| format!("register user table `{name}`: {e}"))?;
+        user_relations.push((name, schema));
+    }
     ctx.register_udf(json_get_udf());
     ctx.register_udf(json_get_f64_udf());
     ctx.register_udf(json_get_i64_udf());
@@ -135,8 +186,9 @@ fn build_ctx(
         ctx.register_udaf(super::udfs::var_udaf());
         ctx.register_udaf(super::udfs::cvar_udaf());
     }
-    // CONCEPT:KG-2.201: supplement the pg_catalog DataFusion does not provide.
-    register_pg_catalog(&ctx, &nodes_schema, &edges_schema)?;
+    // CONCEPT:KG-2.201/EG-018: supplement the pg_catalog DataFusion does not provide,
+    // including the user tables so an ORM reflects them.
+    register_pg_catalog(&ctx, &nodes_schema, &edges_schema, &user_relations)?;
     Ok(ctx)
 }
 
@@ -152,6 +204,7 @@ fn run(
         arrow::datatypes::SchemaRef,
         arrow::record_batch::RecordBatch,
     ),
+    user_tables: Vec<UserTable>,
     sql: &str,
 ) -> Result<QueryResult, String> {
     // The graph table functions run their kernel over an owned snapshot; clone the
@@ -164,7 +217,7 @@ fn run(
         .map_err(|e| format!("runtime build: {e}"))?;
 
     rt.block_on(async move {
-        let ctx = build_ctx(snap, nodes, edges)?;
+        let ctx = build_ctx(snap, nodes, edges, user_tables)?;
         let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_result(&batches)
@@ -184,6 +237,7 @@ fn run_typed(
         arrow::datatypes::SchemaRef,
         arrow::record_batch::RecordBatch,
     ),
+    user_tables: Vec<UserTable>,
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
     let snap = Arc::new(view.clone());
@@ -194,7 +248,7 @@ fn run_typed(
         .map_err(|e| format!("runtime build: {e}"))?;
 
     rt.block_on(async move {
-        let ctx = build_ctx(snap, nodes, edges)?;
+        let ctx = build_ctx(snap, nodes, edges, user_tables)?;
         let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
