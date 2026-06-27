@@ -25,6 +25,8 @@
 //!   * `graph_meta`     `graph                  -> {name, graph_type} blob`
 
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::protocol::{GraphType, Method};
@@ -108,13 +110,22 @@ impl<'a> DurableCrypto<'a> {
     }
 
     /// Seal a value blob for storage. Identity when no cipher is active.
+    ///
+    /// Returns `Cow` so the **encryption-OFF** path (the default — no key configured)
+    /// BORROWS the caller's plaintext with ZERO allocation/copy (CONCEPT:EG-029 #4): the
+    /// bytes are handed straight to redb's `insert` via `as_ref()`, byte-for-byte
+    /// identical to what `plaintext.to_vec()` produced before, so the on-disk format is
+    /// unchanged. Only when a cipher IS active does it allocate the owned ciphertext
+    /// (seal + encrypt, behavior unchanged). This removes a per-op heap allocation +
+    /// memcpy of every node/edge/property value blob from inside the held write txn on
+    /// the CPU-bound writer thread, for the common at-rest-encryption-off deployment.
     #[inline]
-    fn seal(&self, plaintext: &[u8]) -> Vec<u8> {
+    fn seal<'b>(&self, plaintext: &'b [u8]) -> Cow<'b, [u8]> {
         #[cfg(feature = "security")]
         if let Some(c) = self.cipher {
-            return c.seal(plaintext);
+            return Cow::Owned(c.seal(plaintext));
         }
-        plaintext.to_vec()
+        Cow::Borrowed(plaintext)
     }
 
     /// Unseal a stored value blob. Identity when no cipher is active; a sealed blob
@@ -282,9 +293,10 @@ pub(crate) fn commit_crossmodal(
                 "__blob__".to_string(),
                 serde_json::Value::String(digest.clone()),
             );
-            let blob = crypto.seal(&rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?);
+            let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+            let blob = crypto.seal(&bytes);
             nodes
-                .insert((graph, node_id.as_str()), blob.as_slice())
+                .insert((graph, node_id.as_str()), blob.as_ref())
                 .map_err(|e| e.to_string())?;
         }
 
@@ -304,9 +316,10 @@ pub(crate) fn commit_crossmodal(
             for (node_id, embedding) in vectors {
                 store.add_embedding(node_id.clone(), embedding.clone());
             }
-            let blob = crypto.seal(&rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?);
+            let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+            let blob = crypto.seal(&bytes);
             semantic
-                .insert(graph, blob.as_slice())
+                .insert(graph, blob.as_ref())
                 .map_err(|e| e.to_string())?;
         }
 
@@ -376,7 +389,7 @@ pub(crate) fn apply_method_rows(
         } => {
             let blob = crypto.seal(properties_msgpack);
             nodes
-                .insert((graph, node_id.as_str()), blob.as_slice())
+                .insert((graph, node_id.as_str()), blob.as_ref())
                 .map_err(|e| e.to_string())?;
         }
         Method::RemoveNode { node_id } => {
@@ -400,6 +413,9 @@ pub(crate) fn apply_method_rows(
             for (s, t, o) in to_del {
                 let _ = edges.remove((graph, s.as_str(), t.as_str(), o));
             }
+            // EG-029: this node's outgoing edges are gone — drop their cached ordinals so
+            // a later AddEdge from `node_id` re-seeds from the (now empty) post-removal scan.
+            invalidate_node_edge_ords(graph, node_id);
         }
         Method::CompareAndSetNodeFields {
             node_id,
@@ -409,7 +425,7 @@ pub(crate) fn apply_method_rows(
             // Write-through best-effort: persist the post-update node properties.
             let blob = crypto.seal(updates_msgpack);
             nodes
-                .insert((graph, node_id.as_str()), blob.as_slice())
+                .insert((graph, node_id.as_str()), blob.as_ref())
                 .map_err(|e| e.to_string())?;
         }
         Method::AddEdge {
@@ -422,7 +438,7 @@ pub(crate) fn apply_method_rows(
             edges
                 .insert(
                     (graph, source_id.as_str(), target_id.as_str(), ord),
-                    blob.as_slice(),
+                    blob.as_ref(),
                 )
                 .map_err(|e| e.to_string())?;
         }
@@ -443,6 +459,8 @@ pub(crate) fn apply_method_rows(
             for o in ords {
                 let _ = edges.remove((graph, source_id.as_str(), target_id.as_str(), o));
             }
+            // EG-029: drop the cached next-ordinal for this (src,tgt) so a re-add re-seeds.
+            invalidate_edge_ord(graph, source_id, target_id);
         }
         Method::BatchUpdate { operations_msgpack } => {
             apply_batch_rows(graph, operations_msgpack, nodes, edges, crypto)?;
@@ -565,8 +583,85 @@ pub(crate) fn verify_audit(
     ))
 }
 
+// ── O(1) edge-ordinal counter (CONCEPT:EG-029 #3) ────────────────────────────
+//
+// **Why this exists (profiling rationale).** Assigning an edge's ordinal used to
+// RANGE-SCAN that (graph,src,tgt)'s existing edge rows on EVERY `AddEdge` to find
+// `max+1` — O(degree) B-tree walks inside the held `WriteTransaction`. On a
+// high-degree node every insert got slower as the node fan-out grew, burning the
+// now-CPU-bound writer (post EG-024). This mirrors the EG-025 audit-tail fix: keep
+// an in-memory per-(graph,src,tgt) next-ordinal counter and chain off it with NO
+// per-op scan.
+//
+// **Why an in-memory counter is authoritative.** EG-026 gives each shard a single
+// dedicated writer thread (`eg-redb-writer*`), and a graph routes deterministically
+// to exactly one shard — so that thread is the ONLY mutator of its EDGES rows.
+// Nothing can advance an ordinal behind our back, so a counter living in that
+// thread's storage is correct. We hold it in a `thread_local` rather than a threaded
+// parameter because the shared `commit_ops`/`commit_crossmodal` signatures are fixed
+// by an out-of-scope caller (`redb_backend`); a thread-local is naturally scoped to
+// the one writer thread and lives for its whole lifetime (= the `Pending` lifetime
+// that holds the EG-025 audit cache). On any OTHER thread (the embedded one-op-per-
+// txn path, tests, tooling) the counter is NOT authoritative — another thread could
+// be the real writer — so those contexts fall back to the scan: behavior + cost
+// unchanged from before.
+//
+// **Restart / correctness.** A fresh process ⇒ fresh writer thread ⇒ empty cache ⇒
+// the first touch of each (graph,src,tgt) re-seeds from exactly ONE scan (max+1, or 0
+// when none), then advances in RAM. Edge removals on the writer thread
+// (RemoveEdge/RemoveNode/ClearGraph/checkpoint-clear) INVALIDATE the relevant cache
+// entries so a later AddEdge re-seeds from the post-removal state — preserving the
+// exact "reset to 0 once all edges of a pair are gone" behavior of the old scan.
+// Because the counter is seeded at the true `max+1` and only ever increments within
+// the sole writer, an assigned ordinal can never collide with an existing row and is
+// strictly monotonic per (graph,src,tgt).
+thread_local! {
+    /// True iff this thread is a dedicated redb group-commit writer (`eg-redb-writer`
+    /// / `eg-redb-writer-<i>`, CONCEPT:EG-026). Computed once per thread; gates whether
+    /// the in-RAM edge-ordinal counter below is authoritative.
+    static IS_REDB_WRITER: bool = std::thread::current()
+        .name()
+        .map(|n| n.starts_with("eg-redb-writer"))
+        .unwrap_or(false);
+
+    /// `(graph, src, tgt) -> next ordinal to assign`. Seeded once per key from a single
+    /// scan (incl. after a restart — a fresh thread starts empty), advanced in RAM per
+    /// AddEdge, invalidated on edge removal. Only populated on a writer thread.
+    static EDGE_ORD_CACHE: RefCell<HashMap<(String, String, String), u32>> =
+        RefCell::new(HashMap::new());
+}
+
 /// Next free edge ordinal for a (src,tgt) pair in this graph.
+///
+/// O(1) on the dedicated writer thread (EG-026/EG-029): the in-RAM counter, seeded once
+/// per (graph,src,tgt) from one scan. Off the writer thread it is NOT authoritative, so
+/// it falls back to the unchanged O(degree) scan.
 fn next_edge_ordinal(
+    edges: &redb::Table<(&str, &str, &str, u32), &[u8]>,
+    graph: &str,
+    src: &str,
+    tgt: &str,
+) -> Result<u32, String> {
+    if !IS_REDB_WRITER.with(|w| *w) {
+        return scan_next_edge_ordinal(edges, graph, src, tgt);
+    }
+    EDGE_ORD_CACHE.with(|c| -> Result<u32, String> {
+        let mut cache = c.borrow_mut();
+        let key = (graph.to_string(), src.to_string(), tgt.to_string());
+        let next = match cache.get(&key) {
+            // Hot path: the cached counter — NO scan inside the held write txn.
+            Some(&n) => n,
+            // Cold path: first touch since open / restart — seed from one scan.
+            None => scan_next_edge_ordinal(edges, graph, src, tgt)?,
+        };
+        cache.insert(key, next + 1);
+        Ok(next)
+    })
+}
+
+/// The original O(degree) scan: highest existing ordinal for (graph,src,tgt), +1 (or 0).
+/// Used to SEED the EG-029 counter on first touch and as the off-writer-thread fallback.
+fn scan_next_edge_ordinal(
     edges: &redb::Table<(&str, &str, &str, u32), &[u8]>,
     graph: &str,
     src: &str,
@@ -583,6 +678,31 @@ fn next_edge_ordinal(
         .map(|(k, _)| k.value().3)
         .max();
     Ok(max.map(|m| m + 1).unwrap_or(0))
+}
+
+/// Drop the cached next-ordinal for ONE (graph,src,tgt) (RemoveEdge). No-op off the
+/// writer thread / when the key was never cached.
+fn invalidate_edge_ord(graph: &str, src: &str, tgt: &str) {
+    EDGE_ORD_CACHE.with(|c| {
+        c.borrow_mut()
+            .remove(&(graph.to_string(), src.to_string(), tgt.to_string()));
+    });
+}
+
+/// Drop every cached next-ordinal whose SOURCE is `node` in `graph` (RemoveNode sweeps
+/// exactly that node's outgoing edges).
+fn invalidate_node_edge_ords(graph: &str, node: &str) {
+    EDGE_ORD_CACHE.with(|c| {
+        c.borrow_mut()
+            .retain(|(g, s, _), _| !(g == graph && s == node));
+    });
+}
+
+/// Drop every cached next-ordinal for `graph` (ClearGraph / purge / checkpoint re-seed).
+fn invalidate_graph_edge_ords(graph: &str) {
+    EDGE_ORD_CACHE.with(|c| {
+        c.borrow_mut().retain(|(g, _, _), _| g != graph);
+    });
 }
 
 /// Apply a decoded `BatchUpdate` op-list as row writes.
@@ -608,7 +728,7 @@ fn apply_batch_rows(
                         .unwrap_or_default();
                     let props = crypto.seal(&props);
                     nodes
-                        .insert((graph, id), props.as_slice())
+                        .insert((graph, id), props.as_ref())
                         .map_err(|e| e.to_string())?;
                 }
             }
@@ -629,7 +749,7 @@ fn apply_batch_rows(
                     let props = crypto.seal(&props);
                     let ord = next_edge_ordinal(edges, graph, s, t)?;
                     edges
-                        .insert((graph, s, t, ord), props.as_slice())
+                        .insert((graph, s, t, ord), props.as_ref())
                         .map_err(|e| e.to_string())?;
                 }
             }
@@ -679,6 +799,10 @@ fn clear_graph_rows(
     for seq in seqs {
         let _ = ledger.remove((graph, seq));
     }
+    // EG-029: every edge for `graph` is gone — drop all cached ordinals so a later
+    // AddEdge (incl. checkpoint re-population, which clears then re-adds) re-seeds from
+    // the post-clear state. Covers ClearGraph, purge_graph_rows, and apply_checkpoint.
+    invalidate_graph_edge_ords(graph);
     Ok(())
 }
 
@@ -856,7 +980,7 @@ pub(crate) fn apply_checkpoint(
             for (id, props) in &dump.nodes {
                 let blob = crypto.seal(props);
                 nodes
-                    .insert((dump.graph.as_str(), id.as_str()), blob.as_slice())
+                    .insert((dump.graph.as_str(), id.as_str()), blob.as_ref())
                     .map_err(|e| e.to_string())?;
             }
             for (src, tgt, props) in &dump.edges {
@@ -865,7 +989,7 @@ pub(crate) fn apply_checkpoint(
                 edges
                     .insert(
                         (dump.graph.as_str(), src.as_str(), tgt.as_str(), ord),
-                        blob.as_slice(),
+                        blob.as_ref(),
                     )
                     .map_err(|e| e.to_string())?;
             }
@@ -876,7 +1000,7 @@ pub(crate) fn apply_checkpoint(
             }
             let sem = crypto.seal(&dump.semantic);
             semantic
-                .insert(dump.graph.as_str(), sem.as_slice())
+                .insert(dump.graph.as_str(), sem.as_ref())
                 .map_err(|e| e.to_string())?;
             meta.insert(
                 dump.graph.as_str(),
@@ -1075,6 +1199,133 @@ mod security_tests {
             node_id: node_id.to_string(),
             properties_msgpack: rmp_serde::to_vec_named(&props).unwrap(),
         }
+    }
+
+    fn add_edge_method(src: &str, tgt: &str) -> Method {
+        Method::AddEdge {
+            source_id: src.to_string(),
+            target_id: tgt.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+        }
+    }
+
+    /// Read back the stored ordinals for one (graph,src,tgt) in ascending order.
+    fn edge_ords(db: &Database, graph: &str, src: &str, tgt: &str) -> Vec<u32> {
+        let rtx = db.begin_read().unwrap();
+        let edges = rtx.open_table(EDGES).unwrap();
+        edges
+            .range((graph, src, tgt, 0u32)..)
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .take_while(|(k, _)| {
+                let (g, s, t, _) = k.value();
+                g == graph && s == src && t == tgt
+            })
+            .map(|(k, _)| k.value().3)
+            .collect()
+    }
+
+    /// CONCEPT:EG-029 #3 — the O(1) edge-ordinal counter assigns CORRECT, strictly
+    /// monotonic ordinals across many `AddEdge` to one node (per-op across SEPARATE commit
+    /// batches on the dedicated writer thread — the hot path that used to range-scan every
+    /// time), and a FRESH writer thread (the restart case) RE-SEEDS each (src,tgt) from one
+    /// scan and continues with no gap, reset, or collision. `RemoveEdge` invalidates the
+    /// counter so a re-add resets to 0, matching the old scan behavior exactly.
+    #[test]
+    fn edge_ordinals_monotonic_o1_counter_and_reseed_after_restart() {
+        let dir = tempdir();
+
+        // PHASE 1 — on a dedicated `eg-redb-writer*` thread so the EG-029 counter is active.
+        let d1 = dir.clone();
+        std::thread::Builder::new()
+            .name("eg-redb-writer-egtest".to_string())
+            .spawn(move || {
+                let crypto = DurableCrypto::none();
+                let db = open_db(&d1);
+                let mut tail = AuditTailCache::new();
+                let mut commit = |m: Method| {
+                    let mut ops = vec![("g".to_string(), m)];
+                    let mut log = Vec::new();
+                    commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto, &mut tail)
+                        .unwrap();
+                };
+                // 6 multi-edges a->b across SEPARATE batches (cross-batch in-RAM counter),
+                // interleaved with 2 a->c.
+                for _ in 0..6 {
+                    commit(add_edge_method("a", "b"));
+                }
+                commit(add_edge_method("a", "c"));
+                commit(add_edge_method("a", "c"));
+                assert_eq!(edge_ords(&db, "g", "a", "b"), vec![0, 1, 2, 3, 4, 5]);
+                assert_eq!(edge_ords(&db, "g", "a", "c"), vec![0, 1]);
+
+                // RemoveEdge invalidates the counter → re-add resets to 0 (old behavior).
+                commit(Method::RemoveEdge {
+                    source_id: "a".into(),
+                    target_id: "c".into(),
+                });
+                assert_eq!(edge_ords(&db, "g", "a", "c"), Vec::<u32>::new());
+                commit(add_edge_method("a", "c"));
+                assert_eq!(edge_ords(&db, "g", "a", "c"), vec![0]);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        // PHASE 2 — RESTART: reopen the SAME file on a NEW writer thread (fresh thread-local
+        // counter). Adding 3 more a->b must RE-SEED from one scan (max was 5) and continue
+        // 6,7,8 — monotonic, no reset, no collision.
+        let d2 = dir.clone();
+        std::thread::Builder::new()
+            .name("eg-redb-writer-egtest".to_string())
+            .spawn(move || {
+                let crypto = DurableCrypto::none();
+                let db = open_db(&d2);
+                let mut tail = AuditTailCache::new();
+                for _ in 0..3 {
+                    let mut ops = vec![("g".to_string(), add_edge_method("a", "b"))];
+                    let mut log = Vec::new();
+                    commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto, &mut tail)
+                        .unwrap();
+                }
+                assert_eq!(
+                    edge_ords(&db, "g", "a", "b"),
+                    vec![0, 1, 2, 3, 4, 5, 6, 7, 8],
+                    "re-seeded counter must continue monotonically after restart"
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// CONCEPT:EG-029 #4 — with encryption OFF, `seal` returns `Cow::Borrowed` and the
+    /// stored value blob is BYTE-FOR-BYTE the caller's plaintext (zero clone, no format
+    /// change). Proven by reading the stored bytes back and comparing to the input.
+    #[test]
+    fn seal_off_stores_plaintext_bytes_byte_identical() {
+        let dir = tempdir();
+        let crypto = DurableCrypto::none();
+        let db = open_db(&dir);
+        let pbytes = rmp_serde::to_vec_named(&serde_json::json!({"k": "v-plain-123"})).unwrap();
+        let mut ops = vec![(
+            "g".to_string(),
+            Method::AddNode {
+                node_id: "n".to_string(),
+                properties_msgpack: pbytes.clone(),
+            },
+        )];
+        let mut log = Vec::new();
+        let mut tail = AuditTailCache::new();
+        commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto, &mut tail).unwrap();
+
+        let rtx = db.begin_read().unwrap();
+        let nodes = rtx.open_table(NODES).unwrap();
+        let stored = nodes.get(("g", "n")).unwrap().unwrap().value().to_vec();
+        assert_eq!(
+            stored, pbytes,
+            "encryption-off stored bytes must equal the input plaintext (seal = identity)"
+        );
     }
 
     #[test]
