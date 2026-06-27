@@ -18,7 +18,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use eg_core::graph::{vf2_match_views, GraphView};
+use eg_core::graph::{vf2_match_views, GraphCore, GraphView};
 use petgraph::visit::EdgeRef;
 use serde_json::Value;
 
@@ -26,7 +26,10 @@ use serde_json::Value;
 pub use eg_types::protocol::QueryResult;
 
 use super::parser;
-use super::plan::{CompareOp, CypherQuery, Direction, EdgePat, NodePat, Predicate};
+use super::plan::{
+    CompareOp, CypherQuery, Direction, EdgePat, NodePat, Pattern, Predicate, SetItem, Statement,
+    WriteOp, WriteQuery,
+};
 
 /// Implicit max rows (mirrors the SQL surface): one Response per Request, so an
 /// unbounded RETURN would buffer the whole result in one message.
@@ -64,6 +67,351 @@ pub fn exec_cypher(view: &GraphView, cypher: &str) -> Result<QueryResult, String
         rows.push(blob);
     }
 
+    Ok(QueryResult { columns, rows })
+}
+
+// ── write path (CONCEPT:EG-020) ──────────────────────────────────────────────
+
+/// Parse + run a Cypher statement that MAY mutate `core` — `CREATE`/`MERGE`/`SET`/
+/// `[DETACH] DELETE`, with an optional leading `MATCH … WHERE` and trailing `RETURN`
+/// (CONCEPT:EG-020). A pure-read `MATCH … RETURN` is delegated to the unchanged
+/// snapshot read path, so this is the one entry-point a caller needs whether the
+/// statement reads or writes. Writes map to eg-core's OWN native ops (`add_node`,
+/// `add_edge`, `compare_and_set_fields`, `remove_node`, `remove_edge`) — NO
+/// DataFusion — and `mark_dirty()` is called once after a mutation so the label
+/// index / caches refresh.
+pub fn exec_cypher_write(core: &GraphCore, cypher: &str) -> Result<QueryResult, String> {
+    match parser::parse_statement(cypher)? {
+        // A read: take an off-lock snapshot and run the untouched read path.
+        Statement::Read(_) => {
+            let view = core.analysis_snapshot();
+            exec_cypher(&view, cypher)
+        }
+        Statement::Write(w) => exec_write(core, &w),
+    }
+}
+
+/// Execute a parsed write statement against `core` (CONCEPT:EG-020).
+fn exec_write(core: &GraphCore, w: &WriteQuery) -> Result<QueryResult, String> {
+    // Resolve the leading MATCH (if any) over a snapshot into bindings. No MATCH ⇒
+    // one empty binding (the write clauses run exactly once).
+    let snap = core.analysis_snapshot();
+    let mut bindings: Vec<HashMap<String, String>> = match &w.match_pattern {
+        Some(pattern) => {
+            let q = CypherQuery {
+                pattern: pattern.clone(),
+                where_clause: w.where_clause.clone(),
+                returns: Vec::new(),
+                limit: None,
+            };
+            resolve(&snap, &q)?
+        }
+        None => vec![HashMap::new()],
+    };
+
+    // Enrich bindings with edge variables (`-[r:REL]->`) so `DELETE r` can resolve the
+    // edge endpoints. For each named-edge hop, map `@edge@r -> "src\0tgt"`.
+    if let Some(pattern) = &w.match_pattern {
+        for binding in bindings.iter_mut() {
+            let mut prev_var = node_var(&pattern.start, 0);
+            for (i, (edge, node)) in pattern.hops.iter().enumerate() {
+                let next_var = node_var(node, i + 1);
+                if let Some(evar) = &edge.var {
+                    if let (Some(a), Some(b)) =
+                        (binding.get(&prev_var).cloned(), binding.get(&next_var).cloned())
+                    {
+                        let (src, tgt) = match edge.direction {
+                            Direction::Right => (a, b),
+                            Direction::Left => (b, a),
+                        };
+                        binding.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
+                    }
+                }
+                prev_var = next_var;
+            }
+        }
+    }
+
+    let mut mutated = false;
+    for binding in bindings.iter_mut() {
+        for op in &w.ops {
+            apply_write_op(core, &snap, binding, op, &mut mutated)?;
+        }
+    }
+    if mutated {
+        core.mark_dirty();
+    }
+
+    // RETURN (if present) projects over a FRESH post-write snapshot so `var.prop`
+    // reflects the new values.
+    if w.returns.is_empty() {
+        return Ok(QueryResult {
+            columns: Vec::new(),
+            rows: Vec::new(),
+        });
+    }
+    let post = core.analysis_snapshot();
+    project_bindings(&post, &bindings, &w.returns, None)
+}
+
+/// Apply ONE write clause for a single binding, extending the binding with any
+/// newly created/merged variables (CONCEPT:EG-020).
+fn apply_write_op(
+    core: &GraphCore,
+    snap: &GraphView,
+    binding: &mut HashMap<String, String>,
+    op: &WriteOp,
+    mutated: &mut bool,
+) -> Result<(), String> {
+    match op {
+        WriteOp::Create(pattern) => {
+            apply_create(core, binding, pattern, mutated)?;
+        }
+        WriteOp::Merge(node) => {
+            apply_merge(core, binding, node, mutated)?;
+        }
+        WriteOp::Set(items) => {
+            apply_set(core, binding, items, mutated)?;
+        }
+        WriteOp::Delete { vars, detach } => {
+            apply_delete(core, snap, binding, vars, *detach, mutated)?;
+        }
+    }
+    Ok(())
+}
+
+/// `CREATE <pattern>`: realize each node (reuse a bound var, else create) and each
+/// hop's edge (CONCEPT:EG-020).
+fn apply_create(
+    core: &GraphCore,
+    binding: &mut HashMap<String, String>,
+    pattern: &Pattern,
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let start_id = realize_node(core, binding, &pattern.start, mutated)?;
+    let mut prev_id = start_id;
+    for (edge, node) in &pattern.hops {
+        let next_id = realize_node(core, binding, node, mutated)?;
+        let (src, tgt) = match edge.direction {
+            Direction::Right => (prev_id.clone(), next_id.clone()),
+            Direction::Left => (next_id.clone(), prev_id.clone()),
+        };
+        let mut props = props_to_map(edge.props.as_deref());
+        if let Some(rel) = &edge.rel_type {
+            props.insert("relationship".into(), Value::String(rel.clone()));
+        }
+        let blob = rmp_serde::to_vec_named(&Value::Object(props))
+            .map_err(|e| format!("encode edge props: {e}"))?;
+        core.add_edge(src, tgt, blob).map_err(|e| format!("CREATE edge: {e}"))?;
+        *mutated = true;
+        prev_id = next_id;
+    }
+    Ok(())
+}
+
+/// Resolve a CREATE node position to an id: reuse a bound variable, else create a new
+/// node carrying its label (`type`) + inline props (CONCEPT:EG-020).
+fn realize_node(
+    core: &GraphCore,
+    binding: &mut HashMap<String, String>,
+    node: &NodePat,
+    mutated: &mut bool,
+) -> Result<String, String> {
+    // A bound variable references an existing node — do NOT recreate it.
+    if let Some(var) = &node.var {
+        if let Some(existing) = binding.get(var) {
+            return Ok(existing.clone());
+        }
+    }
+    let mut props = props_to_map(node.props.as_deref());
+    if let Some(label) = &node.label {
+        props
+            .entry("type".to_string())
+            .or_insert_with(|| Value::String(label.clone()));
+    }
+    // An explicit `id` property pins the node id; otherwise generate a fresh one.
+    let id = match props.get("id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => gen_node_id(),
+    };
+    let blob =
+        rmp_serde::to_vec_named(&Value::Object(props)).map_err(|e| format!("encode node: {e}"))?;
+    core.add_node(id.clone(), blob);
+    *mutated = true;
+    if let Some(var) = &node.var {
+        binding.insert(var.clone(), id.clone());
+    }
+    Ok(id)
+}
+
+/// `MERGE (n:Label {props})`: match a node by label + ALL inline props; create iff
+/// absent. Idempotent across calls (the next call's snapshot includes the created
+/// node). Binds `n` (CONCEPT:EG-020).
+fn apply_merge(
+    core: &GraphCore,
+    binding: &mut HashMap<String, String>,
+    node: &NodePat,
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let want = props_to_map(node.props.as_deref());
+    // Look at the LIVE graph (label index) so a node created earlier this session is
+    // seen. `limit 0` = all candidates for the label (or all nodes when label-less).
+    let candidates: Vec<(String, Vec<u8>)> = match &node.label {
+        Some(label) => core.get_nodes_by_label(label, 0),
+        None => core.get_nodes(),
+    };
+    for (id, blob) in &candidates {
+        let Ok(Value::Object(obj)) = rmp_serde::from_slice::<Value>(blob) else {
+            continue;
+        };
+        if want.iter().all(|(k, v)| obj.get(k) == Some(v)) {
+            if let Some(var) = &node.var {
+                binding.insert(var.clone(), id.clone());
+            }
+            return Ok(()); // matched an existing node — MERGE is a no-op.
+        }
+    }
+    // No match → create it (reuse the CREATE node realizer).
+    realize_node(core, binding, node, mutated)?;
+    Ok(())
+}
+
+/// `SET v.prop = literal [, …]`: merge each assignment onto the bound node via the
+/// engine's atomic `compare_and_set_fields` (empty conditions ⇒ unconditional merge)
+/// (CONCEPT:EG-020).
+fn apply_set(
+    core: &GraphCore,
+    binding: &HashMap<String, String>,
+    items: &[SetItem],
+    mutated: &mut bool,
+) -> Result<(), String> {
+    // Group assignments by target variable so each node is updated once.
+    let mut by_var: HashMap<&str, serde_json::Map<String, Value>> = HashMap::new();
+    for it in items {
+        by_var
+            .entry(it.var.as_str())
+            .or_default()
+            .insert(it.prop.clone(), it.value.clone());
+    }
+    for (var, updates) in by_var {
+        let id = binding
+            .get(var)
+            .ok_or_else(|| format!("SET refers to unbound variable `{var}`"))?;
+        let conditions = serde_json::Map::new();
+        let applied = core.compare_and_set_fields(id, &conditions, &updates);
+        if applied {
+            *mutated = true;
+        }
+    }
+    Ok(())
+}
+
+/// `[DETACH] DELETE v [, …]`: remove bound node variables (DETACH also drops their
+/// incident edges), or a bound edge variable's edge (CONCEPT:EG-020).
+fn apply_delete(
+    core: &GraphCore,
+    snap: &GraphView,
+    binding: &HashMap<String, String>,
+    vars: &[String],
+    detach: bool,
+    mutated: &mut bool,
+) -> Result<(), String> {
+    for var in vars {
+        // An edge variable (bound to `src\u{0}tgt`) deletes that edge.
+        if let Some(edge) = binding.get(&edge_key(var)) {
+            if let Some((src, tgt)) = edge.split_once('\u{0}') {
+                core.remove_edge(src.to_string(), tgt.to_string());
+                *mutated = true;
+                continue;
+            }
+        }
+        let id = binding
+            .get(var)
+            .ok_or_else(|| format!("DELETE refers to unbound variable `{var}`"))?;
+        if !detach && node_has_incident_edge(snap, id) {
+            return Err(format!(
+                "DELETE on node `{var}` ({id}) which still has relationships — use DETACH DELETE"
+            ));
+        }
+        core.remove_node(id.clone());
+        *mutated = true;
+    }
+    Ok(())
+}
+
+/// The binding key an edge variable is stored under (namespaced so it never collides
+/// with a node variable of the same name).
+fn edge_key(var: &str) -> String {
+    format!("@edge@{var}")
+}
+
+/// Does `id` have any incident edge in the snapshot (for the non-DETACH DELETE guard)?
+fn node_has_incident_edge(view: &GraphView, id: &str) -> bool {
+    let Some(&idx) = view.node_map.get(id) else {
+        return false;
+    };
+    view.graph
+        .edges_directed(idx, petgraph::Direction::Outgoing)
+        .next()
+        .is_some()
+        || view
+            .graph
+            .edges_directed(idx, petgraph::Direction::Incoming)
+            .next()
+            .is_some()
+}
+
+/// A fresh, process-unique node id for an un-pinned CREATE/MERGE node.
+fn gen_node_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static CTR: AtomicU64 = AtomicU64::new(0);
+    let n = CTR.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("cy_{nanos:x}_{n:x}")
+}
+
+/// A Cypher inline-property list → a JSON object map.
+fn props_to_map(props: Option<&[(String, Value)]>) -> serde_json::Map<String, Value> {
+    let mut m = serde_json::Map::new();
+    if let Some(list) = props {
+        for (k, v) in list {
+            m.insert(k.clone(), v.clone());
+        }
+    }
+    m
+}
+
+/// Project a set of bindings into a [`QueryResult`] (shared by the read path and the
+/// write RETURN). `cap` bounds the row count.
+fn project_bindings(
+    view: &GraphView,
+    bindings: &[HashMap<String, String>],
+    returns: &[super::plan::ReturnItem],
+    cap: Option<usize>,
+) -> Result<QueryResult, String> {
+    let columns: Vec<String> = returns.iter().map(|r| r.column()).collect();
+    let cap = cap.unwrap_or(MAX_ROWS).min(MAX_ROWS);
+    let mut rows: Vec<Vec<u8>> = Vec::new();
+    for binding in bindings {
+        if rows.len() >= cap {
+            break;
+        }
+        let mut cells: Vec<Value> = Vec::with_capacity(returns.len());
+        for item in returns {
+            let node_id = binding
+                .get(&item.var)
+                .ok_or_else(|| format!("RETURN refers to unbound variable '{}'", item.var))?;
+            let cell = match &item.prop {
+                None => Value::String(node_id.clone()),
+                Some(p) => node_prop(view, node_id, p).unwrap_or(Value::Null),
+            };
+            cells.push(cell);
+        }
+        rows.push(rmp_serde::to_vec(&cells).map_err(|e| format!("encode row: {e}"))?);
+    }
     Ok(QueryResult { columns, rows })
 }
 
@@ -582,5 +930,131 @@ mod tests {
         let v = fixture();
         let qr = exec_cypher(&v, "MATCH (a:Person) RETURN a LIMIT 2").unwrap();
         assert_eq!(qr.rows.len(), 2);
+    }
+
+    // ── write path (CONCEPT:EG-020) ───────────────────────────────────────────
+
+    /// IDs of a single-column QueryResult (the `ids` helper takes a GraphView).
+    fn col0(qr: &QueryResult) -> Vec<String> {
+        let mut out: Vec<String> = qr
+            .rows
+            .iter()
+            .map(|b| {
+                let cells: Vec<Value> = rmp_serde::from_slice(b).unwrap();
+                cells[0].as_str().unwrap().to_string()
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn create_then_match_sees_it() {
+        let core = GraphCore::new();
+        exec_cypher_write(&core, "CREATE (n:Person {id: 'alice', name: 'Alice'})").unwrap();
+        let qr = exec_cypher_write(&core, "MATCH (a:Person) RETURN a").unwrap();
+        assert_eq!(col0(&qr), vec!["alice"]);
+        // The property round-trips.
+        let qr2 = exec_cypher_write(&core, "MATCH (a:Person) RETURN a.name").unwrap();
+        let cells: Vec<Value> = rmp_serde::from_slice(&qr2.rows[0]).unwrap();
+        assert_eq!(cells[0], Value::String("Alice".into()));
+    }
+
+    #[test]
+    fn create_edge_between_new_nodes() {
+        let core = GraphCore::new();
+        exec_cypher_write(
+            &core,
+            "CREATE (a:Person {id: 'a'})-[:KNOWS]->(b:Person {id: 'b'})",
+        )
+        .unwrap();
+        let qr = exec_cypher_write(
+            &core,
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b",
+        )
+        .unwrap();
+        let cells: Vec<Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
+        assert_eq!(cells[0], Value::String("a".into()));
+        assert_eq!(cells[1], Value::String("b".into()));
+    }
+
+    #[test]
+    fn merge_is_idempotent() {
+        let core = GraphCore::new();
+        exec_cypher_write(&core, "MERGE (n:City {id: 'paris', name: 'Paris'})").unwrap();
+        exec_cypher_write(&core, "MERGE (n:City {id: 'paris', name: 'Paris'})").unwrap();
+        let qr = exec_cypher_write(&core, "MATCH (c:City) RETURN c").unwrap();
+        assert_eq!(col0(&qr), vec!["paris"], "MERGE created exactly one node");
+    }
+
+    #[test]
+    fn set_updates_property() {
+        let core = GraphCore::new();
+        exec_cypher_write(&core, "CREATE (n:Person {id: 'bob', rank: 1})").unwrap();
+        exec_cypher_write(&core, "MATCH (n:Person) WHERE n.id = 'bob' SET n.rank = 9").unwrap();
+        let qr = exec_cypher_write(&core, "MATCH (n:Person) RETURN n.rank").unwrap();
+        let cells: Vec<Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
+        assert_eq!(cells[0], Value::Number(9.into()));
+    }
+
+    #[test]
+    fn delete_removes_node() {
+        let core = GraphCore::new();
+        exec_cypher_write(&core, "CREATE (n:Person {id: 'carol'})").unwrap();
+        exec_cypher_write(&core, "MATCH (n:Person) WHERE n.id = 'carol' DELETE n").unwrap();
+        let qr = exec_cypher_write(&core, "MATCH (n:Person) RETURN n").unwrap();
+        assert!(qr.rows.is_empty(), "node was deleted");
+    }
+
+    #[test]
+    fn detach_delete_drops_edges_then_node() {
+        let core = GraphCore::new();
+        exec_cypher_write(
+            &core,
+            "CREATE (a:Person {id: 'x'})-[:KNOWS]->(b:Person {id: 'y'})",
+        )
+        .unwrap();
+        // A plain DELETE on a node with an edge is refused.
+        let err = exec_cypher_write(&core, "MATCH (a:Person) WHERE a.id = 'x' DELETE a")
+            .unwrap_err();
+        assert!(err.contains("DETACH"), "{err}");
+        // DETACH DELETE succeeds.
+        exec_cypher_write(&core, "MATCH (a:Person) WHERE a.id = 'x' DETACH DELETE a").unwrap();
+        let qr = exec_cypher_write(&core, "MATCH (n:Person) RETURN n").unwrap();
+        assert_eq!(col0(&qr), vec!["y"], "only the detached node remains");
+    }
+
+    #[test]
+    fn delete_edge_by_variable() {
+        let core = GraphCore::new();
+        exec_cypher_write(
+            &core,
+            "CREATE (a:Person {id: 'p'})-[:KNOWS]->(b:Person {id: 'q'})",
+        )
+        .unwrap();
+        exec_cypher_write(
+            &core,
+            "MATCH (a:Person)-[r:KNOWS]->(b:Person) WHERE a.id = 'p' DELETE r",
+        )
+        .unwrap();
+        // The edge is gone; both nodes remain.
+        let qr = exec_cypher_write(
+            &core,
+            "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a",
+        )
+        .unwrap();
+        assert!(qr.rows.is_empty(), "edge deleted");
+        let nodes = exec_cypher_write(&core, "MATCH (n:Person) RETURN n").unwrap();
+        assert_eq!(col0(&nodes), vec!["p", "q"]);
+    }
+
+    #[test]
+    fn create_with_return_projects_new_node() {
+        let core = GraphCore::new();
+        let qr = exec_cypher_write(&core, "CREATE (n:Task {id: 't1', state: 'open'}) RETURN n.state")
+            .unwrap();
+        assert_eq!(qr.columns, vec!["n.state"]);
+        let cells: Vec<Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
+        assert_eq!(cells[0], Value::String("open".into()));
     }
 }

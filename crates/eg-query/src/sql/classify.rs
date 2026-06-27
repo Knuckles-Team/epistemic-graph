@@ -35,12 +35,15 @@
 
 use datafusion::sql::sqlparser::ast::{
     AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator, ColumnDef as SqlColumnDef,
-    ColumnOption, CreateTable, Delete, Expr, FromTable, Insert, ObjectName, ObjectType, SelectItem,
-    SetExpr, Statement, TableFactor, TableWithJoins, Value as SqlValue, Values,
+    ColumnOption, CopyLegacyOption, CopyOption, CopySource, CopyTarget, CreateTable, Delete, Expr,
+    FromTable, Insert, ObjectName, ObjectType, SelectItem, SetExpr, Statement, TableFactor,
+    TableWithJoins, Value as SqlValue, Values,
 };
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 use serde_json::{Map, Value};
+
+use crate::tables::schema::{ColCheck, CmpOp};
 
 /// How a single parsed SQL statement should be routed by the wire shim.
 #[derive(Debug, Clone, PartialEq)]
@@ -77,6 +80,42 @@ pub enum StatementKind {
     UpdateTable(UpdateTable),
     /// `DELETE FROM <user_table> WHERE <col> = <literal>` — typed delete from a user table.
     DeleteTable(DeleteTable),
+
+    // ── transactions + bulk ingest (CONCEPT:EG-020) ────────────────────────────
+    /// `BEGIN` / `START TRANSACTION` — open a multi-statement transaction.
+    Begin,
+    /// `COMMIT` — apply the open transaction's buffered ops in one redb txn.
+    Commit,
+    /// `ROLLBACK` — discard the open transaction.
+    Rollback,
+    /// `COPY <table> [(cols…)] FROM STDIN [WITH (FORMAT …)]` — bulk ingest; the shim
+    /// switches the connection into copy-in mode and streams rows into the user table.
+    CopyIn(CopyPlan),
+}
+
+/// A decoded `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020). `columns` empty ⇒
+/// all columns in schema order. `format` selects the row decoder applied to the
+/// streamed `CopyData` bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopyPlan {
+    pub table: String,
+    pub columns: Vec<String>,
+    pub format: CopyFormat,
+    /// Custom field delimiter (TEXT/CSV); defaults per format (`\t` text, `,` csv).
+    pub delimiter: Option<char>,
+    /// Whether a header line precedes the data (CSV `HEADER`).
+    pub header: bool,
+}
+
+/// The wire format of a `COPY … FROM STDIN` body (CONCEPT:EG-020).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyFormat {
+    /// Postgres TEXT format: tab-delimited, `\N` is NULL.
+    Text,
+    /// CSV format: comma-delimited, quoted fields, empty unquoted = NULL.
+    Csv,
+    /// Postgres BINARY format (signature header + length-prefixed fields).
+    Binary,
 }
 
 /// One column of a `CREATE TABLE` / `ALTER TABLE ADD COLUMN` (CONCEPT:EG-018). The
@@ -84,16 +123,24 @@ pub enum StatementKind {
 /// `TIMESTAMP`); the executor resolves it to a `tables::ColumnType`. `nullable` is
 /// false when `NOT NULL` (or `PRIMARY KEY`) was declared; `primary_key` records a
 /// column-level `PRIMARY KEY`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColumnDef {
     pub name: String,
     pub type_name: String,
     pub nullable: bool,
     pub primary_key: bool,
+    /// `UNIQUE` (or `PRIMARY KEY`) (CONCEPT:EG-020).
+    pub unique: bool,
+    /// `SERIAL`/`BIGSERIAL` or `DEFAULT nextval(...)` — auto-increment (CONCEPT:EG-020).
+    pub serial: bool,
+    /// `DEFAULT <literal>` value (CONCEPT:EG-020).
+    pub default: Option<Value>,
+    /// A simple `CHECK (col OP literal)` (CONCEPT:EG-020).
+    pub check: Option<ColCheck>,
 }
 
 /// A decoded `CREATE TABLE` (CONCEPT:EG-018).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CreateTablePlan {
     pub name: String,
     pub columns: Vec<ColumnDef>,
@@ -108,7 +155,7 @@ pub struct DropTablePlan {
 }
 
 /// A decoded `ALTER TABLE … ADD COLUMN` (CONCEPT:EG-018).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AlterTablePlan {
     pub name: String,
     pub add_column: ColumnDef,
@@ -208,8 +255,18 @@ pub struct DeleteNodes {
 /// a write whose shape this increment cannot route (e.g. a write into a table
 /// other than `nodes`, a complex WHERE, or a join/subquery in DML).
 pub fn classify(sql: &str) -> Result<StatementKind, String> {
+    // `COPY … FROM STDIN` is sent over the wire WITHOUT the inline TSV data block that
+    // `sqlparser` insists follows the `;` — so append a `;` to satisfy its grammar
+    // (it then parses an EMPTY data block). The real rows arrive as `CopyData` frames.
+    let owned;
+    let to_parse: &str = if is_copy_from_stdin(sql) {
+        owned = format!("{};", sql.trim_end().trim_end_matches(';'));
+        &owned
+    } else {
+        sql
+    };
     let stmts =
-        Parser::parse_sql(&PostgreSqlDialect {}, sql).map_err(|e| format!("parse error: {e}"))?;
+        Parser::parse_sql(&PostgreSqlDialect {}, to_parse).map_err(|e| format!("parse error: {e}"))?;
     let stmt = match stmts.as_slice() {
         [s] => s,
         [] => return Err("empty statement".to_string()),
@@ -242,8 +299,99 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
         Statement::AlterTable {
             name, operations, ..
         } => classify_alter_table(name, operations).map(StatementKind::AlterTable),
+        // ── transactions + COPY (CONCEPT:EG-020) ──────────────────────────────
+        Statement::StartTransaction { .. } => Ok(StatementKind::Begin),
+        Statement::Commit { .. } => Ok(StatementKind::Commit),
+        Statement::Rollback { .. } => Ok(StatementKind::Rollback),
+        Statement::Copy {
+            source,
+            to,
+            target,
+            options,
+            legacy_options,
+            ..
+        } => classify_copy(source, *to, target, options, legacy_options),
         other => Err(format!("unsupported statement: {other}")),
     }
+}
+
+/// A lightweight check that `sql` is a `COPY … FROM STDIN` (so `classify` can append
+/// the `;` sqlparser's grammar requires). Conservative: leading keyword `COPY` and the
+/// phrase `FROM STDIN` present (case-insensitive), outside the concern of exact options.
+fn is_copy_from_stdin(sql: &str) -> bool {
+    let up = sql.trim_start().to_ascii_uppercase();
+    up.starts_with("COPY ") && up.contains("FROM STDIN")
+}
+
+/// Decode `COPY <table> [(cols…)] FROM STDIN [WITH (FORMAT csv|binary|text), …]`
+/// (CONCEPT:EG-020). Only `FROM STDIN` into a user table is accepted; `COPY TO`,
+/// `COPY (query)`, and `COPY … FROM 'file'`/`PROGRAM` are rejected (no server-side
+/// filesystem access over the wire).
+fn classify_copy(
+    source: &CopySource,
+    to: bool,
+    target: &CopyTarget,
+    options: &[CopyOption],
+    legacy_options: &[CopyLegacyOption],
+) -> Result<StatementKind, String> {
+    if to {
+        return Err("COPY TO is not supported (only COPY … FROM STDIN)".to_string());
+    }
+    if !matches!(target, CopyTarget::Stdin) {
+        return Err("COPY supports only FROM STDIN (no file/program source)".to_string());
+    }
+    let (table, columns) = match source {
+        CopySource::Table { table_name, columns } => {
+            let leaf = last_ident(table_name);
+            if is_reserved_table(&leaf) {
+                return Err(format!("COPY cannot target the reserved graph table `{leaf}`"));
+            }
+            (leaf, columns.iter().map(|c| c.value.clone()).collect())
+        }
+        CopySource::Query(_) => {
+            return Err("COPY (query) FROM is not valid; use COPY <table> FROM STDIN".to_string())
+        }
+    };
+
+    // Resolve the format + delimiter + header from BOTH the modern `WITH (...)` options
+    // and the legacy positional options.
+    let mut format = CopyFormat::Text;
+    let mut delimiter = None;
+    let mut header = false;
+    for opt in options {
+        match opt {
+            CopyOption::Format(name) => {
+                format = match name.value.to_ascii_lowercase().as_str() {
+                    "csv" => CopyFormat::Csv,
+                    "binary" => CopyFormat::Binary,
+                    "text" => CopyFormat::Text,
+                    other => return Err(format!("unsupported COPY format `{other}`")),
+                };
+            }
+            CopyOption::Delimiter(c) => delimiter = Some(*c),
+            CopyOption::Header(h) => header = *h,
+            _ => {}
+        }
+    }
+    for opt in legacy_options {
+        match opt {
+            CopyLegacyOption::Binary => format = CopyFormat::Binary,
+            CopyLegacyOption::Csv(_) => {
+                if format == CopyFormat::Text {
+                    format = CopyFormat::Csv;
+                }
+            }
+            CopyLegacyOption::Delimiter(c) => delimiter = Some(*c),
+            _ => {}
+        }
+    }
+    Ok(StatementKind::CopyIn(CopyPlan {
+        table,
+        columns,
+        format,
+        delimiter,
+        header,
+    }))
 }
 
 /// Where a `$N` parameter placeholder appears, for type inference in the extended
@@ -835,29 +983,121 @@ fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
     })
 }
 
-/// Decode one sqlparser column definition into a [`ColumnDef`]: name, raw type
-/// spelling, and the NULL/NOT NULL/PRIMARY KEY column options. A `PRIMARY KEY` column
-/// is implicitly `NOT NULL` (Postgres semantics).
+/// Decode one sqlparser column definition into a [`ColumnDef`] (CONCEPT:EG-018 +
+/// constraints CONCEPT:EG-020): name, raw type spelling, NULL/NOT NULL/PRIMARY KEY,
+/// UNIQUE, column DEFAULT (literal or `nextval` ⇒ SERIAL), SERIAL/BIGSERIAL types, and
+/// a simple `CHECK (col OP literal)`. A `PRIMARY KEY` column is implicitly NOT NULL.
 fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
-    let mut nullable = true;
+    let type_name = c.data_type.to_string();
+    // SERIAL/BIGSERIAL: auto-increment + NOT NULL (Postgres pseudo-types).
+    let base_ty = type_name
+        .split('(')
+        .next()
+        .unwrap_or(&type_name)
+        .trim()
+        .to_ascii_lowercase();
+    let mut serial = matches!(base_ty.as_str(), "serial" | "bigserial" | "smallserial" | "serial4" | "serial8");
+    let mut nullable = !serial; // SERIAL ⇒ NOT NULL by default
     let mut primary_key = false;
+    let mut unique = false;
+    let mut default = None;
+    let mut check = None;
     for opt in &c.options {
         match &opt.option {
             ColumnOption::NotNull => nullable = false,
             ColumnOption::Null => nullable = true,
-            ColumnOption::Unique { is_primary, .. } if *is_primary => {
-                primary_key = true;
-                nullable = false;
+            ColumnOption::Unique { is_primary, .. } => {
+                unique = true;
+                if *is_primary {
+                    primary_key = true;
+                    nullable = false;
+                }
+            }
+            ColumnOption::Default(expr) => {
+                // `DEFAULT nextval('…')` ⇒ a sequence (SERIAL); a literal ⇒ a default value.
+                if is_nextval(expr) {
+                    serial = true;
+                    nullable = false;
+                } else {
+                    default = Some(expr_to_json(expr).map_err(|e| {
+                        format!("DEFAULT on column `{}` must be a literal: {e}", c.name.value)
+                    })?);
+                }
+            }
+            ColumnOption::Check(expr) => {
+                check = Some(decode_check(expr, &c.name.value)?);
             }
             _ => {}
         }
     }
     Ok(ColumnDef {
         name: c.name.value.clone(),
-        type_name: c.data_type.to_string(),
+        type_name,
         nullable,
         primary_key,
+        unique,
+        serial,
+        default,
+        check,
     })
+}
+
+/// Whether `expr` is a `nextval(...)` call (the `DEFAULT nextval('seq')` SERIAL idiom).
+fn is_nextval(expr: &Expr) -> bool {
+    if let Expr::Function(f) = expr {
+        return last_ident(&f.name).eq_ignore_ascii_case("nextval");
+    }
+    false
+}
+
+/// Decode a simple `CHECK (col OP literal)` into a [`ColCheck`] (CONCEPT:EG-020). The
+/// left side must be a column (its name is not re-checked — the constraint is enforced
+/// on the column it is declared on); the right must be a literal. A complex CHECK
+/// (AND/OR, functions, cross-column) is rejected so it is never silently dropped.
+fn decode_check(expr: &Expr, col: &str) -> Result<ColCheck, String> {
+    let inner = match expr {
+        Expr::Nested(e) => e.as_ref(),
+        other => other,
+    };
+    if let Expr::BinaryOp { left, op, right } = inner {
+        let op = match op {
+            BinaryOperator::Eq => CmpOp::Eq,
+            BinaryOperator::NotEq => CmpOp::Ne,
+            BinaryOperator::Lt => CmpOp::Lt,
+            BinaryOperator::LtEq => CmpOp::Le,
+            BinaryOperator::Gt => CmpOp::Gt,
+            BinaryOperator::GtEq => CmpOp::Ge,
+            other => {
+                return Err(format!(
+                    "CHECK on `{col}` supports only a simple comparison, got operator `{other}`"
+                ))
+            }
+        };
+        // Accept `col OP literal` or `literal OP col`.
+        let (value, flip) = if matches!(left.as_ref(), Expr::Identifier(_) | Expr::CompoundIdentifier(_)) {
+            (expr_to_json(right)?, false)
+        } else if matches!(right.as_ref(), Expr::Identifier(_) | Expr::CompoundIdentifier(_)) {
+            (expr_to_json(left)?, true)
+        } else {
+            return Err(format!("CHECK on `{col}` must compare the column to a literal"));
+        };
+        let op = if flip { flip_cmp(op) } else { op };
+        return Ok(ColCheck { op, value });
+    }
+    Err(format!(
+        "CHECK on `{col}` supports only a simple `{col} OP literal` predicate"
+    ))
+}
+
+/// Mirror a comparison operator when the column is on the RIGHT (`5 < col` ⇒ `col > 5`).
+fn flip_cmp(op: CmpOp) -> CmpOp {
+    match op {
+        CmpOp::Lt => CmpOp::Gt,
+        CmpOp::Le => CmpOp::Ge,
+        CmpOp::Gt => CmpOp::Lt,
+        CmpOp::Ge => CmpOp::Le,
+        other => other,
+    }
 }
 
 /// Decode `DROP TABLE [IF EXISTS] name`. Only `TABLE` objects are handled here; any
@@ -1385,5 +1625,79 @@ mod tests {
 
     fn json_num(f: f64) -> Value {
         serde_json::Number::from_f64(f).map(Value::Number).unwrap()
+    }
+
+    // ── constraints, transactions, COPY (CONCEPT:EG-020) ──────────────────────
+
+    #[test]
+    fn create_table_decodes_constraints() {
+        let StatementKind::CreateTable(p) = classify(
+            "CREATE TABLE items (id BIGSERIAL PRIMARY KEY, sku TEXT UNIQUE, \
+             qty INT DEFAULT 0 CHECK (qty >= 0))",
+        )
+        .unwrap() else {
+            panic!("expected CreateTable");
+        };
+        // id: SERIAL + PK ⇒ serial, unique, not null.
+        assert!(p.columns[0].serial && p.columns[0].primary_key && !p.columns[0].nullable);
+        // sku: UNIQUE.
+        assert!(p.columns[1].unique && !p.columns[1].primary_key);
+        // qty: DEFAULT 0 + CHECK (qty >= 0).
+        assert_eq!(p.columns[2].default, Some(Value::Number(0.into())));
+        let chk = p.columns[2].check.clone().expect("check");
+        assert_eq!(chk.op, CmpOp::Ge);
+        assert_eq!(chk.value, Value::Number(0.into()));
+    }
+
+    #[test]
+    fn default_nextval_is_serial() {
+        let StatementKind::CreateTable(p) =
+            classify("CREATE TABLE s (id INT DEFAULT nextval('s_id_seq'))").unwrap()
+        else {
+            panic!("expected CreateTable");
+        };
+        assert!(p.columns[0].serial, "DEFAULT nextval ⇒ SERIAL");
+    }
+
+    #[test]
+    fn transactions_classify() {
+        assert_eq!(classify("BEGIN").unwrap(), StatementKind::Begin);
+        assert_eq!(classify("START TRANSACTION").unwrap(), StatementKind::Begin);
+        assert_eq!(classify("COMMIT").unwrap(), StatementKind::Commit);
+        assert_eq!(classify("ROLLBACK").unwrap(), StatementKind::Rollback);
+    }
+
+    #[test]
+    fn copy_from_stdin_classifies() {
+        let StatementKind::CopyIn(plan) =
+            classify("COPY prices (symbol, px) FROM STDIN WITH (FORMAT csv, HEADER)").unwrap()
+        else {
+            panic!("expected CopyIn");
+        };
+        assert_eq!(plan.table, "prices");
+        assert_eq!(plan.columns, vec!["symbol".to_string(), "px".to_string()]);
+        assert_eq!(plan.format, CopyFormat::Csv);
+        assert!(plan.header);
+
+        // Default (no WITH) ⇒ TEXT.
+        let StatementKind::CopyIn(t) = classify("COPY prices FROM STDIN").unwrap() else {
+            panic!("expected CopyIn");
+        };
+        assert_eq!(t.format, CopyFormat::Text);
+        assert!(t.columns.is_empty());
+
+        // Binary format.
+        let StatementKind::CopyIn(b) =
+            classify("COPY prices FROM STDIN WITH (FORMAT binary)").unwrap()
+        else {
+            panic!("expected CopyIn");
+        };
+        assert_eq!(b.format, CopyFormat::Binary);
+    }
+
+    #[test]
+    fn copy_to_and_reserved_rejected() {
+        assert!(classify("COPY nodes FROM STDIN").is_err());
+        assert!(classify("COPY prices TO STDOUT").is_err());
     }
 }

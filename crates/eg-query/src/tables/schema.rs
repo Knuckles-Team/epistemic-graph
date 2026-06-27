@@ -69,22 +69,106 @@ impl ColumnType {
     }
 }
 
-/// One column of a user table: its name, declared type, NULL-ability, and whether it
-/// participates in the (single, first-pass) primary key. The PK flag is recorded for
-/// catalog fidelity and future uniqueness enforcement; the first increment does not
-/// yet enforce uniqueness (see the follow-up list).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A column-scoped comparison operator for a simple `CHECK (col OP literal)` constraint
+/// (CONCEPT:EG-020). Kept independent of the Cypher `CompareOp` so the relational store
+/// has no cross-feature dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CmpOp {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+/// A simple single-column `CHECK` predicate (`CHECK (col OP literal)`) enforced on
+/// insert/update (CONCEPT:EG-020). Only the column-vs-literal comparison shape is
+/// modeled; a complex CHECK expression is not stored (the classifier rejects it).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ColCheck {
+    pub op: CmpOp,
+    pub value: Value,
+}
+
+impl ColCheck {
+    /// Does `actual` satisfy the check? NULL passes (SQL CHECK is satisfied by NULL).
+    pub fn holds(&self, actual: &Value) -> bool {
+        if actual.is_null() {
+            return true;
+        }
+        let ord = match (actual.as_f64(), self.value.as_f64()) {
+            (Some(a), Some(b)) => a.partial_cmp(&b),
+            _ => match (actual.as_str(), self.value.as_str()) {
+                (Some(a), Some(b)) => Some(a.cmp(b)),
+                _ => return matches!(self.op, CmpOp::Eq) && actual == &self.value,
+            },
+        };
+        use std::cmp::Ordering::*;
+        match (self.op, ord) {
+            (CmpOp::Eq, _) => actual == &self.value,
+            (CmpOp::Ne, _) => actual != &self.value,
+            (CmpOp::Lt, Some(o)) => o == Less,
+            (CmpOp::Le, Some(o)) => o != Greater,
+            (CmpOp::Gt, Some(o)) => o == Greater,
+            (CmpOp::Ge, Some(o)) => o != Less,
+            (_, None) => false,
+        }
+    }
+}
+
+/// One column of a user table: its name, declared type, NULL-ability, primary-key /
+/// uniqueness participation, an optional column DEFAULT, SERIAL auto-increment, and an
+/// optional simple CHECK (CONCEPT:EG-018 + constraints CONCEPT:EG-020). The new
+/// constraint fields are `#[serde(default)]` so a table written by the EG-018 increment
+/// (no constraints) deserializes unchanged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Column {
     pub name: String,
     pub ty: ColumnType,
     pub nullable: bool,
     pub primary_key: bool,
+    /// `UNIQUE` (or `PRIMARY KEY`) — enforced on insert/update (CONCEPT:EG-020).
+    #[serde(default)]
+    pub unique: bool,
+    /// `SERIAL`/`BIGSERIAL` (or `DEFAULT nextval(...)`) — auto-assigned from the
+    /// per-table sequence when not supplied (CONCEPT:EG-020).
+    #[serde(default)]
+    pub serial: bool,
+    /// Column `DEFAULT <literal>` value, used when a row omits the column.
+    #[serde(default)]
+    pub default: Option<Value>,
+    /// Optional simple `CHECK (col OP literal)` enforced on the write path.
+    #[serde(default)]
+    pub check: Option<ColCheck>,
+}
+
+impl Column {
+    /// A plain column with no constraints beyond name/type/nullability/PK (the EG-018
+    /// shape). Keeps existing call sites concise as new constraint fields are added.
+    pub fn new(name: impl Into<String>, ty: ColumnType, nullable: bool, primary_key: bool) -> Self {
+        Self {
+            name: name.into(),
+            ty,
+            nullable,
+            primary_key,
+            unique: primary_key,
+            serial: false,
+            default: None,
+            check: None,
+        }
+    }
+
+    /// Whether this column enforces uniqueness (PK or UNIQUE).
+    pub fn is_unique(&self) -> bool {
+        self.unique || self.primary_key
+    }
 }
 
 /// A user table's full schema: its name and ordered columns (CONCEPT:EG-018). The
 /// column ORDER is canonical — every stored row's `Vec<Cell>` is aligned to it, and
 /// a SELECT projects columns in this order unless the query names them explicitly.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableSchema {
     pub name: String,
     pub columns: Vec<Column>,

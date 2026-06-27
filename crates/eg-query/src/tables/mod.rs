@@ -19,5 +19,5 @@ pub mod provider;
 pub mod schema;
 pub mod store;
 
-pub use schema::{Cell, Column, ColumnType, TableSchema};
-pub use store::{ColEq, TableStore};
+pub use schema::{Cell, ColCheck, Column, ColumnType, CmpOp, TableSchema};
+pub use store::{ColEq, TableStore, TableTxn, TxnOp};

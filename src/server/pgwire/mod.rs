@@ -76,9 +76,10 @@ use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
 
 use eg_query::{
-    AlterTablePlan, Column, ColumnType, CreateTablePlan, DeleteNodes, DeleteTable, DropTablePlan,
-    InsertNodes, InsertSelect, InsertTable, PgColType, StatementKind, TableSchema, TableStore,
-    TypedColumn, TypedQueryResult, UpdateNodes, UpdateTable, WhereEq,
+    AlterTablePlan, ColEq, Column, ColumnType, CopyFormat, CopyPlan, CreateTablePlan, DeleteNodes,
+    DeleteTable, DropTablePlan, InsertNodes, InsertSelect, InsertTable, PgColType, StatementKind,
+    TableSchema, TableStore, TableTxn, TxnOp, TypedColumn, TypedQueryResult, UpdateNodes,
+    UpdateTable, WhereEq,
 };
 
 use crate::server::ServerState;
@@ -145,9 +146,27 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> PgWireResult<Vec<Column>> {
                 ty,
                 nullable: c.nullable,
                 primary_key: c.primary_key,
+                unique: c.unique,
+                serial: c.serial,
+                default: c.default.clone(),
+                check: c.check.clone(),
             })
         })
         .collect()
+}
+
+/// Per-connection `COPY … FROM STDIN` state (CONCEPT:EG-020): the resolved target,
+/// the streamed bytes accumulated across `CopyData` frames, and the decode format.
+/// Lives in `EngineBackend::copy` between the `CopyIn` response and `on_copy_done`.
+struct CopyState {
+    table: String,
+    /// The resolved insert column list (the COPY column list, or all schema columns).
+    columns: Vec<String>,
+    format: CopyFormat,
+    delimiter: Option<char>,
+    header: bool,
+    /// Accumulated raw bytes of the copy-in body.
+    buf: Vec<u8>,
 }
 
 /// Per-connection backend handler. Holds the shared `ServerState` and the current
@@ -176,6 +195,13 @@ struct EngineBackend {
     /// The resolved pgwire auth mode. Under TRUST the actor stays anonymous (no ACL
     /// identity); under SCRAM the actor is the authenticated user.
     auth_mode: PgWireAuthMode,
+    /// The OPEN multi-statement transaction's buffered user-table ops (CONCEPT:EG-020),
+    /// or `None` when no `BEGIN` is active. `COMMIT` applies the buffer in ONE redb
+    /// write txn; `ROLLBACK` drops it. Scoped per connection.
+    txn: parking_lot::Mutex<Option<TableTxn>>,
+    /// In-flight `COPY … FROM STDIN` state (CONCEPT:EG-020), set between the `CopyIn`
+    /// response and `on_copy_done`/`on_copy_fail`.
+    copy: parking_lot::Mutex<Option<CopyState>>,
 }
 
 impl EngineBackend {
@@ -191,6 +217,21 @@ impl EngineBackend {
             parser: Arc::new(EngineQueryParser),
             actor: parking_lot::Mutex::new(None),
             auth_mode,
+            txn: parking_lot::Mutex::new(None),
+            copy: parking_lot::Mutex::new(None),
+        }
+    }
+
+    /// Whether a multi-statement transaction is currently open.
+    fn in_txn(&self) -> bool {
+        self.txn.lock().is_some()
+    }
+
+    /// Buffer a user-table op into the open transaction (panics if none open — callers
+    /// guard with [`Self::in_txn`]).
+    fn buffer(&self, op: TxnOp) {
+        if let Some(t) = self.txn.lock().as_mut() {
+            t.push(op);
         }
     }
 
@@ -539,6 +580,21 @@ impl EngineBackend {
         }
         let graph = self.current_graph();
         let kind = eg_query::classify(sql).map_err(user_err)?;
+
+        // ── transaction control (CONCEPT:EG-020) — no graph access needed ──────────
+        match &kind {
+            StatementKind::Begin => {
+                *self.txn.lock() = Some(TableTxn::new());
+                return Ok(Response::Execution(Tag::new("BEGIN")));
+            }
+            StatementKind::Commit => return self.run_commit().await,
+            StatementKind::Rollback => {
+                self.txn.lock().take();
+                return Ok(Response::Execution(Tag::new("ROLLBACK")));
+            }
+            _ => {}
+        }
+
         // Enforce the engine ACL under the connection's authenticated actor
         // (CONCEPT:KG-2.202) BEFORE touching the graph: a read needs Read access, any
         // DML needs Write. A no-rules deployment is a no-op (back-compat).
@@ -547,6 +603,12 @@ impl EngineBackend {
             _ => AccessLevel::Write,
         };
         self.check_access(&graph, access).await?;
+
+        // While a transaction is OPEN, buffer user-table DDL/DML into it (applied
+        // atomically at COMMIT). Reads and graph-node DML still execute immediately —
+        // the SQL transaction is scoped to the durable relational user-table store.
+        let in_txn = self.in_txn();
+
         match kind {
             StatementKind::Read => {
                 let result = self.run_read(&graph, sql.to_string()).await?;
@@ -561,15 +623,142 @@ impl EngineBackend {
             StatementKind::DeleteNodes(del) => {
                 self.run_delete(&graph, sql, del, result_format).await
             }
-            // ── arbitrary user-defined relational tables (CONCEPT:EG-018) ──────────
+            // ── arbitrary user-defined relational tables (CONCEPT:EG-018/EG-020) ───
+            StatementKind::CreateTable(plan) if in_txn => {
+                let columns = to_store_columns(&plan.columns)?;
+                self.buffer(TxnOp::CreateTable {
+                    schema: TableSchema { name: plan.name, columns },
+                    if_not_exists: plan.if_not_exists,
+                });
+                Ok(Response::Execution(Tag::new("CREATE TABLE")))
+            }
             StatementKind::CreateTable(plan) => self.run_create_table(plan).await,
+            StatementKind::DropTable(plan) if in_txn => {
+                self.buffer(TxnOp::DropTable {
+                    name: plan.name,
+                    if_exists: plan.if_exists,
+                });
+                Ok(Response::Execution(Tag::new("DROP TABLE")))
+            }
             StatementKind::DropTable(plan) => self.run_drop_table(plan).await,
+            StatementKind::AlterTable(plan) if in_txn => {
+                let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
+                let column = columns.into_iter().next().expect("one column");
+                self.buffer(TxnOp::AddColumn { table: plan.name, column });
+                Ok(Response::Execution(Tag::new("ALTER TABLE")))
+            }
             StatementKind::AlterTable(plan) => self.run_alter_table(plan).await,
+            StatementKind::InsertTable(ins) if in_txn => {
+                let n = ins.rows.len();
+                self.buffer(TxnOp::Insert {
+                    table: ins.table,
+                    col_order: ins.columns,
+                    rows: ins.rows,
+                });
+                Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+            }
             StatementKind::InsertTable(ins) => self.run_insert_table(ins).await,
+            StatementKind::InsertSelect(ins) if in_txn => {
+                // The SELECT half is a read (runs immediately); only the INSERT is
+                // buffered into the transaction.
+                let result = self.run_read(&graph, ins.select_sql).await?;
+                if result.columns.len() != ins.columns.len() {
+                    return Err(user_err(format!(
+                        "INSERT … SELECT column count mismatch: {} target columns, {} selected",
+                        ins.columns.len(),
+                        result.columns.len()
+                    )));
+                }
+                let n = result.rows.len();
+                self.buffer(TxnOp::Insert {
+                    table: ins.table,
+                    col_order: ins.columns,
+                    rows: result.rows,
+                });
+                Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+            }
             StatementKind::InsertSelect(ins) => self.run_insert_select(&graph, ins).await,
+            StatementKind::UpdateTable(upd) if in_txn => {
+                self.buffer(TxnOp::Update {
+                    table: upd.table,
+                    set: upd.set,
+                    selector: ColEq {
+                        column: upd.selector.column,
+                        value: upd.selector.value,
+                    },
+                });
+                Ok(Response::Execution(Tag::new("UPDATE")))
+            }
             StatementKind::UpdateTable(upd) => self.run_update_table(upd).await,
+            StatementKind::DeleteTable(del) if in_txn => {
+                self.buffer(TxnOp::Delete {
+                    table: del.table,
+                    selector: ColEq {
+                        column: del.selector.column,
+                        value: del.selector.value,
+                    },
+                });
+                Ok(Response::Execution(Tag::new("DELETE")))
+            }
             StatementKind::DeleteTable(del) => self.run_delete_table(del).await,
+            // `COPY … FROM STDIN` (CONCEPT:EG-020): switch the connection into copy-in
+            // mode; the streamed rows are ingested in `on_copy_done`.
+            StatementKind::CopyIn(plan) => self.start_copy(plan).await,
+            // Transaction-control statements are handled above.
+            StatementKind::Begin | StatementKind::Commit | StatementKind::Rollback => {
+                unreachable!("transaction control handled before dispatch")
+            }
         }
+    }
+
+    /// `COMMIT` (CONCEPT:EG-020): apply the open transaction's buffered ops in ONE redb
+    /// write transaction (atomic — a constraint violation rolls the whole batch back).
+    /// A `COMMIT` with no open transaction is a no-op (Postgres-compatible).
+    async fn run_commit(&self) -> PgWireResult<Response> {
+        let txn = match self.txn.lock().take() {
+            Some(t) => t,
+            None => return Ok(Response::Execution(Tag::new("COMMIT"))),
+        };
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.commit_txn(&txn))
+            .await
+            .map_err(|e| user_err(format!("commit task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("COMMIT")))
+    }
+
+    /// `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020): resolve the target schema,
+    /// stash the copy state, and return a `CopyIn` response so the client streams rows.
+    async fn start_copy(&self, plan: CopyPlan) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        let table = plan.table.clone();
+        let schema = tokio::task::spawn_blocking(move || store.get_schema(&table))
+            .await
+            .map_err(|e| user_err(format!("copy schema task failed: {e}")))?
+            .map_err(user_err)?
+            .ok_or_else(|| user_err(format!("table `{}` does not exist", plan.table)))?;
+        // Resolve the insert column list: the COPY column list, or all columns in order.
+        let columns: Vec<String> = if plan.columns.is_empty() {
+            schema.columns.iter().map(|c| c.name.clone()).collect()
+        } else {
+            plan.columns.clone()
+        };
+        let ncols = columns.len();
+        // pg copy format code: 0 = text/csv, 1 = binary.
+        let fmt_code: i8 = if plan.format == CopyFormat::Binary { 1 } else { 0 };
+        *self.copy.lock() = Some(CopyState {
+            table: plan.table,
+            columns,
+            format: plan.format,
+            delimiter: plan.delimiter,
+            header: plan.header,
+            buf: Vec::new(),
+        });
+        Ok(Response::CopyIn(pgwire::api::results::CopyResponse::new(
+            fmt_code,
+            ncols,
+            futures::stream::empty(),
+        )))
     }
 
     /// `CREATE TABLE` (CONCEPT:EG-018): record the schema in the durable redb table
@@ -1097,6 +1286,349 @@ impl SimpleQueryHandler for EngineBackend {
     }
 }
 
+// ── COPY … FROM STDIN handler (CONCEPT:EG-020) ───────────────────────────────
+
+#[async_trait]
+impl pgwire::api::copy::CopyHandler for EngineBackend {
+    /// Accumulate a `CopyData` frame's bytes into the per-connection copy buffer.
+    async fn on_copy_data<C>(
+        &self,
+        _client: &mut C,
+        copy_data: pgwire::messages::copy::CopyData,
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + futures::Sink<pgwire::messages::PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
+    {
+        if let Some(state) = self.copy.lock().as_mut() {
+            state.buf.extend_from_slice(copy_data.data.as_ref());
+            Ok(())
+        } else {
+            Err(user_err("COPY data received with no COPY in progress"))
+        }
+    }
+
+    /// Decode the accumulated copy body, durably ingest the rows, then complete the
+    /// command (CommandComplete `COPY n` + ReadyForQuery — the protocol makes this the
+    /// copy handler's responsibility once copy-in mode is entered).
+    async fn on_copy_done<C>(
+        &self,
+        client: &mut C,
+        _done: pgwire::messages::copy::CopyDone,
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + futures::Sink<pgwire::messages::PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
+    {
+        use futures::SinkExt;
+        let state = self
+            .copy
+            .lock()
+            .take()
+            .ok_or_else(|| user_err("COPY done with no COPY in progress"))?;
+        let store = user_table_store()?;
+        let schema = store
+            .get_schema(&state.table)
+            .map_err(user_err)?
+            .ok_or_else(|| user_err(format!("table `{}` does not exist", state.table)))?;
+        let rows = decode_copy_rows(&state, &schema).map_err(user_err)?;
+        let table = state.table.clone();
+        let columns = state.columns.clone();
+        let n = tokio::task::spawn_blocking(move || store.insert_rows(&table, &columns, &rows))
+            .await
+            .map_err(|e| user_err(format!("copy insert task failed: {e}")))?
+            .map_err(user_err)?;
+
+        // Complete the copy: CommandComplete then ReadyForQuery (the socket loop does
+        // not emit these while the connection is in copy-in mode).
+        let tag = Tag::new("COPY").with_rows(n);
+        client
+            .send(pgwire::messages::PgWireBackendMessage::CommandComplete(
+                tag.into(),
+            ))
+            .await?;
+        client.set_state(pgwire::api::PgWireConnectionState::ReadyForQuery);
+        pgwire::api::query::send_ready_for_query(
+            client,
+            pgwire::messages::response::TransactionStatus::Idle,
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+/// Decode a `COPY … FROM STDIN` body into typed rows aligned to `state.columns`
+/// (CONCEPT:EG-020). Supports the Postgres TEXT, CSV, and BINARY formats; each field
+/// is coerced to its target column's [`ColumnType`] so the store's typed insert path
+/// accepts it (and SERIAL/DEFAULT fill any column the COPY omits).
+fn decode_copy_rows(state: &CopyState, schema: &TableSchema) -> Result<Vec<Vec<serde_json::Value>>, String> {
+    // The declared type of each COPY target column.
+    let mut types = Vec::with_capacity(state.columns.len());
+    for name in &state.columns {
+        let col = schema
+            .columns
+            .iter()
+            .find(|c| &c.name == name)
+            .ok_or_else(|| format!("COPY column `{name}` does not exist in `{}`", state.table))?;
+        types.push(col.ty);
+    }
+
+    match state.format {
+        CopyFormat::Binary => decode_copy_binary(&state.buf, &types),
+        CopyFormat::Csv | CopyFormat::Text => {
+            let is_csv = state.format == CopyFormat::Csv;
+            let delim = state.delimiter.unwrap_or(if is_csv { ',' } else { '\t' });
+            let text = std::str::from_utf8(&state.buf)
+                .map_err(|e| format!("COPY body is not valid UTF-8: {e}"))?;
+            let mut out = Vec::new();
+            for (li, raw_line) in text.split('\n').enumerate() {
+                let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+                // Text format terminates on a `\.` sentinel line; skip a trailing blank.
+                if line == "\\." {
+                    break;
+                }
+                if line.is_empty() {
+                    continue;
+                }
+                if is_csv && state.header && li == 0 {
+                    continue; // skip the header row
+                }
+                let fields = if is_csv {
+                    parse_csv_line(line, delim)
+                } else {
+                    parse_text_line(line, delim)
+                };
+                if fields.len() != types.len() {
+                    return Err(format!(
+                        "COPY row has {} fields, expected {}",
+                        fields.len(),
+                        types.len()
+                    ));
+                }
+                let mut row = Vec::with_capacity(types.len());
+                for (f, ty) in fields.iter().zip(types.iter()) {
+                    row.push(copy_field_to_value(f.as_deref(), *ty)?);
+                }
+                out.push(row);
+            }
+            Ok(out)
+        }
+    }
+}
+
+/// One Postgres TEXT-format line → fields (`\N` ⇒ NULL; `\t`/`\n`/`\\` unescaped).
+fn parse_text_line(line: &str, delim: char) -> Vec<Option<String>> {
+    line.split(delim)
+        .map(|raw| {
+            if raw == "\\N" {
+                None
+            } else {
+                Some(unescape_text(raw))
+            }
+        })
+        .collect()
+}
+
+/// Unescape the Postgres TEXT-format backslash sequences in a field.
+fn unescape_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('t') => out.push('\t'),
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('\\') => out.push('\\'),
+                Some(other) => out.push(other),
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// One CSV line → fields, honouring `"`-quoting with `""` escapes (no embedded
+/// newlines). An empty UNQUOTED field is NULL; an empty QUOTED field (`""`) is "".
+fn parse_csv_line(line: &str, delim: char) -> Vec<Option<String>> {
+    let mut out = Vec::new();
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i <= chars.len() {
+        // Parse one field starting at i.
+        let mut field = String::new();
+        let mut was_quoted = false;
+        if i < chars.len() && chars[i] == '"' {
+            was_quoted = true;
+            i += 1;
+            while i < chars.len() {
+                if chars[i] == '"' {
+                    if i + 1 < chars.len() && chars[i + 1] == '"' {
+                        field.push('"');
+                        i += 2;
+                    } else {
+                        i += 1; // closing quote
+                        break;
+                    }
+                } else {
+                    field.push(chars[i]);
+                    i += 1;
+                }
+            }
+        } else {
+            while i < chars.len() && chars[i] != delim {
+                field.push(chars[i]);
+                i += 1;
+            }
+        }
+        if was_quoted {
+            out.push(Some(field));
+        } else if field.is_empty() {
+            out.push(None); // empty unquoted ⇒ NULL
+        } else {
+            out.push(Some(field));
+        }
+        if i < chars.len() && chars[i] == delim {
+            i += 1;
+            if i == chars.len() {
+                // trailing delimiter ⇒ one more empty field
+                out.push(None);
+                break;
+            }
+            continue;
+        }
+        break;
+    }
+    out
+}
+
+/// Coerce a decoded text/csv field to a JSON value of the target column type so the
+/// store's typed insert accepts it. `None` ⇒ JSON null.
+fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json::Value, String> {
+    use serde_json::Value;
+    let Some(s) = field else {
+        return Ok(Value::Null);
+    };
+    let v = match ty {
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
+            Value::Number(s.trim().parse::<i64>().map_err(|_| format!("invalid integer `{s}`"))?.into())
+        }
+        ColumnType::Float | ColumnType::Double => serde_json::Number::from_f64(
+            s.trim().parse::<f64>().map_err(|_| format!("invalid float `{s}`"))?,
+        )
+        .map(Value::Number)
+        .ok_or_else(|| format!("non-finite float `{s}`"))?,
+        ColumnType::Bool => match s.trim().to_ascii_lowercase().as_str() {
+            "t" | "true" | "1" | "y" | "yes" => Value::Bool(true),
+            "f" | "false" | "0" | "n" | "no" => Value::Bool(false),
+            other => return Err(format!("invalid boolean `{other}`")),
+        },
+        ColumnType::Json => serde_json::from_str(s).unwrap_or(Value::String(s.to_string())),
+        ColumnType::Text | ColumnType::Bytes => Value::String(s.to_string()),
+    };
+    Ok(v)
+}
+
+/// Decode the Postgres BINARY COPY format into typed rows (CONCEPT:EG-020). Parses the
+/// 11-byte `PGCOPY` signature + flags + header extension, then per row a 2-byte field
+/// count (`-1` ⇒ the trailer) and per field a 4-byte length (`-1` ⇒ NULL) + bytes
+/// decoded by the target column's type (the common scalar widths).
+fn decode_copy_binary(buf: &[u8], types: &[ColumnType]) -> Result<Vec<Vec<serde_json::Value>>, String> {
+    use serde_json::Value;
+    const SIG: &[u8] = b"PGCOPY\n\xff\r\n\0";
+    let mut p = 0usize;
+    let need = |p: usize, n: usize| -> Result<(), String> {
+        if p + n > buf.len() {
+            Err("truncated COPY BINARY stream".to_string())
+        } else {
+            Ok(())
+        }
+    };
+    need(p, SIG.len())?;
+    if &buf[..SIG.len()] != SIG {
+        return Err("bad COPY BINARY signature".to_string());
+    }
+    p += SIG.len();
+    need(p, 8)?; // 4-byte flags + 4-byte header-extension length
+    let ext_len = u32::from_be_bytes(buf[p + 4..p + 8].try_into().unwrap()) as usize;
+    p += 8 + ext_len;
+
+    let mut out = Vec::new();
+    loop {
+        need(p, 2)?;
+        let fcount = i16::from_be_bytes(buf[p..p + 2].try_into().unwrap());
+        p += 2;
+        if fcount == -1 {
+            break; // trailer
+        }
+        if fcount as usize != types.len() {
+            return Err(format!(
+                "COPY BINARY row has {fcount} fields, expected {}",
+                types.len()
+            ));
+        }
+        let mut row = Vec::with_capacity(types.len());
+        for ty in types {
+            need(p, 4)?;
+            let flen = i32::from_be_bytes(buf[p..p + 4].try_into().unwrap());
+            p += 4;
+            if flen == -1 {
+                row.push(Value::Null);
+                continue;
+            }
+            let flen = flen as usize;
+            need(p, flen)?;
+            let bytes = &buf[p..p + flen];
+            p += flen;
+            row.push(decode_binary_field(bytes, *ty)?);
+        }
+        out.push(row);
+    }
+    Ok(out)
+}
+
+/// Decode one BINARY-format field's bytes to a typed JSON value.
+fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value, String> {
+    use serde_json::Value;
+    let int = |b: &[u8]| -> Result<i64, String> {
+        Ok(match b.len() {
+            1 => b[0] as i8 as i64,
+            2 => i16::from_be_bytes(b.try_into().unwrap()) as i64,
+            4 => i32::from_be_bytes(b.try_into().unwrap()) as i64,
+            8 => i64::from_be_bytes(b.try_into().unwrap()),
+            n => return Err(format!("unexpected {n}-byte integer field")),
+        })
+    };
+    let v = match ty {
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => Value::Number(int(bytes)?.into()),
+        ColumnType::Float | ColumnType::Double => {
+            let f = match bytes.len() {
+                4 => f32::from_be_bytes(bytes.try_into().unwrap()) as f64,
+                8 => f64::from_be_bytes(bytes.try_into().unwrap()),
+                n => return Err(format!("unexpected {n}-byte float field")),
+            };
+            serde_json::Number::from_f64(f).map(Value::Number).ok_or("non-finite float")?
+        }
+        ColumnType::Bool => Value::Bool(bytes.first().copied().unwrap_or(0) != 0),
+        ColumnType::Bytes => {
+            Value::Array(bytes.iter().map(|b| Value::Number((*b).into())).collect())
+        }
+        ColumnType::Text | ColumnType::Json => {
+            let s = std::str::from_utf8(bytes).map_err(|e| format!("invalid utf8 text field: {e}"))?;
+            if ty == ColumnType::Json {
+                serde_json::from_str(s).unwrap_or(Value::String(s.to_string()))
+            } else {
+                Value::String(s.to_string())
+            }
+        }
+    };
+    Ok(v)
+}
+
 /// A prepared statement parsed at `Parse` time (CONCEPT:KG-2.197). Holds the raw
 /// SQL (with `$N` placeholders intact) and the count of distinct parameters so the
 /// `Bind` step can validate and the describe step can report a `ParameterDescription`.
@@ -1537,8 +2069,14 @@ impl PgWireServerHandlers for EngineBackendFactory {
         ))
     }
 
-    // `copy_handler`, `error_handler`, and `cancel_handler` use the
-    // `PgWireServerHandlers` trait defaults (NoopHandler).
+    fn copy_handler(&self) -> Arc<impl pgwire::api::copy::CopyHandler> {
+        // SAME shared backend instance (CONCEPT:EG-020) so `COPY … FROM STDIN`'s
+        // per-connection copy state is the one the query handler set up.
+        self.backend.clone()
+    }
+
+    // `error_handler` and `cancel_handler` use the `PgWireServerHandlers` trait
+    // defaults (NoopHandler).
 }
 
 /// Bind `addr` and serve pgwire connections until the process exits. Spawned by
@@ -1587,5 +2125,95 @@ pub async fn serve_with_auth(
                 tracing::warn!("pgwire connection from {peer} ended with error: {e}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod copy_tests {
+    //! Unit tests for the `COPY … FROM STDIN` decoders + a full decode→ingest proving
+    //! "COPY ingests N rows" deterministically (CONCEPT:EG-020), without a socket.
+    use super::*;
+    use eg_query::{ColumnType, TableSchema};
+
+    fn items_schema() -> TableSchema {
+        TableSchema {
+            name: "items".into(),
+            columns: vec![
+                {
+                    let mut c = Column::new("id", ColumnType::BigInt, false, true);
+                    c.serial = true;
+                    c
+                },
+                {
+                    let mut c = Column::new("sku", ColumnType::Text, false, false);
+                    c.unique = true;
+                    c
+                },
+                Column::new("qty", ColumnType::Int, true, false),
+            ],
+        }
+    }
+
+    fn copy_state(format: CopyFormat, buf: &[u8], header: bool) -> CopyState {
+        CopyState {
+            table: "items".into(),
+            columns: vec!["sku".into(), "qty".into()],
+            format,
+            delimiter: None,
+            header,
+            buf: buf.to_vec(),
+        }
+    }
+
+    #[test]
+    fn csv_decode_and_ingest_n_rows() {
+        let schema = items_schema();
+        let st = copy_state(CopyFormat::Csv, b"sku,qty\nAAPL,1\nMSFT,2\n\"x,y\",3\n", true);
+        let rows = decode_copy_rows(&st, &schema).unwrap();
+        assert_eq!(rows.len(), 3, "header skipped, 3 data rows");
+        assert_eq!(rows[0][0], serde_json::json!("AAPL"));
+        assert_eq!(rows[0][1], serde_json::json!(1));
+        assert_eq!(rows[2][0], serde_json::json!("x,y"), "quoted comma preserved");
+
+        // Ingest into a real store: SERIAL id auto-fills, all 3 rows land.
+        let (store, _p) = eg_query::TableStore::open_temp().unwrap();
+        store.create_table(&schema, false).unwrap();
+        let n = store.insert_rows("items", &st.columns, &rows).unwrap();
+        assert_eq!(n, 3, "COPY ingested 3 rows");
+        let scanned = store.scan("items").unwrap();
+        assert_eq!(scanned.len(), 3);
+    }
+
+    #[test]
+    fn text_format_null_marker() {
+        let schema = items_schema();
+        let st = copy_state(CopyFormat::Text, b"AAPL\t1\nMSFT\t\\N\n", false);
+        let rows = decode_copy_rows(&st, &schema).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1][1], serde_json::Value::Null, "\\N ⇒ NULL");
+    }
+
+    #[test]
+    fn binary_format_decodes_rows() {
+        // Two rows of (text sku, int4 qty) in the PGCOPY binary format.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(b"PGCOPY\n\xff\r\n\0");
+        buf.extend_from_slice(&0u32.to_be_bytes()); // flags
+        buf.extend_from_slice(&0u32.to_be_bytes()); // header ext length
+        for (sku, qty) in [("AAPL", 1i32), ("MSFT", 2)] {
+            buf.extend_from_slice(&2i16.to_be_bytes()); // field count
+            buf.extend_from_slice(&(sku.len() as i32).to_be_bytes());
+            buf.extend_from_slice(sku.as_bytes());
+            buf.extend_from_slice(&4i32.to_be_bytes());
+            buf.extend_from_slice(&qty.to_be_bytes());
+        }
+        buf.extend_from_slice(&(-1i16).to_be_bytes()); // trailer
+
+        let schema = items_schema();
+        let st = copy_state(CopyFormat::Binary, &buf, false);
+        let rows = decode_copy_rows(&st, &schema).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0], serde_json::json!("AAPL"));
+        assert_eq!(rows[1][1], serde_json::json!(2));
     }
 }
