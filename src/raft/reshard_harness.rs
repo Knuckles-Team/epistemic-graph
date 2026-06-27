@@ -112,6 +112,7 @@ async fn bring_up(
     let state = make_state(dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
+        router: None,
     };
     let port = free_port();
     let node_id: NodeId = 1;

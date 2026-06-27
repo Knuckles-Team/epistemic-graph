@@ -338,7 +338,10 @@ async fn durable_log_replays_from_redb_after_restart() {
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
-    let ctx = AppCtx { state };
+    let ctx = AppCtx {
+        state,
+        router: None,
+    };
 
     // ── Append 12 entries through the real RaftStorage::append_to_log path ──
     {
@@ -387,6 +390,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
+        router: None,
     };
 
     {
@@ -442,7 +446,10 @@ async fn multi_group_logs_isolate_on_shared_redb() {
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
-    let ctx = AppCtx { state };
+    let ctx = AppCtx {
+        state,
+        router: None,
+    };
 
     let mut g7 = EgStore::open(7, backend.clone(), ctx.clone()).unwrap();
     let mut g9 = EgStore::open(9, backend.clone(), ctx.clone()).unwrap();
@@ -514,6 +521,7 @@ async fn two_groups_one_node_commit_independently() {
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
+        router: None,
     };
     let port = free_ports(1)[0];
     let node_id: NodeId = 1;
@@ -578,6 +586,209 @@ async fn two_groups_one_node_commit_independently() {
 
     multi.close_group(200).await.unwrap();
     multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// M2 hardening (CONCEPT:KG-2.265 / KG-2.266 / KG-2.267)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// KG-2.265: the per-peer connection pool REUSES a warm connection across
+/// sequential RPCs — three round-trips to one peer pay exactly ONE TCP connect.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn peer_pool_reuses_warm_connection() {
+    use super::network::{read_frame, write_frame, PeerPool};
+
+    // A tiny echo server speaking the Raft frame protocol: read a frame, write it back.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(async move {
+        loop {
+            let (mut s, _) = match listener.accept().await {
+                Ok(x) => x,
+                Err(_) => break,
+            };
+            tokio::spawn(async move {
+                while let Ok(buf) = read_frame(&mut s).await {
+                    if write_frame(&mut s, &buf).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+
+    let pool = PeerPool::with_capacity(4);
+    // First round-trip opens a fresh connection; the next two must REUSE it.
+    assert_eq!(pool.round_trip(&addr, b"ping-1").await.unwrap(), b"ping-1");
+    assert_eq!(pool.round_trip(&addr, b"ping-2").await.unwrap(), b"ping-2");
+    assert_eq!(pool.round_trip(&addr, b"ping-3").await.unwrap(), b"ping-3");
+    assert_eq!(
+        pool.opens(),
+        1,
+        "three sequential RPCs to one peer must pay exactly one TCP connect"
+    );
+    assert!(
+        pool.reuses() >= 2,
+        "later RPCs must reuse the warm connection (reuses={})",
+        pool.reuses()
+    );
+}
+
+/// KG-2.265: a stale idle connection (peer closed it) is transparently retried on a
+/// FRESH connection — the reuse optimization never surfaces a spurious failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn peer_pool_retries_on_stale_connection() {
+    use super::network::{read_frame, write_frame, PeerPool};
+
+    // Echo server that serves EXACTLY ONE frame per connection, then closes — so any
+    // connection returned to the pool is stale for the next round-trip.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(async move {
+        loop {
+            let (mut s, _) = match listener.accept().await {
+                Ok(x) => x,
+                Err(_) => break,
+            };
+            tokio::spawn(async move {
+                if let Ok(buf) = read_frame(&mut s).await {
+                    let _ = write_frame(&mut s, &buf).await;
+                }
+                // connection drops here → the pooled copy is now stale.
+            });
+        }
+    });
+
+    let pool = PeerPool::with_capacity(4);
+    assert_eq!(pool.round_trip(&addr, b"a").await.unwrap(), b"a");
+    // The pooled connection is stale; the next call must reconnect and still succeed.
+    assert_eq!(pool.round_trip(&addr, b"b").await.unwrap(), b"b");
+    assert_eq!(
+        pool.opens(),
+        2,
+        "a stale reuse must force a fresh reconnect, not a hard error"
+    );
+}
+
+/// KG-2.266: the tenant-range ring distributes un-pinned graphs across multiple
+/// groups, explicit overrides win, and an empty ring is the single-group default.
+#[test]
+fn group_router_distributes_tenants_across_ring() {
+    use super::multi::GroupRouter;
+
+    let r = GroupRouter::new();
+    // Default (no ring): every graph routes to DEFAULT_GROUP — scaffold behavior.
+    for g in ["a", "b", "__commons__", "tenant-42"] {
+        assert_eq!(r.group_of(g), super::DEFAULT_GROUP);
+    }
+
+    // Configure a 4-group tenant-range ring (sorted + de-duplicated).
+    r.set_group_ring(&[3, 1, 0, 2, 1]);
+    assert_eq!(r.group_ring(), vec![0, 1, 2, 3]);
+
+    // Many distinct tenants spread across MORE THAN ONE group.
+    let mut seen = std::collections::BTreeSet::new();
+    for i in 0..200 {
+        let g = r.group_of(&format!("tenant-{i}"));
+        assert!((0..4).contains(&g));
+        seen.insert(g);
+    }
+    assert!(
+        seen.len() >= 2,
+        "tenants must spread across multiple groups, got {seen:?}"
+    );
+
+    // Deterministic + stable: same name → same group on repeat (and on any node).
+    assert_eq!(r.group_of("tenant-7"), r.group_of("tenant-7"));
+
+    // An explicit override beats the ring (the reshard / pin path).
+    r.assign("tenant-7", 3);
+    assert_eq!(r.group_of("tenant-7"), 3);
+
+    // Cross-shard span detection now works across real tenant ranges.
+    r.assign("x", 0);
+    r.assign("y", 1);
+    assert!(r.is_cross_shard(["x", "y"]));
+    assert!(!r.is_cross_shard(["x", "x"]));
+
+    // Collapse back to the single-group default.
+    r.set_group_ring(&[]);
+    assert_eq!(r.group_of("an-unpinned-graph"), super::DEFAULT_GROUP);
+}
+
+/// KG-2.267: a group's snapshot dump is SCOPED to its own tenant-range graphs — a
+/// graph pinned to another group never bleeds into this group's snapshot. A store
+/// opened WITHOUT a router (the unscoped scaffold path) still dumps the whole registry.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_snapshot_is_scoped_to_its_tenant_range() {
+    use super::multi::GroupRouter;
+
+    let dir = fresh_dir("scopedsnap");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let state = make_state_with_backend(&dir, backend.clone()).await;
+
+    // Two graphs, pinned to two DIFFERENT non-default groups via the router. Neither
+    // is DEFAULT_GROUP (0), which already owns the bootstrap `__commons__` graph — so
+    // a pinned graph never shares a group with the un-pinned default tenant.
+    let router = Arc::new(GroupRouter::new());
+    router.assign("graphA", 3);
+    router.assign("graphB", 5);
+
+    // Materialize both graphs (one node each) in the shared registry.
+    {
+        let mut s = state.write().await;
+        let _ = s.registry.create_graph("graphA", GraphType::Global, None);
+        let _ = s.registry.create_graph("graphB", GraphType::Global, None);
+        if let Some(e) = s.registry.get("graphA") {
+            e.core.add_node("a1".to_string(), Vec::new());
+        }
+        if let Some(e) = s.registry.get("graphB") {
+            e.core.add_node("b1".to_string(), Vec::new());
+        }
+    }
+
+    let ctx = AppCtx {
+        state: state.clone(),
+        router: Some(router.clone()),
+    };
+    let g0 = EgStore::open(0, backend.clone(), ctx.clone()).unwrap();
+    let g3 = EgStore::open(3, backend.clone(), ctx.clone()).unwrap();
+    let g5 = EgStore::open(5, backend.clone(), ctx.clone()).unwrap();
+
+    // Group 3's snapshot carries ONLY graphA; group 5's ONLY graphB — no bleed, and
+    // neither catches the un-pinned `__commons__`. The DEFAULT group (0) owns ONLY the
+    // un-pinned bootstrap tenant, never the graphs pinned elsewhere.
+    assert_eq!(
+        g3.scoped_snapshot_graph_names().await,
+        vec!["graphA".to_string()]
+    );
+    assert_eq!(
+        g5.scoped_snapshot_graph_names().await,
+        vec!["graphB".to_string()]
+    );
+    assert_eq!(
+        g0.scoped_snapshot_graph_names().await,
+        vec!["__commons__".to_string()]
+    );
+
+    // A store WITHOUT a router (the unscoped scaffold path) dumps the WHOLE registry.
+    let ctx_global = AppCtx {
+        state: state.clone(),
+        router: None,
+    };
+    let g_global = EgStore::open(0, backend.clone(), ctx_global).unwrap();
+    assert_eq!(
+        g_global.scoped_snapshot_graph_names().await,
+        vec![
+            "__commons__".to_string(),
+            "graphA".to_string(),
+            "graphB".to_string()
+        ]
+    );
+
     backend.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
 }

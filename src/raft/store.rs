@@ -216,12 +216,20 @@ impl EgStore {
         Ok(RaftResponse { applied: true })
     }
 
-    /// Dump every graph for a snapshot. Reads off the registry under the read lock.
+    /// Dump THIS group's graphs for a snapshot (CONCEPT:KG-2.267). When the store runs
+    /// under a [`super::multi::MultiRaft`] its ctx carries the router, so the dump is
+    /// SCOPED to graphs whose tenant range resolves to this group — a large tenant in
+    /// one group never bloats another group's snapshot. Without a router (a direct
+    /// single-store open) the whole registry is dumped (the unscoped scaffold path).
     async fn dump_graphs(&self) -> Vec<GraphSnapshot> {
         let s = self.ctx.state.read().await;
         s.registry
             .all_entries()
             .iter()
+            .filter(|e| match &self.ctx.router {
+                Some(router) => router.group_of(&e.name) == self.group_id,
+                None => true,
+            })
             .map(|e| GraphSnapshot {
                 name: e.name.clone(),
                 fname: crate::persist::sanitize(&e.name),
@@ -230,6 +238,16 @@ impl EgStore {
                 edges: e.core.get_edges(),
             })
             .collect()
+    }
+
+    /// Test-only: the sorted graph NAMES this group's snapshot would capture, AFTER
+    /// per-group scoping (CONCEPT:KG-2.267). Lets a test assert a group's snapshot
+    /// carries ONLY its own tenant-range graphs without reaching into private types.
+    #[cfg(test)]
+    pub(crate) async fn scoped_snapshot_graph_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.dump_graphs().await.into_iter().map(|g| g.name).collect();
+        names.sort();
+        names
     }
 
     /// Rebuild graphs from a snapshot into the registry + M2 store.

@@ -23,11 +23,23 @@
 //!   [`RaftNetwork::install_snapshot`] (openraft's default chunked `full_snapshot`
 //!   drives it).
 //!
-//! Each client connects per-RPC (connect → send framed request → read framed
-//! response → close). Simple + correct for a first increment; a pooled connection
-//! per peer is a follow-up optimization, not a correctness change.
+//! ### Pooled per-peer connections (CONCEPT:KG-2.265)
+//! The scaffold opened a FRESH `TcpStream` for every append/vote/snapshot RPC and
+//! dropped it after one round-trip — under steady replication that churns a
+//! connect+handshake per heartbeat, per peer, per group. A [`PeerPool`] now keeps a
+//! small set of WARM connections per peer ADDRESS and reuses them across RPCs and
+//! across ALL groups on the node (the inbound listener is already shared, so the
+//! outbound side is shared too). Correctness is unchanged: the wire is strict
+//! request→response on one stream with no correlation id, so a pooled connection is
+//! handed out EXCLUSIVELY for one round-trip and only returned to the idle set if
+//! that round-trip SUCCEEDED. A stale idle entry (peer closed it while idle) surfaces
+//! as an IO error on the first frame, and the caller transparently retries ONCE on a
+//! guaranteed-fresh connection — so pooling never changes what openraft observes.
 
+use std::collections::HashMap;
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use openraft::error::{InstallSnapshotError, NetworkError, RPCError, RaftError, Unreachable};
 use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
@@ -66,6 +78,108 @@ impl std::fmt::Display for StrErr {
     }
 }
 impl std::error::Error for StrErr {}
+
+// ── pooled per-peer connections (CONCEPT:KG-2.265) ────────────────────────
+
+/// Default warm connections kept idle PER PEER address. A node replicates to each
+/// peer over a small number of concurrent streams (append + the occasional
+/// vote/snapshot), so a handful covers steady state; the set is bounded so a burst
+/// never leaks file descriptors.
+const DEFAULT_MAX_IDLE_PER_PEER: usize = 4;
+
+/// A per-peer pool of idle Raft-RPC connections (CONCEPT:KG-2.265). Keyed by the
+/// peer's `host:port`, shared by every group on the node (one pool per
+/// [`super::multi::MultiRaft`]). See the module docs for the reuse + stale-retry
+/// contract.
+pub struct PeerPool {
+    idle: std::sync::Mutex<HashMap<String, Vec<TcpStream>>>,
+    max_idle_per_peer: usize,
+    /// Brand-new TCP connections opened (a connect cost actually paid).
+    opens: AtomicU64,
+    /// Round-trips served on a reused warm connection (a connect cost AVOIDED).
+    reuses: AtomicU64,
+}
+
+impl PeerPool {
+    /// A pool keeping up to [`DEFAULT_MAX_IDLE_PER_PEER`] warm connections per peer.
+    pub fn new() -> Arc<Self> {
+        Self::with_capacity(DEFAULT_MAX_IDLE_PER_PEER)
+    }
+
+    /// A pool with an explicit idle cap per peer (used by tests).
+    pub fn with_capacity(max_idle_per_peer: usize) -> Arc<Self> {
+        Arc::new(Self {
+            idle: std::sync::Mutex::new(HashMap::new()),
+            max_idle_per_peer: max_idle_per_peer.max(1),
+            opens: AtomicU64::new(0),
+            reuses: AtomicU64::new(0),
+        })
+    }
+
+    /// Count of brand-new connections opened (test/metrics visibility).
+    pub fn opens(&self) -> u64 {
+        self.opens.load(Ordering::Relaxed)
+    }
+
+    /// Count of round-trips that reused a warm connection (test/metrics visibility).
+    pub fn reuses(&self) -> u64 {
+        self.reuses.load(Ordering::Relaxed)
+    }
+
+    /// Take a warm connection for `addr` if one is idle.
+    fn take(&self, addr: &str) -> Option<TcpStream> {
+        let mut idle = self.idle.lock().unwrap();
+        idle.get_mut(addr).and_then(Vec::pop)
+    }
+
+    /// Return a healthy connection to the idle set (dropped if the peer is at cap, so
+    /// the idle set stays bounded).
+    fn put(&self, addr: &str, stream: TcpStream) {
+        let mut idle = self.idle.lock().unwrap();
+        let v = idle.entry(addr.to_string()).or_default();
+        if v.len() < self.max_idle_per_peer {
+            v.push(stream);
+        }
+    }
+
+    /// One framed request→response round-trip to `addr`, reusing a warm connection
+    /// when possible. A reused connection that fails is discarded and the call retries
+    /// ONCE on a fresh connection, so a stale idle entry never surfaces to openraft.
+    pub(crate) async fn round_trip(&self, addr: &str, body: &[u8]) -> Result<Vec<u8>, io::Error> {
+        // 1) Try a warm connection first.
+        if let Some(mut stream) = self.take(addr) {
+            if let Ok(resp) = Self::exchange(&mut stream, body).await {
+                self.reuses.fetch_add(1, Ordering::Relaxed);
+                self.put(addr, stream);
+                return Ok(resp);
+            }
+            // Stale/broken idle connection — drop it and fall through to a fresh one.
+        }
+        // 2) Fresh connection (first use, or after a stale reuse).
+        let mut stream = TcpStream::connect(addr).await?;
+        self.opens.fetch_add(1, Ordering::Relaxed);
+        let resp = Self::exchange(&mut stream, body).await?;
+        self.put(addr, stream);
+        Ok(resp)
+    }
+
+    /// Write a framed body and read its framed reply on `stream`.
+    async fn exchange(stream: &mut TcpStream, body: &[u8]) -> Result<Vec<u8>, io::Error> {
+        write_frame(stream, body).await?;
+        read_frame(stream).await
+    }
+}
+
+impl Default for PeerPool {
+    fn default() -> Self {
+        Self {
+            idle: std::sync::Mutex::new(HashMap::new()),
+            max_idle_per_peer: DEFAULT_MAX_IDLE_PER_PEER,
+            opens: AtomicU64::new(0),
+            reuses: AtomicU64::new(0),
+        }
+    }
+}
 
 // ── group-multiplexed network (CONCEPT:KG-2.205) ──────────────────────────
 //
@@ -106,11 +220,14 @@ pub enum GroupRpcReply {
 pub struct GroupNetworkFactory {
     gid: GroupId,
     local: NodeId,
+    /// Shared per-peer connection pool (CONCEPT:KG-2.265) — one per node, reused by
+    /// every group's clients so the outbound side mirrors the shared inbound listener.
+    pool: Arc<PeerPool>,
 }
 
 impl GroupNetworkFactory {
-    pub fn new(gid: GroupId, local: NodeId) -> Self {
-        Self { gid, local }
+    pub fn new(gid: GroupId, local: NodeId, pool: Arc<PeerPool>) -> Self {
+        Self { gid, local, pool }
     }
 }
 
@@ -123,11 +240,13 @@ impl RaftNetworkFactory<TypeConfig> for GroupNetworkFactory {
             local: self.local,
             target,
             addr: node.addr.clone(),
+            pool: self.pool.clone(),
         }
     }
 }
 
-/// A client to ONE peer for ONE group. Connects per-RPC; tags each frame with `gid`.
+/// A client to ONE peer for ONE group. Reuses a pooled connection per round-trip
+/// (CONCEPT:KG-2.265); tags each frame with `gid`.
 pub struct GroupNetworkClient {
     gid: GroupId,
     /// The node this client runs ON (the RPC source). Unused in production; consulted
@@ -137,6 +256,8 @@ pub struct GroupNetworkClient {
     #[allow(dead_code)]
     target: NodeId,
     addr: String,
+    /// The node's shared per-peer connection pool.
+    pool: Arc<PeerPool>,
 }
 
 impl GroupNetworkClient {
@@ -154,11 +275,9 @@ impl GroupNetworkClient {
                 "partitioned (harness nemesis)",
             ));
         }
-        let mut stream = TcpStream::connect(&self.addr).await?;
         let body = rmp_serde::to_vec_named(rpc)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        write_frame(&mut stream, &body).await?;
-        let resp = read_frame(&mut stream).await?;
+        let resp = self.pool.round_trip(&self.addr, &body).await?;
         rmp_serde::from_slice(&resp).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 }
