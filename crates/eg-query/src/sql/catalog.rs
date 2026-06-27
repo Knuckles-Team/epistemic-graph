@@ -88,7 +88,11 @@ fn pg_typname(oid: i32) -> &'static str {
 /// Build the [`CatalogRelation`] list from the inferred `nodes`/`edges` schemas.
 /// The `props: Binary` escape-hatch column is reported as `text` (its values are
 /// not introspectable structurally, and a driver never reflects against it).
-fn relations(nodes_schema: &SchemaRef, edges_schema: &SchemaRef) -> Vec<CatalogRelation> {
+fn relations(
+    nodes_schema: &SchemaRef,
+    edges_schema: &SchemaRef,
+    extra: &[(String, SchemaRef)],
+) -> Vec<CatalogRelation> {
     let to_cols = |schema: &SchemaRef| -> Vec<(String, i32)> {
         schema
             .fields()
@@ -96,7 +100,7 @@ fn relations(nodes_schema: &SchemaRef, edges_schema: &SchemaRef) -> Vec<CatalogR
             .map(|f| (f.name().clone(), arrow_to_pg_oid(f.data_type())))
             .collect()
     };
-    vec![
+    let mut rels = vec![
         CatalogRelation {
             name: "nodes".to_string(),
             columns: to_cols(nodes_schema),
@@ -105,7 +109,15 @@ fn relations(nodes_schema: &SchemaRef, edges_schema: &SchemaRef) -> Vec<CatalogR
             name: "edges".to_string(),
             columns: to_cols(edges_schema),
         },
-    ]
+    ];
+    // CONCEPT:EG-018: the user tables, so a reflecting ORM/driver sees them too.
+    for (name, schema) in extra {
+        rels.push(CatalogRelation {
+            name: name.clone(),
+            columns: to_cols(schema),
+        });
+    }
+    rels
 }
 
 /// `pg_namespace`: one row for the single `public` schema (plus `pg_catalog` and
@@ -334,8 +346,9 @@ pub(crate) fn register_pg_catalog(
     ctx: &SessionContext,
     nodes_schema: &SchemaRef,
     edges_schema: &SchemaRef,
+    extra: &[(String, SchemaRef)],
 ) -> Result<(), String> {
-    let rels = relations(nodes_schema, edges_schema);
+    let rels = relations(nodes_schema, edges_schema, extra);
 
     // Attach a `pg_catalog` schema to the default catalog and populate it.
     let catalog = ctx
