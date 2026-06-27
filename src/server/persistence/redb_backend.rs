@@ -279,12 +279,115 @@ enum Cmd {
     },
 }
 
+/// Adaptive group-commit micro-linger tuning for the redb writer (CONCEPT:EG-024).
+///
+/// Live profiling of the `eg-redb-writer` thread showed it pinned ~100% on ext4
+/// writeback (disk ~83% util, ~50ms write latency, queue depth 42) while every
+/// tokio worker sat idle — it is the ingestion write ceiling. The machinery already
+/// group-commits (many `Cmd::Mutation` fold into ONE `WriteTransaction`/fsync), but
+/// because every authoritative write carries a commit-before-ack `done` oneshot,
+/// `Pending::has_barrier()` is ALWAYS true, so the writer commits the instant the
+/// channel momentarily drains. With low in-flight write concurrency (serial awaits —
+/// the idle workers) the batch is whatever incidentally sat in the channel, i.e.
+/// ~1 op ⇒ ~1 fsync per write. The batching machinery was starved of a window.
+///
+/// This adds a bounded, adaptive linger: when about to commit a SHALLOW barrier
+/// batch, spend ONE `recv_timeout(linger)` letting more concurrent writers arrive,
+/// then drain again. It MIRRORS the in-memory write-coalescer's `max_linger`
+/// (CONCEPT:KG-2.182, `write_coalescer.rs`) but for the DURABLE tier — it does NOT
+/// touch the coalescer. Durability is unchanged: authoritative writes still commit
+/// `Durability::Immediate` BEFORE their `done` fires; we only widen the batch, never
+/// defer an ack past its commit. A crash before commit still loses only un-acked writes.
+#[derive(Debug, Clone, Copy)]
+pub struct RedbGroupCommitConfig {
+    /// Max time to linger for more concurrent writers before committing a shallow
+    /// barrier batch. `Duration::ZERO` disables lingering entirely (commit-on-drain
+    /// = today's behavior, used as the bench baseline).
+    pub linger: Duration,
+    /// Only linger when `pending.ops.len()` is BELOW this — a deep batch already
+    /// coalesces well, so lingering buys nothing and just adds latency (adaptive).
+    pub shallow_threshold: usize,
+}
+
+impl RedbGroupCommitConfig {
+    /// Resolve from env (Configuration discipline: read once at backend open).
+    ///   * `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` — linger microseconds (default
+    ///     `1000` = 1ms; `0` disables lingering / restores commit-on-drain).
+    ///   * `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` — shallow-batch op threshold
+    ///     (default `32`); the writer lingers only while `ops.len()` is under it.
+    pub fn from_env() -> Self {
+        let linger_us = std::env::var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(1000);
+        let shallow = std::env::var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .unwrap_or(32);
+        Self {
+            linger: Duration::from_micros(linger_us),
+            // Never above the 4096 early-flush bound; at least 1.
+            shallow_threshold: shallow.clamp(1, 4096),
+        }
+    }
+}
+
+impl Default for RedbGroupCommitConfig {
+    fn default() -> Self {
+        Self::from_env()
+    }
+}
+
+/// Group-commit observability for the redb writer (CONCEPT:EG-024), mirroring
+/// `write_coalescer::BatchStats`. `ops / commits` is the average batch size = the
+/// fsyncs-saved ratio; `lingered` counts commits that paid a micro-linger window.
+/// Cheap relaxed atomics, shared (`Arc`) between the writer thread and any reader.
+#[derive(Debug, Default)]
+pub struct RedbCommitStats {
+    /// Group-commit `WriteTransaction`s issued on the run-loop barrier/timeout path.
+    pub commits: AtomicU64,
+    /// Total graph ops folded across those commits.
+    pub ops: AtomicU64,
+    /// How many of those commits paid a micro-linger window.
+    pub lingered: AtomicU64,
+}
+
+impl RedbCommitStats {
+    fn record(&self, ops: usize, lingered: bool) {
+        self.commits.fetch_add(1, Ordering::Relaxed);
+        self.ops.fetch_add(ops as u64, Ordering::Relaxed);
+        if lingered {
+            self.lingered.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    pub fn commits(&self) -> u64 {
+        self.commits.load(Ordering::Relaxed)
+    }
+    pub fn ops(&self) -> u64 {
+        self.ops.load(Ordering::Relaxed)
+    }
+    pub fn lingered(&self) -> u64 {
+        self.lingered.load(Ordering::Relaxed)
+    }
+    /// Average group-commit batch size (`ops / commits`); 0.0 before any commit.
+    pub fn avg_batch(&self) -> f64 {
+        let c = self.commits();
+        if c == 0 {
+            0.0
+        } else {
+            self.ops() as f64 / c as f64
+        }
+    }
+}
+
 /// Handle to the redb write-through tier. The dispatch path holds an `Arc` of this
 /// and calls `record`; the dedicated thread does all `Database` I/O.
 pub struct RedbBackend {
     db_path: String,
     tx: SyncSender<Cmd>,
     dropped: Arc<AtomicU64>,
+    /// Group-commit batch-size / linger counters (CONCEPT:EG-024).
+    stats: Arc<RedbCommitStats>,
     handle: parking_lot::Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -318,6 +421,12 @@ impl RedbBackend {
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
         let dropped = Arc::new(AtomicU64::new(0));
+        // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-024).
+        // Resolved once at open (Configuration discipline); the writer thread owns a
+        // clone of the stats Arc so callers can read batch-size/throughput live.
+        let group_commit = RedbGroupCommitConfig::from_env();
+        let stats = Arc::new(RedbCommitStats::default());
+        let stats_writer = stats.clone();
         // Encryption-at-rest (CONCEPT:KG-2.231): resolve the value-blob cipher ONCE at
         // open from EPISTEMIC_GRAPH_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
         // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
@@ -336,6 +445,8 @@ impl RedbBackend {
                     rx,
                     db,
                     policy,
+                    group_commit,
+                    stats_writer,
                     #[cfg(feature = "security")]
                     cipher,
                 )
@@ -345,6 +456,7 @@ impl RedbBackend {
             db_path,
             tx,
             dropped,
+            stats,
             handle: parking_lot::Mutex::new(Some(handle)),
         })
     }
@@ -352,6 +464,13 @@ impl RedbBackend {
     /// Total mutations dropped due to channel saturation (observability).
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
+    }
+
+    /// Group-commit batch-size / linger counters (CONCEPT:EG-024). `avg_batch()` =
+    /// ops-per-fsync; the higher it climbs under concurrent writers, the more the
+    /// micro-linger is collapsing the per-write fsync into a shared group commit.
+    pub fn commit_stats(&self) -> Arc<RedbCommitStats> {
+        self.stats.clone()
     }
 
     /// TEST-ONLY: flip a byte in the stored audit entry `(graph, seq)` to simulate
@@ -973,6 +1092,8 @@ fn run(
     rx: Receiver<Cmd>,
     db: Database,
     policy: FsyncPolicy,
+    group_commit: RedbGroupCommitConfig,
+    stats: Arc<RedbCommitStats>,
     #[cfg(feature = "security")] cipher: Option<crate::crypto::ValueCipher>,
 ) {
     // Build the durable-crypto handle ONCE (borrows the owned cipher for the thread's
@@ -989,12 +1110,21 @@ fn run(
     // commit-before-ack completion sender (CONCEPT:KG-2.187). After a commit, EVERY
     // sender in the batch is fired with the batch's result — one fsync, N notified.
     let mut pending: Pending = Pending::default();
+    // CONCEPT:EG-024 — record the group-commit batch size (ops-per-fsync), then
+    // commit+notify. Only counts a batch that actually carried work; `lingered` marks
+    // commits that paid a micro-linger window so the win is measurable.
+    let commit_now = |pending: &mut Pending, durability: Durability, lingered: bool| {
+        if !pending.is_empty() {
+            stats.record(pending.ops.len(), lingered);
+        }
+        commit_and_notify(&db, pending, durability, crypto);
+    };
     loop {
         match rx.recv_timeout(tick) {
             Ok(cmd) => {
                 if handle_cmd(cmd, &db, &mut pending, policy, crypto) {
                     // shutdown: flush whatever is pending durably, then stop.
-                    commit_and_notify(&db, &mut pending, Durability::Immediate, crypto);
+                    commit_now(&mut pending, Durability::Immediate, false);
                     break;
                 }
                 // Drain the rest of the burst so it coalesces into one commit.
@@ -1006,7 +1136,7 @@ fn run(
                     }
                 }
                 if stop {
-                    commit_and_notify(&db, &mut pending, Durability::Immediate, crypto);
+                    commit_now(&mut pending, Durability::Immediate, false);
                     return;
                 }
                 // Any awaiting commit-before-ack op in the batch MUST be made durable
@@ -1014,11 +1144,58 @@ fn run(
                 // barrier op is pending, commit immediately; otherwise honor policy.
                 let must_commit_now = pending.has_barrier() || matches!(policy, FsyncPolicy::Each);
                 if must_commit_now {
+                    // CONCEPT:EG-024 — adaptive group-commit micro-linger. The commit
+                    // trigger fires the instant the channel drains, so with low in-flight
+                    // write concurrency (serial awaits) the barrier batch is ~1 op ⇒ ~1
+                    // fsync/write — the profiled write ceiling. When the about-to-commit
+                    // batch is SHALLOW (and no hard barrier needs immediacy), spend ONE
+                    // bounded `recv_timeout(linger)` so concurrently-awaiting writers can
+                    // land in the channel, then drain again — folding them into the SAME
+                    // fsync. Adaptive: a DEEP batch (ops >= shallow_threshold) is already
+                    // coalescing, so we linger 0. Guards that PRESERVE latency/correctness:
+                    //   * skip when linger == 0 (disabled / bench baseline),
+                    //   * skip under FsyncPolicy::Off (no fsync to amortize),
+                    //   * skip Raft-log barriers (`raft_log_ops`) so consensus is never
+                    //     delayed — only shallow GRAPH-mutation batches linger,
+                    //   * the existing 4096 early-flush bound in `handle_cmd` is the upper
+                    //     op-count guard, so a linger can never overgrow the batch.
+                    // Durability is UNCHANGED: we widen the batch, we do NOT defer any ack
+                    // past its own commit (the same `Durability::Immediate` fsync still
+                    // precedes every `done` waiter firing).
+                    let mut lingered = false;
+                    if group_commit.linger > Duration::ZERO
+                        && !matches!(policy, FsyncPolicy::Off)
+                        && pending.raft_log_ops.is_empty()
+                        && !pending.ops.is_empty()
+                        && pending.ops.len() < group_commit.shallow_threshold
+                    {
+                        lingered = true;
+                        match rx.recv_timeout(group_commit.linger) {
+                            Ok(cmd) => {
+                                if handle_cmd(cmd, &db, &mut pending, policy, crypto) {
+                                    commit_now(&mut pending, Durability::Immediate, true);
+                                    return;
+                                }
+                                // Drain everyone who arrived during the linger window.
+                                while let Ok(cmd) = rx.try_recv() {
+                                    if handle_cmd(cmd, &db, &mut pending, policy, crypto) {
+                                        commit_now(&mut pending, Durability::Immediate, true);
+                                        return;
+                                    }
+                                }
+                            }
+                            Err(RecvTimeoutError::Timeout) => {}
+                            Err(RecvTimeoutError::Disconnected) => {
+                                commit_now(&mut pending, Durability::Immediate, true);
+                                break;
+                            }
+                        }
+                    }
                     let durability = match policy {
                         FsyncPolicy::Off => Durability::None,
                         _ => Durability::Immediate,
                     };
-                    commit_and_notify(&db, &mut pending, durability, crypto);
+                    commit_now(&mut pending, durability, lingered);
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
@@ -1027,10 +1204,10 @@ fn run(
                     FsyncPolicy::Off => Durability::None,
                     _ => Durability::Immediate,
                 };
-                commit_and_notify(&db, &mut pending, durability, crypto);
+                commit_now(&mut pending, durability, false);
             }
             Err(RecvTimeoutError::Disconnected) => {
-                commit_and_notify(&db, &mut pending, Durability::Immediate, crypto);
+                commit_now(&mut pending, Durability::Immediate, false);
                 break;
             }
         }
@@ -2191,6 +2368,134 @@ mod tests {
             let got = backend.read_node("g1", &format!("n{i}")).await.unwrap();
             assert!(got.is_some(), "n{i} durable");
         }
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-024 — the adaptive micro-linger COALESCES concurrent in-flight
+    /// authoritative writers into fewer, larger group commits WITHOUT losing
+    /// durability. We fan N concurrent `record_durable` calls (each its own task, so
+    /// the writer sees them arrive within the linger window) and assert:
+    ///   * every awaited writer resolves Ok and every node is durably present
+    ///     (durability guarantee unchanged — commit-before-ack still holds),
+    ///   * the average batch size (`ops / commits`) climbs well above 1, i.e. the
+    ///     linger folded many writers into one fsync (the profiled win),
+    ///   * lingered commits were actually exercised.
+    /// `FsyncPolicy::Each` would commit per-drained-batch regardless, so we use
+    /// `Interval` (the live authoritative cadence) where, pre-EG-024, a drained
+    /// channel commits immediately at ~1 op/fsync.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn micro_linger_coalesces_concurrent_writers() {
+        // Explicit, deterministic knobs (don't depend on ambient env).
+        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "2000");
+        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW", "256");
+        let dir = std::env::temp_dir().join(format!("eg-redb-linger-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend = Arc::new(
+            RedbBackend::open(
+                dir_s.clone(),
+                // Long interval so the ONLY thing that commits a batch is the barrier
+                // path (+ its micro-linger), never the tick.
+                FsyncPolicy::Interval(Duration::from_millis(500)),
+                512,
+            )
+            .expect("open"),
+        );
+        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
+        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW");
+
+        let stats = backend.commit_stats();
+        let n = 256usize;
+        let mut handles = Vec::new();
+        for i in 0..n {
+            let b = backend.clone();
+            handles.push(tokio::spawn(async move {
+                b.record_durable(
+                    "g1",
+                    &Method::AddNode {
+                        node_id: format!("n{i}"),
+                        properties_msgpack: props(serde_json::json!({"i": i})),
+                    },
+                )
+                .await
+            }));
+        }
+        for h in handles {
+            h.await.unwrap().expect("each durable commit ok");
+        }
+        assert_eq!(backend.dropped(), 0, "authoritative path never drops");
+        // Durability: every node present.
+        for i in 0..n {
+            assert!(
+                backend.read_node("g1", &format!("n{i}")).await.unwrap().is_some(),
+                "n{i} durable"
+            );
+        }
+        // The win: many writers folded into far fewer commits than ops.
+        let commits = stats.commits();
+        let ops = stats.ops();
+        assert!(ops >= n as u64, "all {n} ops counted (got {ops})");
+        assert!(
+            commits < n as u64,
+            "linger must coalesce: {commits} commits for {ops} ops (expected << {n})"
+        );
+        assert!(
+            stats.avg_batch() > 1.5,
+            "avg batch {:.2} should be well above the 1-op/fsync baseline",
+            stats.avg_batch()
+        );
+        assert!(stats.lingered() > 0, "micro-linger path was exercised");
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-024 — with the linger DISABLED (`LINGER_US=0`) the writer falls back
+    /// to the exact commit-on-drain behavior, and durability is identical. This pins
+    /// the baseline the bench measures against and proves the knob is a real opt-out.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn micro_linger_disabled_preserves_durability() {
+        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "0");
+        let dir = std::env::temp_dir().join(format!("eg-redb-nolinger-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend = Arc::new(
+            RedbBackend::open(
+                dir_s.clone(),
+                FsyncPolicy::Interval(Duration::from_millis(50)),
+                256,
+            )
+            .expect("open"),
+        );
+        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
+
+        let stats = backend.commit_stats();
+        let n = 64usize;
+        let mut handles = Vec::new();
+        for i in 0..n {
+            let b = backend.clone();
+            handles.push(tokio::spawn(async move {
+                b.record_durable(
+                    "g1",
+                    &Method::AddNode {
+                        node_id: format!("n{i}"),
+                        properties_msgpack: props(serde_json::json!({"i": i})),
+                    },
+                )
+                .await
+            }));
+        }
+        for h in handles {
+            h.await.unwrap().expect("each durable commit ok");
+        }
+        for i in 0..n {
+            assert!(
+                backend.read_node("g1", &format!("n{i}")).await.unwrap().is_some(),
+                "n{i} durable"
+            );
+        }
+        // No commit ever lingered when the knob is 0.
+        assert_eq!(stats.lingered(), 0, "linger disabled ⇒ zero lingered commits");
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
