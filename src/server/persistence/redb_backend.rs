@@ -35,7 +35,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -121,8 +121,12 @@ enum Cmd {
         done: oneshot::Sender<Result<(), String>>,
     },
     /// Read a single node's stored properties back (read-through on RAM miss under
-    /// authoritative mode). Runs on the owner thread because redb holds an exclusive
-    /// per-process file lock.
+    /// authoritative mode). NO LONGER CONSTRUCTED as of CONCEPT:EG-027 — the
+    /// point-read path now serves directly off a `begin_read()` MVCC snapshot on the
+    /// shard's shared `Database` (see `read_node_blocking`), so it never routes
+    /// through the writer. The variant + handler are retained (the writer loop is left
+    /// byte-for-byte) but unused; `allow(dead_code)` keeps the build warning-clean.
+    #[allow(dead_code)]
     ReadNode {
         graph: String,
         node_id: String,
@@ -528,10 +532,29 @@ fn resolve_flush_threshold(capacity: usize) -> usize {
 /// commit in parallel on K cores.
 struct Shard {
     db_path: String,
+    /// `Weak` handle to THIS shard's redb `Database` (CONCEPT:EG-027 — snapshot reads
+    /// off the writer). redb 4.1 is MVCC: `Database::begin_read()` opens a consistent
+    /// read snapshot that runs CONCURRENTLY with the single writer (no writer
+    /// involvement, no commit). The writer thread owns the SOLE STRONG `Arc`; the
+    /// point-read / read-through path `upgrade()`s this `Weak` to serve an evicted node
+    /// DIRECTLY off a `begin_read()` snapshot on the SAME handle WITHOUT routing through
+    /// the writer's channel and WITHOUT forcing a group-commit. Holding a `Weak` (not a
+    /// strong clone) is deliberate: the exclusive per-process file lock then releases
+    /// EXACTLY when the writer thread exits on `shutdown` (the strong Arc drops),
+    /// preserving the pre-EG-027 lifetime — a reopen of the same persist dir after
+    /// shutdown succeeds, and a read after shutdown fails fast (upgrade ⇒ `None`)
+    /// instead of pinning the file lock. Opening a SECOND `Database` on the file would
+    /// hit redb's exclusive lock, which is why reads share this handle.
+    db: Weak<Database>,
     tx: SyncSender<Cmd>,
     dropped: Arc<AtomicU64>,
     /// Group-commit batch-size / linger counters (CONCEPT:EG-024), per shard.
     stats: Arc<RedbCommitStats>,
+    /// Value-blob cipher for snapshot reads off the writer (CONCEPT:EG-027). The same
+    /// cipher the writer thread owns; resolved ONCE at open. `None` ⇒ encryption off ⇒
+    /// the read path is byte-for-byte the plaintext path.
+    #[cfg(feature = "security")]
+    cipher: Option<crate::crypto::ValueCipher>,
     handle: parking_lot::Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -544,7 +567,13 @@ impl Shard {
         capacity: usize,
         flush_threshold: usize,
     ) -> Result<Self, String> {
-        let db = Database::create(&db_path).map_err(|e| e.to_string())?;
+        // ONE shared `Database` handle per shard (CONCEPT:EG-027). The writer thread
+        // and the snapshot-read path both hold a clone of this `Arc`; redb's MVCC lets
+        // a `begin_read()` on this handle run concurrently with the writer's
+        // `begin_write()`, so reads never route through the writer. (A SECOND
+        // `Database::create` on the same file would error on the exclusive file lock —
+        // hence one shared handle, not a re-open.)
+        let db = Arc::new(Database::create(&db_path).map_err(|e| e.to_string())?);
         // Ensure all tables exist so a fresh DB load_all doesn't error on a missing
         // table (open_table in a read txn fails if the table was never created).
         {
@@ -582,6 +611,15 @@ impl Shard {
                 "redb encryption-at-rest ENABLED (value blobs sealed with ChaCha20-Poly1305)"
             );
         }
+        // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-027); the
+        // writer thread takes ownership of the original below.
+        #[cfg(feature = "security")]
+        let cipher_for_reads = cipher.clone();
+        // A `Weak` for the off-writer snapshot-read path (CONCEPT:EG-027). The writer
+        // thread below takes the SOLE STRONG `Arc`, so the redb file lock releases
+        // exactly when that thread exits on shutdown — matching the pre-EG-027 lifetime
+        // (a reopen after shutdown succeeds; a read after shutdown upgrades to `None`).
+        let db_weak = Arc::downgrade(&db);
         let handle = std::thread::Builder::new()
             .name(thread_name)
             .spawn(move || {
@@ -599,9 +637,12 @@ impl Shard {
             .map_err(|e| e.to_string())?;
         Ok(Self {
             db_path,
+            db: db_weak,
             tx,
             dropped,
             stats,
+            #[cfg(feature = "security")]
+            cipher: cipher_for_reads,
             handle: parking_lot::Mutex::new(Some(handle)),
         })
     }
@@ -1058,22 +1099,34 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         node_id: &str,
     ) -> Result<Option<Vec<u8>>, String> {
-        // Point-read routed through the off-reactor writer (so it flushes any
-        // pending group-commit first and sees the latest durable state) over a
-        // blocking channel. Only hit on a RAM miss (CONCEPT:KG-2.191), never on the
-        // resident hot path, so the synchronous round-trip cost is paid only when a
-        // node was actually evicted.
-        let (reply, rx) = std::sync::mpsc::channel();
-        self.shard_for(graph_fname)
-            .tx
-            .send(Cmd::ReadNode {
-                graph: graph_fname.to_string(),
-                node_id: node_id.to_string(),
-                reply,
-            })
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped read_node reply".to_string())?
+        // CONCEPT:EG-027 — SNAPSHOT READ OFF THE WRITER. The read-through point-read
+        // (only hit on a RAM miss, CONCEPT:KG-2.191) now serves the node DIRECTLY from
+        // a `begin_read()` MVCC snapshot on the TARGET SHARD's shared `Database`
+        // (routed by the SAME EG-026 `shard_for` the writer uses). It NEVER routes
+        // through the writer thread's channel and NEVER forces a group-commit, so a
+        // read can no longer block on / be serialized behind the durable write path —
+        // critical on a Pi (frequent eviction/read-through) and across shards.
+        //
+        // Consistency: redb is MVCC, so the snapshot sees the LATEST COMMITTED state
+        // of this shard. Commit-before-ack (CONCEPT:KG-2.187) guarantees any ACKED
+        // write is already committed, so a `begin_read()` opened after that ack sees
+        // it. Writes still buffered in the writer's `Pending` are NOT yet acked (no
+        // happens-before to any reader), so omitting the old forced commit changes no
+        // observable read result. Eviction is durability-gated (a node leaves RAM only
+        // after redb confirms it on disk), so an evicted node is always served here.
+        let shard = self.shard_for(graph_fname);
+        // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-027). `None`
+        // only after shutdown dropped the writer's strong Arc — fail fast like the old
+        // "writer thread is gone" channel error.
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        read_one_node(&db, graph_fname, node_id, crypto)
     }
 
     fn shutdown(&self) {
@@ -1379,7 +1432,11 @@ impl RedbBackend {
 
 fn run(
     rx: Receiver<Cmd>,
-    db: Database,
+    // Shared `Database` handle (CONCEPT:EG-027): the writer OWNS one clone of the Arc
+    // (kept alive for the thread's whole life); the Shard holds another for off-writer
+    // snapshot reads. Rebound to `&Database` immediately so the commit path below is
+    // byte-for-byte the pre-EG-027 single-`Database` writer loop.
+    db: Arc<Database>,
     policy: FsyncPolicy,
     group_commit: RedbGroupCommitConfig,
     stats: Arc<RedbCommitStats>,
@@ -1387,6 +1444,9 @@ fn run(
     flush_threshold: usize,
     #[cfg(feature = "security")] cipher: Option<crate::crypto::ValueCipher>,
 ) {
+    // Borrow the shared handle for the rest of the loop; the owned Arc above stays
+    // alive until `run` returns, so this reference is valid for the whole thread.
+    let db: &Database = &db;
     // Build the durable-crypto handle ONCE (borrows the owned cipher for the thread's
     // lifetime). No-op handle when encryption is off / not compiled.
     #[cfg(feature = "security")]
@@ -2684,6 +2744,197 @@ mod tests {
             let got = backend.read_node("g1", &format!("n{i}")).await.unwrap();
             assert!(got.is_some(), "n{i} durable");
         }
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── CONCEPT:EG-027 — snapshot reads off the writer ───────────────────────────
+    //
+    // The point-read / read-through path (`read_node`) serves directly from a redb
+    // `begin_read()` MVCC snapshot on the target shard's shared `Database`, routed by
+    // the SAME EG-026 `shard_for`. It NEVER routes through the writer thread's channel
+    // and NEVER forces a group-commit. These tests pin that invariant:
+    //   (a) a read-through never increments any shard's commit counter (EG-026), and
+    //       reads route to the correct shard under K>1 and return the right value;
+    //   (b) reads complete CONCURRENTLY while many writes are in flight (MVCC, not
+    //       serialized behind the writer queue);
+    //   (c) a read after a write-ack sees the latest committed value (consistency).
+    // None mutate env, so they need no LINGER_ENV_LOCK guard.
+
+    /// (a) Read-through serves the node from a snapshot and triggers NO writer commit.
+    /// Proven via the per-shard commit counters (EG-026 `commit_stats_all`): after the
+    /// writes settle, a burst of reads leaves EVERY shard's commit count UNCHANGED.
+    /// Uses K=3 so we also prove reads route to the correct shard (the value comes
+    /// back) and that no OTHER shard commits either.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn read_through_snapshot_triggers_no_writer_commit() {
+        let dir = std::env::temp_dir().join(format!("eg-redb-snapread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        // K=3 explicit (cfg(test) defaults to 1; open_with_shards honors the request on
+        // a fresh dir). Graph names spread across shards via FNV-1a routing.
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 64, 3)
+            .expect("open sharded");
+        assert_eq!(backend.shard_count(), 3, "K=3 honored on a fresh dir");
+
+        // Write one node into several graphs (spanning shards) + await each ack.
+        let graphs = ["ga", "gb", "gc", "gd", "ge", "gf"];
+        for (i, g) in graphs.iter().enumerate() {
+            backend
+                .record_durable(
+                    g,
+                    &Method::AddNode {
+                        node_id: "n".into(),
+                        properties_msgpack: props(serde_json::json!({ "g": g, "i": i })),
+                    },
+                )
+                .await
+                .expect("durable commit");
+        }
+
+        // Baseline: total commits across ALL shards, captured AFTER the writes settle.
+        let baseline: u64 = backend.commit_stats_all().iter().map(|s| s.commits()).sum();
+
+        // A burst of read-throughs on every graph (each routes to its owning shard via
+        // `shard_for`, opens a `begin_read()` snapshot, returns the stored blob).
+        for _ in 0..25 {
+            for (i, g) in graphs.iter().enumerate() {
+                let got = backend.read_node(g, "n").await.expect("snapshot read");
+                assert_eq!(
+                    got,
+                    Some(props(serde_json::json!({ "g": g, "i": i }))),
+                    "read routed to the correct shard for graph {g}"
+                );
+            }
+        }
+        // A genuinely absent node is still None (the snapshot read is not a fabricator).
+        assert_eq!(backend.read_node("ga", "missing").await.expect("read"), None);
+
+        // THE PROOF: not a single shard committed because of the reads.
+        let after: u64 = backend.commit_stats_all().iter().map(|s| s.commits()).sum();
+        assert_eq!(
+            after, baseline,
+            "reads must NOT route through the writer / force a commit \
+             (commits {baseline} -> {after})"
+        );
+        assert_eq!(backend.dropped(), 0);
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// (b) Reads succeed CONCURRENTLY while writes are in flight — the MVCC snapshot
+    /// read does not serialize behind the durable write path. We fan a large burst of
+    /// `record_durable` writes and, at the same time, fan a burst of reads of an
+    /// already-committed seed node; every read resolves Ok and sees the seed value
+    /// even while the writer is saturated with commits.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reads_run_concurrently_with_inflight_writes() {
+        let dir = std::env::temp_dir().join(format!("eg-redb-snapconc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend = Arc::new(
+            RedbBackend::open(
+                dir_s.clone(),
+                FsyncPolicy::Interval(Duration::from_millis(20)),
+                256,
+            )
+            .expect("open"),
+        );
+
+        // Seed a committed node the readers will keep seeing.
+        let seed = props(serde_json::json!({ "seed": true }));
+        backend
+            .record_durable(
+                "g1",
+                &Method::AddNode {
+                    node_id: "seed".into(),
+                    properties_msgpack: seed.clone(),
+                },
+            )
+            .await
+            .expect("seed commit");
+
+        let mut tasks = Vec::new();
+        // Writers: many concurrent durable writes keep the single writer busy.
+        for i in 0..200usize {
+            let b = backend.clone();
+            tasks.push(tokio::spawn(async move {
+                b.record_durable(
+                    "g1",
+                    &Method::AddNode {
+                        node_id: format!("w{i}"),
+                        properties_msgpack: props(serde_json::json!({ "i": i })),
+                    },
+                )
+                .await
+                .map(|_| None)
+            }));
+        }
+        // Readers: concurrently snapshot-read the seed; must not block on the writer.
+        for _ in 0..200usize {
+            let b = backend.clone();
+            let want = seed.clone();
+            tasks.push(tokio::spawn(async move {
+                let got = b.read_node("g1", "seed").await?;
+                assert_eq!(got, Some(want), "concurrent read sees the committed seed");
+                Ok::<Option<()>, String>(Some(()))
+            }));
+        }
+        let mut reads_ok = 0usize;
+        for t in tasks {
+            if let Some(()) = t.await.unwrap().expect("read/write task ok") {
+                reads_ok += 1;
+            }
+        }
+        assert_eq!(reads_ok, 200, "every concurrent reader completed");
+        assert_eq!(backend.dropped(), 0, "authoritative path never drops");
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// (c) A read after a write-ack sees the written value, and after an UPDATE-ack the
+    /// snapshot reflects the NEW value — i.e. reads see the latest COMMITTED state per
+    /// shard (commit-before-ack ⇒ an acked write is on disk ⇒ a fresh `begin_read`
+    /// after the ack sees it).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn read_after_ack_sees_latest_committed() {
+        let dir = std::env::temp_dir().join(format!("eg-redb-snapack-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend = RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("open");
+
+        backend
+            .record_durable(
+                "g1",
+                &Method::AddNode {
+                    node_id: "a".into(),
+                    properties_msgpack: props(serde_json::json!({ "v": 1 })),
+                },
+            )
+            .await
+            .expect("commit v1");
+        assert_eq!(
+            backend.read_node("g1", "a").await.expect("read v1"),
+            Some(props(serde_json::json!({ "v": 1 }))),
+            "snapshot opened after the ack sees the committed write"
+        );
+
+        // Overwrite the same node; after the ack the snapshot reflects the new value.
+        backend
+            .record_durable(
+                "g1",
+                &Method::AddNode {
+                    node_id: "a".into(),
+                    properties_msgpack: props(serde_json::json!({ "v": 2 })),
+                },
+            )
+            .await
+            .expect("commit v2");
+        assert_eq!(
+            backend.read_node("g1", "a").await.expect("read v2"),
+            Some(props(serde_json::json!({ "v": 2 }))),
+            "a fresh snapshot after the update-ack sees the LATEST committed value"
+        );
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
