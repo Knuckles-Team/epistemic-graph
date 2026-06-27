@@ -10,6 +10,11 @@ mod auth;
 // the Blob* methods then fall to the dispatch "not available" catch-all.
 #[cfg(feature = "blob")]
 pub mod blob;
+// Generic namespaced Key→Value surface (CONCEPT:EG-022). Self-routing (NOT graph-
+// scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
+// none of it; the Kv* methods then fall to the dispatch "not available" catch-all.
+#[cfg(feature = "kv")]
+pub mod kv;
 // Change-Data-Capture hub + continuous queries + subscriptions/triggers
 // (CONCEPT:KG-2.229/230). Facade-only, behind the `streaming` cargo feature (no heavy
 // dep, folds into pi/node/cluster/full). A build without it compiles none of it.
@@ -128,6 +133,8 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }))
     }
 
@@ -1227,6 +1234,8 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -1314,6 +1323,8 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -1407,6 +1418,8 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -1600,6 +1613,8 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating

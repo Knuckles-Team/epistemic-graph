@@ -72,6 +72,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         )),
         #[cfg(feature = "federation")]
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+        #[cfg(feature = "kv")]
+        kv: None,
     }))
 }
 
