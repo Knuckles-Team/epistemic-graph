@@ -250,6 +250,28 @@ impl GraphView {
     }
 }
 
+/// Streams a byte slice as lowercase hex DIRECTLY into a formatter (CONCEPT:EG-028).
+///
+/// `format!("…|{}", hex::encode(&blob))` allocated the 2·N-byte hex String TWICE — once
+/// for `hex::encode`'s return, then again as `format!` copied it into the final buffer —
+/// all while the topology write guard is held. For a large property blob that transient
+/// double-allocation is a leading Pi memory + lock-hold driver. Using this `Display`
+/// adapter, `format!` writes the hex digits straight into its single output buffer with
+/// no intermediate String, so the ledger line is built with ONE allocation. The emitted
+/// text is byte-identical to `hex::encode` (lowercase, 2 chars/byte), so the on-disk
+/// ledger format and every consumer (audit mirror, redb `ledger` table, snapshot replay)
+/// are unchanged.
+struct HexLedger<'a>(&'a [u8]);
+
+impl std::fmt::Display for HexLedger<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for &b in self.0 {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
 /// Cap the ledger in place, dropping the oldest half once it exceeds the bound.
 /// Shared by every mutation so the trim policy lives in one spot.
 fn push_ledger(ledger: &mut Vec<String>, entry: String) {
@@ -267,7 +289,7 @@ impl<'a> GraphTxn<'a> {
             let new_idx = self.topo.graph.add_node(node_id.clone());
             self.topo.node_map.insert(node_id.clone(), new_idx);
         }
-        let log = format!("ADD_NODE|{}|{}", node_id, hex::encode(&properties_msgpack));
+        let log = format!("ADD_NODE|{}|{}", node_id, HexLedger(&properties_msgpack));
         self.node_properties
             .insert(node_id.clone(), Arc::new(properties_msgpack));
         push_ledger(&mut self.ledger.lock(), log);
@@ -311,7 +333,7 @@ impl<'a> GraphTxn<'a> {
             "ADD_EDGE|{}|{}|{}",
             source_id,
             target_id,
-            hex::encode(&properties_msgpack)
+            HexLedger(&properties_msgpack)
         );
         self.edge_properties
             .entry((source_id.clone(), target_id.clone()))
@@ -381,7 +403,7 @@ impl<'a> GraphTxn<'a> {
             Ok(b) => b,
             Err(_) => return false,
         };
-        let log = format!("CAS_NODE|{}|{}", node_id, hex::encode(&reenc));
+        let log = format!("CAS_NODE|{}|{}", node_id, HexLedger(&reenc));
         self.node_properties
             .insert(node_id.to_string(), Arc::new(reenc));
         push_ledger(&mut self.ledger.lock(), log);
