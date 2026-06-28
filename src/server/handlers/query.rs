@@ -889,6 +889,10 @@ mod result_cache_dispatch_tests {
 
     fn state() -> Arc<RwLock<ServerState>> {
         Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
@@ -1130,6 +1134,10 @@ mod rls_aware_cache_no_cross_agent_leak {
 
     fn state() -> Arc<RwLock<ServerState>> {
         Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
@@ -1451,6 +1459,10 @@ mod dispatch_write_tests {
 
     fn state() -> Arc<RwLock<ServerState>> {
         Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
