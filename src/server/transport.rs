@@ -159,9 +159,58 @@ fn encode_response(resp: &Response) -> Vec<u8> {
     }
 }
 
-/// Handle one client connection: length-prefixed MessagePack frames, per-request
-/// backpressure admission (global + per-graph), dispatch, and response framing.
-pub async fn handle_connection<S>(mut stream: S, state: Arc<RwLock<ServerState>>)
+/// Serialize a [`Response`] to a complete, length-prefixed wire frame
+/// (`4-byte big-endian len ++ MessagePack body`). The id-tagged response is what
+/// the client demuxes by, so a frame can be written in ANY order relative to the
+/// requests that produced it (CONCEPT:EG-038).
+fn encode_frame(resp: &Response) -> Vec<u8> {
+    let body = encode_response(resp);
+    let mut frame = Vec::with_capacity(4 + body.len());
+    frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&body);
+    frame
+}
+
+/// Per-connection in-flight cap (CONCEPT:EG-038). Bounds how many requests ONE
+/// connection may have dispatching CONCURRENTLY, so a single client cannot spawn
+/// unbounded server tasks/memory — the global `ServerState::max_in_flight`
+/// semaphore remains the box-wide admission cap (which sheds `BUSY`). Auto-sized
+/// from cores (no knob): a 1-2 core box still pipelines a useful depth (floor 64),
+/// a big box can't let one connection hog everything (ceiling 1024).
+fn per_connection_inflight_limit() -> usize {
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    (cpus * 8).clamp(64, 1024)
+}
+
+/// Handle one client connection with single-connection request PIPELINING
+/// (CONCEPT:EG-038): length-prefixed MessagePack frames, per-request backpressure
+/// admission (per-connection + global + per-graph), and CONCURRENT dispatch whose
+/// id-tagged responses are written back OUT OF ORDER.
+///
+/// The duplex stream is `tokio::io::split` into a read half (the frame read loop)
+/// and a write half (owned by a single writer task). For each decoded request the
+/// loop `tokio::spawn`s a dispatch task that runs `dispatch` and hands the framed
+/// `Response` to the writer over an mpsc channel — so the read loop never blocks
+/// on dispatch, and N back-to-back frames on ONE connection process concurrently.
+///
+/// **Write-half strategy — single writer task over an mpsc channel** (not an
+/// `Arc<Mutex<WriteHalf>>`): a mutex held across a slow / back-pressured socket
+/// `write_all` would serialize EVERY completing task on the socket and add hot-path
+/// lock contention; the channel instead decouples response *encoding* (done
+/// concurrently inside each task) from the single ordered *socket write*, and its
+/// bounded depth is natural backpressure on a slow reader.
+///
+/// **In-flight bound:** [`per_connection_inflight_limit`] sizes a per-connection
+/// semaphore; acquiring its permit is the read-loop backpressure point (the loop
+/// stops reading the next frame once this connection is saturated), so one
+/// connection cannot spawn unbounded work — bounded memory, not unbounded.
+///
+/// The single-request path is byte-for-byte equivalent to the old serial loop:
+/// with one in-flight request the loop spawns it then parks on the next
+/// `read_exact`, the dispatch completes, the writer emits the one response.
+pub async fn handle_connection<S>(stream: S, state: Arc<RwLock<ServerState>>)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -177,15 +226,37 @@ where
         )
     };
 
+    // Split the duplex stream: the read loop drives `read_half`; a single writer
+    // task owns `write_half`.
+    let (mut read_half, mut write_half) = tokio::io::split(stream);
+
+    let conn_limit = per_connection_inflight_limit();
+    let conn_sem = Arc::new(Semaphore::new(conn_limit));
+
+    // The writer task: drain framed responses in completion order and write them.
+    // It exits when ALL senders (the read loop's `tx` + every spawned task's clone)
+    // are dropped — i.e. the read loop ended AND every in-flight dispatch finished
+    // queueing its response — then flushes. That join barrier is what preserves the
+    // graceful-shutdown / shutdown-response-is-written contract.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(conn_limit + 64);
+    let writer = tokio::spawn(async move {
+        while let Some(frame) = rx.recv().await {
+            if write_half.write_all(&frame).await.is_err() {
+                break;
+            }
+        }
+        let _ = write_half.flush().await;
+    });
+
     loop {
         let mut len_buf = [0u8; 4];
-        if stream.read_exact(&mut len_buf).await.is_err() {
+        if read_half.read_exact(&mut len_buf).await.is_err() {
             break;
         }
         let len = u32::from_be_bytes(len_buf) as usize;
 
         let mut payload = vec![0u8; len];
-        if stream.read_exact(&mut payload).await.is_err() {
+        if read_half.read_exact(&mut payload).await.is_err() {
             break;
         }
 
@@ -193,28 +264,31 @@ where
             Ok(r) => r,
             Err(e) => {
                 let resp = Response::err(0, format!("Invalid request MsgPack: {}", e));
-                let out = encode_response(&resp);
-                let out_len = out.len() as u32;
-                let _ = stream.write_all(&out_len.to_be_bytes()).await;
-                let _ = stream.write_all(&out).await;
+                if tx.send(encode_frame(&resp)).await.is_err() {
+                    break;
+                }
                 continue;
             }
         };
 
         let is_shutdown = matches!(req.method, Method::Shutdown);
 
+        // Per-connection backpressure: AWAIT a slot. This is the one point that can
+        // park the read loop — only when this connection already has `conn_limit`
+        // requests dispatching — so a single connection can't spawn unbounded tasks.
+        let conn_permit = match conn_sem.clone().acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => break, // semaphore closed (never, while we hold an Arc)
+        };
+
         // Global backpressure: acquire an in-flight permit, or shed load with BUSY.
-        let _permit = match sem.clone().try_acquire_owned() {
+        let permit = match sem.clone().try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
                 crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
-                let out = encode_response(&resp);
-                let out_len = out.len() as u32;
-                if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
-                    break;
-                }
-                if stream.write_all(&out).await.is_err() {
+                drop(conn_permit);
+                if tx.send(encode_frame(&resp)).await.is_err() {
                     break;
                 }
                 continue;
@@ -228,42 +302,52 @@ where
             .entry(req.graph.clone())
             .or_insert_with(|| Arc::new(Semaphore::new(pg_limit)))
             .clone();
-        let _pg_permit = match pg_sem.try_acquire_owned() {
+        let pg_permit = match pg_sem.try_acquire_owned() {
             Ok(p) => p,
             Err(_) => {
-                drop(_permit);
+                drop(permit);
+                drop(conn_permit);
                 crate::metrics::busy_rejected();
                 let resp = Response::err(req.id, "BUSY: graph at capacity, retry with backoff");
-                let out = encode_response(&resp);
-                let out_len = out.len() as u32;
-                if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
-                    break;
-                }
-                if stream.write_all(&out).await.is_err() {
+                if tx.send(encode_frame(&resp)).await.is_err() {
                     break;
                 }
                 continue;
             }
         };
-        crate::metrics::connection_request_started(sem.available_permits());
-        let resp = dispatch(&state, req).await;
-        drop(_pg_permit);
-        drop(_permit);
-        crate::metrics::connection_request_finished(sem.available_permits());
 
-        let out = encode_response(&resp);
-        let out_len = out.len() as u32;
-        if stream.write_all(&out_len.to_be_bytes()).await.is_err() {
-            break;
-        }
-        if stream.write_all(&out).await.is_err() {
-            break;
-        }
+        // Spawn the dispatch: runs CONCURRENTLY with the read loop and with the
+        // other in-flight requests on this connection. The `Response` carries
+        // `req.id`, so the client demuxes the (possibly out-of-order) completion.
+        // The task holds all three admission permits until its response is framed
+        // and queued, then drops them — closing the per-connection and global
+        // backpressure loops.
+        crate::metrics::connection_request_started(sem.available_permits());
+        let task_state = state.clone();
+        let task_tx = tx.clone();
+        let task_sem = sem.clone();
+        tokio::spawn(async move {
+            let resp = dispatch(&task_state, req).await;
+            let _ = task_tx.send(encode_frame(&resp)).await;
+            drop(pg_permit);
+            drop(permit);
+            drop(conn_permit);
+            crate::metrics::connection_request_finished(task_sem.available_permits());
+        });
 
         if is_shutdown {
+            // Stop reading further frames; the spawned Shutdown dispatch's response
+            // is still drained+written by the writer task below.
             break;
         }
     }
+
+    // Read loop ended (client close, read error, or a Shutdown request). Drop the
+    // read-loop sender; the writer task then finishes once every in-flight dispatch
+    // task has also dropped its `tx` clone (all queued responses written), and the
+    // final flush lands. Awaiting it drains the connection gracefully.
+    drop(tx);
+    let _ = writer.await;
 }
 
 /// Start the server on a Unix Domain Socket (unix only; Windows uses TCP).
@@ -375,6 +459,36 @@ mod tests {
         assert_eq!(coord.active_connections(), 1);
         drop(g2);
         assert_eq!(coord.active_connections(), 0);
+    }
+
+    #[test]
+    fn encode_frame_is_len_prefixed_and_decodes() {
+        // CONCEPT:EG-038 — a framed response is `4-byte BE len ++ MessagePack body`,
+        // and the body round-trips back to the same id/result so the client can
+        // demux it out of order.
+        let resp = Response::ok(42, crate::protocol::ResultPayload::String("pong".into()));
+        let frame = encode_frame(&resp);
+        assert!(frame.len() > 4);
+        let declared = u32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]) as usize;
+        assert_eq!(
+            declared,
+            frame.len() - 4,
+            "len prefix must match body length"
+        );
+        let decoded: Response = rmp_serde::from_slice(&frame[4..]).expect("decode body");
+        assert_eq!(decoded.id, 42, "id preserved so the client demuxes by it");
+    }
+
+    #[test]
+    fn per_connection_limit_is_bounded_and_positive() {
+        // CONCEPT:EG-038 — the per-connection in-flight cap auto-sizes from cores
+        // but is always clamped so one connection can neither stall (floor) nor
+        // spawn unbounded work (ceiling).
+        let n = per_connection_inflight_limit();
+        assert!(
+            (64..=1024).contains(&n),
+            "per-conn cap {n} out of [64,1024]"
+        );
     }
 
     #[test]
