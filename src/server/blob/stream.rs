@@ -1,4 +1,4 @@
-//! Bounded-memory streaming facade over the CAS — CONCEPT:EG-033 (M3 R4 extension).
+//! Bounded-memory streaming facade over the CAS — CONCEPT:EG-036 (M3 R4 extension).
 //!
 //! The KG-2.206 substrate already streams a blob over the WIRE chunk-by-chunk (the
 //! `BlobBegin`/`BlobChunkPut`/`BlobCommit` upload cursor + `BlobFetchBegin`/
