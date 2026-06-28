@@ -23,7 +23,7 @@
 >
 > **Update — the engine-side FINISHING wires landed (roadmap F + admin RPC + R3 exec + R6
 > touch + R1 delta), on `feat/engine-finishing`.** Parallel cross-shard read fan-out
-> (`EG-037` — `load_into` off concurrent `begin_read()` snapshots, off the writer), the M3
+> (`EG-042` — `load_into` off concurrent `begin_read()` snapshots, off the writer), the M3
 > admin RPC (`EG-038` — `Reshard`/`Catalog*`/`RebalancePlan`/`RebalanceExecute` +
 > `handlers/admin.rs` + `ReshardingClient`), rebalance plan EXECUTION (`EG-039`
 > `RedbBackend::rebalance_execute`), the R6 `touch()` wiring + interval offload sweep
