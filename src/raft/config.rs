@@ -17,7 +17,12 @@ pub struct RaftClusterConfig {
     pub node_id: NodeId,
     /// Every member (including self): id → Raft-RPC `host:port`.
     pub peers: PeerMap,
-    /// The `host:port` this node binds its Raft-RPC listener to (its own entry).
+    /// The `host:port` this node binds its Raft-RPC listener to. Defaults to this
+    /// node's own PEERS entry (the advertised address), but can be overridden by
+    /// `EPISTEMIC_GRAPH_RAFT_BIND_ADDR` (CONCEPT:KG-2.273) so a CONTAINERIZED member can
+    /// bind `0.0.0.0:9100` locally while still ADVERTISING its routable host IP
+    /// (`10.0.0.x:9100`) to peers — a container on an overlay net cannot bind the host's
+    /// external IP directly. Bare-metal members leave it unset and bind their own addr.
     pub bind_addr: String,
     /// Whether this node should `initialize` the cluster on first boot (only the
     /// lowest-id node does, and only when its raft store is empty). Computed, not
@@ -51,7 +56,7 @@ impl RaftClusterConfig {
                 .to_string()
         })?;
         let peers = parse_peers(&peers_raw)?;
-        let bind_addr = peers
+        let advertise_addr = peers
             .get(&node_id)
             .map(|n| n.addr.clone())
             .ok_or_else(|| {
@@ -59,6 +64,13 @@ impl RaftClusterConfig {
                     "EPISTEMIC_GRAPH_RAFT_PEERS does not contain this node's id {node_id}: '{peers_raw}'"
                 )
             })?;
+        // The listener bind address defaults to the advertised (PEERS) address, but a
+        // containerized member overrides it (e.g. `0.0.0.0:9100`) while peers still dial
+        // its routable host IP from PEERS — see `bind_addr` docs (CONCEPT:KG-2.273).
+        let bind_addr = match std::env::var("EPISTEMIC_GRAPH_RAFT_BIND_ADDR") {
+            Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
+            _ => advertise_addr,
+        };
         // The lowest-id member is the bootstrap candidate (deterministic, no extra
         // env). Whether it ACTUALLY initializes is also gated on an empty store at
         // boot, decided in `node::start`.
