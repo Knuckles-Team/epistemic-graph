@@ -85,79 +85,96 @@ All file:line references are against this branch's tree.
 
 ---
 
-## REMAINING — independent pick-up tasks
+## DONE (R1/R2/R3) — branch `feat/m2-r1r3-completion` (off the base above)
 
-### R1. Leader balancing across groups — `CONCEPT:KG-2.268` (RESERVE) — UNTOUCHED
-- **Status:** not started; no code on this branch. The prior agent did not scaffold it.
-- **Module/files:** `src/raft/multi.rs` (new method on `MultiRaft`, e.g.
-  `rebalance_leaders()`); read-side helper already exists — the harness
-  `src/raft/harness/cluster.rs:250` `leadership_view()` returns `(node_id, term,
-  is_leader)` per node, and `MultiRaft::current_leader` is at `multi.rs:163`.
-- **What it needs:** with N groups over M nodes, leaders tend to cluster on the
-  bootstrap node (lowest-id member initializes each group at `multi.rs:340`). Add a
-  balancer that, per group, asks each group's `Raft` for its current leader, computes
-  a target distribution (round-robin group→node, or least-loaded), and calls openraft's
-  `raft.trigger().transfer_leader(target)` (openraft 0.9.24) on the over-loaded leaders.
-  Make it idempotent + rate-limited (no flapping), and a no-op when only one node is a
-  voter in a group.
-- **Dependencies / ordering:** depends on **per-group multi-NODE membership join**
-  (see R3) actually being exercised — today `configure_group_ring` brings each group up
-  as a single-member bootstrap on ONE node (`multi.rs:270` doc-comment), so there is
-  nothing to balance until groups span nodes. Sequence R3 (or a membership-join test
-  harness) before R1 is testable.
-- **Parallel-safe?** Touches `src/raft/multi.rs` — **must-sequence** with R2 and any
-  other `multi.rs` edit. Disjoint from `network.rs`/`store.rs`.
-- **Hardware:** needs a **real (or in-process) multi-node cluster** to verify leadership
-  actually moves. The `src/raft/harness/` in-process multi-node harness is the cheapest
-  vehicle; true cross-host verification needs multi-node hardware.
+> All three remaining M2 items are now **implemented + lib-tested** on top of the base.
+> Single-group default behavior is unchanged — the full pre-existing `--lib raft` suite
+> (incl. the 3-node failover test + the nemesis gauntlets) stays green.
+> **Concept-ID note:** the original plan reserved KG-2.268 (R1) and KG-2.269 (R2). By the
+> time this branch landed, **KG-2.269 had been claimed by another session** (`shard-commons`,
+> "Ingestion graph routing"), so the heartbeat work uses a fresh id. Final mapping:
+> **R3 = KG-2.268**, **R1 = KG-2.270**, **R2 = KG-2.271** (all reserved in the ledger).
 
-### R2. Heartbeat coalescing — `CONCEPT:KG-2.269` (RESERVE) — UNTOUCHED
-- **Status:** not started; no code on this branch.
-- **Module/files:** `src/raft/network.rs` (+ small touch in `src/raft/multi.rs` if a
-  coalescing dispatcher is owned by the manager).
-- **What it needs:** today each group's `Raft` sends its own append/heartbeat RPC per
-  peer per tick; with N groups to the same peer that is N independent frames per
-  heartbeat interval. Coalesce same-destination heartbeats across groups into one
-  batched frame (the inbound listener already demuxes by `gid`, so a multi-group frame
-  envelope `Vec<GroupRpc>` is a natural extension of `GroupRpc`/`GroupRpcReply` in
-  `network.rs`). Must stay strict request→response and preserve per-group ordering;
-  openraft's network trait is per-group, so coalescing happens BELOW it (buffer +
-  flush on a short timer, à la Nagle) rather than by changing what openraft calls.
-- **Dependencies / ordering:** independent of R1's leadership logic, but **edits the
-  same files** (`network.rs`, possibly `multi.rs`). Builds naturally on the KG-2.265
-  `PeerPool` (the coalesced frame still rides a pooled connection).
-- **Parallel-safe?** **Must-sequence** with R1 (shared `multi.rs`) and with KG-2.265
-  follow-ups (shared `network.rs`). Do R2 on its own off this branch, then merge.
-- **Hardware:** logic is unit-testable in-process (assert N group heartbeats to one
-  peer collapse into one frame via the `PeerPool` `opens`/`reuses`-style counters);
-  end-to-end latency/throughput benefit needs a multi-node cluster.
+### R3. Per-group multi-NODE membership join — `CONCEPT:KG-2.268`
+- **What:** a group can now be grown from a single-node bootstrap to span multiple
+  NODES via the openraft add-learner → change-membership lifecycle, per group, over the
+  shared listener.
+- **Where (`src/raft/multi.rs`):**
+  - `join_group(gid, peers)` — stand a group up on a node as an EMPTY, non-bootstrapping
+    member (never `initialize`s) ready to receive replication.
+  - `add_group_member(gid, new_node, addr)` — leader-side: `add_learner(.., blocking)`
+    (blocks until the joiner is up-to-date) then `change_membership(voters ∪ {new})`.
+  - `remove_group_member(gid, node)` — leader-side `change_membership` to a reduced voter
+    set; idempotent; refuses to remove the LAST voter.
+  - `group_membership(gid)` — the current sorted VOTER set from the replicated metrics.
+- **Proven by:** `src/raft/tests.rs` `multi_node_group_join_then_leader_rebalance` —
+  node 1 single-member-bootstraps group 7, nodes 2/3 `join_group` it empty, the leader
+  `add_group_member`s both → membership becomes `[1,2,3]`, and a write through the leader
+  replicates to the two freshly-joined voters.
 
-### R3. Per-group multi-NODE membership join — enabler, partially-scaffolded
-- **Status:** single-NODE path done (`configure_group_ring` bootstraps each group on
-  one node, `multi.rs:273`); the cross-NODE join per group is explicitly called out as
-  a follow-up in that method's doc-comment (`multi.rs:270`). `create_group`
-  (`multi.rs:300`) already accepts a `peers: BTreeMap<NodeId, BasicNode>` and the
-  lowest-id member bootstraps + `initialize(peers)` (`multi.rs:340`), so the wire +
-  lifecycle exist; what's missing is a driver that joins the SAME group across multiple
-  nodes (add-learner → change-membership) and a harness test proving it.
-- **Module/files:** `src/raft/multi.rs` (a `join_group`/`add_group_member` using
-  `raft.add_learner` + `raft.change_membership`), plus a multi-node test under
-  `src/raft/harness/` or `src/raft/tests.rs`.
-- **Dependencies / ordering:** **prerequisite for R1** (and for any real-cluster test of
-  R2). Do this FIRST of the three.
-- **Parallel-safe?** Touches `src/raft/multi.rs` — **must-sequence** with R1/R2.
-- **Hardware:** in-process multi-node harness for correctness; multi-node hardware for a
-  true distributed soak.
+### R1. Leader balancing across groups — `CONCEPT:KG-2.270`
+- **What:** `MultiRaft::rebalance_leaders()` spreads leadership so one node isn't leader
+  for every group. EVERY node runs the pass (like a real cluster); per group it computes
+  the deterministic round-robin target (`desired_leader(gid, sorted_voters)` — identical
+  on every node, no coordination) and either **claims** a group it should lead (triggers
+  an election, rate-limited per group by `ELECT_COOLDOWN` = 10s so it never flaps) or
+  **yields** a group it leads but shouldn't (disables its heartbeat so the lease expires
+  and the target can take over). No-op for single-voter groups + already-balanced groups.
+  Returns a `RebalanceReport { targets, elected, yielded, errors }`.
+- **openraft-0.9 reality (important):** openraft **0.9.24 has NO `transfer_leader`** (it
+  arrives in 0.10 as `trigger_transfer_leader`), and its anti-disruption / leader-
+  stickiness makes followers REJECT a challenger's vote while they still hear from a
+  healthy leader. So a triggered election ALONE cannot move leadership off a healthy
+  incumbent — the incumbent must cooperatively **yield** (stop heartbeating). That is the
+  yield half above; with both halves the cluster converges to the round-robin spread
+  within a couple of election timeouts.
+- **Where (`src/raft/multi.rs`):** `desired_leader` (pure fn), `RebalanceReport`,
+  `MultiRaft::rebalance_leaders` + `may_trigger_elect` (cooldown), `last_elect` field.
+- **Proven by:** `src/raft/tests.rs` `desired_leader_round_robin_spreads_across_voters`
+  (unit: the selection spreads across all voters, deterministic) **and** the integration
+  half of `multi_node_group_join_then_leader_rebalance` — over the 3-voter group 7 the
+  target is node 2 (`7 % 3`), the first pass shows node 1 `yielded` + node 2 `elected`,
+  periodic passes converge leadership to node 2, and a further pass is a no-op (idempotent).
+
+### R2. Heartbeat coalescing — `CONCEPT:KG-2.271`
+- **What:** same-destination Raft HEARTBEATS (empty-entries `AppendEntries`) across N
+  groups coalesce into ONE batched frame to that peer instead of N frames per heartbeat
+  interval; the batch rides the KG-2.265 `PeerPool` (one connect-amortized round-trip).
+  Only heartbeats coalesce — log-bearing appends / votes / snapshots stay individual
+  (latency/ordering-sensitive).
+- **Where (`src/raft/network.rs`):**
+  - `RaftFrame { One(GroupRpc) | Batch(Vec<GroupRpc>) }` + `RaftFrameReply` — the
+    top-level wire envelope; a single-RPC frame is `One`, so the existing per-group path
+    is behavior-identical (and the 3-node + 2-group tests exercise it).
+  - `HeartbeatCoalescer` — buffers heartbeats per peer (`offer` gates on `is_heartbeat`),
+    `drain_batches()` builds one ordered batch per peer, `send_batch()` ships it over the
+    pool and returns the ordered per-RPC replies; `coalesced`/`flushes` counters.
+  - `src/raft/multi.rs` `serve_conn` demuxes a `Batch` by dispatching each tagged sub-RPC
+    to its group and replying in the SAME order.
+- **Proven by:** `src/raft/tests.rs` `heartbeat_coalescer_batches_per_peer` (unit:
+  bucket-by-peer, non-heartbeats refused, counters) and
+  `coalesced_batch_round_trips_on_one_connection` (a 3-heartbeat batch demuxes to 3
+  ordered replies over EXACTLY ONE TCP connect on a live listener).
+
+**Build:** `cargo build --features "full,cluster" --lib` → clean. **Tests:**
+`cargo test --features "full,cluster" --lib raft` → **23 passed, 0 failed**. My three
+changed files are `cargo fmt` + `cargo clippy` clean (the remaining workspace clippy
+warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-query`).
 
 ---
 
-## Suggested ordering for a fresh agent
-1. **R3** (membership join) — unblocks everything cluster-shaped. Own `multi.rs`.
-2. **R1** (leader balancing) — needs R3. Own `multi.rs` (sequence after R3).
-3. **R2** (heartbeat coalescing) — independent logic but shares `network.rs`/`multi.rs`;
-   can be developed on its own branch in parallel with R1's design, but **merge
-   sequentially** to avoid `multi.rs`/`network.rs` conflicts.
+## STILL REMAINING — needs real multi-node hardware (not in-process testable)
 
-Concept IDs KG-2.268 (leader balancing) and KG-2.269 (heartbeat coalescing) are
-**reserved here but not yet implemented** — claim them in the workspace concept ledger
-before writing code.
+- **R1 native instant handoff.** The cooperative yield-then-claim converges, but a
+  *graceful, single-RPC* leadership transfer needs openraft **0.10+**
+  (`raft.trigger_transfer_leader(to)`); an openraft bump is the clean upgrade. The
+  current path is correct but takes up to ~2 election timeouts and can briefly hand a
+  transient term to a non-target node before converging.
+- **R2 under-openraft wiring.** The coalescer + batch wire are complete and tested, but
+  hooking them under openraft's per-group heartbeat *cadence* (an enqueue + short flush
+  timer that fans each batched reply back to its awaiting `append_entries` caller, so the
+  engine's ACTUAL heartbeat ticks batch) — and measuring the frames-saved/latency
+  benefit — needs a real multi-node cluster under steady replication.
+- **Both:** true cross-host soak (leadership actually rebalancing across machines,
+  heartbeat-frame reduction under load) needs multi-node hardware; the in-process
+  harness proves correctness, not the distributed performance win.

@@ -213,6 +213,140 @@ pub enum GroupRpcReply {
     Snapshot(Result<InstallSnapshotResponse<NodeId>, String>),
 }
 
+// ── heartbeat coalescing wire envelope (CONCEPT:KG-2.271) ──────────────────
+
+/// The top-level Raft wire frame. Either a SINGLE group-tagged RPC (the per-group
+/// openraft path) or a BATCH of them coalesced to one peer (CONCEPT:KG-2.271).
+/// Wrapping both in one enum lets the shared listener serve either on the same
+/// connection — a single-RPC frame is just `One`, so the existing path is unchanged
+/// in behavior (the three-node + two-group tests exercise it).
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
+pub enum RaftFrame {
+    One(GroupRpc),
+    Batch(Vec<GroupRpc>),
+}
+
+/// The reply to a [`RaftFrame`]: one reply for `One`, an ORDERED reply-per-RPC for
+/// `Batch` (same order the batch was sent, so each awaiting caller matches its own).
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
+pub enum RaftFrameReply {
+    One(GroupRpcReply),
+    Batch(Vec<GroupRpcReply>),
+}
+
+/// Coalesces per-peer Raft HEARTBEATS across groups into one batched frame
+/// (CONCEPT:KG-2.271). openraft drives a heartbeat — an empty-entries `AppendEntries` —
+/// per group, per peer, per tick; with N groups to the SAME peer that is N independent
+/// frames every heartbeat interval. Buffering same-destination heartbeats and flushing
+/// them as ONE [`RaftFrame::Batch`] collapses that to a single connect-amortized
+/// round-trip per peer (the batch rides the KG-2.265 [`PeerPool`]). Only heartbeats
+/// coalesce — log-bearing appends, votes, and snapshots are latency/ordering-sensitive
+/// and pass through individually ([`is_heartbeat`] gates this).
+///
+/// This type owns the BUFFER + BATCH-CONSTRUCTION logic (unit-tested below); wiring it
+/// under openraft's per-group heartbeat cadence (an enqueue + short flush timer that
+/// fans each batched reply back to its awaiting `append_entries` caller) is the final
+/// step validated on a real multi-node cluster — see `docs/architecture/m2-raft-status.md`.
+///
+/// [`is_heartbeat`]: HeartbeatCoalescer::is_heartbeat
+pub struct HeartbeatCoalescer {
+    /// peer `host:port` → queued heartbeat RPCs awaiting the next flush.
+    pending: std::sync::Mutex<HashMap<String, Vec<GroupRpc>>>,
+    /// Total heartbeats folded into a batch (a frame AVOIDED vs sending individually).
+    coalesced: AtomicU64,
+    /// Flush passes performed (one batched frame emitted per non-empty peer per flush).
+    flushes: AtomicU64,
+}
+
+impl HeartbeatCoalescer {
+    pub fn new() -> Self {
+        Self {
+            pending: std::sync::Mutex::new(HashMap::new()),
+            coalesced: AtomicU64::new(0),
+            flushes: AtomicU64::new(0),
+        }
+    }
+
+    /// Is `rpc` a heartbeat — an `AppendEntries` carrying NO log entries? Only these
+    /// coalesce; a log-bearing append / vote / snapshot must go out on its own.
+    pub fn is_heartbeat(rpc: &GroupRpc) -> bool {
+        matches!(rpc, GroupRpc::Append(_, req) if req.entries.is_empty())
+    }
+
+    /// Offer `rpc` destined for `addr` to the coalescer. Returns `true` if it was a
+    /// heartbeat and is now BUFFERED for the next flush; `false` if it is not a
+    /// heartbeat and the caller must send it directly (unchanged latency-sensitive path).
+    pub fn offer(&self, addr: &str, rpc: GroupRpc) -> bool {
+        if !Self::is_heartbeat(&rpc) {
+            return false;
+        }
+        self.pending
+            .lock()
+            .unwrap()
+            .entry(addr.to_string())
+            .or_default()
+            .push(rpc);
+        true
+    }
+
+    /// Drain every buffered peer into one batch per peer (CONCEPT:KG-2.271). Returns
+    /// `(addr, batch)` pairs ready to send as a single [`RaftFrame::Batch`] each;
+    /// per-peer order is preserved (so replies line up). Updates the coalesced/flush
+    /// counters. An empty buffer yields an empty vec (a no-op flush).
+    pub fn drain_batches(&self) -> Vec<(String, Vec<GroupRpc>)> {
+        let mut pending = self.pending.lock().unwrap();
+        let drained: Vec<(String, Vec<GroupRpc>)> = pending.drain().collect();
+        let folded: u64 = drained.iter().map(|(_, v)| v.len() as u64).sum();
+        if folded > 0 {
+            self.coalesced.fetch_add(folded, Ordering::Relaxed);
+            self.flushes.fetch_add(1, Ordering::Relaxed);
+        }
+        drained
+    }
+
+    /// Heartbeats buffered for `addr` right now (test/metrics visibility).
+    pub fn pending_for(&self, addr: &str) -> usize {
+        self.pending.lock().unwrap().get(addr).map_or(0, Vec::len)
+    }
+
+    /// Total heartbeats ever folded into a batch (a frame avoided).
+    pub fn coalesced(&self) -> u64 {
+        self.coalesced.load(Ordering::Relaxed)
+    }
+
+    /// Total flush passes performed.
+    pub fn flushes(&self) -> u64 {
+        self.flushes.load(Ordering::Relaxed)
+    }
+
+    /// Send one coalesced batch to `addr` over the shared [`PeerPool`] and return the
+    /// ORDERED per-RPC replies (CONCEPT:KG-2.271). A `One` reply from the peer (it could
+    /// not batch) is normalized to a single-element vec.
+    pub(crate) async fn send_batch(
+        pool: &PeerPool,
+        addr: &str,
+        batch: Vec<GroupRpc>,
+    ) -> Result<Vec<GroupRpcReply>, io::Error> {
+        let body = rmp_serde::to_vec_named(&RaftFrame::Batch(batch))
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let resp = pool.round_trip(addr, &body).await?;
+        match rmp_serde::from_slice::<RaftFrameReply>(&resp)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        {
+            RaftFrameReply::Batch(replies) => Ok(replies),
+            RaftFrameReply::One(reply) => Ok(vec![reply]),
+        }
+    }
+}
+
+impl Default for HeartbeatCoalescer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Per-group network factory: tags every RPC with `gid`. Cloneable + cheap. Carries
 /// the LOCAL node id so the (harness-only) partition gate can decide `(from, to)`
 /// reachability — in a production build that id is simply unused.
@@ -261,7 +395,7 @@ pub struct GroupNetworkClient {
 }
 
 impl GroupNetworkClient {
-    async fn round_trip(&self, rpc: &GroupRpc) -> Result<GroupRpcReply, io::Error> {
+    async fn round_trip(&self, rpc: GroupRpc) -> Result<GroupRpcReply, io::Error> {
         // ── harness fault-injection: partition gate (CONCEPT:KG-2.212) ──
         // A test/harness build can DROP the frame between two partitioned nodes,
         // simulating a network partition WITHOUT a real firewall. In a production
@@ -275,10 +409,20 @@ impl GroupNetworkClient {
                 "partitioned (harness nemesis)",
             ));
         }
-        let body = rmp_serde::to_vec_named(rpc)
+        // A per-group RPC goes out as a single-RPC frame (CONCEPT:KG-2.271); coalesced
+        // heartbeats use `RaftFrame::Batch` via `HeartbeatCoalescer::send_batch`.
+        let body = rmp_serde::to_vec_named(&RaftFrame::One(rpc))
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let resp = self.pool.round_trip(&self.addr, &body).await?;
-        rmp_serde::from_slice(&resp).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        match rmp_serde::from_slice::<RaftFrameReply>(&resp)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
+        {
+            RaftFrameReply::One(reply) => Ok(reply),
+            RaftFrameReply::Batch(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "expected a single reply to a single-RPC frame",
+            )),
+        }
     }
 }
 
@@ -288,7 +432,7 @@ impl RaftNetwork<TypeConfig> for GroupNetworkClient {
         rpc: AppendEntriesRequest<TypeConfig>,
         _option: RPCOption,
     ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, BasicNode, RaftError<NodeId>>> {
-        match self.round_trip(&GroupRpc::Append(self.gid, rpc)).await {
+        match self.round_trip(GroupRpc::Append(self.gid, rpc)).await {
             Ok(GroupRpcReply::Append(Ok(r))) => Ok(r),
             Ok(GroupRpcReply::Append(Err(e))) => Err(net_err(&e)),
             Ok(_) => Err(net_err("unexpected reply variant")),
@@ -301,7 +445,7 @@ impl RaftNetwork<TypeConfig> for GroupNetworkClient {
         rpc: VoteRequest<NodeId>,
         _option: RPCOption,
     ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, BasicNode, RaftError<NodeId>>> {
-        match self.round_trip(&GroupRpc::Vote(self.gid, rpc)).await {
+        match self.round_trip(GroupRpc::Vote(self.gid, rpc)).await {
             Ok(GroupRpcReply::Vote(Ok(r))) => Ok(r),
             Ok(GroupRpcReply::Vote(Err(e))) => Err(net_err(&e)),
             Ok(_) => Err(net_err("unexpected reply variant")),
@@ -317,7 +461,7 @@ impl RaftNetwork<TypeConfig> for GroupNetworkClient {
         InstallSnapshotResponse<NodeId>,
         RPCError<NodeId, BasicNode, RaftError<NodeId, InstallSnapshotError>>,
     > {
-        match self.round_trip(&GroupRpc::Snapshot(self.gid, rpc)).await {
+        match self.round_trip(GroupRpc::Snapshot(self.gid, rpc)).await {
             Ok(GroupRpcReply::Snapshot(Ok(r))) => Ok(r),
             Ok(GroupRpcReply::Snapshot(Err(e))) => {
                 Err(RPCError::Network(NetworkError::new(&StrErr(e))))
