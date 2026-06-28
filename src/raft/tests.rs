@@ -793,6 +793,308 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// M2 remaining (CONCEPT:KG-2.268 / KG-2.270 / KG-2.271)
+//   R3 multi-node membership join · R1 leader balancing · R2 heartbeat coalescing
+// ─────────────────────────────────────────────────────────────────────────
+
+/// An empty-entries `AppendEntries` for group `gid` — exactly what openraft sends as a
+/// HEARTBEAT (the case R2 coalesces).
+fn heartbeat_req() -> openraft::raft::AppendEntriesRequest<super::TypeConfig> {
+    openraft::raft::AppendEntriesRequest {
+        vote: openraft::Vote::new(1, 1),
+        prev_log_id: None,
+        entries: vec![],
+        leader_commit: None,
+    }
+}
+
+/// A log-bearing `AppendEntries` (NON-heartbeat) — must NOT coalesce.
+fn append_with_entry() -> openraft::raft::AppendEntriesRequest<super::TypeConfig> {
+    openraft::raft::AppendEntriesRequest {
+        vote: openraft::Vote::new(1, 1),
+        prev_log_id: None,
+        entries: vec![make_log_entry(1, 1, "x")],
+        leader_commit: None,
+    }
+}
+
+/// KG-2.270: the round-robin leader-target function spreads leadership across all voters
+/// deterministically — the property that makes the cooperative balancer converge.
+#[test]
+fn desired_leader_round_robin_spreads_across_voters() {
+    use super::multi::desired_leader;
+
+    // Empty voter set ⇒ no target.
+    assert_eq!(desired_leader(0, &[]), None);
+    // Single voter ⇒ always that voter.
+    assert_eq!(desired_leader(7, &[5]), Some(5));
+
+    // Three voters: gid % 3 indexes the SORTED set, so consecutive groups round-robin.
+    let voters = [1u64, 2, 3];
+    assert_eq!(desired_leader(0, &voters), Some(1));
+    assert_eq!(desired_leader(1, &voters), Some(2));
+    assert_eq!(desired_leader(2, &voters), Some(3));
+    assert_eq!(desired_leader(7, &voters), Some(2)); // 7 % 3 == 1 → voters[1]
+
+    // Over many groups every voter is chosen (leadership actually spreads), and the
+    // mapping is deterministic (identical on every node — no coordination needed).
+    let mut seen = std::collections::BTreeSet::new();
+    for gid in 0..30u64 {
+        let t = desired_leader(gid, &voters).unwrap();
+        assert_eq!(desired_leader(gid, &voters), Some(t), "deterministic");
+        seen.insert(t);
+    }
+    assert_eq!(
+        seen,
+        [1, 2, 3].into_iter().collect(),
+        "every voter must be a leader target for some group"
+    );
+}
+
+/// KG-2.271: the heartbeat coalescer buckets heartbeats BY PEER, passes non-heartbeats
+/// through, and drains one batch per peer (the batch-construction logic).
+#[test]
+fn heartbeat_coalescer_batches_per_peer() {
+    use super::network::{GroupRpc, HeartbeatCoalescer};
+
+    let c = HeartbeatCoalescer::new();
+
+    // A log-bearing append is NOT a heartbeat — refused (caller sends it directly).
+    assert!(!HeartbeatCoalescer::is_heartbeat(&GroupRpc::Append(
+        1,
+        append_with_entry()
+    )));
+    assert!(!c.offer("peerA", GroupRpc::Append(1, append_with_entry())));
+    assert_eq!(c.pending_for("peerA"), 0);
+
+    // Heartbeats to two peers: 2 → peerA, 1 → peerB.
+    assert!(c.offer("peerA", GroupRpc::Append(1, heartbeat_req())));
+    assert!(c.offer("peerA", GroupRpc::Append(2, heartbeat_req())));
+    assert!(c.offer("peerB", GroupRpc::Append(3, heartbeat_req())));
+    assert_eq!(c.pending_for("peerA"), 2);
+    assert_eq!(c.pending_for("peerB"), 1);
+
+    // Drain → exactly one batch per peer, preserving per-peer membership.
+    let mut batches = c.drain_batches();
+    batches.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(batches.len(), 2);
+    assert_eq!(batches[0].0, "peerA");
+    assert_eq!(batches[0].1.len(), 2, "peerA's two heartbeats coalesce");
+    assert_eq!(batches[1].0, "peerB");
+    assert_eq!(batches[1].1.len(), 1);
+
+    // Counters + buffer emptied.
+    assert_eq!(c.coalesced(), 3, "three heartbeats folded into batches");
+    assert_eq!(c.flushes(), 1);
+    assert_eq!(c.pending_for("peerA"), 0);
+
+    // An empty drain is a no-op (no extra flush counted).
+    assert!(c.drain_batches().is_empty());
+    assert_eq!(c.flushes(), 1);
+}
+
+/// KG-2.271: a coalesced heartbeat BATCH rides ONE pooled connection to the shared
+/// listener, which demuxes each tagged sub-RPC to its group and replies in order — so
+/// N group heartbeats to one peer cost ONE round-trip, not N.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn coalesced_batch_round_trips_on_one_connection() {
+    use super::multi::MultiRaft;
+    use super::network::{GroupRpc, GroupRpcReply, HeartbeatCoalescer, PeerPool};
+
+    let dir = fresh_dir("hbbatch");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let state = make_state_with_backend(&dir, backend.clone()).await;
+    let ctx = AppCtx {
+        state,
+        router: None,
+    };
+    let port = free_ports(1)[0];
+    let addr = format!("127.0.0.1:{port}");
+    // A node with its shared listener up but NO groups: each demuxed sub-RPC gets a
+    // "no group here" reply — enough to prove the batch envelope demuxes + replies in
+    // order over ONE connection (the transport contract, independent of election).
+    let multi = MultiRaft::start(1, addr.clone(), backend.clone(), ctx)
+        .await
+        .expect("start multi");
+
+    let pool = PeerPool::with_capacity(4);
+    let batch = vec![
+        GroupRpc::Append(100, heartbeat_req()),
+        GroupRpc::Append(200, heartbeat_req()),
+        GroupRpc::Append(300, heartbeat_req()),
+    ];
+    let replies = HeartbeatCoalescer::send_batch(&pool, &addr, batch)
+        .await
+        .expect("send coalesced batch");
+    assert_eq!(
+        replies.len(),
+        3,
+        "one reply per coalesced heartbeat, in order"
+    );
+    for r in &replies {
+        assert!(matches!(r, GroupRpcReply::Append(_)));
+    }
+    assert_eq!(
+        pool.opens(),
+        1,
+        "the whole batch must ride exactly ONE TCP connect"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// KG-2.268 + KG-2.270: a group is grown from a single-node bootstrap to a 3-VOTER group
+/// spanning three nodes (add_learner → change_membership), a write replicates to the new
+/// voters, and the leader balancer then MOVES leadership to the round-robin target node.
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn multi_node_group_join_then_leader_rebalance() {
+    use super::multi::{desired_leader, MultiRaft};
+
+    let root = std::env::temp_dir().join(format!("eg-mnjoin-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(3);
+    let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
+    let gid = 7u64;
+
+    // ── Start three nodes; node 1 single-member bootstraps group 7, nodes 2/3 join EMPTY.
+    let mut multis: Vec<(NodeId, Arc<MultiRaft>, Arc<RwLock<ServerState>>)> = Vec::new();
+    for i in 1..=3u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        let ctx = AppCtx {
+            state: state.clone(),
+            router: None,
+        };
+        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            // Empty, non-bootstrapping member ready to receive replication.
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        multis.push((i, multi, state));
+    }
+
+    // ── Node 1 (the single-member bootstrap) becomes leader of group 7.
+    let leader = multis[0].1.clone();
+    {
+        let g = leader.group(gid).await.expect("group on node 1");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 1 must lead the single-member group 7");
+    }
+
+    // ── R3: add nodes 2 and 3 as VOTERS from the leader (add_learner → change_membership).
+    leader.add_group_member(gid, 2, addr(2)).await.unwrap();
+    leader.add_group_member(gid, 3, addr(3)).await.unwrap();
+    assert_eq!(
+        leader.group_membership(gid).await,
+        Some(vec![1, 2, 3]),
+        "the group must now have all three nodes as voters"
+    );
+
+    // ── A write through the leader replicates to the freshly-joined voters.
+    {
+        leader.router().assign("graph7", gid);
+        let g = leader
+            .group_for_graph("graph7")
+            .await
+            .expect("group for graph7");
+        let req = RaftRequest {
+            graph_fname: crate::persist::sanitize("graph7"),
+            graph_name: "graph7".to_string(),
+            graph_type: GraphType::Global,
+            method: Method::AddNode {
+                node_id: "joined-write".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"ok": true}))
+                    .unwrap(),
+            },
+        };
+        g.client_write(req).await.expect("write via leader");
+    }
+    // Both followers (nodes 2 and 3) must apply the replicated write.
+    for idx in [1usize, 2] {
+        let st = multis[idx].2.clone();
+        wait_until(Duration::from_secs(10), || {
+            let st = st.clone();
+            async move { node_count(&st, "graph7").await == 1 }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("node {} must apply the replicated write", idx + 1));
+    }
+
+    // ── R1: the round-robin target for group 7 over [1,2,3] is node 2 (7 % 3 == 1).
+    let target = desired_leader(gid, &[1, 2, 3]).unwrap();
+    assert_eq!(target, 2, "round-robin target for group 7 is node 2");
+
+    // EVERY node runs a balancing pass (as a real cluster does). The FIRST pass:
+    // node 1 (the incumbent leader) YIELDS group 7 (its target is node 2); node 2 (the
+    // target) CLAIMS it. We assert that decision, then keep driving periodic passes (like
+    // a real periodic balancer) until leadership actually converges to node 2.
+    let node1 = multis[0].1.clone();
+    let node2 = multis[1].1.clone();
+    let node3 = multis[2].1.clone();
+    let r1 = node1.rebalance_leaders().await;
+    let r2 = node2.rebalance_leaders().await;
+    let _r3 = node3.rebalance_leaders().await;
+    assert_eq!(r2.targets.get(&gid), Some(&2));
+    assert!(
+        r1.yielded.contains(&gid),
+        "node 1 (incumbent leader, target elsewhere) must step aside for group 7"
+    );
+    assert!(
+        r2.elected.contains(&gid),
+        "node 2 must campaign for group 7 (it is the target but not the leader)"
+    );
+
+    // Leadership converges to node 2. openraft stickiness can hand a transient term to
+    // node 3; the periodic balancer corrects it (node 3 yields, node 2 re-claims).
+    let start = std::time::Instant::now();
+    let mut converged = false;
+    while start.elapsed() < Duration::from_secs(30) {
+        if node2.group(gid).await.unwrap().current_leader().await == Some(2) {
+            converged = true;
+            break;
+        }
+        node1.rebalance_leaders().await;
+        node2.rebalance_leaders().await;
+        node3.rebalance_leaders().await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+    }
+    assert!(
+        converged,
+        "leadership must converge to the round-robin target (node 2)"
+    );
+
+    // Already balanced → an extra pass on node 2 neither campaigns nor yields (idempotent).
+    let report2 = node2.rebalance_leaders().await;
+    assert!(
+        report2.elected.is_empty() && report2.yielded.is_empty(),
+        "an already-balanced node must not re-campaign or yield (idempotent)"
+    );
+
+    // ── Cleanup.
+    for (_, multi, _) in &multis {
+        multi.stop_listener();
+        let _ = multi.close_group(gid).await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 // ── Distributed graph compute (CONCEPT:KG-2.227) ─────────────────────────────
 //
 // These prove the cross-shard Pregel engine produces the SAME result as the
