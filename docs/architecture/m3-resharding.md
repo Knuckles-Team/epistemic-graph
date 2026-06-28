@@ -19,10 +19,18 @@
 > `online_reshard_moves_graph_live_no_loss`, `catalog_auto_attach_gate_and_empty_is_fnv1a`,
 > `cold_offload_evicts_then_serves_on_access`. Modules on `feat/m3-r3-r4`: `rebalance.rs`
 > (R3 planner, EG-035) and `blob/stream.rs` (R4 bounded-memory BLOB streaming, EG-036), both
-> lib-tested. All built + green under `--features "full,cluster"`. **Still REMAINING:** R2
-> (cross-node, needs M2), a wire/admin RPC for catalog ops + R3 plan execution (= R1's
-> online-reshard), dispatch-side `touch()` wiring for R6, and the delta-copy optimization for
-> R1 (today the moved graph is briefly paused for its own copy — other graphs are never paused).
+> lib-tested. All built + green under `--features "full,cluster"`.
+>
+> **Update — the engine-side FINISHING wires landed (roadmap F + admin RPC + R3 exec + R6
+> touch + R1 delta), on `feat/engine-finishing`.** Parallel cross-shard read fan-out
+> (`EG-042` — `load_into` off concurrent `begin_read()` snapshots, off the writer), the M3
+> admin RPC (`EG-038` — `Reshard`/`Catalog*`/`RebalancePlan`/`RebalanceExecute` +
+> `handlers/admin.rs` + `ReshardingClient`), rebalance plan EXECUTION (`EG-039`
+> `RedbBackend::rebalance_execute`), the R6 `touch()` wiring + interval offload sweep
+> (`EG-040`), and the R1 snapshot+delta copy (`EG-041` `bulk_copy`/`delta_flip_purge`). All
+> built + green under `--features "full,cluster"` (32 persistence tests pass). **Still
+> REMAINING:** R2 (cross-node, needs M2), and the original R4-gated object-store arm of R6
+> (cold tenants colder than redb spilled to `cold-tier-s3`/`blob-s3`).
 
 Builds on EG-026 (sharded K-way durable writer) — see
 [`engine.md` § Sharded K-way durable writer](engine.md). The whole point of EG-026 is that

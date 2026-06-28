@@ -53,6 +53,10 @@ fn state_with(
         }
     }
     Arc::new(RwLock::new(ServerState {
+        #[cfg(feature = "redb")]
+        cold_tracker: std::sync::Arc::new(
+            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
+        ),
         registry,
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
@@ -701,6 +705,10 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
     });
 
     Arc::new(RwLock::new(ServerState {
+        #[cfg(feature = "redb")]
+        cold_tracker: std::sync::Arc::new(
+            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
+        ),
         registry,
         isolation,
         channels: ChannelManager::new(),

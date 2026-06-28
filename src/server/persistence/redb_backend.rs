@@ -169,6 +169,15 @@ pub(crate) enum Cmd {
         rows: Box<super::online_reshard::RawGraphRows>,
         reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
+    /// Import ONLY the DELTA of an online shard move (CONCEPT:EG-041, R1 delta-copy). Runs
+    /// on the DESTINATION shard's writer under the exclusive routing quiesce; lands the
+    /// small set of rows that changed since the bulk pass (upserts + removals) in ONE
+    /// `Durability::Immediate` commit — the short under-quiesce write that shrinks the pause.
+    ImportGraphDelta {
+        graph: String,
+        delta: Box<super::online_reshard::RawGraphDelta>,
+        reply: std::sync::mpsc::Sender<Result<(), String>>,
+    },
     /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:KG-2.231).
     /// Flushes pending first so the walk reflects the latest durable entries, then
     /// scans `(graph, 0..)` and reports OK or the first break.
@@ -431,6 +440,28 @@ pub(crate) fn shard_index(graph_fname: &str, k: usize) -> usize {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     (hash % k as u64) as usize
+}
+
+/// Run one blocking closure PER shard CONCURRENTLY on the blocking pool and collect
+/// their results in shard order (CONCEPT:EG-042, roadmap F — parallel cross-shard read
+/// fan-out). EVERY task is spawned BEFORE any is awaited, which is the property that
+/// makes a K-shard fan-out overlap instead of serialize (a spawn-then-await-each loop is
+/// serial). The closures run off each shard's `begin_read()` MVCC snapshot (CONCEPT:EG-027),
+/// so the fan-out never routes through a writer thread. The first error short-circuits.
+async fn join_blocking_in_order<T, F>(tasks: Vec<F>) -> Result<Vec<T>, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let handles: Vec<_> = tasks.into_iter().map(tokio::task::spawn_blocking).collect();
+    let mut out = Vec::with_capacity(handles.len());
+    for h in handles {
+        out.push(
+            h.await
+                .map_err(|e| format!("shard read join error: {e}"))??,
+        );
+    }
+    Ok(out)
 }
 
 /// The redb file name for shard `i` of `k` (CONCEPT:EG-026). K=1 keeps the legacy
@@ -875,19 +906,53 @@ impl RedbBackend {
         let src_tx = self.shards[src_idx].tx.clone();
         let dst_tx = self.shards[dst_idx].tx.clone();
         let graph = graph_fname.to_string();
-        // Exclusive routing quiesce: no catalog-attached write can resolve/enqueue while
-        // the move runs, so the route flip never loses or misroutes a write. The whole
-        // move runs on a blocking thread (it drives both shard writers over their
-        // channels), holding the write guard for its duration.
+
+        // CONCEPT:EG-041 (R1 delta-copy) — SNAPSHOT + DELTA to shrink the moved graph's
+        // write-pause. PHASE 1 copies the BULK verbatim off a src read snapshot WITHOUT
+        // the exclusive routing quiesce, so writes keep flowing to `src` while the (large)
+        // copy runs — the graph is NOT paused. PHASE 2 takes the exclusive `routing_epoch`
+        // WRITE guard (quiescing only THIS catalog's durable writes) and copies just the
+        // small DELTA accumulated during phase 1, flips the route, and GCs the source. The
+        // pause is therefore O(delta), not O(graph). Crash-consistency is preserved:
+        // import(bulk) committed -> import(delta) committed -> catalog flip durable ->
+        // purge(src) (a crash before the flip leaves the data on `src` where the route
+        // still points; after the flip on `dst` where both bulk+delta already landed).
+        let (s1, d1, g1) = (src_tx.clone(), dst_tx.clone(), graph.clone());
+        let bulk =
+            tokio::task::spawn_blocking(move || super::online_reshard::bulk_copy(&s1, &d1, &g1))
+                .await
+                .map_err(|e| format!("reshard bulk join error: {e}"))??;
+
+        // Exclusive routing quiesce held ONLY across the delta + flip (the small window):
+        // no catalog-attached write can resolve/enqueue while the route flips, so the flip
+        // never loses or misroutes a write; once released, every write resolves the catalog
+        // AFTER the flip and follows the graph to `dst`.
         let quiesce = self.routing_epoch.clone().write_owned().await;
         tokio::task::spawn_blocking(move || {
             let _held = quiesce;
-            super::online_reshard::execute_online_reshard(
-                &src_tx, &dst_tx, &catalog, &graph, src_idx, dst_idx,
+            super::online_reshard::delta_flip_purge(
+                &src_tx, &dst_tx, &catalog, &graph, src_idx, dst_idx, bulk,
             )
         })
         .await
-        .map_err(|e| format!("reshard join error: {e}"))?
+        .map_err(|e| format!("reshard delta join error: {e}"))?
+    }
+
+    /// Execute a rebalance PLAN move-by-move via online resharding (CONCEPT:EG-039, R3
+    /// plan execution). Each move is one [`Self::reshard_graph`] — online, ONE graph at a
+    /// time, every other graph unaffected. The plan's `from_shard` is informational: each
+    /// move resolves its source from the catalog's CURRENT state, so applying the moves in
+    /// order is robust even as earlier moves shift placements. Returns the per-move reports.
+    /// Requires an attached tenant catalog (every `reshard_graph` does).
+    pub async fn rebalance_execute(
+        &self,
+        plan: &super::rebalance::RebalancePlan,
+    ) -> Result<Vec<super::online_reshard::ReshardReport>, String> {
+        let mut reports = Vec::with_capacity(plan.moves.len());
+        for mv in &plan.moves {
+            reports.push(self.reshard_graph(&mv.graph, mv.to_shard).await?);
+        }
+        Ok(reports)
     }
 
     /// The shard that owns `graph_fname` (stable routing, CONCEPT:EG-026 / EG-031).
@@ -1002,22 +1067,42 @@ impl RedbBackend {
     /// an exclusive per-process file lock; this rebuilds each `GraphCore` from the
     /// returned dumps via the SAME `add_node`/`add_edge` calls the WAL replay uses.
     async fn load_into(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
-        // Fan the load across EVERY shard (CONCEPT:EG-026): each shard's writer owns
-        // only the graphs routed to it, so the registry is rebuilt from the union of
-        // all K shards' dumps. Each shard's `Load` goes through its own owner thread
-        // (exclusive per-file lock).
-        let mut dumps: Vec<GraphDump> = Vec::new();
+        // PARALLEL cross-shard read fan-out (CONCEPT:EG-042, roadmap F). Each shard's
+        // writer owns only the graphs routed to it, so the registry is rebuilt from the
+        // union of all K shards' dumps. Instead of routing each shard's dump SERIALLY
+        // through its writer thread's `Cmd::Load` channel, each shard now dumps OFF its
+        // OWN `begin_read()` MVCC snapshot (CONCEPT:EG-027) on the blocking pool, so the
+        // K reads run CONCURRENTLY on K cores and NEVER touch a writer thread (the EG-027
+        // invariant — a read never forces a group-commit nor serializes behind a write).
+        //
+        // Consistency: redb is MVCC so each snapshot sees its shard's LATEST COMMITTED
+        // state. `load_all` runs at boot BEFORE serving (no concurrent writes), and even
+        // under concurrency commit-before-ack (KG-2.187) guarantees any ACKED write is
+        // already committed and thus visible — exactly the EG-027 `read_node` reasoning.
+        // One closure per shard captures its upgraded `Database` + cipher; build them ALL
+        // first, then await them, so the fan-out overlaps (a spawn-then-await-each loop
+        // would serialize). The `Cmd::Load` writer-thread path is left intact but unused.
+        let mut tasks = Vec::with_capacity(self.shards.len());
         for shard in &self.shards {
-            let (reply, rx) = std::sync::mpsc::channel();
-            shard
-                .tx
-                .send(Cmd::Load { reply })
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-            let shard_dumps = rx
-                .recv()
-                .map_err(|_| "redb writer dropped load reply".to_string())??;
-            dumps.extend(shard_dumps);
+            let db = shard
+                .db
+                .upgrade()
+                .ok_or_else(|| "redb writer thread is gone".to_string())?;
+            #[cfg(feature = "security")]
+            let cipher = shard.cipher.clone();
+            tasks.push(move || {
+                #[cfg(feature = "security")]
+                let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
+                #[cfg(not(feature = "security"))]
+                let crypto = crate::redb_store::DurableCrypto::none();
+                read_all_dumps(&db, crypto)
+            });
         }
+        let dumps: Vec<GraphDump> = join_blocking_in_order(tasks)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
 
         let mut count = 0usize;
         for dump in dumps {
@@ -1330,7 +1415,6 @@ impl PersistenceBackend for RedbBackend {
         }
     }
 
-    #[cfg(any(feature = "raft", feature = "security"))]
     fn as_redb(&self) -> Option<&RedbBackend> {
         Some(self)
     }
@@ -1918,6 +2002,19 @@ fn handle_cmd(
             let _ = reply.send(super::online_reshard::import_graph_raw(db, &graph, &rows));
             false
         }
+        Cmd::ImportGraphDelta {
+            graph,
+            delta,
+            reply,
+        } => {
+            // CONCEPT:EG-041 — flush pending first (consistency), then land ONLY the delta
+            // rows (upserts + removals) in ONE durable commit (the under-quiesce write).
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(super::online_reshard::import_graph_delta(
+                db, &graph, &delta,
+            ));
+            false
+        }
         #[cfg(feature = "security")]
         Cmd::AuditVerify { graph, reply } => {
             // Flush pending so the chain walk includes the latest durable audit
@@ -2261,6 +2358,10 @@ mod tests {
         authoritative: bool,
     ) -> Arc<RwLock<ServerState>> {
         Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
@@ -4401,5 +4502,344 @@ mod tests {
 
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-042 (roadmap F) — the per-shard read fan-out runs CONCURRENTLY, not
+    /// serially. A `Barrier(K)` only releases once all K closures are running at the SAME
+    /// time; a serial spawn-then-await-each impl would block forever, which the timeout
+    /// converts into a test failure. Results come back in shard order.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn fan_out_shard_reads_runs_concurrently() {
+        use std::sync::Barrier;
+        const K: usize = 4;
+        let barrier = Arc::new(Barrier::new(K));
+        let tasks: Vec<_> = (0..K)
+            .map(|i| {
+                let b = barrier.clone();
+                move || -> Result<usize, String> {
+                    b.wait();
+                    Ok(i)
+                }
+            })
+            .collect();
+        let out = tokio::time::timeout(Duration::from_secs(10), join_blocking_in_order(tasks))
+            .await
+            .expect("fan-out ran concurrently (a serial impl would deadlock on the barrier)")
+            .expect("all shard reads ok");
+        assert_eq!(out, vec![0, 1, 2, 3], "results returned in shard order");
+    }
+
+    /// CONCEPT:EG-042 (roadmap F) — `load_all` fans each shard's dump CONCURRENTLY off a
+    /// `begin_read()` snapshot (off the writer) and unions them. Seed graphs spread across
+    /// K=4 shards, checkpoint, drop, reopen, load → every graph is recovered from its shard.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn parallel_load_recovers_all_shards_off_the_writer() {
+        const K: usize = 4;
+        let dir = std::env::temp_dir().join(format!("eg-f-load-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let names = [
+            "alpha", "beta", "gamma", "delta", "eps", "zeta", "eta", "theta",
+        ];
+
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 64, K)
+            .expect("open K=4");
+        let state = new_state(Some(dir_s.clone()));
+        {
+            let mut s = state.write().await;
+            for n in names {
+                let _ = s.registry.create_graph(n, GraphType::Global, None);
+            }
+        }
+        for n in names {
+            let core = {
+                let s = state.read().await;
+                s.registry.get(n).map(|e| e.core.clone()).unwrap()
+            };
+            core.add_node("x".into(), props(serde_json::json!({"g": n})));
+            backend.record(
+                n,
+                &Method::AddNode {
+                    node_id: "x".into(),
+                    properties_msgpack: props(serde_json::json!({"g": n})),
+                },
+            );
+        }
+        backend.checkpoint_all(&state).await.unwrap();
+        // The seed graphs must span >1 shard, else the parallel union proves nothing.
+        let used: std::collections::HashSet<usize> = names
+            .iter()
+            .map(|n| shard_index(&crate::persist::sanitize(n), K))
+            .collect();
+        assert!(used.len() >= 2, "seed graphs span multiple shards");
+        backend.shutdown();
+
+        let backend2 = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 64, K)
+            .expect("reopen K=4");
+        let state2 = new_state(Some(dir_s.clone()));
+        let loaded = backend2.load_all(&state2).await.unwrap();
+        assert!(loaded >= names.len(), "all seeded graphs recovered");
+        for n in names {
+            let core = {
+                let s = state2.read().await;
+                s.registry
+                    .get(n)
+                    .map(|e| e.core.clone())
+                    .expect("graph recovered")
+            };
+            assert_eq!(
+                core.get_node_properties("x"),
+                Some(props(serde_json::json!({"g": n}))),
+                "graph {n} recovered from its shard via the parallel fan-out"
+            );
+        }
+        backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-039 (R3 plan execution) — a fully-skewed placement (every graph pinned to
+    /// shard 0) → `plan_rebalance` → `rebalance_execute` applies each move via online
+    /// resharding → graphs spread across shards and every node survives (no loss).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rebalance_execute_balances_and_preserves_data() {
+        use crate::server::persistence::rebalance::{
+            plan_rebalance, shard_loads_from_catalog, RebalanceOptions,
+        };
+        use crate::server::persistence::tenant_catalog::TenantCatalog;
+        const K: usize = 4;
+        let dir = std::env::temp_dir().join(format!("eg-r3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
+            .expect("open K=4")
+            .with_catalog(catalog.clone());
+
+        let names = ["g0", "g1", "g2", "g3", "g4", "g5"];
+        for n in names {
+            catalog.assign(n, 0, None).unwrap(); // pin ALL to shard 0 (skew)
+            backend
+                .register_graph(n, n, GraphType::Global)
+                .await
+                .unwrap();
+            backend
+                .record_durable(
+                    n,
+                    &Method::AddNode {
+                        node_id: "a".into(),
+                        properties_msgpack: props(serde_json::json!({"g": n})),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        assert!(
+            names.iter().all(|n| catalog.resolve_shard(n, K) == 0),
+            "fully skewed onto shard 0 before rebalance"
+        );
+
+        let loads: Vec<(String, u64)> = names.iter().map(|n| (n.to_string(), 1u64)).collect();
+        let shards = shard_loads_from_catalog(&catalog, &loads, K);
+        let plan = plan_rebalance(&shards, RebalanceOptions::default());
+        assert!(!plan.is_empty(), "a fully-skewed set yields moves");
+        let reports = backend.rebalance_execute(&plan).await.expect("execute");
+        assert_eq!(reports.len(), plan.moves.len(), "one report per move");
+
+        let distinct: std::collections::HashSet<usize> =
+            names.iter().map(|n| catalog.resolve_shard(n, K)).collect();
+        assert!(
+            distinct.len() >= 2,
+            "graphs spread across >1 shard after rebalance, got {distinct:?}"
+        );
+        for n in names {
+            assert!(
+                backend.read_node_blocking(n, "a").unwrap().is_some(),
+                "graph {n} node survives the rebalance move"
+            );
+        }
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-041 (R1 delta-copy) — moving an IDLE graph copies the whole graph in the
+    /// UNQUIESCED bulk pass, so the under-quiesce DELTA (the work that actually pauses the
+    /// moved graph's writes) is 0. Proves the snapshot+delta path shrank the pause to ~0
+    /// for the common idle case, with no data loss.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn online_reshard_delta_is_small_for_idle_graph() {
+        use crate::server::persistence::tenant_catalog::TenantCatalog;
+        const K: usize = 4;
+        let dir = std::env::temp_dir().join(format!("eg-r1-delta-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
+            .expect("open")
+            .with_catalog(catalog.clone());
+
+        let g = "idle-graph";
+        backend
+            .register_graph(g, g, GraphType::Global)
+            .await
+            .unwrap();
+        for i in 0..20u32 {
+            backend
+                .record_durable(
+                    g,
+                    &Method::AddNode {
+                        node_id: format!("n{i}"),
+                        properties_msgpack: props(serde_json::json!({"i": i})),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        let src = catalog.resolve_shard(g, K);
+        let dst = (src + 1) % K;
+        let report = backend.reshard_graph(g, dst as u32).await.expect("reshard");
+        assert!(!report.no_op);
+        assert!(
+            report.nodes >= 20,
+            "bulk pass copied the whole graph ({})",
+            report.nodes
+        );
+        assert_eq!(
+            report.delta_nodes, 0,
+            "idle graph ⇒ zero under-quiesce node copy"
+        );
+        assert_eq!(
+            report.delta_edges, 0,
+            "idle graph ⇒ zero under-quiesce edge copy"
+        );
+        for i in 0..20u32 {
+            assert!(
+                backend
+                    .read_node_blocking(g, &format!("n{i}"))
+                    .unwrap()
+                    .is_some(),
+                "node n{i} survives the move"
+            );
+        }
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-038 — drive the M3 admin ops over the FULL dispatch path (protocol →
+    /// `handlers::admin` → the persistence APIs): assign a catalog placement, list it back,
+    /// and get a rebalance plan. Proves the WIRE surface, not just the backend methods.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn admin_rpc_dispatch_roundtrip() {
+        use crate::protocol::{Request, ResultPayload};
+        use crate::server::persistence::tenant_catalog::TenantCatalog;
+        use crate::server::{compute_auth_token, dispatch};
+        const SECRET: &str = "admin-rpc";
+        const K: usize = 4;
+        let dir = std::env::temp_dir().join(format!("eg-admin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
+                .expect("open")
+                .with_catalog(catalog.clone()),
+        );
+        let state = new_state(Some(dir_s.clone()));
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend.clone());
+        }
+        let req = |id: u64, method: Method| Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        };
+
+        // CatalogAssign → Bool(true).
+        let r = dispatch(
+            &state,
+            req(
+                1,
+                Method::CatalogAssign {
+                    graph: "g".into(),
+                    shard: 2,
+                    node: None,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(r.result, Some(ResultPayload::Bool(true))),
+            "assign ok: {:?}",
+            r.error
+        );
+
+        // CatalogList → JSON containing the placement we just wrote.
+        let r = dispatch(&state, req(2, Method::CatalogList)).await;
+        match r.result {
+            Some(ResultPayload::Json(v)) => {
+                let placements = v
+                    .get("placements")
+                    .and_then(|p| p.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                assert!(
+                    placements.iter().any(|p| {
+                        p.get("graph").and_then(|g| g.as_str()) == Some("g")
+                            && p.get("shard").and_then(|s| s.as_u64()) == Some(2)
+                    }),
+                    "placement present in list: {placements:?}"
+                );
+            }
+            other => panic!("CatalogList json, got {other:?}"),
+        }
+
+        // RebalancePlan → JSON with `moves` + `shards` arrays (read-only).
+        let r = dispatch(
+            &state,
+            req(
+                3,
+                Method::RebalancePlan {
+                    tolerance: None,
+                    max_moves: None,
+                },
+            ),
+        )
+        .await;
+        match r.result {
+            Some(ResultPayload::Json(v)) => {
+                assert!(v.get("moves").map(|m| m.is_array()).unwrap_or(false));
+                assert!(v.get("shards").map(|m| m.is_array()).unwrap_or(false));
+            }
+            other => panic!("RebalancePlan json, got {other:?}"),
+        }
+
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-040 (R6 touch wiring) — the cold sweep selects a graph IDLE past the
+    /// window but NEVER a recently-touched one. Proves the touch-driven selection semantics
+    /// the dispatch read/write path relies on.
+    #[test]
+    fn touch_keeps_accessed_graph_resident_idle_is_cold() {
+        use crate::server::persistence::cold_offload::ColdTenantTracker;
+        let tracker = ColdTenantTracker::new();
+        let window = Duration::from_millis(40);
+        tracker.touch("hot");
+        tracker.touch("cold");
+        std::thread::sleep(Duration::from_millis(70)); // both idle past the window
+        tracker.touch("hot"); // re-access "hot"
+        let cold = tracker.cold_graphs(window);
+        assert!(
+            cold.contains(&"cold".to_string()),
+            "an idle graph is a cold candidate"
+        );
+        assert!(
+            !cold.contains(&"hot".to_string()),
+            "a recently-touched graph stays resident"
+        );
     }
 }

@@ -381,6 +381,50 @@ pub enum Method {
     },
     ListGraphs,
 
+    // ── M3 catalog-driven resharding admin (CONCEPT:EG-038) ───────────
+    // The wire surface that DRIVES the M3 ops the engine already has the building
+    // blocks for: online single-node resharding (EG-032), the tenant catalog
+    // (EG-031), and the rebalancing planner (EG-035) + its execution (EG-039). All
+    // are redb-only; in a non-redb build they return a clean "not available" error.
+    /// Online-move `graph`'s durable rows to shard `to_shard` while the engine RUNS,
+    /// then flip the catalog route (CONCEPT:EG-032). Returns a `ReshardReport` JSON.
+    Reshard {
+        graph: String,
+        to_shard: u32,
+    },
+    /// Populate / assign an explicit catalog placement for `graph` (CONCEPT:EG-031).
+    /// Flips the ROUTE only — to MOVE the rows too use `Reshard`. Returns `Bool`.
+    CatalogAssign {
+        graph: String,
+        shard: u32,
+        node: Option<u32>,
+    },
+    /// Re-place `graph` onto `shard`, preserving its node placement (CONCEPT:EG-031).
+    CatalogReassign {
+        graph: String,
+        shard: u32,
+    },
+    /// Drop `graph`'s explicit placement — it reverts to EG-026 FNV-1a routing.
+    CatalogRemove {
+        graph: String,
+    },
+    /// List every explicit catalog placement `{graph, shard, node}` (JSON).
+    CatalogList,
+    /// Compute (do NOT execute) a rebalance plan over live per-shard/per-graph load
+    /// (CONCEPT:EG-035). Returns the ordered `{graph, from_shard, to_shard}` moves +
+    /// the per-shard load it planned against, as JSON.
+    RebalancePlan {
+        tolerance: Option<f64>,
+        max_moves: Option<usize>,
+    },
+    /// Compute a rebalance plan AND execute it move-by-move via online resharding
+    /// (CONCEPT:EG-039, R3 plan execution). Each move is one online `Reshard` — online,
+    /// one graph at a time, other graphs unaffected. Returns the executed moves' reports.
+    RebalanceExecute {
+        tolerance: Option<f64>,
+        max_moves: Option<usize>,
+    },
+
     // ── Dynamic Communication Channels ───────────────────────────────
     CreateChannel {
         channel_id: String,

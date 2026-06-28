@@ -95,6 +95,14 @@ pub struct ServerState {
     /// non-redb backend treats it as a no-op (its `record_durable` default falls
     /// back to `record`).
     pub redb_authoritative: bool,
+    /// Cold-tenant access tracker (CONCEPT:EG-034/EG-040, R6), feature `redb`. The
+    /// dispatch read+write path calls `touch(graph)` on every graph access so the
+    /// periodic cold-offload sweep (`offload_cold_tenants`) can hibernate graphs idle
+    /// longer than a window to bound RAM across many tenants — recently-accessed graphs
+    /// stay resident, idle ones offload (durably-gated, loss-free). A `touch` is one
+    /// map upsert off the hot path; an empty tracker is a no-op.
+    #[cfg(feature = "redb")]
+    pub cold_tracker: Arc<crate::server::persistence::cold_offload::ColdTenantTracker>,
     /// Global backpressure: caps concurrent in-flight requests across all
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).

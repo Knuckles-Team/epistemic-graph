@@ -299,6 +299,10 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                     //    unbounded entry leak across many churn cycles).
                     s.write_coalescer.remove(graph_name);
                     s.per_graph_inflight.remove(graph_name);
+                    // Cold-tenant tracker (CONCEPT:EG-040, R6): forget this graph's access
+                    // timestamp + offload mark so they don't leak across a same-name recreate.
+                    #[cfg(feature = "redb")]
+                    s.cold_tracker.forget(graph_name);
                     // Authoritative durable purge (CONCEPT:KG-2.221): the registry
                     // entry is gone from RAM, but the graph's durable rows (nodes/
                     // edges/ledger/semantic/graph_meta, keyed by the sanitized name)
@@ -340,6 +344,26 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                 .map(|(name, gt)| serde_json::json!({"name": name, "type": gt}))
                 .collect();
             Response::ok(req.id, ResultPayload::Json(serde_json::json!(graphs)))
+        }
+
+        // ── M3 catalog-driven resharding admin (CONCEPT:EG-038) ──────
+        // The wire surface that drives online resharding (EG-032), the tenant catalog
+        // (EG-031) and the rebalance planner (EG-035) + its execution (EG-039). All
+        // self-routing service-level ops handled here (not the per-graph chain), so they
+        // reach the concrete redb backend via `as_redb`. A non-redb build returns a clean
+        // "not available" error from the handler.
+        Method::Reshard { .. }
+        | Method::CatalogAssign { .. }
+        | Method::CatalogReassign { .. }
+        | Method::CatalogRemove { .. }
+        | Method::CatalogList
+        | Method::RebalancePlan { .. }
+        | Method::RebalanceExecute { .. } => {
+            match handlers::admin::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: every variant matched above is an admin method.
+                Err(_) => Response::err(req.id, "admin dispatch routing error"),
+            }
         }
 
         // ── Channel operations ───────────────────────────────────────
@@ -717,6 +741,13 @@ async fn dispatch_graph_op(
     let raft = s.raft.clone();
     #[cfg(feature = "raft")]
     let graph_type = entry.graph_type;
+    // Cold-tenant access tracking (CONCEPT:EG-040, R6): clone the tracker under the same
+    // registry lock so this graph's access recency is recorded after the lock is released
+    // (a `touch` is one cheap map upsert, off the graph lock). The periodic cold-offload
+    // sweep reads it to hibernate IDLE graphs; a recently-touched graph is never selected.
+    // `redb`-only — whole-graph offload is a durable-tier capability (CONCEPT:EG-034).
+    #[cfg(feature = "redb")]
+    let cold_tracker = s.cold_tracker.clone();
     // Per-agent Row-Level Security (CONCEPT:KG-2.231): clone the isolation policy
     // under the same registry lock so the read-only query handler can filter its
     // off-lock snapshot down to the rows the caller may see. Only the read/query
@@ -733,6 +764,11 @@ async fn dispatch_graph_op(
     ))]
     let _ = &rls;
     drop(s); // Release registry lock before graph lock.
+
+    // Record this graph's access for the cold-offload sweep (CONCEPT:EG-040, R6) — both
+    // reads and writes touch, so a graph being actively used is never offloaded.
+    #[cfg(feature = "redb")]
+    cold_tracker.touch(graph_name);
 
     // Tamper-evident audit verification (CONCEPT:KG-2.231): a read-only walk of the
     // target graph's durable hash-chained audit log. Routed to the redb backend's
@@ -1136,6 +1172,10 @@ mod blob_dispatch_tests {
     fn state_with_blob(dir: &str) -> Arc<RwLock<ServerState>> {
         let store = Arc::new(RedbChunkStore::open(dir).unwrap());
         Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
