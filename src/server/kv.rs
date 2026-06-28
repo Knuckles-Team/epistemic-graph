@@ -472,6 +472,10 @@ mod dispatch_tests {
     fn state_with_kv(dir: &str) -> Arc<RwLock<ServerState>> {
         let kv = Arc::new(super::KvStore::open(Some(dir)).unwrap());
         Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
