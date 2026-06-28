@@ -2946,7 +2946,22 @@ class EpistemicGraphClient:
         self._agent_id = agent_id
         self._request_id = 0
         self._closed = False
+        # ── CONCEPT:EG-043 — single-connection request PIPELINING (demux) ──
+        # The engine (src/server/transport.rs) processes many requests on ONE
+        # connection concurrently and writes responses back OUT OF ORDER, each
+        # tagged with its `Response.id`. So instead of a lock held across the
+        # whole write→round-trip→read (which serialized one connection), the
+        # client runs a background reader task that resolves the matching pending
+        # future by id. ``_send`` registers a future under the request id, writes
+        # the frame, and awaits ONLY its own future — so per-caller ordering is
+        # automatic (each await blocks on its own id) while INDEPENDENT concurrent
+        # calls pipeline on the one connection. ``_lock`` now guards only the
+        # connect/reconnect lifecycle; ``_write_lock`` serializes just the frame
+        # write so two callers never interleave bytes on the wire.
         self._lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
+        self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
+        self._reader_task: asyncio.Task[None] | None = None
         # How we connected — remembered so a dropped connection can be
         # transparently re-established on the next call (see _reconnect).
         # Populated by connect(); a directly-constructed client cannot self-heal.
@@ -3069,6 +3084,9 @@ class EpistemicGraphClient:
         reference to the underlying reader/writer, so dialing a fresh stream and
         swapping them in is transparent. Must be called with ``self._lock`` held.
         """
+        # Tear down the old demux reader and fail any calls still bound to the
+        # dead connection (CONCEPT:EG-043) before swapping in the fresh stream.
+        self._mark_dead(ConnectionError("connection reset; reconnecting"))
         with contextlib.suppress(Exception):  # discard the poisoned stream
             self._writer.close()
         self._reader, self._writer, _ = await self._open_streams(
@@ -3092,6 +3110,94 @@ class EpistemicGraphClient:
             str(request_id).encode(),
             hashlib.sha256,
         ).hexdigest()
+
+    # ── CONCEPT:EG-043 — pipelined connection: reader/demux internals ──────────
+
+    @staticmethod
+    def _retrieve_exc(fut: asyncio.Future) -> None:
+        # Mark a failed future "retrieved" so a caller that already moved on (e.g.
+        # its write raced the reader's EOF and never reached ``await fut``) does not
+        # emit a noisy "Future exception was never retrieved" warning.
+        if not fut.cancelled():
+            with contextlib.suppress(Exception):
+                fut.exception()
+
+    def _fail_pending(self, exc: BaseException) -> None:
+        """Resolve every in-flight future with ``exc`` (a connection died)."""
+        pending = self._pending
+        self._pending = {}
+        for fut in pending.values():
+            if not fut.done():
+                fut.set_exception(exc)
+                fut.add_done_callback(self._retrieve_exc)
+
+    def _mark_dead(self, exc: BaseException) -> None:
+        """Tear the connection down: stop the reader, fail all in-flight calls.
+
+        Idempotent. Called on any connection-fatal event (EOF, transport error,
+        a bounded-timeout, explicit close, reconnect). Marks ``_closed`` so the
+        next call self-heals via :meth:`_reconnect`.
+        """
+        self._closed = True
+        task = self._reader_task
+        self._reader_task = None
+        if task is not None and not task.done():
+            task.cancel()
+        with contextlib.suppress(Exception):  # best-effort transport teardown
+            self._writer.close()
+        self._fail_pending(exc)
+
+    async def _read_loop(self, reader: asyncio.StreamReader) -> None:
+        """Background demultiplexer: read frames, resolve futures by ``id``.
+
+        One task per live connection. Responses arrive in ANY order (the engine
+        pipelines, CONCEPT:EG-043); each is routed to its caller by the
+        ``Response.id`` correlation id the protocol already carries. On EOF /
+        transport error every in-flight call is failed so no caller hangs and the
+        next call reconnects.
+        """
+        try:
+            while True:
+                len_buf = await reader.readexactly(4)
+                msg_len = int.from_bytes(len_buf, byteorder="big")
+                body = await reader.readexactly(msg_len)
+                resp = msgpack.unpackb(body, raw=False)
+                fut = self._pending.pop(resp.get("id"), None)
+                if fut is None and len(self._pending) == 1:
+                    # Single-in-flight fallback (behaves EXACTLY as the pre-pipeline
+                    # serial path): a response that doesn't carry a matching id
+                    # resolves the sole pending call. With ≥2 calls in flight the
+                    # engine's ``Response.id`` is REQUIRED to demux — and the engine
+                    # always sends it — so this only ever affects the one-in-flight
+                    # case (and tolerant of peers that omit the id).
+                    _, fut = self._pending.popitem()
+                if fut is not None and not fut.done():
+                    fut.set_result(resp)
+                # A response with no matching pending future and ≠1 in flight (e.g. a
+                # late reply for a timed-out call) is simply dropped — the demux keeps
+                # the stream in sync regardless, which is exactly why one
+                # slow/timed-out call no longer desyncs the others.
+        except asyncio.CancelledError:
+            raise
+        except (asyncio.IncompleteReadError, OSError):
+            self._closed = True
+            self._fail_pending(ConnectionError("Connection closed by server"))
+        except Exception as e:  # noqa: BLE001 — surface any decode error to callers
+            self._closed = True
+            self._fail_pending(e)
+
+    async def _ensure_connection(self) -> None:
+        """Ensure a live stream + a running reader task (lifecycle lock held)."""
+        async with self._lock:
+            if self._closed:
+                # A prior call closed a poisoned/dead stream. Re-dial in place so
+                # this call succeeds instead of reusing a dead writer — otherwise
+                # the engine circuit breaker latches OPEN permanently.
+                await self._reconnect()
+            if self._reader_task is None or self._reader_task.done():
+                self._reader_task = asyncio.ensure_future(
+                    self._read_loop(self._reader)
+                )
 
     async def _send(
         self,
@@ -3123,52 +3229,53 @@ class EpistemicGraphClient:
         if timeout is not None:
             write_timeout = min(timeout, write_timeout) if write_timeout else timeout
 
-        async with self._lock:
-            # A prior call may have closed a poisoned/dead stream. Re-dial in
-            # place so this call succeeds instead of reusing a dead writer —
-            # otherwise the engine circuit breaker latches OPEN permanently.
-            if self._closed:
-                await self._reconnect()
-            try:
+        # Establish/heal the connection and the background demux reader.
+        await self._ensure_connection()
+
+        # Register this call's future under its id BEFORE writing, so the reader
+        # can never miss the response (the engine can't reply before it reads).
+        fut: asyncio.Future[dict[str, Any]] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self._pending[req_id] = fut
+        try:
+            # Serialize ONLY the frame write so two callers never interleave bytes;
+            # the round-trip itself is NOT held under any lock — that is what lets
+            # independent concurrent calls pipeline on the one connection.
+            async with self._write_lock:
                 self._writer.write(length_prefix)
                 self._writer.write(payload)
                 await asyncio.wait_for(self._writer.drain(), write_timeout)
-                len_buf = await asyncio.wait_for(self._reader.readexactly(4), timeout)
-                msg_len = int.from_bytes(len_buf, byteorder="big")
-                resp_bytes = await asyncio.wait_for(
-                    self._reader.readexactly(msg_len), timeout
-                )
-            except asyncio.IncompleteReadError as e:
-                # Server closed the stream mid-frame — the connection is dead.
-                self._closed = True
-                with contextlib.suppress(Exception):  # best-effort teardown
-                    self._writer.close()
-                raise ConnectionError("Connection closed by server") from e
-            except (asyncio.TimeoutError, TimeoutError) as e:
-                # A write that never drained, or a read that timed out mid-frame,
-                # leaves the stream desynced (a late reply would be misread as the
-                # NEXT request's response). Treat the timeout as connection-fatal —
-                # close so the pool/breaker reconnects on a clean stream rather than
-                # reusing a poisoned one.
-                self._closed = True
-                with contextlib.suppress(Exception):  # best-effort teardown
-                    self._writer.close()
-                raise TimeoutError(
-                    f"epistemic-graph RPC {method!r} timed out (connection closed; "
-                    "retry will reconnect)"
-                ) from e
-            except OSError:
-                # Any transport-level error during write/drain/read — broken pipe,
-                # connection reset, etc. (all OSError subclasses) — leaves the
-                # stream unusable. Mark it closed so the NEXT call reconnects
-                # instead of reusing a dead writer (which latched the breaker
-                # OPEN forever). Re-raise unchanged; it trips the breaker.
-                self._closed = True
-                with contextlib.suppress(Exception):  # best-effort teardown
-                    self._writer.close()
-                raise
+            # Await ONLY our own response; per-caller ordering is automatic.
+            resp = await asyncio.wait_for(fut, timeout)
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            # Bounded per-call timeout. Connection-fatal (parity with the pre-pipeline
+            # contract): a wedged engine that stops replying must not strand the
+            # connection. Tear it down so the pool/breaker reconnects on a clean
+            # stream; the demux already kept the wire in sync, but a timeout still
+            # means the peer is unhealthy.
+            self._pending.pop(req_id, None)
+            self._mark_dead(
+                TimeoutError(f"epistemic-graph RPC {method!r} timed out")
+            )
+            raise TimeoutError(
+                f"epistemic-graph RPC {method!r} timed out (connection closed; "
+                "retry will reconnect)"
+            ) from e
+        except asyncio.IncompleteReadError as e:
+            self._pending.pop(req_id, None)
+            self._mark_dead(ConnectionError("Connection closed by server"))
+            raise ConnectionError("Connection closed by server") from e
+        except OSError as e:
+            # Any transport-level error during write/drain — broken pipe, reset,
+            # etc. (all OSError subclasses). A ConnectionError raised from our own
+            # future (the reader saw EOF) also lands here. Mark dead so the NEXT
+            # call reconnects instead of reusing a dead writer (which latched the
+            # breaker OPEN forever). Re-raise unchanged; it trips the breaker.
+            self._pending.pop(req_id, None)
+            self._mark_dead(e)
+            raise
 
-        resp = msgpack.unpackb(resp_bytes, raw=False)
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
             # The engine's overload backstop (CONCEPT:KG-2.264) returns a typed
@@ -3193,8 +3300,11 @@ class EpistemicGraphClient:
 
     async def close(self) -> None:
         if not self._closed:
-            self._writer.close()
-            await self._writer.wait_closed()
+            # Stop the demux reader and fail any straggler in-flight calls
+            # (CONCEPT:EG-043) before tearing the transport down.
+            self._mark_dead(ConnectionError("client closed"))
+            with contextlib.suppress(Exception):
+                await self._writer.wait_closed()
             self._closed = True
 
     async def __aenter__(self) -> EpistemicGraphClient:
