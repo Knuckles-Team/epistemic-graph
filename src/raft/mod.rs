@@ -61,7 +61,6 @@
 #![cfg(feature = "raft")]
 
 use std::collections::BTreeMap;
-use std::io::Cursor;
 use std::sync::Arc;
 
 use openraft::BasicNode;
@@ -141,6 +140,15 @@ pub struct RaftRequest {
     pub method: Method,
 }
 
+/// openraft 0.10's `AppData` bound now requires `Display` (the log entry is
+/// `Display`). A terse one-line form — graph + method discriminant — is plenty for
+/// the trace/log lines openraft emits.
+impl std::fmt::Display for RaftRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RaftRequest(graph={})", self.graph_name)
+    }
+}
+
 /// The application response from applying a [`RaftRequest`]. The dispatch path only
 /// needs success/failure (the in-memory apply already produced the client-facing
 /// Response), so this is a thin ack.
@@ -152,15 +160,22 @@ pub struct RaftResponse {
 
 openraft::declare_raft_types!(
     /// The single Raft type configuration for the engine cluster.
+    ///
+    /// openraft 0.10 (CONCEPT:KG-2.273): the macro fills the absent associated types
+    /// with their defaults — `NodeId = u64` (= our [`NodeId`] alias), `Node =
+    /// BasicNode`, `Entry = openraft::Entry<…>`, `SnapshotData = Cursor<Vec<u8>>`,
+    /// `AsyncRuntime = TokioRuntime` — so only `D`/`R` need to be named here.
     pub TypeConfig:
         D = RaftRequest,
         R = RaftResponse,
-        NodeId = NodeId,
-        Node = BasicNode,
 );
 
 /// A running Raft instance (`openraft::Raft`) for our [`TypeConfig`].
-pub type EgRaft = openraft::Raft<TypeConfig>;
+///
+/// openraft 0.10's `Raft<C, SM = ()>` carries the state-machine type as a second
+/// generic; `Raft::new` returns it carrying the concrete SM. Our state machine is
+/// `Arc<EgStore>`, so the alias names it (CONCEPT:KG-2.273).
+pub type EgRaft = openraft::Raft<TypeConfig, Arc<store::EgStore>>;
 
 /// Cloneable handle the dispatch path uses to route writes through consensus.
 ///
