@@ -48,6 +48,13 @@ pub mod shard_migrate;
 #[cfg(feature = "redb")]
 pub mod tenant_catalog;
 
+// M3 R3 — rebalancing planner (CONCEPT:EG-032). A PURE, deterministic policy layer
+// over observable per-shard/per-graph load + the EG-031 catalog that EMITS a plan of
+// `{graph, from_shard, to_shard}` moves to even out load. It does NOT execute the
+// plan — that is R1 online resharding (sibling-owned). Parallel-safe, no M2 dep.
+#[cfg(feature = "redb")]
+pub mod rebalance;
+
 /// A durable persistence tier for the graph registry.
 ///
 /// `load_all`/`checkpoint_all` are async to match the existing `persist.rs`
