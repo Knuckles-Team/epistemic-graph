@@ -580,6 +580,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         };
 
     let state = Arc::new(RwLock::new(ServerState {
+        #[cfg(feature = "redb")]
+        cold_tracker: std::sync::Arc::new(
+            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
+        ),
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
@@ -948,7 +952,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // constrained. Setting the env to `0` is the explicit opt-out for "truly
     // unbounded"; any explicit value still wins.
     let max_nodes_per_graph = match std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH") {
-        Ok(v) => v.trim().parse::<usize>().unwrap_or_else(|_| host_capacity.node_cap()),
+        Ok(v) => v
+            .trim()
+            .parse::<usize>()
+            .unwrap_or_else(|_| host_capacity.node_cap()),
         Err(_) => host_capacity.node_cap(),
     };
     if max_nodes_per_graph > 0 {
@@ -1015,6 +1022,49 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                             evicted,
                             hibernated
                         );
+                    }
+                }
+            });
+        }
+    }
+
+    // ── Cold-tenant idle offload sweep (CONCEPT:EG-040, R6) ─────────────
+    // Periodically hibernate every graph idle longer than a window (its access recency is
+    // tracked by `cold_tracker.touch` on the dispatch read/write path), bounding RAM across
+    // many tenants. Reuses the engine's existing interval-task cadence (like the budget
+    // enforcer above) — NO new daemon. Durability-gated + read-through-safe (KG-2.191), so
+    // an offloaded graph is never lost, only evicted; `__commons__` is never offloaded.
+    // OFF by default: arm with `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS=N` (the idle window in
+    // seconds); the sweep then runs every `window` seconds.
+    #[cfg(feature = "redb")]
+    {
+        let window_secs = std::env::var("EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if window_secs > 0 {
+            let cold_state = state.clone();
+            let tracker = { cold_state.read().await.cold_tracker.clone() };
+            let window = std::time::Duration::from_secs(window_secs);
+            info!(
+                "Cold-tenant offload: hibernate graphs idle > {}s, swept every {}s \
+                 (CONCEPT:EG-040)",
+                window_secs, window_secs
+            );
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(window);
+                ticker.tick().await; // consume the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    let n =
+                        epistemic_graph::server::persistence::cold_offload::offload_cold_tenants(
+                            &cold_state,
+                            &tracker,
+                            window,
+                        )
+                        .await;
+                    if n > 0 {
+                        tracing::info!("Cold-tenant offload: hibernated {} idle graph(s)", n);
                     }
                 }
             });

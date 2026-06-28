@@ -12,6 +12,11 @@ pub(crate) mod datascience;
 #[cfg(feature = "finance")]
 pub(crate) mod finance;
 pub(crate) mod graph_ops;
+// M3 catalog-driven resharding admin (CONCEPT:EG-038): the wire surface that DRIVES online
+// resharding (EG-032), the tenant catalog (EG-031) and the rebalance planner (EG-035) +
+// its execution (EG-039). Always declared; the real logic is `redb`-gated (the only build
+// where the catalog/reshard/planner exist), and a non-redb build returns "not available".
+pub(crate) mod admin;
 // Read-only query surface: SQL (CONCEPT:KG-2.178, DataFusion behind `query`),
 // Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`), AND GraphQL (CONCEPT:KG-2.235,
 // dep-free behind `graphql`). Present when ANY of those features is on — a cypher- or

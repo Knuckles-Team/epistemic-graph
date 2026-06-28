@@ -86,6 +86,10 @@ mod tests {
 
     fn test_state() -> Arc<RwLock<ServerState>> {
         Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
@@ -1202,6 +1206,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-cc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
@@ -1291,6 +1299,10 @@ mod tests {
             crate::server::persistence::snapshot_wal::SnapshotWalBackend::new(Some(svc.clone())),
         );
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
@@ -1386,6 +1398,10 @@ mod tests {
         .unwrap();
 
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
@@ -1581,6 +1597,10 @@ mod tests {
         }
 
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
