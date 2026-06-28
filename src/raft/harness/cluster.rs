@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use openraft::async_runtime::watch::WatchReceiver;
 use openraft::BasicNode;
 use tokio::sync::RwLock;
 
@@ -252,7 +253,7 @@ impl Cluster {
         for m in self.members.values() {
             if let Some(s) = &m.started {
                 let metrics = s.handle.raft.metrics();
-                let m = metrics.borrow();
+                let m = metrics.borrow_watched();
                 out.push((
                     m.id,
                     m.current_term,

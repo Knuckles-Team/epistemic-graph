@@ -301,8 +301,14 @@ where
 
 use super::store::EgStore;
 use super::AppCtx;
+// openraft 0.10 v2 split-storage traits (CONCEPT:KG-2.273): the combined `RaftStorage`
+// is gone — log ops live on `RaftLogStorage` + its super-trait `RaftLogReader`, and
+// `append` signals durability through an `IOFlushed` callback.
+use openraft::entry::RaftEntry;
+use openraft::storage::IOFlushed;
 use openraft::storage::RaftLogReader;
-use openraft::storage::RaftStorage;
+use openraft::storage::RaftLogStorage;
+use openraft::type_config::alias::EntryOf;
 
 /// A fresh temp dir for one test, removed first.
 fn fresh_dir(tag: &str) -> String {
@@ -313,11 +319,23 @@ fn fresh_dir(tag: &str) -> String {
 }
 
 /// Encode a Normal log `Entry` for group `gid` at `index`/`term` carrying an AddNode.
-fn make_log_entry(index: u64, term: u64, node_id: &str) -> openraft::Entry<super::TypeConfig> {
-    use openraft::{CommittedLeaderId, Entry, EntryPayload, LogId};
-    Entry {
-        log_id: LogId::new(CommittedLeaderId::new(term, 1), index),
-        payload: EntryPayload::Normal(RaftRequest {
+///
+/// openraft 0.10: `Entry` is no longer `Entry<C>` — we build it via the generic
+/// `RaftEntry::new_normal` over the concrete `EntryOf<TypeConfig>`, with the advanced
+/// committed-leader id (`LeaderId { term, node_id }`) the default type config uses.
+fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeConfig> {
+    use openraft::impls::leader_id_adv::LeaderId;
+    use openraft::LogId;
+    let log_id = LogId::new(
+        LeaderId {
+            term,
+            node_id: 1u64,
+        },
+        index,
+    );
+    EntryOf::<super::TypeConfig>::new_normal(
+        log_id,
+        RaftRequest {
             graph_fname: crate::persist::sanitize("__commons__"),
             graph_name: "__commons__".to_string(),
             graph_type: GraphType::Commons,
@@ -326,8 +344,8 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> openraft::Entry<super
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"id": node_id}))
                     .unwrap(),
             },
-        }),
-    }
+        },
+    )
 }
 
 /// KG-2.204: append log entries → DROP the store → RE-OPEN over the SAME redb →
@@ -349,7 +367,10 @@ async fn durable_log_replays_from_redb_after_restart() {
         let entries: Vec<_> = (1..=12)
             .map(|i| make_log_entry(i, 1, &format!("n{i}")))
             .collect();
-        store.append_to_log(entries).await.expect("append_to_log");
+        store
+            .append(entries, IOFlushed::noop())
+            .await
+            .expect("append");
         // Drop the store (simulate process exit). The redb backend stays open here,
         // but the EgStore's in-RAM log state (if any) is gone — the next open must
         // recover the tail PURELY from redb.
@@ -399,7 +420,10 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
         // (commit-before-ack), so all 8 are provably on disk when this returns Ok.
         for i in 1..=8u64 {
             store
-                .append_to_log(vec![make_log_entry(i, 1, &format!("k{i}"))])
+                .append(
+                    vec![make_log_entry(i, 1, &format!("k{i}"))],
+                    IOFlushed::noop(),
+                )
                 .await
                 .expect("durable append");
         }
@@ -456,17 +480,19 @@ async fn multi_group_logs_isolate_on_shared_redb() {
 
     // Group 7 gets indices 1..=5; group 9 gets indices 1..=3 — same index range,
     // DIFFERENT groups, ONE redb DB.
-    g7.append_to_log(
+    g7.append(
         (1..=5)
             .map(|i| make_log_entry(i, 1, &format!("g7-{i}")))
             .collect::<Vec<_>>(),
+        IOFlushed::noop(),
     )
     .await
     .unwrap();
-    g9.append_to_log(
+    g9.append(
         (1..=3)
             .map(|i| make_log_entry(i, 1, &format!("g9-{i}")))
             .collect::<Vec<_>>(),
+        IOFlushed::noop(),
     )
     .await
     .unwrap();
@@ -493,8 +519,10 @@ async fn multi_group_logs_isolate_on_shared_redb() {
     assert_eq!(e7.len(), 5, "group 7 has exactly its 5 entries");
     assert_eq!(e9.len(), 3, "group 9 has exactly its 3 entries");
 
-    // Truncating group 7 does NOT affect group 9 (isolation under mutation).
-    g7.delete_conflict_logs_since(make_log_entry(3, 1, "x").log_id)
+    // Truncating group 7 does NOT affect group 9 (isolation under mutation). openraft
+    // 0.10's `truncate_after(Some(id))` deletes entries STRICTLY AFTER `id`; passing the
+    // index-2 log id removes indices 3,4,5 and leaves 1,2.
+    g7.truncate_after(Some(make_log_entry(2, 1, "x").log_id()))
         .await
         .unwrap();
     assert_eq!(g7.try_get_log_entries(1..=10).await.unwrap().len(), 2);
@@ -1041,10 +1069,11 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let target = desired_leader(gid, &[1, 2, 3]).unwrap();
     assert_eq!(target, 2, "round-robin target for group 7 is node 2");
 
-    // EVERY node runs a balancing pass (as a real cluster does). The FIRST pass:
-    // node 1 (the incumbent leader) YIELDS group 7 (its target is node 2); node 2 (the
-    // target) CLAIMS it. We assert that decision, then keep driving periodic passes (like
-    // a real periodic balancer) until leadership actually converges to node 2.
+    // EVERY node runs a balancing pass (as a real cluster does). openraft 0.10
+    // (CONCEPT:KG-2.273): node 1 (the incumbent leader) issues the NATIVE
+    // `trigger().transfer_leader(2)` — a graceful, near-instant handoff — because the
+    // round-robin target for group 7 is node 2. No cooperative heartbeat-yield is
+    // involved any more, and node 2 (a follower) does NOT campaign on its own.
     let node1 = multis[0].1.clone();
     let node2 = multis[1].1.clone();
     let node3 = multis[2].1.clone();
@@ -1053,16 +1082,17 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let _r3 = node3.rebalance_leaders().await;
     assert_eq!(r2.targets.get(&gid), Some(&2));
     assert!(
-        r1.yielded.contains(&gid),
-        "node 1 (incumbent leader, target elsewhere) must step aside for group 7"
+        r1.transferred.contains(&gid),
+        "node 1 (incumbent leader, target elsewhere) must transfer group 7 to node 2"
     );
     assert!(
-        r2.elected.contains(&gid),
-        "node 2 must campaign for group 7 (it is the target but not the leader)"
+        r2.transferred.is_empty(),
+        "node 2 (a follower) does not transfer anything — only the leader hands off"
     );
 
-    // Leadership converges to node 2. openraft stickiness can hand a transient term to
-    // node 3; the periodic balancer corrects it (node 3 yields, node 2 re-claims).
+    // Leadership converges to node 2 via the native transfer. Keep driving periodic
+    // passes (a real periodic balancer); node 1's per-group transfer cooldown means it
+    // re-issues at most once per window, which is plenty for the handoff to settle.
     let start = std::time::Instant::now();
     let mut converged = false;
     while start.elapsed() < Duration::from_secs(30) {
@@ -1077,14 +1107,16 @@ async fn multi_node_group_join_then_leader_rebalance() {
     }
     assert!(
         converged,
-        "leadership must converge to the round-robin target (node 2)"
+        "leadership must converge to the round-robin target (node 2) via transfer_leader"
     );
 
-    // Already balanced → an extra pass on node 2 neither campaigns nor yields (idempotent).
+    // Already balanced → an extra pass anywhere transfers nothing (idempotent): node 2
+    // now leads (target==self, no-op) and node 1 no longer leads group 7.
     let report2 = node2.rebalance_leaders().await;
+    let report1 = node1.rebalance_leaders().await;
     assert!(
-        report2.elected.is_empty() && report2.yielded.is_empty(),
-        "an already-balanced node must not re-campaign or yield (idempotent)"
+        report2.transferred.is_empty() && report1.transferred.is_empty(),
+        "an already-balanced cluster must not issue further transfers (idempotent)"
     );
 
     // ── Cleanup.

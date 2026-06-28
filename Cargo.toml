@@ -192,7 +192,7 @@ cost = ["server", "eg-types/cost"]
 # committed log entry applies through the same PersistenceBackend/GraphCore path.
 # Activates only when built `--features raft` AND configured at runtime
 # (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
-raft = ["server", "redb", "dep:openraft"]
+raft = ["server", "redb", "dep:openraft", "dep:futures"]
 # Distributed graph compute (CONCEPT:KG-2.227): a Pregel/GAS vertex-centric engine
 # that runs PageRank / connected-components / BFS ACROSS graphs spanning multiple
 # Raft groups/shards (gather-apply-scatter supersteps, cross-shard messages via the
@@ -402,12 +402,15 @@ chacha20poly1305 = { version = "0.10", optional = true }
 # so a default/pi/full build links no object_store/aws crate — verified by the
 # `cargo tree -e normal | grep -iE 'aws|s3|object_store'` Pi-contract gate.
 object_store = { version = "0.11", optional = true, features = ["aws"] }
-# In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188). Pinned to the latest
-# 0.9.x stable; `serde` is required because the app data (a durable `Method` for a
-# graph) + the log entries cross the wire MessagePack-encoded. CLUSTER-TIER ONLY:
-# optional + only referenced under #[cfg(feature = "raft")], so a default/pi/full
-# build links no openraft (verified by `cargo tree`).
-openraft = { version = "0.9", features = ["serde"], optional = true }
+# In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188 / KG-2.272). Bumped to
+# openraft 0.10 (the v2 split-storage API + NATIVE `trigger().transfer_leader()` for
+# graceful leader handoff — the M2 remainder). `serde` is required because the app
+# data (a durable `Method` for a graph) + the log entries cross the wire
+# MessagePack-encoded. CLUSTER-TIER ONLY: optional + only referenced under
+# #[cfg(feature = "raft")], so a default/pi/full build links no openraft (verified by
+# `cargo tree`). NOTE: 0.10 ships only as a pre-release (0.10.0-alpha.26) upstream; it
+# is the line that carries `transfer_leader`, so we pin the alpha exactly.
+openraft = { version = "=0.10.0-alpha.26", features = ["serde"], optional = true }
 # Postgres wire-protocol shim (feature `pgwire`, CONCEPT:KG-2.189). `server-api`
 # is the server-side handler set; `_ring` selects the ring crypto backend for the
 # SCRAM/TLS machinery (we pass tls=None, but the feature must pick a backend to
