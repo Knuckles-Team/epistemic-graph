@@ -2884,7 +2884,7 @@ class EpistemicGraphClient:
         self._agent_id = agent_id
         self._request_id = 0
         self._closed = False
-        # ── CONCEPT:EG-038 — single-connection request PIPELINING (demux) ──
+        # ── CONCEPT:EG-043 — single-connection request PIPELINING (demux) ──
         # The engine (src/server/transport.rs) processes many requests on ONE
         # connection concurrently and writes responses back OUT OF ORDER, each
         # tagged with its `Response.id`. So instead of a lock held across the
@@ -3022,7 +3022,7 @@ class EpistemicGraphClient:
         swapping them in is transparent. Must be called with ``self._lock`` held.
         """
         # Tear down the old demux reader and fail any calls still bound to the
-        # dead connection (CONCEPT:EG-038) before swapping in the fresh stream.
+        # dead connection (CONCEPT:EG-043) before swapping in the fresh stream.
         self._mark_dead(ConnectionError("connection reset; reconnecting"))
         with contextlib.suppress(Exception):  # discard the poisoned stream
             self._writer.close()
@@ -3048,7 +3048,7 @@ class EpistemicGraphClient:
             hashlib.sha256,
         ).hexdigest()
 
-    # ── CONCEPT:EG-038 — pipelined connection: reader/demux internals ──────────
+    # ── CONCEPT:EG-043 — pipelined connection: reader/demux internals ──────────
 
     @staticmethod
     def _retrieve_exc(fut: asyncio.Future) -> None:
@@ -3088,7 +3088,7 @@ class EpistemicGraphClient:
         """Background demultiplexer: read frames, resolve futures by ``id``.
 
         One task per live connection. Responses arrive in ANY order (the engine
-        pipelines, CONCEPT:EG-038); each is routed to its caller by the
+        pipelines, CONCEPT:EG-043); each is routed to its caller by the
         ``Response.id`` correlation id the protocol already carries. On EOF /
         transport error every in-flight call is failed so no caller hangs and the
         next call reconnects.
@@ -3238,7 +3238,7 @@ class EpistemicGraphClient:
     async def close(self) -> None:
         if not self._closed:
             # Stop the demux reader and fail any straggler in-flight calls
-            # (CONCEPT:EG-038) before tearing the transport down.
+            # (CONCEPT:EG-043) before tearing the transport down.
             self._mark_dead(ConnectionError("client closed"))
             with contextlib.suppress(Exception):
                 await self._writer.wait_closed()

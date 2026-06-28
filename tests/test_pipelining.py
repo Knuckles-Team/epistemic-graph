@@ -1,4 +1,4 @@
-"""CONCEPT:EG-038 — TRUE single-connection request PIPELINING.
+"""CONCEPT:EG-043 — TRUE single-connection request PIPELINING.
 
 The follow-up E flagged for the connection POOL (CONCEPT:EG-037): remove the
 per-connection *serialization* so ONE TCP/UDS connection carries many in-flight
@@ -243,7 +243,7 @@ async def test_real_engine_single_connection_pipelines(start_epistemic_graph_ser
         # On ONE connection, fire a HEAVY op, then a CHEAP op (Ping) a hair later.
         # Under true pipelining the engine dispatches both concurrently, so the cheap
         # op completes FIRST while the heavy one is still computing. A connection that
-        # serialized (the pre-EG-038 behavior) would force the Ping to wait behind the
+        # serialized (the pre-EG-043 behavior) would force the Ping to wait behind the
         # heavy op in the connection's queue — completion would be ["heavy", "cheap"].
         # This proof does not depend on having spare cores for a wall-clock speedup.
         completion: list[str] = []

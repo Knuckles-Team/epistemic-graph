@@ -162,7 +162,7 @@ fn encode_response(resp: &Response) -> Vec<u8> {
 /// Serialize a [`Response`] to a complete, length-prefixed wire frame
 /// (`4-byte big-endian len ++ MessagePack body`). The id-tagged response is what
 /// the client demuxes by, so a frame can be written in ANY order relative to the
-/// requests that produced it (CONCEPT:EG-038).
+/// requests that produced it (CONCEPT:EG-043).
 fn encode_frame(resp: &Response) -> Vec<u8> {
     let body = encode_response(resp);
     let mut frame = Vec::with_capacity(4 + body.len());
@@ -171,7 +171,7 @@ fn encode_frame(resp: &Response) -> Vec<u8> {
     frame
 }
 
-/// Per-connection in-flight cap (CONCEPT:EG-038). Bounds how many requests ONE
+/// Per-connection in-flight cap (CONCEPT:EG-043). Bounds how many requests ONE
 /// connection may have dispatching CONCURRENTLY, so a single client cannot spawn
 /// unbounded server tasks/memory — the global `ServerState::max_in_flight`
 /// semaphore remains the box-wide admission cap (which sheds `BUSY`). Auto-sized
@@ -185,7 +185,7 @@ fn per_connection_inflight_limit() -> usize {
 }
 
 /// Handle one client connection with single-connection request PIPELINING
-/// (CONCEPT:EG-038): length-prefixed MessagePack frames, per-request backpressure
+/// (CONCEPT:EG-043): length-prefixed MessagePack frames, per-request backpressure
 /// admission (per-connection + global + per-graph), and CONCURRENT dispatch whose
 /// id-tagged responses are written back OUT OF ORDER.
 ///
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn encode_frame_is_len_prefixed_and_decodes() {
-        // CONCEPT:EG-038 — a framed response is `4-byte BE len ++ MessagePack body`,
+        // CONCEPT:EG-043 — a framed response is `4-byte BE len ++ MessagePack body`,
         // and the body round-trips back to the same id/result so the client can
         // demux it out of order.
         let resp = Response::ok(42, crate::protocol::ResultPayload::String("pong".into()));
@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn per_connection_limit_is_bounded_and_positive() {
-        // CONCEPT:EG-038 — the per-connection in-flight cap auto-sizes from cores
+        // CONCEPT:EG-043 — the per-connection in-flight cap auto-sizes from cores
         // but is always clamped so one connection can neither stall (floor) nor
         // spawn unbounded work (ceiling).
         let n = per_connection_inflight_limit();
