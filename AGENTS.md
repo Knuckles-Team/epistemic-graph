@@ -208,9 +208,17 @@ CONCEPT:KG-2.207).
 (`PeerPool` reuses warm `TcpStream`s across RPCs + groups, KG-2.265),
 group-per-tenant-range routing (`GroupRouter` hash ring + `configure_group_ring`,
 KG-2.266), and per-group snapshot scoping (`dump_graphs` filtered by the router on
-`AppCtx`, KG-2.267) are **done + lib-tested**. Remaining M2 follow-ups —
-**leader balancing across groups** and **heartbeat coalescing** — need a real
-multi-node cluster to exercise; see `docs/architecture/m2-raft-status.md`.
+`AppCtx`, KG-2.267) are **done + lib-tested**. The final follow-ups are also done +
+lib-tested: **multi-node membership join** (`join_group`/`add_group_member`/
+`remove_group_member` via openraft add-learner→change-membership, KG-2.268),
+**leader balancing across groups** (`MultiRaft::rebalance_leaders` — deterministic
+round-robin `desired_leader` + cooperative claim/yield, KG-2.270; openraft 0.9 has no
+graceful `transfer_leader`, so an over-loaded leader yields by disabling its heartbeat),
+and **heartbeat coalescing** (`RaftFrame::Batch` + `HeartbeatCoalescer` fold same-peer
+heartbeats into one pooled round-trip, KG-2.271). What still needs **real multi-node
+hardware**: a native instant leader handoff (openraft 0.10 `trigger_transfer_leader`) and
+wiring the coalescer under openraft's live heartbeat cadence. See
+`docs/architecture/m2-raft-status.md`.
 
 ---
 
