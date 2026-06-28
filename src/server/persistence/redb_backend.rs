@@ -443,7 +443,7 @@ pub(crate) fn shard_index(graph_fname: &str, k: usize) -> usize {
 }
 
 /// Run one blocking closure PER shard CONCURRENTLY on the blocking pool and collect
-/// their results in shard order (CONCEPT:EG-037, roadmap F — parallel cross-shard read
+/// their results in shard order (CONCEPT:EG-042, roadmap F — parallel cross-shard read
 /// fan-out). EVERY task is spawned BEFORE any is awaited, which is the property that
 /// makes a K-shard fan-out overlap instead of serialize (a spawn-then-await-each loop is
 /// serial). The closures run off each shard's `begin_read()` MVCC snapshot (CONCEPT:EG-027),
@@ -1067,7 +1067,7 @@ impl RedbBackend {
     /// an exclusive per-process file lock; this rebuilds each `GraphCore` from the
     /// returned dumps via the SAME `add_node`/`add_edge` calls the WAL replay uses.
     async fn load_into(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
-        // PARALLEL cross-shard read fan-out (CONCEPT:EG-037, roadmap F). Each shard's
+        // PARALLEL cross-shard read fan-out (CONCEPT:EG-042, roadmap F). Each shard's
         // writer owns only the graphs routed to it, so the registry is rebuilt from the
         // union of all K shards' dumps. Instead of routing each shard's dump SERIALLY
         // through its writer thread's `Cmd::Load` channel, each shard now dumps OFF its
@@ -4504,7 +4504,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-037 (roadmap F) — the per-shard read fan-out runs CONCURRENTLY, not
+    /// CONCEPT:EG-042 (roadmap F) — the per-shard read fan-out runs CONCURRENTLY, not
     /// serially. A `Barrier(K)` only releases once all K closures are running at the SAME
     /// time; a serial spawn-then-await-each impl would block forever, which the timeout
     /// converts into a test failure. Results come back in shard order.
@@ -4529,7 +4529,7 @@ mod tests {
         assert_eq!(out, vec![0, 1, 2, 3], "results returned in shard order");
     }
 
-    /// CONCEPT:EG-037 (roadmap F) — `load_all` fans each shard's dump CONCURRENTLY off a
+    /// CONCEPT:EG-042 (roadmap F) — `load_all` fans each shard's dump CONCURRENTLY off a
     /// `begin_read()` snapshot (off the writer) and unions them. Seed graphs spread across
     /// K=4 shards, checkpoint, drop, reopen, load → every graph is recovered from its shard.
     #[tokio::test(flavor = "multi_thread")]
