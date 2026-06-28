@@ -8,8 +8,8 @@
 > piece as an independent, pick-up-able task.
 >
 > **Concept IDs:** `CONCEPT:EG-030` (offline K-shard migration tool), `CONCEPT:EG-031`
-> (tenant catalog routing-override seam), `CONCEPT:EG-032` (R3 rebalancing planner),
-> `CONCEPT:EG-033` (R4 in-process BLOB streaming facade). Registered in
+> (tenant catalog routing-override seam), `CONCEPT:EG-035` (R3 rebalancing planner),
+> `CONCEPT:EG-036` (R4 in-process BLOB streaming facade). Registered in
 > [`docs/concepts.md`](../concepts.md).
 
 Builds on EG-026 (sharded K-way durable writer) — see
@@ -142,7 +142,7 @@ Make `ShardAssignment.node` real: move a tenant to a shard owned by a *different
 - **Ordering:** strictly after R1 (reuses its copy/quiesce/flip) AND after M2. Do NOT start the
   cross-node arm until `src/raft/` stabilizes (sibling-owned — coordinate).
 
-### R3 — Rebalancing planner **[DONE — `CONCEPT:EG-032`]**
+### R3 — Rebalancing planner **[DONE — `CONCEPT:EG-035`]**
 Decide *which* tenants to move and *where*, from live shard load — the policy layer over R1/R2.
 - **Module:** `src/server/persistence/rebalance.rs` (NEW, landed). A PURE, deterministic
   `plan_rebalance(&[ShardLoad], RebalanceOptions) -> RebalancePlan` emitting an ordered
@@ -166,7 +166,7 @@ Decide *which* tenants to move and *where*, from live shard load — the policy 
   `indivisible_hot_graph_does_not_thrash`, `grouping_routes_and_fills_empty_shards`,
   `catalog_routing_feeds_the_planner`.
 
-### R4 — BLOB streaming substrate (`CONCEPT:KG-2.206` + `CONCEPT:EG-033`) **[DONE]**
+### R4 — BLOB streaming substrate (`CONCEPT:KG-2.206` + `CONCEPT:EG-036`) **[DONE]**
 Content-addressed, chunked, streamed large-object store off the inline KV path (a 650 MB inline
 property blob is wrong). Listed as its own P0 in the gaps report (Wave 5).
 - **Substrate (`CONCEPT:KG-2.206`, landed on `main` — commit `6734607`):** the `blob` feature
@@ -177,7 +177,7 @@ property blob is wrong). Listed as its own P0 in the gaps report (Wave 5).
   `Blob*` dispatch routing in `src/server/dispatch.rs`. Bounded-memory proven by
   `store::tests::bounded_memory_large_blob_group_commit` and the dispatch-level streamed-blob
   test. `blob-s3` fronts the SAME `ChunkStore` trait with an object-store backend.
-- **In-process streaming facade (`CONCEPT:EG-033`, NEW this branch):**
+- **In-process streaming facade (`CONCEPT:EG-036`, NEW this branch):**
   `src/server/blob/stream.rs` — `stream_blob_put<R: Read>` / `stream_blob_get<W: Write>` stream
   a multi-GB blob between an arbitrary byte source/sink (a local media file, a decompressor, an
   embedding writer) and the CAS WITHOUT buffering the whole blob (one chunk resident). The
@@ -213,13 +213,13 @@ tenants offload to an object tier and rehydrate on access.
 
 ## Suggested order for a fresh agent
 
-1. ~~**R3** (planner) and **R4** (BLOB)~~ — **DONE** (`EG-032` planner; `KG-2.206` substrate +
-   `EG-033` streaming facade). Both independent, no M2 dep.
+1. ~~**R3** (planner) and **R4** (BLOB)~~ — **DONE** (`EG-035` planner; `KG-2.206` substrate +
+   `EG-036` streaming facade). Both independent, no M2 dep.
 2. **R1** (online single-node execution) — highest leverage, unblocks real resharding, no M2 dep.
    Consumes the R3 plan (`plan_rebalance`) and flips `catalog.reassign`.
 3. **R5** (auto-attach gate) once R1 is proven.
 4. **R2** (cross-node) only after M2 lands in `src/raft/`.
-5. **R6** after R4 (reuses the `EG-033` streaming facade for object-store offload).
+5. **R6** after R4 (reuses the `EG-036` streaming facade for object-store offload).
 
 **Integration follow-ups (not started):** (a) source live `(graph, load)` stats into
 `rebalance::shard_loads_from_catalog` from the EG-026 writer + KG-2.51 gauges in a backend/admin
