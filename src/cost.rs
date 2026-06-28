@@ -673,6 +673,7 @@ mod tests {
                 persistence: Some(backend.clone()),
                 redb_authoritative: true,
                 max_in_flight: Arc::new(Semaphore::new(64)),
+                read_admission: Arc::new(Semaphore::new(64)),
                 per_graph_inflight: Arc::new(dashmap::DashMap::new()),
                 per_graph_inflight_limit: 32,
                 write_coalescer: Arc::new(

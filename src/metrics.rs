@@ -128,6 +128,12 @@ mod imp {
             "epistemic_graph_busy_rejections_total",
             "Requests shed with BUSY because the admission semaphore was exhausted",
         );
+        static ref READ_RESERVED_ADMITTED: IntCounter = counter(
+            "epistemic_graph_read_reserved_admitted_total",
+            "Read/query requests admitted via the RESERVED read lane (CONCEPT:EG-044) \
+             after the global pool / per-graph cap was saturated by writes — each is an \
+             interactive read that would otherwise have been shed BUSY behind ingestion",
+        );
         static ref WAL_APPEND_DROPPED: IntCounter = counter(
             "epistemic_graph_wal_append_dropped_total",
             "Durable mutations whose WAL append was dropped because the off-reactor \
@@ -269,6 +275,10 @@ mod imp {
         BUSY_REJECTIONS.inc();
     }
 
+    pub fn read_reserved_admitted() {
+        READ_RESERVED_ADMITTED.inc();
+    }
+
     pub fn graph_op(graph: &str) {
         GRAPH_OPS.with_label_values(&[&graph_label(graph)]).inc();
     }
@@ -383,6 +393,7 @@ mod imp {
     pub fn connection_request_started(_permits_available: usize) {}
     pub fn connection_request_finished(_permits_available: usize) {}
     pub fn busy_rejected() {}
+    pub fn read_reserved_admitted() {}
     pub fn graph_op(_graph: &str) {}
     pub fn set_graph_size(_graph: &str, _nodes: i64, _edges: i64) {}
     pub fn set_graph_memory(_graph: &str, _bytes: i64) {}
