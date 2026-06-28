@@ -48,6 +48,18 @@ pub mod shard_migrate;
 #[cfg(feature = "redb")]
 pub mod tenant_catalog;
 
+// M3 keystone (CONCEPT:EG-032 / EG-034). Both redb-only:
+//   * `online_reshard` — move ONE graph between shards while the engine RUNS (verbatim
+//     row copy + catalog route flip + source GC), building on EG-030's copy + EG-031's
+//     catalog. The keystone the offline EG-030 tool skips.
+//   * `cold_offload` — time-windowed whole-graph offload of idle tenants (hibernate +
+//     read-through serve) to bound RAM across many tenants.
+#[cfg(feature = "redb")]
+pub mod online_reshard;
+
+#[cfg(feature = "redb")]
+pub mod cold_offload;
+
 /// A durable persistence tier for the graph registry.
 ///
 /// `load_all`/`checkpoint_all` are async to match the existing `persist.rs`

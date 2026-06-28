@@ -8,7 +8,20 @@
 > piece as an independent, pick-up-able task.
 >
 > **Concept IDs:** `CONCEPT:EG-030` (offline K-shard migration tool), `CONCEPT:EG-031`
-> (tenant catalog routing-override seam). Registered in [`docs/concepts.md`](../concepts.md).
+> (tenant catalog routing-override seam), `CONCEPT:EG-032` (online single-node resharding,
+> R1), `CONCEPT:EG-033` (catalog auto-attach gate, R5), `CONCEPT:EG-034` (cold-tenant
+> whole-graph offload, R6). Registered in [`docs/concepts.md`](../concepts.md).
+
+> **Update — M3 keystone landed (R1/R5/R6) on `feat/m3-r1-r5-r6`.** The three keystone
+> items are now DONE (build + lib-tests green under `--features "full,cluster"`):
+> `online_reshard.rs` + `RedbBackend::reshard_graph` (R1), the catalog auto-attach gate in
+> `RedbBackend::open` (R5), and `cold_offload.rs` (R6). Tests:
+> `online_reshard_moves_graph_live_no_loss`, `catalog_auto_attach_gate_and_empty_is_fnv1a`,
+> `cold_offload_evicts_then_serves_on_access` (all in `redb_backend::tests`). See the
+> per-task DONE notes below. **Still REMAINING:** R2 (cross-node, needs M2), R3 (planner),
+> R4 (BLOB streaming), a wire/admin RPC for catalog ops, dispatch-side `touch()` wiring for
+> R6, and the delta-copy optimization for R1 (today the moved graph is briefly paused for
+> its own copy — other graphs are never paused).
 
 Builds on EG-026 (sharded K-way durable writer) — see
 [`engine.md` § Sharded K-way durable writer](engine.md). The whole point of EG-026 is that
@@ -112,9 +125,26 @@ in parallel or must sequence behind M2 (the sibling's multi-Raft work in `src/ra
 `CONCEPT:KG-2.205/2.207`). The catalog (EG-031) and migration tool (EG-030) are the substrate
 all of these compose.
 
-### R1 — Online per-tenant resharding execution (single node) **[P0, no M2 dep]**
+### R1 — Online per-tenant resharding execution (single node) **[P0, no M2 dep] — ✅ DONE (CONCEPT:EG-032)**
 Move ONE graph's rows between shards on the same node with no downtime, then flip the catalog
 route. The hard part the offline tool skips.
+
+> **DONE.** `src/server/persistence/online_reshard.rs` (`export_graph_raw`/`import_graph_raw`
+> verbatim raw-blob copy — encryption + KG-2.231 audit chain preserved — + `execute_online_reshard`)
+> driven by `RedbBackend::reshard_graph` (`redb_backend.rs`). New `Cmd::ExportGraphRaw`/
+> `ImportGraphRaw` run on the two shard writer threads. **Quiesce:** a backend `routing_epoch`
+> `RwLock` — every catalog-attached `record_durable`/`commit_crossmodal` holds a SHARED READ guard
+> across resolve+enqueue; the move holds the EXCLUSIVE WRITE guard, so the flip can never lose or
+> misroute a write. **Ordering** is `import(dst) committed → catalog flip durable → purge(src)`
+> (crash-consistent). Test `online_reshard_moves_graph_live_no_loss` hammers concurrent writes to
+> `g` across the flip (20 nodes incl. 10 concurrent), asserts all nodes/edge survive on the new
+> shard, audit verifies, and an unrelated graph is untouched. **Scope note vs the algorithm below:**
+> the move copies the graph FULLY under the quiesce rather than snapshot+delta, so the *moved*
+> graph is briefly paused for its own copy — OTHER graphs are never paused (per-graph routing is
+> independent and the no-catalog path is byte-for-byte). The snapshot+delta optimization (to
+> minimize even the moved graph's pause) is the remaining refinement.
+
+Original design (for the delta-copy refinement):
 - **Module:** new `src/server/persistence/online_reshard.rs`. Composes the EG-030 verbatim
   row-copy (extract the per-graph copy loop in `shard_migrate.rs` into a reusable
   `copy_graph_rows(src_shard, dst_shard, graph_fname)` helper) with the EG-031 catalog.
@@ -162,8 +192,19 @@ property blob is wrong). Listed as its own P0 in the gaps report (Wave 5).
   fully in parallel by a separate agent. Only the *resharding integration* (extend EG-030)
   sequences after both this and R1 land.
 
-### R5 — Catalog auto-attach + admin surface **[P1, gate before R1 goes live]**
+### R5 — Catalog auto-attach + admin surface **[P1, gate before R1 goes live] — ✅ DONE (gate; CONCEPT:EG-033)**
 Wire the catalog into the live open path and expose assign/reassign over the protocol.
+
+> **DONE (the gate + programmatic API).** `RedbBackend::open` now calls
+> `maybe_attach_catalog_from_env`: it attaches `TenantCatalog::open(dir)` when
+> `EPISTEMIC_GRAPH_TENANT_CATALOG=1` OR a durable `catalog.redb` already exists (a populated
+> catalog from a prior run is honored); otherwise NO catalog — pure EG-026. Empty/absent = byte-
+> for-byte FNV-1a, verified by `catalog_auto_attach_gate_and_empty_is_fnv1a`. `RedbBackend::catalog()`
+> exposes the catalog for the admin/API to populate/persist (`assign`/`reassign`/`remove` are durable).
+> The explicit-K test constructor `open_with_shards` deliberately never auto-attaches.
+> **REMAINING:** the wire `Method::Reshard{...}` admin RPC over the protocol (dispatch/protocol —
+> out of the persistence-only scope here; today driven programmatically via `reshard_graph` +
+> `catalog()`).
 - **Module:** `RedbBackend::open` decides whether to `with_catalog(TenantCatalog::open(dir))`
   based on a flag (`EPISTEMIC_GRAPH_TENANT_CATALOG=1`, default off); a new `Method::Reshard{...}`
   / admin RPC drives `assign`/`reassign`/`remove`/`entries`.
@@ -173,9 +214,21 @@ Wire the catalog into the live open path and expose assign/reassign over the pro
 - **Parallel:** the admin RPC can be built in parallel with R1; the auto-attach flip is the
   sequencing gate.
 
-### R6 — Cold-tenant hibernation / object-store offload **[P1, depends on R4]**
+### R6 — Cold-tenant hibernation / object-store offload **[P1] — ✅ DONE (whole-graph offload; CONCEPT:EG-034)**
 The other half of the "scalable tenant catalog" P0: 100M graphs can't all be resident; cold
 tenants offload to an object tier and rehydrate on access.
+
+> **DONE (the RAM-bounding whole-graph offload, no object tier dep).** `src/server/persistence/cold_offload.rs`:
+> a `ColdTenantTracker` (`touch`/`cold_graphs(window)`/offload bookkeeping) + `offload_cold_tenants`
+> which hibernates every graph idle longer than a window via `GraphCore::hibernate` (KG-2.224),
+> retaining the durable redb rows so reads serve through the KG-2.191 node read-through (extends
+> the node-level read-through to whole-graph cold offload, exactly as R6 asks). Durability-gated,
+> `__commons__` never offloaded. Complements the KG-2.234 budget enforcer (idle-driven vs budget-
+> driven). Test `cold_offload_evicts_then_serves_on_access` proves evict-then-serve. This needed
+> **no R4 dep** — it bounds RAM by dropping in-RAM state, not by spilling to an object store.
+> **REMAINING:** the dispatch-side `tracker.touch()` wiring on the read/write path (a one-liner
+> outside `persistence/`), an interval scheduler to drive the sweep, and (the original R4-gated
+> arm) actual object-store offload via `cold-tier-s3`/`blob-s3` for tenants colder than redb.
 - **Module:** reuse `cold-tier` / `cold-tier-s3` features (`Cargo.toml`) + the `blob-s3` CAS
   seam (R4). The catalog grows a `cold: bool` / location field on `ShardAssignment`.
 - **Deps:** R4 (BLOB/object substrate). Independent of R1–R3 routing once the schema field
