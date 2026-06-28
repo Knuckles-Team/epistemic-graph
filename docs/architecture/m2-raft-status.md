@@ -163,13 +163,40 @@ warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-que
 
 ---
 
-## STILL REMAINING — needs real multi-node hardware (not in-process testable)
+## DONE — openraft 0.9 → 0.10 migration + native handoff (CONCEPT:KG-2.273)
 
-- **R1 native instant handoff.** The cooperative yield-then-claim converges, but a
-  *graceful, single-RPC* leadership transfer needs openraft **0.10+**
-  (`raft.trigger_transfer_leader(to)`); an openraft bump is the clean upgrade. The
-  current path is correct but takes up to ~2 election timeouts and can briefly hand a
-  transient term to a non-target node before converging.
+> Branch `feat/openraft-010-cluster`. Bumped openraft to **0.10** (pinned
+> `=0.10.0-alpha.26`, the line that carries `transfer_leader`) and migrated the whole
+> `src/raft/` API surface to the **v2 split-storage** model. The cooperative
+> yield-then-claim leader balancing (KG-2.270) is **replaced** by the native graceful
+> handoff. See `docs/architecture/cluster-deployment.md` for the multi-node deploy.
+
+- **Storage = v2 split traits.** openraft 0.10 removed the combined `RaftStorage` + the
+  `Adaptor`. `EgStore` now implements **`RaftLogStorage`** (+ super-trait
+  `RaftLogReader`) AND **`RaftStateMachine`** (+ `RaftSnapshotBuilder`) on
+  `Arc<EgStore>`; `create_group` passes the SAME `Arc` as both (no adaptor). Every
+  storage method returns `std::io::Error` (the 0.9 `StorageError`/`StorageIOError`
+  constructors are gone); types use the `…Of<C>` aliases. `append` now signals
+  durability via an `IOFlushed` callback (fired right after our group-commit fsync);
+  `apply` consumes a `Stream` of `(entry, responder)` and `send`s each response;
+  `delete_conflict_logs_since`/`purge_logs_upto` became `truncate_after`/`purge`; the
+  chunked `install_snapshot` became full-snapshot transfer.
+- **Network = `RaftNetworkV2`.** The deprecated v1 `RaftNetwork` was deleted; the client
+  implements `RaftNetworkV2` (blanket-deriving the `Net*` sub-traits the factory needs).
+  The snapshot RPC is now one tagged `full_snapshot` frame (vote + meta + body) → the
+  follower's `install_full_snapshot`. `RPCError<C>` is single-generic. A new
+  `transfer_leader` RPC forwards the handoff notification to the target.
+- **R1 native instant handoff (DONE).** `MultiRaft::rebalance_leaders` no longer yields
+  heartbeats — for each group THIS node leads whose round-robin target is elsewhere, it
+  issues the native **`raft.trigger().transfer_leader(target)`** (graceful, near-instant;
+  openraft hands a fresh term + the leader vote to the target and notifies it to campaign
+  at once). `RebalanceReport.{elected,yielded}` collapse to `transferred`. Rate-limited
+  per group by `TRANSFER_COOLDOWN` so it never spams transfers.
+- **Tests green.** `cargo test --features "full,cluster" --lib raft` — the full pre-existing
+  suite (incl. the 3-node failover + join-then-rebalance, now asserting the native
+  transfer) passes against the 0.10 API. Validate with `scripts/validate-raft-cluster.sh`.
+
+## STILL REMAINING — needs real multi-node hardware (not in-process testable)
 - **R2 under-openraft wiring.** The coalescer + batch wire are complete and tested, but
   hooking them under openraft's per-group heartbeat *cadence* (an enqueue + short flush
   timer that fans each batched reply back to its awaiting `append_entries` caller, so the

@@ -169,13 +169,23 @@ The DEFAULT remains single-node + a rebuildable cache. The `raft` cargo feature
 (cluster tier only — `cluster = ["node", "raft"]`; NOT in `full`/`all`, so a
 default / `pi` / `full` build links **no openraft** and the Pi contract holds: no
 DataFusion AND no openraft) runs the engine as a multi-node, highly-available
-cluster that replicates its **authoritative** state via [`openraft`] 0.9. It
+cluster that replicates its **authoritative** state via [`openraft`] **0.10** (the v2
+split-storage API + native graceful leader transfer — CONCEPT:KG-2.273). It
 **activates only** when built `--features raft` AND configured at runtime:
 
 - `EPISTEMIC_GRAPH_RAFT_NODE_ID` — this node's integer id (absent ⇒ single-node,
   unchanged).
 - `EPISTEMIC_GRAPH_RAFT_PEERS` — `id@host:port,…` cluster members (must include
   self). Requires `GRAPH_SERVICE_PERSIST_DIR` (Raft replicates the redb store).
+- `EPISTEMIC_GRAPH_RAFT_BIND_ADDR` (optional) — bind the Raft listener here (e.g.
+  `0.0.0.0:9100`) while still ADVERTISING the host IP from `PEERS`; needed for a
+  containerized member that cannot bind its host's external IP directly.
+
+Multi-node deploy (the 4-node fleet cluster + the live single-node→cluster data
+migration) is `services/epistemic-graph/flavors/cluster.env` +
+`docs/architecture/cluster-deployment.md`. **Under an active Raft node the writer is
+K=1** (one group = one serialized write path) — this is HA, not write-scaling;
+multi-Raft sharding (many write groups) is separate (KG-2.205/2.266) and off by default.
 
 When active, a durable mutation is routed through Raft consensus (the leader's
 `client_write`) BEFORE it is applied+acked — the replication barrier. A committed
@@ -212,13 +222,17 @@ KG-2.266), and per-group snapshot scoping (`dump_graphs` filtered by the router 
 lib-tested: **multi-node membership join** (`join_group`/`add_group_member`/
 `remove_group_member` via openraft add-learner→change-membership, KG-2.268),
 **leader balancing across groups** (`MultiRaft::rebalance_leaders` — deterministic
-round-robin `desired_leader` + cooperative claim/yield, KG-2.270; openraft 0.9 has no
-graceful `transfer_leader`, so an over-loaded leader yields by disabling its heartbeat),
-and **heartbeat coalescing** (`RaftFrame::Batch` + `HeartbeatCoalescer` fold same-peer
-heartbeats into one pooled round-trip, KG-2.271). What still needs **real multi-node
-hardware**: a native instant leader handoff (openraft 0.10 `trigger_transfer_leader`) and
-wiring the coalescer under openraft's live heartbeat cadence. See
-`docs/architecture/m2-raft-status.md`.
+round-robin `desired_leader` + the **native graceful `trigger().transfer_leader(target)`**
+handoff, KG-2.273; replaces the old 0.9 cooperative heartbeat-yield), and **heartbeat
+coalescing** (`RaftFrame::Batch` + `HeartbeatCoalescer` fold same-peer heartbeats into
+one pooled round-trip, KG-2.271). The openraft **0.9→0.10 migration** (KG-2.273) moved
+`src/raft/` to the v2 split storage (`RaftLogStorage` + `RaftStateMachine` on
+`Arc<EgStore>`, no `Adaptor`; `io::Error` returns; stream-based `apply`; full-snapshot
+transfer) and `RaftNetworkV2`. Validate the cluster mechanism (formation / replication /
+failover / **native transfer** / durable log) on throwaway loopback nodes with
+`scripts/validate-raft-cluster.sh`. What still needs **real multi-node hardware**: wiring
+the coalescer under openraft's live heartbeat cadence + a cross-host soak. See
+`docs/architecture/m2-raft-status.md` and `docs/architecture/cluster-deployment.md`.
 
 ---
 
