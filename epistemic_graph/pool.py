@@ -39,17 +39,65 @@ union, because a caller cannot distinguish "node genuinely absent" from "a shard
 was unreachable" in a deduped merge, and a silently partial union is a correctness
 hazard. (A missing graph is still skipped engine-side, exactly as in the
 single-shard union — that is an empty contribution, not an error.)
+
+CONCEPT:EG-037 — Multiplexed engine connections (parallelize the wire).
+
+One ``EpistemicGraphClient`` connection dispatches requests SERIALLY: ``_send``
+holds a per-connection ``asyncio.Lock`` for the whole write→round-trip→read, and
+— decisively — the *engine's* per-connection loop is itself serial (it awaits
+``dispatch`` fully before reading the next frame, see
+``src/server/transport.rs::handle_connection``). So M concurrent callers sharing
+ONE connection are serialized on the wire even though each request already carries
+a correlation id (``Request.id``/``Response.id``).
+
+The high-value win that needs NO server change is **connection multiplexing**: a
+real pool hands out N independent connections, and because the engine
+``tokio::spawn``s one task PER connection, N pooled connections run as N parallel
+server tasks. ``ConnectionPool.map_concurrent`` / ``ShardRouter.map_concurrent``
+fan a set of INDEPENDENT operations out across the pool — each op on its own
+connection — so wall-clock collapses from the serial sum to roughly one op. The
+pool auto-sizes to the box (``_auto_pool_size``); there is no knob to tune.
+
+Ordering is preserved where callers rely on it: a single logical write (a node
+before its edges) runs as ONE ``fn`` on ONE connection via ``connection()`` /
+``acquire``; only operations that are genuinely independent of each other are
+spread across connections.
+
+**Pipelining is a server follow-up, not done here.** True single-connection
+pipelining (many in-flight requests demuxed by id) would need
+``handle_connection`` to read-ahead and ``spawn`` a task per request, writing
+responses back out-of-order as they complete — a change to
+``src/server/transport.rs`` (the correlation-id field the demux needs already
+exists in the protocol). Until then, single-connection pipelining buys no
+concurrency (the engine reads the next frame only after replying), so we
+multiplex CONNECTIONS instead and flag the server change as the next step.
 """
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from .client import EpistemicGraphClient
 
 logger = logging.getLogger(__name__)
+
+
+def _auto_pool_size() -> int:
+    """Auto-size a per-endpoint connection pool to the box (CONCEPT:EG-037).
+
+    The pool must give every concurrent caller hitting one shard its own
+    in-flight connection — the K shard-writers, the staged pipeline's WRITE pool,
+    and the read fan-out — so none serializes behind another on the wire. We size
+    by CPU count (the server spawns a task per connection, so this is the parallel
+    width the engine can actually service) clamped to a sane floor/ceiling. No env
+    knob: the operator's law is auto-size, not tune.
+    """
+    cpu = os.cpu_count() or 4
+    return max(8, min(2 * cpu, 64))
 
 
 # CONCEPT:KG-2.181 — anchor key for the default ingest-lane affinity group.
@@ -131,7 +179,7 @@ class ConnectionPool:
         endpoint: str,
         auth_secret: str | None = None,
         min_size: int = 1,
-        max_size: int = 10,
+        max_size: int | None = None,
         agent_id: str | None = None,
     ) -> None:
         self.endpoint = endpoint
@@ -139,10 +187,13 @@ class ConnectionPool:
         # Optional caller identity forwarded on every request for server-side
         # ACL enforcement (see the server's isolation layer).
         self.agent_id = agent_id
-        self.min_size = min_size
-        self.max_size = max_size
+        # CONCEPT:EG-037 — auto-size to the box when the caller doesn't pin a cap,
+        # so M concurrent callers each get their own in-flight connection instead
+        # of contending on one. An explicit cap is still honored.
+        self.max_size = _auto_pool_size() if max_size is None else max_size
+        self.min_size = min(min_size, self.max_size)
         self._pool: asyncio.Queue[EpistemicGraphClient] = asyncio.Queue(
-            maxsize=max_size
+            maxsize=self.max_size
         )
         self._active_connections = 0
         self._lock = asyncio.Lock()
@@ -209,6 +260,51 @@ class ConnectionPool:
             asyncio.create_task(client.close())
             self._active_connections -= 1
 
+    @contextlib.asynccontextmanager
+    async def connection(self) -> AsyncIterator[EpistemicGraphClient]:
+        """Acquire a connection for the ``with`` block, always releasing it.
+
+        The leak-free way the hot path should hold a connection: ``async with
+        pool.connection() as client: ...`` checks one out and returns it to the
+        pool on exit (even on error), so a forgotten ``release`` can't strand a
+        connection and starve the cap. A single logical write that relies on
+        ordering (a node before its edges) stays inside ONE such block — i.e. ONE
+        connection — so its operations keep their on-the-wire order.
+        """
+        client = await self.acquire()
+        try:
+            yield client
+        finally:
+            self.release(client)
+
+    async def map_concurrent(
+        self,
+        ops: list[Callable[[EpistemicGraphClient], Awaitable[Any]]],
+    ) -> list[Any]:
+        """Run INDEPENDENT ``ops`` concurrently, each on its own connection
+        (CONCEPT:EG-037 — parallelize the wire).
+
+        Each ``fn`` is ``async (client) -> result``; every ``fn`` gets a distinct
+        pooled connection, so the engine services them as parallel per-connection
+        tasks instead of serializing them behind one. Results are returned in the
+        SAME order as ``ops`` (``asyncio.gather`` order). With more ops than the
+        pool cap, the surplus simply waits for a connection to free — correctness
+        holds, parallelism is bounded by the cap.
+
+        Use this ONLY for operations that are independent of each other. Anything
+        that must be ordered relative to a sibling op (write-then-read,
+        node-before-edge) belongs in a single ``fn`` on one connection, not split
+        across two entries here.
+        """
+
+        async def _run(
+            fn: Callable[[EpistemicGraphClient], Awaitable[Any]],
+        ) -> Any:
+            async with self.connection() as client:
+                return await fn(client)
+
+        return await asyncio.gather(*(_run(fn) for fn in ops))
+
     async def close_all(self) -> None:
         """Close all connections in the pool."""
         async with self._lock:
@@ -226,7 +322,7 @@ class ShardRouter:
         endpoints: list[str],
         auth_secret: str | None = None,
         min_size: int = 1,
-        max_size: int = 10,
+        max_size: int | None = None,
         agent_id: str | None = None,
         affinity: AffinityRegistry | None = None,
     ) -> None:
@@ -303,6 +399,47 @@ class ShardRouter:
             self.pools[ep].release(client)
         else:
             asyncio.create_task(client.close())
+
+    @contextlib.asynccontextmanager
+    async def connection(self, graph_name: str) -> AsyncIterator[EpistemicGraphClient]:
+        """Acquire ``graph_name``'s shard connection for the ``with`` block,
+        always releasing it back to the right pool (CONCEPT:EG-037).
+
+        ``async with router.connection(graph) as client: ...`` — the leak-free way
+        the hot write/read path holds a connection. Order-dependent operations on
+        one graph (node-before-edge) stay inside one block / one connection.
+        """
+        ep = self._get_shard_endpoint(graph_name)
+        client = await self.pools[ep].acquire()
+        client._graph_name = graph_name
+        try:
+            yield client
+        finally:
+            self.pools[ep].release(client)
+
+    async def map_concurrent(
+        self,
+        graph_name: str,
+        ops: list[Callable[[EpistemicGraphClient], Awaitable[Any]]],
+    ) -> list[Any]:
+        """Run INDEPENDENT ``ops`` against ``graph_name`` concurrently, each on its
+        own connection to that graph's shard (CONCEPT:EG-037).
+
+        The per-graph analogue of :meth:`ConnectionPool.map_concurrent`: all ``ops``
+        target the same shard (so they land on the right writer) but each takes a
+        distinct connection, so the engine services them as parallel tasks. Results
+        keep ``ops`` order. Independent ops only — ordered siblings go in one ``fn``.
+        """
+        ep = self._get_shard_endpoint(graph_name)
+
+        async def _run(
+            fn: Callable[[EpistemicGraphClient], Awaitable[Any]],
+        ) -> Any:
+            async with self.pools[ep].connection() as client:
+                client._graph_name = graph_name
+                return await fn(client)
+
+        return await asyncio.gather(*(_run(fn) for fn in ops))
 
     # ── Cross-shard scatter-gather union (CONCEPT:KG-2.181) ──────────────
     # Union across graphs that may live on DIFFERENT shards. Each per-shard
