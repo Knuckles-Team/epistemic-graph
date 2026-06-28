@@ -111,6 +111,20 @@ impl Capacity {
         (self.cpus * 64).clamp(256, 8192)
     }
 
+    /// Reserved READ-admission lane (CONCEPT:EG-044, default for
+    /// `EPISTEMIC_GRAPH_READ_RESERVED`). A dedicated pool of in-flight slots that ONLY
+    /// read/query requests may use, SEPARATE from `max_inflight` (which writes also
+    /// contend for). Under a flood of ingestion writes that saturates `max_inflight`
+    /// and the per-graph cap, an interactive read falls back to this lane so an MCP
+    /// tool call / query is NEVER shed to `BUSY` behind the write firehose — "at least
+    /// N open lanes for reads". Cheap: reads hold a slot only for the brief off-lock
+    /// snapshot, so even a small reservation keeps the read path alive. Scales gently
+    /// with cores (an eighth of the admission cap), floored so a 1-2 core box still
+    /// keeps several read lanes open.
+    pub fn read_reserved(&self) -> usize {
+        (self.max_inflight() / 8).clamp(8, 1024)
+    }
+
     /// Off-reactor WAL channel depth (default for `EPISTEMIC_GRAPH_WAL_QUEUE`). The
     /// bounded channel sheds — loudly — rather than stalling the reactor on a saturated
     /// disk, so it should hold little on a Pi (1024) and absorb bursts on a big box
