@@ -32,7 +32,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use dashmap::DashMap;
-use openraft::storage::Adaptor;
+use openraft::async_runtime::watch::WatchReceiver;
 use openraft::BasicNode;
 use openraft::Config;
 use tokio::sync::RwLock;
@@ -158,18 +158,17 @@ pub(crate) fn desired_leader(gid: GroupId, sorted_voters: &[NodeId]) -> Option<N
 }
 
 /// What one [`rebalance_leaders`](MultiRaft::rebalance_leaders) pass decided, for
-/// observability + tests (CONCEPT:KG-2.270).
+/// observability + tests (CONCEPT:KG-2.270 → KG-2.273).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct RebalanceReport {
     /// Per local group: the round-robin target leader node id.
     pub targets: BTreeMap<GroupId, NodeId>,
-    /// Groups this node campaigned for this pass (target==self, was not leader, cooldown
-    /// elapsed). Empty on an already-balanced cluster.
-    pub elected: Vec<GroupId>,
-    /// Groups this node STEPPED ASIDE from this pass (it was the leader but the target is
-    /// another node) by disabling its heartbeat so the target can take over.
-    pub yielded: Vec<GroupId>,
-    /// Per-group election-trigger errors (rare — e.g. the group was shutting down).
+    /// Groups this node (as their CURRENT leader) gracefully HANDED OFF this pass via
+    /// the native openraft-0.10 `trigger().transfer_leader(target)` (CONCEPT:KG-2.273),
+    /// because the round-robin target is another node. Empty on an already-balanced
+    /// cluster (or on a node that leads nothing it shouldn't).
+    pub transferred: Vec<GroupId>,
+    /// Per-group transfer-trigger errors (rare — e.g. the group was shutting down).
     pub errors: Vec<(GroupId, String)>,
 }
 
@@ -213,19 +212,19 @@ pub struct MultiRaft {
     /// graph takes its lock so the two cannot race / interleave for one tenant; ops
     /// on DIFFERENT graphs proceed concurrently. Lazily created per graph name.
     tenant_locks: Arc<DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Per-group cooldown timestamps for the leader balancer (CONCEPT:KG-2.270). A
-    /// triggered election bumps the term, so [`rebalance_leaders`] refuses to
-    /// re-campaign for a group within [`ELECT_COOLDOWN`] — this is what stops leader
-    /// flapping when the balancer is polled on a tick.
+    /// Per-group cooldown timestamps for the leader balancer (CONCEPT:KG-2.273). A
+    /// triggered transfer hands leadership away, so [`rebalance_leaders`] refuses to
+    /// re-issue a transfer for a group within [`TRANSFER_COOLDOWN`] — this stops it
+    /// spamming transfer commands while the handoff settles when polled on a tick.
     ///
     /// [`rebalance_leaders`]: MultiRaft::rebalance_leaders
-    last_elect: Arc<DashMap<GroupId, Instant>>,
+    last_transfer: Arc<DashMap<GroupId, Instant>>,
 }
 
-/// Minimum interval between two balancer-triggered elections for the SAME group
-/// (CONCEPT:KG-2.270). Comfortably above `election_timeout_max` (3s) so a campaign has
+/// Minimum interval between two balancer-triggered leader transfers for the SAME group
+/// (CONCEPT:KG-2.273). Comfortably above `election_timeout_max` (3s) so a handoff has
 /// settled before the balancer would consider another — no flapping.
-const ELECT_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
+const TRANSFER_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl MultiRaft {
     /// Start the per-node shared listener. Groups are added via [`create_group`].
@@ -264,7 +263,7 @@ impl MultiRaft {
             pool: network::PeerPool::new(),
             listener_handle,
             tenant_locks: Arc::new(DashMap::new()),
-            last_elect: Arc::new(DashMap::new()),
+            last_transfer: Arc::new(DashMap::new()),
         }))
     }
 
@@ -370,7 +369,12 @@ impl MultiRaft {
             .validate()
             .map_err(|e| format!("invalid raft config: {e}"))?,
         );
-        let (log_store, state_machine) = Adaptor::new(store);
+        // openraft 0.10 (CONCEPT:KG-2.273): the v1 `RaftStorage`/`Adaptor` split is
+        // gone — `EgStore` implements `RaftLogStorage` AND `RaftStateMachine` on
+        // `Arc<EgStore>`, so we hand the SAME store in as both (a cheap clone). They
+        // share the one underlying redb-backed log + state machine.
+        let log_store = store.clone();
+        let state_machine = store;
         let network = network::GroupNetworkFactory::new(gid, self.node_id, self.pool.clone());
         let raft: EgRaft =
             openraft::Raft::new(self.node_id, raft_config, network, log_store, state_machine)
@@ -432,7 +436,11 @@ impl MultiRaft {
     pub async fn group_membership(&self, gid: GroupId) -> Option<Vec<NodeId>> {
         let raft = self.groups.read().await.get(&gid).cloned()?;
         let metrics = raft.metrics();
-        let mut voters: Vec<NodeId> = metrics.borrow().membership_config.voter_ids().collect();
+        let mut voters: Vec<NodeId> = metrics
+            .borrow_watched()
+            .membership_config
+            .voter_ids()
+            .collect();
         voters.sort_unstable();
         Some(voters)
     }
@@ -462,7 +470,11 @@ impl MultiRaft {
             .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
         let mut voters: BTreeSet<NodeId> = {
             let metrics = raft.metrics();
-            let v = metrics.borrow().membership_config.voter_ids().collect();
+            let v = metrics
+                .borrow_watched()
+                .membership_config
+                .voter_ids()
+                .collect();
             v
         };
         raft.add_learner(new_node, BasicNode::new(addr), true)
@@ -488,7 +500,11 @@ impl MultiRaft {
             .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
         let mut voters: BTreeSet<NodeId> = {
             let metrics = raft.metrics();
-            let v = metrics.borrow().membership_config.voter_ids().collect();
+            let v = metrics
+                .borrow_watched()
+                .membership_config
+                .voter_ids()
+                .collect();
             v
         };
         if !voters.remove(&node) {
@@ -505,35 +521,31 @@ impl MultiRaft {
         Ok(())
     }
 
-    // ── R1: leader balancing across groups (CONCEPT:KG-2.270) ──────────────
+    // ── R1: leader balancing across groups (CONCEPT:KG-2.270 → KG-2.273) ────
     //
     // With N groups over M nodes, leaders cluster on the bootstrap node (it
     // single-member-initializes every group). [`rebalance_leaders`] spreads leadership by
     // a deterministic round-robin: each group has a target leader computed identically on
     // every node ([`desired_leader`]). EVERY node runs this pass (like a real cluster);
-    // each only acts on the groups it runs:
+    // each only acts on the groups it currently LEADS:
     //
-    //   * **Claim** — if THIS node is the target but not the leader, it triggers an
-    //     election (`trigger().elect()`) to campaign for the group.
-    //   * **Yield** — if THIS node IS the leader but the target is ELSEWHERE, it disables
-    //     its own heartbeat for the group so its leader lease expires; once it stops
-    //     asserting leadership the target's campaign wins.
+    //   * **Transfer** — if THIS node IS the leader of a group whose round-robin target
+    //     is ELSEWHERE, it issues the native openraft-0.10
+    //     `trigger().transfer_leader(target)`. openraft hands a fresh term + the leader
+    //     vote to the target and notifies it (over `NetTransferLeader`) to campaign at
+    //     once — a GRACEFUL, near-instant handoff. No cooperative heartbeat-yield is
+    //     needed any more (that was the 0.9 workaround for the missing transfer RPC).
     //
-    // The yield is REQUIRED because openraft 0.9 has no graceful `transfer_leader`, and
-    // its anti-disruption / leader-stickiness makes followers REJECT a challenger's vote
-    // while they still hear from a healthy leader. So a triggered election alone cannot
-    // move leadership off a healthy incumbent — the incumbent must cooperatively step
-    // aside (stop heartbeating). With both halves, leadership converges to the round-robin
-    // spread within a couple of election timeouts. (A native, instant handoff would use
-    // openraft 0.10's `trigger_transfer_leader`; see the M2 status doc.)
+    // A follower never acts (only the current leader can transfer). Converges to the
+    // round-robin spread within roughly one heartbeat, not a couple of election timeouts.
 
     /// Run one leader-balancing pass over the groups running on THIS node
-    /// (CONCEPT:KG-2.270). Computes the round-robin target leader per group and either
-    /// CLAIMS a group it should lead (triggers an election, rate-limited per group by
-    /// [`ELECT_COOLDOWN`] so it never flaps) or YIELDS a group it leads but shouldn't
-    /// (disables its heartbeat so the lease expires and the target can take over). A
-    /// no-op for single-voter groups and for groups this node already leads correctly, so
-    /// repeated passes on a balanced cluster do nothing. Returns a [`RebalanceReport`].
+    /// (CONCEPT:KG-2.273). For each group THIS node leads whose round-robin target is a
+    /// different node, it issues the native `trigger().transfer_leader(target)` for an
+    /// instant graceful handoff (rate-limited per group by [`TRANSFER_COOLDOWN`] so it
+    /// never spams transfers while one settles). A no-op for single-voter groups and for
+    /// groups this node already leads correctly (or does not lead), so repeated passes on
+    /// a balanced cluster do nothing. Returns a [`RebalanceReport`].
     pub async fn rebalance_leaders(&self) -> RebalanceReport {
         let mut report = RebalanceReport::default();
         let gids: Vec<GroupId> = self.groups.read().await.keys().copied().collect();
@@ -543,7 +555,7 @@ impl MultiRaft {
             };
             let (mut voters, is_leader) = {
                 let metrics = raft.metrics();
-                let m = metrics.borrow();
+                let m = metrics.borrow_watched();
                 let voters: Vec<NodeId> = m.membership_config.voter_ids().collect();
                 (voters, matches!(m.state, openraft::ServerState::Leader))
             };
@@ -556,43 +568,29 @@ impl MultiRaft {
             if voters.len() <= 1 {
                 continue;
             }
-            if target == self.node_id {
-                // We SHOULD lead this group. Make sure heartbeat is on (in case we yielded
-                // it on a previous pass) so we can actually hold leadership, then campaign
-                // if we don't already lead it.
-                raft.runtime_config().heartbeat(true);
-                if !is_leader && self.may_trigger_elect(gid) {
-                    match raft.trigger().elect().await {
-                        Ok(()) => report.elected.push(gid),
-                        Err(e) => report.errors.push((gid, e.to_string())),
-                    }
+            // Only the current leader can hand off, and only when the target is elsewhere.
+            if is_leader && target != self.node_id && self.may_transfer(gid) {
+                match raft.trigger().transfer_leader(target).await {
+                    Ok(()) => report.transferred.push(gid),
+                    Err(e) => report.errors.push((gid, e.to_string())),
                 }
-            } else if is_leader {
-                // We lead a group whose target is ELSEWHERE — step aside so the target's
-                // campaign can win (openraft 0.9 stickiness blocks it otherwise).
-                raft.runtime_config().heartbeat(false);
-                report.yielded.push(gid);
-            } else {
-                // A follower that is not the target: ensure heartbeat is restored (it may
-                // have led + yielded earlier) so it stays a healthy potential leader.
-                raft.runtime_config().heartbeat(true);
             }
         }
-        report.elected.sort_unstable();
-        report.yielded.sort_unstable();
+        report.transferred.sort_unstable();
         report
     }
 
-    /// True iff the balancer may trigger an election for `gid` now (cooldown elapsed),
-    /// recording the attempt so the next call within [`ELECT_COOLDOWN`] is refused.
-    fn may_trigger_elect(&self, gid: GroupId) -> bool {
+    /// True iff the balancer may issue a leader transfer for `gid` now (cooldown
+    /// elapsed), recording the attempt so the next call within [`TRANSFER_COOLDOWN`] is
+    /// refused.
+    fn may_transfer(&self, gid: GroupId) -> bool {
         let now = Instant::now();
-        if let Some(prev) = self.last_elect.get(&gid) {
-            if now.duration_since(*prev) < ELECT_COOLDOWN {
+        if let Some(prev) = self.last_transfer.get(&gid) {
+            if now.duration_since(*prev) < TRANSFER_COOLDOWN {
                 return false;
             }
         }
-        self.last_elect.insert(gid, now);
+        self.last_transfer.insert(gid, now);
         true
     }
 

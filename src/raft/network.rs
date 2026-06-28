@@ -1,10 +1,11 @@
-//! Raft network (CONCEPT:KG-2.188 + KG-2.205) — a group-multiplexed Raft TCP channel.
+//! Raft network (CONCEPT:KG-2.188 + KG-2.205 + KG-2.273) — a group-multiplexed Raft
+//! TCP channel on openraft 0.10's [`RaftNetworkV2`] API.
 //!
 //! A small purpose-built TCP channel rather than reusing the engine's auth'd
 //! MessagePack RPC, because the Raft RPC payloads are openraft's own request/
-//! response types (append-entries / vote / install-snapshot) and routing them
-//! through the engine's `Method` enum would mean embedding consensus types into the
-//! client-facing protocol — a layering violation. The framing convention is
+//! response types (append-entries / vote / snapshot / transfer-leader) and routing
+//! them through the engine's `Method` enum would mean embedding consensus types into
+//! the client-facing protocol — a layering violation. The framing convention is
 //! IDENTICAL to the engine transport (4-byte big-endian length prefix + a
 //! MessagePack body), so binary payloads survive intact.
 //!
@@ -13,40 +14,54 @@
 //! spike's shared-channel design. A single-group cluster is just one group on that
 //! shared listener.
 //!
+//! ### openraft 0.10 changes (CONCEPT:KG-2.273)
+//! * The deprecated v1 `RaftNetwork` trait was REMOVED. We now implement
+//!   [`RaftNetworkV2`] (which blanket-derives the `NetAppend`/`NetVote`/`NetSnapshot`/
+//!   `NetTransferLeader`/… sub-traits the factory requires).
+//! * The chunked `install_snapshot(InstallSnapshotRequest)` RPC is replaced by
+//!   `full_snapshot(vote, Snapshot, …)`: the framework hands us the WHOLE snapshot and
+//!   we transmit it however we like. We ship it as one tagged [`GroupRpc::Snapshot`]
+//!   frame (vote + meta + the MessagePack body); the follower calls
+//!   `install_full_snapshot`.
+//! * `RPCError` is now single-generic (`RPCError<C>`); the response types are
+//!   `…Response<C>` rather than `…Response<NodeId>`.
+//! * We override [`RaftNetworkV2::transfer_leader`] to forward the leader-transfer
+//!   notification (it backs the native graceful handoff — see `multi::rebalance_leaders`).
+//!
 //! ### How election / replication / failover use it
-//! * **Election:** a candidate's [`RaftNetwork::vote`] fans a `Vote` RPC out to
-//!   every peer; a quorum of grants makes it leader. On a leader's silence the
-//!   follower election timer fires and a new term's vote runs — automatic failover.
-//! * **Replication:** the leader's [`RaftNetwork::append_entries`] streams committed
-//!   log entries to followers; once a quorum has an entry it commits and applies.
+//! * **Election:** a candidate's `vote` RPC fans a `Vote` out to every peer; a quorum
+//!   of grants makes it leader. On a leader's silence the follower election timer fires
+//!   and a new term's vote runs — automatic failover.
+//! * **Replication:** the leader's `append_entries` streams committed log entries to
+//!   followers; once a quorum has an entry it commits and applies.
 //! * **Catch-up:** a lagging/just-restarted follower is brought current with
-//!   [`RaftNetwork::install_snapshot`] (openraft's default chunked `full_snapshot`
-//!   drives it).
+//!   `full_snapshot`.
+//! * **Graceful handoff:** the leader's `transfer_leader` notifies the target so it
+//!   campaigns immediately (the 0.10 native instant handoff).
 //!
 //! ### Pooled per-peer connections (CONCEPT:KG-2.265)
-//! The scaffold opened a FRESH `TcpStream` for every append/vote/snapshot RPC and
-//! dropped it after one round-trip — under steady replication that churns a
-//! connect+handshake per heartbeat, per peer, per group. A [`PeerPool`] now keeps a
-//! small set of WARM connections per peer ADDRESS and reuses them across RPCs and
-//! across ALL groups on the node (the inbound listener is already shared, so the
-//! outbound side is shared too). Correctness is unchanged: the wire is strict
+//! A [`PeerPool`] keeps a small set of WARM connections per peer ADDRESS and reuses
+//! them across RPCs and across ALL groups on the node. The wire is strict
 //! request→response on one stream with no correlation id, so a pooled connection is
-//! handed out EXCLUSIVELY for one round-trip and only returned to the idle set if
-//! that round-trip SUCCEEDED. A stale idle entry (peer closed it while idle) surfaces
-//! as an IO error on the first frame, and the caller transparently retries ONCE on a
-//! guaranteed-fresh connection — so pooling never changes what openraft observes.
+//! handed out EXCLUSIVELY for one round-trip and only returned to the idle set if that
+//! round-trip SUCCEEDED; a stale idle entry surfaces as an IO error on the first frame
+//! and the caller retries ONCE on a fresh connection.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use openraft::error::{InstallSnapshotError, NetworkError, RPCError, RaftError, Unreachable};
-use openraft::network::{RPCOption, RaftNetwork, RaftNetworkFactory};
+use openraft::error::{NetworkError, RPCError, ReplicationClosed, StreamingError, Unreachable};
+use openraft::network::RaftNetworkFactory;
+use openraft::network::{RPCOption, RaftNetworkV2};
 use openraft::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
-    VoteRequest, VoteResponse,
+    AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, TransferLeaderRequest,
+    TransferLeaderResponse, VoteRequest, VoteResponse,
 };
+use openraft::storage::Snapshot;
+use openraft::type_config::alias::{SnapshotMetaOf, SnapshotOf, VoteOf};
 use openraft::BasicNode;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -56,17 +71,13 @@ use super::{EgRaft, GroupId, NodeId, TypeConfig};
 
 /// A transport failure → `Unreachable` so openraft backs off and retries (correct
 /// for connection refused / a peer that is down — the failover-survival path).
-fn unreachable<E: std::error::Error + 'static>(
-    e: &E,
-) -> RPCError<NodeId, BasicNode, RaftError<NodeId>> {
+fn unreachable<E: std::error::Error + 'static>(e: &E) -> RPCError<TypeConfig> {
     RPCError::Unreachable(Unreachable::new(e))
 }
 
-/// A remote-reported failure (a follower's append/vote errored — rare). Surfaced as
-/// a `Network` error so openraft retries; the remote `RaftError` does not need to be
-/// reconstructed because append/vote carry no leader-forward hint (that lives in
-/// `client_write`, handled locally on the leader). Keeps the channel minimal.
-fn net_err(msg: &str) -> RPCError<NodeId, BasicNode, RaftError<NodeId>> {
+/// A remote-reported failure (a follower's append/vote errored — rare). Surfaced as a
+/// `Network` error so openraft retries.
+fn net_err(msg: &str) -> RPCError<TypeConfig> {
     RPCError::Network(NetworkError::new(&StrErr(msg.to_string())))
 }
 
@@ -81,16 +92,12 @@ impl std::error::Error for StrErr {}
 
 // ── pooled per-peer connections (CONCEPT:KG-2.265) ────────────────────────
 
-/// Default warm connections kept idle PER PEER address. A node replicates to each
-/// peer over a small number of concurrent streams (append + the occasional
-/// vote/snapshot), so a handful covers steady state; the set is bounded so a burst
-/// never leaks file descriptors.
+/// Default warm connections kept idle PER PEER address.
 const DEFAULT_MAX_IDLE_PER_PEER: usize = 4;
 
 /// A per-peer pool of idle Raft-RPC connections (CONCEPT:KG-2.265). Keyed by the
 /// peer's `host:port`, shared by every group on the node (one pool per
-/// [`super::multi::MultiRaft`]). See the module docs for the reuse + stale-retry
-/// contract.
+/// [`super::multi::MultiRaft`]).
 pub struct PeerPool {
     idle: std::sync::Mutex<HashMap<String, Vec<TcpStream>>>,
     max_idle_per_peer: usize,
@@ -184,22 +191,33 @@ impl Default for PeerPool {
 // ── group-multiplexed network (CONCEPT:KG-2.205) ──────────────────────────
 //
 // The multi-group path (`super::multi`) carries a `GroupId` in every RPC frame so
-// ONE listener per node serves ALL groups (the spike's shared-channel design). The
-// client tags every RPC with the group it serves; the shared listener demuxes by id.
+// ONE listener per node serves ALL groups. The client tags every RPC with the group
+// it serves; the shared listener demuxes by id.
 
-/// A Raft RPC tagged with the group id it belongs to.
+/// A Raft RPC tagged with the group id it belongs to (openraft 0.10 types). The
+/// snapshot RPC carries the full snapshot (vote + meta + MessagePack body) rather than
+/// a chunk, matching the v2 `full_snapshot` model.
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum GroupRpc {
     Append(GroupId, AppendEntriesRequest<TypeConfig>),
-    Vote(GroupId, VoteRequest<NodeId>),
-    Snapshot(GroupId, InstallSnapshotRequest<TypeConfig>),
+    Vote(GroupId, VoteRequest<TypeConfig>),
+    Snapshot(
+        GroupId,
+        VoteOf<TypeConfig>,
+        SnapshotMetaOf<TypeConfig>,
+        Vec<u8>,
+    ),
+    TransferLeader(GroupId, TransferLeaderRequest<TypeConfig>),
 }
 
 impl GroupRpc {
     pub fn group_id(&self) -> GroupId {
         match self {
-            GroupRpc::Append(g, _) | GroupRpc::Vote(g, _) | GroupRpc::Snapshot(g, _) => *g,
+            GroupRpc::Append(g, _)
+            | GroupRpc::Vote(g, _)
+            | GroupRpc::Snapshot(g, _, _, _)
+            | GroupRpc::TransferLeader(g, _) => *g,
         }
     }
 }
@@ -208,18 +226,17 @@ impl GroupRpc {
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum GroupRpcReply {
-    Append(Result<AppendEntriesResponse<NodeId>, String>),
-    Vote(Result<VoteResponse<NodeId>, String>),
-    Snapshot(Result<InstallSnapshotResponse<NodeId>, String>),
+    Append(Result<AppendEntriesResponse<TypeConfig>, String>),
+    Vote(Result<VoteResponse<TypeConfig>, String>),
+    Snapshot(Result<SnapshotResponse<TypeConfig>, String>),
+    /// Best-effort transfer-leader ack — `Ok(())` accepted, `Err(msg)` rejected/failed.
+    TransferLeader(Result<(), String>),
 }
 
 // ── heartbeat coalescing wire envelope (CONCEPT:KG-2.271) ──────────────────
 
 /// The top-level Raft wire frame. Either a SINGLE group-tagged RPC (the per-group
 /// openraft path) or a BATCH of them coalesced to one peer (CONCEPT:KG-2.271).
-/// Wrapping both in one enum lets the shared listener serve either on the same
-/// connection — a single-RPC frame is just `One`, so the existing path is unchanged
-/// in behavior (the three-node + two-group tests exercise it).
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum RaftFrame {
@@ -237,18 +254,9 @@ pub enum RaftFrameReply {
 }
 
 /// Coalesces per-peer Raft HEARTBEATS across groups into one batched frame
-/// (CONCEPT:KG-2.271). openraft drives a heartbeat — an empty-entries `AppendEntries` —
-/// per group, per peer, per tick; with N groups to the SAME peer that is N independent
-/// frames every heartbeat interval. Buffering same-destination heartbeats and flushing
-/// them as ONE [`RaftFrame::Batch`] collapses that to a single connect-amortized
-/// round-trip per peer (the batch rides the KG-2.265 [`PeerPool`]). Only heartbeats
-/// coalesce — log-bearing appends, votes, and snapshots are latency/ordering-sensitive
-/// and pass through individually ([`is_heartbeat`] gates this).
-///
-/// This type owns the BUFFER + BATCH-CONSTRUCTION logic (unit-tested below); wiring it
-/// under openraft's per-group heartbeat cadence (an enqueue + short flush timer that
-/// fans each batched reply back to its awaiting `append_entries` caller) is the final
-/// step validated on a real multi-node cluster — see `docs/architecture/m2-raft-status.md`.
+/// (CONCEPT:KG-2.271). Only heartbeats coalesce — log-bearing appends, votes,
+/// snapshots, and transfer-leader notifications are latency/ordering-sensitive and
+/// pass through individually ([`is_heartbeat`] gates this).
 ///
 /// [`is_heartbeat`]: HeartbeatCoalescer::is_heartbeat
 pub struct HeartbeatCoalescer {
@@ -270,14 +278,14 @@ impl HeartbeatCoalescer {
     }
 
     /// Is `rpc` a heartbeat — an `AppendEntries` carrying NO log entries? Only these
-    /// coalesce; a log-bearing append / vote / snapshot must go out on its own.
+    /// coalesce; a log-bearing append / vote / snapshot / transfer must go out alone.
     pub fn is_heartbeat(rpc: &GroupRpc) -> bool {
         matches!(rpc, GroupRpc::Append(_, req) if req.entries.is_empty())
     }
 
     /// Offer `rpc` destined for `addr` to the coalescer. Returns `true` if it was a
     /// heartbeat and is now BUFFERED for the next flush; `false` if it is not a
-    /// heartbeat and the caller must send it directly (unchanged latency-sensitive path).
+    /// heartbeat and the caller must send it directly.
     pub fn offer(&self, addr: &str, rpc: GroupRpc) -> bool {
         if !Self::is_heartbeat(&rpc) {
             return false;
@@ -291,10 +299,7 @@ impl HeartbeatCoalescer {
         true
     }
 
-    /// Drain every buffered peer into one batch per peer (CONCEPT:KG-2.271). Returns
-    /// `(addr, batch)` pairs ready to send as a single [`RaftFrame::Batch`] each;
-    /// per-peer order is preserved (so replies line up). Updates the coalesced/flush
-    /// counters. An empty buffer yields an empty vec (a no-op flush).
+    /// Drain every buffered peer into one batch per peer (CONCEPT:KG-2.271).
     pub fn drain_batches(&self) -> Vec<(String, Vec<GroupRpc>)> {
         let mut pending = self.pending.lock().unwrap();
         let drained: Vec<(String, Vec<GroupRpc>)> = pending.drain().collect();
@@ -322,8 +327,7 @@ impl HeartbeatCoalescer {
     }
 
     /// Send one coalesced batch to `addr` over the shared [`PeerPool`] and return the
-    /// ORDERED per-RPC replies (CONCEPT:KG-2.271). A `One` reply from the peer (it could
-    /// not batch) is normalized to a single-element vec.
+    /// ORDERED per-RPC replies (CONCEPT:KG-2.271).
     pub(crate) async fn send_batch(
         pool: &PeerPool,
         addr: &str,
@@ -354,8 +358,7 @@ impl Default for HeartbeatCoalescer {
 pub struct GroupNetworkFactory {
     gid: GroupId,
     local: NodeId,
-    /// Shared per-peer connection pool (CONCEPT:KG-2.265) — one per node, reused by
-    /// every group's clients so the outbound side mirrors the shared inbound listener.
+    /// Shared per-peer connection pool (CONCEPT:KG-2.265).
     pool: Arc<PeerPool>,
 }
 
@@ -397,11 +400,6 @@ pub struct GroupNetworkClient {
 impl GroupNetworkClient {
     async fn round_trip(&self, rpc: GroupRpc) -> Result<GroupRpcReply, io::Error> {
         // ── harness fault-injection: partition gate (CONCEPT:KG-2.212) ──
-        // A test/harness build can DROP the frame between two partitioned nodes,
-        // simulating a network partition WITHOUT a real firewall. In a production
-        // build this whole arm is compiled out, so the network path is byte-for-byte
-        // unchanged. We surface it as the same `ConnectionReset`/EOF a real dropped
-        // TCP frame would, so openraft treats it as `Unreachable` and backs off.
         #[cfg(any(test, feature = "harness"))]
         if !partition::reachable(self.local, self.target) {
             return Err(io::Error::new(
@@ -426,12 +424,12 @@ impl GroupNetworkClient {
     }
 }
 
-impl RaftNetwork<TypeConfig> for GroupNetworkClient {
+impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
     async fn append_entries(
         &mut self,
         rpc: AppendEntriesRequest<TypeConfig>,
         _option: RPCOption,
-    ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, BasicNode, RaftError<NodeId>>> {
+    ) -> Result<AppendEntriesResponse<TypeConfig>, RPCError<TypeConfig>> {
         match self.round_trip(GroupRpc::Append(self.gid, rpc)).await {
             Ok(GroupRpcReply::Append(Ok(r))) => Ok(r),
             Ok(GroupRpcReply::Append(Err(e))) => Err(net_err(&e)),
@@ -442,9 +440,9 @@ impl RaftNetwork<TypeConfig> for GroupNetworkClient {
 
     async fn vote(
         &mut self,
-        rpc: VoteRequest<NodeId>,
+        rpc: VoteRequest<TypeConfig>,
         _option: RPCOption,
-    ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, BasicNode, RaftError<NodeId>>> {
+    ) -> Result<VoteResponse<TypeConfig>, RPCError<TypeConfig>> {
         match self.round_trip(GroupRpc::Vote(self.gid, rpc)).await {
             Ok(GroupRpcReply::Vote(Ok(r))) => Ok(r),
             Ok(GroupRpcReply::Vote(Err(e))) => Err(net_err(&e)),
@@ -453,23 +451,46 @@ impl RaftNetwork<TypeConfig> for GroupNetworkClient {
         }
     }
 
-    async fn install_snapshot(
+    async fn full_snapshot(
         &mut self,
-        rpc: InstallSnapshotRequest<TypeConfig>,
+        vote: VoteOf<TypeConfig>,
+        snapshot: SnapshotOf<TypeConfig>,
+        _cancel: impl Future<Output = ReplicationClosed> + Send + 'static,
         _option: RPCOption,
-    ) -> Result<
-        InstallSnapshotResponse<NodeId>,
-        RPCError<NodeId, BasicNode, RaftError<NodeId, InstallSnapshotError>>,
-    > {
-        match self.round_trip(GroupRpc::Snapshot(self.gid, rpc)).await {
+    ) -> Result<SnapshotResponse<TypeConfig>, StreamingError<TypeConfig>> {
+        // v2 full-snapshot transfer: ship the WHOLE snapshot as one tagged frame
+        // (vote + meta + the MessagePack body). The follower calls
+        // `install_full_snapshot` and replies with its current vote.
+        let data = snapshot.snapshot.into_inner();
+        let rpc = GroupRpc::Snapshot(self.gid, vote, snapshot.meta, data);
+        match self.round_trip(rpc).await {
             Ok(GroupRpcReply::Snapshot(Ok(r))) => Ok(r),
             Ok(GroupRpcReply::Snapshot(Err(e))) => {
-                Err(RPCError::Network(NetworkError::new(&StrErr(e))))
+                Err(StreamingError::Network(NetworkError::new(&StrErr(e))))
             }
-            Ok(_) => Err(RPCError::Network(NetworkError::new(&StrErr(
+            Ok(_) => Err(StreamingError::Network(NetworkError::new(&StrErr(
                 "unexpected reply variant".to_string(),
             )))),
-            Err(e) => Err(RPCError::Unreachable(Unreachable::new(&e))),
+            Err(e) => Err(StreamingError::Unreachable(Unreachable::new(&e))),
+        }
+    }
+
+    /// Forward a leader-transfer notification to the target (CONCEPT:KG-2.273). This
+    /// backs the native graceful handoff: the old leader tells the target to campaign
+    /// at once instead of waiting for its lease to time out.
+    async fn transfer_leader(
+        &mut self,
+        req: TransferLeaderRequest<TypeConfig>,
+        _option: RPCOption,
+    ) -> Result<TransferLeaderResponse<TypeConfig>, RPCError<TypeConfig>> {
+        match self
+            .round_trip(GroupRpc::TransferLeader(self.gid, req))
+            .await
+        {
+            Ok(GroupRpcReply::TransferLeader(Ok(()))) => Ok(Ok(())),
+            Ok(GroupRpcReply::TransferLeader(Err(e))) => Err(net_err(&e)),
+            Ok(_) => Err(net_err("unexpected reply variant")),
+            Err(e) => Err(unreachable(&e)),
         }
     }
 }
@@ -482,6 +503,9 @@ pub async fn dispatch_group(raft: Option<EgRaft>, gid: GroupId, rpc: GroupRpc) -
             GroupRpc::Append(..) => GroupRpcReply::Append(Err(format!("no group {gid} here"))),
             GroupRpc::Vote(..) => GroupRpcReply::Vote(Err(format!("no group {gid} here"))),
             GroupRpc::Snapshot(..) => GroupRpcReply::Snapshot(Err(format!("no group {gid} here"))),
+            GroupRpc::TransferLeader(..) => {
+                GroupRpcReply::TransferLeader(Err(format!("no group {gid} here")))
+            }
         },
         Some(raft) => match rpc {
             GroupRpc::Append(_, req) => {
@@ -490,8 +514,26 @@ pub async fn dispatch_group(raft: Option<EgRaft>, gid: GroupId, rpc: GroupRpc) -
             GroupRpc::Vote(_, req) => {
                 GroupRpcReply::Vote(raft.vote(req).await.map_err(|e| e.to_string()))
             }
-            GroupRpc::Snapshot(_, req) => {
-                GroupRpcReply::Snapshot(raft.install_snapshot(req).await.map_err(|e| e.to_string()))
+            GroupRpc::Snapshot(_, vote, meta, data) => {
+                let snap = Snapshot {
+                    meta,
+                    snapshot: std::io::Cursor::new(data),
+                };
+                GroupRpcReply::Snapshot(
+                    raft.install_full_snapshot(vote, snap)
+                        .await
+                        .map_err(|e| e.to_string()),
+                )
+            }
+            GroupRpc::TransferLeader(_, req) => {
+                // Flatten `Result<Result<(), TransferLeaderError>, Fatal>` to a small
+                // wire ack — this notification is best-effort.
+                let reply = match raft.handle_transfer_leader(req).await {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(e)) => Err(e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                };
+                GroupRpcReply::TransferLeader(reply)
             }
         },
     }
@@ -527,10 +569,8 @@ pub async fn read_frame(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
 // A process-global, test/harness-only controller that the per-RPC `round_trip`
 // consults to decide whether a frame from node `from` may reach node `to`. The model
 // is "islands": every node sits in an island id (default 0 — fully connected), and
-// two nodes can exchange RPCs iff they share an island. A partition is just a
-// re-assignment of islands; healing puts everyone back on island 0. This is the
-// programmatic equivalent of dropping the group-tagged TCP frames between subsets —
-// no firewall, no real netns — and it is compiled out of every production build.
+// two nodes can exchange RPCs iff they share an island. Compiled out of every
+// production build.
 #[cfg(any(test, feature = "harness"))]
 pub mod partition {
     use std::collections::HashMap;
