@@ -15,7 +15,7 @@
 
 pub mod store;
 
-// In-process bounded-memory streaming facade over the CAS (CONCEPT:EG-033, M3 R4):
+// In-process bounded-memory streaming facade over the CAS (CONCEPT:EG-036, M3 R4):
 // stream a multi-GB blob between an arbitrary `Read`/`Write` and the CAS without
 // buffering the whole blob. The in-process twin of the wire upload/fetch cursor.
 pub mod stream;
