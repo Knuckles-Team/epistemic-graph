@@ -71,8 +71,7 @@ type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
 // Per-group Raft metadata (vote, applied-state pointers, last-purged), keyed by
 // `(group_id, key)`. Lives in `graph.redb` alongside the log; Raft-only, so it
 // stays here with the Raft helpers rather than in the shared graph store.
-pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> =
-    TableDefinition::new("raft_meta");
+pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
 
 // Time-series tables (CONCEPT:KG-2.210). The CANONICAL `(series_id, bucket_start)`
 // chunk schema is declared once in the eg-tsdb crate (where the store/query logic
@@ -89,7 +88,7 @@ pub(crate) use eg_tsdb::store::{SERIES_CHUNKS, SERIES_META};
 /// One write command handed to the off-reactor thread. A `Mutation` carries the
 /// graph file-name + the applied method; the thread translates it into row writes
 /// inside the current group-commit transaction.
-enum Cmd {
+pub(crate) enum Cmd {
     Mutation {
         graph: String,
         method: Box<Method>,
@@ -154,6 +153,21 @@ enum Cmd {
     ReadGraphDump {
         graph: String,
         reply: std::sync::mpsc::Sender<Result<Option<GraphDump>, String>>,
+    },
+    /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-032). Runs
+    /// on the SOURCE shard's writer: flush pending first (so the snapshot is complete),
+    /// then scan the raw value blobs (encryption + audit chain untouched).
+    ExportGraphRaw {
+        graph: String,
+        reply: std::sync::mpsc::Sender<Result<super::online_reshard::RawGraphRows, String>>,
+    },
+    /// Import ONE graph's verbatim rows on an online shard move (CONCEPT:EG-032). Runs on
+    /// the DESTINATION shard's writer and lands them in ONE `Durability::Immediate` commit
+    /// — the commit-before-ack point of the move.
+    ImportGraphRaw {
+        graph: String,
+        rows: Box<super::online_reshard::RawGraphRows>,
+        reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
     /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:KG-2.231).
     /// Flushes pending first so the walk reflects the latest durable entries, then
@@ -698,6 +712,13 @@ pub struct RedbBackend {
     /// falls back to FNV-1a inside `TenantCatalog::resolve_shard`. So an empty catalog
     /// is indistinguishable from no catalog — the seam never destabilizes EG-026.
     catalog: Option<Arc<crate::server::persistence::tenant_catalog::TenantCatalog>>,
+    /// Routing quiesce barrier for online resharding (CONCEPT:EG-032). Catalog-attached
+    /// durable writes resolve their shard + enqueue their op while holding a SHARED READ
+    /// guard; [`RedbBackend::reshard_graph`] holds the EXCLUSIVE WRITE guard across a
+    /// graph's move, so the route flip can never interleave a write (no lost / misrouted
+    /// rows). When NO catalog is attached (the default) the write path never touches this
+    /// — EG-026 is byte-for-byte unchanged.
+    routing_epoch: Arc<RwLock<()>>,
 }
 
 impl RedbBackend {
@@ -707,7 +728,56 @@ impl RedbBackend {
     /// existing on-disk layout. K=1 is byte-for-byte the pre-EG-026 single-`graph.redb`
     /// writer. The exclusive per-FILE redb lock for every shard is acquired here at open.
     pub fn open(persist_dir: String, policy: FsyncPolicy, capacity: usize) -> Result<Self, String> {
-        Self::open_with_shards(persist_dir, policy, capacity, resolve_shard_count())
+        let backend =
+            Self::open_with_shards(persist_dir.clone(), policy, capacity, resolve_shard_count())?;
+        Ok(backend.maybe_attach_catalog_from_env(&persist_dir))
+    }
+
+    /// Catalog auto-attach gate (CONCEPT:EG-033, R5). At startup attach the durable tenant
+    /// catalog to the LIVE routing seam when `EPISTEMIC_GRAPH_TENANT_CATALOG=1` is set OR a
+    /// durable `catalog.redb` already exists (a populated catalog from a prior run must be
+    /// honored). When NEITHER holds — the default — NO catalog is attached and routing is
+    /// byte-for-byte EG-026 FNV-1a. An attached-but-EMPTY catalog also routes identically
+    /// (`resolve_shard` == `shard_index`), so turning the flag on is a no-op until an
+    /// online reshard assigns a placement. Only [`Self::open`] (the live boot path) calls
+    /// this; the explicit-K test constructor [`Self::open_with_shards`] never auto-attaches.
+    fn maybe_attach_catalog_from_env(self, persist_dir: &str) -> Self {
+        let flag = std::env::var("EPISTEMIC_GRAPH_TENANT_CATALOG")
+            .ok()
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                v == "1" || v == "true" || v == "yes" || v == "on"
+            })
+            .unwrap_or(false);
+        let catalog_exists = std::path::Path::new(persist_dir)
+            .join("catalog.redb")
+            .exists();
+        if !flag && !catalog_exists {
+            return self; // DEFAULT: pure EG-026, no catalog, no behavior change.
+        }
+        match crate::server::persistence::tenant_catalog::TenantCatalog::open(persist_dir) {
+            Ok(cat) => {
+                if cat.is_empty() {
+                    tracing::info!(
+                        "tenant catalog attached (CONCEPT:EG-033) — empty ⇒ pure EG-026 routing \
+                         until an online reshard assigns a placement"
+                    );
+                } else {
+                    tracing::info!(
+                        "tenant catalog attached (CONCEPT:EG-033) — {} explicit placement(s) \
+                         override EG-026 hash routing",
+                        cat.len()
+                    );
+                }
+                self.with_catalog(Arc::new(cat))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "tenant catalog open failed ({e}); continuing with pure EG-026 routing"
+                );
+                self
+            }
+        }
     }
 
     /// Open with an EXPLICIT requested shard count (CONCEPT:EG-026). Used by `open`
@@ -751,6 +821,7 @@ impl RedbBackend {
         Ok(Self {
             shards,
             catalog: None,
+            routing_epoch: Arc::new(RwLock::new(())),
         })
     }
 
@@ -762,6 +833,61 @@ impl RedbBackend {
     ) -> Self {
         self.catalog = Some(catalog);
         self
+    }
+
+    /// The attached tenant catalog, if any (CONCEPT:EG-033). `None` ⇒ pure EG-026. The
+    /// admin/API surface uses this to populate/persist placements (`assign`/`reassign`/
+    /// `remove`); a placement change that must also MOVE the graph's rows goes through
+    /// [`Self::reshard_graph`] instead (which flips the route AND migrates the data).
+    pub fn catalog(
+        &self,
+    ) -> Option<Arc<crate::server::persistence::tenant_catalog::TenantCatalog>> {
+        self.catalog.clone()
+    }
+
+    /// Move ONE graph's rows from its current shard to `dst_shard` while the engine RUNS,
+    /// then flip the catalog route (CONCEPT:EG-032 — the M3 keystone). Requires an attached
+    /// tenant catalog (CONCEPT:EG-033 / R5). No data loss, single-writer-per-shard
+    /// correctness, and audit-chain validity all hold across the move; other graphs are
+    /// never touched. See [`super::online_reshard`] for the verbatim copy + crash-ordering.
+    ///
+    /// `graph_fname` must already be `sanitize`d (the durable key). `dst_shard` is clamped
+    /// into `0..K`. A graph already on the target shard is a no-op.
+    pub async fn reshard_graph(
+        &self,
+        graph_fname: &str,
+        dst_shard: u32,
+    ) -> Result<super::online_reshard::ReshardReport, String> {
+        let catalog = self.catalog.clone().ok_or_else(|| {
+            "online reshard requires an attached tenant catalog \
+             (set EPISTEMIC_GRAPH_TENANT_CATALOG=1)"
+                .to_string()
+        })?;
+        let k = self.shards.len().max(1);
+        let dst_idx = (dst_shard as usize) % k;
+        let src_idx = catalog.resolve_shard(graph_fname, k);
+        if src_idx == dst_idx {
+            return Ok(super::online_reshard::ReshardReport::no_op(
+                graph_fname,
+                src_idx,
+            ));
+        }
+        let src_tx = self.shards[src_idx].tx.clone();
+        let dst_tx = self.shards[dst_idx].tx.clone();
+        let graph = graph_fname.to_string();
+        // Exclusive routing quiesce: no catalog-attached write can resolve/enqueue while
+        // the move runs, so the route flip never loses or misroutes a write. The whole
+        // move runs on a blocking thread (it drives both shard writers over their
+        // channels), holding the write guard for its duration.
+        let quiesce = self.routing_epoch.clone().write_owned().await;
+        tokio::task::spawn_blocking(move || {
+            let _held = quiesce;
+            super::online_reshard::execute_online_reshard(
+                &src_tx, &dst_tx, &catalog, &graph, src_idx, dst_idx,
+            )
+        })
+        .await
+        .map_err(|e| format!("reshard join error: {e}"))?
     }
 
     /// The shard that owns `graph_fname` (stable routing, CONCEPT:EG-026 / EG-031).
@@ -794,7 +920,10 @@ impl RedbBackend {
 
     /// Total mutations dropped due to channel saturation, summed across shards.
     pub fn dropped(&self) -> u64 {
-        self.shards.iter().map(|s| s.dropped.load(Ordering::Relaxed)).sum()
+        self.shards
+            .iter()
+            .map(|s| s.dropped.load(Ordering::Relaxed))
+            .sum()
     }
 
     /// Group-commit batch-size / linger counters (CONCEPT:EG-024). Returns shard 0's
@@ -1034,13 +1163,33 @@ impl PersistenceBackend for RedbBackend {
         // Blocking send = backpressure: park until the bounded channel has room
         // rather than dropping. Off the reactor via spawn_blocking so a saturated
         // writer can't stall the Tokio worker pool. Routed to the graph's shard.
-        let tx = self.shard_for(graph_fname).tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(cmd))
+        //
+        // CONCEPT:EG-032 — when a tenant catalog is attached, resolve the shard AND enqueue
+        // the op while holding a SHARED `routing_epoch` READ guard, so an online reshard's
+        // exclusive flip cannot interleave (no lost / misrouted write). The guard is moved
+        // INTO the blocking send so it is held exactly until the op is enqueued, then
+        // dropped. With NO catalog (the default) this is byte-for-byte the EG-026 path.
+        if self.catalog.is_some() {
+            let guard = self.routing_epoch.clone().read_owned().await;
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _routing = guard;
+                tx.send(cmd)
+            })
             .await
             .map_err(|e| format!("redb record_durable join error: {e}"))?
             .map_err(|_| {
                 "redb writer thread is gone; durable mutation not persisted".to_string()
             })?;
+        } else {
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || tx.send(cmd))
+                .await
+                .map_err(|e| format!("redb record_durable join error: {e}"))?
+                .map_err(|_| {
+                    "redb writer thread is gone; durable mutation not persisted".to_string()
+                })?;
+        }
         // Await the writer's post-commit signal. A dropped sender (writer gone /
         // commit thread died) is a durability failure, surfaced as Err.
         match done_rx.await {
@@ -1069,11 +1218,25 @@ impl PersistenceBackend for RedbBackend {
             blob_refs: blob_refs.to_vec(),
             done,
         };
-        let tx = self.shard_for(graph_fname).tx.clone();
-        tokio::task::spawn_blocking(move || tx.send(cmd))
+        // CONCEPT:EG-032 — same routing-epoch quiesce as `record_durable` when a catalog
+        // is attached, so a cross-modal commit cannot race an online reshard's route flip.
+        if self.catalog.is_some() {
+            let guard = self.routing_epoch.clone().read_owned().await;
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _routing = guard;
+                tx.send(cmd)
+            })
             .await
             .map_err(|e| format!("commit_crossmodal join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
+        } else {
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || tx.send(cmd))
+                .await
+                .map_err(|e| format!("commit_crossmodal join error: {e}"))?
+                .map_err(|_| "redb writer thread is gone".to_string())?;
+        }
         match rx.await {
             Ok(res) => res,
             Err(_) => Err("redb writer dropped commit_crossmodal completion".to_string()),
@@ -1554,13 +1717,27 @@ fn run(
                         lingered = true;
                         match rx.recv_timeout(group_commit.linger) {
                             Ok(cmd) => {
-                                if handle_cmd(cmd, &db, &mut pending, policy, flush_threshold, crypto) {
+                                if handle_cmd(
+                                    cmd,
+                                    &db,
+                                    &mut pending,
+                                    policy,
+                                    flush_threshold,
+                                    crypto,
+                                ) {
                                     commit_now(&mut pending, Durability::Immediate, true);
                                     return;
                                 }
                                 // Drain everyone who arrived during the linger window.
                                 while let Ok(cmd) = rx.try_recv() {
-                                    if handle_cmd(cmd, &db, &mut pending, policy, flush_threshold, crypto) {
+                                    if handle_cmd(
+                                        cmd,
+                                        &db,
+                                        &mut pending,
+                                        policy,
+                                        flush_threshold,
+                                        crypto,
+                                    ) {
                                         commit_now(&mut pending, Durability::Immediate, true);
                                         return;
                                     }
@@ -1725,6 +1902,20 @@ fn handle_cmd(
             // then range-scan ONE graph's rows (CONCEPT:KG-2.224).
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(read_graph_dump(db, &graph, crypto));
+            false
+        }
+        Cmd::ExportGraphRaw { graph, reply } => {
+            // CONCEPT:EG-032 — flush pending so every committed mutation is captured, then
+            // scan this graph's rows VERBATIM (raw blobs — encryption + audit chain kept).
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(super::online_reshard::export_graph_raw(db, &graph));
+            false
+        }
+        Cmd::ImportGraphRaw { graph, rows, reply } => {
+            // CONCEPT:EG-032 — flush pending first (consistency), then land the migrated
+            // rows verbatim in ONE durable commit (the move's commit-before-ack point).
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(super::online_reshard::import_graph_raw(db, &graph, &rows));
             false
         }
         #[cfg(feature = "security")]
@@ -2839,7 +3030,10 @@ mod tests {
             }
         }
         // A genuinely absent node is still None (the snapshot read is not a fabricator).
-        assert_eq!(backend.read_node("ga", "missing").await.expect("read"), None);
+        assert_eq!(
+            backend.read_node("ga", "missing").await.expect("read"),
+            None
+        );
 
         // THE PROOF: not a single shard committed because of the reads.
         let after: u64 = backend.commit_stats_all().iter().map(|s| s.commits()).sum();
@@ -3037,7 +3231,11 @@ mod tests {
         // Durability: every node present.
         for i in 0..n {
             assert!(
-                backend.read_node("g1", &format!("n{i}")).await.unwrap().is_some(),
+                backend
+                    .read_node("g1", &format!("n{i}"))
+                    .await
+                    .unwrap()
+                    .is_some(),
                 "n{i} durable"
             );
         }
@@ -3104,12 +3302,20 @@ mod tests {
         }
         for i in 0..n {
             assert!(
-                backend.read_node("g1", &format!("n{i}")).await.unwrap().is_some(),
+                backend
+                    .read_node("g1", &format!("n{i}"))
+                    .await
+                    .unwrap()
+                    .is_some(),
                 "n{i} durable"
             );
         }
         // No commit ever lingered when the knob is 0.
-        assert_eq!(stats.lingered(), 0, "linger disabled ⇒ zero lingered commits");
+        assert_eq!(
+            stats.lingered(),
+            0,
+            "linger disabled ⇒ zero lingered commits"
+        );
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3726,7 +3932,12 @@ mod tests {
     #[test]
     fn shard_index_is_stable_and_bounded() {
         for k in [1usize, 2, 3, 4, 8] {
-            for name in ["__commons__", "agent:planner", "g1", "enterprise-acme:billing"] {
+            for name in [
+                "__commons__",
+                "agent:planner",
+                "g1",
+                "enterprise-acme:billing",
+            ] {
                 let a = shard_index(name, k);
                 let b = shard_index(name, k);
                 assert_eq!(a, b, "routing must be deterministic for {name} (K={k})");
@@ -3751,7 +3962,10 @@ mod tests {
         let backend = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 64, 1)
             .expect("open K=1");
         assert_eq!(backend.shard_count(), 1);
-        assert!(dir.join("graph.redb").exists(), "K=1 must use legacy graph.redb");
+        assert!(
+            dir.join("graph.redb").exists(),
+            "K=1 must use legacy graph.redb"
+        );
         assert!(
             !dir.join("graph-0.redb").exists(),
             "K=1 must NOT create a graph-0.redb shard file"
@@ -3785,13 +3999,15 @@ mod tests {
         let owner = shard_index(graph, K);
 
         {
-            let backend =
-                RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
-                    .expect("open K=4");
+            let backend = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
+                .expect("open K=4");
             assert_eq!(backend.shard_count(), K);
             // All K shard files exist (each acquired its exclusive lock at open).
             for i in 0..K {
-                assert!(dir.join(format!("graph-{i}.redb")).exists(), "shard {i} file");
+                assert!(
+                    dir.join(format!("graph-{i}.redb")).exists(),
+                    "shard {i} file"
+                );
             }
             backend
                 .record_durable(
@@ -3821,9 +4037,8 @@ mod tests {
         // RESTART: reopen the SAME dir (K reconciled from on-disk layout) and read the
         // node straight back from disk — durability across a process restart.
         {
-            let backend =
-                RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
-                    .expect("reopen K=4");
+            let backend = RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
+                .expect("reopen K=4");
             assert_eq!(backend.shard_count(), K, "K reconciled from disk");
             assert!(
                 backend.read_node(graph, "n1").await.unwrap().is_some(),
@@ -3928,6 +4143,262 @@ mod tests {
         for i in 0..3 {
             assert!(dir.join(format!("graph-{i}.redb")).exists());
         }
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-033 (R5) — the catalog auto-attach gate + the empty-catalog routing
+    /// identity. A durable `catalog.redb` ⇒ `open()` attaches it; absent (and no flag) ⇒
+    /// no catalog (pure EG-026). An EMPTY catalog resolves every graph to the exact EG-026
+    /// `shard_index` (byte-for-byte), and an explicit assignment overrides the hash.
+    #[tokio::test]
+    async fn catalog_auto_attach_gate_and_empty_is_fnv1a() {
+        use crate::server::persistence::tenant_catalog::TenantCatalog;
+        let root = std::env::temp_dir().join(format!("eg-r5-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+
+        // (1) No catalog.redb, no env ⇒ open() attaches NOTHING (default EG-026 routing).
+        let plain_dir = root.join("plain");
+        std::fs::create_dir_all(&plain_dir).unwrap();
+        let plain = RedbBackend::open(
+            plain_dir.to_string_lossy().to_string(),
+            FsyncPolicy::Each,
+            64,
+        )
+        .unwrap();
+        assert!(plain.catalog().is_none(), "default open() has no catalog");
+        plain.shutdown();
+
+        // (2) A durable catalog.redb present ⇒ open() auto-attaches it, loading its
+        // placements. This is the "attach if a durable catalog exists" gate.
+        let cat_dir = root.join("cat");
+        let cat_dir_s = cat_dir.to_string_lossy().to_string();
+        {
+            let cat = TenantCatalog::open(&cat_dir_s).expect("seed catalog");
+            cat.assign("pinned", 0, None).unwrap();
+        }
+        let attached = RedbBackend::open(cat_dir_s.clone(), FsyncPolicy::Each, 64).unwrap();
+        let cat = attached
+            .catalog()
+            .expect("durable catalog auto-attached at open");
+        assert_eq!(cat.len(), 1, "the prior placement survived + reloaded");
+        attached.shutdown();
+
+        // (3) Empty catalog routes IDENTICALLY to EG-026 for every graph/K (no regression).
+        let empty = TenantCatalog::in_memory();
+        for k in [1usize, 2, 4, 8, 16] {
+            for g in ["__commons__", "agent:7", "g-move", "tenant_x", "ZZZ"] {
+                assert_eq!(
+                    empty.resolve_shard(g, k),
+                    shard_index(g, k),
+                    "empty catalog == FNV-1a for g={g} K={k}"
+                );
+            }
+        }
+        // An explicit override wins (the routing flip an online reshard performs).
+        empty.assign("g-move", 0, None).unwrap();
+        assert_eq!(empty.resolve_shard("g-move", 4), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// CONCEPT:EG-032 (R1) — move ONE graph between shards while the engine RUNS, with
+    /// concurrent writes to that graph ACROSS the flip. Every node/edge survives, the
+    /// audit chain stays valid, reads/writes follow the graph to its new shard, the source
+    /// rows are GC'd, and an unrelated graph is untouched.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn online_reshard_moves_graph_live_no_loss() {
+        use crate::server::persistence::tenant_catalog::TenantCatalog;
+        const K: usize = 4;
+        let dir = std::env::temp_dir().join(format!("eg-r1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir_s = dir.to_string_lossy().to_string();
+
+        let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
+        let backend = Arc::new(
+            RedbBackend::open_with_shards(dir_s.clone(), FsyncPolicy::Each, 256, K)
+                .expect("open K=4")
+                .with_catalog(catalog.clone()),
+        );
+        assert_eq!(backend.shard_count(), K);
+
+        let mover = "g-move";
+        let stay = "g-stay";
+        let src = shard_index(mover, K);
+        let dst = (src + 1) % K;
+
+        for g in [mover, stay] {
+            backend
+                .register_graph(g, g, GraphType::Global)
+                .await
+                .unwrap();
+        }
+        for i in 0..10u32 {
+            backend
+                .record_durable(
+                    mover,
+                    &Method::AddNode {
+                        node_id: format!("n{i}"),
+                        properties_msgpack: props(serde_json::json!({"g": mover, "i": i})),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        backend
+            .record_durable(
+                mover,
+                &Method::AddEdge {
+                    source_id: "n0".into(),
+                    target_id: "n1".into(),
+                    properties_msgpack: props(serde_json::json!({"w": 1})),
+                },
+            )
+            .await
+            .unwrap();
+        for i in 0..5u32 {
+            backend
+                .record_durable(
+                    stay,
+                    &Method::AddNode {
+                        node_id: format!("s{i}"),
+                        properties_msgpack: props(serde_json::json!({"g": stay, "i": i})),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            catalog.resolve_shard(mover, K),
+            src,
+            "FNV route before any move"
+        );
+
+        // Concurrent writes to `mover` fired together with the move — they straddle the
+        // route flip and must ALL survive on the destination shard (zero lost/misrouted).
+        let writer_backend = backend.clone();
+        let writer = tokio::spawn(async move {
+            for i in 10..20u32 {
+                writer_backend
+                    .record_durable(
+                        "g-move",
+                        &Method::AddNode {
+                            node_id: format!("n{i}"),
+                            properties_msgpack: props(serde_json::json!({"g": "g-move", "i": i})),
+                        },
+                    )
+                    .await
+                    .expect("concurrent durable");
+            }
+        });
+        let report = backend
+            .reshard_graph(mover, dst as u32)
+            .await
+            .expect("reshard");
+        writer.await.unwrap();
+
+        assert!(!report.no_op);
+        assert_eq!((report.from_shard, report.to_shard), (src, dst));
+        assert_eq!(
+            catalog.resolve_shard(mover, K),
+            dst,
+            "route now follows to dst"
+        );
+
+        // All 20 nodes + the edge survive and read back from the NEW shard.
+        let dump = backend
+            .read_graph_dump_blocking(mover)
+            .unwrap()
+            .expect("mover present after move");
+        assert_eq!(dump.nodes.len(), 20, "pre + concurrent nodes all survived");
+        assert_eq!(dump.edges.len(), 1, "edge survived");
+        for i in 0..20u32 {
+            assert!(
+                dump.nodes.iter().any(|(id, _)| id == &format!("n{i}")),
+                "node n{i} present after move"
+            );
+        }
+
+        // A post-move write lands on the NEW shard (route followed the graph).
+        backend
+            .record_durable(
+                mover,
+                &Method::AddNode {
+                    node_id: "post".into(),
+                    properties_msgpack: props(serde_json::json!({"g": "g-move"})),
+                },
+            )
+            .await
+            .unwrap();
+        let dump2 = backend.read_graph_dump_blocking(mover).unwrap().unwrap();
+        assert_eq!(dump2.nodes.len(), 21, "post-move write on the new shard");
+
+        // The unrelated graph is completely unaffected.
+        let sdump = backend
+            .read_graph_dump_blocking(stay)
+            .unwrap()
+            .expect("stay present");
+        assert_eq!(sdump.nodes.len(), 5);
+
+        // The tamper-evident audit chain still verifies on the new shard.
+        #[cfg(feature = "security")]
+        {
+            let audit = backend.audit_verify_blocking(mover).expect("audit verify");
+            assert!(
+                audit.ok,
+                "audit chain valid after the online move: {}",
+                audit.detail
+            );
+        }
+
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-034 (R6) — a cold (idle) graph is offloaded: its whole in-RAM state is
+    /// dropped to bound RAM, yet every node still SERVES on access via the KG-2.191
+    /// read-through from redb. The shared `__commons__` is never offloaded.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cold_offload_evicts_then_serves_on_access() {
+        use crate::server::persistence::cold_offload::{offload_cold_tenants, ColdTenantTracker};
+        let dir = std::env::temp_dir().join(format!("eg-r6-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 256).expect("open"));
+        let state = new_state_auth(Some(dir_s.clone()), true);
+
+        let core = seed_authoritative(&backend, &state, 12).await;
+        assert_eq!(core.node_count(), 12, "all nodes resident before offload");
+
+        let tracker = ColdTenantTracker::new();
+        tracker.touch("g1");
+        // Window 0 ⇒ g1 is cold ⇒ offloaded; __commons__ is skipped.
+        let offloaded = offload_cold_tenants(&state, &tracker, std::time::Duration::ZERO).await;
+        assert_eq!(offloaded, 1, "exactly g1 offloaded");
+        assert!(tracker.is_offloaded("g1"));
+        assert_eq!(tracker.offloaded_total(), 1);
+        assert_eq!(core.node_count(), 0, "in-RAM state evicted by offload");
+
+        // Served on access: every node reads back from redb via the read-through seam.
+        for i in 0..12usize {
+            assert_eq!(
+                core.get_node_properties(&format!("n{i}")),
+                Some(props(serde_json::json!({"type": "Task", "i": i}))),
+                "offloaded node n{i} serves from redb on access"
+            );
+        }
+
+        // Re-touch clears the offload mark + resets the idle clock (windowing).
+        tracker.touch("g1");
+        assert!(!tracker.is_offloaded("g1"));
+        assert!(
+            tracker
+                .cold_graphs(std::time::Duration::from_secs(3600))
+                .is_empty(),
+            "a just-touched graph is not cold under a long window"
+        );
+
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
