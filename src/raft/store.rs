@@ -1,10 +1,18 @@
-//! Raft storage (CONCEPT:KG-2.188 + KG-2.204) — durable log store + state machine.
+//! Raft storage (CONCEPT:KG-2.188 + KG-2.204 + KG-2.273) — durable log store + state
+//! machine, on openraft 0.10's **v2 split-storage** API.
 //!
-//! Built on openraft's v1 [`RaftStorage`] trait (split into a log store + state
-//! machine by [`openraft::storage::Adaptor`] in [`super::node`]). Two
-//! engine-specific properties:
+//! openraft 0.10 removed the combined `RaftStorage` trait (and the `Adaptor` that
+//! split it). A store now implements TWO traits directly:
 //!
-//! 1. **The state machine IS the engine.** `apply_to_state_machine` applies each
+//! * [`RaftLogStorage`] (+ its super-trait [`RaftLogReader`]) — the durable LOG, vote,
+//!   and (optionally) the committed pointer; and
+//! * [`RaftStateMachine`] (+ [`RaftSnapshotBuilder`]) — apply + snapshot.
+//!
+//! Both are implemented on `Arc<EgStore>`, so [`super::multi::create_group`] passes the
+//! SAME `Arc` as both the log store and the state machine (no adaptor needed). Two
+//! engine-specific properties carry over from the 0.9 implementation:
+//!
+//! 1. **The state machine IS the engine.** [`RaftStateMachine::apply`] applies each
 //!    committed [`RaftRequest`]'s durable [`Method`] to the target graph's
 //!    [`GraphCore`] via the SAME [`crate::wal::apply`] path a replayed WAL record
 //!    uses, then awaits [`PersistenceBackend::record_durable`] (the M2 / KG-2.187
@@ -13,41 +21,46 @@
 //! 2. **Durable redb Raft log (CONCEPT:KG-2.204).** The log entries, the vote, and
 //!    the applied-state pointers all live in the SAME `graph.redb` Database as the
 //!    M2 graph data — keyed by `(group_id, index)` / `(group_id, key)` so ONE redb
-//!    file serves the M2 store AND every Raft group's log (the spike's "one DB,
-//!    composite key" shape — NOT a file per group, which hits the FD ceiling).
-//!    Because the log shares the M2 `RedbBackend`'s off-reactor group-commit writer,
-//!    a log append and its graph mutation COALESCE into ONE `WriteTransaction` /
-//!    one fsync. A restarted node recovers its log tail LOCALLY from redb — it no
-//!    longer needs the leader to refill an un-snapshotted tail.
+//!    file serves the M2 store AND every Raft group's log. Because the log shares the
+//!    M2 `RedbBackend`'s off-reactor group-commit writer, a log append and its graph
+//!    mutation COALESCE into ONE `WriteTransaction` / one fsync. A restarted node
+//!    recovers its log tail LOCALLY from redb.
 //!
-//! The snapshot carries a full graph dump so a follower that installs a snapshot
-//! (rather than replaying every log entry) still materializes the data into its
-//! registry + M2 store.
+//! ### 0.10 API notes
+//!
+//! * Every storage method now returns `std::io::Error` directly (the 0.9
+//!   `StorageError`/`StorageIOError` constructors are gone) — failures map through the
+//!   small [`ioerr`] helper.
+//! * Types are parameterized by the type config via the `…Of<C>` aliases
+//!   ([`LogIdOf`], [`VoteOf`], [`SnapshotMetaOf`], …) instead of `LogId<NodeId>` etc.
+//! * [`RaftLogStorage::append`] returns after the in-memory save and signals
+//!   durability through an [`IOFlushed`] callback — our redb append is synchronously
+//!   durable, so we fire the callback right after the group-commit fsync resolves.
+//! * [`RaftStateMachine::apply`] consumes a `Stream` of `(entry, responder)`; the
+//!   per-entry [`ApplyResponder`] is `send`-ed the response after the effect lands.
+//! * The chunked `install_snapshot` is replaced by full-snapshot transfer; the state
+//!   machine still installs a full graph dump.
 
 use std::fmt::Debug;
+use std::io;
 use std::io::Cursor;
 use std::ops::{Bound, RangeBounds};
 use std::sync::Arc;
 
-use openraft::storage::LogState;
-use openraft::storage::RaftLogReader;
-use openraft::storage::RaftSnapshotBuilder;
-use openraft::storage::Snapshot;
-use openraft::Entry;
-use openraft::EntryPayload;
-use openraft::LogId;
-use openraft::OptionalSend;
-use openraft::RaftLogId;
-use openraft::RaftStorage;
-use openraft::SnapshotMeta;
-use openraft::StorageError;
-use openraft::StorageIOError;
-use openraft::StoredMembership;
-use openraft::Vote;
+use openraft::entry::RaftEntry;
+use openraft::storage::EntryResponder;
+use openraft::storage::{
+    IOFlushed, LogState, RaftLogReader, RaftLogStorage, RaftSnapshotBuilder, RaftStateMachine,
+    Snapshot, SnapshotMeta,
+};
+use openraft::type_config::alias::{
+    EntryOf, LogIdOf, SnapshotDataOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf, VoteOf,
+};
+use openraft::{EntryPayload, OptionalSend, StoredMembership};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use super::{AppCtx, GroupId, NodeId, RaftRequest, RaftResponse, TypeConfig};
+use super::{AppCtx, GroupId, RaftRequest, RaftResponse, TypeConfig};
 use crate::protocol::GraphType;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
@@ -55,6 +68,12 @@ use crate::server::persistence::PersistenceBackend;
 const KEY_VOTE: &str = "vote";
 const KEY_APPLIED: &str = "applied_state";
 const KEY_PURGED: &str = "last_purged";
+
+/// Map any `Display` error (the redb backend + rmp_serde all surface `String`/`E:
+/// Display`) into the `io::Error` the 0.10 storage traits now require.
+fn ioerr<E: std::fmt::Display>(e: E) -> io::Error {
+    io::Error::other(e.to_string())
+}
 
 /// One graph's data, captured for a snapshot so a follower can rebuild it on
 /// `install_snapshot` even if it never saw the per-entry log.
@@ -69,27 +88,29 @@ struct GraphSnapshot {
 
 /// The serialized state-machine snapshot body.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(bound = "")]
 struct SmSnapshotData {
-    last_applied_log: Option<LogId<NodeId>>,
-    last_membership: StoredMembership<NodeId, openraft::BasicNode>,
+    last_applied_log: Option<LogIdOf<TypeConfig>>,
+    last_membership: StoredMembershipOf<TypeConfig>,
     graphs: Vec<GraphSnapshot>,
 }
 
 /// The on-disk applied-state pointers persisted to redb after every apply.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(bound = "")]
 struct AppliedState {
-    last_applied_log: Option<LogId<NodeId>>,
-    last_membership: StoredMembership<NodeId, openraft::BasicNode>,
+    last_applied_log: Option<LogIdOf<TypeConfig>>,
+    last_membership: StoredMembershipOf<TypeConfig>,
 }
 
 /// A held snapshot: its metadata + the serialized body.
-type HeldSnapshot = (SnapshotMeta<NodeId, openraft::BasicNode>, Vec<u8>);
+type HeldSnapshot = (SnapshotMetaOf<TypeConfig>, Vec<u8>);
 
 /// In-RAM state-machine pointers (the actual graph data lives in GraphCore + M2).
 #[derive(Debug, Clone, Default)]
 struct StateMachine {
-    last_applied_log: Option<LogId<NodeId>>,
-    last_membership: StoredMembership<NodeId, openraft::BasicNode>,
+    last_applied_log: Option<LogIdOf<TypeConfig>>,
+    last_membership: StoredMembershipOf<TypeConfig>,
 }
 
 /// The combined Raft storage for ONE group: a durable redb-backed log + the
@@ -103,9 +124,9 @@ pub struct EgStore {
     /// concrete [`RedbBackend`] is recovered via [`PersistenceBackend::as_redb`] so
     /// the log rides the SAME writer/transaction as the M2 graph mutations.
     backend: Arc<dyn PersistenceBackend>,
-    last_purged_log_id: RwLock<Option<LogId<NodeId>>>,
-    committed: RwLock<Option<LogId<NodeId>>>,
-    vote: RwLock<Option<Vote<NodeId>>>,
+    last_purged_log_id: RwLock<Option<LogIdOf<TypeConfig>>>,
+    committed: RwLock<Option<LogIdOf<TypeConfig>>>,
+    vote: RwLock<Option<VoteOf<TypeConfig>>>,
     sm: RwLock<StateMachine>,
     current_snapshot: RwLock<Option<HeldSnapshot>>,
     snapshot_idx: parking_lot::Mutex<u64>,
@@ -134,7 +155,7 @@ impl EgStore {
             Some(b) => rmp_serde::from_slice(&b).map_err(|e| e.to_string())?,
             None => AppliedState::default(),
         };
-        let purged: Option<LogId<NodeId>> = match redb.raft_meta_get(group_id, KEY_PURGED)? {
+        let purged: Option<LogIdOf<TypeConfig>> = match redb.raft_meta_get(group_id, KEY_PURGED)? {
             Some(b) => rmp_serde::from_slice(&b).map_err(|e| e.to_string())?,
             None => None,
         };
@@ -161,14 +182,14 @@ impl EgStore {
             .expect("raft store backend is always redb (checked at open)")
     }
 
-    async fn persist_vote(&self, vote: &Vote<NodeId>) -> Result<(), String> {
+    async fn persist_vote(&self, vote: &VoteOf<TypeConfig>) -> Result<(), String> {
         let b = rmp_serde::to_vec_named(vote).map_err(|e| e.to_string())?;
         self.redb().raft_meta_put(self.group_id, KEY_VOTE, b).await
     }
 
     async fn persist_applied(&self, sm: &StateMachine) -> Result<(), String> {
         let a = AppliedState {
-            last_applied_log: sm.last_applied_log,
+            last_applied_log: sm.last_applied_log.clone(),
             last_membership: sm.last_membership.clone(),
         };
         let b = rmp_serde::to_vec_named(&a).map_err(|e| e.to_string())?;
@@ -245,7 +266,12 @@ impl EgStore {
     /// carries ONLY its own tenant-range graphs without reaching into private types.
     #[cfg(test)]
     pub(crate) async fn scoped_snapshot_graph_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.dump_graphs().await.into_iter().map(|g| g.name).collect();
+        let mut names: Vec<String> = self
+            .dump_graphs()
+            .await
+            .into_iter()
+            .map(|g| g.name)
+            .collect();
         names.sort();
         names
     }
@@ -299,7 +325,7 @@ impl EgStore {
     }
 
     /// Read ONE stored log entry by index from redb (helper for `get_log_state`).
-    fn read_one_entry(&self, idx: u64) -> Result<Option<Entry<TypeConfig>>, String> {
+    fn read_one_entry(&self, idx: u64) -> Result<Option<EntryOf<TypeConfig>>, String> {
         let blobs = self.redb().raft_log_read(self.group_id, idx, idx)?;
         match blobs.into_iter().next() {
             Some(b) => Ok(Some(rmp_serde::from_slice(&b).map_err(|e| e.to_string())?)),
@@ -328,7 +354,7 @@ impl RaftLogReader<TypeConfig> for Arc<EgStore> {
     async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
         &mut self,
         range: RB,
-    ) -> Result<Vec<Entry<TypeConfig>>, StorageError<NodeId>> {
+    ) -> Result<Vec<EntryOf<TypeConfig>>, io::Error> {
         let (lo, hi) = inclusive_bounds(&range);
         if lo > hi {
             return Ok(Vec::new());
@@ -336,38 +362,41 @@ impl RaftLogReader<TypeConfig> for Arc<EgStore> {
         let blobs = self
             .redb()
             .raft_log_read(self.group_id, lo, hi)
-            .map_err(|e| StorageIOError::read_logs(&AnyErr(e)))?;
+            .map_err(ioerr)?;
         let mut out = Vec::with_capacity(blobs.len());
         for b in blobs {
-            let e: Entry<TypeConfig> = rmp_serde::from_slice(&b)
-                .map_err(|e| StorageIOError::read_logs(&AnyErr(e.to_string())))?;
+            let e: EntryOf<TypeConfig> = rmp_serde::from_slice(&b).map_err(ioerr)?;
             out.push(e);
         }
         Ok(out)
     }
+
+    /// The last saved vote (moved onto [`RaftLogReader`] in openraft 0.10).
+    async fn read_vote(&mut self) -> Result<Option<VoteOf<TypeConfig>>, io::Error> {
+        Ok(self.vote.read().await.clone())
+    }
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<EgStore> {
-    async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
+    async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
         let (last_applied_log, last_membership) = {
             let sm = self.sm.read().await;
-            (sm.last_applied_log, sm.last_membership.clone())
+            (sm.last_applied_log.clone(), sm.last_membership.clone())
         };
         let graphs = self.dump_graphs().await;
         let body = SmSnapshotData {
-            last_applied_log,
+            last_applied_log: last_applied_log.clone(),
             last_membership: last_membership.clone(),
             graphs,
         };
-        let data =
-            rmp_serde::to_vec_named(&body).map_err(|e| StorageIOError::read_state_machine(&e))?;
+        let data = rmp_serde::to_vec_named(&body).map_err(ioerr)?;
 
         let snapshot_idx = {
             let mut l = self.snapshot_idx.lock();
             *l += 1;
             *l
         };
-        let snapshot_id = match last_applied_log {
+        let snapshot_id = match &last_applied_log {
             Some(last) => format!("{}-{}-{}", last.leader_id, last.index, snapshot_idx),
             None => format!("--{}", snapshot_idx),
         };
@@ -379,32 +408,25 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<EgStore> {
         *self.current_snapshot.write().await = Some((meta.clone(), data.clone()));
         Ok(Snapshot {
             meta,
-            snapshot: Box::new(Cursor::new(data)),
+            snapshot: Cursor::new(data),
         })
     }
 }
 
-impl RaftStorage<TypeConfig> for Arc<EgStore> {
+impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
     type LogReader = Self;
-    type SnapshotBuilder = Self;
 
-    async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, StorageError<NodeId>> {
-        let (_, last_idx) = self
-            .redb()
-            .raft_log_bounds(self.group_id)
-            .map_err(|e| StorageIOError::read_logs(&AnyErr(e)))?;
-        let last_purged = *self.last_purged_log_id.read().await;
+    async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, io::Error> {
+        let (_, last_idx) = self.redb().raft_log_bounds(self.group_id).map_err(ioerr)?;
+        let last_purged = self.last_purged_log_id.read().await.clone();
         // Reconstruct the last log id from the stored entry (redb holds the Entry),
         // so a restart knows its log tail WITHOUT the leader.
         let last_log_id = match last_idx {
-            Some(i) => match self
-                .read_one_entry(i)
-                .map_err(|e| StorageIOError::read_logs(&AnyErr(e)))?
-            {
-                Some(e) => Some(*e.get_log_id()),
-                None => last_purged,
+            Some(i) => match self.read_one_entry(i).map_err(ioerr)? {
+                Some(e) => Some(e.log_id()),
+                None => last_purged.clone(),
             },
-            None => last_purged,
+            None => last_purged.clone(),
         };
         Ok(LogState {
             last_purged_log_id: last_purged,
@@ -412,183 +434,176 @@ impl RaftStorage<TypeConfig> for Arc<EgStore> {
         })
     }
 
-    async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
-        self.persist_vote(vote)
-            .await
-            .map_err(|e| StorageIOError::write_vote(&AnyErr(e)))?;
-        *self.vote.write().await = Some(*vote);
-        Ok(())
+    async fn get_log_reader(&mut self) -> Self::LogReader {
+        self.clone()
     }
 
-    async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
-        Ok(*self.vote.read().await)
+    async fn save_vote(&mut self, vote: &VoteOf<TypeConfig>) -> Result<(), io::Error> {
+        self.persist_vote(vote).await.map_err(ioerr)?;
+        *self.vote.write().await = Some(vote.clone());
+        Ok(())
     }
 
     async fn save_committed(
         &mut self,
-        committed: Option<LogId<NodeId>>,
-    ) -> Result<(), StorageError<NodeId>> {
+        committed: Option<LogIdOf<TypeConfig>>,
+    ) -> Result<(), io::Error> {
         *self.committed.write().await = committed;
         Ok(())
     }
 
-    async fn read_committed(&mut self) -> Result<Option<LogId<NodeId>>, StorageError<NodeId>> {
-        Ok(*self.committed.read().await)
+    async fn read_committed(&mut self) -> Result<Option<LogIdOf<TypeConfig>>, io::Error> {
+        Ok(self.committed.read().await.clone())
     }
 
-    async fn last_applied_state(
+    async fn append<I>(
         &mut self,
-    ) -> Result<
-        (
-            Option<LogId<NodeId>>,
-            StoredMembership<NodeId, openraft::BasicNode>,
-        ),
-        StorageError<NodeId>,
-    > {
-        let sm = self.sm.read().await;
-        Ok((sm.last_applied_log, sm.last_membership.clone()))
-    }
-
-    async fn delete_conflict_logs_since(
-        &mut self,
-        log_id: LogId<NodeId>,
-    ) -> Result<(), StorageError<NodeId>> {
-        self.redb()
-            .raft_log_delete_from(self.group_id, log_id.index)
-            .await
-            .map_err(|e| StorageIOError::write_logs(&AnyErr(e)).into())
-    }
-
-    async fn purge_logs_upto(&mut self, log_id: LogId<NodeId>) -> Result<(), StorageError<NodeId>> {
-        {
-            let mut ld = self.last_purged_log_id.write().await;
-            assert!(*ld <= Some(log_id));
-            *ld = Some(log_id);
-        }
-        let b = rmp_serde::to_vec_named(&Some(log_id))
-            .map_err(|e| StorageIOError::write_logs(&AnyErr(e.to_string())))?;
-        self.redb()
-            .raft_meta_put(self.group_id, KEY_PURGED, b)
-            .await
-            .map_err(|e| StorageIOError::write_logs(&AnyErr(e)))?;
-        self.redb()
-            .raft_log_purge_upto(self.group_id, log_id.index)
-            .await
-            .map_err(|e| StorageIOError::write_logs(&AnyErr(e)).into())
-    }
-
-    async fn append_to_log<I>(&mut self, entries: I) -> Result<(), StorageError<NodeId>>
+        entries: I,
+        callback: IOFlushed<TypeConfig>,
+    ) -> Result<(), io::Error>
     where
-        I: IntoIterator<Item = Entry<TypeConfig>> + OptionalSend,
+        I: IntoIterator<Item = EntryOf<TypeConfig>> + OptionalSend,
+        I::IntoIter: OptionalSend,
     {
         let mut batch = Vec::new();
         for entry in entries {
-            let blob = rmp_serde::to_vec_named(&entry)
-                .map_err(|e| StorageIOError::write_logs(&AnyErr(e.to_string())))?;
-            batch.push((entry.log_id.index, blob));
+            let blob = rmp_serde::to_vec_named(&entry).map_err(ioerr)?;
+            batch.push((entry.log_id().index, blob));
         }
         // Durable append: rides the SAME group-commit transaction as any concurrent
-        // M2 graph mutation (CONCEPT:KG-2.204) — one fsync covers both.
-        self.redb()
-            .raft_log_append(self.group_id, batch)
-            .await
-            .map_err(|e| StorageIOError::write_logs(&AnyErr(e)).into())
+        // M2 graph mutation (CONCEPT:KG-2.204) — one fsync covers both. Our append is
+        // synchronously durable, so we fire the 0.10 `IOFlushed` callback the moment
+        // the group-commit fsync resolves (openraft treats the entry as on-disk then).
+        match self.redb().raft_log_append(self.group_id, batch).await {
+            Ok(()) => {
+                callback.io_completed(Ok(()));
+                Ok(())
+            }
+            Err(e) => {
+                let err = ioerr(&e);
+                callback.io_completed(Err(ioerr(&e)));
+                Err(err)
+            }
+        }
     }
 
-    async fn apply_to_state_machine(
+    async fn truncate_after(
         &mut self,
-        entries: &[Entry<TypeConfig>],
-    ) -> Result<Vec<RaftResponse>, StorageError<NodeId>> {
-        let mut res = Vec::with_capacity(entries.len());
-        for entry in entries {
+        last_log_id: Option<LogIdOf<TypeConfig>>,
+    ) -> Result<(), io::Error> {
+        // Delete every entry AFTER `last_log_id` (exclusive). `None` ⇒ wipe the whole
+        // log. `raft_log_delete_from(from)` removes index >= from.
+        let from = match last_log_id {
+            Some(id) => id.index + 1,
+            None => 0,
+        };
+        self.redb()
+            .raft_log_delete_from(self.group_id, from)
+            .await
+            .map_err(ioerr)
+    }
+
+    async fn purge(&mut self, log_id: LogIdOf<TypeConfig>) -> Result<(), io::Error> {
+        {
+            let mut ld = self.last_purged_log_id.write().await;
+            if ld.as_ref().map(|l| l.index) < Some(log_id.index) {
+                *ld = Some(log_id.clone());
+            }
+        }
+        let b = rmp_serde::to_vec_named(&Some(log_id.clone())).map_err(ioerr)?;
+        self.redb()
+            .raft_meta_put(self.group_id, KEY_PURGED, b)
+            .await
+            .map_err(ioerr)?;
+        self.redb()
+            .raft_log_purge_upto(self.group_id, log_id.index)
+            .await
+            .map_err(ioerr)
+    }
+}
+
+impl RaftStateMachine<TypeConfig> for Arc<EgStore> {
+    type SnapshotBuilder = Self;
+
+    async fn applied_state(
+        &mut self,
+    ) -> Result<(Option<LogIdOf<TypeConfig>>, StoredMembershipOf<TypeConfig>), io::Error> {
+        let sm = self.sm.read().await;
+        Ok((sm.last_applied_log.clone(), sm.last_membership.clone()))
+    }
+
+    async fn apply<Strm>(&mut self, mut entries: Strm) -> Result<(), io::Error>
+    where
+        Strm: futures::Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>>
+            + Unpin
+            + OptionalSend,
+    {
+        use futures::StreamExt;
+        while let Some(item) = entries.next().await {
+            let (entry, responder) = item?;
             let resp = match &entry.payload {
                 EntryPayload::Blank => RaftResponse { applied: false },
-                EntryPayload::Normal(req) => self
-                    .apply_request(req)
-                    .await
-                    .map_err(|e| StorageIOError::apply(entry.log_id, &AnyErr(e)))?,
+                EntryPayload::Normal(req) => self.apply_request(req).await.map_err(ioerr)?,
                 EntryPayload::Membership(mem) => {
                     let mut sm = self.sm.write().await;
-                    sm.last_membership = StoredMembership::new(Some(entry.log_id), mem.clone());
+                    sm.last_membership =
+                        StoredMembership::new(Some(entry.log_id.clone()), mem.clone());
                     RaftResponse { applied: false }
                 }
             };
             // Record the applied index (durably) AFTER the effect landed.
             {
                 let mut sm = self.sm.write().await;
-                sm.last_applied_log = Some(entry.log_id);
+                sm.last_applied_log = Some(entry.log_id.clone());
                 let snapshot = sm.clone();
                 drop(sm);
-                self.persist_applied(&snapshot)
-                    .await
-                    .map_err(|e| StorageIOError::write_state_machine(&AnyErr(e)))?;
+                self.persist_applied(&snapshot).await.map_err(ioerr)?;
             }
-            res.push(resp);
+            // Send the client response (only present for entries proposed on THIS
+            // node as leader — followers get `None`).
+            if let Some(responder) = responder {
+                responder.send(resp);
+            }
         }
-        Ok(res)
-    }
-
-    async fn begin_receiving_snapshot(
-        &mut self,
-    ) -> Result<Box<Cursor<Vec<u8>>>, StorageError<NodeId>> {
-        Ok(Box::new(Cursor::new(Vec::new())))
-    }
-
-    async fn install_snapshot(
-        &mut self,
-        meta: &SnapshotMeta<NodeId, openraft::BasicNode>,
-        snapshot: Box<Cursor<Vec<u8>>>,
-    ) -> Result<(), StorageError<NodeId>> {
-        let data = snapshot.into_inner();
-        let body: SmSnapshotData = rmp_serde::from_slice(&data)
-            .map_err(|e| StorageIOError::read_snapshot(Some(meta.signature()), &e))?;
-        // Materialize the graph data into the registry + M2 store.
-        self.install_graphs(&body.graphs)
-            .await
-            .map_err(|e| StorageIOError::write_state_machine(&AnyErr(e)))?;
-        {
-            let mut sm = self.sm.write().await;
-            sm.last_applied_log = body.last_applied_log;
-            sm.last_membership = body.last_membership.clone();
-            let snapshot = sm.clone();
-            drop(sm);
-            self.persist_applied(&snapshot)
-                .await
-                .map_err(|e| StorageIOError::write_state_machine(&AnyErr(e)))?;
-        }
-        *self.current_snapshot.write().await = Some((meta.clone(), data));
         Ok(())
-    }
-
-    async fn get_current_snapshot(
-        &mut self,
-    ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<NodeId>> {
-        match &*self.current_snapshot.read().await {
-            Some((meta, data)) => Ok(Some(Snapshot {
-                meta: meta.clone(),
-                snapshot: Box::new(Cursor::new(data.clone())),
-            })),
-            None => Ok(None),
-        }
-    }
-
-    async fn get_log_reader(&mut self) -> Self::LogReader {
-        self.clone()
     }
 
     async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
         self.clone()
     }
-}
 
-/// Adapter so a plain `String` error satisfies `Into<AnyError>` for the
-/// `StorageIOError` constructors (they take `impl Into<AnyError>`).
-#[derive(Debug)]
-struct AnyErr(String);
+    async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotDataOf<TypeConfig>, io::Error> {
+        Ok(Cursor::new(Vec::new()))
+    }
 
-impl std::fmt::Display for AnyErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+    async fn install_snapshot(
+        &mut self,
+        meta: &SnapshotMetaOf<TypeConfig>,
+        snapshot: SnapshotDataOf<TypeConfig>,
+    ) -> Result<(), io::Error> {
+        let data = snapshot.into_inner();
+        let body: SmSnapshotData = rmp_serde::from_slice(&data).map_err(ioerr)?;
+        // Materialize the graph data into the registry + M2 store.
+        self.install_graphs(&body.graphs).await.map_err(ioerr)?;
+        {
+            let mut sm = self.sm.write().await;
+            sm.last_applied_log = body.last_applied_log.clone();
+            sm.last_membership = body.last_membership.clone();
+            let snapshot = sm.clone();
+            drop(sm);
+            self.persist_applied(&snapshot).await.map_err(ioerr)?;
+        }
+        *self.current_snapshot.write().await = Some((meta.clone(), data));
+        Ok(())
+    }
+
+    async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig>>, io::Error> {
+        match &*self.current_snapshot.read().await {
+            Some((meta, data)) => Ok(Some(Snapshot {
+                meta: meta.clone(),
+                snapshot: Cursor::new(data.clone()),
+            })),
+            None => Ok(None),
+        }
     }
 }
-impl std::error::Error for AnyErr {}
