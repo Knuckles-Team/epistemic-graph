@@ -79,6 +79,7 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         persistence: Some(backend.clone()),
         redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(256)),
+        read_admission: Arc::new(tokio::sync::Semaphore::new(256)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 64,
         write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),

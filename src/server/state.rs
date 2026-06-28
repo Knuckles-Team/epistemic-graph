@@ -107,6 +107,17 @@ pub struct ServerState {
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
     pub max_in_flight: Arc<Semaphore>,
+    /// Reserved READ-admission lane (CONCEPT:EG-044). A dedicated semaphore that ONLY
+    /// read/query requests may acquire, held SEPARATELY from `max_in_flight` (which
+    /// writes also contend for) and from the per-graph cap. The transport admits a
+    /// read on the normal path first; if `max_in_flight` OR the per-graph cap is
+    /// saturated (e.g. an ingestion firehose has filled both), the read FALLS BACK to
+    /// this lane instead of being shed `BUSY`. Writes never touch it, so a flood of
+    /// ingestion writes can never starve an interactive MCP read/query — "always at
+    /// least one open lane for reads". Reads are cheap (a brief off-lock snapshot), so
+    /// the reservation is small and auto-sized (`Capacity::read_reserved`); exhausting
+    /// even this lane (a genuine read flood) still sheds `BUSY` so memory stays bounded.
+    pub read_admission: Arc<Semaphore>,
     /// Per-graph backpressure (Phase C-D — multi-tenant fairness). A lazily
     /// created semaphore per graph caps how many of the GLOBAL in-flight slots
     /// any single graph may hold at once, so one hot tenant flooding requests

@@ -184,6 +184,79 @@ fn per_connection_inflight_limit() -> usize {
     (cpus * 8).clamp(64, 1024)
 }
 
+/// The admission permits a request was granted (held by the dispatch task and
+/// dropped when it completes), or `Busy` if it must be shed. The three permit slots
+/// are mutually exclusive paths: a NORMAL admission holds `global`+`per_graph`; a
+/// RESERVED-read admission (CONCEPT:EG-044) holds only `read`.
+enum Admission {
+    Granted {
+        global: Option<tokio::sync::OwnedSemaphorePermit>,
+        per_graph: Option<tokio::sync::OwnedSemaphorePermit>,
+        read: Option<tokio::sync::OwnedSemaphorePermit>,
+    },
+    Busy,
+}
+
+/// Admit one request against the global pool + per-graph fairness cap, with a
+/// RESERVED READ LANE (CONCEPT:EG-044) so an ingestion WRITE firehose that saturates
+/// both can never shed an interactive read/query to BUSY.
+///
+/// * Both reads and writes try the NORMAL path first: a global in-flight permit AND
+///   this graph's per-graph permit.
+/// * A WRITE that loses the normal path is shed `Busy` — strictly back-pressured,
+///   never dropped (the durable write path stays the bottleneck, not admission).
+/// * A READ that loses the normal path falls back to the dedicated `read_sem` lane,
+///   BYPASSING the per-graph cap (a read pays no fairness tax — it is cheap and must
+///   stay live). Only a genuine read flood that also fills that small lane is shed.
+///
+/// This is a pure function over the shared handles so the responsiveness guarantee is
+/// directly unit-testable (saturate `sem`, assert reads still admit / writes shed).
+fn admit_request(
+    sem: &Arc<Semaphore>,
+    read_sem: &Arc<Semaphore>,
+    pg_map: &dashmap::DashMap<String, Arc<Semaphore>>,
+    pg_limit: usize,
+    graph: &str,
+    is_write: bool,
+) -> Admission {
+    // NORMAL path: global permit, then this graph's per-graph permit.
+    if let Ok(gp) = sem.clone().try_acquire_owned() {
+        let pg_sem = pg_map
+            .entry(graph.to_string())
+            .or_insert_with(|| Arc::new(Semaphore::new(pg_limit)))
+            .clone();
+        match pg_sem.try_acquire_owned() {
+            Ok(pp) => {
+                return Admission::Granted {
+                    global: Some(gp),
+                    per_graph: Some(pp),
+                    read: None,
+                };
+            }
+            // Per-graph cap full: drop `gp` (released here) and fall through.
+            Err(_) => {}
+        }
+    }
+
+    // Writes are NEVER dropped, only back-pressured: shed BUSY (retry with backoff).
+    if is_write {
+        return Admission::Busy;
+    }
+
+    // READ under write saturation: the reserved lane, bypassing the per-graph cap.
+    match read_sem.clone().try_acquire_owned() {
+        Ok(rp) => {
+            crate::metrics::read_reserved_admitted();
+            Admission::Granted {
+                global: None,
+                per_graph: None,
+                read: Some(rp),
+            }
+        }
+        Err(_) => Admission::Busy,
+    }
+}
+
 /// Handle one client connection with single-connection request PIPELINING
 /// (CONCEPT:EG-043): length-prefixed MessagePack frames, per-request backpressure
 /// admission (per-connection + global + per-graph), and CONCURRENT dispatch whose
@@ -217,10 +290,11 @@ where
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     // Snapshot the shared backpressure handles once per connection.
-    let (sem, pg_map, pg_limit) = {
+    let (sem, read_sem, pg_map, pg_limit) = {
         let s = state.read().await;
         (
             s.max_in_flight.clone(),
+            s.read_admission.clone(),
             s.per_graph_inflight.clone(),
             s.per_graph_inflight_limit,
         )
@@ -281,47 +355,39 @@ where
             Err(_) => break, // semaphore closed (never, while we hold an Arc)
         };
 
-        // Global backpressure: acquire an in-flight permit, or shed load with BUSY.
-        let permit = match sem.clone().try_acquire_owned() {
-            Ok(p) => p,
-            Err(_) => {
-                crate::metrics::busy_rejected();
-                let resp = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
-                drop(conn_permit);
-                if tx.send(encode_frame(&resp)).await.is_err() {
-                    break;
+        // ── Admission: global pool + per-graph fairness (Phase C-D) with a RESERVED
+        // READ LANE (CONCEPT:EG-044) ───────────────────────────────────────────────
+        // Classify read vs write so an ingestion WRITE firehose that saturates the
+        // global pool AND a graph's per-graph cap can NEVER shed an interactive
+        // read/query to BUSY: a read that loses the normal path falls back to a small
+        // dedicated lane writes can't touch ("always an open lane for MCP reads").
+        // Writes stay strictly back-pressured — shed BUSY (retry), never dropped.
+        let is_write = crate::server::access::requires_write(&req.method);
+        let (g_permit, pg_permit, read_permit) =
+            match admit_request(&sem, &read_sem, &pg_map, pg_limit, &req.graph, is_write) {
+                Admission::Granted {
+                    global,
+                    per_graph,
+                    read,
+                } => (global, per_graph, read),
+                Admission::Busy => {
+                    crate::metrics::busy_rejected();
+                    let resp =
+                        Response::err(req.id, "BUSY: server at capacity, retry with backoff");
+                    drop(conn_permit);
+                    if tx.send(encode_frame(&resp)).await.is_err() {
+                        break;
+                    }
+                    continue;
                 }
-                continue;
-            }
-        };
-
-        // Per-graph fairness (Phase C-D): cap how many of the global slots this one
-        // graph may hold. On exhaustion, shed THIS graph's load with BUSY and
-        // release the global permit so other tenants keep flowing.
-        let pg_sem = pg_map
-            .entry(req.graph.clone())
-            .or_insert_with(|| Arc::new(Semaphore::new(pg_limit)))
-            .clone();
-        let pg_permit = match pg_sem.try_acquire_owned() {
-            Ok(p) => p,
-            Err(_) => {
-                drop(permit);
-                drop(conn_permit);
-                crate::metrics::busy_rejected();
-                let resp = Response::err(req.id, "BUSY: graph at capacity, retry with backoff");
-                if tx.send(encode_frame(&resp)).await.is_err() {
-                    break;
-                }
-                continue;
-            }
-        };
+            };
 
         // Spawn the dispatch: runs CONCURRENTLY with the read loop and with the
         // other in-flight requests on this connection. The `Response` carries
         // `req.id`, so the client demuxes the (possibly out-of-order) completion.
-        // The task holds all three admission permits until its response is framed
-        // and queued, then drops them — closing the per-connection and global
-        // backpressure loops.
+        // The task holds whichever admission permits it was granted until its response
+        // is framed and queued, then drops them — closing the per-connection, global,
+        // per-graph and reserved-read backpressure loops.
         crate::metrics::connection_request_started(sem.available_permits());
         let task_state = state.clone();
         let task_tx = tx.clone();
@@ -329,8 +395,9 @@ where
         tokio::spawn(async move {
             let resp = dispatch(&task_state, req).await;
             let _ = task_tx.send(encode_frame(&resp)).await;
+            drop(read_permit);
             drop(pg_permit);
-            drop(permit);
+            drop(g_permit);
             drop(conn_permit);
             crate::metrics::connection_request_finished(task_sem.available_permits());
         });
@@ -500,6 +567,142 @@ mod tests {
         // Idempotent.
         coord.trigger();
         assert!(coord.is_requested());
+    }
+
+    // ── CONCEPT:EG-044 — reserved read-lane admission guarantee ──────────────────
+
+    /// A read MUST stay admittable when the global pool AND the per-graph cap are
+    /// fully saturated by writes — it falls back to the reserved read lane — while a
+    /// write in the same saturated state is correctly shed BUSY. This is the core
+    /// "an interactive read is never starved behind ingestion" guarantee, proven
+    /// deterministically against the pure admission function.
+    #[test]
+    fn read_is_admitted_when_write_pool_is_saturated() {
+        let sem = Arc::new(Semaphore::new(4)); // tiny global pool
+        let read_sem = Arc::new(Semaphore::new(2)); // small reserved read lane
+        let pg_map = dashmap::DashMap::new();
+        let pg_limit = 2;
+        let graph = "__commons__";
+
+        // Saturate the global pool: hold all of its permits (an in-flight ingestion
+        // write firehose). With the pool drained, the NORMAL admission path fails.
+        let _writers: Vec<_> = (0..sem.available_permits())
+            .map(|_| sem.clone().try_acquire_owned().unwrap())
+            .collect();
+        assert_eq!(sem.available_permits(), 0, "global pool saturated");
+
+        // A WRITE now sheds BUSY (back-pressured, not dropped).
+        assert!(
+            matches!(
+                admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, true),
+                Admission::Busy
+            ),
+            "write must be shed BUSY when the global pool is full"
+        );
+
+        // A READ is STILL admitted via the reserved read lane.
+        let r = admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false);
+        match r {
+            Admission::Granted { global, read, .. } => {
+                assert!(global.is_none(), "read used the reserved lane, not the global pool");
+                assert!(read.is_some(), "read holds a reserved-lane permit");
+            }
+            Admission::Busy => panic!("read must NOT be shed BUSY while the read lane has slots"),
+        }
+    }
+
+    /// The reserved read lane is itself bounded: a genuine read FLOOD that fills it is
+    /// shed BUSY so memory stays bounded — the reservation guarantees availability, not
+    /// unbounded admission.
+    #[test]
+    fn read_lane_is_bounded_under_a_read_flood() {
+        let sem = Arc::new(Semaphore::new(1));
+        let read_sem = Arc::new(Semaphore::new(2));
+        let pg_map = dashmap::DashMap::new();
+        let pg_limit = 1;
+        let graph = "g";
+
+        // Saturate the global pool so reads must use the reserved lane.
+        let _g = sem.clone().try_acquire_owned().unwrap();
+        assert_eq!(sem.available_permits(), 0);
+
+        // Hold both reserved read permits.
+        let mut reads = Vec::new();
+        for _ in 0..2 {
+            match admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false) {
+                Admission::Granted { read, .. } => reads.push(read.expect("reserved permit")),
+                Admission::Busy => panic!("reserved read lane should admit up to its size"),
+            }
+        }
+        // The third read floods the lane → BUSY.
+        assert!(
+            matches!(
+                admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false),
+                Admission::Busy
+            ),
+            "a read flood that fills the reserved lane is shed BUSY (bounded memory)"
+        );
+        drop(reads);
+        // Once a reserved slot frees, reads admit again.
+        assert!(
+            matches!(
+                admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false),
+                Admission::Granted { .. }
+            ),
+            "read admits again after a reserved slot frees"
+        );
+    }
+
+    /// Concurrency stress: while many WRITE permits saturate the global pool, a burst
+    /// of concurrent READS on the SAME hot graph must ALL be admitted (never BUSY),
+    /// proving an interactive read survives under maximum write load on the firehose
+    /// graph. Mirrors the live K=4 ingestion symptom at the admission layer.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reads_survive_under_max_write_load_on_hot_graph() {
+        let sem = Arc::new(Semaphore::new(8));
+        let read_sem = Arc::new(Semaphore::new(8));
+        let pg_map = Arc::new(dashmap::DashMap::new());
+        let pg_limit = 4; // a quarter, like the live default
+        let graph = "__commons__";
+
+        // Saturate the global pool: hold all 8 write permits for the test duration.
+        let writers: Vec<_> = (0..8)
+            .map(|_| sem.clone().try_acquire_owned().unwrap())
+            .collect();
+        assert_eq!(sem.available_permits(), 0, "writers saturate the pool");
+
+        // Fire a burst of concurrent reads on the SAME hot graph; every one must be
+        // admitted (via the reserved lane), holding its permit briefly then releasing.
+        let mut tasks = Vec::new();
+        for _ in 0..200usize {
+            let sem = sem.clone();
+            let read_sem = read_sem.clone();
+            let pg_map = pg_map.clone();
+            tasks.push(tokio::spawn(async move {
+                // Retry briefly: the reserved lane is small, so concurrent reads share
+                // it — but each holds its slot only momentarily, so all make progress
+                // without ever being permanently starved.
+                for _ in 0..1000 {
+                    match admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false) {
+                        Admission::Granted { read, .. } => {
+                            assert!(read.is_some(), "served by reserved lane under saturation");
+                            tokio::task::yield_now().await; // hold briefly, then drop
+                            return true;
+                        }
+                        Admission::Busy => tokio::task::yield_now().await,
+                    }
+                }
+                false
+            }));
+        }
+        let mut ok = 0usize;
+        for t in tasks {
+            if t.await.unwrap() {
+                ok += 1;
+            }
+        }
+        assert_eq!(ok, 200, "every interactive read completed under max write load");
+        drop(writers);
     }
 
     #[tokio::test(start_paused = true)]

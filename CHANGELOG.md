@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Reserved read-admission lane (`CONCEPT:EG-044`)** — an interactive MCP read/query is now
+  NEVER shed to `BUSY` behind an ingestion write firehose. The transport admission classifies
+  read vs write (`requires_write`) and routes through a pure, unit-testable `admit_request`: a
+  READ that loses the normal global+per-graph admission FALLS BACK to a dedicated
+  `ServerState::read_admission` semaphore (auto-sized `max_inflight/8`, clamped 8..1024; env
+  `EPISTEMIC_GRAPH_READ_RESERVED`) that writes can never touch and that BYPASSES the per-graph
+  cap — so even when the `__commons__` firehose saturates both the global pool and that graph's
+  cap, reads keep an open lane. Writes stay strictly back-pressured (shed `BUSY`, retry; never
+  dropped). Only a genuine read flood that also fills the reserved lane is shed. New counter
+  `epistemic_graph_read_reserved_admitted_total`. Reads continue to serve from MVCC snapshots
+  (in-memory `GraphCore` snapshot for Cypher/SQL/GraphQL; `begin_read()` for the redb
+  read-through, `CONCEPT:EG-027`), so the engine's redb tier never returns "database is locked".
+  Proven by 3 new `transport::tests` (saturated-pool read admit, read-lane bound, 200 concurrent
+  reads survive max write load on the hot graph).
+
 ## [0.32.0]
 
 ### Added

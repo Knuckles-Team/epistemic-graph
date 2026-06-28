@@ -512,6 +512,7 @@ mod run_rules_dispatch_tests {
             persistence: None,
             redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),

@@ -307,9 +307,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or_else(|| (max_in_flight / 4).max(1));
+    // Reserved READ-admission lane (CONCEPT:EG-044): a dedicated pool of in-flight
+    // slots that ONLY reads/queries may use, so a write firehose that saturates the
+    // global pool + per-graph cap can never shed an interactive MCP read to BUSY.
+    // Auto-sized from cpu count (an eighth of the admission cap, floored); env override
+    // (when set > 0) still wins.
+    let read_reserved = std::env::var("EPISTEMIC_GRAPH_READ_RESERVED")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or_else(|| host_capacity.read_reserved());
     info!(
-        "Backpressure: max in-flight = {} (per-graph cap = {})",
-        max_in_flight, per_graph_inflight_limit
+        "Backpressure: max in-flight = {} (per-graph cap = {}, reserved read lane = {})",
+        max_in_flight, per_graph_inflight_limit, read_reserved
     );
     // Per-graph write coalescer (CONCEPT:KG-2.182): batch size auto-sized from cpu
     // count; default ON, opt out with EPISTEMIC_GRAPH_WRITE_COALESCE=0.
@@ -596,6 +606,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // safe write-through/no-op behavior.
         redb_authoritative: redb_authoritative && redb_active,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
+        read_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(read_reserved)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
         write_coalescer: std::sync::Arc::new(

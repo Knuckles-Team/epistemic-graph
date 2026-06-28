@@ -47,6 +47,7 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         persistence: Some(backend),
         redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
+        read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
         write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
