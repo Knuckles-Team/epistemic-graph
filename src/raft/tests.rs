@@ -45,6 +45,10 @@ async fn make_state_with_backend(
     backend: Arc<dyn PersistenceBackend>,
 ) -> Arc<RwLock<ServerState>> {
     Arc::new(RwLock::new(ServerState {
+        #[cfg(feature = "redb")]
+        cold_tracker: std::sync::Arc::new(
+            crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+        ),
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),

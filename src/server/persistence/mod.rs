@@ -209,7 +209,9 @@ pub trait PersistenceBackend: Send + Sync {
     /// `security` audit path likewise needs it for `audit_verify_blocking`. So this
     /// lets a caller recover the concrete type from the `Arc<dyn PersistenceBackend>`
     /// in `ServerState`. The default returns `None`; only the redb backend overrides it.
-    #[cfg(any(feature = "raft", feature = "security"))]
+    /// Gated on `redb` (the only build where `RedbBackend` exists) — also consumed by the
+    /// M3 catalog-driven resharding admin RPC (CONCEPT:EG-038).
+    #[cfg(feature = "redb")]
     fn as_redb(&self) -> Option<&redb_backend::RedbBackend> {
         None
     }
