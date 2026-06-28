@@ -834,6 +834,68 @@ class MultiTenantClient:
         return await self._client._send("ListGraphs")
 
 
+class ReshardingClient:
+    """CONCEPT:EG-038 — M3 catalog-driven resharding admin namespace.
+
+    Drives, over the wire, the M3 ops the engine has building blocks for: online
+    single-node resharding (EG-032), the durable tenant catalog (EG-031), and the
+    rebalancing planner (EG-035) + its execution (EG-039). All require a durable redb
+    engine; a non-redb build returns a "not available in this build" error.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def reshard(self, graph: str, to_shard: int) -> dict[str, Any]:
+        """Online-move ``graph``'s durable rows to ``to_shard`` while the engine runs,
+        then flip the catalog route (EG-032). Returns a reshard report (counts +
+        ``delta_nodes``/``delta_edges`` = the rows copied under the brief write-pause)."""
+        return await self._client._send(
+            "Reshard", {"graph": graph, "to_shard": to_shard}
+        )
+
+    async def catalog_assign(
+        self, graph: str, shard: int, node: int | None = None
+    ) -> bool:
+        """Populate / assign an explicit catalog placement for ``graph`` (EG-031). Flips
+        the ROUTE only — to MOVE the rows too use :meth:`reshard`."""
+        return await self._client._send(
+            "CatalogAssign", {"graph": graph, "shard": shard, "node": node}
+        )
+
+    async def catalog_reassign(self, graph: str, shard: int) -> bool:
+        """Re-place ``graph`` onto ``shard``, preserving its node placement (EG-031)."""
+        return await self._client._send(
+            "CatalogReassign", {"graph": graph, "shard": shard}
+        )
+
+    async def catalog_remove(self, graph: str) -> bool:
+        """Drop ``graph``'s explicit placement — it reverts to EG-026 FNV-1a routing."""
+        return await self._client._send("CatalogRemove", {"graph": graph})
+
+    async def catalog_list(self) -> dict[str, Any]:
+        """List every explicit catalog placement ``{graph, shard, node}`` (EG-031)."""
+        return await self._client._send("CatalogList")
+
+    async def rebalance_plan(
+        self, tolerance: float | None = None, max_moves: int | None = None
+    ) -> dict[str, Any]:
+        """Compute (do NOT execute) a rebalance plan over live per-shard/per-graph load
+        (EG-035). Returns ``{moves: [...], shards: [...]}``."""
+        return await self._client._send(
+            "RebalancePlan", {"tolerance": tolerance, "max_moves": max_moves}
+        )
+
+    async def rebalance_execute(
+        self, tolerance: float | None = None, max_moves: int | None = None
+    ) -> dict[str, Any]:
+        """Compute a rebalance plan AND execute it move-by-move via online resharding
+        (EG-039) — online, one graph at a time. Returns ``{executed: [report, ...]}``."""
+        return await self._client._send(
+            "RebalanceExecute", {"tolerance": tolerance, "max_moves": max_moves}
+        )
+
+
 class ConsensusClient:
     """CONCEPT:KG-2.6 — Zero-Trust Consensus Namespace"""
 
@@ -2905,6 +2967,7 @@ class EpistemicGraphClient:
         self.ledger = LedgerClient(self)
         self.channels = ChannelsClient(self)
         self.tenants = MultiTenantClient(self)
+        self.resharding = ReshardingClient(self)
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
@@ -3222,6 +3285,7 @@ class SyncEpistemicGraphClient:
         self.ledger = self._SyncWrapper(self._client.ledger, self._loop)
         self.channels = self._SyncWrapper(self._client.channels, self._loop)
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
+        self.resharding = self._SyncWrapper(self._client.resharding, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
