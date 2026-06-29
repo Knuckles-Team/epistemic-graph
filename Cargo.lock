@@ -1962,6 +1962,7 @@ dependencies = [
  "oxrdf",
  "oxttl",
  "redb",
+ "regex",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -2072,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "epistemic-graph"
-version = "1.0.0"
+version = "2.1.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
