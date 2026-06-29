@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-29
+
+### Documentation
+- **Universal-DB documentation accuracy pass** — `README.md`, `docs/capabilities.md`,
+  `docs/roadmap.md`, `docs/interfaces/{sparql,sql,cypher,graphql}.md`, and
+  `docs/architecture/engine.md` now reflect the engine's true, source-verified state. Features
+  previously marked `🔶`/`🗺` but actually shipped are flipped to `✅`: SQL DDL + arbitrary user
+  tables + `COPY`; SPARQL `ASK`/`CONSTRUCT`/`DESCRIBE` + `UPDATE` + the W3C `/sparql` HTTP
+  endpoint + the named-graph quad dataset; Cypher writes (`CREATE`/`MERGE`/`SET`/`DELETE`);
+  GraphQL mutations; the generic namespaced KV surface; multi-Raft groups + `GroupRouter` +
+  online resharding; and N-participant cross-shard 2PC. `roadmap.md` is rewritten around the
+  remaining "Universal-DB Program" items (`CONCEPT:EG-045..082`), each of which flips its
+  capability-matrix row to `✅` as it lands.
+
 ### Added
 - **Reserved read-admission lane (`CONCEPT:EG-044`)** — an interactive MCP read/query is now
   NEVER shed to `BUSY` behind an ingestion write firehose. The transport admission classifies
