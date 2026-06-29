@@ -14,8 +14,16 @@
 //!
 //! NOT async-graphql: a hand-written tokenizer + recursive-descent parser, pure Rust,
 //! so the surface stays Pi-excludable (the facade gates the whole crate behind
-//! `graphql`). Fragments / variables / directives are still explicit deferreds — a
-//! parse error names them clearly rather than mis-parsing.
+//! `graphql`).
+//!
+//! ## Fragments / variables / directives (CONCEPT:EG-065)
+//! The lexer also emits `$` (variable refs), `@` (directives), `...` (spreads) and `=`
+//! (variable defaults). [`parse_raw`] yields a [`RawDocument`] that retains named
+//! fragment definitions, fragment spreads / inline fragments, operation variable
+//! definitions, and field/spread directives. The resolver
+//! ([`crate::resolver::flatten_document`]) inlines the spreads, applies `@skip`/
+//! `@include`, and substitutes variable references — so the [`Query`]/[`Operation`]
+//! the rest of the crate sees is a plain, already-desugared selection of [`Field`]s.
 
 use std::fmt;
 
@@ -25,6 +33,8 @@ use serde_json::Value;
 /// strings, booleans (enough for `first: 10` and `name: "Alice"`); writes
 /// (CONCEPT:EG-019) add OBJECT and LIST values so a mutation can carry a `props`
 /// map, e.g. `createNode(label: "Person", props: {name: "Alice", tags: ["a", "b"]})`.
+/// CONCEPT:EG-065 adds [`GqlValue::Var`] — an unresolved `$name` reference the resolver
+/// substitutes from the execution variables before the value is used.
 #[derive(Clone, Debug, PartialEq)]
 pub enum GqlValue {
     Int(i64),
@@ -37,11 +47,17 @@ pub enum GqlValue {
     List(Vec<GqlValue>),
     /// The `null` literal.
     Null,
+    /// A `$name` variable reference (CONCEPT:EG-065), substituted at execution time.
+    Var(String),
 }
 
 /// One field in a selection set: a name, optional arguments, and a nested selection
 /// (empty for a scalar leaf). `alias` is the response key when an `alias: name` form is
 /// used (GraphQL aliasing); it defaults to `name`.
+///
+/// This is the DESUGARED field the resolver/mutation paths consume: by the time a
+/// [`Field`] exists, fragment spreads have been inlined, `@skip`/`@include` applied, and
+/// `$var` argument refs substituted (CONCEPT:EG-065).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
     /// The response key — the alias if given, else `name`.
@@ -86,6 +102,73 @@ pub enum Operation {
     Subscription(Subscription),
 }
 
+// ── raw (pre-desugar) AST (CONCEPT:EG-065) ───────────────────────────────────────
+//
+// `parse_raw` produces this richer tree; `crate::resolver::flatten_document` lowers it
+// to the plain `Field` tree above by inlining fragments, applying directives, and
+// substituting variables.
+
+/// A `@name(arg: value, …)` directive on a field, spread, or inline fragment.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Directive {
+    pub name: String,
+    pub args: Vec<(String, GqlValue)>,
+}
+
+/// An operation variable definition `$name: Type = default` (the `Type` is parsed but
+/// ignored — this surface is untyped; only the name + optional default matter).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct VarDef {
+    pub name: String,
+    pub default: Option<GqlValue>,
+}
+
+/// A field in a RAW selection set — may still carry directives and contain nested raw
+/// selections (which may themselves be spreads / inline fragments).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RawField {
+    pub alias: String,
+    pub name: String,
+    pub args: Vec<(String, GqlValue)>,
+    pub directives: Vec<Directive>,
+    pub selections: Vec<RawSelection>,
+}
+
+/// One member of a raw selection set: a field, a fragment spread (`...Name`), or an
+/// inline fragment (`... on Type { … }` / `... { … }`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RawSelection {
+    Field(RawField),
+    Spread {
+        name: String,
+        directives: Vec<Directive>,
+    },
+    Inline {
+        type_cond: Option<String>,
+        directives: Vec<Directive>,
+        selections: Vec<RawSelection>,
+    },
+}
+
+/// A named fragment definition `fragment Name on Type { … }`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Fragment {
+    pub name: String,
+    #[allow(dead_code)]
+    pub type_cond: String,
+    pub selections: Vec<RawSelection>,
+}
+
+/// A fully parsed RAW document: the single operation (kind + variable defs + selection)
+/// plus any named fragment definitions it references.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RawDocument {
+    pub op_kind: &'static str,
+    pub var_defs: Vec<VarDef>,
+    pub selections: Vec<RawSelection>,
+    pub fragments: Vec<Fragment>,
+}
+
 /// A GraphQL parse error with the byte offset it occurred at.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GqlError {
@@ -103,7 +186,9 @@ impl std::error::Error for GqlError {}
 
 /// Convert a parsed [`GqlValue`] to a `serde_json::Value` (CONCEPT:EG-019). Shared by
 /// the resolver (filter literals) and the mutation executor (write payloads), so the
-/// two surfaces coerce argument values identically.
+/// two surfaces coerce argument values identically. An unsubstituted [`GqlValue::Var`]
+/// (CONCEPT:EG-065) coerces to `null` — the resolver substitutes vars BEFORE this runs,
+/// so a `Var` reaching here means it was unbound.
 pub(crate) fn gql_to_json(v: &GqlValue) -> Value {
     match v {
         GqlValue::Int(n) => Value::Number((*n).into()),
@@ -113,6 +198,7 @@ pub(crate) fn gql_to_json(v: &GqlValue) -> Value {
         GqlValue::Str(s) => Value::String(s.clone()),
         GqlValue::Bool(b) => Value::Bool(*b),
         GqlValue::Null => Value::Null,
+        GqlValue::Var(_) => Value::Null,
         GqlValue::List(items) => Value::Array(items.iter().map(gql_to_json).collect()),
         GqlValue::Object(fields) => Value::Object(
             fields
@@ -123,41 +209,55 @@ pub(crate) fn gql_to_json(v: &GqlValue) -> Value {
     }
 }
 
-/// Parse a GraphQL document into a [`Query`] (the READ path — unchanged). Accepts a
-/// bare selection set (`{ … }`), `query { … }`, or `query Name { … }`. A `mutation` /
-/// `subscription` document parses successfully via [`parse_operation`] but is reported
-/// here as an error, since this entry point only yields the query case.
+/// Parse a GraphQL document into a [`Query`] (the READ path). Accepts a bare selection
+/// set (`{ … }`), `query { … }`, or `query Name { … }`. Fragments / variables /
+/// directives (CONCEPT:EG-065) are desugared here with NO execution variables (the
+/// variable-aware entry point is [`crate::resolver::execute_with_variables`]). A
+/// `mutation` / `subscription` document is reported as an error, since this entry point
+/// only yields the query case.
 pub fn parse(src: &str) -> Result<Query, GqlError> {
-    match parse_operation(src)? {
-        Operation::Query(q) => Ok(q),
-        Operation::Mutation(_) => Err(GqlError {
-            msg: "expected a query operation, found a mutation \
-                  (use the mutation execution path)"
-                .into(),
+    let doc = parse_raw(src)?;
+    if doc.op_kind != "query" {
+        return Err(GqlError {
+            msg: format!(
+                "expected a query operation, found a {0} (use the {0} execution path)",
+                doc.op_kind
+            ),
             at: 0,
-        }),
-        Operation::Subscription(_) => Err(GqlError {
-            msg: "expected a query operation, found a subscription \
-                  (use the subscription execution path)"
-                .into(),
-            at: 0,
-        }),
+        });
     }
+    let roots = crate::resolver::flatten_document(&doc, &crate::resolver::Variables::new())
+        .map_err(|msg| GqlError { msg, at: 0 })?;
+    Ok(Query { roots })
 }
 
 /// Parse a GraphQL document into an [`Operation`] (CONCEPT:EG-019): a `query`,
 /// `mutation`, or `subscription`. A bare selection set (`{ … }`) is a query. Fragments,
-/// variables, and directives remain explicit deferreds.
+/// variables, and directives (CONCEPT:EG-065) are desugared with no execution variables.
 pub fn parse_operation(src: &str) -> Result<Operation, GqlError> {
+    let doc = parse_raw(src)?;
+    let roots = crate::resolver::flatten_document(&doc, &crate::resolver::Variables::new())
+        .map_err(|msg| GqlError { msg, at: 0 })?;
+    Ok(match doc.op_kind {
+        "mutation" => Operation::Mutation(Mutation { roots }),
+        "subscription" => Operation::Subscription(Subscription { roots }),
+        _ => Operation::Query(Query { roots }),
+    })
+}
+
+/// Parse a GraphQL document into the RAW (pre-desugar) [`RawDocument`] (CONCEPT:EG-065),
+/// retaining fragments, variable definitions, directives, and `$var` references. The
+/// resolver lowers it to a plain [`Field`] tree once execution variables are known.
+pub(crate) fn parse_raw(src: &str) -> Result<RawDocument, GqlError> {
     let toks = lex(src)?;
     let mut p = P {
         toks: &toks,
         pos: 0,
         end: src.len(),
     };
-    let op = p.parse_document()?;
+    let doc = p.parse_raw_document()?;
     p.expect_eof()?;
-    Ok(op)
+    Ok(doc)
 }
 
 // ── lexer ───────────────────────────────────────────────────────────────────────
@@ -177,6 +277,14 @@ enum Tok {
     Colon,
     Comma,
     Bang,
+    /// `$` — starts a variable reference / definition (CONCEPT:EG-065).
+    Dollar,
+    /// `@` — starts a directive (CONCEPT:EG-065).
+    At,
+    /// `...` — a fragment spread / inline fragment (CONCEPT:EG-065).
+    Spread,
+    /// `=` — a variable-definition default separator (CONCEPT:EG-065).
+    Eq,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -213,6 +321,24 @@ fn lex(src: &str) -> Result<Vec<Token>, GqlError> {
             b':' => push(&mut out, Tok::Colon, &mut i),
             b',' => push(&mut out, Tok::Comma, &mut i),
             b'!' => push(&mut out, Tok::Bang, &mut i),
+            b'$' => push(&mut out, Tok::Dollar, &mut i),
+            b'@' => push(&mut out, Tok::At, &mut i),
+            b'=' => push(&mut out, Tok::Eq, &mut i),
+            b'.' => {
+                // The only `.`-led token is the three-dot spread `...`.
+                if i + 2 < b.len() && b[i + 1] == b'.' && b[i + 2] == b'.' {
+                    out.push(Token {
+                        kind: Tok::Spread,
+                        start,
+                    });
+                    i += 3;
+                } else {
+                    return Err(GqlError {
+                        msg: "expected `...` (a spread)".into(),
+                        at: start,
+                    });
+                }
+            }
             b'"' => {
                 let (s, next) = lex_str(b, i)?;
                 out.push(Token {
@@ -333,50 +459,193 @@ struct P<'a> {
 }
 
 impl P<'_> {
-    fn parse_document(&mut self) -> Result<Operation, GqlError> {
-        // Optional `query` / `mutation` / `subscription` (+ optional operation name)
-        // prefix. A bare `{ … }` selection set is a query. `fragment` is a deferred.
-        let mut kind = "query";
-        if let Some(Tok::Name(kw)) = self.peek() {
-            match kw.as_str() {
-                "query" | "mutation" | "subscription" => {
-                    kind = match kw.as_str() {
-                        "mutation" => "mutation",
-                        "subscription" => "subscription",
-                        _ => "query",
-                    };
-                    self.bump();
-                    // optional operation name
-                    if matches!(self.peek(), Some(Tok::Name(_))) {
-                        self.bump();
-                    }
+    /// Parse the whole document: one operation (`query`/`mutation`/`subscription` or a
+    /// bare `{ … }`) plus any number of `fragment` definitions, in any order.
+    fn parse_raw_document(&mut self) -> Result<RawDocument, GqlError> {
+        let mut op: Option<(&'static str, Vec<VarDef>, Vec<RawSelection>)> = None;
+        let mut fragments = Vec::new();
+        while self.peek().is_some() {
+            match self.peek() {
+                Some(Tok::Name(kw)) if kw == "fragment" => {
+                    fragments.push(self.parse_fragment()?);
                 }
-                "fragment" => return Err(self.err("GraphQL fragments are not supported")),
-                _ => {} // a bare selection set whose first field is a Name
+                Some(Tok::Name(kw))
+                    if kw == "query" || kw == "mutation" || kw == "subscription" =>
+                {
+                    if op.is_some() {
+                        return Err(self.err("only a single operation is supported per document"));
+                    }
+                    op = Some(self.parse_operation_def()?);
+                }
+                Some(Tok::LBrace) => {
+                    if op.is_some() {
+                        return Err(self.err("only a single operation is supported per document"));
+                    }
+                    let selections = self.parse_raw_selection_set()?;
+                    op = Some(("query", Vec::new(), selections));
+                }
+                _ => {
+                    return Err(self.err(
+                        "expected an operation (`query`/`mutation`/`subscription` or `{`) \
+                         or a `fragment` definition",
+                    ))
+                }
             }
         }
-        let roots = self.parse_selection_set()?;
-        Ok(match kind {
-            "mutation" => Operation::Mutation(Mutation { roots }),
-            "subscription" => Operation::Subscription(Subscription { roots }),
-            _ => Operation::Query(Query { roots }),
+        let (op_kind, var_defs, selections) =
+            op.ok_or_else(|| self.err("a GraphQL document must contain an operation"))?;
+        Ok(RawDocument {
+            op_kind,
+            var_defs,
+            selections,
+            fragments,
         })
     }
 
-    fn parse_selection_set(&mut self) -> Result<Vec<Field>, GqlError> {
-        self.expect(&Tok::LBrace, "`{` to open a selection set")?;
-        let mut fields = Vec::new();
-        while !self.peek_is(&Tok::RBrace) && self.peek().is_some() {
-            fields.push(self.parse_field()?);
+    /// `query|mutation|subscription [Name] [($v: T = d, …)] [@dir …] { … }`.
+    fn parse_operation_def(
+        &mut self,
+    ) -> Result<(&'static str, Vec<VarDef>, Vec<RawSelection>), GqlError> {
+        let kw = self.expect_name("an operation keyword")?;
+        let op_kind = match kw.as_str() {
+            "mutation" => "mutation",
+            "subscription" => "subscription",
+            _ => "query",
+        };
+        // optional operation name
+        if matches!(self.peek(), Some(Tok::Name(_))) {
+            self.bump();
         }
-        self.expect(&Tok::RBrace, "`}` to close the selection set")?;
-        if fields.is_empty() {
-            return Err(self.err("a selection set must select at least one field"));
-        }
-        Ok(fields)
+        let var_defs = if self.peek_is(&Tok::LParen) {
+            self.parse_var_defs()?
+        } else {
+            Vec::new()
+        };
+        // operation-level directives are parsed and ignored.
+        let _ = self.parse_directives()?;
+        let selections = self.parse_raw_selection_set()?;
+        Ok((op_kind, var_defs, selections))
     }
 
-    fn parse_field(&mut self) -> Result<Field, GqlError> {
+    /// `fragment Name on Type [@dir …] { … }`.
+    fn parse_fragment(&mut self) -> Result<Fragment, GqlError> {
+        // consume `fragment`
+        let _ = self.expect_name("`fragment`")?;
+        let name = self.expect_name("a fragment name")?;
+        let on = self.expect_name("`on` after the fragment name")?;
+        if on != "on" {
+            return Err(self.err("expected `on` after the fragment name"));
+        }
+        let type_cond = self.expect_name("a type condition")?;
+        let _ = self.parse_directives()?;
+        let selections = self.parse_raw_selection_set()?;
+        Ok(Fragment {
+            name,
+            type_cond,
+            selections,
+        })
+    }
+
+    /// `($name: Type [= default], …)` — variable definitions (CONCEPT:EG-065).
+    fn parse_var_defs(&mut self) -> Result<Vec<VarDef>, GqlError> {
+        self.expect(&Tok::LParen, "`(` to open variable definitions")?;
+        let mut defs = Vec::new();
+        while !self.peek_is(&Tok::RParen) && self.peek().is_some() {
+            self.expect(&Tok::Dollar, "`$` to start a variable definition")?;
+            let name = self.expect_name("a variable name")?;
+            self.expect(&Tok::Colon, "`:` after the variable name")?;
+            self.parse_type_ref()?; // type consumed + ignored (untyped surface)
+            let default = if self.eat(&Tok::Eq) {
+                Some(self.parse_value()?)
+            } else {
+                None
+            };
+            defs.push(VarDef { name, default });
+            let _ = self.eat(&Tok::Comma);
+        }
+        self.expect(&Tok::RParen, "`)` to close variable definitions")?;
+        Ok(defs)
+    }
+
+    /// A type reference `Name`, `[Type]`, or either with a trailing `!`. Parsed for
+    /// well-formedness then discarded — the surface is untyped.
+    fn parse_type_ref(&mut self) -> Result<(), GqlError> {
+        if self.peek_is(&Tok::LBracket) {
+            self.bump();
+            self.parse_type_ref()?;
+            self.expect(&Tok::RBracket, "`]` to close a list type")?;
+        } else {
+            let _ = self.expect_name("a type name")?;
+        }
+        let _ = self.eat(&Tok::Bang);
+        Ok(())
+    }
+
+    /// Zero or more `@name[(args)]` directives (CONCEPT:EG-065).
+    fn parse_directives(&mut self) -> Result<Vec<Directive>, GqlError> {
+        let mut ds = Vec::new();
+        while self.peek_is(&Tok::At) {
+            self.bump();
+            let name = self.expect_name("a directive name after `@`")?;
+            let args = if self.peek_is(&Tok::LParen) {
+                self.parse_args()?
+            } else {
+                Vec::new()
+            };
+            ds.push(Directive { name, args });
+        }
+        Ok(ds)
+    }
+
+    fn parse_raw_selection_set(&mut self) -> Result<Vec<RawSelection>, GqlError> {
+        self.expect(&Tok::LBrace, "`{` to open a selection set")?;
+        let mut sels = Vec::new();
+        while !self.peek_is(&Tok::RBrace) && self.peek().is_some() {
+            sels.push(self.parse_raw_selection()?);
+        }
+        self.expect(&Tok::RBrace, "`}` to close the selection set")?;
+        if sels.is_empty() {
+            return Err(self.err("a selection set must select at least one field"));
+        }
+        Ok(sels)
+    }
+
+    /// A field, a fragment spread (`...Name`), or an inline fragment
+    /// (`... on Type { … }` / `... { … }`) — CONCEPT:EG-065.
+    fn parse_raw_selection(&mut self) -> Result<RawSelection, GqlError> {
+        if self.peek_is(&Tok::Spread) {
+            self.bump();
+            if let Some(Tok::Name(n)) = self.peek() {
+                if n == "on" {
+                    // inline fragment with a type condition
+                    self.bump();
+                    let type_cond = Some(self.expect_name("a type condition after `on`")?);
+                    let directives = self.parse_directives()?;
+                    let selections = self.parse_raw_selection_set()?;
+                    return Ok(RawSelection::Inline {
+                        type_cond,
+                        directives,
+                        selections,
+                    });
+                }
+                // a named fragment spread `...Name`
+                let name = self.expect_name("a fragment name")?;
+                let directives = self.parse_directives()?;
+                return Ok(RawSelection::Spread { name, directives });
+            }
+            // inline fragment with no type condition: `... @dir { … }` / `... { … }`
+            let directives = self.parse_directives()?;
+            let selections = self.parse_raw_selection_set()?;
+            return Ok(RawSelection::Inline {
+                type_cond: None,
+                directives,
+                selections,
+            });
+        }
+        Ok(RawSelection::Field(self.parse_raw_field()?))
+    }
+
+    fn parse_raw_field(&mut self) -> Result<RawField, GqlError> {
         let first = self.expect_name("a field name")?;
         // `alias: name` — a colon after the first name makes it the response alias.
         let (alias, name) = if self.eat(&Tok::Colon) {
@@ -390,16 +659,18 @@ impl P<'_> {
         } else {
             Vec::new()
         };
-        let selection = if self.peek_is(&Tok::LBrace) {
-            self.parse_selection_set()?
+        let directives = self.parse_directives()?;
+        let selections = if self.peek_is(&Tok::LBrace) {
+            self.parse_raw_selection_set()?
         } else {
             Vec::new()
         };
-        Ok(Field {
+        Ok(RawField {
             alias,
             name,
             args,
-            selection,
+            directives,
+            selections,
         })
     }
 
@@ -440,12 +711,19 @@ impl P<'_> {
                 self.bump();
                 Ok(GqlValue::Null)
             }
+            // A `$name` variable reference (CONCEPT:EG-065).
+            Some(Tok::Dollar) => {
+                self.bump();
+                let name = self.expect_name("a variable name after `$`")?;
+                Ok(GqlValue::Var(name))
+            }
             // An input object `{ field: value, … }` (CONCEPT:EG-019 — a mutation `props`).
             Some(Tok::LBrace) => self.parse_object_value(),
             // A list `[ value, … ]`.
             Some(Tok::LBracket) => self.parse_list_value(),
             _ => Err(self.err(
-                "expected an argument value (int, float, string, bool, null, object, or list)",
+                "expected an argument value (int, float, string, bool, null, \
+                 variable, object, or list)",
             )),
         }
     }
@@ -625,5 +903,40 @@ mod tests {
     fn empty_selection_is_error() {
         let e = parse("{ }").unwrap_err();
         assert!(e.msg.contains("at least one field"), "got {}", e.msg);
+    }
+
+    // ── CONCEPT:EG-065 — fragments / variables / directives ──────────────────────
+
+    #[test]
+    fn raw_doc_retains_fragments_and_var_defs() {
+        let doc = parse_raw(
+            r#"query Q($x: Int, $active: Boolean = true) {
+                Person { ...frag ... on Person { extra } }
+            }
+            fragment frag on Person { name @skip(if: $x) }"#,
+        )
+        .unwrap();
+        assert_eq!(doc.op_kind, "query");
+        assert_eq!(doc.var_defs.len(), 2);
+        assert_eq!(doc.var_defs[0].name, "x");
+        assert_eq!(doc.var_defs[1].name, "active");
+        assert_eq!(doc.var_defs[1].default, Some(GqlValue::Bool(true)));
+        assert_eq!(doc.fragments.len(), 1);
+        assert_eq!(doc.fragments[0].name, "frag");
+        // the root Person selection holds a spread + an inline fragment.
+        let RawSelection::Field(person) = &doc.selections[0] else {
+            panic!("expected a field");
+        };
+        assert!(matches!(person.selections[0], RawSelection::Spread { .. }));
+        assert!(matches!(person.selections[1], RawSelection::Inline { .. }));
+    }
+
+    #[test]
+    fn parses_variable_reference_in_args() {
+        let doc = parse_raw("query Q($n: Int) { Person(first: $n) { name } }").unwrap();
+        let RawSelection::Field(person) = &doc.selections[0] else {
+            panic!("expected a field");
+        };
+        assert_eq!(person.args[0], ("first".into(), GqlValue::Var("n".into())));
     }
 }

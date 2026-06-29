@@ -29,10 +29,17 @@
 //! the surface simpler AND Pi-excludable. The facade gates the whole crate behind
 //! `graphql` (node/cluster/full, OUT of pi/default), so a Pi build links none of it.
 //!
+//! ## Fragments / variables / directives (CONCEPT:EG-065) + relay pagination (EG-066)
+//! [`execute_with_variables`] binds an operation's `$variables`, inlines named fragment
+//! spreads / inline fragments, and applies `@skip`/`@include` before resolving. A root
+//! field selected with a relay `edges { node cursor } pageInfo` shape resolves to a
+//! connection envelope (cursors are base64 of the deterministic sort key); a plain
+//! `first`/`limit` selection keeps returning a bare `[Type]` array (non-breaking).
+//!
 //! ## Deferred (documented)
 //! A push subscription transport (a `tokio::sync::broadcast` change-stream — see
-//! `crate::subscription`), fragments, variables, directives, interfaces/unions, and
-//! relay-style connection pagination. A parse error names the unsupported construct.
+//! `crate::subscription`), interfaces/unions, and relay pagination on nested EDGE fields
+//! (root-level connections are supported). A parse error names the unsupported construct.
 
 pub mod mutation;
 pub mod parser;
@@ -42,7 +49,7 @@ pub mod subscription;
 
 pub use mutation::execute as execute_mutation;
 pub use parser::{parse, parse_operation, GqlError, Mutation, Operation, Query, Subscription};
-pub use resolver::{execute, execute_query};
+pub use resolver::{execute, execute_query, execute_with_variables};
 pub use schema::Schema;
 pub use subscription::{poll as subscribe, poll_versioned as subscribe_versioned};
 
@@ -390,6 +397,138 @@ mod tests {
         let (d1, v1) = subscribe_versioned(&core, "subscription { Person { name } }").unwrap();
         assert!(v1 > v0, "version must advance after a write ({v0} -> {v1})");
         assert_eq!(d1["data"]["Person"].as_array().unwrap().len(), 4);
+    }
+
+    // ── fragments / variables / directives (CONCEPT:EG-065) ───────────────────────
+
+    /// A fragment SPREAD + an INLINE fragment both inline into the selection: the
+    /// resolved Person carries the fields from `...personFields` and from the
+    /// `... on Person { … }` inline fragment.
+    #[test]
+    fn fragment_spread_and_inline_fragment_resolve() {
+        let view = fixture();
+        let res = execute(
+            &view,
+            r#"{
+                Person(name: "Alice") {
+                    ...personFields
+                    ... on Person { age }
+                }
+            }
+            fragment personFields on Person { name }"#,
+        )
+        .unwrap();
+        let alice = &res["data"]["Person"][0];
+        // from the spread:
+        assert_eq!(alice["name"], json!("Alice"));
+        // from the inline fragment:
+        assert_eq!(alice["age"], json!(30));
+    }
+
+    /// A `$var` argument + `@skip`/`@include` directives, bound at execution. `first: $n`
+    /// caps rows from a variable; `@skip(if: $hide)` drops `age`; `@include(if: $show)`
+    /// keeps `name`.
+    #[test]
+    fn variables_and_skip_include_directives() {
+        let view = fixture();
+        let vars = json!({ "n": 2, "hide": true, "show": true });
+        let res = execute_with_variables(
+            &view,
+            r#"query Q($n: Int, $hide: Boolean, $show: Boolean) {
+                Person(first: $n) {
+                    name @include(if: $show)
+                    age @skip(if: $hide)
+                }
+            }"#,
+            &vars,
+        )
+        .unwrap();
+        let people = res["data"]["Person"].as_array().unwrap();
+        // `first: $n` (=2) capped the rows.
+        assert_eq!(people.len(), 2);
+        // `name` was included; `age` was skipped.
+        assert!(people[0].get("name").is_some(), "name should be present");
+        assert!(
+            people[0].get("age").is_none(),
+            "age should be skipped, got {:?}",
+            people[0]
+        );
+
+        // Flip the directive variables: now `age` survives and `name` is excluded.
+        let vars2 = json!({ "n": 3, "hide": false, "show": false });
+        let res2 = execute_with_variables(
+            &view,
+            r#"query Q($n: Int, $hide: Boolean, $show: Boolean) {
+                Person(first: $n) {
+                    name @include(if: $show)
+                    age @skip(if: $hide)
+                }
+            }"#,
+            &vars2,
+        )
+        .unwrap();
+        let p2 = &res2["data"]["Person"][0];
+        assert!(p2.get("name").is_none(), "name should be excluded");
+        assert!(p2.get("age").is_some(), "age should be present");
+    }
+
+    // ── relay pagination (CONCEPT:EG-066) ─────────────────────────────────────────
+
+    /// A relay connection query returns the `edges/node/cursor` + `pageInfo` envelope,
+    /// with `hasNextPage` reflecting the deterministic page window, and `after` paging
+    /// forward from a returned cursor.
+    #[test]
+    fn relay_connection_envelope_and_paging() {
+        let view = fixture();
+        // Page 1: first 2 of the 3 People (sorted by id: alice, bob, carol).
+        let page1 = execute(
+            &view,
+            r#"{
+                Person(first: 2) {
+                    edges { node { name } cursor }
+                    pageInfo { endCursor hasNextPage }
+                }
+            }"#,
+        )
+        .unwrap();
+        let conn = &page1["data"]["Person"];
+        let edges = conn["edges"].as_array().unwrap();
+        assert_eq!(edges.len(), 2);
+        // ids sort alice < bob < carol → first two nodes are alice, bob.
+        assert_eq!(edges[0]["node"]["name"], json!("Alice"));
+        assert_eq!(edges[1]["node"]["name"], json!("Bob"));
+        // each edge carries an opaque cursor.
+        assert!(edges[0]["cursor"].as_str().unwrap().len() > 0);
+        // pageInfo: more rows remain (carol), so hasNextPage is true.
+        assert_eq!(conn["pageInfo"]["hasNextPage"], json!(true));
+        let end_cursor = conn["pageInfo"]["endCursor"].as_str().unwrap().to_string();
+        assert_eq!(end_cursor, edges[1]["cursor"].as_str().unwrap());
+
+        // Page 2: after the page-1 endCursor → the remaining Person (carol), no next page.
+        let q2 = format!(
+            r#"{{
+                Person(first: 2, after: "{end_cursor}") {{
+                    edges {{ node {{ name }} cursor }}
+                    pageInfo {{ endCursor hasNextPage }}
+                }}
+            }}"#
+        );
+        let page2 = execute(&view, &q2).unwrap();
+        let conn2 = &page2["data"]["Person"];
+        let edges2 = conn2["edges"].as_array().unwrap();
+        assert_eq!(edges2.len(), 1);
+        assert_eq!(edges2[0]["node"]["name"], json!("Carol"));
+        assert_eq!(conn2["pageInfo"]["hasNextPage"], json!(false));
+    }
+
+    /// A plain `first`/`limit` selection (NO relay shape) keeps returning a bare array —
+    /// relay support is additive / non-breaking (CONCEPT:EG-066).
+    #[test]
+    fn plain_first_still_returns_bare_array() {
+        let view = fixture();
+        let res = execute(&view, "{ Person(first: 2) { name } }").unwrap();
+        assert!(res["data"]["Person"].is_array());
+        assert_eq!(res["data"]["Person"].as_array().unwrap().len(), 2);
     }
 
     /// The mutation SDL renders the write vocabulary, tied back to the graph's labels.
