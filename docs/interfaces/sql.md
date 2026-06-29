@@ -7,9 +7,10 @@ epistemic-graph speaks SQL two ways:
 2. **Over the Postgres wire** via the `pgwire` feature (folded into `cluster`) — any `psql` / BI tool /
    ORM connects as if to Postgres.
 
-> Status snapshot: read-path `SELECT` is full DataFusion. Writes are `INSERT`/`UPDATE`/`DELETE` on the
-> **`nodes` table only** with a single-equality WHERE. Arbitrary user tables and DDL are 🗺 roadmap and
-> error today. See the [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
+> Status snapshot: read-path `SELECT` is full DataFusion. Writes are `INSERT`/`UPDATE`/`DELETE` on `nodes`
+> and on **arbitrary user tables**, with DDL (`CREATE`/`ALTER ADD COLUMN`/`DROP TABLE`, `COPY`) over a
+> durable redb catalog. Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML, `ON CONFLICT`,
+> and wire transactions are 🔶 in-progress. See the [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
 
 ## The tables
 
@@ -56,13 +57,16 @@ is replicated/durable like any other mutation. Constraints today:
 - `WHERE` is a single `<column> = <literal>` equality (no compound predicates, JOIN, `FROM`, `USING`);
 - `id` cannot be reassigned.
 
-These are deliberate KG-2.198 follow-ups, not partial bugs — they error with a clear message.
+Compound WHERE, `INSERT … SELECT` into `nodes`, multi-table DML (`UPDATE…FROM`/`DELETE…USING`), and
+`ON CONFLICT` are 🔶 in-progress (EG-045..048); the single-equality forms error with a clear message today.
 
-## DDL & user tables — roadmap
+## DDL & user tables
 
-`CREATE TABLE`, `ALTER`, `DROP`, and any non-graph user table currently return `unsupported statement`.
-A user-table catalog over redb plus DDL handling is **being added now** — see the
-[roadmap](../roadmap.md#sql-toward-full-postgressqlite-parity).
+Arbitrary user tables are first-class: `CREATE TABLE`, `ALTER TABLE … ADD COLUMN`, `DROP TABLE`, and `COPY`
+persist to a durable redb catalog (`crates/eg-query/src/tables/`, EG-018/EG-020), and user-table DML
+(`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`) executes against it. User tables are JOINable to the graph
+`nodes`/`edges` in a single query. `CREATE VIEW`, `ALTER` beyond `ADD COLUMN`, and user-table `RETURNING`
+are 🔶 in-progress (EG-048/EG-072). Reserved names `nodes`/`edges` are rejected for DDL.
 
 ## Postgres wire quick-start
 
