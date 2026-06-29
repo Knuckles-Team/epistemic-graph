@@ -50,13 +50,13 @@ transactions.
 
 | You run today | epistemic-graph as a drop-in | Current parity |
 |---------------|------------------------------|----------------|
-| **Postgres** (psql / BI / ORM) | pgwire server: SCRAM/trust auth, simple + extended protocol, `pg_catalog`/`information_schema` | ✅ read SQL + ✅ graph-table DML · 🗺 arbitrary tables + DDL |
-| **Stardog / GraphDB** (RDF triple-store + reasoner) | RDF dataset over the property graph, SPARQL SELECT, OWL 2 EL⁺/RL reasoning | ✅ SELECT + ✅ reasoning · 🔶 ASK/CONSTRUCT/DESCRIBE/UPDATE + `/sparql` endpoint |
-| **Neo4j** (property graph) | native petgraph core + Cypher `MATCH…RETURN` + graph algorithms | ✅ read traversal & algorithms · 🗺 Cypher writes |
+| **Postgres** (psql / BI / ORM) | pgwire server: SCRAM/trust auth, simple + extended protocol, `pg_catalog`/`information_schema` | ✅ read SQL · ✅ user tables + DDL + `COPY` · 🔶 compound-WHERE DML + wire transactions |
+| **Stardog / GraphDB** (RDF triple-store + reasoner) | RDF dataset over the property graph, SPARQL, OWL 2 EL⁺/RL reasoning | ✅ SELECT/ASK/CONSTRUCT/DESCRIBE + UPDATE + `/sparql` endpoint + reasoning · 🔶 content negotiation, rich FILTER |
+| **Neo4j** (property graph) | native petgraph core + Cypher `MATCH…RETURN` + writes + graph algorithms | ✅ read traversal, algorithms, writes (`CREATE/MERGE/SET/DELETE`) · 🔶 `ORDER BY`/`WITH`/aggregation |
 | **Pinecone / Milvus** (vector DB) | native IVF-PQ + OPQ + SQ8 ANN, persistent, warm-on-start | ✅ |
 | **InfluxDB / TimescaleDB** (time-series) | native redb TSDB: ASOF, gap-fill, `time_bucket`, OHLC, decay | ✅ primitives · 🔶 time-ops as planner ops |
 | **S3 / MinIO** (blob) | content-addressed streaming CAS, redb-native or S3-backed | ✅ |
-| **SQLite / RocksDB** (embedded KV) | `EmbeddedEngine` in-process handle over the same redb rows | ✅ embedded graph API · 🗺 generic KV / SQLite-wire surface |
+| **SQLite / RocksDB** (embedded KV) | `EmbeddedEngine` in-process handle + generic namespaced KV over the same redb rows | ✅ embedded graph API · ✅ generic KV · 🔶 multi-wire (SQLite/MySQL/MSSQL) |
 
 The point is **convergence, not a checkbox**: the modalities share one snapshot, one ACID transaction,
 one security model, and one planner. See the full [capability matrix](#capability-matrix) below for the
@@ -75,18 +75,21 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **SQL** | `SELECT` (joins, aggregates, CTE, window, subquery) | ✅ | `query` | DataFusion 43 over `nodes` + `edges`; real predicate pushdown (Inexact) |
 | **SQL** | `INSERT` / `UPDATE` / `DELETE` | ✅ | `query` | **`nodes` table only**, literal `VALUES`, single `col = literal` WHERE (KG-2.198) |
 | **SQL** | Complex/compound WHERE, `INSERT…SELECT`, JOIN-in-DML | 🔶 | `query` | KG-2.198 follow-up; explicitly errors today |
-| **SQL** | Arbitrary user tables + DDL (`CREATE`/`ALTER`/`DROP`) | 🗺 | `query` | errors `unsupported statement`; being added now |
+| **SQL** | Arbitrary user tables + DDL (`CREATE`/`ALTER ADD COLUMN`/`DROP`), `COPY` | ✅ | `query` | durable redb table catalog (EG-018/EG-020); JOINable to the graph |
 | **Postgres wire** | listener, simple + extended/prepared protocol | ✅ | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR`; also pulled in by `cluster` |
 | **Postgres wire** | SCRAM-SHA-256 / trust auth, `pg_catalog` introspection | ✅ | `pgwire` | KG-2.202 / KG-2.201; pg user → engine ACL actor |
 | **SPARQL** | `SELECT` (BGP, paths, FILTER subset, OPTIONAL, UNION, GROUP/agg, BIND, DISTINCT, SLICE) | ✅ | `sparql` | spargebra parser compiled to LPG scans |
-| **SPARQL** | `ASK` / `CONSTRUCT` / `DESCRIBE` | 🔶 | `sparql` | errors `supports SELECT only`; being added now |
-| **SPARQL** | `UPDATE` (`INSERT/DELETE DATA`) | 🗺 | `sparql` | absent in eg-rdf |
-| **SPARQL** | `/sparql` HTTP endpoint | 🗺 | — | today exposed as binary RPC `Method::Sparql` |
-| **SPARQL** | true named graphs, SPO/POS index, regex/arith FILTER | 🔶 | `sparql` | single default graph; naive full-scan; FILTER is a subset |
-| **Cypher** | `MATCH … WHERE … RETURN … LIMIT` (var-length single hop) | ✅ | `cypher` | read-only over one snapshot; WHERE is AND-only |
-| **Cypher** | writes (`CREATE`/`MERGE`/`SET`/`DELETE`), `ORDER BY`/`WITH`/`OR` | 🗺 | `cypher` | not in grammar |
+| **SPARQL** | `ASK` / `CONSTRUCT` / `DESCRIBE` | ✅ | `sparql` | template instantiation + bounded description (gated by `rdf`, implied by `sparql`) |
+| **SPARQL** | `UPDATE` (`INSERT/DELETE DATA`, `DELETE/INSERT WHERE`, `CLEAR`, `CREATE`/`DROP GRAPH`) | ✅ | `sparql` | `eg-rdf/src/update.rs`; `LOAD` intentionally deferred (no HTTP fetch in write path) |
+| **SPARQL** | `/sparql` HTTP endpoint (W3C SPARQL 1.1 Protocol) | ✅ | `sparql-http` | `src/server/sparql_http.rs`; GET + POST query/update |
+| **SPARQL** | true named graphs (quad dataset) | ✅ | `sparql` | `GRAPH ?g`/constant-IRI over registry graphs (`FROM`/`FROM NAMED` 🔶) |
+| **SPARQL** | content negotiation, SPO/POS index, regex/arith FILTER, sub-SELECT, SERVICE, MINUS | 🔶 | `sparql` | results JSON only; naive full-scan; FILTER is a subset |
+| **Cypher** | `MATCH … WHERE … RETURN … LIMIT` (var-length `[*m..n]`) | ✅ | `cypher` | read over a snapshot; WHERE is AND-only today |
+| **Cypher** | writes (`CREATE`/`MERGE`/`SET`/`DELETE`+`DETACH`) | ✅ | `cypher` | native eg-core mutations; `REMOVE` 🔶 |
+| **Cypher** | `ORDER BY`/`SKIP`/`WITH`/`OPTIONAL MATCH`/`OR`/aggregation/`DISTINCT` | 🔶 | `cypher` | not yet in grammar/executor |
 | **GraphQL** | read queries (scan + BFS, schema-from-graph, aliases, `first`/`limit`, filters) | ✅ | `graphql` | byte-equal to Cypher path |
-| **GraphQL** | mutations / subscriptions / fragments / variables | 🗺 | `graphql` | explicitly rejected at parse |
+| **GraphQL** | mutations (`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge`) | ✅ | `graphql` | native eg-core mutations |
+| **GraphQL** | subscriptions / fragments / variables / directives / relay pagination | 🔶 | `graphql` | poll-only stub; fragments/variables rejected at parse |
 | **OWL** | EL⁺ + RL forward-chaining materialization & classification | ✅ | `owl` | pure-Rust; consistency + incremental + justifications |
 | **OWL** | confidence-weighting + Ebbinghaus time-decay | ✅ | `owl` | KG-2.236; per-axiom `eg:confidence`, fact decay |
 | **OWL** | query-time `Op::Reason` (reasoner seeds a RowSet) | ✅ | `owl-plan` | distributed/cross-shard union supported |
@@ -99,7 +102,8 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **Blob / CAS** | S3 / MinIO backend behind the same `ChunkStore` trait | ✅ | `blob-s3` | manifest/linkage byte-identical |
 | **Blob / CAS** | content-defined chunking | 🗺 | `blob` | fixed 2 MiB chunks today |
 | **Key-value** | embedded in-process engine API over redb rows | ✅ | `embedded` | `EmbeddedEngine` — no Tokio/socket/HMAC (KG-2.216) |
-| **Key-value** | generic `get`/`put` KV surface, SQLite-compatible wire | 🗺 | — | redb tables are graph-shaped; no KV/SQLite surface |
+| **Key-value** | generic namespaced `get`/`put`/`scan`/`cas` KV surface over redb | ✅ | `redb` | `src/server/kv.rs` (EG-022); durable, commit-before-ack; not graph-scoped |
+| **Multi-wire** | SQLite / MySQL-MariaDB / MSSQL wires behind one `WireProtocol` trait | 🔶 | (per-wire) | Postgres ✅ via `pgwire`; others being added |
 | **Full-text** | Tantivy BM25 inverted index, `RankText` + reciprocal-rank fusion | ✅ | `text` | composes in the unified planner |
 | **Unified planner** | `Scan·Filter·Traverse·Rank·RankText·FuseRrf·Reason·SparqlBgp·Udf·ForeignScan·AsOf·Limit` | ✅ | `query`+ | each op feature-gated; see [UQL](docs/uql.md) |
 | **Unified planner** | `Op::Window` / `Op::Foreign` execution | 🔶 | `query` | currently pass-through seams |
@@ -108,7 +112,7 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **Durability** | redb-authoritative, commit-before-ack (`kill -9`-safe) | ✅ | `redb` | folded into every tier |
 | **Distribution** | openraft replication + automatic failover | ✅ | `raft` | `cluster` tier; off ⇒ byte-for-byte single-node |
 | **Distribution** | cross-shard 2PC (presumed-abort, crash-recoverable) | ✅ | `raft` | classic blocking window; 3PC/non-blocking 🗺 |
-| **Distribution** | multi-Raft groups (N-group resharding) | 🔶 | `raft` | router scaffold; single `DEFAULT_GROUP` today |
+| **Distribution** | multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `raft` | `GroupRouter` + `MultiRaft` (KG-2.266/267/268); online ownership move |
 | **Federation** | remote engine / HTTP-JSON / external SQL (`sqlx`) as a `ForeignScan` | ✅ | `federation`(`-sql`) | OFF by default; never in `pi` |
 
 ---
@@ -283,12 +287,14 @@ SELECT n.id, n.properties->>'type' AS kind
 FROM nodes n
 WHERE n.properties->>'type' = 'worker';
 
--- DML on the graph node store (nodes table only, today)
+-- DML on the graph node store, plus arbitrary user tables + DDL
+CREATE TABLE metrics (id TEXT PRIMARY KEY, value DOUBLE PRECISION);
 INSERT INTO nodes (id, properties) VALUES ('AgentC', '{"type":"worker"}');
 UPDATE nodes SET properties = '{"type":"idle"}' WHERE id = 'AgentC';
 DELETE FROM nodes WHERE id = 'AgentC';
 ```
-> `CREATE TABLE` and arbitrary user tables are 🗺 roadmap; DML is the graph `nodes` table only today.
+> Arbitrary user tables + DDL (`CREATE`/`ALTER ADD COLUMN`/`DROP`, `COPY`) are supported and JOINable to the
+> graph; compound-WHERE DML and wire transactions are 🔶 in-progress.
 
 ### SPARQL (`sparql`)
 
@@ -297,10 +303,11 @@ g.rdf.add_triples([("ex:Dog", "rdfs:subClassOf", "ex:Animal")])
 
 rows = g.rdf.sparql("""
   SELECT ?s ?o WHERE { ?s rdfs:subClassOf ?o }
-""")                                              # SELECT supported today
+""")                                              # SELECT / ASK / CONSTRUCT / DESCRIBE all supported
 ```
-> `ASK` / `CONSTRUCT` / `DESCRIBE` / `UPDATE` and a `/sparql` HTTP endpoint are 🔶 in-progress — see the
-> [parity roadmap](docs/roadmap.md).
+> `ASK` / `CONSTRUCT` / `DESCRIBE` / `UPDATE` and the W3C `/sparql` HTTP endpoint (feature `sparql-http`) are
+> supported. Content negotiation, rich FILTER, sub-SELECT, SERVICE and MINUS are 🔶 in-progress — see the
+> [capability matrix](#capability-matrix).
 
 ### Embedded in-process (Pi / edge, `embedded` feature)
 
