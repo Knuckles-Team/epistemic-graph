@@ -30,7 +30,8 @@ use std::collections::HashMap;
 
 use eg_core::graph::GraphView;
 use spargebra::algebra::{
-    AggregateExpression, AggregateFunction, Expression, GraphPattern, PropertyPathExpression,
+    AggregateExpression, AggregateFunction, Expression, Function, GraphPattern,
+    PropertyPathExpression,
 };
 use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::Query;
@@ -669,7 +670,23 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             l.append(&mut r);
             Ok(l)
         }
-        GraphPattern::Project { inner, .. } => eval_pattern(ctx, inner),
+        // Sub-SELECT (CONCEPT:EG-051): evaluate the inner pattern, then RESTRICT each
+        // solution to the projected `variables` so inner-only bindings can't leak out and
+        // corrupt an outer join. Top-level SELECT output is unchanged — the result columns
+        // already derive from the projected set — so this is a pure correctness fix that
+        // makes a nested `{ SELECT … }` join on its projected vars only.
+        GraphPattern::Project { inner, variables } => {
+            let projected: std::collections::HashSet<&str> =
+                variables.iter().map(|v| v.as_str()).collect();
+            Ok(eval_pattern(ctx, inner)?
+                .into_iter()
+                .map(|s| {
+                    s.into_iter()
+                        .filter(|(k, _)| projected.contains(k.as_str()))
+                        .collect()
+                })
+                .collect())
+        }
         // GROUP BY + aggregates (CONCEPT:KG-2.235). `Group` produces one solution per
         // group binding the GROUP BY vars + the aggregate-result vars; the wrapping
         // `Extend` (below) re-binds those to the projected names. With no GROUP BY var
@@ -750,8 +767,36 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
                 .take(end.saturating_sub(*start))
                 .collect())
         }
+        // MINUS (CONCEPT:EG-055): set-difference. Keep each LEFT solution that is NOT
+        // compatible with ANY right solution. SPARQL MINUS compatibility is agreement on
+        // the SHARED bound variables; a left solution whose domain is DISJOINT from a
+        // right solution is NOT removed by it (so a right pattern sharing no variable
+        // never deletes anything).
+        GraphPattern::Minus { left, right } => {
+            let l = eval_pattern(ctx, left)?;
+            let r = eval_pattern(ctx, right)?;
+            Ok(l.into_iter()
+                .filter(|ls| !r.iter().any(|rs| minus_compatible(ls, rs)))
+                .collect())
+        }
         other => Err(format!("eg-rdf SPARQL: unsupported algebra node {other:?}")),
     }
+}
+
+/// SPARQL MINUS compatibility (CONCEPT:EG-055): `l` and `r` are compatible iff they
+/// agree on every variable bound in BOTH and share at least one such variable. A right
+/// solution with a disjoint domain returns `false`, so it never removes a left solution.
+fn minus_compatible(l: &Solution, r: &Solution) -> bool {
+    let mut shared = false;
+    for (k, v) in l {
+        if let Some(rv) = r.get(k) {
+            shared = true;
+            if rv != v {
+                return false;
+            }
+        }
+    }
+    shared
 }
 
 fn canonical_solution(s: &Solution) -> String {
@@ -1010,10 +1055,36 @@ fn path_pairs(ctx: &Ctx, path: &PropertyPathExpression) -> Result<Vec<(String, S
             }
             dedup_pairs(out)
         }
-        PropertyPathExpression::NegatedPropertySet(_) => {
-            return Err("eg-rdf SPARQL: negated property set `!p` not supported".into());
+        // Negated property set `!(p1|…|pn)` (CONCEPT:EG-056): every resource edge whose
+        // projected predicate IRI is NOT one of the negated predicates.
+        PropertyPathExpression::NegatedPropertySet(preds) => {
+            let negated: std::collections::HashSet<String> =
+                preds.iter().map(|p| p.as_str().to_string()).collect();
+            negated_edge_pairs(ctx, &negated)
         }
     })
+}
+
+/// Every `(subject, object)` resource pair carrying a typed edge whose projected
+/// predicate IRI is NOT in `negated` — the negated property set `!p` (CONCEPT:EG-056).
+fn negated_edge_pairs(
+    ctx: &Ctx,
+    negated: &std::collections::HashSet<String>,
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for ((s, o), blobs) in &ctx.active.edge_properties {
+        for blob in blobs {
+            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+                if let Some(rel) = v.get("type").and_then(|x| x.as_str()) {
+                    if !negated.contains(&ctx.proj.pred_iri(rel)) {
+                        out.push((ctx.proj.node_iri(s), ctx.proj.node_iri(o)));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    dedup_pairs(out)
 }
 
 /// Every `(subject, object)` resource pair carrying a typed edge whose projected
@@ -1284,10 +1355,20 @@ fn eval_filter(expr: &Expression, sol: &Solution) -> bool {
     eval_expr_bool(expr, sol).unwrap_or(false)
 }
 
+// Rich FILTER expression evaluation (CONCEPT:EG-053). The evaluator has three layers:
+//   * `eval_term`     — evaluates ANY expression to a typed term `Binding` (Node vs
+//                       Literal), preserving the type info `isIRI`/`STR`/`DATATYPE` need.
+//   * `eval_expr_bool`— the boolean (FILTER) layer: logical ops, comparisons, `IN`,
+//                       `IF`, `COALESCE`, and the boolean built-in `FunctionCall`s.
+//   * `expr_str`/`num`— scalar projections over `eval_term`, used by BIND/aggregates.
+// Datatype-aware where feasible (numeric comparison/equality); unsupported forms still
+// fail SAFE (the FILTER yields `false` / the bind yields no value).
+
 fn eval_expr_bool(expr: &Expression, sol: &Solution) -> Option<bool> {
     match expr {
         Expression::Bound(v) => Some(sol.contains_key(v.as_str())),
-        Expression::Equal(a, b) => Some(expr_str(a, sol)? == expr_str(b, sol)?),
+        Expression::Equal(a, b) => Some(terms_equal(a, b, sol)),
+        Expression::SameTerm(a, b) => Some(expr_str(a, sol)? == expr_str(b, sol)?),
         Expression::Greater(a, b) => Some(num(a, sol)? > num(b, sol)?),
         Expression::GreaterOrEqual(a, b) => Some(num(a, sol)? >= num(b, sol)?),
         Expression::Less(a, b) => Some(num(a, sol)? < num(b, sol)?),
@@ -1295,17 +1376,239 @@ fn eval_expr_bool(expr: &Expression, sol: &Solution) -> Option<bool> {
         Expression::And(a, b) => Some(eval_expr_bool(a, sol)? && eval_expr_bool(b, sol)?),
         Expression::Or(a, b) => Some(eval_expr_bool(a, sol)? || eval_expr_bool(b, sol)?),
         Expression::Not(a) => Some(!eval_expr_bool(a, sol)?),
+        // `IN` (and `NOT IN`, which spargebra parses to `Not(In(…))`) — numeric-aware
+        // membership over the candidate list.
+        Expression::In(a, list) => {
+            let lhs = eval_term(a, sol)?;
+            Some(
+                list.iter()
+                    .any(|e| eval_term(e, sol).map(|rhs| binding_terms_equal(&lhs, &rhs)).unwrap_or(false)),
+            )
+        }
+        Expression::If(c, t, e) => {
+            if eval_expr_bool(c, sol).unwrap_or(false) {
+                eval_expr_bool(t, sol)
+            } else {
+                eval_expr_bool(e, sol)
+            }
+        }
+        Expression::Coalesce(args) => args.iter().find_map(|e| eval_expr_bool(e, sol)),
+        Expression::FunctionCall(f, args) => eval_bool_function(f, args, sol),
+        // Effective boolean value of any other value-producing expression.
+        _ => eval_term(expr, sol).map(|b| ebv(&b)),
+    }
+}
+
+/// Evaluate any expression to a typed term `Binding` (CONCEPT:EG-053). Preserves the
+/// Node/Literal distinction so `isIRI`/`isLiteral`/`STR`/`DATATYPE` resolve correctly.
+fn eval_term(e: &Expression, sol: &Solution) -> Option<Binding> {
+    match e {
+        Expression::Variable(v) => sol.get(v.as_str()).cloned(),
+        Expression::Literal(l) => Some(Binding::Literal(l.value().to_string())),
+        Expression::NamedNode(n) => Some(Binding::Node(format!("<{}>", n.as_str()))),
+        Expression::Add(a, b) => Some(Binding::Literal(fmt_num(num(a, sol)? + num(b, sol)?))),
+        Expression::Subtract(a, b) => Some(Binding::Literal(fmt_num(num(a, sol)? - num(b, sol)?))),
+        Expression::Multiply(a, b) => Some(Binding::Literal(fmt_num(num(a, sol)? * num(b, sol)?))),
+        Expression::Divide(a, b) => {
+            let d = num(b, sol)?;
+            if d == 0.0 {
+                return None;
+            }
+            Some(Binding::Literal(fmt_num(num(a, sol)? / d)))
+        }
+        Expression::UnaryPlus(a) => Some(Binding::Literal(fmt_num(num(a, sol)?))),
+        Expression::UnaryMinus(a) => Some(Binding::Literal(fmt_num(-num(a, sol)?))),
+        Expression::If(c, t, f) => {
+            if eval_expr_bool(c, sol).unwrap_or(false) {
+                eval_term(t, sol)
+            } else {
+                eval_term(f, sol)
+            }
+        }
+        Expression::Coalesce(args) => args.iter().find_map(|a| eval_term(a, sol)),
+        Expression::FunctionCall(f, args) => eval_str_function(f, args, sol),
+        // Boolean-valued expressions render as an xsd:boolean lexical.
+        Expression::Bound(_)
+        | Expression::Equal(..)
+        | Expression::SameTerm(..)
+        | Expression::Greater(..)
+        | Expression::GreaterOrEqual(..)
+        | Expression::Less(..)
+        | Expression::LessOrEqual(..)
+        | Expression::And(..)
+        | Expression::Or(..)
+        | Expression::Not(..)
+        | Expression::In(..) => Some(Binding::Literal(
+            if eval_expr_bool(e, sol)? { "true" } else { "false" }.to_string(),
+        )),
+        Expression::Exists(_) => None,
+    }
+}
+
+/// Boolean SPARQL built-ins (CONCEPT:EG-053): `REGEX`, `CONTAINS`/`STRSTARTS`/`STRENDS`,
+/// `LANGMATCHES`, and the `isIRI`/`isBlank`/`isLiteral`/`isNumeric` type tests.
+fn eval_bool_function(f: &Function, args: &[Expression], sol: &Solution) -> Option<bool> {
+    use spargebra::algebra::Function as F;
+    match f {
+        F::Contains => Some(expr_str(args.first()?, sol)?.contains(&expr_str(args.get(1)?, sol)?)),
+        F::StrStarts => {
+            Some(expr_str(args.first()?, sol)?.starts_with(&expr_str(args.get(1)?, sol)?))
+        }
+        F::StrEnds => Some(expr_str(args.first()?, sol)?.ends_with(&expr_str(args.get(1)?, sol)?)),
+        F::LangMatches => {
+            let tag = expr_str(args.first()?, sol)?.to_lowercase();
+            let range = expr_str(args.get(1)?, sol)?.to_lowercase();
+            Some(
+                (range == "*" && !tag.is_empty())
+                    || tag == range
+                    || tag.starts_with(&format!("{range}-")),
+            )
+        }
+        F::Regex => {
+            let text = expr_str(args.first()?, sol)?;
+            let pat = expr_str(args.get(1)?, sol)?;
+            let flags = args.get(2).and_then(|f| expr_str(f, sol)).unwrap_or_default();
+            let pattern = if flags.contains('i') {
+                format!("(?i){pat}")
+            } else {
+                pat
+            };
+            regex::Regex::new(&pattern).ok().map(|re| re.is_match(&text))
+        }
+        F::IsNumeric => Some(
+            eval_term(args.first()?, sol)
+                .map(|b| term_lexical(&b).parse::<f64>().is_ok())
+                .unwrap_or(false),
+        ),
+        F::IsIri => Some(
+            eval_term(args.first()?, sol)
+                .map(|b| matches!(&b, Binding::Node(s) if s.starts_with('<')))
+                .unwrap_or(false),
+        ),
+        F::IsBlank => Some(
+            eval_term(args.first()?, sol)
+                .map(|b| matches!(&b, Binding::Node(s) if s.starts_with("_:")))
+                .unwrap_or(false),
+        ),
+        F::IsLiteral => Some(
+            eval_term(args.first()?, sol)
+                .map(|b| matches!(b, Binding::Literal(_)))
+                .unwrap_or(false),
+        ),
         _ => None,
     }
 }
 
-fn expr_str(e: &Expression, sol: &Solution) -> Option<String> {
-    match e {
-        Expression::Variable(v) => sol.get(v.as_str()).map(|b| b.as_str().to_string()),
-        Expression::Literal(l) => Some(l.value().to_string()),
-        Expression::NamedNode(n) => Some(format!("<{}>", n.as_str())),
+/// String/term-valued SPARQL built-ins (CONCEPT:EG-053): `STR`/`IRI`/`LANG`/`DATATYPE`,
+/// `UCASE`/`LCASE`/`STRLEN`/`CONCAT`/`SUBSTR`, plus the boolean built-ins rendered as an
+/// xsd:boolean lexical so they compose inside other string expressions.
+fn eval_str_function(f: &Function, args: &[Expression], sol: &Solution) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
+        F::Str => Some(Binding::Literal(term_lexical(&eval_term(args.first()?, sol)?))),
+        F::Iri => {
+            let iri = expr_str(args.first()?, sol)?
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_string();
+            Some(Binding::Node(format!("<{iri}>")))
+        }
+        // No language tag is retained in a `Binding`, so LANG is the empty string (the
+        // correct value for a plain/typed literal).
+        F::Lang => Some(Binding::Literal(String::new())),
+        F::Datatype => Some(Binding::Node(format!(
+            "<{}>",
+            best_effort_datatype(&eval_term(args.first()?, sol)?)
+        ))),
+        F::UCase => Some(Binding::Literal(expr_str(args.first()?, sol)?.to_uppercase())),
+        F::LCase => Some(Binding::Literal(expr_str(args.first()?, sol)?.to_lowercase())),
+        F::StrLen => Some(Binding::Literal(fmt_num(
+            expr_str(args.first()?, sol)?.chars().count() as f64,
+        ))),
+        F::Concat => {
+            let mut s = String::new();
+            for a in args {
+                s.push_str(&expr_str(a, sol)?);
+            }
+            Some(Binding::Literal(s))
+        }
+        F::SubStr => {
+            // SPARQL SUBSTR is 1-based; an optional length truncates.
+            let chars: Vec<char> = expr_str(args.first()?, sol)?.chars().collect();
+            let begin = (num(args.get(1)?, sol)?.max(1.0) as usize).saturating_sub(1);
+            let slice: String = match args.get(2) {
+                Some(lenexpr) => {
+                    let len = num(lenexpr, sol)?.max(0.0) as usize;
+                    chars.iter().skip(begin).take(len).collect()
+                }
+                None => chars.iter().skip(begin).collect(),
+            };
+            Some(Binding::Literal(slice))
+        }
+        // Boolean built-ins composed in a string context → "true"/"false".
+        F::Contains | F::StrStarts | F::StrEnds | F::Regex | F::LangMatches | F::IsIri
+        | F::IsBlank | F::IsLiteral | F::IsNumeric => Some(Binding::Literal(
+            if eval_bool_function(f, args, sol)? { "true" } else { "false" }.to_string(),
+        )),
         _ => None,
     }
+}
+
+/// Lexical value of a term: an IRI loses its angle brackets (`STR()` / comparison).
+fn term_lexical(b: &Binding) -> String {
+    match b {
+        Binding::Node(s) => s.trim_start_matches('<').trim_end_matches('>').to_string(),
+        Binding::Literal(s) => s.clone(),
+    }
+}
+
+/// Best-effort xsd datatype IRI for `DATATYPE()` — bindings drop the original datatype,
+/// so we infer numeric vs string from the lexical form (datatype-aware where feasible).
+fn best_effort_datatype(b: &Binding) -> &'static str {
+    match b {
+        Binding::Node(_) => "http://www.w3.org/2001/XMLSchema#anyURI",
+        Binding::Literal(s) => {
+            if s.parse::<i64>().is_ok() {
+                "http://www.w3.org/2001/XMLSchema#integer"
+            } else if s.parse::<f64>().is_ok() {
+                "http://www.w3.org/2001/XMLSchema#decimal"
+            } else {
+                "http://www.w3.org/2001/XMLSchema#string"
+            }
+        }
+    }
+}
+
+/// Effective boolean value (EBV) of a term for a bare expression in FILTER position.
+fn ebv(b: &Binding) -> bool {
+    match b {
+        Binding::Literal(s) => match s.parse::<f64>() {
+            Ok(n) => n != 0.0,
+            Err(_) => !s.is_empty() && !s.eq_ignore_ascii_case("false"),
+        },
+        Binding::Node(s) => !s.is_empty(),
+    }
+}
+
+/// Datatype-aware `=` (CONCEPT:EG-053): numeric comparison when both sides parse as
+/// numbers, else lexical-term equality.
+fn terms_equal(a: &Expression, b: &Expression, sol: &Solution) -> bool {
+    match (eval_term(a, sol), eval_term(b, sol)) {
+        (Some(x), Some(y)) => binding_terms_equal(&x, &y),
+        _ => false,
+    }
+}
+
+fn binding_terms_equal(x: &Binding, y: &Binding) -> bool {
+    let (xs, ys) = (term_lexical(x), term_lexical(y));
+    match (xs.parse::<f64>(), ys.parse::<f64>()) {
+        (Ok(nx), Ok(ny)) => nx == ny,
+        _ => xs == ys,
+    }
+}
+
+fn expr_str(e: &Expression, sol: &Solution) -> Option<String> {
+    eval_term(e, sol).map(|b| b.as_str().to_string())
 }
 
 fn num(e: &Expression, sol: &Solution) -> Option<f64> {
@@ -1975,5 +2278,205 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             panic!()
         };
         assert_eq!(ra.solutions.len(), 1, "ex:a visible in graph A");
+    }
+
+    // ── CONCEPT:EG-051 — sub-SELECT ─────────────────────────────────────────────
+
+    /// EG-051: a sub-SELECT that BINDS more vars than it projects must restrict each
+    /// inner solution to the projected set, so an inner-only var can't leak and corrupt
+    /// the outer join. Here the inner binds `?friend`/`?name` (the FRIEND's name) but
+    /// projects only `?p`; the outer re-binds `?name` to the PERSON's own name. If the
+    /// inner `?name` leaked, every join would mismatch and the result would be EMPTY.
+    #[test]
+    fn sub_select_restricts_to_projected_vars() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name WHERE {
+              { SELECT ?p WHERE { ?p ex:knows ?friend . ?friend ex:name ?name } }
+              ?p ex:name ?name .
+            }"#,
+        )
+        .unwrap();
+        let mut names: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        names.sort();
+        // alice (knows bob) and carol (knows alice) have an ex:knows; the join keys on
+        // the projected ?p only, so each binds its OWN name.
+        assert_eq!(names, vec!["Alice", "Carol"], "got {res:?}");
+    }
+
+    /// EG-051: a sub-SELECT computing `COUNT(*) AS ?n` projects + surfaces the scalar.
+    #[test]
+    fn sub_select_count_star() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?n WHERE {
+              { SELECT (COUNT(*) AS ?n) WHERE { ?p a ex:Person } }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(res.solutions.len(), 1, "one aggregate row");
+        assert_eq!(res.solutions[0].get("n").unwrap().as_str(), "3", "got {res:?}");
+    }
+
+    /// EG-051 regression: a plain top-level SELECT is byte-for-byte unchanged.
+    #[test]
+    fn sub_select_top_level_unchanged() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name WHERE { ?p ex:name ?name }"#,
+        )
+        .unwrap();
+        let mut names: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Alice", "Bob", "Carol"], "got {res:?}");
+    }
+
+    // ── CONCEPT:EG-053 — rich FILTER ────────────────────────────────────────────
+
+    fn filtered_names(view: &GraphView, filter: &str) -> Vec<String> {
+        let q = format!(
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name WHERE {{
+              ?p a ex:Person . ?p ex:name ?name . ?p ex:age ?age .
+              FILTER ({filter})
+            }}"#
+        );
+        let res = run(view, &q).unwrap();
+        let mut names: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// EG-053: REGEX (with the case-insensitive `i` flag).
+    #[test]
+    fn filter_regex() {
+        let view = loaded_view();
+        assert_eq!(filtered_names(&view, r#"REGEX(?name, "^a", "i")"#), vec!["Alice"]);
+    }
+
+    /// EG-053: arithmetic inside a comparison (`?age + 5 > 40`).
+    #[test]
+    fn filter_arithmetic_comparison() {
+        let view = loaded_view();
+        // ages 30/25/40 → 35/30/45; only carol (45) clears 40.
+        assert_eq!(filtered_names(&view, "?age + 5 > 40"), vec!["Carol"]);
+    }
+
+    /// EG-053: `IN` membership (numeric-aware via the term compare).
+    #[test]
+    fn filter_in() {
+        let view = loaded_view();
+        let mut got = filtered_names(&view, r#"?name IN ("Alice", "Bob")"#);
+        got.sort();
+        assert_eq!(got, vec!["Alice", "Bob"]);
+    }
+
+    /// EG-053: `NOT IN` parses to `Not(In(…))` and excludes the listed members.
+    #[test]
+    fn filter_not_in() {
+        let view = loaded_view();
+        assert_eq!(filtered_names(&view, r#"?name NOT IN ("Alice", "Bob")"#), vec!["Carol"]);
+    }
+
+    /// EG-053: string built-ins — CONTAINS and UCASE.
+    #[test]
+    fn filter_string_functions() {
+        let view = loaded_view();
+        assert_eq!(filtered_names(&view, r#"CONTAINS(?name, "li")"#), vec!["Alice"]);
+        assert_eq!(filtered_names(&view, r#"UCASE(?name) = "BOB""#), vec!["Bob"]);
+        assert_eq!(filtered_names(&view, "STRLEN(?name) = 3"), vec!["Bob"]);
+    }
+
+    // ── CONCEPT:EG-055 — MINUS ──────────────────────────────────────────────────
+
+    /// EG-055: MINUS removes every left solution compatible with a right solution.
+    /// alice/carol HAVE an ex:knows ⇒ removed; bob does not ⇒ kept.
+    #[test]
+    fn minus_set_difference() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name WHERE {
+              ?p a ex:Person . ?p ex:name ?name .
+              MINUS { ?p ex:knows ?o }
+            }"#,
+        )
+        .unwrap();
+        let names: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(names, vec!["Bob"], "got {res:?}");
+    }
+
+    // ── CONCEPT:EG-056 — negated property set `!p` ──────────────────────────────
+
+    /// EG-056: `!ex:knows` matches every resource edge whose predicate is NOT ex:knows.
+    #[test]
+    fn negated_property_set() {
+        let ttl = r#"
+@prefix ex: <http://example.org/> .
+ex:alice ex:knows ex:bob ; ex:likes ex:carol .
+"#;
+        let core = eg_core::graph::GraphCore::new();
+        let mut iris = IriStore::default();
+        load_triples(
+            &core,
+            &mut iris,
+            "g",
+            parse_turtle(ttl).unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?s ?o WHERE { ?s !ex:knows ?o }"#,
+        )
+        .unwrap();
+        let pairs: Vec<(String, String)> = res
+            .solutions
+            .iter()
+            .map(|s| {
+                (
+                    s.get("s").unwrap().as_str().to_string(),
+                    s.get("o").unwrap().as_str().to_string(),
+                )
+            })
+            .collect();
+        // only the ex:likes edge (alice→carol) survives; ex:knows is excluded.
+        assert_eq!(pairs.len(), 1, "got {pairs:?}");
+        assert!(
+            pairs[0].0.contains("alice") && pairs[0].1.contains("carol"),
+            "got {pairs:?}"
+        );
     }
 }

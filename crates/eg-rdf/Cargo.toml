@@ -24,7 +24,7 @@ default = []
 rdf = ["dep:oxrdf", "dep:oxttl"]
 # W2 — SPARQL 1.1 algebra (spargebra). Parser + algebra ONLY; we provide the
 # evaluator (compile, not embed). Pure Rust (peg is a build-time PEG generator).
-sparql = ["rdf", "dep:spargebra"]
+sparql = ["rdf", "dep:spargebra", "dep:regex"]
 # Opt-in lossless redb `quads` table for multi-valued-literal predicates that the
 # key-unique property-graph blob would collapse. Rides the engine's redb tier.
 rdf-redb = ["rdf", "dep:redb"]
@@ -46,6 +46,8 @@ oxttl = { version = "0.2", optional = true }
 # SPARQL 1.1 parser + algebra (feature `sparql`). Pure Rust; oxigraph's front-end
 # factored out (no store, no async, no DataFusion).
 spargebra = { version = "0.4", optional = true }
+# SPARQL 1.1 REGEX built-in (feature `sparql`, CONCEPT:EG-053). Pure Rust, no native deps.
+regex = { version = "1", optional = true }
 # Durable lossless quad table (feature `rdf-redb`). Same pin as the engine.
 redb = { version = "4.1", optional = true }
 
