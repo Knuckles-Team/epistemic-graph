@@ -110,8 +110,13 @@ nav:
       - Binary Promotion (deploy): deploy/binary-promotion.md
       - Rust Compute Guide: RUST_COMPUTE_GUIDE.md
   - Architecture:
+      - Engine Scaling Program (M1/M2/M3): architecture/scaling-program.md
+      - Reserved Read-Admission Lane (EG-044): architecture/reserved-read-lane.md
       - Transport Boundary (ADR): transport_boundary_adr.md
       - Per-Graph Write Coalescer: architecture/write-coalescer.md
+      - Multi-Raft Cluster Status (M2): architecture/m2-raft-status.md
+      - Catalog-driven Resharding (M3): architecture/m3-resharding.md
+      - Cluster Deployment: architecture/cluster-deployment.md
       - Index Manager: architecture/index-manager.md
       - Correctness Harness: architecture/correctness-harness.md
   - Performance:
