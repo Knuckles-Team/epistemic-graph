@@ -1,11 +1,11 @@
 # Cypher interface
 
-The `cypher` feature gives a **read-only** Cypher surface over a single graph snapshot. It is the
-familiar `MATCH … WHERE … RETURN … LIMIT` shape, executed against the engine's native graph primitives
-(label index, VF2 subgraph matching, petgraph BFS) — not DataFusion.
+The `cypher` feature gives a Cypher surface over the engine's native graph primitives (label index, VF2
+subgraph matching, petgraph BFS) — not DataFusion. Reads run over a snapshot; writes mutate the graph.
 
-> Status snapshot: read traversal is supported; Cypher **writes are roadmap**. See the
-> [capability matrix](../capabilities.md#cypher-eg-querycypher).
+> Status snapshot: `MATCH … WHERE … RETURN … LIMIT` reads and writes (`CREATE`/`MERGE`/`SET`/`DELETE`
+> +`DETACH`) are supported. `REMOVE` and the `ORDER BY`/`SKIP`/`WITH`/`OPTIONAL MATCH`/`OR`/aggregation/
+> `DISTINCT` clauses are 🔶 in-progress. See the [capability matrix](../capabilities.md#cypher-eg-querycypher).
 
 ## Supported grammar
 
@@ -22,14 +22,26 @@ LIMIT 100
 - **RETURN**: `var` or `var.prop`, comma-separated.
 - **LIMIT**: integer (an implicit cap of 50,000 rows protects the engine).
 
-## Not supported (roadmap)
+## Writes
 
-- Writes: `CREATE`, `MERGE`, `SET`, `DELETE`, `REMOVE` (not in the grammar).
-- `ORDER BY`, `SKIP`, `WITH`, `OPTIONAL MATCH`, `OR`/`NOT` in WHERE, aggregation, `DISTINCT`,
-  comma-separated disjoint patterns.
+```cypher
+CREATE (a:Agent {id: 'AgentC', region: 'us'})
+MERGE (b:Agent {id: 'AgentD'})
+SET a.active = true
+DELETE a            // DETACH DELETE to also drop incident edges; edge-var DELETE supported
+```
 
-These land via a write planner and grammar extensions —
-see the [roadmap](../roadmap.md#graph-toward-full-neo4j-parity).
+`CREATE`/`MERGE`/`SET`/`DELETE` (+`DETACH`) map to native eg-core mutations (`add_node`/`add_edge`/
+`compare_and_set_fields`/`remove_node`/`remove_edge`). MERGE is idempotent (create-if-absent via the label index).
+
+## Not yet (🔶 in-progress)
+
+- `REMOVE` (property/label removal).
+- `ORDER BY`, `SKIP`, `WITH`, `OPTIONAL MATCH`, `OR`/`IN`/`STARTS WITH`/`CONTAINS`/`IS NULL` in WHERE,
+  aggregation (`count`/`collect`/…), `DISTINCT`, comma-separated disjoint patterns.
+- Var-length combined with surrounding fixed hops + path-variable binding.
+
+These land via grammar + executor extensions — see the [roadmap](../roadmap.md#graph-toward-full-neo4j-parity).
 
 ## Relationship to the other surfaces
 

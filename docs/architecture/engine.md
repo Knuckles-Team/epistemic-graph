@@ -146,7 +146,7 @@ flowchart LR
         QUADS[("quads table — multi-valued literals")]
     end
     subgraph Surfaces["Query surfaces"]
-        SPARQLS["SPARQL 1.1 SELECT (spargebra to GraphView scans)"]
+        SPARQLS["SPARQL 1.1 SELECT/ASK/CONSTRUCT/DESCRIBE + UPDATE + /sparql endpoint (spargebra to GraphView scans)"]
         OWLR["OWL 2 EL+ / RL reasoner"]
     end
 
