@@ -76,7 +76,7 @@ use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
 
 use eg_query::{
-    AlterTablePlan, ColEq, Column, ColumnType, CopyFormat, CopyPlan, CreateTablePlan, DeleteNodes,
+    AlterTablePlan, Column, ColumnType, CopyFormat, CopyPlan, CreateTablePlan, DeleteNodes,
     DeleteTable, DropTablePlan, InsertNodes, InsertSelect, InsertTable, PgColType, StatementKind,
     TableSchema, TableStore, TableTxn, TxnOp, TypedColumn, TypedQueryResult, UpdateNodes,
     UpdateTable, WhereEq,
@@ -664,10 +664,7 @@ impl EngineBackend {
                 self.buffer(TxnOp::Update {
                     table: upd.table,
                     set: upd.set,
-                    selector: ColEq {
-                        column: upd.selector.column,
-                        value: upd.selector.value,
-                    },
+                    selector: upd.selector.pred,
                 });
                 Ok(Response::Execution(Tag::new("UPDATE")))
             }
@@ -675,10 +672,7 @@ impl EngineBackend {
             StatementKind::DeleteTable(del) if in_txn => {
                 self.buffer(TxnOp::Delete {
                     table: del.table,
-                    selector: ColEq {
-                        column: del.selector.column,
-                        value: del.selector.value,
-                    },
+                    selector: del.selector.pred,
                 });
                 Ok(Response::Execution(Tag::new("DELETE")))
             }
@@ -822,59 +816,64 @@ impl EngineBackend {
         Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
     }
 
-    /// `UPDATE <user_table> SET … WHERE <col> = <literal>` (CONCEPT:EG-018).
+    /// `UPDATE <user_table> SET … WHERE <predicate>` (CONCEPT:EG-018, compound
+    /// predicate CONCEPT:EG-045). The store evaluates the predicate per row inside
+    /// its redb write transaction (serializable).
     async fn run_update_table(&self, upd: UpdateTable) -> PgWireResult<Response> {
         let store = user_table_store()?;
-        let selector = eg_query::ColEq {
-            column: upd.selector.column,
-            value: upd.selector.value,
-        };
-        let n = tokio::task::spawn_blocking(move || {
-            store.update_where(&upd.table, &upd.set, &selector)
-        })
-        .await
-        .map_err(|e| user_err(format!("update task failed: {e}")))?
-        .map_err(user_err)?;
+        let pred = upd.selector.pred;
+        let n =
+            tokio::task::spawn_blocking(move || store.update_where(&upd.table, &upd.set, &pred))
+                .await
+                .map_err(|e| user_err(format!("update task failed: {e}")))?
+                .map_err(user_err)?;
         Ok(Response::Execution(Tag::new("UPDATE").with_rows(n)))
     }
 
-    /// `DELETE FROM <user_table> WHERE <col> = <literal>` (CONCEPT:EG-018).
+    /// `DELETE FROM <user_table> WHERE <predicate>` (CONCEPT:EG-018, compound
+    /// predicate CONCEPT:EG-045).
     async fn run_delete_table(&self, del: DeleteTable) -> PgWireResult<Response> {
         let store = user_table_store()?;
-        let selector = eg_query::ColEq {
-            column: del.selector.column,
-            value: del.selector.value,
-        };
-        let n = tokio::task::spawn_blocking(move || store.delete_where(&del.table, &selector))
+        let pred = del.selector.pred;
+        let n = tokio::task::spawn_blocking(move || store.delete_where(&del.table, &pred))
             .await
             .map_err(|e| user_err(format!("delete task failed: {e}")))?
             .map_err(user_err)?;
         Ok(Response::Execution(Tag::new("DELETE").with_rows(n)))
     }
 
-    /// Resolve the node ids a simple-equality WHERE selects. `Id` is the fast path
-    /// (one id, only included if the node exists). `Property` scans the node store
-    /// once, decodes each blob, and matches the column's current value — bounded by
-    /// the in-memory node set (no DataFusion round-trip needed for a simple eq).
+    /// Resolve the candidate node ids a WHERE selects. `Id` is the fast path (one id,
+    /// only included if the node exists). `Predicate` (CONCEPT:EG-045) re-runs the
+    /// WHERE text through the SAME DataFusion read path as a `SELECT id FROM nodes
+    /// WHERE …`, so any compound `AND`/`OR`/`IN`/`BETWEEN`/range predicate the read
+    /// surface understands resolves the candidate set. These ids are then re-checked
+    /// under the write guard (`compare_and_set_fields_if`/`remove_node_if`) for
+    /// serializable semantics, so a row that changed between the read and the write is
+    /// skipped.
     async fn matched_ids(&self, graph: &str, selector: &WhereEq) -> PgWireResult<Vec<String>> {
-        let core = self.graph_core(graph).await?;
         match selector {
-            WhereEq::Id(id) => Ok(if core.has_node(id) {
-                vec![id.clone()]
-            } else {
-                Vec::new()
-            }),
-            WhereEq::Property { column, value } => {
-                let mut out = Vec::new();
-                for (id, blob) in core.get_nodes() {
-                    let Ok(serde_json::Value::Object(obj)) =
-                        rmp_serde::from_slice::<serde_json::Value>(&blob)
-                    else {
-                        continue;
-                    };
-                    let current = obj.get(column).unwrap_or(&serde_json::Value::Null);
-                    if current == value {
-                        out.push(id);
+            WhereEq::Id(id) => {
+                let core = self.graph_core(graph).await?;
+                Ok(if core.has_node(id) {
+                    vec![id.clone()]
+                } else {
+                    Vec::new()
+                })
+            }
+            WhereEq::Predicate { where_sql, .. } => {
+                let sql = format!("SELECT id FROM nodes WHERE {where_sql}");
+                let result = self.run_read(graph, sql).await?;
+                let id_col = result
+                    .columns
+                    .iter()
+                    .position(|c| c.name.eq_ignore_ascii_case("id"))
+                    .ok_or_else(|| user_err("predicate read did not return an `id` column"))?;
+                let mut out = Vec::with_capacity(result.rows.len());
+                for row in result.rows {
+                    match row.get(id_col) {
+                        Some(serde_json::Value::String(s)) => out.push(s.clone()),
+                        Some(serde_json::Value::Number(n)) => out.push(n.to_string()),
+                        _ => {}
                     }
                 }
                 Ok(out)
@@ -984,9 +983,19 @@ impl EngineBackend {
             .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
         let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
             .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+        // CONCEPT:EG-045 — when the WHERE is a compound predicate, re-check it under
+        // the write guard so a row that changed between candidate resolution and the
+        // write is skipped (serializable). The `id` fast path has no predicate.
+        let pred = match &upd.selector {
+            WhereEq::Predicate { pred, .. } => Some(pred.clone()),
+            WhereEq::Id(_) => None,
+        };
         let mut affected_ids = Vec::new();
         for id in ids {
-            let applied = core.compare_and_set_fields(&id, &conditions, &updates);
+            let applied = match &pred {
+                Some(p) => core.compare_and_set_fields_if(&id, p, &conditions, &updates),
+                None => core.compare_and_set_fields(&id, &conditions, &updates),
+            };
             if applied {
                 let method = crate::protocol::Method::CompareAndSetNodeFields {
                     node_id: id.clone(),
@@ -1040,18 +1049,37 @@ impl EngineBackend {
         } else {
             None
         };
+        // CONCEPT:EG-045 — re-check a compound predicate under the write guard so a
+        // row that changed between candidate resolution and removal is skipped
+        // (serializable). The `id` fast path has no predicate.
+        let pred = match &del.selector {
+            WhereEq::Predicate { pred, .. } => Some(pred.clone()),
+            WhereEq::Id(_) => None,
+        };
         let core = self.graph_core(graph).await?;
-        let mut n = 0usize;
+        let mut removed_ids = Vec::new();
         for id in ids {
-            core.remove_node(id.clone());
-            let method = crate::protocol::Method::RemoveNode {
-                node_id: id.clone(),
+            let removed = match &pred {
+                Some(p) => core.remove_node_if(&id, p),
+                None => {
+                    core.remove_node(id.clone());
+                    true
+                }
             };
-            self.record_durable_write(graph, &method).await?;
-            n += 1;
+            if removed {
+                let method = crate::protocol::Method::RemoveNode {
+                    node_id: id.clone(),
+                };
+                self.record_durable_write(graph, &method).await?;
+                removed_ids.push(id);
+            }
         }
         core.mark_dirty();
+        let n = removed_ids.len();
         if let Some((cols, types)) = returning_cols {
+            // Keep only the snapshots of rows actually removed (a gated predicate may
+            // have skipped some candidates).
+            affected.retain(|(id, _)| removed_ids.contains(id));
             Ok(Response::Query(query_response(
                 returning_result(&affected, &cols, &types),
                 result_format,
