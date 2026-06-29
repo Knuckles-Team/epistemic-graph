@@ -136,7 +136,8 @@ pub fn referenced_named_graphs(update: &Update) -> Vec<String> {
             GraphUpdateOperation::Create { graph, .. } => {
                 out.insert(graph.as_str().to_string());
             }
-            GraphUpdateOperation::Clear { graph, .. } | GraphUpdateOperation::Drop { graph, .. } => {
+            GraphUpdateOperation::Clear { graph, .. }
+            | GraphUpdateOperation::Drop { graph, .. } => {
                 push_target(graph, &mut out);
             }
             GraphUpdateOperation::Load { destination, .. } => {
@@ -400,7 +401,10 @@ fn graph_opt(g: &GraphName) -> Option<String> {
 // ── pattern instantiation (DELETE/INSERT WHERE) ─────────────────────────────────
 
 /// Instantiate an INSERT `QuadPattern` with a solution → `(graph, subject_id, pred, obj)`.
-fn instantiate_quad(qp: &QuadPattern, sol: &Solution) -> Option<(Option<String>, String, String, ObjTerm)> {
+fn instantiate_quad(
+    qp: &QuadPattern,
+    sol: &Solution,
+) -> Option<(Option<String>, String, String, ObjTerm)> {
     let graph = resolve_graph_pattern(&qp.graph_name, sol)?;
     let s = subject_from_term_pattern(&qp.subject, sol)?;
     let p = pred_from_pattern(&qp.predicate, sol)?;
@@ -626,7 +630,9 @@ fn merge_property(core: &GraphCore, id: &str, key: &str, cell: serde_json::Value
 /// Remove a literal property `key` whose lexical value matches. Returns `true` if dropped.
 fn delete_property(core: &GraphCore, id: &str, key: &str, value: &str) -> bool {
     let mut map = read_node_obj(core, id);
-    let matches = map.get(key).map(|cell| cell_lexical(cell) == Some(value.to_string()));
+    let matches = map
+        .get(key)
+        .map(|cell| cell_lexical(cell) == Some(value.to_string()));
     if matches == Some(true) {
         map.remove(key);
         write_node_obj(core, id, map);
@@ -789,12 +795,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            count(&store, None, "SELECT ?o WHERE { <http://ex/a> <http://ex/knows> ?o }"),
+            count(
+                &store,
+                None,
+                "SELECT ?o WHERE { <http://ex/a> <http://ex/knows> ?o }"
+            ),
             1,
             "edge visible after INSERT DATA"
         );
         assert_eq!(
-            count(&store, None, "SELECT ?n WHERE { <http://ex/a> <http://ex/name> ?n }"),
+            count(
+                &store,
+                None,
+                "SELECT ?n WHERE { <http://ex/a> <http://ex/name> ?n }"
+            ),
             1,
             "literal visible after INSERT DATA"
         );
@@ -806,13 +820,21 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            count(&store, None, "SELECT ?o WHERE { <http://ex/a> <http://ex/knows> ?o }"),
+            count(
+                &store,
+                None,
+                "SELECT ?o WHERE { <http://ex/a> <http://ex/knows> ?o }"
+            ),
             0,
             "edge gone after DELETE DATA"
         );
         // The literal (a different triple) is untouched — incremental delete is surgical.
         assert_eq!(
-            count(&store, None, "SELECT ?n WHERE { <http://ex/a> <http://ex/name> ?n }"),
+            count(
+                &store,
+                None,
+                "SELECT ?n WHERE { <http://ex/a> <http://ex/name> ?n }"
+            ),
             1,
             "the name literal survives the edge delete"
         );
@@ -837,12 +859,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            count(&store, None, "SELECT ?s WHERE { ?s <http://ex/name> \"A\" }"),
+            count(
+                &store,
+                None,
+                "SELECT ?s WHERE { ?s <http://ex/name> \"A\" }"
+            ),
             0,
             "no A left"
         );
         assert_eq!(
-            count(&store, None, "SELECT ?s WHERE { ?s <http://ex/name> \"B\" }"),
+            count(
+                &store,
+                None,
+                "SELECT ?s WHERE { ?s <http://ex/name> \"B\" }"
+            ),
             2,
             "both renamed to B"
         );
@@ -913,7 +943,10 @@ mod tests {
         let default = eg_core::graph::GraphView::default();
         let ds = Dataset::new(
             &default,
-            vec![("http://g/1".to_string(), &v1), ("http://g/2".to_string(), &v2)],
+            vec![
+                ("http://g/1".to_string(), &v1),
+                ("http://g/2".to_string(), &v2),
+            ],
         );
         let out = crate::sparql::run_outcome_dataset(
             &ds,
@@ -929,6 +962,10 @@ mod tests {
             .iter()
             .filter_map(|s| s.get("g").map(|b| b.as_str().to_string()))
             .collect();
-        assert_eq!(graphs, vec!["<http://g/1>".to_string()], "only g1 holds ex:a");
+        assert_eq!(
+            graphs,
+            vec!["<http://g/1>".to_string()],
+            "only g1 holds ex:a"
+        );
     }
 }

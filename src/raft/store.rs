@@ -189,7 +189,7 @@ impl EgStore {
 
     async fn persist_applied(&self, sm: &StateMachine) -> Result<(), String> {
         let a = AppliedState {
-            last_applied_log: sm.last_applied_log.clone(),
+            last_applied_log: sm.last_applied_log,
             last_membership: sm.last_membership.clone(),
         };
         let b = rmp_serde::to_vec_named(&a).map_err(|e| e.to_string())?;
@@ -373,7 +373,7 @@ impl RaftLogReader<TypeConfig> for Arc<EgStore> {
 
     /// The last saved vote (moved onto [`RaftLogReader`] in openraft 0.10).
     async fn read_vote(&mut self) -> Result<Option<VoteOf<TypeConfig>>, io::Error> {
-        Ok(self.vote.read().await.clone())
+        Ok(*self.vote.read().await)
     }
 }
 
@@ -381,11 +381,11 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<EgStore> {
     async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
         let (last_applied_log, last_membership) = {
             let sm = self.sm.read().await;
-            (sm.last_applied_log.clone(), sm.last_membership.clone())
+            (sm.last_applied_log, sm.last_membership.clone())
         };
         let graphs = self.dump_graphs().await;
         let body = SmSnapshotData {
-            last_applied_log: last_applied_log.clone(),
+            last_applied_log,
             last_membership: last_membership.clone(),
             graphs,
         };
@@ -418,15 +418,15 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
 
     async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, io::Error> {
         let (_, last_idx) = self.redb().raft_log_bounds(self.group_id).map_err(ioerr)?;
-        let last_purged = self.last_purged_log_id.read().await.clone();
+        let last_purged = *self.last_purged_log_id.read().await;
         // Reconstruct the last log id from the stored entry (redb holds the Entry),
         // so a restart knows its log tail WITHOUT the leader.
         let last_log_id = match last_idx {
             Some(i) => match self.read_one_entry(i).map_err(ioerr)? {
                 Some(e) => Some(e.log_id()),
-                None => last_purged.clone(),
+                None => last_purged,
             },
-            None => last_purged.clone(),
+            None => last_purged,
         };
         Ok(LogState {
             last_purged_log_id: last_purged,
@@ -440,7 +440,7 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
 
     async fn save_vote(&mut self, vote: &VoteOf<TypeConfig>) -> Result<(), io::Error> {
         self.persist_vote(vote).await.map_err(ioerr)?;
-        *self.vote.write().await = Some(vote.clone());
+        *self.vote.write().await = Some(*vote);
         Ok(())
     }
 
@@ -453,7 +453,7 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
     }
 
     async fn read_committed(&mut self) -> Result<Option<LogIdOf<TypeConfig>>, io::Error> {
-        Ok(self.committed.read().await.clone())
+        Ok(*self.committed.read().await)
     }
 
     async fn append<I>(
@@ -507,10 +507,10 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
         {
             let mut ld = self.last_purged_log_id.write().await;
             if ld.as_ref().map(|l| l.index) < Some(log_id.index) {
-                *ld = Some(log_id.clone());
+                *ld = Some(log_id);
             }
         }
-        let b = rmp_serde::to_vec_named(&Some(log_id.clone())).map_err(ioerr)?;
+        let b = rmp_serde::to_vec_named(&Some(log_id)).map_err(ioerr)?;
         self.redb()
             .raft_meta_put(self.group_id, KEY_PURGED, b)
             .await
@@ -529,7 +529,7 @@ impl RaftStateMachine<TypeConfig> for Arc<EgStore> {
         &mut self,
     ) -> Result<(Option<LogIdOf<TypeConfig>>, StoredMembershipOf<TypeConfig>), io::Error> {
         let sm = self.sm.read().await;
-        Ok((sm.last_applied_log.clone(), sm.last_membership.clone()))
+        Ok((sm.last_applied_log, sm.last_membership.clone()))
     }
 
     async fn apply<Strm>(&mut self, mut entries: Strm) -> Result<(), io::Error>
@@ -546,15 +546,14 @@ impl RaftStateMachine<TypeConfig> for Arc<EgStore> {
                 EntryPayload::Normal(req) => self.apply_request(req).await.map_err(ioerr)?,
                 EntryPayload::Membership(mem) => {
                     let mut sm = self.sm.write().await;
-                    sm.last_membership =
-                        StoredMembership::new(Some(entry.log_id.clone()), mem.clone());
+                    sm.last_membership = StoredMembership::new(Some(entry.log_id), mem.clone());
                     RaftResponse { applied: false }
                 }
             };
             // Record the applied index (durably) AFTER the effect landed.
             {
                 let mut sm = self.sm.write().await;
-                sm.last_applied_log = Some(entry.log_id.clone());
+                sm.last_applied_log = Some(entry.log_id);
                 let snapshot = sm.clone();
                 drop(sm);
                 self.persist_applied(&snapshot).await.map_err(ioerr)?;
@@ -587,7 +586,7 @@ impl RaftStateMachine<TypeConfig> for Arc<EgStore> {
         self.install_graphs(&body.graphs).await.map_err(ioerr)?;
         {
             let mut sm = self.sm.write().await;
-            sm.last_applied_log = body.last_applied_log.clone();
+            sm.last_applied_log = body.last_applied_log;
             sm.last_membership = body.last_membership.clone();
             let snapshot = sm.clone();
             drop(sm);

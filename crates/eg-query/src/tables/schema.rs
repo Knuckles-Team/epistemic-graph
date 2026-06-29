@@ -49,7 +49,12 @@ impl ColumnType {
     /// base type is what the store needs. Returns `Err` for an unknown type.
     pub fn parse(name: &str) -> Result<ColumnType, String> {
         // Strip any `(...)` precision/length suffix and whitespace, lowercase.
-        let base = name.split('(').next().unwrap_or(name).trim().to_ascii_lowercase();
+        let base = name
+            .split('(')
+            .next()
+            .unwrap_or(name)
+            .trim()
+            .to_ascii_lowercase();
         let ty = match base.as_str() {
             "int" | "int4" | "integer" | "serial" | "smallint" | "int2" => ColumnType::Int,
             "bigint" | "int8" | "bigserial" | "long" => ColumnType::BigInt,
@@ -59,7 +64,10 @@ impl ColumnType {
                 ColumnType::Text
             }
             "bool" | "boolean" => ColumnType::Bool,
-            "timestamp" | "timestamptz" | "datetime" | "timestamp with time zone"
+            "timestamp"
+            | "timestamptz"
+            | "datetime"
+            | "timestamp with time zone"
             | "timestamp without time zone" => ColumnType::Timestamp,
             "bytes" | "bytea" | "blob" | "binary" => ColumnType::Bytes,
             "json" | "jsonb" => ColumnType::Json,

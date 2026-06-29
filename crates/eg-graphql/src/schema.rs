@@ -95,12 +95,7 @@ impl Schema {
     pub fn to_mutation_sdl(&self) -> String {
         // A `# types: …` comment ties the generic ops back to the graph's real labels,
         // so an introspector sees which node types `createNode(label: …)` can produce.
-        let labels = self
-            .types
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ");
+        let labels = self.types.keys().cloned().collect::<Vec<_>>().join(", ");
         let mut out = String::new();
         if !labels.is_empty() {
             out.push_str(&format!("# node types in this graph: {labels}\n"));

@@ -1246,8 +1246,15 @@ mod security_tests {
                 let mut commit = |m: Method| {
                     let mut ops = vec![("g".to_string(), m)];
                     let mut log = Vec::new();
-                    commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto, &mut tail)
-                        .unwrap();
+                    commit_ops(
+                        &db,
+                        &mut ops,
+                        &mut log,
+                        Durability::Immediate,
+                        crypto,
+                        &mut tail,
+                    )
+                    .unwrap();
                 };
                 // 6 multi-edges a->b across SEPARATE batches (cross-batch in-RAM counter),
                 // interleaved with 2 a->c.
@@ -1285,8 +1292,15 @@ mod security_tests {
                 for _ in 0..3 {
                     let mut ops = vec![("g".to_string(), add_edge_method("a", "b"))];
                     let mut log = Vec::new();
-                    commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto, &mut tail)
-                        .unwrap();
+                    commit_ops(
+                        &db,
+                        &mut ops,
+                        &mut log,
+                        Durability::Immediate,
+                        crypto,
+                        &mut tail,
+                    )
+                    .unwrap();
                 }
                 assert_eq!(
                     edge_ords(&db, "g", "a", "b"),
@@ -1317,7 +1331,15 @@ mod security_tests {
         )];
         let mut log = Vec::new();
         let mut tail = AuditTailCache::new();
-        commit_ops(&db, &mut ops, &mut log, Durability::Immediate, crypto, &mut tail).unwrap();
+        commit_ops(
+            &db,
+            &mut ops,
+            &mut log,
+            Durability::Immediate,
+            crypto,
+            &mut tail,
+        )
+        .unwrap();
 
         let rtx = db.begin_read().unwrap();
         let nodes = rtx.open_table(NODES).unwrap();
@@ -1454,15 +1476,19 @@ mod security_tests {
 
         // Helper: commit a batch of (graph, node) AddNode ops through commit_ops with a
         // caller-owned cache (mirrors the writer thread's persistent cache).
-        let commit_batch =
-            |db: &Database, cache: &mut AuditTailCache, batch: &[(&str, &str)]| {
-                let mut ops: Vec<(String, Method)> = batch
-                    .iter()
-                    .map(|(g, n)| (g.to_string(), add_node_method(n, serde_json::json!({"n": n}))))
-                    .collect();
-                let mut log = Vec::new();
-                commit_ops(db, &mut ops, &mut log, Durability::Immediate, crypto, cache).unwrap();
-            };
+        let commit_batch = |db: &Database, cache: &mut AuditTailCache, batch: &[(&str, &str)]| {
+            let mut ops: Vec<(String, Method)> = batch
+                .iter()
+                .map(|(g, n)| {
+                    (
+                        g.to_string(),
+                        add_node_method(n, serde_json::json!({"n": n})),
+                    )
+                })
+                .collect();
+            let mut log = Vec::new();
+            commit_ops(db, &mut ops, &mut log, Durability::Immediate, crypto, cache).unwrap();
+        };
 
         // Batch 1: 5 ops for "g1" + 3 ops for "g2" in ONE commit (intra-batch chaining,
         // interleaved graphs). The cache seeds each graph once (genesis) then chains in RAM.

@@ -34,9 +34,7 @@ fn to_store_column(c: &eg_query::ColumnDef) -> Column {
 /// Read statements return their typed result; writes/DDL return `None`.
 fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResult> {
     match classify(sql).expect("classify") {
-        StatementKind::Read => {
-            Some(exec_sql_typed_with_tables(view, store, sql).expect("select"))
-        }
+        StatementKind::Read => Some(exec_sql_typed_with_tables(view, store, sql).expect("select")),
         StatementKind::CreateTable(plan) => {
             let schema = TableSchema {
                 name: plan.name.clone(),
@@ -64,7 +62,9 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
         StatementKind::InsertSelect(ins) => {
             // Run the SELECT through DataFusion (graph + user tables), then insert.
             let res = exec_sql_typed_with_tables(view, store, &ins.select_sql).expect("subselect");
-            store.insert_rows(&ins.table, &ins.columns, &res.rows).unwrap();
+            store
+                .insert_rows(&ins.table, &ins.columns, &res.rows)
+                .unwrap();
             None
         }
         StatementKind::UpdateTable(upd) => {
@@ -127,8 +127,12 @@ fn create_insert_select_typed_columns_roundtrip() {
          (1700000000000001, 'MSFT', 401.2, 2000000, 'xyz', '[4,5,6]', false)",
     );
 
-    let res = run(&store, &view, "SELECT ts, symbol, price, volume, ok FROM prices ORDER BY symbol")
-        .unwrap();
+    let res = run(
+        &store,
+        &view,
+        "SELECT ts, symbol, price, volume, ok FROM prices ORDER BY symbol",
+    )
+    .unwrap();
     assert_eq!(res.rows.len(), 2);
     // Column order + typed round-trip.
     assert_eq!(res.columns[0].name, "ts");
@@ -145,7 +149,11 @@ fn create_insert_select_typed_columns_roundtrip() {
 fn join_user_table_with_graph_nodes() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price DOUBLE)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (symbol TEXT, price DOUBLE)",
+    );
     run(
         &store,
         &view,
@@ -171,7 +179,11 @@ fn join_user_table_with_graph_nodes() {
 fn update_delete_alter_full_dml() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price DOUBLE)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (symbol TEXT, price DOUBLE)",
+    );
     run(
         &store,
         &view,
@@ -179,8 +191,17 @@ fn update_delete_alter_full_dml() {
     );
 
     // UPDATE … WHERE.
-    run(&store, &view, "UPDATE prices SET price = 9.9 WHERE symbol = 'AAPL'");
-    let res = run(&store, &view, "SELECT price FROM prices WHERE symbol = 'AAPL'").unwrap();
+    run(
+        &store,
+        &view,
+        "UPDATE prices SET price = 9.9 WHERE symbol = 'AAPL'",
+    );
+    let res = run(
+        &store,
+        &view,
+        "SELECT price FROM prices WHERE symbol = 'AAPL'",
+    )
+    .unwrap();
     assert_eq!(res.rows.len(), 2);
     assert!(res.rows.iter().all(|r| r[0] == json!(9.9)));
 
@@ -200,21 +221,34 @@ fn update_delete_alter_full_dml() {
 fn insert_select_from_join() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price DOUBLE)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (symbol TEXT, price DOUBLE)",
+    );
     run(
         &store,
         &view,
         "INSERT INTO prices (symbol, price) VALUES ('AAPL', 192.5), ('MSFT', 401.2)",
     );
     // A second table populated by INSERT … SELECT over a user-table ↔ graph JOIN.
-    run(&store, &view, "CREATE TABLE enriched (node TEXT, price DOUBLE)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE enriched (node TEXT, price DOUBLE)",
+    );
     run(
         &store,
         &view,
         "INSERT INTO enriched (node, price) SELECT n.id, p.price \
          FROM nodes n JOIN prices p ON n.symbol = p.symbol",
     );
-    let res = run(&store, &view, "SELECT node, price FROM enriched ORDER BY node").unwrap();
+    let res = run(
+        &store,
+        &view,
+        "SELECT node, price FROM enriched ORDER BY node",
+    )
+    .unwrap();
     assert_eq!(res.rows.len(), 2);
     assert_eq!(res.rows[0][0], Value::String("n1".into()));
     assert_eq!(res.rows[1][1], json!(401.2));

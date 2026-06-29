@@ -1746,12 +1746,12 @@ fn run(
         if !pending.is_empty() {
             stats.record(pending.ops.len(), lingered);
         }
-        commit_and_notify(&db, pending, durability, crypto);
+        commit_and_notify(db, pending, durability, crypto);
     };
     loop {
         match rx.recv_timeout(tick) {
             Ok(cmd) => {
-                if handle_cmd(cmd, &db, &mut pending, policy, flush_threshold, crypto) {
+                if handle_cmd(cmd, db, &mut pending, policy, flush_threshold, crypto) {
                     // shutdown: flush whatever is pending durably, then stop.
                     commit_now(&mut pending, Durability::Immediate, false);
                     break;
@@ -1759,7 +1759,7 @@ fn run(
                 // Drain the rest of the burst so it coalesces into one commit.
                 let mut stop = false;
                 while let Ok(cmd) = rx.try_recv() {
-                    if handle_cmd(cmd, &db, &mut pending, policy, flush_threshold, crypto) {
+                    if handle_cmd(cmd, db, &mut pending, policy, flush_threshold, crypto) {
                         stop = true;
                         break;
                     }
@@ -1803,7 +1803,7 @@ fn run(
                             Ok(cmd) => {
                                 if handle_cmd(
                                     cmd,
-                                    &db,
+                                    db,
                                     &mut pending,
                                     policy,
                                     flush_threshold,
@@ -1816,7 +1816,7 @@ fn run(
                                 while let Ok(cmd) = rx.try_recv() {
                                     if handle_cmd(
                                         cmd,
-                                        &db,
+                                        db,
                                         &mut pending,
                                         policy,
                                         flush_threshold,
@@ -3275,9 +3275,11 @@ mod tests {
     ///   * the average batch size (`ops / commits`) climbs well above 1, i.e. the
     ///     linger folded many writers into one fsync (the profiled win),
     ///   * lingered commits were actually exercised.
+    ///
     /// `FsyncPolicy::Each` would commit per-drained-batch regardless, so we use
     /// `Interval` (the live authoritative cadence) where, pre-EG-024, a drained
     /// channel commits immediately at ~1 op/fsync.
+    ///
     /// Serializes the env-mutating linger tests. `EPISTEMIC_GRAPH_REDB_GROUP_*` are
     /// process-global and read once inside `RedbBackend::open`, so two parallel tests
     /// setting different values would race the config read (the disabled test could

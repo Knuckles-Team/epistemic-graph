@@ -2572,6 +2572,37 @@ class RdfClient:
         faithful — the inverse of :meth:`add_triples`)."""
         return await self._client._send("GetRdf")
 
+    async def remove_triples(
+        self,
+        turtle: str | None = None,
+        ntriples: str | None = None,
+    ) -> dict[str, int]:
+        """Physically RETRACT Turtle OR N-Triples from the connection's graph (CONCEPT:EG-017).
+
+        The inverse of :meth:`add_triples`: parses the document and surgically removes
+        each triple (a literal triple drops the property cell; a resource triple removes
+        the one matching typed edge). Durable. Returns a count dict. The retract op the
+        ontology UNLOAD path + SPARQL ``DELETE DATA`` build on. Requires the ``rdf`` feature.
+        """
+        if (turtle is None) == (ntriples is None):
+            raise ValueError(
+                "remove_triples: provide exactly one of `turtle` or `ntriples`"
+            )
+        return await self._client._send(
+            "RemoveTriples",
+            {"turtle": turtle or "", "ntriples": ntriples or ""},
+        )
+
+    async def drop_named_graph(self, graph: str) -> str:
+        """DROP a named RDF graph (CONCEPT:EG-017): physically clear ALL of its RDF
+        content (property-graph nodes/edges + the lossless multi-valued-literal quad
+        rows) in one op. Durable. The coarse-grained retract used when an ontology owns
+        a dedicated named graph; the SPARQL ``DROP/CLEAR GRAPH`` op routes here. The op
+        targets the request's graph, so ``graph`` is sent via the request envelope.
+        Requires the ``rdf`` feature.
+        """
+        return await self._client._send("DropNamedGraph", graph=graph)
+
     async def sparql(
         self,
         query: str,
@@ -3195,9 +3226,7 @@ class EpistemicGraphClient:
                 # the engine circuit breaker latches OPEN permanently.
                 await self._reconnect()
             if self._reader_task is None or self._reader_task.done():
-                self._reader_task = asyncio.ensure_future(
-                    self._read_loop(self._reader)
-                )
+                self._reader_task = asyncio.ensure_future(self._read_loop(self._reader))
 
     async def _send(
         self,
@@ -3234,9 +3263,7 @@ class EpistemicGraphClient:
 
         # Register this call's future under its id BEFORE writing, so the reader
         # can never miss the response (the engine can't reply before it reads).
-        fut: asyncio.Future[dict[str, Any]] = (
-            asyncio.get_running_loop().create_future()
-        )
+        fut: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         try:
             # Serialize ONLY the frame write so two callers never interleave bytes;
@@ -3255,9 +3282,7 @@ class EpistemicGraphClient:
             # stream; the demux already kept the wire in sync, but a timeout still
             # means the peer is unhealthy.
             self._pending.pop(req_id, None)
-            self._mark_dead(
-                TimeoutError(f"epistemic-graph RPC {method!r} timed out")
-            )
+            self._mark_dead(TimeoutError(f"epistemic-graph RPC {method!r} timed out"))
             raise TimeoutError(
                 f"epistemic-graph RPC {method!r} timed out (connection closed; "
                 "retry will reconnect)"

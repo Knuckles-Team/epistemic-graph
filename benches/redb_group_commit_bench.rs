@@ -12,6 +12,7 @@
 //!   * `linger_us = 0`  → BASELINE: commit-on-drain, no accumulation window.
 //!   * `linger_us > 0`  → AFTER: a bounded micro-linger lets concurrent writers
 //!     coalesce into one fsync.
+//!
 //! It prints `commits / ops / avg_batch` per setting so the ops-per-fsync win is
 //! visible alongside criterion's throughput (elements/sec).
 //!
@@ -80,7 +81,10 @@ fn bench_group_commit(c: &mut Criterion) {
     for &linger_us in &[0u64, 500, 1000, 2000] {
         // The writer reads the knob once at open, so set it BEFORE opening, and open a
         // fresh backend (its own dir) per setting.
-        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", linger_us.to_string());
+        std::env::set_var(
+            "EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US",
+            linger_us.to_string(),
+        );
         std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW", "512");
         let dir = std::env::temp_dir().join(format!(
             "eg-redb-gc-bench-{}-{linger_us}",
