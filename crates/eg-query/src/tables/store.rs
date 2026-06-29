@@ -49,14 +49,6 @@ const ROWS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("__sql_ro
 /// Per-table rowid allocator (also the `SERIAL` sequence): `table_name -> next rowid`.
 const SEQ: TableDefinition<&str, u64> = TableDefinition::new("__sql_seq__");
 
-/// A single-column equality predicate — the WHERE shape user-table UPDATE/DELETE
-/// resolves (`WHERE <col> = <literal>`), mirroring the `nodes` DML policy.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColEq {
-    pub column: String,
-    pub value: Value,
-}
-
 /// One staged operation in a multi-statement transaction (CONCEPT:EG-020). Buffered
 /// by [`TableTxn`] and applied in order, in ONE redb `WriteTransaction`, by
 /// [`TableStore::commit_txn`].
@@ -82,11 +74,11 @@ pub enum TxnOp {
     Update {
         table: String,
         set: serde_json::Map<String, Value>,
-        selector: ColEq,
+        selector: eg_types::RowPredicate,
     },
     Delete {
         table: String,
-        selector: ColEq,
+        selector: eg_types::RowPredicate,
     },
 }
 
@@ -247,12 +239,13 @@ impl TableStore {
         Ok(n)
     }
 
-    /// `UPDATE table SET <set> WHERE <col> = <value>` with constraint re-validation.
+    /// `UPDATE table SET <set> WHERE <predicate>` with constraint re-validation
+    /// (CONCEPT:EG-045 — a compound predicate evaluated per row inside the txn).
     pub fn update_where(
         &self,
         table: &str,
         set: &serde_json::Map<String, Value>,
-        selector: &ColEq,
+        selector: &eg_types::RowPredicate,
     ) -> Result<usize, String> {
         let wtx = self.begin()?;
         let n = update_in(&wtx, table, set, selector)?;
@@ -260,8 +253,12 @@ impl TableStore {
         Ok(n)
     }
 
-    /// `DELETE FROM table WHERE <col> = <value>`. Returns the number of rows removed.
-    pub fn delete_where(&self, table: &str, selector: &ColEq) -> Result<usize, String> {
+    /// `DELETE FROM table WHERE <predicate>` (CONCEPT:EG-045). Returns rows removed.
+    pub fn delete_where(
+        &self,
+        table: &str,
+        selector: &eg_types::RowPredicate,
+    ) -> Result<usize, String> {
         let wtx = self.begin()?;
         let n = delete_in(&wtx, table, selector)?;
         wtx.commit().map_err(map_err)?;
@@ -517,17 +514,26 @@ fn insert_in(
     Ok(encoded.len())
 }
 
+/// Build a `col -> json` row map for predicate evaluation (CONCEPT:EG-045): one
+/// entry per schema column, the cell decoded to its JSON value. A column the
+/// predicate references that is NOT in the schema is simply absent (reads as NULL).
+fn row_map(schema: &TableSchema, cells: &[Cell]) -> serde_json::Map<String, Value> {
+    let mut map = serde_json::Map::with_capacity(schema.columns.len());
+    for (ci, col) in schema.columns.iter().enumerate() {
+        let cell = cells.get(ci).cloned().unwrap_or(Cell::Null);
+        map.insert(col.name.clone(), cell.to_json());
+    }
+    map
+}
+
 fn update_in(
     wtx: &WriteTransaction,
     table: &str,
     set: &serde_json::Map<String, Value>,
-    selector: &ColEq,
+    selector: &eg_types::RowPredicate,
 ) -> Result<usize, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    let sel_idx = schema
-        .column_index(&selector.column)
-        .ok_or_else(|| format!("column `{}` does not exist", selector.column))?;
     let mut assigns: Vec<(usize, Cell)> = Vec::with_capacity(set.len());
     for (col, val) in set {
         let idx = schema
@@ -551,7 +557,9 @@ fn update_in(
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
             }
-            if cells[sel_idx].to_json() == selector.value {
+            // CONCEPT:EG-045 — serializable per-row predicate eval INSIDE the open
+            // redb write txn (the row cannot change before commit).
+            if selector.eval(&row_map(&schema, &cells)) {
                 hits.push((k.value().1, cells));
             }
         }
@@ -581,12 +589,13 @@ fn update_in(
     Ok(updated)
 }
 
-fn delete_in(wtx: &WriteTransaction, table: &str, selector: &ColEq) -> Result<usize, String> {
+fn delete_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    selector: &eg_types::RowPredicate,
+) -> Result<usize, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    let sel_idx = schema
-        .column_index(&selector.column)
-        .ok_or_else(|| format!("column `{}` does not exist", selector.column))?;
     let width = schema.columns.len();
     let mut deleted = 0usize;
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
@@ -601,7 +610,8 @@ fn delete_in(wtx: &WriteTransaction, table: &str, selector: &ColEq) -> Result<us
         if cells.len() < width {
             cells.resize(width, Cell::Null);
         }
-        if cells[sel_idx].to_json() == selector.value {
+        // CONCEPT:EG-045 — serializable per-row predicate eval inside the write txn.
+        if selector.eval(&row_map(&schema, &cells)) {
             victims.push(k.value().1);
         }
     }
@@ -732,8 +742,9 @@ mod tests {
             .update_where(
                 "metrics",
                 &set,
-                &ColEq {
-                    column: "name".into(),
+                &eg_types::RowPredicate::Cmp {
+                    col: "name".into(),
+                    op: eg_types::CmpOp::Eq,
                     value: "cpu".into(),
                 },
             )
@@ -742,8 +753,9 @@ mod tests {
         let del = store
             .delete_where(
                 "metrics",
-                &ColEq {
-                    column: "name".into(),
+                &eg_types::RowPredicate::Cmp {
+                    col: "name".into(),
+                    op: eg_types::CmpOp::Eq,
                     value: "mem".into(),
                 },
             )
@@ -752,6 +764,62 @@ mod tests {
         let rows = store.scan("metrics").unwrap();
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r[2] == Cell::Float(0.0)));
+    }
+
+    #[test]
+    fn compound_predicate_update_and_delete() {
+        // CONCEPT:EG-045 — AND / range / IN predicates select rows in the store.
+        use eg_types::{CmpOp, RowPredicate};
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&metrics_schema(), false).unwrap();
+        let cols = vec!["ts".to_string(), "name".to_string(), "value".to_string()];
+        store
+            .insert_rows(
+                "metrics",
+                &cols,
+                &[
+                    vec![1i64.into(), "cpu".into(), 0.2.into()],
+                    vec![2i64.into(), "cpu".into(), 0.8.into()],
+                    vec![3i64.into(), "mem".into(), 0.9.into()],
+                    vec![4i64.into(), "disk".into(), 0.5.into()],
+                ],
+            )
+            .unwrap();
+        // UPDATE … WHERE name = 'cpu' AND value > 0.5  → only row 2.
+        let mut set = serde_json::Map::new();
+        set.insert("value".into(), 0.0.into());
+        let n = store
+            .update_where(
+                "metrics",
+                &set,
+                &RowPredicate::And(vec![
+                    RowPredicate::Cmp {
+                        col: "name".into(),
+                        op: CmpOp::Eq,
+                        value: "cpu".into(),
+                    },
+                    RowPredicate::Cmp {
+                        col: "value".into(),
+                        op: CmpOp::Gt,
+                        value: 0.5.into(),
+                    },
+                ]),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        // DELETE … WHERE name IN ('mem', 'disk') → rows 3 and 4.
+        let n = store
+            .delete_where(
+                "metrics",
+                &RowPredicate::In {
+                    col: "name".into(),
+                    values: vec!["mem".into(), "disk".into()],
+                },
+            )
+            .unwrap();
+        assert_eq!(n, 2);
+        let rows = store.scan("metrics").unwrap();
+        assert_eq!(rows.len(), 2);
     }
 
     #[test]

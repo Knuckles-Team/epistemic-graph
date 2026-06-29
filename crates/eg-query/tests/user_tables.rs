@@ -11,8 +11,8 @@
 
 use eg_core::graph::{GraphCore, GraphView};
 use eg_query::{
-    classify, exec_sql_typed_with_tables, Cell, ColEq, Column, ColumnType, StatementKind,
-    TableSchema, TableStore, TypedQueryResult,
+    classify, exec_sql_typed_with_tables, Cell, Column, ColumnType, StatementKind, TableSchema,
+    TableStore, TypedQueryResult,
 };
 use serde_json::{json, Value};
 
@@ -69,27 +69,12 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
         }
         StatementKind::UpdateTable(upd) => {
             store
-                .update_where(
-                    &upd.table,
-                    &upd.set,
-                    &ColEq {
-                        column: upd.selector.column,
-                        value: upd.selector.value,
-                    },
-                )
+                .update_where(&upd.table, &upd.set, &upd.selector.pred)
                 .unwrap();
             None
         }
         StatementKind::DeleteTable(del) => {
-            store
-                .delete_where(
-                    &del.table,
-                    &ColEq {
-                        column: del.selector.column,
-                        value: del.selector.value,
-                    },
-                )
-                .unwrap();
+            store.delete_where(&del.table, &del.selector.pred).unwrap();
             None
         }
         other => panic!("unexpected statement kind for user-table test: {other:?}"),

@@ -474,9 +474,18 @@ async fn exec_sql_write(
             let r = compute_off_lock(req_id, move || {
                 let ids = matched_node_ids(&core, &upd.selector);
                 let conditions = serde_json::Map::new();
+                // CONCEPT:EG-045 — re-check a compound predicate under the write guard.
+                let pred = match &upd.selector {
+                    eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
+                    eg_query::WhereEq::Id(_) => None,
+                };
                 let mut n = 0usize;
                 for id in ids {
-                    if core.compare_and_set_fields(&id, &conditions, &upd.set) {
+                    let applied = match &pred {
+                        Some(p) => core.compare_and_set_fields_if(&id, p, &conditions, &upd.set),
+                        None => core.compare_and_set_fields(&id, &conditions, &upd.set),
+                    };
+                    if applied {
                         n += 1;
                     }
                 }
@@ -489,10 +498,23 @@ async fn exec_sql_write(
             let core = core.clone();
             let r = compute_off_lock(req_id, move || {
                 let ids = matched_node_ids(&core, &del.selector);
+                // CONCEPT:EG-045 — re-check a compound predicate under the write guard.
+                let pred = match &del.selector {
+                    eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
+                    eg_query::WhereEq::Id(_) => None,
+                };
                 let mut n = 0usize;
                 for id in ids {
-                    core.remove_node(id);
-                    n += 1;
+                    let removed = match &pred {
+                        Some(p) => core.remove_node_if(&id, p),
+                        None => {
+                            core.remove_node(id);
+                            true
+                        }
+                    };
+                    if removed {
+                        n += 1;
+                    }
                 }
                 Ok::<usize, String>(n)
             })
@@ -563,11 +585,8 @@ async fn exec_sql_write(
         K::UpdateTable(upd) => {
             let store = store.clone();
             let r = compute_off_lock(req_id, move || {
-                let selector = eg_query::ColEq {
-                    column: upd.selector.column,
-                    value: upd.selector.value,
-                };
-                store.update_where(&upd.table, &upd.set, &selector)
+                // CONCEPT:EG-045 — the store evaluates the compound predicate per row.
+                store.update_where(&upd.table, &upd.set, &upd.selector.pred)
             })
             .await;
             sql_write_ack(req_id, "UPDATE", r)
@@ -575,11 +594,7 @@ async fn exec_sql_write(
         K::DeleteTable(del) => {
             let store = store.clone();
             let r = compute_off_lock(req_id, move || {
-                let selector = eg_query::ColEq {
-                    column: del.selector.column,
-                    value: del.selector.value,
-                };
-                store.delete_where(&del.table, &selector)
+                store.delete_where(&del.table, &del.selector.pred)
             })
             .await;
             sql_write_ack(req_id, "DELETE", r)
@@ -629,9 +644,11 @@ fn sql_write_ack(
     }
 }
 
-/// Resolve the node ids a simple-equality WHERE selects (CONCEPT:EG-023). Mirrors the
-/// pgwire `matched_ids`: `Id` is the fast path (the node if it exists); `Property`
-/// scans the node store once and matches the column's current value.
+/// Resolve the node ids a WHERE selects (CONCEPT:EG-023). `Id` is the fast path (the
+/// node if it exists); `Predicate` (CONCEPT:EG-045) scans the node store once,
+/// decodes each blob to a row map (with the synthetic `id` column injected) and
+/// evaluates the compound predicate. The matched ids are re-checked under the write
+/// guard by the caller (`compare_and_set_fields_if`/`remove_node_if`).
 #[cfg(feature = "query")]
 fn matched_node_ids(core: &GraphCore, selector: &eg_query::WhereEq) -> Vec<String> {
     match selector {
@@ -642,13 +659,15 @@ fn matched_node_ids(core: &GraphCore, selector: &eg_query::WhereEq) -> Vec<Strin
                 Vec::new()
             }
         }
-        eg_query::WhereEq::Property { column, value } => {
+        eg_query::WhereEq::Predicate { pred, .. } => {
             let mut out = Vec::new();
             for (id, blob) in core.get_nodes() {
-                if let Ok(serde_json::Value::Object(obj)) =
+                if let Ok(serde_json::Value::Object(mut obj)) =
                     rmp_serde::from_slice::<serde_json::Value>(&blob)
                 {
-                    if obj.get(column).unwrap_or(&serde_json::Value::Null) == value {
+                    obj.entry("id".to_string())
+                        .or_insert_with(|| serde_json::Value::String(id.clone()));
+                    if pred.eval(&obj) {
                         out.push(id);
                     }
                 }

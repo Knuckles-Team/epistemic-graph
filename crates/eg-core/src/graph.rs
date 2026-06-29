@@ -308,6 +308,41 @@ impl<'a> GraphTxn<'a> {
         }
     }
 
+    /// Serializable gated remove (CONCEPT:EG-045). Decodes the node's CURRENT
+    /// property blob to a row map UNDER the held write guard, re-evaluates
+    /// `predicate`, and removes the node only if it still matches — so a compound
+    /// `DELETE … WHERE <predicate>` cannot delete a row that a concurrent writer
+    /// changed out from under the candidate-id scan. Returns whether it removed.
+    /// A missing/undecodable node, or a predicate that no longer holds, is a no-op
+    /// returning `false`.
+    pub fn remove_node_if(&mut self, node_id: &str, predicate: &eg_types::RowPredicate) -> bool {
+        let map = match self.node_row_map(node_id) {
+            Some(m) => m,
+            None => return false,
+        };
+        if !predicate.eval(&map) {
+            return false;
+        }
+        self.remove_node(node_id.to_string());
+        true
+    }
+
+    /// Decode a node's stored property blob into a `col -> value` row map for
+    /// predicate evaluation (CONCEPT:EG-045). The synthetic `id` column is injected
+    /// (the blob stores only properties, not the node id) so a predicate may
+    /// reference `id` alongside property columns. `None` if absent/undecodable.
+    fn node_row_map(&self, node_id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let bytes = self.node_properties.get(node_id)?.value().clone();
+        let val = rmp_serde::from_slice::<serde_json::Value>(&bytes).ok()?;
+        let mut map = match val {
+            serde_json::Value::Object(o) => o,
+            _ => return None,
+        };
+        map.entry("id".to_string())
+            .or_insert_with(|| serde_json::Value::String(node_id.to_string()));
+        Some(map)
+    }
+
     // ── Edge CRUD (under the held topology write guard) ──────────────────
 
     pub fn add_edge(
@@ -408,6 +443,28 @@ impl<'a> GraphTxn<'a> {
             .insert(node_id.to_string(), Arc::new(reenc));
         push_ledger(&mut self.ledger.lock(), log);
         true
+    }
+
+    /// Serializable gated compare-and-set (CONCEPT:EG-045). Like
+    /// [`GraphTxn::compare_and_set_fields`] but FIRST re-evaluates `predicate`
+    /// against the node's CURRENT row (decoded under the held write guard, with the
+    /// synthetic `id` column injected). If the predicate no longer holds the node is
+    /// left untouched and `false` is returned — this is the serializable re-check for
+    /// a compound `UPDATE … WHERE <predicate>` whose candidate ids were resolved by an
+    /// earlier (lock-free) read. When the predicate holds, the usual `conditions`
+    /// check + `updates` merge run atomically under the same guard.
+    pub fn compare_and_set_fields_if(
+        &mut self,
+        node_id: &str,
+        predicate: &eg_types::RowPredicate,
+        conditions: &serde_json::Map<String, serde_json::Value>,
+        updates: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        match self.node_row_map(node_id) {
+            Some(map) if predicate.eval(&map) => {}
+            _ => return false,
+        }
+        self.compare_and_set_fields(node_id, conditions, updates)
     }
 
     /// Non-destructively CLOSE the temporal windows of a contradicted edge
@@ -637,6 +694,13 @@ impl GraphCore {
         self.txn().remove_node(node_id);
     }
 
+    /// One-shot serializable gated remove (CONCEPT:EG-045). See
+    /// [`GraphTxn::remove_node_if`]; the decode → predicate re-check → remove runs
+    /// under ONE topology write guard.
+    pub fn remove_node_if(&self, node_id: &str, predicate: &eg_types::RowPredicate) -> bool {
+        self.txn().remove_node_if(node_id, predicate)
+    }
+
     /// One-shot atomic compare-and-set over a single `txn` (CONCEPT:KG-2 backend-
     /// agnostic atomic claim). See [`GraphTxn::compare_and_set_fields`] for the
     /// semantics; the whole read-modify-write runs under one topology write guard.
@@ -648,6 +712,20 @@ impl GraphCore {
     ) -> bool {
         self.txn()
             .compare_and_set_fields(node_id, conditions, updates)
+    }
+
+    /// One-shot serializable gated compare-and-set (CONCEPT:EG-045). See
+    /// [`GraphTxn::compare_and_set_fields_if`]; the decode → predicate re-check →
+    /// conditional merge runs under ONE topology write guard.
+    pub fn compare_and_set_fields_if(
+        &self,
+        node_id: &str,
+        predicate: &eg_types::RowPredicate,
+        conditions: &serde_json::Map<String, serde_json::Value>,
+        updates: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        self.txn()
+            .compare_and_set_fields_if(node_id, predicate, conditions, updates)
     }
 
     /// One-shot non-destructive edge invalidation (CONCEPT:KG-2.251). See
@@ -2660,6 +2738,76 @@ mod tests {
             field_of(&g, "task3", "owner"),
             Some(serde_json::json!("worker-1"))
         );
+    }
+
+    #[test]
+    fn cas_if_gates_on_predicate() {
+        // CONCEPT:EG-045 — the serializable gate only mutates a node whose CURRENT
+        // row still matches the predicate.
+        use eg_types::{CmpOp, RowPredicate};
+        let g = GraphCore::new();
+        g.add_node(
+            "n1".to_string(),
+            props(serde_json::json!({"type": "Agent", "rank": 5})),
+        );
+        let pred_match = RowPredicate::And(vec![
+            RowPredicate::Cmp {
+                col: "type".into(),
+                op: CmpOp::Eq,
+                value: serde_json::json!("Agent"),
+            },
+            RowPredicate::Cmp {
+                col: "rank".into(),
+                op: CmpOp::Gt,
+                value: serde_json::json!(2),
+            },
+        ]);
+        let ok = g.compare_and_set_fields_if(
+            "n1",
+            &pred_match,
+            &obj(serde_json::json!({})),
+            &obj(serde_json::json!({"active": false})),
+        );
+        assert!(ok, "predicate holds → update applies");
+        assert_eq!(field_of(&g, "n1", "active"), Some(serde_json::json!(false)));
+        // A predicate that no longer holds is a no-op.
+        let pred_no = RowPredicate::Cmp {
+            col: "rank".into(),
+            op: CmpOp::Lt,
+            value: serde_json::json!(2),
+        };
+        let ok2 = g.compare_and_set_fields_if(
+            "n1",
+            &pred_no,
+            &obj(serde_json::json!({})),
+            &obj(serde_json::json!({"active": true})),
+        );
+        assert!(!ok2, "predicate false → no mutation");
+        assert_eq!(field_of(&g, "n1", "active"), Some(serde_json::json!(false)));
+    }
+
+    #[test]
+    fn remove_node_if_gates_on_predicate() {
+        // CONCEPT:EG-045 — `id` is injected so a predicate may reference it.
+        use eg_types::{CmpOp, RowPredicate};
+        let g = GraphCore::new();
+        g.add_node(
+            "keep".to_string(),
+            props(serde_json::json!({"type": "Tool"})),
+        );
+        g.add_node(
+            "drop".to_string(),
+            props(serde_json::json!({"type": "Tool"})),
+        );
+        let pred = RowPredicate::Cmp {
+            col: "id".into(),
+            op: CmpOp::Eq,
+            value: serde_json::json!("drop"),
+        };
+        assert!(!g.remove_node_if("keep", &pred), "id mismatch → kept");
+        assert!(g.remove_node_if("drop", &pred), "id matches → removed");
+        assert!(g.has_node("keep"));
+        assert!(!g.has_node("drop"));
     }
 
     #[test]
