@@ -225,16 +225,13 @@ fn admit_request(
             .entry(graph.to_string())
             .or_insert_with(|| Arc::new(Semaphore::new(pg_limit)))
             .clone();
-        match pg_sem.try_acquire_owned() {
-            Ok(pp) => {
-                return Admission::Granted {
-                    global: Some(gp),
-                    per_graph: Some(pp),
-                    read: None,
-                };
-            }
-            // Per-graph cap full: drop `gp` (released here) and fall through.
-            Err(_) => {}
+        // Per-graph cap full (Err): drop `gp` (released here) and fall through.
+        if let Ok(pp) = pg_sem.try_acquire_owned() {
+            return Admission::Granted {
+                global: Some(gp),
+                per_graph: Some(pp),
+                read: None,
+            };
         }
     }
 
@@ -604,7 +601,10 @@ mod tests {
         let r = admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false);
         match r {
             Admission::Granted { global, read, .. } => {
-                assert!(global.is_none(), "read used the reserved lane, not the global pool");
+                assert!(
+                    global.is_none(),
+                    "read used the reserved lane, not the global pool"
+                );
                 assert!(read.is_some(), "read holds a reserved-lane permit");
             }
             Admission::Busy => panic!("read must NOT be shed BUSY while the read lane has slots"),
@@ -701,7 +701,10 @@ mod tests {
                 ok += 1;
             }
         }
-        assert_eq!(ok, 200, "every interactive read completed under max write load");
+        assert_eq!(
+            ok, 200,
+            "every interactive read completed under max write load"
+        );
         drop(writers);
     }
 

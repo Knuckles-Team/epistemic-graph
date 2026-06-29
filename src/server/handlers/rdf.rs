@@ -588,7 +588,12 @@ mod run_rules_dispatch_tests {
             rmp_serde::from_slice(&bytes).expect("RuleReasonResponse");
         assert!(out.consistent);
         assert_eq!(out.registered_rules.len(), 1);
-        assert_eq!(out.facts.len(), 1, "only the grandparent fact: {:?}", out.facts);
+        assert_eq!(
+            out.facts.len(),
+            1,
+            "only the grandparent fact: {:?}",
+            out.facts
+        );
         assert_eq!(out.facts[0].predicate, "grandparent");
         assert!(out.facts[0].derived, "the returned fact is an inference");
     }

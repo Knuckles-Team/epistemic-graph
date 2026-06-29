@@ -235,9 +235,10 @@ pub(crate) async fn try_handle(
                 })
                 .await
                 {
-                    Ok(Ok(value)) => {
-                        Response::ok(req_id, ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()))
-                    }
+                    Ok(Ok(value)) => Response::ok(
+                        req_id,
+                        ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
+                    ),
                     Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
                     Err(resp) => resp,
                 };
@@ -322,9 +323,10 @@ pub(crate) async fn try_handle(
                 })
                 .await
                 {
-                    Ok(Ok(result)) => {
-                        Response::ok(req_id, ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()))
-                    }
+                    Ok(Ok(result)) => Response::ok(
+                        req_id,
+                        ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
+                    ),
                     Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
                     Err(resp) => resp,
                 };
@@ -439,6 +441,7 @@ fn run_unified(
 ///     checkpoint persists it;
 ///   * user-table DDL/DML → the shared durable `TableStore` (redb commit-before-ack,
 ///     self-durable).
+///
 /// Blocking work (redb commits, the node scan) runs on the blocking pool via
 /// `compute_off_lock`. Returns a `QueryResult`-shaped ack (`[tag]` column, one
 /// rows-affected row) so the client decodes a write response exactly like a read.
@@ -611,8 +614,10 @@ fn sql_write_ack(
         Ok(Ok(n)) => {
             let result = crate::protocol::QueryResult {
                 columns: vec![tag.to_string()],
-                rows: vec![rmp_serde::to_vec_named(&vec![serde_json::Value::from(n as u64)])
-                    .unwrap_or_default()],
+                rows: vec![
+                    rmp_serde::to_vec_named(&vec![serde_json::Value::from(n as u64)])
+                        .unwrap_or_default(),
+                ],
             };
             Response::ok(
                 req_id,
@@ -1529,7 +1534,8 @@ mod dispatch_write_tests {
     /// Decode a `Raw(QueryResult)` write/read response into `(columns, rows)` where each
     /// row is the decoded `Vec<serde_json::Value>` cell list.
     fn query_result(resp: &Response) -> (Vec<String>, Vec<Vec<serde_json::Value>>) {
-        let qr: crate::protocol::QueryResult = rmp_serde::from_slice(&raw(resp)).expect("QueryResult");
+        let qr: crate::protocol::QueryResult =
+            rmp_serde::from_slice(&raw(resp)).expect("QueryResult");
         let rows = qr
             .rows
             .iter()
@@ -1560,7 +1566,12 @@ mod dispatch_write_tests {
         // A fresh GraphQL query over the post-write graph sees Dave.
         let q = dispatch(
             &state,
-            req(2, Method::GraphQl { query: r#"{ Person(name: "Dave") { name age } }"#.into() }),
+            req(
+                2,
+                Method::GraphQl {
+                    query: r#"{ Person(name: "Dave") { name age } }"#.into(),
+                },
+            ),
         )
         .await;
         assert!(q.error.is_none(), "query failed: {:?}", q.error);
@@ -1635,7 +1646,9 @@ mod dispatch_write_tests {
             &state,
             req(
                 3,
-                sql(format!("INSERT INTO {table} (k, v) VALUES ('a', 1), ('b', 2)")),
+                sql(format!(
+                    "INSERT INTO {table} (k, v) VALUES ('a', 1), ('b', 2)"
+                )),
             ),
         )
         .await;
@@ -1649,7 +1662,11 @@ mod dispatch_write_tests {
         assert!(s.error.is_none(), "SELECT failed: {:?}", s.error);
         let (cols, rows) = query_result(&s);
         assert_eq!(cols, vec!["k", "v"]);
-        assert_eq!(rows.len(), 2, "two rows round-tripped through the table store");
+        assert_eq!(
+            rows.len(),
+            2,
+            "two rows round-tripped through the table store"
+        );
         assert_eq!(rows[0][0], serde_json::json!("a"));
         assert_eq!(rows[0][1], serde_json::json!(1));
         assert_eq!(rows[1][0], serde_json::json!("b"));
@@ -1687,13 +1704,22 @@ mod dispatch_write_tests {
         .await;
         assert!(s.error.is_none(), "SELECT failed: {:?}", s.error);
         let (_c, rows) = query_result(&s);
-        assert_eq!(rows.len(), 1, "the SQL-inserted node is visible to a SELECT");
+        assert_eq!(
+            rows.len(),
+            1,
+            "the SQL-inserted node is visible to a SELECT"
+        );
         assert_eq!(rows[0][0], serde_json::json!("sqlnode"));
 
         // And a Cypher read sees it too (cross-surface).
         let cy = dispatch(
             &state,
-            req(3, Method::CypherQuery { query: "MATCH (n:Gadget) RETURN n.name".into() }),
+            req(
+                3,
+                Method::CypherQuery {
+                    query: "MATCH (n:Gadget) RETURN n.name".into(),
+                },
+            ),
         )
         .await;
         assert!(cy.error.is_none(), "cypher read failed: {:?}", cy.error);

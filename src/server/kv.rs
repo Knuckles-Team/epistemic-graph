@@ -384,7 +384,10 @@ mod tests {
         store.put("ns", "ab", b"alphabet".to_vec()).unwrap();
         store.put("ns", "b", b"bravo".to_vec()).unwrap();
         store.put("other", "a", b"x".to_vec()).unwrap();
-        assert_eq!(store.get("ns", "a").unwrap().as_deref(), Some(&b"alpha"[..]));
+        assert_eq!(
+            store.get("ns", "a").unwrap().as_deref(),
+            Some(&b"alpha"[..])
+        );
         assert_eq!(store.get("ns", "missing").unwrap(), None);
 
         // scan(prefix) is namespace-bounded + prefix-bounded + ordered.
@@ -407,13 +410,26 @@ mod tests {
         assert_eq!(store.get("ns", "a").unwrap(), None);
 
         // cas: wrong expected fails, right expected swaps; absent-expected create.
-        assert!(!store.cas("ns", "b", Some(b"WRONG"), Some(b"new".to_vec())).unwrap());
-        assert_eq!(store.get("ns", "b").unwrap().as_deref(), Some(&b"bravo"[..]));
-        assert!(store.cas("ns", "b", Some(b"bravo"), Some(b"BRAVO".to_vec())).unwrap());
-        assert_eq!(store.get("ns", "b").unwrap().as_deref(), Some(&b"BRAVO"[..]));
+        assert!(!store
+            .cas("ns", "b", Some(b"WRONG"), Some(b"new".to_vec()))
+            .unwrap());
+        assert_eq!(
+            store.get("ns", "b").unwrap().as_deref(),
+            Some(&b"bravo"[..])
+        );
+        assert!(store
+            .cas("ns", "b", Some(b"bravo"), Some(b"BRAVO".to_vec()))
+            .unwrap());
+        assert_eq!(
+            store.get("ns", "b").unwrap().as_deref(),
+            Some(&b"BRAVO"[..])
+        );
         // create-if-absent: expected None on a non-existent key.
         assert!(store.cas("ns", "fresh", None, Some(b"v".to_vec())).unwrap());
-        assert_eq!(store.get("ns", "fresh").unwrap().as_deref(), Some(&b"v"[..]));
+        assert_eq!(
+            store.get("ns", "fresh").unwrap().as_deref(),
+            Some(&b"v"[..])
+        );
         // cas-delete: expected current, new None.
         assert!(store.cas("ns", "fresh", Some(b"v"), None).unwrap());
         assert_eq!(store.get("ns", "fresh").unwrap(), None);
@@ -446,7 +462,9 @@ mod tests {
         assert!(!store.is_durable());
         store.put("ns", "k", b"v".to_vec()).unwrap();
         assert_eq!(store.get("ns", "k").unwrap().as_deref(), Some(&b"v"[..]));
-        assert!(store.cas("ns", "k", Some(b"v"), Some(b"v2".to_vec())).unwrap());
+        assert!(store
+            .cas("ns", "k", Some(b"v"), Some(b"v2".to_vec()))
+            .unwrap());
         assert_eq!(store.scan("ns", "", 0).unwrap().len(), 1);
         assert!(store.delete("ns", "k").unwrap());
     }
@@ -537,19 +555,35 @@ mod dispatch_tests {
         let state = state_with_kv(&dir.to_string_lossy());
 
         // KvPut → "ok"
-        let r = dispatch(&state, req(1, Method::KvPut {
-            namespace: "cfg".into(),
-            key: "k".into(),
-            value: b"v1".to_vec(),
-        }))
+        let r = dispatch(
+            &state,
+            req(
+                1,
+                Method::KvPut {
+                    namespace: "cfg".into(),
+                    key: "k".into(),
+                    value: b"v1".to_vec(),
+                },
+            ),
+        )
         .await;
-        assert!(matches!(r.result, Some(ResultPayload::String(s)) if s == "ok"), "{:?}", r.error);
+        assert!(
+            matches!(r.result, Some(ResultPayload::String(s)) if s == "ok"),
+            "{:?}",
+            r.error
+        );
 
         // KvGet → the bytes (PropertiesMsgpack carries the opaque value verbatim).
-        let r = dispatch(&state, req(2, Method::KvGet {
-            namespace: "cfg".into(),
-            key: "k".into(),
-        }))
+        let r = dispatch(
+            &state,
+            req(
+                2,
+                Method::KvGet {
+                    namespace: "cfg".into(),
+                    key: "k".into(),
+                },
+            ),
+        )
         .await;
         match r.result {
             Some(ResultPayload::PropertiesMsgpack(v)) => assert_eq!(v, b"v1"),
@@ -557,17 +591,29 @@ mod dispatch_tests {
         }
 
         // KvScan → ordered [(key, value)].
-        dispatch(&state, req(3, Method::KvPut {
-            namespace: "cfg".into(),
-            key: "k2".into(),
-            value: b"v2".to_vec(),
-        }))
+        dispatch(
+            &state,
+            req(
+                3,
+                Method::KvPut {
+                    namespace: "cfg".into(),
+                    key: "k2".into(),
+                    value: b"v2".to_vec(),
+                },
+            ),
+        )
         .await;
-        let r = dispatch(&state, req(4, Method::KvScan {
-            namespace: "cfg".into(),
-            prefix: "k".into(),
-            limit: 0,
-        }))
+        let r = dispatch(
+            &state,
+            req(
+                4,
+                Method::KvScan {
+                    namespace: "cfg".into(),
+                    prefix: "k".into(),
+                    limit: 0,
+                },
+            ),
+        )
         .await;
         let pairs: Vec<(String, serde_bytes::ByteBuf)> = match r.result {
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
@@ -577,28 +623,43 @@ mod dispatch_tests {
         assert_eq!(pairs[0].0, "k");
 
         // KvCas → swaps only on match.
-        let r = dispatch(&state, req(5, Method::KvCas {
-            namespace: "cfg".into(),
-            key: "k".into(),
-            expected: Some(b"v1".to_vec()),
-            new: Some(b"V1".to_vec()),
-        }))
+        let r = dispatch(
+            &state,
+            req(
+                5,
+                Method::KvCas {
+                    namespace: "cfg".into(),
+                    key: "k".into(),
+                    expected: Some(b"v1".to_vec()),
+                    new: Some(b"V1".to_vec()),
+                },
+            ),
+        )
         .await;
         assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
 
         // KvDelete → existed.
-        let r = dispatch(&state, req(6, Method::KvDelete {
-            namespace: "cfg".into(),
-            key: "k2".into(),
-        }))
+        let r = dispatch(
+            &state,
+            req(
+                6,
+                Method::KvDelete {
+                    namespace: "cfg".into(),
+                    key: "k2".into(),
+                },
+            ),
+        )
         .await;
         assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
 
         // Bad auth is rejected before routing.
-        let mut bad = req(7, Method::KvGet {
-            namespace: "cfg".into(),
-            key: "k".into(),
-        });
+        let mut bad = req(
+            7,
+            Method::KvGet {
+                namespace: "cfg".into(),
+                key: "k".into(),
+            },
+        );
         bad.auth_token = "bogus".into();
         let r = dispatch(&state, bad).await;
         assert_eq!(r.error.as_deref(), Some("Authentication failed"));

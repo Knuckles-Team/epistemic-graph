@@ -492,11 +492,7 @@ impl EmbeddedEngine {
     /// handled here — use the typed `add_node`/`add_edge`/`remove_*` methods for the
     /// graph. Available with the `query` feature.
     #[cfg(feature = "query")]
-    pub fn sql_exec(
-        &self,
-        graph: &str,
-        sql: &str,
-    ) -> Result<eg_query::TypedQueryResult, String> {
+    pub fn sql_exec(&self, graph: &str, sql: &str) -> Result<eg_query::TypedQueryResult, String> {
         use eg_query::StatementKind;
         let store = &self.inner.tables;
         match eg_query::classify(sql)? {
@@ -589,6 +585,10 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column
                 ty,
                 nullable: c.nullable,
                 primary_key: c.primary_key,
+                unique: c.unique,
+                serial: c.serial,
+                default: c.default.clone(),
+                check: c.check.clone(),
             })
         })
         .collect()
