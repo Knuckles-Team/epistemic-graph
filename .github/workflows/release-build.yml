@@ -48,18 +48,26 @@ jobs:
             runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
+          # macOS + windows-x86_64 build only on GitHub-HOSTED runners — there is no
+          # self-hostable macOS/Windows host (macOS cannot legally run under local
+          # KVM/QEMU). They are kept BEST-EFFORT (experimental ⇒ continue-on-error, no
+          # smoke, no artifact upload) so a third-party-runner outage NEVER gates the
+          # self-hostable Linux release/publish. macOS/Windows users install the sdist.
           - name: macos-x86_64
             runner: macos-13          # intel runner
             target: x86_64-apple-darwin
             maturin_args: ""
+            experimental: true
           - name: macos-arm64
             runner: macos-14          # apple-silicon runner
             target: aarch64-apple-darwin
             maturin_args: ""
+            experimental: true
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             maturin_args: ""
+            experimental: true
           # windows-arm64 is build-only / best-effort — no hosted arm64 windows
           # runner yet, so it cross-builds (no smoke test). Kept off the default
           # path; enable by removing `continue-on-error` once a runner exists.
@@ -100,7 +108,7 @@ jobs:
       # cross-only legs (linux-aarch64 on x86 host, windows-arm64) where the binary
       # can't execute on the runner.
       - name: Smoke test (epistemic-graph-server --help)
-        if: ${{ matrix.name != 'linux-aarch64' && matrix.name != 'windows-arm64' }}
+        if: ${{ matrix.name != 'linux-aarch64' && matrix.experimental != true }}
         shell: bash
         run: |
           python -m pip install --upgrade pip
