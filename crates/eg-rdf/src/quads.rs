@@ -110,7 +110,8 @@ impl QuadStore {
             {
                 let mut t = wtx.open_table(RDF_QUADS).map_err(err)?;
                 for (s, p, ord) in &keys {
-                    t.remove((graph, s.as_str(), p.as_str(), *ord)).map_err(err)?;
+                    t.remove((graph, s.as_str(), p.as_str(), *ord))
+                        .map_err(err)?;
                 }
             }
             wtx.commit().map_err(err)?;

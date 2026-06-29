@@ -29,3 +29,18 @@ RunUdf
 # subsystem), not a nodes/edges/graph client call; bind here until a Python security
 # sub-client is added.
 AuditVerify
+# Generic namespaced Key→Value surface (CONCEPT:EG-022, `kv` feature): a drop-in KV
+# store keyed by (namespace, key) layered over the same durable redb substrate, NOT
+# graph-scoped. It is an engine-side substrate surface (like the Blob*/Ts* ops), not a
+# nodes/edges/graph client call, and has no Python consumer yet; bind here until a
+# Python KV sub-client + a live caller exist (Wire-First — no speculative binding).
+KvGet
+KvPut
+KvDelete
+KvScan
+KvCas
+# Runtime SWRL/Datalog custom-rule reasoning (CONCEPT:EG-021/EG-023, `rdf` feature):
+# a parameterised rule-reasoning request over the graph view. Read-only engine-side
+# reasoning op with no Python consumer yet (the bound RDF surface covers add/remove/
+# get/sparql/owl); bind here until a live caller exists (Wire-First).
+RunRules

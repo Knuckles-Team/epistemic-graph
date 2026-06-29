@@ -67,6 +67,7 @@ fn state_with(
         persistence,
         redb_authoritative,
         max_in_flight: Arc::new(Semaphore::new(16)),
+        read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(
@@ -719,6 +720,7 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         persistence: None,
         redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
+        read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
         write_coalescer: Arc::new(

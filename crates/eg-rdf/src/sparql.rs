@@ -246,10 +246,7 @@ impl<'a> Dataset<'a> {
     }
 
     fn named_view(&self, iri: &str) -> Option<&'a GraphView> {
-        self.named
-            .iter()
-            .find(|(n, _)| n == iri)
-            .map(|(_, v)| *v)
+        self.named.iter().find(|(n, _)| n == iri).map(|(_, v)| *v)
     }
 }
 
@@ -374,7 +371,9 @@ pub fn evaluate_outcome(
         Query::Describe { pattern, .. } => {
             let solutions = eval_pattern(&ctx, pattern)?;
             let vars = collect_vars(pattern);
-            Ok(QueryOutcome::Graph(describe_resources(&ctx, &vars, &solutions)))
+            Ok(QueryOutcome::Graph(describe_resources(
+                &ctx, &vars, &solutions,
+            )))
         }
         #[cfg(not(feature = "rdf"))]
         _ => Err("eg-rdf SPARQL: CONSTRUCT/DESCRIBE need the `rdf` feature".into()),
@@ -1907,10 +1906,8 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         );
         // Her own properties (name) are in subject position …
         assert!(
-            triples
-                .iter()
-                .any(|t| t.subject.to_string() == alice
-                    && t.predicate.as_str() == "http://example.org/name"),
+            triples.iter().any(|t| t.subject.to_string() == alice
+                && t.predicate.as_str() == "http://example.org/name"),
             "alice's name is described"
         );
         // … and carol-knows-alice is in object position (CBD object side).
@@ -1951,7 +1948,10 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         let default = GraphView::default();
         let ds = Dataset::new(
             &default,
-            vec![("http://g/a".to_string(), &va), ("http://g/b".to_string(), &vb)],
+            vec![
+                ("http://g/a".to_string(), &va),
+                ("http://g/b".to_string(), &vb),
+            ],
         );
         // ex:a is in graph A only — scoping to B yields nothing.
         let in_b = run_outcome_dataset(

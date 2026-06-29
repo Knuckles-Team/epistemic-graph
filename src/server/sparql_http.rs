@@ -162,7 +162,10 @@ async fn handle(
             (true, req.body.clone())
         } else if req.content_type.contains("application/sparql-query") {
             (false, req.body.clone())
-        } else if req.content_type.contains("application/x-www-form-urlencoded") {
+        } else if req
+            .content_type
+            .contains("application/x-www-form-urlencoded")
+        {
             let form = parse_form(&req.body);
             if let Some(u) = form.get("update") {
                 (true, u.clone())
@@ -182,7 +185,11 @@ async fn handle(
     };
 
     if text.trim().is_empty() {
-        return ("400 Bad Request", "text/plain", "empty query/update".to_string());
+        return (
+            "400 Bad Request",
+            "text/plain",
+            "empty query/update".to_string(),
+        );
     }
 
     let default_graph = params
@@ -240,26 +247,26 @@ async fn run_query(
     .await;
 
     match outcome {
-        Ok(Ok(QueryOutcome::Solutions(r))) => (
-            "200 OK",
-            "application/sparql-results+json",
-            select_json(&r),
-        ),
+        Ok(Ok(QueryOutcome::Solutions(r))) => {
+            ("200 OK", "application/sparql-results+json", select_json(&r))
+        }
         Ok(Ok(QueryOutcome::Boolean(b))) => (
             "200 OK",
             "application/sparql-results+json",
             format!("{{\"head\":{{}},\"boolean\":{b}}}"),
         ),
-        Ok(Ok(QueryOutcome::Graph(triples))) => {
-            match eg_rdf::mapping::to_ntriples(&triples) {
-                Ok(nt) => {
-                    let _ = &accept;
-                    ("200 OK", "application/n-triples", nt)
-                }
-                Err(e) => ("500 Internal Server Error", "text/plain", e),
+        Ok(Ok(QueryOutcome::Graph(triples))) => match eg_rdf::mapping::to_ntriples(&triples) {
+            Ok(nt) => {
+                let _ = &accept;
+                ("200 OK", "application/n-triples", nt)
             }
-        }
-        Ok(Err(e)) => ("400 Bad Request", "text/plain", format!("SPARQL error: {e}")),
+            Err(e) => ("500 Internal Server Error", "text/plain", e),
+        },
+        Ok(Err(e)) => (
+            "400 Bad Request",
+            "text/plain",
+            format!("SPARQL error: {e}"),
+        ),
         Err(e) => (
             "500 Internal Server Error",
             "text/plain",
@@ -291,7 +298,9 @@ async fn run_update(
         }
         // Default graph maps to the configured default; absent ⇒ create it.
         if !s.registry.exists(default_graph) {
-            let _ = s.registry.create_graph(default_graph, GraphType::Global, None);
+            let _ = s
+                .registry
+                .create_graph(default_graph, GraphType::Global, None);
         }
         if let Some(e) = s.registry.get(default_graph) {
             graphs.insert(String::new(), e.core.clone());
@@ -306,12 +315,11 @@ async fn run_update(
     let store = EndpointStore { graphs };
     let text = update_text.to_string();
     let report = tokio::task::spawn_blocking(move || {
-        eg_rdf::update::execute_str(&text, &store, &Projection::raw()).map(|r| {
+        eg_rdf::update::execute_str(&text, &store, &Projection::raw()).inspect(|_r| {
             // Mark touched graphs dirty so the checkpoint persists them.
             for core in store.graphs.values() {
                 core.mark_dirty();
             }
-            r
         })
     })
     .await
@@ -397,9 +405,7 @@ fn term_json(b: &Binding) -> serde_json::Value {
 // ── tiny HTTP helpers (no external dep) ──────────────────────────────────────────
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Parse an `&`-separated `k=v` form (query string or urlencoded body), percent- and
@@ -463,10 +469,7 @@ mod tests {
     #[test]
     fn percent_and_plus_decode() {
         assert_eq!(percent_decode("a+b%20c"), "a b c");
-        assert_eq!(
-            percent_decode("SELECT%20%3Fs%20WHERE"),
-            "SELECT ?s WHERE"
-        );
+        assert_eq!(percent_decode("SELECT%20%3Fs%20WHERE"), "SELECT ?s WHERE");
     }
 
     #[test]

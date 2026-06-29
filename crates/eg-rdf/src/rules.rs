@@ -113,7 +113,10 @@ fn is_schema_pred(p: &str) -> bool {
 /// Local name of a predicate id (after the last `#` or `/`, sans angle brackets).
 fn local_name(p: &str) -> &str {
     let bare = p.trim_start_matches('<').trim_end_matches('>');
-    bare.rsplit(['#', '/']).next().filter(|s| !s.is_empty()).unwrap_or(bare)
+    bare.rsplit(['#', '/'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(bare)
 }
 
 /// Whether a rule's body predicate matches a stored fact predicate. An exact match
@@ -337,7 +340,12 @@ fn parse_term(t: &str) -> Result<RTerm, String> {
 
 fn default_rule_name(head: &[Atom]) -> String {
     head.first()
-        .map(|a| format!("rule:{}", a.pred.trim_start_matches('<').trim_end_matches('>')))
+        .map(|a| {
+            format!(
+                "rule:{}",
+                a.pred.trim_start_matches('<').trim_end_matches('>')
+            )
+        })
         .unwrap_or_else(|| "rule".into())
 }
 
@@ -465,7 +473,14 @@ impl Engine {
 
     /// Add (or raise the confidence of) a ground fact. Returns whether membership was
     /// added OR the confidence rose. `derived` marks an inferred (vs asserted) fact.
-    fn add_fact(&mut self, pred: &str, args: &[String], conf: f64, label: &str, derived: bool) -> bool {
+    fn add_fact(
+        &mut self,
+        pred: &str,
+        args: &[String],
+        conf: f64,
+        label: &str,
+        derived: bool,
+    ) -> bool {
         let cargs: Vec<String> = args.iter().map(|a| self.rep(a)).collect();
         let key = (pred.to_string(), cargs.clone());
         let added = self
@@ -1159,14 +1174,12 @@ mod tests {
     /// inferred fact carries propagated confidence (rule_conf × body-fact confs).
     #[test]
     fn custom_grandparent_rule_with_confidence() {
-        let ttl = format!(
-            r#"
+        let ttl = r#"
 @prefix ex: <http://ex/> .
 ex:alice ex:parent ex:bob .
 ex:bob   ex:parent ex:carol .
-"#
-        );
-        let triples = parse_turtle(&ttl).unwrap();
+"#;
+        let triples = parse_turtle(ttl).unwrap();
         let ont = crate::owl::parse_ontology(&triples);
         let mut rs = RuleSet::new();
         let name = rs
@@ -1183,10 +1196,17 @@ ex:bob   ex:parent ex:carol .
             .facts
             .iter()
             .find(|(p, a, _)| p == "grandparent" && a == &vec![c("alice"), c("carol")]);
-        assert!(gp.is_some(), "grandparent(alice,carol) must be derived; facts={:?}", res.facts);
+        assert!(
+            gp.is_some(),
+            "grandparent(alice,carol) must be derived; facts={:?}",
+            res.facts
+        );
         // Confidence = rule 0.9 × parent(1.0) × parent(1.0) = 0.9.
         let conf = gp.unwrap().2;
-        assert!((conf - 0.9).abs() < 1e-9, "grandparent conf 0.9, got {conf}");
+        assert!(
+            (conf - 0.9).abs() < 1e-9,
+            "grandparent conf 0.9, got {conf}"
+        );
 
         // Removing the rule retracts it from the set.
         assert!(rs.remove("gp"));
@@ -1241,7 +1261,11 @@ ex:john ex:livesIn ex:paris .
         );
         // Congruence: livesIn(john, paris) is now livesIn(<root>, paris) and both
         // names resolve — the representative carries the edge.
-        let root = if c("john") <= c("johnny") { c("john") } else { c("johnny") };
+        let root = if c("john") <= c("johnny") {
+            c("john")
+        } else {
+            c("johnny")
+        };
         assert!(
             res.holds("<http://ex/livesIn>", &[&root, &c("paris")]),
             "merged individual keeps the livesIn edge; facts={:?}",
@@ -1351,7 +1375,12 @@ ex:bob   ex:parent ex:carol .
         let resp = run_rule_reasoning(&req).unwrap();
         assert_eq!(resp.registered_rules.len(), 1);
         assert!(resp.consistent);
-        assert_eq!(resp.facts.len(), 1, "only grandparent facts: {:?}", resp.facts);
+        assert_eq!(
+            resp.facts.len(),
+            1,
+            "only grandparent facts: {:?}",
+            resp.facts
+        );
         let f = &resp.facts[0];
         assert_eq!(f.predicate, "grandparent");
         assert!(f.derived);

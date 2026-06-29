@@ -530,10 +530,12 @@ impl EngineBackend {
         // CONCEPT:EG-018: register the user tables alongside the graph projection so a
         // SELECT can read a user table, JOIN it to `nodes`/`edges`, or both in ONE plan.
         let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || eg_query::exec_sql_typed_with_tables(&snap, &store, &sql))
-            .await
-            .map_err(|e| user_err(format!("query task failed: {e}")))?
-            .map_err(|msg| user_err(format!("SQL error: {msg}")))
+        tokio::task::spawn_blocking(move || {
+            eg_query::exec_sql_typed_with_tables(&snap, &store, &sql)
+        })
+        .await
+        .map_err(|e| user_err(format!("query task failed: {e}")))?
+        .map_err(|msg| user_err(format!("SQL error: {msg}")))
     }
 
     /// The shared SQL execution core for BOTH protocols (CONCEPT:KG-2.197). `sql`
@@ -601,7 +603,10 @@ impl EngineBackend {
             StatementKind::CreateTable(plan) if in_txn => {
                 let columns = to_store_columns(&plan.columns)?;
                 self.buffer(TxnOp::CreateTable {
-                    schema: TableSchema { name: plan.name, columns },
+                    schema: TableSchema {
+                        name: plan.name,
+                        columns,
+                    },
                     if_not_exists: plan.if_not_exists,
                 });
                 Ok(Response::Execution(Tag::new("CREATE TABLE")))
@@ -618,7 +623,10 @@ impl EngineBackend {
             StatementKind::AlterTable(plan) if in_txn => {
                 let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
                 let column = columns.into_iter().next().expect("one column");
-                self.buffer(TxnOp::AddColumn { table: plan.name, column });
+                self.buffer(TxnOp::AddColumn {
+                    table: plan.name,
+                    column,
+                });
                 Ok(Response::Execution(Tag::new("ALTER TABLE")))
             }
             StatementKind::AlterTable(plan) => self.run_alter_table(plan).await,
@@ -719,7 +727,11 @@ impl EngineBackend {
         };
         let ncols = columns.len();
         // pg copy format code: 0 = text/csv, 1 = binary.
-        let fmt_code: i8 = if plan.format == CopyFormat::Binary { 1 } else { 0 };
+        let fmt_code: i8 = if plan.format == CopyFormat::Binary {
+            1
+        } else {
+            0
+        };
         *self.copy.lock() = Some(CopyState {
             table: plan.table,
             columns,
@@ -802,12 +814,11 @@ impl EngineBackend {
         }
         let store = user_table_store()?;
         let rows = result.rows;
-        let n = tokio::task::spawn_blocking(move || {
-            store.insert_rows(&ins.table, &ins.columns, &rows)
-        })
-        .await
-        .map_err(|e| user_err(format!("insert-select task failed: {e}")))?
-        .map_err(user_err)?;
+        let n =
+            tokio::task::spawn_blocking(move || store.insert_rows(&ins.table, &ins.columns, &rows))
+                .await
+                .map_err(|e| user_err(format!("insert-select task failed: {e}")))?
+                .map_err(user_err)?;
         Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
     }
 
@@ -1337,7 +1348,10 @@ impl pgwire::api::copy::CopyHandler for EngineBackend {
 /// (CONCEPT:EG-020). Supports the Postgres TEXT, CSV, and BINARY formats; each field
 /// is coerced to its target column's [`ColumnType`] so the store's typed insert path
 /// accepts it (and SERIAL/DEFAULT fill any column the COPY omits).
-fn decode_copy_rows(state: &CopyState, schema: &TableSchema) -> Result<Vec<Vec<serde_json::Value>>, String> {
+fn decode_copy_rows(
+    state: &CopyState,
+    schema: &TableSchema,
+) -> Result<Vec<Vec<serde_json::Value>>, String> {
     // The declared type of each COPY target column.
     let mut types = Vec::with_capacity(state.columns.len());
     for name in &state.columns {
@@ -1488,11 +1502,16 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
         return Ok(Value::Null);
     };
     let v = match ty {
-        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
-            Value::Number(s.trim().parse::<i64>().map_err(|_| format!("invalid integer `{s}`"))?.into())
-        }
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => Value::Number(
+            s.trim()
+                .parse::<i64>()
+                .map_err(|_| format!("invalid integer `{s}`"))?
+                .into(),
+        ),
         ColumnType::Float | ColumnType::Double => serde_json::Number::from_f64(
-            s.trim().parse::<f64>().map_err(|_| format!("invalid float `{s}`"))?,
+            s.trim()
+                .parse::<f64>()
+                .map_err(|_| format!("invalid float `{s}`"))?,
         )
         .map(Value::Number)
         .ok_or_else(|| format!("non-finite float `{s}`"))?,
@@ -1511,7 +1530,10 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
 /// 11-byte `PGCOPY` signature + flags + header extension, then per row a 2-byte field
 /// count (`-1` ⇒ the trailer) and per field a 4-byte length (`-1` ⇒ NULL) + bytes
 /// decoded by the target column's type (the common scalar widths).
-fn decode_copy_binary(buf: &[u8], types: &[ColumnType]) -> Result<Vec<Vec<serde_json::Value>>, String> {
+fn decode_copy_binary(
+    buf: &[u8],
+    types: &[ColumnType],
+) -> Result<Vec<Vec<serde_json::Value>>, String> {
     use serde_json::Value;
     const SIG: &[u8] = b"PGCOPY\n\xff\r\n\0";
     let mut p = 0usize;
@@ -1578,21 +1600,26 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
         })
     };
     let v = match ty {
-        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => Value::Number(int(bytes)?.into()),
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
+            Value::Number(int(bytes)?.into())
+        }
         ColumnType::Float | ColumnType::Double => {
             let f = match bytes.len() {
                 4 => f32::from_be_bytes(bytes.try_into().unwrap()) as f64,
                 8 => f64::from_be_bytes(bytes.try_into().unwrap()),
                 n => return Err(format!("unexpected {n}-byte float field")),
             };
-            serde_json::Number::from_f64(f).map(Value::Number).ok_or("non-finite float")?
+            serde_json::Number::from_f64(f)
+                .map(Value::Number)
+                .ok_or("non-finite float")?
         }
         ColumnType::Bool => Value::Bool(bytes.first().copied().unwrap_or(0) != 0),
         ColumnType::Bytes => {
             Value::Array(bytes.iter().map(|b| Value::Number((*b).into())).collect())
         }
         ColumnType::Text | ColumnType::Json => {
-            let s = std::str::from_utf8(bytes).map_err(|e| format!("invalid utf8 text field: {e}"))?;
+            let s =
+                std::str::from_utf8(bytes).map_err(|e| format!("invalid utf8 text field: {e}"))?;
             if ty == ColumnType::Json {
                 serde_json::from_str(s).unwrap_or(Value::String(s.to_string()))
             } else {
@@ -2142,12 +2169,20 @@ mod copy_tests {
     #[test]
     fn csv_decode_and_ingest_n_rows() {
         let schema = items_schema();
-        let st = copy_state(CopyFormat::Csv, b"sku,qty\nAAPL,1\nMSFT,2\n\"x,y\",3\n", true);
+        let st = copy_state(
+            CopyFormat::Csv,
+            b"sku,qty\nAAPL,1\nMSFT,2\n\"x,y\",3\n",
+            true,
+        );
         let rows = decode_copy_rows(&st, &schema).unwrap();
         assert_eq!(rows.len(), 3, "header skipped, 3 data rows");
         assert_eq!(rows[0][0], serde_json::json!("AAPL"));
         assert_eq!(rows[0][1], serde_json::json!(1));
-        assert_eq!(rows[2][0], serde_json::json!("x,y"), "quoted comma preserved");
+        assert_eq!(
+            rows[2][0],
+            serde_json::json!("x,y"),
+            "quoted comma preserved"
+        );
 
         // Ingest into a real store: SERIAL id auto-fills, all 3 rows land.
         let (store, _p) = eg_query::TableStore::open_temp().unwrap();

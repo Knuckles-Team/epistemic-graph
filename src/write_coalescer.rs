@@ -284,9 +284,9 @@ fn apply_batch(
     let _span = tracing::debug_span!("write_coalescer.apply_batch", graph = graph_name, batch = n)
         .entered();
     let mut txn = core.txn(); // ← the SINGLE lock acquisition for the whole batch.
-    // CONCEPT:EG-011 — the topology write lock is now HELD. Record each op's wait
-    // (enqueue → acquire) = the starvation it paid behind the firehose, then time the
-    // hold window (acquire → release) = the contention readers/other writers block on.
+                              // CONCEPT:EG-011 — the topology write lock is now HELD. Record each op's wait
+                              // (enqueue → acquire) = the starvation it paid behind the firehose, then time the
+                              // hold window (acquire → release) = the contention readers/other writers block on.
     let acquired = Instant::now();
     for (enqueued, _) in &batch {
         crate::metrics::observe_write_lock_wait(
@@ -340,7 +340,7 @@ fn apply_batch(
         }
     }
     drop(txn); // release the lock; reads + the next batch can proceed.
-    // CONCEPT:EG-011 — hold = acquire → release: the window readers were blocked.
+               // CONCEPT:EG-011 — hold = acquire → release: the window readers were blocked.
     crate::metrics::observe_write_lock_hold(graph_name, acquired.elapsed().as_secs_f64());
     stats.record(n);
     crate::metrics::write_batch_committed(graph_name, n);

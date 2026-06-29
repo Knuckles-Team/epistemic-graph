@@ -35,7 +35,9 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction};
+use redb::{
+    Database, Durability, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction,
+};
 use serde_json::Value;
 
 use super::schema::{Cell, Column, TableSchema};
@@ -60,12 +62,32 @@ pub struct ColEq {
 /// [`TableStore::commit_txn`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum TxnOp {
-    CreateTable { schema: TableSchema, if_not_exists: bool },
-    DropTable { name: String, if_exists: bool },
-    AddColumn { table: String, column: Column },
-    Insert { table: String, col_order: Vec<String>, rows: Vec<Vec<Value>> },
-    Update { table: String, set: serde_json::Map<String, Value>, selector: ColEq },
-    Delete { table: String, selector: ColEq },
+    CreateTable {
+        schema: TableSchema,
+        if_not_exists: bool,
+    },
+    DropTable {
+        name: String,
+        if_exists: bool,
+    },
+    AddColumn {
+        table: String,
+        column: Column,
+    },
+    Insert {
+        table: String,
+        col_order: Vec<String>,
+        rows: Vec<Vec<Value>>,
+    },
+    Update {
+        table: String,
+        set: serde_json::Map<String, Value>,
+        selector: ColEq,
+    },
+    Delete {
+        table: String,
+        selector: ColEq,
+    },
 }
 
 /// A buffered multi-statement transaction (CONCEPT:EG-020). `BEGIN` creates one;
@@ -260,7 +282,10 @@ impl TableStore {
         let mut affected = 0usize;
         for op in &txn.ops {
             match op {
-                TxnOp::CreateTable { schema, if_not_exists } => {
+                TxnOp::CreateTable {
+                    schema,
+                    if_not_exists,
+                } => {
                     create_in(&wtx, schema, *if_not_exists)?;
                 }
                 TxnOp::DropTable { name, if_exists } => {
@@ -269,10 +294,18 @@ impl TableStore {
                 TxnOp::AddColumn { table, column } => {
                     add_column_in(&wtx, table, column)?;
                 }
-                TxnOp::Insert { table, col_order, rows } => {
+                TxnOp::Insert {
+                    table,
+                    col_order,
+                    rows,
+                } => {
                     affected += insert_in(&wtx, table, col_order, rows)?;
                 }
-                TxnOp::Update { table, set, selector } => {
+                TxnOp::Update {
+                    table,
+                    set,
+                    selector,
+                } => {
                     affected += update_in(&wtx, table, set, selector)?;
                 }
                 TxnOp::Delete { table, selector } => {
@@ -314,7 +347,11 @@ fn get_schema_in(wtx: &WriteTransaction, name: &str) -> Result<Option<TableSchem
     ))
 }
 
-fn create_in(wtx: &WriteTransaction, schema: &TableSchema, if_not_exists: bool) -> Result<bool, String> {
+fn create_in(
+    wtx: &WriteTransaction,
+    schema: &TableSchema,
+    if_not_exists: bool,
+) -> Result<bool, String> {
     if get_schema_in(wtx, &schema.name)?.is_some() {
         if if_not_exists {
             return Ok(false);
@@ -324,7 +361,8 @@ fn create_in(wtx: &WriteTransaction, schema: &TableSchema, if_not_exists: bool) 
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
     {
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
-        cat.insert(schema.name.as_str(), blob.as_slice()).map_err(map_err)?;
+        cat.insert(schema.name.as_str(), blob.as_slice())
+            .map_err(map_err)?;
     }
     {
         let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
@@ -384,7 +422,11 @@ fn add_column_in(wtx: &WriteTransaction, table: &str, column: &Column) -> Result
 /// rows' physical keys; a SERIAL column reads back `rowid + 1` (1-based, never reused).
 fn alloc_rowids(wtx: &WriteTransaction, table: &str, count: u64) -> Result<u64, String> {
     let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
-    let first = seq.get(table).map_err(map_err)?.map(|g| g.value()).unwrap_or(0);
+    let first = seq
+        .get(table)
+        .map_err(map_err)?
+        .map(|g| g.value())
+        .unwrap_or(0);
     seq.insert(table, first + count).map_err(map_err)?;
     Ok(first)
 }
@@ -439,7 +481,10 @@ fn insert_in(
             } else if let Some(def) = &col.default {
                 cells[ci] = Cell::coerce(def, col.ty, col.nullable)?;
             } else if !col.nullable {
-                return Err(format!("column `{}` is NOT NULL and was not supplied", col.name));
+                return Err(format!(
+                    "column `{}` is NOT NULL and was not supplied",
+                    col.name
+                ));
             }
         }
         // CHECK constraints (per row, post-fill).
@@ -453,13 +498,18 @@ fn insert_in(
                 }
             }
         }
-        encoded.push((rowid, rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?));
+        encoded.push((
+            rowid,
+            rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?,
+        ));
     }
 
     {
         let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
         for (rowid, blob) in &encoded {
-            rows_t.insert((table, *rowid), blob.as_slice()).map_err(map_err)?;
+            rows_t
+                .insert((table, *rowid), blob.as_slice())
+                .map_err(map_err)?;
         }
     }
     // Uniqueness over the post-insert state (reads staged writes through `wtx`).
@@ -521,7 +571,9 @@ fn update_in(
                 }
             }
             let blob = rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
-            rows_t.insert((table, rowid), blob.as_slice()).map_err(map_err)?;
+            rows_t
+                .insert((table, rowid), blob.as_slice())
+                .map_err(map_err)?;
             updated += 1;
         }
     }
@@ -617,7 +669,7 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tables::schema::{ColCheck, CmpOp, ColumnType};
+    use crate::tables::schema::{CmpOp, ColCheck, ColumnType};
 
     fn col(name: &str, ty: ColumnType, nullable: bool) -> Column {
         Column::new(name, ty, nullable, false)
@@ -708,7 +760,11 @@ mod tests {
         store.create_table(&metrics_schema(), false).unwrap();
         let cols = vec!["ts".to_string(), "name".to_string(), "value".to_string()];
         store
-            .insert_rows("metrics", &cols, &[vec![1i64.into(), "cpu".into(), 0.5.into()]])
+            .insert_rows(
+                "metrics",
+                &cols,
+                &[vec![1i64.into(), "cpu".into(), 0.5.into()]],
+            )
             .unwrap();
         assert!(store.drop_table("metrics", false).unwrap());
         assert!(store.get_schema("metrics").unwrap().is_none());
@@ -722,14 +778,22 @@ mod tests {
         store.create_table(&metrics_schema(), false).unwrap();
         let cols = vec!["ts".to_string(), "name".to_string(), "value".to_string()];
         store
-            .insert_rows("metrics", &cols, &[vec![1i64.into(), "cpu".into(), 0.5.into()]])
+            .insert_rows(
+                "metrics",
+                &cols,
+                &[vec![1i64.into(), "cpu".into(), 0.5.into()]],
+            )
             .unwrap();
         store
             .add_column("metrics", col("labels", ColumnType::Json, true))
             .unwrap();
         let rows = store.scan("metrics").unwrap();
         assert_eq!(rows[0].len(), 4);
-        assert_eq!(rows[0][3], Cell::Null, "pre-existing row reads new column NULL");
+        assert_eq!(
+            rows[0][3],
+            Cell::Null,
+            "pre-existing row reads new column NULL"
+        );
         let cols2 = vec![
             "ts".to_string(),
             "name".to_string(),
@@ -758,7 +822,11 @@ mod tests {
         store.create_table(&metrics_schema(), false).unwrap();
         let cols = vec!["ts".to_string(), "name".to_string(), "value".to_string()];
         store
-            .insert_rows("metrics", &cols, &[vec![42i64.into(), "cpu".into(), 1.0.into()]])
+            .insert_rows(
+                "metrics",
+                &cols,
+                &[vec![42i64.into(), "cpu".into(), 1.0.into()]],
+            )
             .unwrap();
         drop(store);
         let store2 = TableStore::open(&path).unwrap();
@@ -798,7 +866,10 @@ mod tests {
         sku.unique = true;
         let mut qty = Column::new("qty", ColumnType::Int, true, false);
         qty.default = Some(Value::Number(0.into()));
-        qty.check = Some(ColCheck { op: CmpOp::Ge, value: Value::Number(0.into()) });
+        qty.check = Some(ColCheck {
+            op: CmpOp::Ge,
+            value: Value::Number(0.into()),
+        });
         TableSchema {
             name: "items".to_string(),
             columns: vec![id, sku, qty],
@@ -811,7 +882,11 @@ mod tests {
         store.create_table(&constrained_schema(), false).unwrap();
         // Supply only `sku`; `id` SERIAL and `qty` DEFAULT auto-fill.
         store
-            .insert_rows("items", &["sku".into()], &[vec!["A".into()], vec!["B".into()]])
+            .insert_rows(
+                "items",
+                &["sku".into()],
+                &[vec!["A".into()], vec!["B".into()]],
+            )
             .unwrap();
         let rows = store.scan("items").unwrap();
         assert_eq!(rows[0][0], Cell::Int(1), "SERIAL starts at 1");
@@ -866,7 +941,11 @@ mod tests {
         });
         let err = store.commit_txn(&txn).unwrap_err();
         assert!(err.contains("unique"), "{err}");
-        assert_eq!(store.scan("items").unwrap().len(), 0, "whole txn rolled back");
+        assert_eq!(
+            store.scan("items").unwrap().len(),
+            0,
+            "whole txn rolled back"
+        );
 
         // A clean transaction commits all ops atomically.
         let mut ok = TableTxn::new();

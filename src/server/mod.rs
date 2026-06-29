@@ -1581,9 +1581,11 @@ mod tests {
 
     #[tokio::test]
     async fn per_graph_backpressure_isolates_tenants() {
-        // Phase C-D: a hot graph that has exhausted its per-graph in-flight cap is
-        // shed with BUSY, but OTHER graphs keep being served from the (ample) global
-        // pool — one tenant cannot starve the rest.
+        // A hot graph that has exhausted its per-graph in-flight cap sheds WRITES with
+        // BUSY, but OTHER graphs keep being served from the (ample) global pool — one
+        // tenant cannot starve the rest. Per-graph backpressure is a WRITE property:
+        // reads bypass the per-graph cap via the reserved read lane (CONCEPT:EG-044),
+        // so both probes here are writes.
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         async fn round_trip(s: &mut tokio::io::DuplexStream, req: &Request) -> Response {
@@ -1658,24 +1660,29 @@ mod tests {
             .insert("g_hot".into(), hot_sem.clone());
         let _held = hot_sem.try_acquire_owned().unwrap();
 
+        // g_cold's write must reach dispatch, so the graph has to exist. (g_hot's write
+        // is shed at admission, BEFORE dispatch, so g_hot needs no registry entry.)
+        state
+            .write()
+            .await
+            .registry
+            .create_graph("g_cold", GraphType::Agent, None)
+            .unwrap();
+
         let (mut client, server) = tokio::io::duplex(64 * 1024);
         let st = state.clone();
         let handle = tokio::spawn(async move { handle_connection(server, st).await });
 
-        // g_hot is saturated → BUSY at the graph level.
-        let r_hot = round_trip(&mut client, &request(1, "g_hot", None, Method::Ping)).await;
+        // g_hot is saturated → its WRITE is shed BUSY at the per-graph cap.
+        let r_hot = round_trip(&mut client, &request(1, "g_hot", None, add_node("h1"))).await;
         assert!(
-            r_hot
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("graph at capacity"),
-            "hot graph must be shed, got {:?}",
+            r_hot.error.as_deref().unwrap_or("").contains("at capacity"),
+            "hot graph write must be shed BUSY, got {:?}",
             r_hot
         );
 
-        // g_cold is independent → served normally despite g_hot being saturated.
-        let r_cold = round_trip(&mut client, &request(2, "g_cold", None, Method::Ping)).await;
+        // g_cold is independent → its WRITE is served normally despite g_hot saturation.
+        let r_cold = round_trip(&mut client, &request(2, "g_cold", None, add_node("c1"))).await;
         assert!(
             r_cold.error.is_none(),
             "cold graph must NOT be starved by the hot graph, got {:?}",

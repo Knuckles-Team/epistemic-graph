@@ -245,9 +245,7 @@ impl<'de> Deserialize<'de> for SemanticStore {
         }
         let raw = Raw::deserialize(d)?;
         let arena = match (raw.ids, raw.data) {
-            (Some(ids), Some(data)) => {
-                EmbeddingArena::from_flat(raw.dim.unwrap_or(0), ids, data)
-            }
+            (Some(ids), Some(data)) => EmbeddingArena::from_flat(raw.dim.unwrap_or(0), ids, data),
             _ => match raw.embeddings {
                 Some(map) => EmbeddingArena::from_legacy_map(map),
                 None => EmbeddingArena::default(),
@@ -649,7 +647,11 @@ mod tests {
         // Overwrite n3 to point a brand-new direction.
         store.add_embedding("n3".into(), vec![0.0, 0.0, 99.0]);
         assert_eq!(store.arena.len(), 10, "overwrite must not add a row");
-        assert_eq!(store.arena.data.len(), 10 * 3, "arena stays dense on overwrite");
+        assert_eq!(
+            store.arena.data.len(),
+            10 * 3,
+            "arena stays dense on overwrite"
+        );
         let res = store.semantic_search(&[0.0, 0.0, 1.0], 1);
         assert_eq!(res[0].0, "n3", "latest overwrite wins");
         // Cached norm reflects the overwrite.
@@ -700,7 +702,11 @@ mod tests {
         let restored: SemanticStore = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(restored.len(), 40, "legacy map migrated into the arena");
         assert_eq!(restored.arena.dim, 8);
-        assert_eq!(restored.arena.data.len(), 40 * 8, "dense arena after migration");
+        assert_eq!(
+            restored.arena.data.len(),
+            40 * 8,
+            "dense arena after migration"
+        );
         // And it re-serializes in the new flat shape.
         let rebytes = rmp_serde::to_vec_named(&restored).unwrap();
         let again: SemanticStore = rmp_serde::from_slice(&rebytes).unwrap();

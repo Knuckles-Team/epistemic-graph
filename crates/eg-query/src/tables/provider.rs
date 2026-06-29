@@ -116,7 +116,7 @@ pub fn materialize(
         columns.push(array);
     }
 
-    let batch =
-        RecordBatch::try_new(arrow.clone(), columns).map_err(|e| format!("user table batch: {e}"))?;
+    let batch = RecordBatch::try_new(arrow.clone(), columns)
+        .map_err(|e| format!("user table batch: {e}"))?;
     Ok((arrow, batch))
 }

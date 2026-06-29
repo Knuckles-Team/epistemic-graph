@@ -60,8 +60,6 @@ fn parse_subscription(src: &str) -> Result<Query, String> {
         Operation::Query(_) => {
             Err("GraphQL: expected a subscription, got a query (use the query path)".into())
         }
-        Operation::Mutation(_) => {
-            Err("GraphQL: expected a subscription, got a mutation".into())
-        }
+        Operation::Mutation(_) => Err("GraphQL: expected a subscription, got a mutation".into()),
     }
 }

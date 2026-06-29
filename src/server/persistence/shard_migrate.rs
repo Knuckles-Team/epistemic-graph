@@ -44,11 +44,11 @@ use std::path::{Path, PathBuf};
 use redb::{Database, Durability, ReadableDatabase, ReadableTable};
 
 use super::redb_backend::{shard_filename, shard_index, RAFT_META};
+#[cfg(feature = "compute-dist")]
+use crate::redb_store::MATVIEWS;
 use crate::redb_store::{
     AUDIT, EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC, XSHARD_DECISION, XSHARD_PREPARE,
 };
-#[cfg(feature = "compute-dist")]
-use crate::redb_store::MATVIEWS;
 
 /// Outcome of a migration run (CONCEPT:EG-030) — totals copied + the layout change.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -188,7 +188,9 @@ pub fn migrate_shards(
                         let (k, v) = row.map_err(|e| e.to_string())?;
                         let (g, id) = k.value();
                         if shard_index(g, new_k) == dest_idx {
-                            d_nodes.insert((g, id), v.value()).map_err(|e| e.to_string())?;
+                            d_nodes
+                                .insert((g, id), v.value())
+                                .map_err(|e| e.to_string())?;
                             report.nodes += 1;
                         }
                     }
@@ -259,10 +261,7 @@ pub fn migrate_shards(
 /// Copy the GLOBAL (non-per-graph) durable tables from every source into the new
 /// shard-0 write txn (CONCEPT:EG-030): the Raft log/meta, the cross-shard 2PC records,
 /// and the materialized views. These are EG-026 "shard 0 home" records.
-fn copy_global_tables(
-    src_dbs: &[Database],
-    wtx: &redb::WriteTransaction,
-) -> Result<u64, String> {
+fn copy_global_tables(src_dbs: &[Database], wtx: &redb::WriteTransaction) -> Result<u64, String> {
     let mut count = 0u64;
     let mut d_raft_log = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
     let mut d_raft_meta = wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
@@ -277,7 +276,9 @@ fn copy_global_tables(
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;
                 let (g, i) = k.value();
-                d_raft_log.insert((g, i), v.value()).map_err(|e| e.to_string())?;
+                d_raft_log
+                    .insert((g, i), v.value())
+                    .map_err(|e| e.to_string())?;
                 count += 1;
             }
         }
@@ -285,7 +286,9 @@ fn copy_global_tables(
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;
                 let (g, s) = k.value();
-                d_raft_meta.insert((g, s), v.value()).map_err(|e| e.to_string())?;
+                d_raft_meta
+                    .insert((g, s), v.value())
+                    .map_err(|e| e.to_string())?;
                 count += 1;
             }
         }
@@ -293,14 +296,18 @@ fn copy_global_tables(
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;
                 let (txn, gid) = k.value();
-                d_xprep.insert((txn, gid), v.value()).map_err(|e| e.to_string())?;
+                d_xprep
+                    .insert((txn, gid), v.value())
+                    .map_err(|e| e.to_string())?;
                 count += 1;
             }
         }
         if let Ok(t) = rtx.open_table(XSHARD_DECISION) {
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;
-                d_xdec.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+                d_xdec
+                    .insert(k.value(), v.value())
+                    .map_err(|e| e.to_string())?;
                 count += 1;
             }
         }
@@ -308,7 +315,9 @@ fn copy_global_tables(
         if let Ok(t) = rtx.open_table(MATVIEWS) {
             for row in t.iter().map_err(|e| e.to_string())? {
                 let (k, v) = row.map_err(|e| e.to_string())?;
-                d_matviews.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+                d_matviews
+                    .insert(k.value(), v.value())
+                    .map_err(|e| e.to_string())?;
                 count += 1;
             }
         }
@@ -374,8 +383,8 @@ mod tests {
 
     /// Write G graphs (each with nodes + an edge) through a K=1 backend, durably.
     async fn seed_k1(dir: &str, graphs: &[&str]) {
-        let backend = RedbBackend::open(dir.to_string(), FsyncPolicy::Each, 256)
-            .expect("open K=1 backend");
+        let backend =
+            RedbBackend::open(dir.to_string(), FsyncPolicy::Each, 256).expect("open K=1 backend");
         for g in graphs {
             backend
                 .register_graph(g, g, GraphType::Global)
@@ -444,7 +453,10 @@ mod tests {
 
         // The 4 new shard files exist; the old single file was NOT touched.
         for i in 0..4 {
-            assert!(dst.join(format!("graph-{i}.redb")).exists(), "graph-{i}.redb");
+            assert!(
+                dst.join(format!("graph-{i}.redb")).exists(),
+                "graph-{i}.redb"
+            );
         }
 
         // ── reopen at K=4 and verify each graph routes + reads back intact ──
@@ -495,17 +507,21 @@ mod tests {
             assert!(dir.join(format!("graph-{i}.redb")).exists());
         }
         assert!(!dir.join("graph.redb").exists(), "old K=1 file moved aside");
-        let has_backup = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .any(|e| e.file_name().to_string_lossy().starts_with(".shard-migrate-backup-"));
+        let has_backup = std::fs::read_dir(&dir).unwrap().flatten().any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with(".shard-migrate-backup-")
+        });
         assert!(has_backup, "recoverable backup dir present");
 
         // Reopen in place at K=4 and confirm all graphs are reachable.
         let backend = RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 256).expect("reopen");
         assert_eq!(backend.shard_count(), 4);
         for g in &graphs {
-            assert!(backend.read_graph_dump_blocking(g).unwrap().is_some(), "graph {g}");
+            assert!(
+                backend.read_graph_dump_blocking(g).unwrap().is_some(),
+                "graph {g}"
+            );
         }
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

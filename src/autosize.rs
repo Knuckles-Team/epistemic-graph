@@ -148,8 +148,11 @@ mod tests {
     fn pi_ram_gets_a_bounded_node_cap() {
         // A 1 GiB Pi must NOT default to unbounded (the OOM bug). It must get a
         // positive, MODEST cap so the per-graph eviction sweep actually bounds RAM.
-        let cap = default_node_cap(1 * GIB);
-        assert!(cap > 0, "Pi must get a bounded (>0) node cap, not unbounded");
+        let cap = default_node_cap(GIB);
+        assert!(
+            cap > 0,
+            "Pi must get a bounded (>0) node cap, not unbounded"
+        );
         assert!(
             cap < 1_000_000,
             "Pi cap should be modest, got {cap} (a 1 GiB box can't hold ~1M resident nodes)"
@@ -166,7 +169,7 @@ mod tests {
             "big box must stay effectively unbounded, got {big}"
         );
         // Strictly larger than the Pi's cap — the cap is monotonic in RAM.
-        assert!(big > default_node_cap(1 * GIB));
+        assert!(big > default_node_cap(GIB));
     }
 
     #[test]
@@ -187,7 +190,7 @@ mod tests {
 
     #[test]
     fn tiers_classify_pi_node_bigbox() {
-        assert_eq!(tier_for(1 * GIB), Tier::Pi);
+        assert_eq!(tier_for(GIB), Tier::Pi);
         assert_eq!(tier_for(2 * GIB), Tier::Pi);
         assert_eq!(tier_for(16 * GIB), Tier::Node);
         assert_eq!(tier_for(247 * GIB), Tier::BigBox);
@@ -198,7 +201,7 @@ mod tests {
     fn inflight_scales_with_cpus_pi_vs_bigbox() {
         let pi = Capacity {
             cpus: 4,
-            total_ram_bytes: 1 * GIB,
+            total_ram_bytes: GIB,
             tier: Tier::Pi,
         };
         let big = Capacity {
@@ -217,7 +220,7 @@ mod tests {
     fn wal_queue_scales_with_cpus() {
         let pi = Capacity {
             cpus: 4,
-            total_ram_bytes: 1 * GIB,
+            total_ram_bytes: GIB,
             tier: Tier::Pi,
         };
         let big = Capacity {

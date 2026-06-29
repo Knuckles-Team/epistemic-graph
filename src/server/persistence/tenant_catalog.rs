@@ -139,12 +139,7 @@ impl TenantCatalog {
     /// writing through to the durable table when backed (CONCEPT:EG-031). This flips
     /// the ROUTE only — moving an already-populated graph's rows to the new shard is
     /// online-resharding execution (remaining M3; see the design doc).
-    pub fn assign(
-        &self,
-        graph_fname: &str,
-        shard: u32,
-        node: Option<u32>,
-    ) -> Result<(), String> {
+    pub fn assign(&self, graph_fname: &str, shard: u32, node: Option<u32>) -> Result<(), String> {
         let a = ShardAssignment { shard, node };
         self.entries
             .write()
@@ -248,7 +243,13 @@ mod tests {
         let cat = TenantCatalog::in_memory();
         cat.assign("g", 1, Some(7)).unwrap();
         cat.reassign("g", 2).unwrap();
-        assert_eq!(cat.lookup("g"), Some(ShardAssignment { shard: 2, node: Some(7) }));
+        assert_eq!(
+            cat.lookup("g"),
+            Some(ShardAssignment {
+                shard: 2,
+                node: Some(7)
+            })
+        );
         // An over-K shard clamps into range (defensive — never out-of-bounds).
         cat.assign("g", 99, None).unwrap();
         assert_eq!(cat.resolve_shard("g", 4), 99 % 4);
@@ -277,7 +278,13 @@ mod tests {
         }
         let cat2 = TenantCatalog::open(&dir_s).expect("reopen catalog");
         assert_eq!(cat2.len(), 2);
-        assert_eq!(cat2.lookup("alpha"), Some(ShardAssignment { shard: 2, node: Some(1) }));
+        assert_eq!(
+            cat2.lookup("alpha"),
+            Some(ShardAssignment {
+                shard: 2,
+                node: Some(1)
+            })
+        );
         assert_eq!(cat2.lookup("beta"), Some(ShardAssignment::local(5)));
         // A fresh (different) dir is empty ⇒ pure EG-026.
         let _ = std::fs::remove_dir_all(&dir);

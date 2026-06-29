@@ -288,8 +288,11 @@ mod tests {
     #[test]
     fn mutation_update_missing_node_errors() {
         let core = core_fixture();
-        let e = execute_mutation(&core, r#"mutation { updateNode(id: "ghost", props: {x: 1}) { id } }"#)
-            .unwrap_err();
+        let e = execute_mutation(
+            &core,
+            r#"mutation { updateNode(id: "ghost", props: {x: 1}) { id } }"#,
+        )
+        .unwrap_err();
         assert!(e.contains("not found"), "got {e}");
     }
 
@@ -297,8 +300,7 @@ mod tests {
     #[test]
     fn mutation_delete_round_trips() {
         let core = core_fixture();
-        let res =
-            execute_mutation(&core, r#"mutation { deleteNode(id: "carol") }"#).unwrap();
+        let res = execute_mutation(&core, r#"mutation { deleteNode(id: "carol") }"#).unwrap();
         assert_eq!(res["data"]["deleteNode"]["deleted"], json!(true));
         assert_eq!(res["data"]["deleteNode"]["id"], json!("carol"));
 
@@ -310,7 +312,10 @@ mod tests {
             .iter()
             .map(|p| p["name"].as_str().unwrap())
             .collect();
-        assert!(!names.contains(&"Carol"), "Carol should be gone, got {names:?}");
+        assert!(
+            !names.contains(&"Carol"),
+            "Carol should be gone, got {names:?}"
+        );
     }
 
     /// `addEdge` creates a relationship the query traversal then follows.
@@ -342,7 +347,11 @@ mod tests {
     #[test]
     fn mutation_remove_edge_round_trips() {
         let core = core_fixture();
-        execute_mutation(&core, r#"mutation { removeEdge(from: "alice", to: "bob") }"#).unwrap();
+        execute_mutation(
+            &core,
+            r#"mutation { removeEdge(from: "alice", to: "bob") }"#,
+        )
+        .unwrap();
 
         let view = core.analysis_snapshot();
         let q = execute(&view, r#"{ Person(name: "Alice") { KNOWS { name } } }"#).unwrap();

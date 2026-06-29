@@ -130,9 +130,7 @@ pub(crate) fn cypher_is_write(query: &str) -> bool {
                 word.push(c as char);
                 i += 1;
                 // peek: keep accumulating the word
-                while i < bytes.len()
-                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
-                {
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
                     word.push(bytes[i] as char);
                     i += 1;
                 }

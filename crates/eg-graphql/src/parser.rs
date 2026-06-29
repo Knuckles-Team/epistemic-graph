@@ -591,7 +591,10 @@ mod tests {
         assert_eq!(m.roots.len(), 1);
         let create = &m.roots[0];
         assert_eq!(create.name, "createNode");
-        assert_eq!(create.args[0], ("label".into(), GqlValue::Str("Person".into())));
+        assert_eq!(
+            create.args[0],
+            ("label".into(), GqlValue::Str("Person".into()))
+        );
         let GqlValue::Object(props) = &create.args[1].1 else {
             panic!("props must be an object");
         };
@@ -600,10 +603,7 @@ mod tests {
             props[1],
             (
                 "tags".into(),
-                GqlValue::List(vec![
-                    GqlValue::Str("a".into()),
-                    GqlValue::Str("b".into()),
-                ])
+                GqlValue::List(vec![GqlValue::Str("a".into()), GqlValue::Str("b".into()),])
             )
         );
         assert_eq!(props[2], ("age".into(), GqlValue::Int(30)));

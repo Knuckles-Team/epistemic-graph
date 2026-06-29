@@ -21,7 +21,9 @@ use epistemic_graph::server::persistence::shard_migrate;
 
 #[derive(Parser, Debug)]
 #[command(name = "migrate-shards")]
-#[command(about = "Offline K-shard migration for the epistemic-graph durable store (CONCEPT:EG-030)")]
+#[command(
+    about = "Offline K-shard migration for the epistemic-graph durable store (CONCEPT:EG-030)"
+)]
 struct Args {
     /// Persist dir holding the existing redb shard files (the source).
     #[arg(long, env = "GRAPH_SERVICE_PERSIST_DIR")]

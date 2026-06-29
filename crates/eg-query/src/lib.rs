@@ -28,7 +28,7 @@ pub use sql::{
 
 #[cfg(feature = "sql")]
 pub use tables::{
-    Cell, ColCheck, ColEq, Column, ColumnType, CmpOp, TableSchema, TableStore, TableTxn, TxnOp,
+    Cell, CmpOp, ColCheck, ColEq, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp,
 };
 
 #[cfg(feature = "cypher")]

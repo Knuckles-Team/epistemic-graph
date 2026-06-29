@@ -235,7 +235,9 @@ fn embedded_sqlite_equivalent_create_insert_select() {
     }
     // Reopen the SAME dir: the durable user-table rows persist (single-file store).
     let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
-    let sel = eng.sql_exec("kg", "SELECT sym FROM prices ORDER BY sym").unwrap();
+    let sel = eng
+        .sql_exec("kg", "SELECT sym FROM prices ORDER BY sym")
+        .unwrap();
     assert_eq!(
         sel.rows.len(),
         2,

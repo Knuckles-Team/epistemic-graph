@@ -318,7 +318,12 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
                                     sub.clone(),
                                     role.clone(),
                                     filler.clone(),
-                                    format!("{} ⊑ ∀{}.{}", short(&sub), short(&role), short(&filler)),
+                                    format!(
+                                        "{} ⊑ ∀{}.{}",
+                                        short(&sub),
+                                        short(&role),
+                                        short(&filler)
+                                    ),
                                     c,
                                 ));
                                 register_class(&mut ont, &sub);
@@ -360,9 +365,8 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
                 let mut handled_union = false;
                 for (named, union_node) in [(&s, &sk), (&sk, &s)] {
                     if let (Some(Concept::Named(a)), Some(disjuncts)) = (
-                        parse_class_expr(&idx, named).and_then(|mut v| {
-                            (v.len() == 1).then(|| v.pop().unwrap())
-                        }),
+                        parse_class_expr(&idx, named)
+                            .and_then(|mut v| (v.len() == 1).then(|| v.pop().unwrap())),
                         parse_union(&idx, union_node),
                     ) {
                         for d in disjuncts {
@@ -568,7 +572,10 @@ fn parse_class_expr(idx: &TripleIndex, id: &str) -> Option<Vec<Concept>> {
     ) {
         let role = term_key(on_prop);
         let value_token = format!("{{{}}}", term_key(val)); // {<...>} nominal marker
-        return Some(vec![Concept::Some(role, Box::new(Concept::Named(value_token)))]);
+        return Some(vec![Concept::Some(
+            role,
+            Box::new(Concept::Named(value_token)),
+        )]);
     }
     // A named class / Thing / Nothing.
     if id.starts_with('<') || id == iri(OWL_THING) || id == iri(OWL_NOTHING) {
@@ -2237,7 +2244,10 @@ ex:Heart rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:partOf ; owl:so
         // Heart ⊑ ∃partOf.Body ; partOf ≡ componentOf ⇒ Heart ⊑ ∃componentOf.Body ;
         // ∃componentOf.Body ⊑ Embedded ⇒ Heart ⊑ Embedded.
         assert!(
-            cls.entails_subclass("<http://example.org/Heart>", "<http://example.org/Embedded>"),
+            cls.entails_subclass(
+                "<http://example.org/Heart>",
+                "<http://example.org/Embedded>"
+            ),
             "equivalentProperty must carry the role witness; S(Heart)={:?}",
             cls.subsumers.get("<http://example.org/Heart>")
         );
@@ -2299,7 +2309,10 @@ ex:Italian rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:nationality ;
         let mut r = Reasoner::from_triples(&triples);
         let cls = r.classify();
         assert!(
-            cls.entails_subclass("<http://example.org/Italian>", "<http://example.org/EUCitizen>"),
+            cls.entails_subclass(
+                "<http://example.org/Italian>",
+                "<http://example.org/EUCitizen>"
+            ),
             "hasValue nominal must compose; S(Italian)={:?}",
             cls.subsumers.get("<http://example.org/Italian>")
         );

@@ -532,7 +532,9 @@ impl Parser {
             self.eat_keyword("MERGE")?;
             let node = self.parse_node()?;
             if !self.peek_is_end_of_merge() {
-                return Err("MERGE supports a single `(n:Label {props})` node in this subset".into());
+                return Err(
+                    "MERGE supports a single `(n:Label {props})` node in this subset".into(),
+                );
             }
             Ok(WriteOp::Merge(node))
         } else if self.peek_keyword("SET") {

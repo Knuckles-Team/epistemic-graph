@@ -43,7 +43,7 @@ use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 use serde_json::{Map, Value};
 
-use crate::tables::schema::{ColCheck, CmpOp};
+use crate::tables::schema::{CmpOp, ColCheck};
 
 /// How a single parsed SQL statement should be routed by the wire shim.
 #[derive(Debug, Clone, PartialEq)]
@@ -265,8 +265,8 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
     } else {
         sql
     };
-    let stmts =
-        Parser::parse_sql(&PostgreSqlDialect {}, to_parse).map_err(|e| format!("parse error: {e}"))?;
+    let stmts = Parser::parse_sql(&PostgreSqlDialect {}, to_parse)
+        .map_err(|e| format!("parse error: {e}"))?;
     let stmt = match stmts.as_slice() {
         [s] => s,
         [] => return Err("empty statement".to_string()),
@@ -286,7 +286,13 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
             from,
             selection,
             returning,
-        } => classify_any_update(table, assignments, from.as_ref(), selection.as_ref(), returning),
+        } => classify_any_update(
+            table,
+            assignments,
+            from.as_ref(),
+            selection.as_ref(),
+            returning,
+        ),
         Statement::Delete(delete) => classify_any_delete(delete),
         // ── DDL (CONCEPT:EG-018) ──────────────────────────────────────────────
         Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
@@ -341,10 +347,15 @@ fn classify_copy(
         return Err("COPY supports only FROM STDIN (no file/program source)".to_string());
     }
     let (table, columns) = match source {
-        CopySource::Table { table_name, columns } => {
+        CopySource::Table {
+            table_name,
+            columns,
+        } => {
             let leaf = last_ident(table_name);
             if is_reserved_table(&leaf) {
-                return Err(format!("COPY cannot target the reserved graph table `{leaf}`"));
+                return Err(format!(
+                    "COPY cannot target the reserved graph table `{leaf}`"
+                ));
             }
             (leaf, columns.iter().map(|c| c.value.clone()).collect())
         }
@@ -376,10 +387,8 @@ fn classify_copy(
     for opt in legacy_options {
         match opt {
             CopyLegacyOption::Binary => format = CopyFormat::Binary,
-            CopyLegacyOption::Csv(_) => {
-                if format == CopyFormat::Text {
-                    format = CopyFormat::Csv;
-                }
+            CopyLegacyOption::Csv(_) if format == CopyFormat::Text => {
+                format = CopyFormat::Csv;
             }
             CopyLegacyOption::Delimiter(c) => delimiter = Some(*c),
             _ => {}
@@ -868,8 +877,7 @@ fn classify_any_update(
     if leaf.eq_ignore_ascii_case("edges") {
         return Err("UPDATE is only supported on the `nodes` table".to_string());
     }
-    classify_update_table(leaf, table, assignments, from, selection)
-        .map(StatementKind::UpdateTable)
+    classify_update_table(leaf, table, assignments, from, selection).map(StatementKind::UpdateTable)
 }
 
 /// Decode `UPDATE <user_table> SET … WHERE <col> = <literal>`.
@@ -887,7 +895,9 @@ fn classify_update_table(
         return Err("UPDATE … FROM is not supported (EG-018 follow-up)".to_string());
     }
     if assignments.is_empty() {
-        return Err(format!("UPDATE {table} requires at least one SET assignment"));
+        return Err(format!(
+            "UPDATE {table} requires at least one SET assignment"
+        ));
     }
     let mut set = Map::new();
     for a in assignments {
@@ -946,8 +956,9 @@ fn decode_table_where(
     verb: &str,
     table: &str,
 ) -> Result<TableWhereEq, String> {
-    let expr = selection
-        .ok_or_else(|| format!("{verb} {table} requires a WHERE clause (unscoped {verb} refused)"))?;
+    let expr = selection.ok_or_else(|| {
+        format!("{verb} {table} requires a WHERE clause (unscoped {verb} refused)")
+    })?;
     match expr {
         Expr::BinaryOp { left, op, right } if *op == BinaryOperator::Eq => {
             let column = ident_column(left)?;
@@ -996,7 +1007,10 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
         .unwrap_or(&type_name)
         .trim()
         .to_ascii_lowercase();
-    let mut serial = matches!(base_ty.as_str(), "serial" | "bigserial" | "smallserial" | "serial4" | "serial8");
+    let mut serial = matches!(
+        base_ty.as_str(),
+        "serial" | "bigserial" | "smallserial" | "serial4" | "serial8"
+    );
     let mut nullable = !serial; // SERIAL ⇒ NOT NULL by default
     let mut primary_key = false;
     let mut unique = false;
@@ -1020,7 +1034,10 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
                     nullable = false;
                 } else {
                     default = Some(expr_to_json(expr).map_err(|e| {
-                        format!("DEFAULT on column `{}` must be a literal: {e}", c.name.value)
+                        format!(
+                            "DEFAULT on column `{}` must be a literal: {e}",
+                            c.name.value
+                        )
                     })?);
                 }
             }
@@ -1074,12 +1091,20 @@ fn decode_check(expr: &Expr, col: &str) -> Result<ColCheck, String> {
             }
         };
         // Accept `col OP literal` or `literal OP col`.
-        let (value, flip) = if matches!(left.as_ref(), Expr::Identifier(_) | Expr::CompoundIdentifier(_)) {
+        let (value, flip) = if matches!(
+            left.as_ref(),
+            Expr::Identifier(_) | Expr::CompoundIdentifier(_)
+        ) {
             (expr_to_json(right)?, false)
-        } else if matches!(right.as_ref(), Expr::Identifier(_) | Expr::CompoundIdentifier(_)) {
+        } else if matches!(
+            right.as_ref(),
+            Expr::Identifier(_) | Expr::CompoundIdentifier(_)
+        ) {
             (expr_to_json(left)?, true)
         } else {
-            return Err(format!("CHECK on `{col}` must compare the column to a literal"));
+            return Err(format!(
+                "CHECK on `{col}` must compare the column to a literal"
+            ));
         };
         let op = if flip { flip_cmp(op) } else { op };
         return Ok(ColCheck { op, value });
@@ -1108,7 +1133,9 @@ fn classify_drop(
     names: &[ObjectName],
 ) -> Result<DropTablePlan, String> {
     if object_type != ObjectType::Table {
-        return Err(format!("DROP {object_type} is not supported (only DROP TABLE)"));
+        return Err(format!(
+            "DROP {object_type} is not supported (only DROP TABLE)"
+        ));
     }
     let name = match names {
         [one] => last_ident(one),
@@ -1550,7 +1577,10 @@ mod tests {
         assert_eq!(p.columns.len(), 4);
         assert!(!p.columns[0].nullable, "TIMESTAMP NOT NULL");
         assert!(p.columns[1].nullable, "TEXT defaults nullable");
-        assert!(p.columns[3].primary_key && !p.columns[3].nullable, "PK ⇒ NOT NULL");
+        assert!(
+            p.columns[3].primary_key && !p.columns[3].nullable,
+            "PK ⇒ NOT NULL"
+        );
     }
 
     #[test]

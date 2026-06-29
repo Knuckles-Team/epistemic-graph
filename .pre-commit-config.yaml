@@ -95,6 +95,18 @@ repos:
 # ─────────────────────────────────────────────────────────────────────────
 - repo: local
   hooks:
+  # rust-ci.yml `protocol-parity` job — the Python client mirrors the Rust `Method`
+  # enum by sending variant-name strings (no PyO3/codegen), so a renamed/removed Rust
+  # variant or an unbound new one silently drifts. This gate catches it on every
+  # commit (pure stdlib text-parse, ~0.3s; `--noconftest` skips the package-importing
+  # conftest so no wheel build/install is needed). Kept in rust-ci.yml too (CI
+  # defense-in-depth) — pre-commit now catches it first.
+  - id: protocol-parity
+    name: Protocol parity (Python client ⇄ Rust Method enum)
+    entry: python3 -m pytest tests/test_protocol_parity.py --noconftest -q
+    language: system
+    pass_filenames: false
+    always_run: true
   # rust-ci gate 1 — workspace format check.
   - id: cargo-fmt
     name: cargo fmt --all --check (rust-ci parity)

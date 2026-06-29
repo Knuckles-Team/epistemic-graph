@@ -117,9 +117,10 @@ fn exec_write(core: &GraphCore, w: &WriteQuery) -> Result<QueryResult, String> {
             for (i, (edge, node)) in pattern.hops.iter().enumerate() {
                 let next_var = node_var(node, i + 1);
                 if let Some(evar) = &edge.var {
-                    if let (Some(a), Some(b)) =
-                        (binding.get(&prev_var).cloned(), binding.get(&next_var).cloned())
-                    {
+                    if let (Some(a), Some(b)) = (
+                        binding.get(&prev_var).cloned(),
+                        binding.get(&next_var).cloned(),
+                    ) {
                         let (src, tgt) = match edge.direction {
                             Direction::Right => (a, b),
                             Direction::Left => (b, a),
@@ -202,7 +203,8 @@ fn apply_create(
         }
         let blob = rmp_serde::to_vec_named(&Value::Object(props))
             .map_err(|e| format!("encode edge props: {e}"))?;
-        core.add_edge(src, tgt, blob).map_err(|e| format!("CREATE edge: {e}"))?;
+        core.add_edge(src, tgt, blob)
+            .map_err(|e| format!("CREATE edge: {e}"))?;
         *mutated = true;
         prev_id = next_id;
     }
@@ -968,11 +970,8 @@ mod tests {
             "CREATE (a:Person {id: 'a'})-[:KNOWS]->(b:Person {id: 'b'})",
         )
         .unwrap();
-        let qr = exec_cypher_write(
-            &core,
-            "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b",
-        )
-        .unwrap();
+        let qr =
+            exec_cypher_write(&core, "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b").unwrap();
         let cells: Vec<Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
         assert_eq!(cells[0], Value::String("a".into()));
         assert_eq!(cells[1], Value::String("b".into()));
@@ -1015,8 +1014,8 @@ mod tests {
         )
         .unwrap();
         // A plain DELETE on a node with an edge is refused.
-        let err = exec_cypher_write(&core, "MATCH (a:Person) WHERE a.id = 'x' DELETE a")
-            .unwrap_err();
+        let err =
+            exec_cypher_write(&core, "MATCH (a:Person) WHERE a.id = 'x' DELETE a").unwrap_err();
         assert!(err.contains("DETACH"), "{err}");
         // DETACH DELETE succeeds.
         exec_cypher_write(&core, "MATCH (a:Person) WHERE a.id = 'x' DETACH DELETE a").unwrap();
@@ -1038,11 +1037,8 @@ mod tests {
         )
         .unwrap();
         // The edge is gone; both nodes remain.
-        let qr = exec_cypher_write(
-            &core,
-            "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a",
-        )
-        .unwrap();
+        let qr =
+            exec_cypher_write(&core, "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a").unwrap();
         assert!(qr.rows.is_empty(), "edge deleted");
         let nodes = exec_cypher_write(&core, "MATCH (n:Person) RETURN n").unwrap();
         assert_eq!(col0(&nodes), vec!["p", "q"]);
@@ -1051,8 +1047,11 @@ mod tests {
     #[test]
     fn create_with_return_projects_new_node() {
         let core = GraphCore::new();
-        let qr = exec_cypher_write(&core, "CREATE (n:Task {id: 't1', state: 'open'}) RETURN n.state")
-            .unwrap();
+        let qr = exec_cypher_write(
+            &core,
+            "CREATE (n:Task {id: 't1', state: 'open'}) RETURN n.state",
+        )
+        .unwrap();
         assert_eq!(qr.columns, vec!["n.state"]);
         let cells: Vec<Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
         assert_eq!(cells[0], Value::String("open".into()));

@@ -21,7 +21,9 @@ fn sample_files(n_files: usize) -> Vec<(String, Vec<u8>)> {
         .map(|f| {
             let mut src = String::new();
             src.push_str("use std::collections::HashMap;\n\n");
-            src.push_str(&format!("pub struct Widget{f} {{ id: u64, name: String }}\n\n"));
+            src.push_str(&format!(
+                "pub struct Widget{f} {{ id: u64, name: String }}\n\n"
+            ));
             for g in 0..20 {
                 src.push_str(&format!(
                     "pub fn compute_{f}_{g}(x: u64) -> u64 {{\n    \
