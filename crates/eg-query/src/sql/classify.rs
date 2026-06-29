@@ -161,13 +161,13 @@ pub struct AlterTablePlan {
     pub add_column: ColumnDef,
 }
 
-/// A simple single-column equality WHERE on a user table (`WHERE <col> = <literal>`).
-/// Unlike [`WhereEq`] there is no `id` special-casing — a user table has no implicit
-/// id column, so every column (including one literally named `id`) is a plain column.
+/// A compound WHERE on a user table (CONCEPT:EG-045). Unlike [`WhereEq`] there is no
+/// `id` special-casing — a user table has no implicit id column. The full predicate
+/// is carried as a serializable [`eg_types::RowPredicate`] and evaluated per row by
+/// the redb store INSIDE the open write transaction (serializable for free).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableWhereEq {
-    pub column: String,
-    pub value: Value,
+    pub pred: eg_types::RowPredicate,
 }
 
 /// A decoded literal `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-018).
@@ -208,11 +208,17 @@ pub struct DeleteTable {
 /// `WHERE <prop> = <literal>` selects every node whose `<prop>` equals the literal.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WhereEq {
-    /// `WHERE id = <value>` — addresses exactly one node by its id.
+    /// `WHERE id = <value>` — addresses exactly one node by its id (fast path).
     Id(String),
-    /// `WHERE <column> = <value>` — addresses every node whose property
-    /// `<column>` currently equals `<value>`.
-    Property { column: String, value: Value },
+    /// Any other WHERE (CONCEPT:EG-045): a compound `AND`/`OR`/`NOT`/`IN`/`BETWEEN`/
+    /// range/`IS [NOT] NULL` predicate, OR a single `<prop> = <literal>`. `where_sql`
+    /// is the predicate text (`expr.to_string()`) the shim re-runs through the
+    /// DataFusion read path to resolve candidate ids; `pred` is the serializable AST
+    /// the engine re-checks under the write guard for serializable semantics.
+    Predicate {
+        where_sql: String,
+        pred: eg_types::RowPredicate,
+    },
 }
 
 /// A decoded single-node row for an `INSERT INTO nodes (id, …) VALUES (…)`.
@@ -959,17 +965,10 @@ fn decode_table_where(
     let expr = selection.ok_or_else(|| {
         format!("{verb} {table} requires a WHERE clause (unscoped {verb} refused)")
     })?;
-    match expr {
-        Expr::BinaryOp { left, op, right } if *op == BinaryOperator::Eq => {
-            let column = ident_column(left)?;
-            let value = expr_to_json(right)?;
-            Ok(TableWhereEq { column, value })
-        }
-        other => Err(format!(
-            "{verb} {table} supports only a single `<column> = <literal>` WHERE \
-             (complex predicates are an EG-018 follow-up), got `{other}`"
-        )),
-    }
+    // CONCEPT:EG-045 — decode the full compound predicate; the store evaluates it
+    // per row inside its write transaction.
+    let pred = decode_predicate(expr)?;
+    Ok(TableWhereEq { pred })
 }
 
 /// Decode `CREATE TABLE name (col type [NOT NULL] [PRIMARY KEY], …) [IF NOT EXISTS]`.
@@ -1181,19 +1180,113 @@ fn decode_where(selection: Option<&Expr>, verb: &str) -> Result<WhereEq, String>
              use `WHERE id = '…'` or `WHERE <prop> = <literal>`)"
         )
     })?;
-    match expr {
-        Expr::BinaryOp { left, op, right } if *op == BinaryOperator::Eq => {
-            let column = ident_column(left)?;
-            let value = expr_to_json(right)?;
-            if column.eq_ignore_ascii_case("id") {
-                Ok(WhereEq::Id(scalar_id(value)?))
-            } else {
-                Ok(WhereEq::Property { column, value })
+    // The `id = <literal>` fast path stays a single-node address.
+    if let Expr::BinaryOp { left, op, right } = expr {
+        if *op == BinaryOperator::Eq {
+            if let Ok(column) = ident_column(left) {
+                if column.eq_ignore_ascii_case("id") {
+                    let value = expr_to_json(right)?;
+                    return Ok(WhereEq::Id(scalar_id(value)?));
+                }
             }
         }
+    }
+    // CONCEPT:EG-045 — any other WHERE decodes to a serializable compound predicate.
+    // `where_sql` is re-run through the read path to resolve candidate ids; `pred`
+    // is re-checked under the write guard for serializable semantics.
+    let pred = decode_predicate(expr)?;
+    Ok(WhereEq::Predicate {
+        where_sql: expr.to_string(),
+        pred,
+    })
+}
+
+/// Decode a sqlparser `Expr` WHERE tree into a serializable [`eg_types::RowPredicate`]
+/// (CONCEPT:EG-045). Supports `AND`/`OR`, the six scalar comparisons, `NOT`, `IN`,
+/// `BETWEEN`, `IS [NOT] NULL`, and parenthesised nesting. The left operand of a
+/// comparison/`IN`/`BETWEEN`/`IS NULL` must be a (possibly qualified) column; the
+/// right operands must be literals (reusing `ident_column` + `expr_to_json`).
+fn decode_predicate(expr: &Expr) -> Result<eg_types::RowPredicate, String> {
+    use datafusion::sql::sqlparser::ast::UnaryOperator;
+    use eg_types::{CmpOp, RowPredicate};
+    match expr {
+        Expr::Nested(inner) => decode_predicate(inner),
+        Expr::BinaryOp { left, op, right } => match op {
+            BinaryOperator::And => Ok(RowPredicate::And(vec![
+                decode_predicate(left)?,
+                decode_predicate(right)?,
+            ])),
+            BinaryOperator::Or => Ok(RowPredicate::Or(vec![
+                decode_predicate(left)?,
+                decode_predicate(right)?,
+            ])),
+            BinaryOperator::Eq
+            | BinaryOperator::NotEq
+            | BinaryOperator::Lt
+            | BinaryOperator::LtEq
+            | BinaryOperator::Gt
+            | BinaryOperator::GtEq => {
+                let col = ident_column(left)?;
+                let value = expr_to_json(right)?;
+                let op = match op {
+                    BinaryOperator::Eq => CmpOp::Eq,
+                    BinaryOperator::NotEq => CmpOp::Ne,
+                    BinaryOperator::Lt => CmpOp::Lt,
+                    BinaryOperator::LtEq => CmpOp::Le,
+                    BinaryOperator::Gt => CmpOp::Gt,
+                    BinaryOperator::GtEq => CmpOp::Ge,
+                    _ => unreachable!(),
+                };
+                Ok(RowPredicate::Cmp { col, op, value })
+            }
+            other => Err(format!("unsupported operator in WHERE: `{other}`")),
+        },
+        Expr::UnaryOp {
+            op: UnaryOperator::Not,
+            expr,
+        } => Ok(RowPredicate::Not(Box::new(decode_predicate(expr)?))),
+        Expr::InList {
+            expr,
+            list,
+            negated,
+        } => {
+            let col = ident_column(expr)?;
+            let values = list
+                .iter()
+                .map(expr_to_json)
+                .collect::<Result<Vec<_>, _>>()?;
+            let pred = RowPredicate::In { col, values };
+            Ok(if *negated {
+                RowPredicate::Not(Box::new(pred))
+            } else {
+                pred
+            })
+        }
+        Expr::Between {
+            expr,
+            negated,
+            low,
+            high,
+        } => {
+            let col = ident_column(expr)?;
+            let low = expr_to_json(low)?;
+            let high = expr_to_json(high)?;
+            let pred = RowPredicate::Between { col, low, high };
+            Ok(if *negated {
+                RowPredicate::Not(Box::new(pred))
+            } else {
+                pred
+            })
+        }
+        Expr::IsNull(inner) => Ok(RowPredicate::IsNull {
+            col: ident_column(inner)?,
+        }),
+        Expr::IsNotNull(inner) => Ok(RowPredicate::IsNotNull {
+            col: ident_column(inner)?,
+        }),
         other => Err(format!(
-            "{verb} nodes supports only a single `<column> = <literal>` WHERE \
-             (complex predicates are a CONCEPT:KG-2.198 follow-up), got `{other}`"
+            "unsupported WHERE predicate (CONCEPT:EG-045 supports AND/OR/NOT/IN/\
+             BETWEEN/comparisons/IS [NOT] NULL): `{other}`"
         )),
     }
 }
@@ -1466,11 +1559,127 @@ mod tests {
         let StatementKind::UpdateNodes(u) = k else {
             panic!("expected UpdateNodes");
         };
+        // CONCEPT:EG-045 — a non-id single-eq WHERE now decodes to a Predicate.
+        let WhereEq::Predicate { pred, .. } = u.selector else {
+            panic!("expected Predicate, got {:?}", u.selector);
+        };
         assert_eq!(
-            u.selector,
-            WhereEq::Property {
-                column: "type".to_string(),
+            pred,
+            eg_types::RowPredicate::Cmp {
+                col: "type".to_string(),
+                op: eg_types::CmpOp::Eq,
                 value: Value::String("Tool".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn update_compound_where_decodes_predicate() {
+        // CONCEPT:EG-045 — AND/OR/range now decode instead of being rejected.
+        let k =
+            classify("UPDATE nodes SET active = false WHERE rank > 2 AND type = 'Agent'").unwrap();
+        let StatementKind::UpdateNodes(u) = k else {
+            panic!("expected UpdateNodes");
+        };
+        let WhereEq::Predicate { where_sql, pred } = u.selector else {
+            panic!("expected Predicate, got {:?}", u.selector);
+        };
+        assert!(
+            where_sql.contains("rank") && where_sql.contains("type"),
+            "{where_sql}"
+        );
+        assert_eq!(
+            pred,
+            eg_types::RowPredicate::And(vec![
+                eg_types::RowPredicate::Cmp {
+                    col: "rank".to_string(),
+                    op: eg_types::CmpOp::Gt,
+                    value: Value::Number(2.into()),
+                },
+                eg_types::RowPredicate::Cmp {
+                    col: "type".to_string(),
+                    op: eg_types::CmpOp::Eq,
+                    value: Value::String("Agent".to_string()),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn decode_predicate_in_between_or_not() {
+        use eg_types::{CmpOp, RowPredicate};
+        let StatementKind::DeleteNodes(d) =
+            classify("DELETE FROM nodes WHERE type IN ('Tool', 'Skill')").unwrap()
+        else {
+            panic!("expected DeleteNodes");
+        };
+        let WhereEq::Predicate { pred, .. } = d.selector else {
+            panic!("expected Predicate");
+        };
+        assert_eq!(
+            pred,
+            RowPredicate::In {
+                col: "type".to_string(),
+                values: vec![
+                    Value::String("Tool".to_string()),
+                    Value::String("Skill".to_string()),
+                ],
+            }
+        );
+
+        let StatementKind::UpdateNodes(u) =
+            classify("UPDATE nodes SET active = false WHERE rank BETWEEN 2 AND 8").unwrap()
+        else {
+            panic!("expected UpdateNodes");
+        };
+        let WhereEq::Predicate { pred, .. } = u.selector else {
+            panic!("expected Predicate");
+        };
+        assert_eq!(
+            pred,
+            RowPredicate::Between {
+                col: "rank".to_string(),
+                low: Value::Number(2.into()),
+                high: Value::Number(8.into()),
+            }
+        );
+
+        let StatementKind::UpdateNodes(u) =
+            classify("UPDATE nodes SET active = false WHERE NOT (rank = 1 OR rank = 2)").unwrap()
+        else {
+            panic!("expected UpdateNodes");
+        };
+        let WhereEq::Predicate { pred, .. } = u.selector else {
+            panic!("expected Predicate");
+        };
+        assert_eq!(
+            pred,
+            RowPredicate::Not(Box::new(RowPredicate::Or(vec![
+                RowPredicate::Cmp {
+                    col: "rank".to_string(),
+                    op: CmpOp::Eq,
+                    value: Value::Number(1.into()),
+                },
+                RowPredicate::Cmp {
+                    col: "rank".to_string(),
+                    op: CmpOp::Eq,
+                    value: Value::Number(2.into()),
+                },
+            ])))
+        );
+
+        let StatementKind::DeleteNodes(d) =
+            classify("DELETE FROM nodes WHERE note IS NULL").unwrap()
+        else {
+            panic!("expected DeleteNodes");
+        };
+        let WhereEq::Predicate { pred, .. } = d.selector else {
+            panic!("expected Predicate");
+        };
+        assert_eq!(
+            pred,
+            RowPredicate::IsNull {
+                col: "note".to_string()
             }
         );
     }
@@ -1497,10 +1706,13 @@ mod tests {
     }
 
     #[test]
-    fn update_complex_where_rejected() {
-        let e =
-            classify("UPDATE nodes SET rank = 1 WHERE rank > 2 AND type = 'Agent'").unwrap_err();
-        assert!(e.contains("single") || e.contains("follow-up"), "{e}");
+    fn update_unsupported_where_rejected() {
+        // CONCEPT:EG-045 — function calls / non-literal RHS are still rejected.
+        let e = classify("UPDATE nodes SET rank = 1 WHERE lower(type) = 'agent'").unwrap_err();
+        assert!(
+            e.contains("WHERE") || e.contains("column") || e.contains("value"),
+            "{e}"
+        );
     }
 
     #[test]
@@ -1519,10 +1731,14 @@ mod tests {
         let StatementKind::DeleteNodes(d) = k else {
             panic!("expected DeleteNodes");
         };
+        let WhereEq::Predicate { pred, .. } = d.selector else {
+            panic!("expected Predicate");
+        };
         assert_eq!(
-            d.selector,
-            WhereEq::Property {
-                column: "type".to_string(),
+            pred,
+            eg_types::RowPredicate::Cmp {
+                col: "type".to_string(),
+                op: eg_types::CmpOp::Eq,
                 value: Value::String("Tool".to_string()),
             }
         );
@@ -1636,7 +1852,15 @@ mod tests {
             panic!("expected UpdateTable");
         };
         assert_eq!(u.table, "prices");
-        assert_eq!(u.selector.column, "symbol");
+        // CONCEPT:EG-045 — the user-table selector is now a RowPredicate.
+        assert_eq!(
+            u.selector.pred,
+            eg_types::RowPredicate::Cmp {
+                col: "symbol".to_string(),
+                op: eg_types::CmpOp::Eq,
+                value: Value::String("AAPL".into()),
+            }
+        );
         assert_eq!(u.set.get("px").unwrap(), &json_num(9.9));
 
         let StatementKind::DeleteTable(d) =
@@ -1644,7 +1868,14 @@ mod tests {
         else {
             panic!("expected DeleteTable");
         };
-        assert_eq!(d.selector.value, Value::String("MSFT".into()));
+        assert_eq!(
+            d.selector.pred,
+            eg_types::RowPredicate::Cmp {
+                col: "symbol".to_string(),
+                op: eg_types::CmpOp::Eq,
+                value: Value::String("MSFT".into()),
+            }
+        );
     }
 
     #[test]

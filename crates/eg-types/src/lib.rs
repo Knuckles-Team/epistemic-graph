@@ -10,5 +10,10 @@
 
 pub mod acl;
 pub mod protocol;
+pub mod row_predicate;
 pub mod types;
 pub mod wire;
+
+// CONCEPT:EG-045 — the serializable compound-WHERE predicate AST lives at the
+// bottom of the DAG so `eg-core` can evaluate it; `eg-query` decodes SQL into it.
+pub use row_predicate::{CmpOp, RowPredicate};
