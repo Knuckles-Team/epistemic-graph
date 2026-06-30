@@ -552,3 +552,53 @@ mod rerank_tests {
         );
     }
 }
+
+/// `Op::Window` execution proofs (CONCEPT:EG-067). The planner now runs a real
+/// eg-tsdb windowed aggregate over the input's time/value columns instead of passing
+/// the rows through.
+#[cfg(feature = "timeseries")]
+mod timeseries_tests {
+    use crate::algebra::{Op, Plan};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// Four Memory nodes with `valid_from` event times and a `value`; a 10-unit WINDOW
+    /// must produce ONE row per aligned bucket carrying the bucket's mean — i.e. a
+    /// bucketed aggregate, NOT the four pass-through rows.
+    #[test]
+    fn window_produces_bucketed_aggregates_not_passthrough() {
+        let core = GraphCore::new();
+        core.add_node("m1".into(), blob(json!({"type":"Memory","valid_from":0,"value":10.0})));
+        core.add_node("m2".into(), blob(json!({"type":"Memory","valid_from":5,"value":20.0})));
+        core.add_node("m3".into(), blob(json!({"type":"Memory","valid_from":12,"value":30.0})));
+        core.add_node("m4".into(), blob(json!({"type":"Memory","valid_from":18,"value":40.0})));
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        let out = Plan::new(vec![
+            Op::Scan {
+                label: "Memory".into(),
+            },
+            Op::Window { secs: 10.0 },
+        ])
+        .execute(&ctx)
+        .unwrap();
+
+        // Bucket [0,10): mean(10,20)=15 ; bucket [10,20): mean(30,40)=35. ts-sorted
+        // bucket order regardless of (HashMap) scan order — and NOT the 4 input rows.
+        assert_eq!(
+            out.ids(),
+            vec!["0".to_string(), "10".to_string()],
+            "WINDOW collapses the 4 points into 2 time buckets (not pass-through)"
+        );
+        let scores: Vec<f32> = out.rows().iter().map(|r| r.score.unwrap()).collect();
+        assert_eq!(scores, vec![15.0, 35.0], "each bucket carries its mean value");
+    }
+}
