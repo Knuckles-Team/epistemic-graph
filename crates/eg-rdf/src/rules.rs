@@ -46,6 +46,31 @@
 //!   auto-name is assigned).
 //!
 //! Example: `gp: parent(?x,?y) ^ parent(?y,?z) -> grandparent(?x,?z) @0.9`.
+//!
+//! ## SWRL / RuleML atoms + built-ins (CONCEPT:EG-060)
+//!
+//! The same surface ALSO parses SWRL-style atoms — the existing forms ARE the SWRL
+//! atom types: a unary `C(x)` is a SWRL **ClassAtom**, a binary `p(x,y)` over an object
+//! property is an **IndividualPropertyAtom**, and a binary `p(x,v)` whose second term is
+//! a literal is a **DatavaluedPropertyAtom**. The genuinely new shape is the SWRL
+//! **BuiltInAtom**, written `swrlb:<name>(arg, …)` (or the full
+//! `<http://www.w3.org/2003/11/swrlb#name>` IRI). A built-in atom is NOT matched against
+//! stored facts — it is EVALUATED against the current binding at rule-firing time:
+//!
+//!   * **comparison** built-ins (`equal`, `notEqual`, `lessThan`, `lessThanOrEqual`,
+//!     `greaterThan`, `greaterThanOrEqual`, plus string `contains` / `startsWith` /
+//!     `endsWith`) act as FILTERS — every argument must already be bound; the binding
+//!     survives only if the comparison holds;
+//!   * **math** built-ins (`add`, `subtract`, `multiply`, `divide`) and **string**
+//!     producers (`stringConcat`, `stringLength`, `upperCase`, `lowerCase`) follow the
+//!     SWRL convention that the FIRST argument is the RESULT: if it is an unbound
+//!     variable it is BOUND to the computed value, otherwise it is checked for equality.
+//!
+//! So `age(?p, ?a) ^ swrlb:greaterThanOrEqual(?a, 18) -> Adult(?p)` keeps only adults,
+//! and `age(?p, ?a) ^ swrlb:add(?n, ?a, 1) -> nextAge(?p, ?n)` binds `?n = ?a + 1`. A
+//! built-in output variable counts toward head-var range-safety (it appears in the body
+//! atom), so the safety check is unchanged. Bare numeric tokens (`18`) parse as literal
+//! constants so they can feed built-ins; all pre-existing rule strings parse unchanged.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -334,6 +359,13 @@ fn parse_term(t: &str) -> Result<RTerm, String> {
     if t.starts_with('"') {
         return Ok(RTerm::Const(t.trim_matches('"').to_string()));
     }
+    // A bare numeric token is a literal constant (CONCEPT:EG-060): so a SWRL built-in
+    // argument can be written `swrlb:greaterThan(?age, 18)` without quoting. Without this
+    // `18` would parse as an (unbindable) variable named "18". Non-numeric bare tokens
+    // keep the existing variable semantics, so all pre-existing rules parse unchanged.
+    if t.parse::<f64>().is_ok() {
+        return Ok(RTerm::Const(t.to_string()));
+    }
     // A bare identifier is a variable (e.g. `x`, `y`, `z`).
     Ok(RTerm::Var(t.to_string()))
 }
@@ -413,6 +445,156 @@ impl RuleSet {
 
     pub fn len(&self) -> usize {
         self.rules.len()
+    }
+}
+
+// ── SWRL built-in library (CONCEPT:EG-060) ───────────────────────────────────
+
+/// The SWRL built-ins namespace.
+const SWRLB_NS: &str = "http://www.w3.org/2003/11/swrlb#";
+
+/// If `pred` names a SWRL built-in (`swrlb:name` short form OR the full
+/// `<http://www.w3.org/2003/11/swrlb#name>` IRI), return its bare `name`; else `None`.
+/// Gating on the `swrlb` prefix/IRI keeps recognition disjoint from ordinary fact
+/// predicates, so non-built-in atoms are matched against facts exactly as before.
+fn swrl_builtin_name(pred: &str) -> Option<&str> {
+    if let Some(n) = pred.strip_prefix("swrlb:") {
+        return Some(n);
+    }
+    let bare = pred.trim_start_matches('<').trim_end_matches('>');
+    bare.strip_prefix(SWRLB_NS)
+}
+
+/// Evaluate a SWRL built-in atom against the current `binding` (CONCEPT:EG-060).
+///
+/// Returns `None` when the built-in does NOT hold for this binding (the join path dies);
+/// `Some(extra)` when it holds, where `extra` carries any output variable the built-in
+/// freshly bound (the SWRL convention: math / string producers write their first
+/// argument). Comparison built-ins return `Some(vec![])`. An unknown built-in name or a
+/// missing/unbound required argument yields `None` (sound — it simply never fires).
+fn eval_builtin(
+    name: &str,
+    args: &[RTerm],
+    binding: &HashMap<String, String>,
+) -> Option<Vec<(String, String)>> {
+    // Resolve the i-th argument to its current string value (None ⇒ unbound variable).
+    let val = |i: usize| -> Option<String> {
+        args.get(i).and_then(|a| match a {
+            RTerm::Const(c) => Some(c.clone()),
+            RTerm::Var(v) => binding.get(v).cloned(),
+        })
+    };
+    let num = |i: usize| -> Option<f64> { val(i).and_then(|s| s.parse::<f64>().ok()) };
+
+    match name {
+        // ── comparisons (filters; every argument must be bound) ──────────────
+        "equal" | "notEqual" => {
+            let (a, b) = (val(0)?, val(1)?);
+            // Numeric when BOTH parse as numbers (so 18 == 18.0), else string equality.
+            let eq = match (a.parse::<f64>(), b.parse::<f64>()) {
+                (Ok(x), Ok(y)) => (x - y).abs() < 1e-9,
+                _ => a == b,
+            };
+            ((name == "equal") == eq).then(Vec::new)
+        }
+        "lessThan" | "lessThanOrEqual" | "greaterThan" | "greaterThanOrEqual" => {
+            let (a, b) = (num(0)?, num(1)?);
+            let ok = match name {
+                "lessThan" => a < b,
+                "lessThanOrEqual" => a <= b,
+                "greaterThan" => a > b,
+                _ => a >= b,
+            };
+            ok.then(Vec::new)
+        }
+        "contains" | "startsWith" | "endsWith" => {
+            let (a, b) = (val(0)?, val(1)?);
+            let ok = match name {
+                "contains" => a.contains(&b),
+                "startsWith" => a.starts_with(&b),
+                _ => a.ends_with(&b),
+            };
+            ok.then(Vec::new)
+        }
+        // ── math (first argument = result) ───────────────────────────────────
+        "add" | "subtract" | "multiply" | "divide" => {
+            // Inputs are args[1..]; all must be bound + numeric.
+            let inputs: Vec<f64> = (1..args.len()).map(num).collect::<Option<_>>()?;
+            if inputs.is_empty() {
+                return None;
+            }
+            let result = match name {
+                "add" => inputs.iter().sum(),
+                "multiply" => inputs.iter().product(),
+                "subtract" => {
+                    if inputs.len() != 2 {
+                        return None;
+                    }
+                    inputs[0] - inputs[1]
+                }
+                _ => {
+                    if inputs.len() != 2 || inputs[1] == 0.0 {
+                        return None;
+                    }
+                    inputs[0] / inputs[1]
+                }
+            };
+            bind_or_check_num(args.first()?, result, binding)
+        }
+        // ── string producers (first argument = result) ──────────────────────
+        "stringConcat" => {
+            let parts: Vec<String> = (1..args.len()).map(val).collect::<Option<_>>()?;
+            bind_or_check_str(args.first()?, parts.concat(), binding)
+        }
+        "stringLength" => {
+            let s = val(1)?;
+            bind_or_check_num(args.first()?, s.chars().count() as f64, binding)
+        }
+        "upperCase" => bind_or_check_str(args.first()?, val(1)?.to_uppercase(), binding),
+        "lowerCase" => bind_or_check_str(args.first()?, val(1)?.to_lowercase(), binding),
+        _ => None,
+    }
+}
+
+/// Bind a producer built-in's result `out` to a numeric `value` (when an unbound
+/// variable), or verify equality (numeric) when it is already bound / a constant.
+fn bind_or_check_num(
+    out: &RTerm,
+    value: f64,
+    binding: &HashMap<String, String>,
+) -> Option<Vec<(String, String)>> {
+    let check = |s: &str| matches!(s.parse::<f64>(), Ok(b) if (b - value).abs() < 1e-9);
+    match out {
+        RTerm::Var(v) => match binding.get(v) {
+            None => Some(vec![(v.clone(), fmt_num(value))]),
+            Some(bound) => check(bound).then(Vec::new),
+        },
+        RTerm::Const(c) => check(c).then(Vec::new),
+    }
+}
+
+/// Bind a producer built-in's result `out` to a string `value`, or verify equality.
+fn bind_or_check_str(
+    out: &RTerm,
+    value: String,
+    binding: &HashMap<String, String>,
+) -> Option<Vec<(String, String)>> {
+    match out {
+        RTerm::Var(v) => match binding.get(v) {
+            None => Some(vec![(v.clone(), value)]),
+            Some(bound) => (bound == &value).then(Vec::new),
+        },
+        RTerm::Const(c) => (c == &value).then(Vec::new),
+    }
+}
+
+/// Render a built-in numeric result: an integral value as a plain integer (`19`, not
+/// `19.0`) so it round-trips with literal facts; otherwise the default float form.
+fn fmt_num(f: f64) -> String {
+    if f.is_finite() && f.fract() == 0.0 && f.abs() < 1e15 {
+        format!("{}", f as i64)
+    } else {
+        format!("{f}")
     }
 }
 
@@ -569,6 +751,24 @@ impl Engine {
             return;
         }
         let atom = &body[idx];
+        // SWRL built-in atom (CONCEPT:EG-060): evaluated against the current binding
+        // rather than matched against stored facts. A comparison acts as a filter; a
+        // math / string producer binds its (first-argument) result variable. Built-ins
+        // are deterministic constraints (confidence 1.0, so `conf_acc` is unchanged).
+        if let Some(bn) = swrl_builtin_name(&atom.pred) {
+            if let Some(extra) = eval_builtin(bn, &atom.args, binding) {
+                let mut newly_bound: Vec<String> = Vec::new();
+                for (v, val) in extra {
+                    binding.insert(v.clone(), val);
+                    newly_bound.push(v);
+                }
+                self.eval_at(body, idx + 1, binding, conf_acc, out);
+                for v in newly_bound {
+                    binding.remove(&v);
+                }
+            }
+            return;
+        }
         // Gather every stored predicate this body atom matches (exact, or a bare rule
         // predicate matching an IRI fact predicate by local name).
         let matched: Vec<&String> = self
@@ -1355,6 +1555,99 @@ ex:bob   ex:parent ex:carol .
     #[test]
     fn unsafe_rule_rejected() {
         assert!(Rule::parse("foo(?x) -> bar(?x, ?y)").is_err());
+    }
+
+    /// SWRL built-in atoms parse as body atoms WITHOUT disturbing the existing DSL
+    /// (CONCEPT:EG-060): a plain bare-predicate Datalog rule parses unchanged, and a
+    /// `swrlb:` built-in atom keeps its predicate intact (and a bare numeric arg becomes
+    /// a constant, not a variable).
+    #[test]
+    fn swrl_builtin_atom_parses_and_plain_dsl_unaffected() {
+        let plain = Rule::parse("grandparent(?x,?z) :- parent(?x,?y), parent(?y,?z)").unwrap();
+        assert_eq!(plain.body.len(), 2);
+        assert_eq!(plain.head[0].pred, "grandparent");
+
+        let r = Rule::parse("Senior(?p) :- age(?p,?a), swrlb:greaterThan(?a, 65)").unwrap();
+        assert_eq!(r.body.len(), 2);
+        assert_eq!(r.body[1].pred, "swrlb:greaterThan");
+        // The bare `65` is a constant; `?a` and `?p` are variables.
+        assert_eq!(r.body[1].args[1], RTerm::Const("65".into()));
+        assert_eq!(r.body[1].args[0], RTerm::Var("a".into()));
+    }
+
+    /// A SWRL comparison built-in filters bindings (CONCEPT:EG-060): only individuals
+    /// whose age ≥ 18 are classified `Adult`.
+    #[test]
+    fn swrl_comparison_builtin_filters() {
+        let ttl = r#"
+@prefix ex: <http://ex/> .
+ex:alice ex:age 30 .
+ex:bob   ex:age 12 .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let ont = crate::owl::parse_ontology(&triples);
+        let mut rs = RuleSet::new();
+        rs.add_str("Adult(?p) :- age(?p, ?a), swrlb:greaterThanOrEqual(?a, 18)")
+            .unwrap();
+        let res = reason_triples(&triples, &ont, &rs);
+        assert!(
+            res.holds("Adult", &[&c("alice")]),
+            "alice (30) ≥ 18 ⇒ Adult; facts={:?}",
+            res.facts
+        );
+        assert!(
+            !res.holds("Adult", &[&c("bob")]),
+            "bob (12) < 18 ⇒ filtered out; facts={:?}",
+            res.facts
+        );
+    }
+
+    /// A SWRL math built-in binds its result variable (CONCEPT:EG-060): `?n = ?a + 1`.
+    #[test]
+    fn swrl_math_builtin_binds_result() {
+        let ttl = r#"
+@prefix ex: <http://ex/> .
+ex:alice ex:age 30 .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let ont = crate::owl::parse_ontology(&triples);
+        let mut rs = RuleSet::new();
+        rs.add_str("age(?p, ?a) ^ swrlb:add(?n, ?a, 1) -> nextAge(?p, ?n)")
+            .unwrap();
+        let res = reason_triples(&triples, &ont, &rs);
+        assert!(
+            res.holds("nextAge", &[&c("alice"), "31"]),
+            "30 + 1 = 31 binds ?n ⇒ nextAge(alice, 31); facts={:?}",
+            res.facts
+        );
+    }
+
+    /// A SWRL string built-in binds its result variable (CONCEPT:EG-060): upper-casing a
+    /// data value, and a `stringConcat` producer.
+    #[test]
+    fn swrl_string_builtin_binds_result() {
+        let ttl = r#"
+@prefix ex: <http://ex/> .
+ex:alice ex:firstName "alice" .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let ont = crate::owl::parse_ontology(&triples);
+        let mut rs = RuleSet::new();
+        rs.add_str(r#"firstName(?p, ?n) ^ swrlb:upperCase(?u, ?n) -> upperName(?p, ?u)"#)
+            .unwrap();
+        rs.add_str(r#"firstName(?p, ?n) ^ swrlb:stringConcat(?g, "Ms ", ?n) -> greeting(?p, ?g)"#)
+            .unwrap();
+        let res = reason_triples(&triples, &ont, &rs);
+        assert!(
+            res.holds("upperName", &[&c("alice"), "ALICE"]),
+            "upperCase(alice) = ALICE; facts={:?}",
+            res.facts
+        );
+        assert!(
+            res.holds("greeting", &[&c("alice"), "Ms alice"]),
+            "stringConcat(\"Ms \", alice) = \"Ms alice\"; facts={:?}",
+            res.facts
+        );
     }
 
     /// The server-op request path round-trips Turtle + rules into a filtered response.
