@@ -58,6 +58,15 @@ federation = [
     "dep:sha2",
     "dep:hex",
 ]
+# Time-series WINDOW execution (CONCEPT:EG-067): wire eg-tsdb's native windowed-
+# aggregate primitives (`time_bucket`/`aggregate`) behind `Op::Window`, replacing the
+# pass-through seam. Pulls eg-tsdb's query primitives — eg-core/eg-compute only, NO
+# DataFusion and NO redb (eg-tsdb's `query` module compiles with its default features),
+# so the dep stays lean. IMPLIES `query` (the op lives inside the `query`-gated `Op`
+# enum, beside the AsOf time leg). OFF by default and folded by the facade into node/
+# cluster/full but NEVER `pi` — the Pi contract: a `pi` build links no eg-tsdb. Without
+# it `Op::Window` stays the RowSet-preserving marker it lowers from (the plan still runs).
+timeseries = ["query", "dep:eg-tsdb"]
 # EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
 # running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the
@@ -91,6 +100,12 @@ eg-text = { path = "../eg-text", optional = true }
 # #[cfg(feature = "owl")]; pure-Rust (oxrdf/oxttl/spargebra), so it adds NO native dep
 # (a default/Pi build links none of it).
 eg-rdf = { path = "../eg-rdf", optional = true }
+# The native time-series windowed-aggregate primitives (`time_bucket`/`aggregate`)
+# backing the `Op::Window` executor (feature `timeseries`, CONCEPT:EG-067). Optional +
+# only referenced under #[cfg(feature = "timeseries")]; its `query` primitives are
+# eg-core/eg-compute only (no DataFusion, no redb), so a default/Pi build links none of
+# it. eg-tsdb does NOT depend on eg-plan — no dependency cycle.
+eg-tsdb = { path = "../eg-tsdb", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
