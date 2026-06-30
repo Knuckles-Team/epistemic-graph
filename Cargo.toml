@@ -142,7 +142,7 @@ graphql = ["dep:eg-graphql", "eg-types/graphql", "server"]
 # series handler routes through dispatch). Folded into node/cluster/full; OUT of the
 # bare default. When `query` is ALSO on, eg-tsdb's `arrow-seg` lights up the
 # DataFusion `time_bucket = GROUP BY (ts/w)*w` leg (see the `query` feature below).
-tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store"]
+tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store", "dep:eg-plan", "eg-plan/timeseries"]
 # Streaming / CDC / continuous queries / subscriptions / triggers (CONCEPT:KG-2.229/
 # 230, Lane L). Reactivity layered over the existing per-graph durable change record
 # (the ledger): every durable mutation the dispatch shell records also emits an
