@@ -1,29 +1,41 @@
 //! Hand-written recursive-descent parser for the Cypher subset (CONCEPT:KG-2.179).
 //! Dep-free — a tiny char tokenizer + a recursive-descent grammar, no nom/pest.
 //!
-//! Grammar (the implemented subset):
+//! Grammar (the implemented subset; CONCEPT:EG-062/EG-063 extend the read side):
 //! ```text
-//! query      := MATCH pattern (WHERE preds)? RETURN items (LIMIT int)?
+//! query      := stage+ RETURN retbody
+//! stage      := ('OPTIONAL')? 'MATCH' (var '=')? pattern ('WHERE' expr)?
+//!             | 'WITH' withitems ('WHERE' expr)?
+//! retbody    := ('DISTINCT')? ('*' | items) ('ORDER' 'BY' keys)? ('SKIP' int)? ('LIMIT' int)?
 //! pattern    := node (edge node)*
-//! node       := '(' var? (':' label)? ')'
-//! edge       := '-' '[' (':' reltype)? ('*' range)? ']' '->'
-//!             | '<-' '[' (':' reltype)? ('*' range)? ']' '-'
+//! node       := '(' var? (':' label)? ('{' propmap '}')? ')'
+//! edge       := '-' '[' (var)? (':' reltype)? ('*' range)? ']' '->'
+//!             | '<-' '[' (var)? (':' reltype)? ('*' range)? ']' '-'
 //! range      := int ('..' int)?
-//! preds      := pred (AND pred)*
-//! pred       := var '.' prop op literal
+//! expr       := or
+//! or         := and ('OR' and)*
+//! and        := primary ('AND' primary)*
+//! primary    := '(' or ')' | cond
+//! cond       := var '.' prop test
+//! test       := op literal
+//!             | 'IN' '[' literal (',' literal)* ']'
+//!             | ('STARTS'|'ENDS') 'WITH' string
+//!             | 'CONTAINS' string
+//!             | 'IS' ('NOT')? 'NULL'
+//! item       := expr ('AS' alias)?
+//! expr(proj) := 'count' '(' '*' ')' | agg '(' (var ('.' prop)?) ')' | var ('.' prop)?
 //! op         := '=' | '<>' | '!=' | '<' | '<=' | '>' | '>='
 //! literal    := string | number | true | false
-//! items      := item (',' item)*
-//! item       := var ('.' prop)?
 //! ```
-//! Identifiers/keywords are case-insensitive for keywords (MATCH/WHERE/RETURN/
-//! LIMIT/AND/true/false); variable/label/prop names keep their case.
+//! Identifiers/keywords are case-insensitive for keywords; variable/label/prop
+//! names keep their case.
 
 use serde_json::Value;
 
 use super::plan::{
-    CompareOp, CypherQuery, Direction, EdgePat, NodePat, Pattern, Predicate, ReturnItem, SetItem,
-    Statement, WriteOp, WriteQuery,
+    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, NodePat, OrderKey,
+    Pattern, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement, Test, WhereExpr,
+    WithItem, WriteOp, WriteQuery,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -216,6 +228,9 @@ impl Parser {
     fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.pos)
     }
+    fn peek2(&self) -> Option<&Tok> {
+        self.toks.get(self.pos + 1)
+    }
     fn next(&mut self) -> Option<Tok> {
         let t = self.toks.get(self.pos).cloned();
         if t.is_some() {
@@ -229,8 +244,7 @@ impl Parser {
             other => Err(format!("expected {t:?}, found {other:?}")),
         }
     }
-    /// Consume an identifier, comparing case-insensitively against `kw`. Used for
-    /// keywords (MATCH/WHERE/RETURN/LIMIT/AND).
+    /// Consume an identifier, comparing case-insensitively against `kw`.
     fn eat_keyword(&mut self, kw: &str) -> Result<(), String> {
         match self.next() {
             Some(Tok::Ident(s)) if s.eq_ignore_ascii_case(kw) => Ok(()),
@@ -239,6 +253,9 @@ impl Parser {
     }
     fn peek_keyword(&self, kw: &str) -> bool {
         matches!(self.peek(), Some(Tok::Ident(s)) if s.eq_ignore_ascii_case(kw))
+    }
+    fn peek2_keyword(&self, kw: &str) -> bool {
+        matches!(self.peek2(), Some(Tok::Ident(s)) if s.eq_ignore_ascii_case(kw))
     }
     fn ident(&mut self) -> Result<String, String> {
         match self.next() {
@@ -379,35 +396,114 @@ impl Parser {
         }
     }
 
-    fn parse_predicates(&mut self) -> Result<Vec<Predicate>, String> {
-        let mut preds = vec![self.parse_predicate()?];
-        while self.peek_keyword("AND") {
-            self.eat_keyword("AND")?;
-            preds.push(self.parse_predicate()?);
-        }
-        Ok(preds)
+    // ── WHERE boolean expressions (CONCEPT:EG-062) ────────────────────────────
+
+    fn parse_where_expr(&mut self) -> Result<WhereExpr, String> {
+        self.parse_or()
     }
 
-    fn parse_predicate(&mut self) -> Result<Predicate, String> {
+    fn parse_or(&mut self) -> Result<WhereExpr, String> {
+        let first = self.parse_and()?;
+        if !self.peek_keyword("OR") {
+            return Ok(first);
+        }
+        let mut alts = vec![first];
+        while self.peek_keyword("OR") {
+            self.eat_keyword("OR")?;
+            alts.push(self.parse_and()?);
+        }
+        Ok(WhereExpr::Or(alts))
+    }
+
+    fn parse_and(&mut self) -> Result<WhereExpr, String> {
+        let first = self.parse_where_primary()?;
+        if !self.peek_keyword("AND") {
+            return Ok(first);
+        }
+        let mut parts = vec![first];
+        while self.peek_keyword("AND") {
+            self.eat_keyword("AND")?;
+            parts.push(self.parse_where_primary()?);
+        }
+        Ok(WhereExpr::And(parts))
+    }
+
+    fn parse_where_primary(&mut self) -> Result<WhereExpr, String> {
+        if matches!(self.peek(), Some(Tok::LParen)) {
+            self.next();
+            let e = self.parse_or()?;
+            self.expect(&Tok::RParen)?;
+            return Ok(e);
+        }
+        Ok(WhereExpr::Cond(self.parse_condition()?))
+    }
+
+    fn parse_condition(&mut self) -> Result<Condition, String> {
         let var = self.ident()?;
         self.expect(&Tok::Dot)?;
         let prop = self.ident()?;
-        let op = match self.next() {
-            Some(Tok::Eq) => CompareOp::Eq,
-            Some(Tok::Ne) => CompareOp::Ne,
-            Some(Tok::Lt) => CompareOp::Lt,
-            Some(Tok::Le) => CompareOp::Le,
-            Some(Tok::Gt) => CompareOp::Gt,
-            Some(Tok::Ge) => CompareOp::Ge,
-            other => return Err(format!("expected comparison operator, found {other:?}")),
-        };
-        let value = self.parse_literal()?;
-        Ok(Predicate {
-            var,
-            prop,
-            op,
-            value,
-        })
+        let test = self.parse_test()?;
+        Ok(Condition { var, prop, test })
+    }
+
+    fn parse_test(&mut self) -> Result<Test, String> {
+        if self.peek_keyword("IN") {
+            self.eat_keyword("IN")?;
+            self.expect(&Tok::LBracket)?;
+            let mut list = Vec::new();
+            if !matches!(self.peek(), Some(Tok::RBracket)) {
+                list.push(self.parse_literal()?);
+                while matches!(self.peek(), Some(Tok::Comma)) {
+                    self.next();
+                    list.push(self.parse_literal()?);
+                }
+            }
+            self.expect(&Tok::RBracket)?;
+            Ok(Test::In(list))
+        } else if self.peek_keyword("STARTS") {
+            self.eat_keyword("STARTS")?;
+            self.eat_keyword("WITH")?;
+            Ok(Test::StartsWith(self.parse_string_operand("STARTS WITH")?))
+        } else if self.peek_keyword("ENDS") {
+            self.eat_keyword("ENDS")?;
+            self.eat_keyword("WITH")?;
+            Ok(Test::EndsWith(self.parse_string_operand("ENDS WITH")?))
+        } else if self.peek_keyword("CONTAINS") {
+            self.eat_keyword("CONTAINS")?;
+            Ok(Test::Contains(self.parse_string_operand("CONTAINS")?))
+        } else if self.peek_keyword("IS") {
+            self.eat_keyword("IS")?;
+            if self.peek_keyword("NOT") {
+                self.eat_keyword("NOT")?;
+                self.eat_keyword("NULL")?;
+                Ok(Test::IsNotNull)
+            } else {
+                self.eat_keyword("NULL")?;
+                Ok(Test::IsNull)
+            }
+        } else {
+            let op = self.parse_compare_op()?;
+            Ok(Test::Cmp(op, self.parse_literal()?))
+        }
+    }
+
+    fn parse_compare_op(&mut self) -> Result<CompareOp, String> {
+        match self.next() {
+            Some(Tok::Eq) => Ok(CompareOp::Eq),
+            Some(Tok::Ne) => Ok(CompareOp::Ne),
+            Some(Tok::Lt) => Ok(CompareOp::Lt),
+            Some(Tok::Le) => Ok(CompareOp::Le),
+            Some(Tok::Gt) => Ok(CompareOp::Gt),
+            Some(Tok::Ge) => Ok(CompareOp::Ge),
+            other => Err(format!("expected comparison operator, found {other:?}")),
+        }
+    }
+
+    fn parse_string_operand(&mut self, kw: &str) -> Result<String, String> {
+        match self.parse_literal()? {
+            Value::String(s) => Ok(s),
+            other => Err(format!("{kw} expects a string literal, found {other:?}")),
+        }
     }
 
     fn parse_literal(&mut self) -> Result<Value, String> {
@@ -428,27 +524,133 @@ impl Parser {
         }
     }
 
-    fn parse_return_items(&mut self) -> Result<Vec<ReturnItem>, String> {
-        let mut items = vec![self.parse_return_item()?];
-        while matches!(self.peek(), Some(Tok::Comma)) {
+    // ── RETURN projection (CONCEPT:EG-062) ────────────────────────────────────
+
+    fn parse_return_spec(&mut self) -> Result<ReturnSpec, String> {
+        let distinct = if self.peek_keyword("DISTINCT") {
+            self.eat_keyword("DISTINCT")?;
+            true
+        } else {
+            false
+        };
+        let mut star = false;
+        let mut items = Vec::new();
+        if matches!(self.peek(), Some(Tok::Star)) {
             self.next();
+            star = true;
+        } else {
             items.push(self.parse_return_item()?);
+            while matches!(self.peek(), Some(Tok::Comma)) {
+                self.next();
+                items.push(self.parse_return_item()?);
+            }
         }
-        Ok(items)
+        let order_by = self.parse_optional_order_by()?;
+        let skip = self.parse_optional_int_kw("SKIP")?;
+        let limit = self.parse_optional_int_kw("LIMIT")?;
+        Ok(ReturnSpec {
+            items,
+            star,
+            distinct,
+            order_by,
+            skip,
+            limit,
+        })
     }
 
     fn parse_return_item(&mut self) -> Result<ReturnItem, String> {
-        let var = self.ident()?;
-        let prop = if matches!(self.peek(), Some(Tok::Dot)) {
-            self.next();
+        let expr = self.parse_proj_expr()?;
+        let alias = if self.peek_keyword("AS") {
+            self.eat_keyword("AS")?;
             Some(self.ident()?)
         } else {
             None
         };
-        Ok(ReturnItem { var, prop })
+        Ok(ReturnItem { expr, alias })
     }
 
-    // ── write statements (CONCEPT:EG-020) ────────────────────────────────────
+    /// A projection expression: an aggregate (`count(*)`, `sum(a.p)`, …) or a bare
+    /// `var` / `var.prop` (CONCEPT:EG-062).
+    fn parse_proj_expr(&mut self) -> Result<Expr, String> {
+        // Aggregate: an agg-func ident immediately followed by `(`.
+        if let Some(Tok::Ident(name)) = self.peek() {
+            if matches!(self.peek2(), Some(Tok::LParen)) {
+                if let Some(func) = agg_func(name) {
+                    self.next(); // func name
+                    self.expect(&Tok::LParen)?;
+                    // `count(*)`
+                    if func == AggFunc::Count && matches!(self.peek(), Some(Tok::Star)) {
+                        self.next();
+                        self.expect(&Tok::RParen)?;
+                        return Ok(Expr::CountStar);
+                    }
+                    let arg = self.parse_agg_arg()?;
+                    self.expect(&Tok::RParen)?;
+                    return Ok(Expr::Aggregate(func, arg));
+                }
+            }
+        }
+        // Bare var / var.prop.
+        let var = self.ident()?;
+        if matches!(self.peek(), Some(Tok::Dot)) {
+            self.next();
+            Ok(Expr::Prop(var, self.ident()?))
+        } else {
+            Ok(Expr::Var(var))
+        }
+    }
+
+    fn parse_agg_arg(&mut self) -> Result<AggArg, String> {
+        let var = self.ident()?;
+        if matches!(self.peek(), Some(Tok::Dot)) {
+            self.next();
+            Ok(AggArg::Prop(var, self.ident()?))
+        } else {
+            Ok(AggArg::Var(var))
+        }
+    }
+
+    fn parse_optional_order_by(&mut self) -> Result<Vec<OrderKey>, String> {
+        if !(self.peek_keyword("ORDER") && self.peek2_keyword("BY")) {
+            return Ok(Vec::new());
+        }
+        self.eat_keyword("ORDER")?;
+        self.eat_keyword("BY")?;
+        let mut keys = vec![self.parse_order_key()?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            keys.push(self.parse_order_key()?);
+        }
+        Ok(keys)
+    }
+
+    fn parse_order_key(&mut self) -> Result<OrderKey, String> {
+        let expr = self.parse_proj_expr()?;
+        let desc = if self.peek_keyword("DESC") {
+            self.eat_keyword("DESC")?;
+            true
+        } else {
+            if self.peek_keyword("ASC") {
+                self.eat_keyword("ASC")?;
+            }
+            false
+        };
+        Ok(OrderKey { expr, desc })
+    }
+
+    fn parse_optional_int_kw(&mut self, kw: &str) -> Result<Option<usize>, String> {
+        if self.peek_keyword(kw) {
+            self.eat_keyword(kw)?;
+            match self.next() {
+                Some(Tok::Num(n)) if n >= 0.0 && n.fract() == 0.0 => Ok(Some(n as usize)),
+                other => Err(format!("expected integer after {kw}, found {other:?}")),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    // ── read stages (CONCEPT:EG-062) ──────────────────────────────────────────
 
     /// Whether the next token begins a write clause.
     fn at_write_clause(&self) -> bool {
@@ -457,59 +659,142 @@ impl Parser {
             || self.peek_keyword("SET")
             || self.peek_keyword("DELETE")
             || self.peek_keyword("DETACH")
+            || self.peek_keyword("REMOVE")
     }
 
-    /// Parse a whole statement: a read (`MATCH … RETURN`) or a write
-    /// (`[MATCH …] CREATE/MERGE/SET/DELETE … [RETURN …]`) (CONCEPT:EG-020).
+    /// Parse a whole statement: a read (one-or-more reading stages + `RETURN`) or a
+    /// write (`[MATCH …] CREATE/MERGE/SET/DELETE/REMOVE … [RETURN …]`).
     fn parse_statement(&mut self) -> Result<Statement, String> {
         // A statement that opens with a write clause has no MATCH.
         if self.at_write_clause() {
             let ops = self.parse_write_clauses()?;
-            let returns = self.parse_optional_return()?;
+            let returns = self.parse_optional_simple_return()?;
             self.finish()?;
             return Ok(Statement::Write(WriteQuery {
                 match_pattern: None,
-                where_clause: Vec::new(),
+                where_clause: None,
                 ops,
                 returns,
             }));
         }
 
-        // Otherwise it must open with MATCH.
-        self.eat_keyword("MATCH")?;
-        let pattern = self.parse_pattern()?;
-        let where_clause = if self.peek_keyword("WHERE") {
-            self.eat_keyword("WHERE")?;
-            self.parse_predicates()?
+        // Otherwise it must open with (OPTIONAL) MATCH.
+        let optional = if self.peek_keyword("OPTIONAL") {
+            self.eat_keyword("OPTIONAL")?;
+            true
         } else {
-            Vec::new()
+            false
         };
+        self.eat_keyword("MATCH")?;
+        let path_var = self.parse_optional_path_var()?;
+        let pattern = self.parse_pattern()?;
+        let where_clause = self.parse_optional_where()?;
 
-        // `MATCH … RETURN …` ⇒ a plain read (the unchanged snapshot path).
-        if self.peek_keyword("RETURN") {
-            self.eat_keyword("RETURN")?;
-            let returns = self.parse_return_items()?;
-            let limit = self.parse_optional_limit()?;
+        // `MATCH … <write clause>+ [RETURN …]` ⇒ a write over the matched binding.
+        if self.at_write_clause() {
+            if optional {
+                return Err("OPTIONAL MATCH cannot precede a write clause".into());
+            }
+            if path_var.is_some() {
+                return Err("a path variable cannot bind on a write statement".into());
+            }
+            let ops = self.parse_write_clauses()?;
+            let returns = self.parse_optional_simple_return()?;
             self.finish()?;
-            return Ok(Statement::Read(CypherQuery {
-                pattern,
+            return Ok(Statement::Write(WriteQuery {
+                match_pattern: Some(pattern),
                 where_clause,
+                ops,
                 returns,
-                limit,
             }));
         }
 
-        // `MATCH … <write clause>+ [RETURN …]` ⇒ a write over the matched binding.
-        let ops = self.parse_write_clauses()?;
-        let returns = self.parse_optional_return()?;
-        self.finish()?;
-        Ok(Statement::Write(WriteQuery {
-            match_pattern: Some(pattern),
+        // Otherwise a read: collect the first MATCH stage + any further stages, then
+        // the terminal RETURN.
+        let mut stages = vec![ReadStage::Match {
+            pattern,
+            optional,
             where_clause,
-            ops,
-            returns,
-        }))
+            path_var,
+        }];
+        loop {
+            if self.peek_keyword("RETURN") {
+                break;
+            }
+            stages.push(self.parse_read_stage()?);
+        }
+        self.eat_keyword("RETURN")?;
+        let ret = self.parse_return_spec()?;
+        self.finish()?;
+        Ok(Statement::Read(CypherQuery { stages, ret }))
     }
+
+    /// Parse one non-initial reading stage: `(OPTIONAL) MATCH …` or `WITH …`.
+    fn parse_read_stage(&mut self) -> Result<ReadStage, String> {
+        if self.peek_keyword("WITH") {
+            self.eat_keyword("WITH")?;
+            let mut items = vec![self.parse_with_item()?];
+            while matches!(self.peek(), Some(Tok::Comma)) {
+                self.next();
+                items.push(self.parse_with_item()?);
+            }
+            let where_clause = self.parse_optional_where()?;
+            return Ok(ReadStage::With {
+                items,
+                where_clause,
+            });
+        }
+        let optional = if self.peek_keyword("OPTIONAL") {
+            self.eat_keyword("OPTIONAL")?;
+            true
+        } else {
+            false
+        };
+        self.eat_keyword("MATCH")?;
+        let path_var = self.parse_optional_path_var()?;
+        let pattern = self.parse_pattern()?;
+        let where_clause = self.parse_optional_where()?;
+        Ok(ReadStage::Match {
+            pattern,
+            optional,
+            where_clause,
+            path_var,
+        })
+    }
+
+    fn parse_with_item(&mut self) -> Result<WithItem, String> {
+        let var = self.ident()?;
+        let alias = if self.peek_keyword("AS") {
+            self.eat_keyword("AS")?;
+            Some(self.ident()?)
+        } else {
+            None
+        };
+        Ok(WithItem { var, alias })
+    }
+
+    /// A leading `p =` path-variable binding (CONCEPT:EG-063): an identifier directly
+    /// followed by `=` (a pattern always opens with `(`, so there is no ambiguity).
+    fn parse_optional_path_var(&mut self) -> Result<Option<String>, String> {
+        if matches!(self.peek(), Some(Tok::Ident(_))) && matches!(self.peek2(), Some(Tok::Eq)) {
+            let v = self.ident()?;
+            self.expect(&Tok::Eq)?;
+            Ok(Some(v))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn parse_optional_where(&mut self) -> Result<Option<WhereExpr>, String> {
+        if self.peek_keyword("WHERE") {
+            self.eat_keyword("WHERE")?;
+            Ok(Some(self.parse_where_expr()?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // ── write statements (CONCEPT:EG-020 / EG-061) ────────────────────────────
 
     /// Parse one-or-more consecutive write clauses (CONCEPT:EG-020).
     fn parse_write_clauses(&mut self) -> Result<Vec<WriteOp>, String> {
@@ -518,7 +803,7 @@ impl Parser {
             ops.push(self.parse_write_clause()?);
         }
         if ops.is_empty() {
-            return Err("expected a write clause (CREATE/MERGE/SET/DELETE)".into());
+            return Err("expected a write clause (CREATE/MERGE/SET/DELETE/REMOVE)".into());
         }
         Ok(ops)
     }
@@ -531,7 +816,7 @@ impl Parser {
         } else if self.peek_keyword("MERGE") {
             self.eat_keyword("MERGE")?;
             let node = self.parse_node()?;
-            if !self.peek_is_end_of_merge() {
+            if !self.peek_is_end_of_clause() {
                 return Err(
                     "MERGE supports a single `(n:Label {props})` node in this subset".into(),
                 );
@@ -541,6 +826,10 @@ impl Parser {
             self.eat_keyword("SET")?;
             let items = self.parse_set_items()?;
             Ok(WriteOp::Set(items))
+        } else if self.peek_keyword("REMOVE") {
+            self.eat_keyword("REMOVE")?;
+            let items = self.parse_remove_items()?;
+            Ok(WriteOp::Remove(items))
         } else {
             // DELETE or DETACH DELETE.
             let detach = if self.peek_keyword("DETACH") {
@@ -555,8 +844,8 @@ impl Parser {
         }
     }
 
-    /// MERGE node parsing stops at end-of-input or the next clause keyword.
-    fn peek_is_end_of_merge(&self) -> bool {
+    /// A write-clause sub-parse stops at end-of-input or the next clause keyword.
+    fn peek_is_end_of_clause(&self) -> bool {
         self.peek().is_none() || self.at_write_clause() || self.peek_keyword("RETURN")
     }
 
@@ -578,6 +867,35 @@ impl Parser {
         Ok(SetItem { var, prop, value })
     }
 
+    /// `REMOVE v.prop | v:Label [, …]` (CONCEPT:EG-061).
+    fn parse_remove_items(&mut self) -> Result<Vec<RemoveItem>, String> {
+        let mut items = vec![self.parse_remove_item()?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            items.push(self.parse_remove_item()?);
+        }
+        Ok(items)
+    }
+
+    fn parse_remove_item(&mut self) -> Result<RemoveItem, String> {
+        let var = self.ident()?;
+        match self.next() {
+            // `v.prop` → property delete.
+            Some(Tok::Dot) => {
+                let prop = self.ident()?;
+                Ok(RemoveItem::Property { var, prop })
+            }
+            // `v:Label` → label removal.
+            Some(Tok::Colon) => {
+                let label = self.ident()?;
+                Ok(RemoveItem::Label { var, label })
+            }
+            other => Err(format!(
+                "REMOVE expects `v.prop` or `v:Label`, found {other:?}"
+            )),
+        }
+    }
+
     fn parse_var_list(&mut self) -> Result<Vec<String>, String> {
         let mut vars = vec![self.ident()?];
         while matches!(self.peek(), Some(Tok::Comma)) {
@@ -587,25 +905,19 @@ impl Parser {
         Ok(vars)
     }
 
-    fn parse_optional_return(&mut self) -> Result<Vec<ReturnItem>, String> {
-        if self.peek_keyword("RETURN") {
-            self.eat_keyword("RETURN")?;
-            self.parse_return_items()
-        } else {
-            Ok(Vec::new())
+    /// A trailing `RETURN <items>` on a WRITE statement — simple projection only (no
+    /// aggregation/ORDER BY/SKIP/LIMIT/DISTINCT).
+    fn parse_optional_simple_return(&mut self) -> Result<Vec<ReturnItem>, String> {
+        if !self.peek_keyword("RETURN") {
+            return Ok(Vec::new());
         }
-    }
-
-    fn parse_optional_limit(&mut self) -> Result<Option<usize>, String> {
-        if self.peek_keyword("LIMIT") {
-            self.eat_keyword("LIMIT")?;
-            match self.next() {
-                Some(Tok::Num(n)) if n >= 0.0 && n.fract() == 0.0 => Ok(Some(n as usize)),
-                other => Err(format!("expected integer after LIMIT, found {other:?}")),
-            }
-        } else {
-            Ok(None)
+        self.eat_keyword("RETURN")?;
+        let mut items = vec![self.parse_return_item()?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            items.push(self.parse_return_item()?);
         }
+        Ok(items)
     }
 
     fn finish(&mut self) -> Result<(), String> {
@@ -619,9 +931,27 @@ impl Parser {
     }
 }
 
-/// Parse a Cypher-subset query string into the [`CypherQuery`] AST (READ path —
-/// unchanged). Errors on a write statement so the read executor never silently
-/// mishandles one.
+/// The agg-func keyword → [`AggFunc`], or `None` if `name` is not an aggregate.
+fn agg_func(name: &str) -> Option<AggFunc> {
+    if name.eq_ignore_ascii_case("count") {
+        Some(AggFunc::Count)
+    } else if name.eq_ignore_ascii_case("collect") {
+        Some(AggFunc::Collect)
+    } else if name.eq_ignore_ascii_case("sum") {
+        Some(AggFunc::Sum)
+    } else if name.eq_ignore_ascii_case("avg") {
+        Some(AggFunc::Avg)
+    } else if name.eq_ignore_ascii_case("min") {
+        Some(AggFunc::Min)
+    } else if name.eq_ignore_ascii_case("max") {
+        Some(AggFunc::Max)
+    } else {
+        None
+    }
+}
+
+/// Parse a Cypher-subset query string into the [`CypherQuery`] AST (READ path).
+/// Errors on a write statement so the read executor never silently mishandles one.
 pub fn parse(input: &str) -> Result<CypherQuery, String> {
     match parse_statement(input)? {
         Statement::Read(q) => Ok(q),
@@ -645,14 +975,27 @@ pub fn parse_statement(input: &str) -> Result<Statement, String> {
 mod tests {
     use super::*;
 
+    /// The first MATCH stage's pattern/where, for terse assertions.
+    fn first_match(q: &CypherQuery) -> (&Pattern, &Option<WhereExpr>) {
+        match &q.stages[0] {
+            ReadStage::Match {
+                pattern,
+                where_clause,
+                ..
+            } => (pattern, where_clause),
+            _ => panic!("first stage is not a MATCH"),
+        }
+    }
+
     #[test]
     fn parses_single_node_match() {
         let q = parse("MATCH (a:Person) RETURN a").unwrap();
-        assert_eq!(q.pattern.start.var.as_deref(), Some("a"));
-        assert_eq!(q.pattern.start.label.as_deref(), Some("Person"));
-        assert!(q.pattern.hops.is_empty());
-        assert_eq!(q.returns.len(), 1);
-        assert_eq!(q.returns[0].column(), "a");
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.start.var.as_deref(), Some("a"));
+        assert_eq!(pat.start.label.as_deref(), Some("Person"));
+        assert!(pat.hops.is_empty());
+        assert_eq!(q.ret.items.len(), 1);
+        assert_eq!(q.ret.items[0].column(), "a");
     }
 
     #[test]
@@ -661,32 +1004,116 @@ mod tests {
             "MATCH (a:Person)-[:KNOWS]->(b:Person) WHERE a.name = 'Alice' RETURN a, b LIMIT 5",
         )
         .unwrap();
-        assert_eq!(q.pattern.hops.len(), 1);
-        assert_eq!(q.pattern.hops[0].0.rel_type.as_deref(), Some("KNOWS"));
-        assert_eq!(q.pattern.hops[0].0.direction, Direction::Right);
-        assert_eq!(q.where_clause.len(), 1);
-        assert_eq!(q.where_clause[0].op, CompareOp::Eq);
-        assert_eq!(q.limit, Some(5));
-        assert_eq!(q.returns.len(), 2);
+        let (pat, where_c) = first_match(&q);
+        assert_eq!(pat.hops.len(), 1);
+        assert_eq!(pat.hops[0].0.rel_type.as_deref(), Some("KNOWS"));
+        assert_eq!(pat.hops[0].0.direction, Direction::Right);
+        assert!(where_c.is_some());
+        assert_eq!(q.ret.limit, Some(5));
+        assert_eq!(q.ret.items.len(), 2);
     }
 
     #[test]
     fn parses_variable_length_path() {
         let q = parse("MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) RETURN b").unwrap();
-        assert_eq!(q.pattern.hops[0].0.var_len, Some((1, 3)));
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops[0].0.var_len, Some((1, 3)));
     }
 
     #[test]
     fn parses_property_return_and_comparison() {
         let q = parse("MATCH (a:Doc) WHERE a.size > 10 RETURN a.size").unwrap();
-        assert_eq!(q.returns[0].column(), "a.size");
-        assert_eq!(q.where_clause[0].op, CompareOp::Gt);
-        assert_eq!(q.where_clause[0].value, Value::Number(10.into()));
+        assert_eq!(q.ret.items[0].column(), "a.size");
+        let (_, where_c) = first_match(&q);
+        match where_c.as_ref().unwrap() {
+            WhereExpr::Cond(c) => assert!(matches!(c.test, Test::Cmp(CompareOp::Gt, _))),
+            _ => panic!("expected single comparison"),
+        }
     }
 
     #[test]
     fn parses_left_direction() {
         let q = parse("MATCH (a:Person)<-[:KNOWS]-(b:Person) RETURN a").unwrap();
-        assert_eq!(q.pattern.hops[0].0.direction, Direction::Left);
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops[0].0.direction, Direction::Left);
+    }
+
+    #[test]
+    fn parses_where_or_in_starts_with() {
+        let q = parse(
+            "MATCH (a:Person) WHERE a.name STARTS WITH 'A' OR a.id IN [1, 2, 3] RETURN a",
+        )
+        .unwrap();
+        let (_, where_c) = first_match(&q);
+        match where_c.as_ref().unwrap() {
+            WhereExpr::Or(alts) => assert_eq!(alts.len(), 2),
+            _ => panic!("expected OR"),
+        }
+    }
+
+    #[test]
+    fn parses_aggregation_and_distinct() {
+        let q = parse("MATCH (a:Person) RETURN DISTINCT count(*), collect(a.name)").unwrap();
+        assert!(q.ret.distinct);
+        assert!(matches!(q.ret.items[0].expr, Expr::CountStar));
+        assert!(matches!(
+            q.ret.items[1].expr,
+            Expr::Aggregate(AggFunc::Collect, _)
+        ));
+    }
+
+    #[test]
+    fn parses_order_by_skip_limit() {
+        let q = parse("MATCH (a:Person) RETURN a.name ORDER BY a.name DESC SKIP 1 LIMIT 2").unwrap();
+        assert_eq!(q.ret.order_by.len(), 1);
+        assert!(q.ret.order_by[0].desc);
+        assert_eq!(q.ret.skip, Some(1));
+        assert_eq!(q.ret.limit, Some(2));
+    }
+
+    #[test]
+    fn parses_with_pipeline_and_star() {
+        let q = parse("MATCH (a:Person) WITH a WHERE a.name = 'Alice' RETURN *").unwrap();
+        assert_eq!(q.stages.len(), 2);
+        assert!(matches!(q.stages[1], ReadStage::With { .. }));
+        assert!(q.ret.star);
+    }
+
+    #[test]
+    fn parses_optional_match() {
+        let q = parse("MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(b) RETURN a, b").unwrap();
+        assert_eq!(q.stages.len(), 2);
+        match &q.stages[1] {
+            ReadStage::Match { optional, .. } => assert!(*optional),
+            _ => panic!("expected OPTIONAL MATCH"),
+        }
+    }
+
+    #[test]
+    fn parses_path_variable() {
+        let q = parse("MATCH p = (a)-[:KNOWS*1..3]->(b) RETURN p").unwrap();
+        match &q.stages[0] {
+            ReadStage::Match { path_var, .. } => assert_eq!(path_var.as_deref(), Some("p")),
+            _ => panic!("expected MATCH"),
+        }
+    }
+
+    #[test]
+    fn parses_remove_property_and_label() {
+        let st = parse_statement("MATCH (n:Person) REMOVE n.age, n:Admin").unwrap();
+        match st {
+            Statement::Write(w) => {
+                assert_eq!(w.ops.len(), 1);
+                match &w.ops[0] {
+                    WriteOp::Remove(items) => {
+                        assert_eq!(items.len(), 2);
+                        assert!(matches!(items[0], RemoveItem::Property { .. }));
+                        assert!(matches!(items[1], RemoveItem::Label { .. }));
+                    }
+                    _ => panic!("expected REMOVE"),
+                }
+            }
+            _ => panic!("REMOVE must classify as a write"),
+        }
     }
 }

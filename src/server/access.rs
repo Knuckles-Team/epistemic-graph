@@ -99,6 +99,10 @@ pub(crate) fn sql_is_write(query: &str) -> bool {
 /// keyword inside a string or a quoted identifier never trips it, then matches a
 /// whole, case-insensitive top-level write keyword. A read never matches (so it keeps
 /// the RLS-aware cached read path); a true write always does.
+///
+/// `REMOVE` is classified here AND parsed by `parse_statement` → `exec_cypher_write`
+/// as a `WriteOp::Remove` (property delete / label removal), so the two stay in lock
+/// step: a `REMOVE` statement always routes to the live write path (CONCEPT:EG-061).
 #[cfg(feature = "cypher")]
 pub(crate) fn cypher_is_write(query: &str) -> bool {
     let bytes = query.as_bytes();
