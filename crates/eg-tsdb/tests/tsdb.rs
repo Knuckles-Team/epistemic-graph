@@ -148,6 +148,36 @@ fn store_evict_before_drops_old_buckets() {
 }
 
 #[test]
+fn store_evict_before_trims_straddling_bucket() {
+    // CONCEPT:EG-068 — a cutoff INSIDE a bucket trims that bucket point-by-point
+    // instead of leaving the straddler intact.
+    let (_d, store) = open();
+    // 10s buckets; points across [0, 100s).
+    let pts: Vec<Point> = (0..100).map(|i| Point::single(i * NS, i as f64)).collect();
+    store
+        .append_batch("e", 1, 10 * NS as u64, &["v".into()], &pts)
+        .unwrap();
+    // Cutoff 55s straddles the [50,60) bucket: drops [0,50) wholesale (5 buckets) and
+    // trims points 50..55 out of the straddler, leaving 55 as the oldest survivor.
+    let dropped = store.evict_before("e", 55 * NS).unwrap();
+    assert_eq!(dropped, 5, "five whole buckets [0,10)..[40,50) removed");
+    let all = store.scan_all("e").unwrap();
+    assert_eq!(
+        all.first().unwrap().ts,
+        55 * NS,
+        "straddling [50,60) bucket trimmed to its >= cutoff points"
+    );
+    assert!(
+        all.iter().all(|p| p.ts >= 55 * NS),
+        "no point older than the cutoff survives"
+    );
+    let meta = store.meta("e").unwrap().unwrap();
+    assert_eq!(meta.count, 45, "points 55..100 survive");
+    assert_eq!(meta.min_ts, 55 * NS);
+    assert_eq!(meta.max_ts, 99 * NS, "max unchanged — only old points dropped");
+}
+
+#[test]
 fn time_bucket_avg() {
     let pts: Vec<Point> = (0..20).map(|i| Point::single(i * NS, i as f64)).collect();
     let buckets = time_bucket(&pts, 10 * NS, Agg::Mean);

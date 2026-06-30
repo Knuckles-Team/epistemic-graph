@@ -142,6 +142,21 @@ impl Chunk {
             self.vals.insert(at + k, v);
         }
     }
+
+    /// CONCEPT:EG-068 — drop the leading points older than `cutoff`, keeping only
+    /// `ts >= cutoff` (the per-point retention trim of a STRADDLING bucket). Because
+    /// the chunk stays ts-sorted ascending the old points are a prefix, so the cut is
+    /// a single `partition_point`; the kept suffix preserves order. Returns the number
+    /// of points dropped (0 ⇒ nothing older than `cutoff`, leave the chunk untouched).
+    fn trim_before(&mut self, cutoff: Ts) -> usize {
+        let cut = self.ts.partition_point(|&t| t < cutoff);
+        if cut == 0 {
+            return 0;
+        }
+        self.ts.drain(0..cut);
+        self.vals.drain(0..cut * self.n_fields);
+        cut
+    }
 }
 
 /// A time-partitioned series store over a redb database.
@@ -322,12 +337,17 @@ impl SeriesStore {
         self.range(series_id, Ts::MIN, Ts::MAX)
     }
 
-    /// Retention: delete every bucket of `series_id` that ENDS at-or-before `cutoff`
-    /// (a whole-bucket range delete — the cheap retention primitive). Returns the
-    /// number of buckets dropped. Buckets straddling `cutoff` are kept intact
-    /// (per-point trimming is intentionally NOT done here — that is the continuous-
-    /// aggregate/retention work deferred to a later increment). Meta's `count`/
-    /// `min_ts` are recomputed from the surviving buckets.
+    /// Retention: drop every point of `series_id` older than `cutoff`. Returns the
+    /// number of WHOLE buckets removed. Two cases (CONCEPT:EG-068):
+    ///  * a bucket whose entire span ends at-or-before `cutoff` is range-deleted whole
+    ///    (the cheap fast path — one B-tree remove, no decode);
+    ///  * a bucket STRADDLING `cutoff` (starts before, ends after) is rewritten in
+    ///    place keeping only its points `>= cutoff` (per-point trim), so retention is
+    ///    exact to the point rather than rounded up to the bucket. A straddler whose
+    ///    points are all older than `cutoff` collapses to a whole-bucket drop.
+    ///
+    /// Meta's `count`/`min_ts` are recomputed from the surviving (possibly trimmed)
+    /// buckets; `max_ts` is unchanged unless the series is fully emptied.
     pub fn evict_before(&self, series_id: &str, cutoff: Ts) -> Result<usize> {
         let meta = match self.meta(series_id)? {
             Some(m) => m,
@@ -339,16 +359,29 @@ impl SeriesStore {
             let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
             let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
 
-            // Collect bucket keys whose entire span is < cutoff (bucket_end <= cutoff).
+            // Pass 1 (read-only over the range — can't mutate while the iterator
+            // borrows `chunks`): classify each bucket into a whole-bucket victim or a
+            // straddler rewrite. A straddler trimmed to empty becomes a victim.
             let mut victims: Vec<u64> = Vec::new();
+            let mut rewrites: Vec<(u64, Vec<u8>)> = Vec::new();
             let lo = (series_id, 0u64);
             let hi = (series_id, u64::MAX);
             for item in chunks.range(lo..=hi).map_err(redb_err)? {
-                let (k, _v) = item.map_err(redb_err)?;
+                let (k, v) = item.map_err(redb_err)?;
                 let bucket = k.value().1;
                 let bucket_end = bucket.saturating_add(meta.bucket_ns);
                 if (bucket_end as i64) <= cutoff {
                     victims.push(bucket);
+                } else if (bucket as i64) < cutoff {
+                    // Straddles `cutoff`: trim the older prefix in place (CONCEPT:EG-068).
+                    let mut chunk = Chunk::decode(v.value())?;
+                    if chunk.trim_before(cutoff) > 0 {
+                        if chunk.ts.is_empty() {
+                            victims.push(bucket);
+                        } else {
+                            rewrites.push((bucket, chunk.encode()));
+                        }
+                    }
                 }
             }
 
@@ -359,6 +392,11 @@ impl SeriesStore {
                     drop(g);
                     dropped += 1;
                 }
+            }
+            for (bucket, blob) in &rewrites {
+                chunks
+                    .insert((series_id, *bucket), blob.as_slice())
+                    .map_err(redb_err)?;
             }
             // Recompute count/min over survivors (max is unchanged — we only drop old).
             for item in chunks.range(lo..=hi).map_err(redb_err)? {
