@@ -535,7 +535,45 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
         );
     }
 
+    // Lift range rules into EL analogously to domains (CONCEPT:EG-058). A range
+    // `range(r, D)` is the inverse-role mirror of a domain: `range(r, D) ≈ ∃r⁻.⊤ ⊑ D`
+    // (anything that is the TARGET of an `r` edge — i.e. has an incoming `r`, an `r⁻`
+    // successor — is a `D`). Until now `ont.ranges` was consumed ONLY at the RL /
+    // instance level (`rules.rs`), so a range never constrained concept-level
+    // classification. We synthesize a dedicated inverse role `r⁻` for `r`, register the
+    // `(r, r⁻)` inverse pair so the EXISTING inverse-role completion propagates every
+    // `R(r)` pair `(A,B)` into `R(r⁻)` as `(B,A)`, then push the domain-shaped GCI
+    // `∃r⁻.⊤ ⊑ D` on `r⁻`. CR-some⁻ then classifies the range filler `B` (an `r`-target)
+    // as `D`, exactly as the domain lift classifies the `r`-source. One synthetic
+    // inverse per role is reused so several ranges on the same role share it.
+    let mut range_inv_seen: HashSet<String> = HashSet::new();
+    for (r, d) in ont.ranges.clone() {
+        let r_inv = range_inverse_role(&r);
+        if range_inv_seen.insert(r.clone()) {
+            ont.inverses.push((r.clone(), r_inv.clone()));
+        }
+        push_gci(
+            &mut ont,
+            vec![Concept::Some(r_inv.clone(), Box::new(Concept::thing()))],
+            Concept::Named(d.clone()),
+            format!("range({}) = {}", short(&r), short(&d)),
+            1.0,
+        );
+    }
+
     ont
+}
+
+/// A stable synthetic inverse-role id used to lift `rdfs:range` into the EL completion
+/// (CONCEPT:EG-058): role `<iri>` maps to `<iri__eg-range-inv>`. The suffix makes it
+/// disjoint from any asserted property, and reusing one id per role lets several range
+/// axioms on the same role share a single `(r, r⁻)` inverse pair.
+fn range_inverse_role(r: &str) -> String {
+    let inner = r
+        .strip_prefix('<')
+        .and_then(|s| s.strip_suffix('>'))
+        .unwrap_or(r);
+    format!("<{inner}__eg-range-inv>")
 }
 
 /// Parse a class expression rooted at node `id`: a named class, an
@@ -1809,6 +1847,42 @@ ex:Dad rdfs:subClassOf ex:Male .
             cls.entails_subclass("<http://example.org/Dad>", "<http://example.org/Father>"),
             "Dad ⊑ Parent ⊓ Male ⇒ Dad ⊑ Father; S(Dad) = {:?}",
             cls.subsumers.get("<http://example.org/Dad>")
+        );
+    }
+
+    /// `rdfs:range` constrains CONCEPT-level classification (CONCEPT:EG-058): with
+    /// `Person ⊑ ∃hasPet.Dog` and `range(hasPet, Animal)`, the range filler `Dog` (an
+    /// `hasPet`-target) is derived `⊑ Animal` PURELY in the EL closure — no concrete
+    /// `hasPet` edge exists, so the RL/instance path cannot reach this. Proves the
+    /// `∃hasPet⁻.⊤ ⊑ Animal` lift (via the synthetic inverse role) fires.
+    #[test]
+    fn el_range_axiom_classifies_filler() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Person rdfs:subClassOf [ a owl:Restriction ;
+                            owl:onProperty ex:hasPet ;
+                            owl:someValuesFrom ex:Dog ] .
+ex:hasPet rdfs:range ex:Animal .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(cls.consistent, "ontology is consistent");
+        assert!(
+            cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"),
+            "range(hasPet, Animal) must classify the filler Dog ⊑ Animal in EL; S(Dog) = {:?}",
+            cls.subsumers.get("<http://example.org/Dog>")
+        );
+        // The derived subsumption carries a justification (the range-lifted axiom).
+        assert!(
+            cls.justifications
+                .contains_key(&(
+                    "<http://example.org/Dog>".into(),
+                    "<http://example.org/Animal>".into(),
+                )),
+            "the range-derived subsumption must carry a justification"
         );
     }
 
