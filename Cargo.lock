@@ -1919,6 +1919,7 @@ dependencies = [
  "eg-query",
  "eg-rdf",
  "eg-text",
+ "eg-tsdb",
  "eg-types",
  "eg-wasm",
  "hex",
