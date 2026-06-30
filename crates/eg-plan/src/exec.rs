@@ -179,13 +179,22 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // timeline. Dep-free blob scan (no DataFusion), so it runs in the Pi tier.
         Op::AsOf { ts, axis } => Ok(as_of_filter(ctx.view, input, *ts, *axis)),
 
-        // FEDERATION / WINDOW context ops (CONCEPT:KG-2.235). RowSet-preserving markers
-        // the UQL `WINDOW <dur>` / `FOREIGN "<name>"` clauses lower to. The windowed
-        // aggregate (eg-tsdb) and the cross-source pull (federation) are downstream
-        // seams; today they pass the rows through so a composed plan that carries them
-        // runs unchanged. (`FOREIGN "<name>"` is the name MARKER; the resolved
-        // federation EXECUTOR is `ForeignScan` above.)
-        Op::Window { .. } | Op::Foreign { .. } => Ok(input),
+        // TIME (`WINDOW <dur>`, CONCEPT:EG-067) — a REAL windowed aggregate over the
+        // input RowSet's time/value columns via eg-tsdb's Pi-path `time_bucket`,
+        // replacing the pass-through seam. Gated behind `timeseries` (the eg-plan→
+        // eg-tsdb edge), kept OUT of the Pi tier; without the feature the op stays the
+        // RowSet-preserving marker the UQL `WINDOW <dur>` clause lowers to, so a plan
+        // that carries it still runs unchanged.
+        #[cfg(feature = "timeseries")]
+        Op::Window { secs } => Ok(window_aggregate(ctx.view, input, *secs)),
+        #[cfg(not(feature = "timeseries"))]
+        Op::Window { .. } => Ok(input),
+
+        // FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235) — the RowSet-preserving
+        // name MARKER the UQL clause lowers to; the resolved cross-source pull is the
+        // `federation`-gated `ForeignScan` above (the foreign-execution track is
+        // separate). Passes the rows through, exactly as today.
+        Op::Foreign { .. } => Ok(input),
 
         Op::Limit { k } => Ok(input.limit(*k)),
     }
@@ -410,6 +419,50 @@ fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> Row
         .map(|r| r.id.as_str())
         .collect();
     input.intersect_keep_order(&kept)
+}
+
+// ── the TIME WINDOW leg — native eg-tsdb windowed aggregate (CONCEPT:EG-067) ─────
+
+/// TIME (`WINDOW <dur>`): a REAL windowed aggregate over the input RowSet's time and
+/// value columns, replacing the pass-through seam (CONCEPT:EG-067). It reads the SAME
+/// per-node columns the neighbouring ops do — the event time from each row's
+/// `valid_from` property blob (exactly as `Op::AsOf`'s Valid axis; see [`live_at`]),
+/// and the value from the row's carried `score` (what `Op::Rank` produces), falling
+/// back to a numeric `value` property so a STANDALONE `Window` (no preceding `Rank`)
+/// still aggregates. Those `(ts, value)` pairs become `eg_tsdb::Point`s, are ts-sorted
+/// (RowSet order is rank/discovery order, but `time_bucket` needs a sorted series),
+/// and are fed to the engine's Pi-path `time_bucket` primitive (`eg_tsdb::query` — no
+/// DataFusion) with `width = secs` (same unit as `valid_from`) and a MEAN aggregate
+/// (the canonical windowed agg; the wire `Op::Window { secs }` carries no agg
+/// selector). Each non-empty bucket becomes one output row — `id` = the bucket's
+/// aligned start, `score` = the aggregate — so a downstream `Limit`/`Rank` composes
+/// over the windowed series. `secs <= 0`, or no timed-and-valued rows, yields an empty
+/// RowSet (degrade, never err — mirroring `Rank` over an empty store).
+#[cfg(feature = "timeseries")]
+fn window_aggregate(view: &GraphView, input: RowSet, secs: f64) -> RowSet {
+    use eg_tsdb::point::Point;
+    use eg_tsdb::query::{time_bucket, Agg};
+
+    let width = secs.max(0.0) as i64;
+    let mut pts: Vec<Point> = input
+        .rows()
+        .iter()
+        .filter_map(|r| {
+            let blob = view.node_properties.get(r.id.as_str())?;
+            let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+            let ts = v.get("valid_from").and_then(|x| x.as_i64())?;
+            let value = r
+                .score
+                .map(|s| s as f64)
+                .or_else(|| v.get("value").and_then(|x| x.as_f64()))?;
+            Some(Point::single(ts, value))
+        })
+        .collect();
+    pts.sort_by_key(|p| p.ts);
+    let scored = time_bucket(&pts, width, Agg::Mean)
+        .into_iter()
+        .map(|b| (b.bucket_start.to_string(), b.value as f32));
+    RowSet::from_scored(scored)
 }
 
 // ── graph-native rerankers (CONCEPT:KG-2.254) ───────────────────────────────────
