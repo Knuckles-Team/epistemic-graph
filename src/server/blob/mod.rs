@@ -15,6 +15,10 @@
 
 pub mod store;
 
+// Content-defined chunking (CONCEPT:EG-071): the Gear/FastCDC rolling-hash splitter
+// that replaces fixed-stride chunking, so the sha256 CAS dedups edited copies.
+pub mod cdc;
+
 // In-process bounded-memory streaming facade over the CAS (CONCEPT:EG-036, M3 R4):
 // stream a multi-GB blob between an arbitrary `Read`/`Write` and the CAS without
 // buffering the whole blob. The in-process twin of the wire upload/fetch cursor.
@@ -36,6 +40,13 @@ pub use store::{BlobManifest, ChunkStore, RedbChunkStore, SweepStats, DEFAULT_CH
 /// kilobytes, not gigabytes.
 pub struct UploadCursor {
     pub chunk_digests: Vec<String>,
+    /// Per-chunk byte lengths, parallel to `chunk_digests` (CONCEPT:EG-071): the
+    /// variable content-defined boundaries the manifest records. Chunk boundaries
+    /// arrive pre-cut on the wire (the client chunks — `BlobChunkPut` carries one
+    /// chunk per frame), so the server records whatever lengths it is fed; the
+    /// in-process splitter ([`stream::stream_blob_put`]) cuts them with the
+    /// [`cdc::Chunker`].
+    pub chunk_lens: Vec<u32>,
     pub len: u64,
     pub chunk_size: u32,
     /// Last-activity wall-clock ms, for the idle TTL reaper.
@@ -89,6 +100,7 @@ impl BlobCursors {
             id,
             UploadCursor {
                 chunk_digests: Vec::new(),
+                chunk_lens: Vec::new(),
                 len: 0,
                 chunk_size,
                 last_active_ms: now_ms(),
@@ -106,6 +118,7 @@ impl BlobCursors {
             .ok_or_else(|| "unknown upload cursor".to_string())?;
         up.len += added_len;
         up.chunk_digests.push(digest);
+        up.chunk_lens.push(added_len as u32);
         up.last_active_ms = now_ms();
         Ok(up.chunk_digests.len() as u32)
     }
@@ -118,6 +131,7 @@ impl BlobCursors {
             .ok_or_else(|| "unknown upload cursor".to_string())?;
         Ok(BlobManifest {
             chunks: up.chunk_digests,
+            chunk_lens: up.chunk_lens,
             len: up.len,
             chunk_size: up.chunk_size,
         })
@@ -235,6 +249,7 @@ mod tests {
             up,
             BlobManifest {
                 chunks: vec![],
+                chunk_lens: vec![],
                 len: 0,
                 chunk_size: 8,
             },
