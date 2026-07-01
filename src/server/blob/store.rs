@@ -38,19 +38,81 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Default chunk size: 2 MiB (in the 1–4 MB band the streaming protocol targets;
-/// matches the spike). Fixed-size chunking — content-defined chunking is deferred.
+/// matches the spike). The pre-EG-071 FIXED stride; content-defined chunking
+/// ([`crate::server::blob::cdc`], CONCEPT:EG-071) now targets this as its AVERAGE.
+/// Still the default chunk size of the wire upload cursor (`BlobBegin`).
 pub const DEFAULT_CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
-/// Manifest of a content-addressed blob: the ordered chunk digests + total length.
-/// Serialized to MessagePack; the blob digest is the sha256 of those bytes.
+/// Manifest of a content-addressed blob: the ordered chunk digests + per-chunk
+/// lengths + total length. Serialized to MessagePack; the blob digest is the sha256
+/// of those bytes.
+///
+/// ## On-disk format & backward read (CONCEPT:EG-071)
+///
+/// EG-071 switched the splitter from a fixed 2 MiB stride to content-defined
+/// (Gear/FastCDC) chunking, so chunks are now VARIABLE length. `chunk_lens` records
+/// each chunk's byte length (offsets are its running prefix sum). It is
+/// `#[serde(default)]`, so a PRE-EG-071 manifest — written with only `chunks`/`len`/
+/// fixed `chunk_size` — still deserializes: it lands with an empty `chunk_lens`, and
+/// [`chunk_lengths`](Self::chunk_lengths) reconstructs the boundaries from the fixed
+/// `chunk_size`. We chose additive `#[serde(default)]` over a versioned envelope
+/// because reconstruction (concatenating the stored chunk bytes in order) never
+/// needs the lengths — the chunk bytes are self-describing — so OLD blobs remain
+/// byte-for-byte reconstructable with zero migration; the lengths are metadata for
+/// indexing/seeking and dedup observability. `chunk_size` is `0` for content-defined
+/// manifests and non-zero only for legacy fixed-stride ones (the reconstruction key).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobManifest {
     /// Hex sha256 chunk digests, in file order.
     pub chunks: Vec<String>,
+    /// Per-chunk byte length, parallel to `chunks` (CONCEPT:EG-071). Empty in a
+    /// pre-EG-071 fixed-stride manifest — see [`chunk_lengths`](Self::chunk_lengths).
+    #[serde(default)]
+    pub chunk_lens: Vec<u32>,
     /// Total length of the assembled blob in bytes.
     pub len: u64,
-    /// Fixed chunk size used to split this blob (the last chunk may be shorter).
+    /// Legacy fixed chunk size: `0` for content-defined (EG-071) manifests; the
+    /// fixed stride for pre-EG-071 manifests, where it reconstructs `chunk_lens`.
     pub chunk_size: u32,
+}
+
+impl BlobManifest {
+    /// Per-chunk byte lengths, in file order. Returns the recorded `chunk_lens` for
+    /// content-defined (EG-071) manifests; for a legacy fixed-stride manifest (empty
+    /// `chunk_lens`, non-zero `chunk_size`) it RECONSTRUCTS them — every chunk is
+    /// `chunk_size` except a possibly-shorter final one. CONCEPT:EG-071 backward read.
+    pub fn chunk_lengths(&self) -> Vec<u32> {
+        if !self.chunk_lens.is_empty() || self.chunks.is_empty() {
+            return self.chunk_lens.clone();
+        }
+        // Legacy fixed-stride reconstruction.
+        let n = self.chunks.len();
+        let cs = self.chunk_size as u64;
+        if cs == 0 {
+            return Vec::new();
+        }
+        let mut lens = Vec::with_capacity(n);
+        let mut remaining = self.len;
+        for _ in 0..n {
+            let l = remaining.min(cs);
+            lens.push(l as u32);
+            remaining = remaining.saturating_sub(l);
+        }
+        lens
+    }
+
+    /// Per-chunk `(offset, len)` boundaries, in file order — the running prefix sum
+    /// of [`chunk_lengths`](Self::chunk_lengths). For random-access/seek over a blob
+    /// (CONCEPT:EG-071 variable boundaries).
+    pub fn chunk_offsets(&self) -> Vec<(u64, u32)> {
+        let mut out = Vec::with_capacity(self.chunks.len());
+        let mut off = 0u64;
+        for l in self.chunk_lengths() {
+            out.push((off, l));
+            off += l as u64;
+        }
+        out
+    }
 }
 
 /// Hex sha256 of `bytes` — the content address of a chunk or a manifest.
@@ -572,12 +634,15 @@ mod tests {
         // Stream the data through the store one chunk at a time (bounded memory),
         // exactly as the protocol cursor does.
         let mut chunks = Vec::new();
+        let mut chunk_lens = Vec::new();
         for part in data.chunks(chunk_size) {
             let (digest, _was_new) = store.put_chunk(part).unwrap();
             chunks.push(digest);
+            chunk_lens.push(part.len() as u32);
         }
         let manifest = BlobManifest {
             chunks,
+            chunk_lens,
             len: data.len() as u64,
             chunk_size: chunk_size as u32,
         };
@@ -751,8 +816,10 @@ mod tests {
             digests.push(digest);
             // buf dropped here — never accumulated.
         }
+        let chunk_lens = vec![chunk_size as u32; n_chunks as usize];
         let manifest = BlobManifest {
             chunks: digests,
+            chunk_lens,
             len: n_chunks * chunk_size as u64,
             chunk_size: chunk_size as u32,
         };
@@ -789,6 +856,64 @@ mod tests {
              capped page cache (~128MiB), not the file size — an uncapped-cache or \
              per-chunk-None regression would track the file size"
         );
+    }
+
+    /// CONCEPT:EG-071 backward read — a PRE-EG-071 manifest (serialized with only
+    /// `chunks`/`len`/fixed `chunk_size`, no `chunk_lens`) still deserializes, its
+    /// chunk lengths reconstruct from the fixed stride, and the blob reassembles
+    /// byte-for-byte (the chunk bytes are self-describing, so no migration is needed).
+    #[test]
+    fn legacy_fixed_size_manifest_reads_back() {
+        let store = RedbChunkStore::open_temp().unwrap();
+        let data: Vec<u8> = (0u32..10_000).map(|i| (i % 251) as u8).collect();
+        let chunk_size = 4096usize;
+
+        // Store the chunks exactly as the old fixed splitter would have.
+        let mut chunks = Vec::new();
+        for part in data.chunks(chunk_size) {
+            chunks.push(store.put_chunk(part).unwrap().0);
+        }
+
+        // Serialize an OLD-SHAPE manifest (no `chunk_lens` field at all) and persist
+        // it under its own digest, exactly as a pre-EG-071 build wrote it.
+        #[derive(Serialize)]
+        struct LegacyManifest {
+            chunks: Vec<String>,
+            len: u64,
+            chunk_size: u32,
+        }
+        let legacy = LegacyManifest {
+            chunks: chunks.clone(),
+            len: data.len() as u64,
+            chunk_size: chunk_size as u32,
+        };
+        let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
+        let blob_digest = hex_digest(&bytes);
+        {
+            // Write the legacy bytes straight into the CAS_BLOBS table.
+            let wtx = store.db.begin_write().unwrap();
+            {
+                let mut t = wtx.open_table(CAS_BLOBS).unwrap();
+                t.insert(blob_digest.as_str(), bytes.as_slice()).unwrap();
+            }
+            wtx.commit().unwrap();
+        }
+
+        // It deserializes into the new BlobManifest with an empty chunk_lens.
+        let m = store.get_manifest(&blob_digest).unwrap().unwrap();
+        assert!(m.chunk_lens.is_empty(), "legacy manifest has no chunk_lens");
+        assert_eq!(m.chunk_size, chunk_size as u32);
+
+        // Reconstructed lengths: full strides then a short final chunk.
+        let lens = m.chunk_lengths();
+        assert_eq!(lens.iter().map(|&l| l as u64).sum::<u64>(), data.len() as u64);
+        assert_eq!(*lens.first().unwrap(), chunk_size as u32);
+        assert!(*lens.last().unwrap() <= chunk_size as u32);
+        // Offsets are the running prefix sum.
+        assert_eq!(m.chunk_offsets().first().unwrap().0, 0);
+
+        // And the blob still reassembles byte-for-byte.
+        assert_eq!(reassemble(&store, &m), data);
     }
 
     #[test]

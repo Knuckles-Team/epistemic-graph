@@ -14,44 +14,75 @@
 
 use std::io::{Read, Write};
 
-use super::store::{hex_digest, BlobManifest, ChunkStore, CommittedBlob, DEFAULT_CHUNK_SIZE};
+use super::cdc::Chunker;
+use super::store::{hex_digest, BlobManifest, ChunkStore, CommittedBlob};
 
-/// Stream `reader` into the CAS in `chunk_size` chunks and commit the manifest,
-/// returning the content-addressed [`CommittedBlob`]. Bounded memory: ONE
-/// `chunk_size` buffer is reused for every chunk — peak resident bytes are the chunk
-/// size plus the digest list (~70 bytes/chunk), NOT the blob size. `chunk_size == 0`
-/// uses [`DEFAULT_CHUNK_SIZE`]. Identical content yields an identical blob digest
-/// (intrinsic dedup), exactly like the wire path.
+/// Bytes pulled from `reader` per fill — refills the boundary-search window above.
+const READ_BLOCK: usize = 256 * 1024;
+
+/// Stream `reader` into the CAS, cutting it into VARIABLE content-defined chunks with
+/// the Gear/FastCDC chunker (CONCEPT:EG-071), and commit the manifest — returning the
+/// content-addressed [`CommittedBlob`]. `chunk_size` is the TARGET AVERAGE chunk size
+/// (min/max derive from it, see [`Chunker::from_avg`]); `chunk_size == 0` uses the
+/// chunker default. Bounded memory: at most one boundary-search window (≈ the
+/// chunker's `max`, a few × the average) plus the digest list (~70 bytes/chunk) is
+/// resident — NOT the blob size. Identical content yields an identical blob digest,
+/// and — unlike the old fixed splitter — content shared with an EDITED copy still
+/// dedups, because the boundaries re-synchronise after the edit.
 pub fn stream_blob_put<R: Read>(
     store: &dyn ChunkStore,
     mut reader: R,
     chunk_size: usize,
 ) -> Result<CommittedBlob, String> {
-    let chunk_size = if chunk_size == 0 {
-        DEFAULT_CHUNK_SIZE
+    let chunker = if chunk_size == 0 {
+        Chunker::default()
     } else {
-        chunk_size
+        Chunker::from_avg(chunk_size)
     };
-    let mut buf = vec![0u8; chunk_size];
+    let max = chunker.max_size();
+    // The boundary-search window: we keep at least `max` bytes buffered (or EOF) so
+    // the chunker can always find a cut within `[min, max]`, then emit one chunk and
+    // shift the remainder down. Capacity is bounded by `max` + one read block.
+    let mut window: Vec<u8> = Vec::with_capacity(max + READ_BLOCK);
+    let mut read_buf = vec![0u8; READ_BLOCK];
     let mut chunks: Vec<String> = Vec::new();
+    let mut chunk_lens: Vec<u32> = Vec::new();
     let mut len: u64 = 0;
+    let mut eof = false;
+
     loop {
-        // Fill up to a whole chunk; a short final read still flushes its bytes.
-        let n = read_full(&mut reader, &mut buf)?;
-        if n == 0 {
+        // Top the window up to at least `max` bytes so a cut is never starved.
+        while !eof && window.len() < max {
+            let n = read_full(&mut reader, &mut read_buf)?;
+            if n == 0 {
+                eof = true;
+                break;
+            }
+            window.extend_from_slice(&read_buf[..n]);
+            if n < read_buf.len() {
+                eof = true; // short read at a clean EOF.
+            }
+        }
+        if window.is_empty() {
             break;
         }
-        let (digest, _was_new) = store.put_chunk(&buf[..n])?;
+        let cut = chunker.next_cut(&window);
+        let (digest, _was_new) = store.put_chunk(&window[..cut])?;
         chunks.push(digest);
-        len += n as u64;
-        if n < chunk_size {
-            break; // EOF mid-buffer.
+        chunk_lens.push(cut as u32);
+        len += cut as u64;
+        // Shift the unconsumed tail to the front (≤ max bytes, bounded memory).
+        window.drain(..cut);
+        if eof && window.is_empty() {
+            break;
         }
     }
+
     let manifest = BlobManifest {
         chunks,
+        chunk_lens,
         len,
-        chunk_size: chunk_size as u32,
+        chunk_size: 0, // 0 ⇒ content-defined (EG-071); lengths live in chunk_lens.
     };
     let manifest_bytes = rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?;
     let digest = hex_digest(&manifest_bytes);
@@ -118,6 +149,77 @@ mod tests {
         // Re-streaming identical content yields the SAME blob digest (dedup).
         let blob2 = stream_blob_put(&store, Cursor::new(data), 4096).unwrap();
         assert_eq!(blob.digest, blob2.digest);
+    }
+
+    /// Deterministic pseudo-random bytes (xorshift) — content with real boundaries.
+    fn pseudo_random(n: usize, seed: u64) -> Vec<u8> {
+        let mut out = Vec::with_capacity(n);
+        let mut x = seed | 1;
+        for _ in 0..n {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            out.push((x & 0xFF) as u8);
+        }
+        out
+    }
+
+    /// CONCEPT:EG-071 (a) end-to-end: a blob streamed through the content-defined
+    /// splitter into the CAS and back out is byte-for-byte identical, the manifest is
+    /// content-defined (variable lengths, `chunk_size == 0`), and the recorded
+    /// `chunk_lens` cover the blob exactly.
+    #[test]
+    fn cdc_roundtrips_byte_identical() {
+        let store = RedbChunkStore::open_temp().unwrap();
+        let data = pseudo_random(3_000_017, 0xC0FFEE); // non-multiple length
+        let blob = stream_blob_put(&store, Cursor::new(data.clone()), 8192).unwrap();
+
+        // Variable content-defined boundaries were recorded.
+        assert_eq!(blob.manifest.chunk_size, 0, "content-defined manifest");
+        assert_eq!(blob.manifest.chunk_lens.len(), blob.manifest.chunks.len());
+        assert!(blob.manifest.chunks.len() > 50, "expected many variable chunks");
+        assert_eq!(
+            blob.manifest.chunk_lens.iter().map(|&l| l as u64).sum::<u64>(),
+            data.len() as u64,
+        );
+
+        let mut out: Vec<u8> = Vec::new();
+        let n = stream_blob_get(&store, &blob.digest, &mut out).unwrap();
+        assert_eq!(n, data.len() as u64);
+        assert_eq!(out, data, "byte-for-byte round trip through CDC");
+    }
+
+    /// CONCEPT:EG-071 (b) dedup / shift-resistance end-to-end: two blobs differing
+    /// only by a few bytes inserted near the START share the VAST majority of their
+    /// chunk digests in the CAS, because the rolling hash re-synchronises past the
+    /// edit. A fixed-stride splitter would share almost no chunks.
+    #[test]
+    fn early_insertion_shares_most_chunks_in_cas() {
+        let store = RedbChunkStore::open_temp().unwrap();
+        let base = pseudo_random(3_000_000, 0xBEEF);
+        let mut edited = Vec::with_capacity(base.len() + 11);
+        edited.extend_from_slice(&base[..256]);
+        edited.extend_from_slice(b"<<inserted>>");
+        edited.extend_from_slice(&base[256..]);
+
+        let b1 = stream_blob_put(&store, Cursor::new(base), 4096).unwrap();
+        let b2 = stream_blob_put(&store, Cursor::new(edited), 4096).unwrap();
+        assert_ne!(b1.digest, b2.digest, "different content ⇒ different blob");
+
+        use std::collections::HashSet;
+        let s1: HashSet<&String> = b1.manifest.chunks.iter().collect();
+        let s2: HashSet<&String> = b2.manifest.chunks.iter().collect();
+        let shared = s1.intersection(&s2).count();
+        let frac = shared as f64 / s1.len().min(s2.len()) as f64;
+        assert!(
+            frac > 0.8,
+            "early-insertion copies should share most chunks (shared {shared}, frac {frac:.2})"
+        );
+
+        // Both blobs still reassemble (the shared chunks serve both).
+        let mut out2 = Vec::new();
+        stream_blob_get(&store, &b2.digest, &mut out2).unwrap();
+        assert_eq!(out2.len(), b2.manifest.len as usize);
     }
 
     #[test]
