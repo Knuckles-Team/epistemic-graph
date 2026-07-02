@@ -986,11 +986,13 @@ mod rls_no_exfiltrate_tests {
             agent_id: "alice".to_string(),
             role: AgentRole::Agent,
             teams: vec![],
+            roles: vec![],
         });
         layer.register_agent(AgentIdentity {
             agent_id: "bob".to_string(),
             role: AgentRole::Agent,
             teams: vec![],
+            roles: vec![],
         });
         layer
     }
@@ -1407,6 +1409,7 @@ mod rls_aware_cache_no_cross_agent_leak {
                     role: AgentRole::Agent,
                     teams: vec![],
                     signature: String::new(),
+                    roles: vec![],
                 },
             ),
         )
