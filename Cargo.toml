@@ -466,6 +466,15 @@ redis-wire = ["kv", "server"]
 # orchestrator folds it at merge time.
 # EG-176: fold s3-api into node/full
 s3-api = ["blob", "kv", "server"]
+# Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
+# content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
+# KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
+# HAND-ROLLED HTTP/1.1 listener (the same dependency-free tokio idiom as `s3-api`/`obs`)
+# — links NO axum/hyper, so it adds NO new HTTP dependency; it pulls only the pure-Rust
+# `eg-kvcache` leaf crate. Kept OUT of pi (a network listener + the shared backend). The
+# listener only starts when ALSO configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
+# EG-187: fold kvcache-server into node/full (orchestrator folds the tier lines at merge)
+kvcache-server = ["server", "dep:eg-kvcache"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
@@ -667,6 +676,11 @@ eg-shex = { path = "crates/eg-shex", optional = true }
 # (schema-from-graph + hand-written parser/resolver, NO async-graphql), pulled only when
 # enabled so a default/pi build links none of it.
 eg-graphql = { path = "crates/eg-graphql", optional = true }
+# EG-187: the tiered + shared content-addressed KV-cache leaf crate (EG-185/186). Pulled
+# ONLY behind `kvcache-server` (the KV-cache agent left it un-wired as a workspace member
+# only), so a default/pi build links none of it (no eg-kvcache/ureq in pi). Pure-Rust; its
+# shared backend is exposed over HTTP by `src/server/kvcache_http/` for vLLM/LMCache.
+eg-kvcache = { path = "crates/eg-kvcache", optional = true }
 # Optional WASM-sandboxed UDF runtime (feature `wasm-udf`, CONCEPT:KG-2.228). Pulls
 # wasmtime + cranelift only when enabled, so a default/pi build links neither
 # (asserted by cargo tree). The sandboxed `UdfRegistry` lives on ServerState.
