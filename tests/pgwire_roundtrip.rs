@@ -621,11 +621,15 @@ async fn catalog_introspection_then_select() {
     }
 
     // 3. pg_catalog reflect: list relations under public via pg_class/pg_namespace.
+    // Filter to the graph projections (`nodes`/`edges`) — the user-table SQL store is
+    // a process-global singleton, so a sibling test's user table can otherwise appear
+    // here; this mirrors step 1's `information_schema` query, which also filters.
     let rows = client
         .query(
             "SELECT c.relname FROM pg_catalog.pg_class c \
              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
-             WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY c.relname",
+             WHERE n.nspname = 'public' AND c.relkind = 'r' \
+             AND c.relname IN ('nodes','edges') ORDER BY c.relname",
             &[],
         )
         .await
@@ -1006,6 +1010,12 @@ async fn wire_txn_mixed_node_and_table_commit() {
             .expect("SELECT table after COMMIT"),
     );
     assert_eq!(table_rows, vec!["a".to_string()], "table op committed");
+
+    // Clean up: the SQL table store is a process-global singleton, so drop the table
+    // to avoid leaking it into other tests / future runs.
+    let _ = client
+        .simple_query(&format!("DROP TABLE {table}"))
+        .await;
 }
 
 /// An error inside an open transaction latches it into the aborted state: every
