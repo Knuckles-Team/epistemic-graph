@@ -504,6 +504,26 @@ pub enum Op {
     /// is what lands.
     #[cfg(feature = "stream")]
     Cep { pattern: CepPatternSpec },
+    /// FUSE (multimodal sensor fusion, CONCEPT:EG-098) — time-align N heterogeneous sensor
+    /// `streams` to ONE common clock and emit fused multi-channel rows. Each named stream is
+    /// a node layer (label / `type`) whose nodes carry a `valid_from` event time and either a
+    /// scalar `value` OR an opaque tensor-blob reference (an EG-085 camera/LiDAR frame). The
+    /// executor resolves the streams off the snapshot, calls eg-tsdb's `sensor_fuse` — which
+    /// reuses the eg-tsdb ASOF backward-join to carry each stream's latest sample at-or-before
+    /// each reference instant, within `tolerance_ns` — and emits one fused row per instant
+    /// (id = the aligned ts, score = the count of present, non-gap channels) so a downstream
+    /// `Limit`/`Rank` composes over the fused series. `tolerance_ns` is the max staleness (ns)
+    /// a channel may carry forward; `0` ⇒ exact-instant matches only. Gated behind
+    /// `timeseries`; the variant only exists when eg-types/timeseries is on (pulled by
+    /// eg-plan/timeseries), so a non-timeseries build has neither the variant nor its executor
+    /// arm (the tensor/stream gating precedent). Composes EG-085 + EG-088 + eg-tsdb ASOF
+    /// (EG-067); the alignment math lives in eg-tsdb behind eg-plan's `timeseries` gate — this
+    /// is the pure-serde wire variant.
+    #[cfg(feature = "timeseries")]
+    SensorFuse {
+        streams: Vec<String>,
+        tolerance_ns: u64,
+    },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
@@ -980,6 +1000,29 @@ mod stream_tests {
                 },
             },
             Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+}
+
+// ── sensor-fusion wire-variant round-trip (CONCEPT:EG-098) ───────────────────
+#[cfg(all(test, feature = "timeseries"))]
+mod timeseries_tests {
+    use super::*;
+
+    /// The `Op::SensorFuse` variant is pure-serde and round-trips through MessagePack
+    /// (the wire format) unchanged — the proof `Method::UnifiedQuery { plan }` can carry
+    /// a sensor-fusion plan.
+    #[test]
+    fn sensor_fuse_variant_round_trips() {
+        let plan = Plan::new(vec![
+            Op::SensorFuse {
+                streams: vec!["imu".into(), "gps".into(), "lidar".into()],
+                tolerance_ns: 50_000_000,
+            },
+            Op::Limit { k: 10 },
         ]);
         let bytes = rmp_serde::to_vec_named(&plan).unwrap();
         let back: Plan = rmp_serde::from_slice(&bytes).unwrap();

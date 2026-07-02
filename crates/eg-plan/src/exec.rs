@@ -215,6 +215,20 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "stream")]
         Op::Cep { pattern } => Ok(cep_op(ctx.view, input, pattern)),
 
+        // FUSE (multimodal sensor fusion, CONCEPT:EG-098) — time-align the named sensor
+        // streams to ONE common clock via eg-tsdb's ASOF-backed `sensor_fuse` and emit a
+        // fused row per instant (id = the aligned ts, score = the present-channel count).
+        // A SOURCE op: it resolves its streams off the snapshot and REPLACES the input,
+        // exactly like `TensorScan`/`SpatialScan`. Gated behind `timeseries`; the variant
+        // only exists when eg-types/timeseries is on (pulled by eg-plan/timeseries), so a
+        // non-timeseries build has neither the variant nor this arm (the tensor/stream
+        // precedent). Reuses the eg-plan→eg-tsdb edge `Op::Window` already opened.
+        #[cfg(feature = "timeseries")]
+        Op::SensorFuse {
+            streams,
+            tolerance_ns,
+        } => Ok(sensor_fuse_op(ctx.view, streams, *tolerance_ns)),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
 }
@@ -481,6 +495,71 @@ fn window_aggregate(view: &GraphView, input: RowSet, secs: f64) -> RowSet {
     let scored = time_bucket(&pts, width, Agg::Mean)
         .into_iter()
         .map(|b| (b.bucket_start.to_string(), b.value as f32));
+    RowSet::from_scored(scored)
+}
+
+// ── the sensor-fusion leg — native eg-tsdb ASOF alignment (CONCEPT:EG-098) ───────
+
+/// FUSE (multimodal sensor fusion): time-align N heterogeneous sensor `streams` to ONE
+/// common clock and emit fused multi-channel rows (CONCEPT:EG-098). Each named stream is
+/// a node LAYER (matched on the `type` property, exactly as [`scan_label`]) whose nodes
+/// carry a `valid_from` event time (ns, the same column `Op::AsOf`/`Op::Window` read) and
+/// EITHER a numeric `value` (a scalar reading) OR an opaque tensor-frame reference in a
+/// `tensor`/`frame` string property (an EG-085 camera/LiDAR blob id, carried through
+/// untouched). The resolved, ts-sorted per-stream samples feed eg-tsdb's Pi-path
+/// `sensor_fuse` (`eg_tsdb::query` — no DataFusion), which reuses the ASOF backward-join to
+/// carry each stream's latest sample at-or-before every reference instant within
+/// `tolerance_ns` (`0` ⇒ exact-instant matches only). Each fused instant becomes one output
+/// row — `id` = the aligned ts, `score` = the count of PRESENT (non-gap) channels — so a
+/// downstream `Limit`/`Rank` composes over the fused series. No timed streams ⇒ an empty
+/// RowSet (degrade, never err — mirroring `window_aggregate`).
+#[cfg(feature = "timeseries")]
+fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> RowSet {
+    use eg_tsdb::query::{sensor_fuse, Cell, Sample, SeriesRef};
+
+    // Resolve each named stream (a node layer / `type`) into a ts-sorted sample series.
+    let series: Vec<SeriesRef> = streams
+        .iter()
+        .map(|name| {
+            let mut samples: Vec<Sample> = Vec::new();
+            for blob in view.node_properties.values() {
+                let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+                    continue;
+                };
+                if v.get("type").and_then(|t| t.as_str()) != Some(name.as_str()) {
+                    continue;
+                }
+                let Some(ts) = v.get("valid_from").and_then(|x| x.as_i64()) else {
+                    continue;
+                };
+                // Scalar reading, else an opaque tensor/frame blob reference.
+                let cell = if let Some(val) = v.get("value").and_then(|x| x.as_f64()) {
+                    Cell::Scalar(val)
+                } else if let Some(r) = v
+                    .get("tensor")
+                    .or_else(|| v.get("frame"))
+                    .and_then(|x| x.as_str())
+                {
+                    Cell::Blob(r.to_string())
+                } else {
+                    continue;
+                };
+                samples.push(Sample { ts, cell });
+            }
+            samples.sort_by_key(|s| s.ts);
+            SeriesRef {
+                name: name.clone(),
+                samples,
+            }
+        })
+        .collect();
+
+    let scored = sensor_fuse(&series, Some(tolerance_ns as i64))
+        .into_iter()
+        .map(|row| {
+            let present = row.channels.iter().filter(|c| c.is_some()).count();
+            (row.ts.to_string(), present as f32)
+        });
     RowSet::from_scored(scored)
 }
 

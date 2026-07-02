@@ -66,7 +66,7 @@ federation = [
 # enum, beside the AsOf time leg). OFF by default and folded by the facade into node/
 # cluster/full but NEVER `pi` — the Pi contract: a `pi` build links no eg-tsdb. Without
 # it `Op::Window` stays the RowSet-preserving marker it lowers from (the plan still runs).
-timeseries = ["query", "dep:eg-tsdb"]
+timeseries = ["query", "dep:eg-tsdb", "eg-types/timeseries"]
 # EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
 # running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the
