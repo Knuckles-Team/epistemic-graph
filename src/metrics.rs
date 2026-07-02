@@ -241,6 +241,14 @@ mod imp {
             "Cold graphs hibernated (in-RAM state dropped) by the budget enforcer to keep \
              a tenant under its memory budget",
         );
+        // CONCEPT:EG-091 — slow-query counter. Increments once per query whose
+        // end-to-end execution met/exceeded EPISTEMIC_GRAPH_SLOW_QUERY_MS; stays at
+        // zero unless the slow-query threshold is configured.
+        static ref SLOW_QUERIES: IntCounter = counter(
+            "epistemic_graph_slow_query_total",
+            "Queries whose end-to-end execution met/exceeded EPISTEMIC_GRAPH_SLOW_QUERY_MS \
+             (CONCEPT:EG-091). Zero unless the slow-query threshold is configured",
+        );
     }
 
     /// Map a graph name onto the bounded label space.
@@ -311,6 +319,11 @@ mod imp {
     /// Record one graph hibernated by the budget enforcer (CONCEPT:KG-2.234).
     pub fn budget_hibernated() {
         BUDGET_HIBERNATIONS.inc();
+    }
+
+    /// Record one query that crossed the slow-query threshold (CONCEPT:EG-091).
+    pub fn slow_query() {
+        SLOW_QUERIES.inc();
     }
 
     /// Forget a deleted graph: drop its series and free its label slot.
@@ -400,6 +413,7 @@ mod imp {
     pub fn set_graph_hibernated(_graph: &str, _hibernated: bool) {}
     pub fn budget_evicted(_n: u64) {}
     pub fn budget_hibernated() {}
+    pub fn slow_query() {}
     pub fn drop_graph(_graph: &str) {}
     pub fn checkpoint_completed(_seconds: f64) {}
     pub fn auth_failure() {}

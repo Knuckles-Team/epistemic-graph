@@ -761,11 +761,19 @@ impl EngineBackend {
         // so they observe the txn's own buffered writes.
         let in_txn = self.in_txn();
 
+        // CONCEPT:EG-091 — slow-query timing for the pgwire SQL path (psql/BI/ORM).
+        // `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS is set.
+        let slow = crate::slow_query::describe_sql(sql);
+        let slow_start = slow.as_ref().map(|_| std::time::Instant::now());
+
         // Run the dispatch, latching the transaction into the aborted state on any
         // error so subsequent statements are rejected with 25P02 (CONCEPT:EG-049).
         let result = self
             .dispatch_kind(&graph, sql, kind, in_txn, result_format)
             .await;
+        if let (Some(slow), Some(start)) = (slow, slow_start) {
+            slow.log_if_slow(start.elapsed());
+        }
         if in_txn && result.is_err() {
             *self.txn_failed.lock() = true;
         }

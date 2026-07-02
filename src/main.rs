@@ -9,7 +9,7 @@
 use clap::Parser;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, Level};
+use tracing::info;
 
 use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::isolation::IsolationLayer;
@@ -213,10 +213,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .with_target(false)
-        .init();
+    // CONCEPT:EG-091 — install the tracing subscriber. This is the fmt-only
+    // subscriber (INFO, no target) UNLESS built with `otel` AND
+    // EPISTEMIC_GRAPH_OTLP_ENDPOINT is set, in which case an OTLP batch span
+    // exporter is layered on top. Off/unset ⇒ byte-for-byte the prior behavior.
+    epistemic_graph::otel::init_tracing();
 
     let args = Args::parse();
     let socket_path = resolve_socket_path(args.socket_path);
