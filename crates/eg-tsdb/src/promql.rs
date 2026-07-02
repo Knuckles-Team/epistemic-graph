@@ -3278,4 +3278,216 @@ mod tests {
         assert!(parse("sum by (").is_err());
         assert!(parse(")(").is_err());
     }
+
+    // ───────────────────────────── EG-302 tests ─────────────────────────────
+
+    fn instant(s: &MemSeriesSource, q: &str, t: Ts) -> Vec<InstantSample> {
+        match query_instant(s, q, t).unwrap() {
+            Value::Instant(iv) => iv,
+            other => panic!("expected vector, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn eg302_over_time_family() {
+        let s = src();
+        // get series points in (0,60s]: 10,20,30,40 (avg 25, sum 100, min 10, max 40,
+        // count 4, last 40).
+        let q = |f: &str| {
+            let iv = instant(&s, &format!(r#"{f}(http_requests_total{{method="get"}}[60s])"#), 60 * S);
+            assert_eq!(iv.len(), 1, "{f}");
+            iv[0].value
+        };
+        assert!((q("avg_over_time") - 25.0).abs() < 1e-9);
+        assert_eq!(q("sum_over_time"), 100.0);
+        assert_eq!(q("min_over_time"), 10.0);
+        assert_eq!(q("max_over_time"), 40.0);
+        assert_eq!(q("count_over_time"), 4.0);
+        assert_eq!(q("last_over_time"), 40.0);
+        // population stdvar of [10,20,30,40] = 125; stddev = sqrt(125).
+        assert!((q("stdvar_over_time") - 125.0).abs() < 1e-9);
+        assert!((q("stddev_over_time") - 125.0_f64.sqrt()).abs() < 1e-9);
+
+        // metric name dropped for aggregators, preserved for last_over_time.
+        let iv = instant(&s, r#"avg_over_time(http_requests_total{method="get"}[60s])"#, 60 * S);
+        assert!(!iv[0].labels.contains_key(METRIC_NAME));
+        let iv = instant(&s, r#"last_over_time(http_requests_total{method="get"}[60s])"#, 60 * S);
+        assert_eq!(iv[0].labels.get(METRIC_NAME).unwrap(), "http_requests_total");
+    }
+
+    #[test]
+    fn eg302_quantile_over_time() {
+        let mut s = MemSeriesSource::new();
+        // values 0,10,20,30,40 across the window (0,60s].
+        s.push(
+            MemSeriesSource::labels("g", &[]),
+            vec![(10 * S, 0.0), (20 * S, 10.0), (30 * S, 20.0), (40 * S, 30.0), (60 * S, 40.0)],
+        );
+        // p50 of [0,10,20,30,40] → rank 0.5*4 = 2 → exact element 20.
+        let iv = instant(&s, r#"quantile_over_time(0.5, g[60s])"#, 60 * S);
+        assert_eq!(iv.len(), 1);
+        assert!((iv[0].value - 20.0).abs() < 1e-9, "got {}", iv[0].value);
+        // p75 → rank 3 → 30.
+        let iv = instant(&s, r#"quantile_over_time(0.75, g[60s])"#, 60 * S);
+        assert!((iv[0].value - 30.0).abs() < 1e-9, "got {}", iv[0].value);
+        // p90 → rank 3.6 → 30 + 0.6*(40-30) = 36 (interpolated).
+        let iv = instant(&s, r#"quantile_over_time(0.9, g[60s])"#, 60 * S);
+        assert!((iv[0].value - 36.0).abs() < 1e-9, "got {}", iv[0].value);
+    }
+
+    #[test]
+    fn eg302_delta_idelta_deriv_predict() {
+        let s = src();
+        // delta over the get series in (0,60s]: last-first = 40-10 = 30.
+        let iv = instant(&s, r#"delta(http_requests_total{method="get"}[60s])"#, 60 * S);
+        assert_eq!(iv.len(), 1);
+        assert_eq!(iv[0].value, 30.0);
+        assert!(!iv[0].labels.contains_key(METRIC_NAME));
+
+        // idelta: last two are 30,40 → 10.
+        let iv = instant(&s, r#"idelta(http_requests_total{method="get"}[60s])"#, 60 * S);
+        assert_eq!(iv[0].value, 10.0);
+
+        // deriv: points (15,10),(30,20),(45,30),(60,40) — perfectly linear, slope
+        // 10 per 15s = 0.6667 per second.
+        let iv = instant(&s, r#"deriv(http_requests_total{method="get"}[60s])"#, 60 * S);
+        assert!((iv[0].value - (10.0 / 15.0)).abs() < 1e-9, "got {}", iv[0].value);
+
+        // predict_linear 30s past eval time (t=60s). Value at t=60s is 40; slope
+        // 0.6667/s → +20 → 60.
+        let iv = instant(&s, r#"predict_linear(http_requests_total{method="get"}[60s], 30)"#, 60 * S);
+        assert!((iv[0].value - 60.0).abs() < 1e-6, "got {}", iv[0].value);
+    }
+
+    #[test]
+    fn eg302_topk_bottomk_ordering() {
+        let mut s = MemSeriesSource::new();
+        for (inst, v) in [("a", 5.0), ("b", 1.0), ("c", 9.0), ("d", 3.0)] {
+            s.push(MemSeriesSource::labels("m", &[("instance", inst)]), vec![(0, v)]);
+        }
+        // topk(2) → 9 (c), 5 (a) in descending order.
+        let iv = instant(&s, "topk(2, m)", 0);
+        assert_eq!(iv.len(), 2);
+        assert_eq!(iv[0].value, 9.0);
+        assert_eq!(iv[0].labels.get("instance").unwrap(), "c");
+        assert_eq!(iv[1].value, 5.0);
+        assert_eq!(iv[1].labels.get("instance").unwrap(), "a");
+        // topk keeps original labels including __name__.
+        assert_eq!(iv[0].labels.get(METRIC_NAME).unwrap(), "m");
+
+        // bottomk(2) → 1 (b), 3 (d) ascending.
+        let iv = instant(&s, "bottomk(2, m)", 0);
+        assert_eq!(iv.len(), 2);
+        assert_eq!(iv[0].value, 1.0);
+        assert_eq!(iv[1].value, 3.0);
+
+        // k larger than group size returns everything; k=0 returns nothing.
+        assert_eq!(instant(&s, "topk(10, m)", 0).len(), 4);
+        assert_eq!(instant(&s, "topk(0, m)", 0).len(), 0);
+    }
+
+    #[test]
+    fn eg302_quantile_stddev_stdvar_count_values_aggregations() {
+        let mut s = MemSeriesSource::new();
+        for v in [10.0, 20.0, 30.0, 40.0] {
+            s.push(MemSeriesSource::labels("m", &[("i", &format!("{v}"))]), vec![(0, v)]);
+        }
+        // quantile(0.5) over [10,20,30,40] → rank 1.5 → 20 + 0.5*(30-20) = 25.
+        let iv = instant(&s, "quantile(0.5, m)", 0);
+        assert_eq!(iv.len(), 1);
+        assert!((iv[0].value - 25.0).abs() < 1e-9, "got {}", iv[0].value);
+        // stdvar = 125, stddev = sqrt(125).
+        assert!((instant(&s, "stdvar(m)", 0)[0].value - 125.0).abs() < 1e-9);
+        assert!((instant(&s, "stddev(m)", 0)[0].value - 125.0_f64.sqrt()).abs() < 1e-9);
+
+        // count_values: two series share value 1, one has value 2.
+        let mut s2 = MemSeriesSource::new();
+        s2.push(MemSeriesSource::labels("build", &[("a", "1")]), vec![(0, 1.0)]);
+        s2.push(MemSeriesSource::labels("build", &[("a", "2")]), vec![(0, 1.0)]);
+        s2.push(MemSeriesSource::labels("build", &[("a", "3")]), vec![(0, 2.0)]);
+        let iv = instant(&s2, r#"count_values("v", build)"#, 0);
+        // group is all-collapsed (default by()), 2 distinct values → 2 output series.
+        assert_eq!(iv.len(), 2);
+        let by_v = |val: &str| iv.iter().find(|x| x.labels.get("v").map(String::as_str) == Some(val)).unwrap().value;
+        assert_eq!(by_v("1"), 2.0);
+        assert_eq!(by_v("2"), 1.0);
+    }
+
+    #[test]
+    fn eg302_label_replace_regex() {
+        let mut s = MemSeriesSource::new();
+        s.push(MemSeriesSource::labels("m", &[("path", "/api/v1/query")]), vec![(0, 1.0)]);
+        s.push(MemSeriesSource::labels("m", &[("path", "nomatch")]), vec![(0, 2.0)]);
+        // capture the first path segment into `head`.
+        let iv = instant(&s, r#"label_replace(m, "head", "$1", "path", "/([a-z0-9]+)/.*")"#, 0);
+        assert_eq!(iv.len(), 2);
+        let matched = iv.iter().find(|x| x.value == 1.0).unwrap();
+        assert_eq!(matched.labels.get("head").unwrap(), "api");
+        // non-matching series is unchanged (no `head` label added).
+        let unmatched = iv.iter().find(|x| x.value == 2.0).unwrap();
+        assert!(!unmatched.labels.contains_key("head"));
+
+        // ${1} syntax + a second group, with a literal separator.
+        let iv = instant(&s, r#"label_replace(m, "hv", "${1}-${2}", "path", "/([a-z0-9]+)/([a-z0-9]+)/.*")"#, 0);
+        let matched = iv.iter().find(|x| x.value == 1.0).unwrap();
+        assert_eq!(matched.labels.get("hv").unwrap(), "api-v1");
+
+        // empty replacement removes the destination label.
+        let mut s3 = MemSeriesSource::new();
+        s3.push(MemSeriesSource::labels("m", &[("drop", "x"), ("path", "keep")]), vec![(0, 1.0)]);
+        let iv = instant(&s3, r#"label_replace(m, "drop", "", "path", "keep")"#, 0);
+        assert!(!iv[0].labels.contains_key("drop"));
+    }
+
+    #[test]
+    fn eg302_label_join() {
+        let mut s = MemSeriesSource::new();
+        s.push(MemSeriesSource::labels("m", &[("a", "x"), ("b", "y"), ("c", "z")]), vec![(0, 1.0)]);
+        let iv = instant(&s, r#"label_join(m, "joined", "-", "a", "b", "c")"#, 0);
+        assert_eq!(iv[0].labels.get("joined").unwrap(), "x-y-z");
+        // metric name preserved.
+        assert_eq!(iv[0].labels.get(METRIC_NAME).unwrap(), "m");
+    }
+
+    #[test]
+    fn eg302_clamp_and_round() {
+        let mut s = MemSeriesSource::new();
+        for (i, v) in [("a", -5.0), ("b", 0.5), ("c", 12.7)].iter().enumerate() {
+            s.push(MemSeriesSource::labels("m", &[("i", &i.to_string())]), vec![(0, v.1)]);
+        }
+        // clamp to [0, 10] → -5→0, 0.5→0.5, 12.7→10.
+        let mut got: Vec<f64> = instant(&s, "clamp(m, 0, 10)", 0).iter().map(|x| x.value).collect();
+        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(got, vec![0.0, 0.5, 10.0]);
+        // clamp with min>max → empty.
+        assert_eq!(instant(&s, "clamp(m, 10, 0)", 0).len(), 0);
+        // clamp_min / clamp_max.
+        let mut lo: Vec<f64> = instant(&s, "clamp_min(m, 0)", 0).iter().map(|x| x.value).collect();
+        lo.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(lo, vec![0.0, 0.5, 12.7]);
+        let mut hi: Vec<f64> = instant(&s, "clamp_max(m, 1)", 0).iter().map(|x| x.value).collect();
+        hi.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(hi, vec![-5.0, 0.5, 1.0]);
+        // round to nearest 1 → -5, 1 (0.5 rounds up), 13.
+        let mut r: Vec<f64> = instant(&s, "round(m)", 0).iter().map(|x| x.value).collect();
+        r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(r, vec![-5.0, 1.0, 13.0]);
+        // round to nearest 5 → -5, 0, 15.
+        let mut r5: Vec<f64> = instant(&s, "round(m, 5)", 0).iter().map(|x| x.value).collect();
+        r5.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(r5, vec![-5.0, 0.0, 15.0]);
+    }
+
+    #[test]
+    fn eg302_parses_parametrized_aggregations() {
+        // Ensure the parser threads the leading parameter for topk/quantile/count_values.
+        for q in [
+            "topk(3, m)",
+            "bottomk(1, m) by (job)",
+            "quantile(0.9, m)",
+            r#"count_values("v", m)"#,
+        ] {
+            assert!(parse(q).is_ok(), "failed to parse {q}");
+        }
+    }
 }
