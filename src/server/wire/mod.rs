@@ -46,7 +46,8 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use eg_query::{
-    AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan, CopyFormat, CopyPlan,
+    AlterTableAction, AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan,
+    CopyFormat, CopyPlan,
     CreateFunctionPlan, CreateTablePlan, CreateViewPlan, CypherCallPlan, DeleteNodes,
     DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
     InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflictAction, PgColType,
@@ -202,6 +203,43 @@ pub(crate) fn to_store_columns(cols: &[eg_query::ColumnDef]) -> WireResult<Vec<C
             })
         })
         .collect()
+}
+
+/// Lower a decoded `ALTER TABLE` plan into the matching buffered [`TxnOp`] (CONCEPT:EG-018
+/// ADD COLUMN + CONCEPT:EG-310 the rest), so a `BEGIN … ALTER … COMMIT` applies it in the
+/// SAME redb write txn as the surrounding statements.
+pub(crate) fn alter_txn_op(plan: AlterTablePlan) -> WireResult<TxnOp> {
+    let table = plan.name;
+    let op = match plan.action {
+        AlterTableAction::AddColumn(col) => {
+            let column = to_store_columns(std::slice::from_ref(&col))?
+                .into_iter()
+                .next()
+                .expect("one column");
+            TxnOp::AddColumn { table, column }
+        }
+        AlterTableAction::DropColumn { column, if_exists } => TxnOp::DropColumn {
+            table,
+            column,
+            if_exists,
+        },
+        AlterTableAction::RenameColumn { from, to } => TxnOp::RenameColumn { table, from, to },
+        AlterTableAction::RenameTable { new_name } => TxnOp::RenameTable { table, new_name },
+        AlterTableAction::AlterColumnType { column, new_type } => TxnOp::AlterColumnType {
+            table,
+            column,
+            new_type: ColumnType::parse(&new_type).map_err(user_err)?,
+        },
+        AlterTableAction::DropConstraint {
+            constraint,
+            if_exists,
+        } => TxnOp::DropConstraint {
+            table,
+            constraint,
+            if_exists,
+        },
+    };
+    Ok(op)
 }
 
 /// The PgColType for a single JSON value (RETURNING result-set schema inference).
@@ -673,13 +711,9 @@ impl WireSession {
                 Ok(WireOutcome::command("DROP TABLE"))
             }
             StatementKind::DropTable(plan) => self.run_drop_table(plan).await,
+            // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — staged into the txn.
             StatementKind::AlterTable(plan) if in_txn => {
-                let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
-                let column = columns.into_iter().next().expect("one column");
-                self.buffer(TxnOp::AddColumn {
-                    table: plan.name,
-                    column,
-                });
+                self.buffer(alter_txn_op(plan)?);
                 Ok(WireOutcome::command("ALTER TABLE"))
             }
             StatementKind::AlterTable(plan) => self.run_alter_table(plan).await,
@@ -1283,13 +1317,15 @@ impl WireSession {
         }
     }
 
-    /// `ALTER TABLE … ADD COLUMN` (CONCEPT:EG-018).
+    /// `ALTER TABLE …` (CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 DROP/RENAME COLUMN,
+    /// RENAME TABLE, ALTER COLUMN TYPE, DROP CONSTRAINT). Lowered to a single buffered
+    /// [`TxnOp`] and applied in one redb write txn (atomic row migration).
     async fn run_alter_table(&self, plan: AlterTablePlan) -> WireResult<WireOutcome> {
-        let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
-        let column = columns.into_iter().next().expect("one column");
+        let op = alter_txn_op(plan)?;
         let store = user_table_store()?;
-        let table = plan.name;
-        tokio::task::spawn_blocking(move || store.add_column(&table, column))
+        let mut txn = TableTxn::new();
+        txn.push(op);
+        tokio::task::spawn_blocking(move || store.commit_txn(&txn))
             .await
             .map_err(|e| user_err(format!("alter table task failed: {e}")))?
             .map_err(user_err)?;
