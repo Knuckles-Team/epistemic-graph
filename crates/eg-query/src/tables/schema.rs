@@ -39,6 +39,10 @@ pub enum ColumnType {
     Bytes,
     /// Arbitrary JSON, stored as its canonical text (Arrow `Utf8`).
     Json,
+    /// A pgvector `vector`/`vector(n)` dense float embedding (CONCEPT:EG-115), stored as
+    /// a `Vec<f32>` (Arrow `List<Float32>`). `Some(n)` is the declared dimension (row
+    /// length enforced on insert); `None` is an unconstrained-dimension vector.
+    Vector(Option<usize>),
 }
 
 impl ColumnType {
@@ -55,6 +59,11 @@ impl ColumnType {
             .unwrap_or(name)
             .trim()
             .to_ascii_lowercase();
+        // CONCEPT:EG-115 — pgvector `vector`/`vector(n)`. The dimension is read from the
+        // ORIGINAL spelling (the `(n)` suffix that the base-type strip above discards).
+        if base == "vector" {
+            return Ok(ColumnType::Vector(parse_vector_dim(name)));
+        }
         let ty = match base.as_str() {
             "int" | "int4" | "integer" | "serial" | "smallint" | "int2" => ColumnType::Int,
             "bigint" | "int8" | "bigserial" | "long" => ColumnType::BigInt,
@@ -75,6 +84,18 @@ impl ColumnType {
         };
         Ok(ty)
     }
+}
+
+/// Extract the declared dimension `n` from a `vector(n)` type spelling (CONCEPT:EG-115),
+/// or `None` for a bare `vector`. A malformed/zero suffix yields `None` (unconstrained).
+fn parse_vector_dim(name: &str) -> Option<usize> {
+    let start = name.find('(')?;
+    let end = name[start + 1..].find(')')?;
+    name[start + 1..start + 1 + end]
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|n| *n > 0)
 }
 
 /// A column-scoped comparison operator for a simple `CHECK (col OP literal)` constraint
@@ -208,6 +229,8 @@ pub enum Cell {
     Timestamp(i64),
     Bytes(Vec<u8>),
     Json(Value),
+    /// A dense float embedding (CONCEPT:EG-115), stored as `Vec<f32>`.
+    Vector(Vec<f32>),
 }
 
 impl Cell {
@@ -268,6 +291,22 @@ impl Cell {
                 other => return Err(format!("expected bytes, got `{other}`")),
             },
             ColumnType::Json => Cell::Json(value.clone()),
+            // CONCEPT:EG-115 — a `vector`/`vector(n)` accepts either a JSON array of
+            // numbers (`[1,2,3]`) or the pgvector text literal `'[1,2,3]'`; both decode
+            // to a `Vec<f32>`. When the column declares a dimension, the row length is
+            // enforced so a mis-shaped embedding is rejected, not silently stored.
+            ColumnType::Vector(dim) => {
+                let floats = parse_vector_value(value)?;
+                if let Some(n) = dim {
+                    if floats.len() != n {
+                        return Err(format!(
+                            "vector has {} dimensions, column declares {n}",
+                            floats.len()
+                        ));
+                    }
+                }
+                Cell::Vector(floats)
+            }
         };
         Ok(cell)
     }
@@ -286,6 +325,52 @@ impl Cell {
             Cell::Bool(b) => Value::Bool(*b),
             Cell::Bytes(b) => Value::Array(b.iter().map(|x| Value::Number((*x).into())).collect()),
             Cell::Json(v) => v.clone(),
+            // CONCEPT:EG-115 — a vector renders back as a JSON array of numbers; the
+            // pgwire shim re-serializes that array to the pgvector text form `[1,2,3]`.
+            Cell::Vector(v) => Value::Array(
+                v.iter()
+                    .map(|f| {
+                        serde_json::Number::from_f64(*f as f64)
+                            .map(Value::Number)
+                            .unwrap_or(Value::Null)
+                    })
+                    .collect(),
+            ),
         }
     }
+}
+
+/// Parse a JSON value into a dense `Vec<f32>` for a vector column (CONCEPT:EG-115):
+/// a JSON array of numbers, or the pgvector text literal `[1,2,3]` (an array or a
+/// bracketed/comma string). Rejects a non-numeric element with a precise error.
+fn parse_vector_value(value: &Value) -> Result<Vec<f32>, String> {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .map(|it| {
+                it.as_f64()
+                    .map(|f| f as f32)
+                    .ok_or_else(|| format!("vector element is not a number: `{it}`"))
+            })
+            .collect(),
+        Value::String(s) => parse_vector_text(s),
+        other => Err(format!("expected a vector (array or '[...]' text), got `{other}`")),
+    }
+}
+
+/// Parse a pgvector text literal `[1,2,3]` (brackets optional, comma/whitespace
+/// separated) into a `Vec<f32>` (CONCEPT:EG-115).
+pub(crate) fn parse_vector_text(s: &str) -> Result<Vec<f32>, String> {
+    let inner = s.trim().trim_start_matches('[').trim_end_matches(']').trim();
+    if inner.is_empty() {
+        return Ok(Vec::new());
+    }
+    inner
+        .split(',')
+        .map(|tok| {
+            tok.trim()
+                .parse::<f32>()
+                .map_err(|_| format!("invalid vector element `{}`", tok.trim()))
+        })
+        .collect()
 }

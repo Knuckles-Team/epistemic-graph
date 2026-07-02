@@ -13,7 +13,8 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder,
+    ArrayRef, BinaryBuilder, BooleanBuilder, Float32Builder, Float64Builder, Int64Builder,
+    ListBuilder, StringBuilder,
 };
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
@@ -31,6 +32,9 @@ pub fn arrow_type(ty: ColumnType) -> DataType {
         ColumnType::Text | ColumnType::Json => DataType::Utf8,
         ColumnType::Bool => DataType::Boolean,
         ColumnType::Bytes => DataType::Binary,
+        // CONCEPT:EG-115 — a pgvector column materializes as `List<Float32>`; the exec
+        // path's `pg_col_type` maps a Float32-element list to the wire vector type.
+        ColumnType::Vector(_) => DataType::List(Arc::new(Field::new("item", DataType::Float32, true))),
     }
 }
 
@@ -93,6 +97,22 @@ pub fn materialize(
                     match row.get(ci) {
                         Some(Cell::Bytes(bytes)) => b.append_value(bytes),
                         _ => b.append_null(),
+                    }
+                }
+                Arc::new(b.finish())
+            }
+            // CONCEPT:EG-115 — a vector column → a `List<Float32>` array (one list per row).
+            DataType::List(_) => {
+                let mut b = ListBuilder::new(Float32Builder::new());
+                for row in rows {
+                    match row.get(ci) {
+                        Some(Cell::Vector(v)) => {
+                            for f in v {
+                                b.values().append_value(*f);
+                            }
+                            b.append(true);
+                        }
+                        _ => b.append(false),
                     }
                 }
                 Arc::new(b.finish())

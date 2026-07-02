@@ -111,6 +111,21 @@ pub enum StatementKind {
     /// `COPY <table> [(cols…)] FROM STDIN [WITH (FORMAT …)]` — bulk ingest; the shim
     /// switches the connection into copy-in mode and streams rows into the user table.
     CopyIn(CopyPlan),
+
+    // ── extensions (CONCEPT:EG-102) ────────────────────────────────────────────
+    /// `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` — record `name` in the
+    /// durable extension catalog so a client's setup script proceeds. The concrete
+    /// surface each extension unlocks (pgvector types/ops, AGE, TimescaleDB, pg_search)
+    /// lands in its own later item; this accepts + records the enablement.
+    CreateExtension {
+        name: String,
+        if_not_exists: bool,
+    },
+    /// `DROP EXTENSION [IF EXISTS] name [CASCADE|RESTRICT]` — remove a catalog entry.
+    DropExtension {
+        name: String,
+        if_exists: bool,
+    },
 }
 
 /// A decoded `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020). `columns` empty ⇒
@@ -356,6 +371,12 @@ pub struct DeleteNodes {
 /// a write whose shape this increment cannot route (e.g. a write into a table
 /// other than `nodes`, a complex WHERE, or a join/subquery in DML).
 pub fn classify(sql: &str) -> Result<StatementKind, String> {
+    // CONCEPT:EG-102 — `DROP EXTENSION` has no `sqlparser` AST node (no
+    // `ObjectType::Extension`), so recognize it textually BEFORE the parser (mirrors
+    // the `COPY … FROM STDIN` pre-check) and route it to the extension catalog.
+    if let Some((name, if_exists)) = parse_drop_extension(sql) {
+        return Ok(StatementKind::DropExtension { name, if_exists });
+    }
     // `COPY … FROM STDIN` is sent over the wire WITHOUT the inline TSV data block that
     // `sqlparser` insists follows the `;` — so append a `;` to satisfy its grammar
     // (it then parses an EMPTY data block). The real rows arrive as `CopyData` frames.
@@ -397,6 +418,12 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
         Statement::Delete(delete) => classify_any_delete(delete),
         // ── DDL (CONCEPT:EG-018) ──────────────────────────────────────────────
         Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
+        // ── extensions (CONCEPT:EG-102) ─────────────────────────────────────────
+        Statement::CreateExtension {
+            name,
+            if_not_exists,
+            ..
+        } => classify_create_extension(&name.value, *if_not_exists),
         Statement::Drop {
             object_type,
             if_exists,
@@ -768,6 +795,122 @@ pub fn returning_columns(sql: &str) -> Option<Vec<String>> {
         }
     }
     Some(cols)
+}
+
+/// Rewrite the pgvector distance operators (CONCEPT:EG-115) in `sql` to the engine's
+/// registered scalar UDF calls, so DataFusion — which has no operator for them — can
+/// plan the query:
+///   * `a <-> b` (L2 distance)              → `vector_l2(a, b)`
+///   * `a <=> b` (cosine distance)          → `vector_cosine(a, b)`
+///   * `a <#> b` (negative inner product)   → `vector_ip(a, b)`
+///
+/// Pure text→AST→text: parse with the SAME Postgres dialect, walk the query's
+/// projection / WHERE / HAVING / ORDER BY expressions replacing the operators, then
+/// re-serialize. Returns the ORIGINAL `sql` unchanged when it doesn't parse or contains
+/// no vector operator (so a query that DataFusion parses but `sqlparser` doesn't is
+/// never perturbed). The `ORDER BY emb <-> '[1,2,3]' LIMIT k` nearest-neighbour shape is
+/// the primary target; the eg-ann INDEX pushdown is a separate later item (EG-116).
+pub fn desugar_vector_ops(sql: &str) -> String {
+    let Ok(mut stmts) = Parser::parse_sql(&PostgreSqlDialect {}, sql) else {
+        return sql.to_string();
+    };
+    let mut changed = false;
+    for stmt in &mut stmts {
+        if let Statement::Query(q) = stmt {
+            rewrite_query_vector_ops(q, &mut changed);
+        }
+    }
+    if changed {
+        stmts
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join("; ")
+    } else {
+        sql.to_string()
+    }
+}
+
+/// Rewrite vector operators throughout a `Query` (body clauses + ORDER BY).
+fn rewrite_query_vector_ops(q: &mut datafusion::sql::sqlparser::ast::Query, changed: &mut bool) {
+    rewrite_setexpr_vector_ops(&mut q.body, changed);
+    if let Some(order_by) = &mut q.order_by {
+        for ob in &mut order_by.exprs {
+            rewrite_expr_vector_ops(&mut ob.expr, changed);
+        }
+    }
+}
+
+/// Rewrite vector operators in a `SetExpr` (a SELECT body or a UNION/INTERSECT arm).
+fn rewrite_setexpr_vector_ops(body: &mut SetExpr, changed: &mut bool) {
+    match body {
+        SetExpr::Select(select) => {
+            for item in &mut select.projection {
+                match item {
+                    SelectItem::UnnamedExpr(e) => rewrite_expr_vector_ops(e, changed),
+                    SelectItem::ExprWithAlias { expr, .. } => {
+                        rewrite_expr_vector_ops(expr, changed)
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(sel) = &mut select.selection {
+                rewrite_expr_vector_ops(sel, changed);
+            }
+            if let Some(having) = &mut select.having {
+                rewrite_expr_vector_ops(having, changed);
+            }
+        }
+        SetExpr::Query(q) => rewrite_query_vector_ops(q, changed),
+        SetExpr::SetOperation { left, right, .. } => {
+            rewrite_setexpr_vector_ops(left, changed);
+            rewrite_setexpr_vector_ops(right, changed);
+        }
+        _ => {}
+    }
+}
+
+/// Recursively rewrite vector operators in an expression tree. Recurses into operands
+/// FIRST (so a nested `a <-> (b <=> c)` fully desugars), then replaces a top-level
+/// vector-operator `BinaryOp` with the corresponding UDF call. The call node is built
+/// by re-parsing `fname(left, right)` (both operands already serialize to valid SQL),
+/// avoiding a version-fragile hand-construction of `sqlparser`'s `Function` AST.
+fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
+    match expr {
+        Expr::BinaryOp { left, op, right } => {
+            rewrite_expr_vector_ops(left, changed);
+            rewrite_expr_vector_ops(right, changed);
+            let fname = match op {
+                BinaryOperator::Custom(s) if s == "<->" => Some("vector_l2"),
+                BinaryOperator::Custom(s) if s == "<#>" => Some("vector_ip"),
+                // `<=>` parses as `Spaceship`; in a pgvector context it is cosine distance.
+                BinaryOperator::Spaceship => Some("vector_cosine"),
+                _ => None,
+            };
+            if let Some(fname) = fname {
+                if let Some(call) = vector_udf_call(fname, left, right) {
+                    *expr = call;
+                    *changed = true;
+                }
+            }
+        }
+        Expr::Nested(inner) => rewrite_expr_vector_ops(inner, changed),
+        Expr::UnaryOp { expr, .. } => rewrite_expr_vector_ops(expr, changed),
+        Expr::Cast { expr, .. } => rewrite_expr_vector_ops(expr, changed),
+        _ => {}
+    }
+}
+
+/// Build the `fname(left, right)` call expression by re-parsing its SQL text (both
+/// operands already serialize to valid SQL). `None` if the (internally-generated) text
+/// fails to parse — the caller then leaves the operator in place.
+fn vector_udf_call(fname: &str, left: &Expr, right: &Expr) -> Option<Expr> {
+    let text = format!("{fname}({left}, {right})");
+    Parser::new(&PostgreSqlDialect {})
+        .try_with_sql(&text)
+        .ok()?
+        .parse_expr()
+        .ok()
 }
 
 /// Decode `INSERT INTO nodes (id, …) VALUES (…)[, (…)…]` into [`InsertNodes`].
@@ -1381,6 +1524,71 @@ fn classify_create_view(
         select_sql: query.to_string(),
         or_replace,
     }))
+}
+
+/// The extension names the engine recognizes (CONCEPT:EG-102). `CREATE EXTENSION` on
+/// one of these is accepted + recorded so a client's setup script proceeds; each
+/// extension's concrete surface (pgvector types/ops EG-115, AGE, TimescaleDB,
+/// pg_search) lands in its own later item.
+fn is_recognized_extension(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "vector" | "pg_age" | "age" | "timescaledb" | "pg_search"
+    )
+}
+
+/// Decode `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` (CONCEPT:EG-102).
+/// A recognized extension is accepted + recorded; an unknown name is rejected with a
+/// precise error (never silently accepted) so a client learns the surface is absent.
+fn classify_create_extension(name: &str, if_not_exists: bool) -> Result<StatementKind, String> {
+    if !is_recognized_extension(name) {
+        return Err(format!(
+            "CREATE EXTENSION `{name}` is not recognized (supported: \
+             vector, pg_age/age, timescaledb, pg_search)"
+        ));
+    }
+    Ok(StatementKind::CreateExtension {
+        name: name.to_string(),
+        if_not_exists,
+    })
+}
+
+/// Recognize `DROP EXTENSION [IF EXISTS] name [CASCADE|RESTRICT]` textually
+/// (CONCEPT:EG-102) — `sqlparser` 0.51 has no `DROP EXTENSION` AST node. Returns
+/// `(name, if_exists)` when the statement is a single-extension drop, else `None`
+/// (so `classify` falls through to the parser for every non-`DROP EXTENSION` input).
+fn parse_drop_extension(sql: &str) -> Option<(String, bool)> {
+    let trimmed = sql.trim().trim_end_matches(';');
+    let mut toks = trimmed.split_whitespace();
+    if !toks.next()?.eq_ignore_ascii_case("DROP") {
+        return None;
+    }
+    if !toks.next()?.eq_ignore_ascii_case("EXTENSION") {
+        return None;
+    }
+    // Optional `IF EXISTS`.
+    let mut peek = toks.next()?;
+    let mut if_exists = false;
+    if peek.eq_ignore_ascii_case("IF") {
+        if !toks.next()?.eq_ignore_ascii_case("EXISTS") {
+            return None;
+        }
+        if_exists = true;
+        peek = toks.next()?;
+    }
+    // A single extension name (a comma-list or trailing junk beyond CASCADE/RESTRICT
+    // is not this simple shape).
+    let name = peek.trim_matches('"');
+    if name.is_empty() || name.contains(',') {
+        return None;
+    }
+    // Only CASCADE/RESTRICT may follow.
+    if let Some(tail) = toks.next() {
+        if !tail.eq_ignore_ascii_case("CASCADE") && !tail.eq_ignore_ascii_case("RESTRICT") {
+            return None;
+        }
+    }
+    Some((name.to_string(), if_exists))
 }
 
 /// Decode `ALTER TABLE name ADD COLUMN col type`. Only a single `ADD COLUMN`
@@ -2435,5 +2643,59 @@ mod tests {
     fn create_view_rejects_reserved_and_materialized() {
         assert!(classify("CREATE VIEW nodes AS SELECT 1").is_err());
         assert!(classify("CREATE MATERIALIZED VIEW v AS SELECT 1").is_err());
+    }
+
+    // ── CREATE / DROP EXTENSION (CONCEPT:EG-102) ──────────────────────────────
+
+    #[test]
+    fn create_extension_classify() {
+        let k = classify("CREATE EXTENSION vector").unwrap();
+        let StatementKind::CreateExtension { name, if_not_exists } = k else {
+            panic!("expected CreateExtension, got {k:?}");
+        };
+        assert_eq!(name, "vector");
+        assert!(!if_not_exists);
+
+        let k = classify("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public").unwrap();
+        let StatementKind::CreateExtension { name, if_not_exists } = k else {
+            panic!("expected CreateExtension");
+        };
+        assert_eq!(name, "vector");
+        assert!(if_not_exists);
+
+        // The other recognized names are accepted so a client's setup script proceeds.
+        for ext in ["age", "pg_age", "timescaledb", "pg_search"] {
+            assert!(
+                matches!(
+                    classify(&format!("CREATE EXTENSION IF NOT EXISTS {ext}")).unwrap(),
+                    StatementKind::CreateExtension { .. }
+                ),
+                "extension `{ext}` should be recognized"
+            );
+        }
+    }
+
+    #[test]
+    fn create_extension_rejects_unknown() {
+        assert!(classify("CREATE EXTENSION nonesuch").is_err());
+    }
+
+    #[test]
+    fn drop_extension_classify() {
+        let StatementKind::DropExtension { name, if_exists } =
+            classify("DROP EXTENSION IF EXISTS vector").unwrap()
+        else {
+            panic!("expected DropExtension");
+        };
+        assert_eq!(name, "vector");
+        assert!(if_exists);
+
+        let StatementKind::DropExtension { name, if_exists } =
+            classify("DROP EXTENSION vector CASCADE").unwrap()
+        else {
+            panic!("expected DropExtension");
+        };
+        assert_eq!(name, "vector");
+        assert!(!if_exists);
     }
 }

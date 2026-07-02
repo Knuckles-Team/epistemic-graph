@@ -345,3 +345,75 @@ fn every_column_type_roundtrips() {
     assert_eq!(rows[0][6], Cell::Bytes(b"AB".to_vec()));
     assert_eq!(rows[0][7], Cell::Json(json!({"k": [1, 2]})));
 }
+
+// ── pgvector vector type + distance operators (CONCEPT:EG-115) ───────────────
+
+/// Create a `vector(3)` table with three orthonormal embeddings, then exercise the
+/// `<->` (L2) and `<=>` (cosine) nearest-neighbour path end-to-end: `classify` (a
+/// Read), operator desugaring to the `vector_*` UDFs, and brute-force evaluation over
+/// the stored `List<Float32>` column. Also confirms the vector round-trips back to the
+/// client as a JSON array of numbers.
+#[test]
+fn vector_column_distance_nearest_neighbour() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+
+    run(&store, &view, "CREATE TABLE vecs (id INT, emb vector(3))");
+    run(
+        &store,
+        &view,
+        "INSERT INTO vecs (id, emb) VALUES \
+         (1, '[1,0,0]'), (2, '[0,1,0]'), (3, '[0,0,1]')",
+    );
+
+    // The stored vector round-trips as a JSON array of numbers.
+    let got = run(&store, &view, "SELECT emb FROM vecs WHERE id = 1").unwrap();
+    assert_eq!(got.rows.len(), 1);
+    assert_eq!(got.rows[0][0], json!([1.0, 0.0, 0.0]));
+
+    // L2 nearest: a query near [1,0,0] ranks id 1 first, then 2, then 3.
+    let l2 = run(
+        &store,
+        &view,
+        "SELECT id FROM vecs ORDER BY emb <-> '[0.9, 0.1, 0]' LIMIT 2",
+    )
+    .unwrap();
+    assert_eq!(l2.rows.len(), 2);
+    assert_eq!(l2.rows[0][0], json!(1));
+    assert_eq!(l2.rows[1][0], json!(2));
+
+    // Cosine nearest (`<=>`): the same query is most similar to id 1.
+    let cos = run(
+        &store,
+        &view,
+        "SELECT id FROM vecs ORDER BY emb <=> '[0.9, 0.1, 0]' LIMIT 1",
+    )
+    .unwrap();
+    assert_eq!(cos.rows.len(), 1);
+    assert_eq!(cos.rows[0][0], json!(1));
+
+    // The distance is projectable and computes the expected L2 to a matching vector.
+    let d = run(
+        &store,
+        &view,
+        "SELECT emb <-> '[1,0,0]' AS dist FROM vecs WHERE id = 1",
+    )
+    .unwrap();
+    assert_eq!(d.rows[0][0], json!(0.0));
+}
+
+/// A `vector(n)` column rejects an embedding whose dimension disagrees with `n`.
+#[test]
+fn vector_dimension_mismatch_rejected() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE v2 (id INT, emb vector(3))");
+    // classify accepts the literal INSERT; the store's typed coerce rejects the width.
+    let StatementKind::InsertTable(ins) =
+        classify("INSERT INTO v2 (id, emb) VALUES (1, '[1,2]')").expect("classify")
+    else {
+        panic!("expected InsertTable");
+    };
+    let err = store.insert_rows(&ins.table, &ins.columns, &ins.rows);
+    assert!(err.is_err(), "a 2-d vector into a vector(3) column must be rejected");
+}
