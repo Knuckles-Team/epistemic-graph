@@ -34,6 +34,14 @@ pub use eg_compute::{algorithms, ast, parser, screen};
 #[cfg(feature = "server")]
 pub mod channels;
 pub mod metrics;
+// CONCEPT:EG-091 — OTLP span export + tracing init (server-only: the subscriber
+// init needs tracing-subscriber, which is server-gated).
+#[cfg(feature = "server")]
+pub mod otel;
+// CONCEPT:EG-091 — slow-query log. Server-only (only the server dispatch/pgwire
+// paths execute queries).
+#[cfg(feature = "server")]
+pub mod slow_query;
 #[cfg(feature = "server")]
 pub mod persist;
 #[cfg(feature = "server")]
