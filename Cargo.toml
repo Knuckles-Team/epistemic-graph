@@ -475,6 +475,14 @@ s3-api = ["blob", "kv", "server"]
 # listener only starts when ALSO configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
 # EG-187: fold kvcache-server into node/full (orchestrator folds the tier lines at merge)
 kvcache-server = ["server", "dep:eg-kvcache"]
+# Real WARM-tier KV-cache codec (CONCEPT:EG-315): turns on `eg-kvcache/compression`
+# (zstd) so the KV-cache warm tier can compress with a production-grade codec instead of
+# the built-in RLE. Pulls zstd ONLY through this feature, so a default/pi build links no
+# zstd (eg-kvcache is itself only linked behind `kvcache-server`, out of pi). DELIBERATELY
+# NOT folded into node/full here — like the kvcache-server line, the orchestrator folds
+# the tier aggregate lists at merge time (avoids a tier-line merge conflict).
+# EG-315: fold kvcache-compression into node/full (orchestrator folds the tier lines at merge)
+kvcache-compression = ["kvcache-server", "eg-kvcache/compression"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open

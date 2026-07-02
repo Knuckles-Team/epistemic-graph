@@ -21,9 +21,12 @@
 //! ## Dependency posture (the Pi contract)
 //!
 //! The default build links NOTHING — the content hash (FNV-1a-128), the WARM compressor
-//! (RLE + raw fallback) and the tiered LRU are all hand-written. ONLY the durable COLD
-//! tier (`durable` feature) pulls `redb`, reusing the engine's KG-2.195 durability tier.
-//! So a `pi`/default build carries no redb.
+//! (RLE + raw fallback) and the tiered LRU are all hand-written. Two optional features
+//! pull a dependency: the durable COLD tier (`durable`) pulls `redb` (reusing the
+//! engine's KG-2.195 durability tier), and a REAL WARM codec (CONCEPT:EG-315,
+//! `compression` → `zstd`; optional `lz4` → `lz4_flex`) is selectable via
+//! [`TieredCache::with_warm_codec`]. Both are OFF by default, so a `pi`/default build
+//! carries no redb and no zstd — the base build stays lean.
 //!
 //! ## Not yet wired (explicit follow-ups)
 //!
@@ -38,6 +41,7 @@ pub mod shared;
 pub mod tiered;
 pub mod value;
 
+pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
 pub use shared::{SharedKvBackend, SharedKvIndex, SharedStats};
 pub use tiered::{CacheStats, Tier, TieredCache};
