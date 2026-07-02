@@ -420,6 +420,30 @@ mssql-wire = ["query", "server", "wire"]
 # there). The listener only starts when ALSO configured via EPISTEMIC_GRAPH_BOLT_ADDR.
 # EG-159: fold bolt-wire into node/full/cluster
 bolt-wire = ["cypher", "server"]
+# Redis RESP wire-protocol listener (CONCEPT:EG-174) — a native, HAND-ROLLED Redis
+# server so a Redis client / ORM cache / `redis-cli` connects DIRECTLY to the engine.
+# A pure-Rust RESP2 + RESP3 codec + the core command set (string/list/hash/set/zset,
+# GET/SET/DEL/EXPIRE/TTL/INCR/SCAN/TYPE/HELLO/…), framed over `tokio::net`. Redis
+# values are stored on the engine's own durable KV surface (CONCEPT:EG-022), so this
+# pulls `kv` (⇒ `server` + `redb`). Links NO server-side redis crate (the Pi-contract
+# idiom pgwire/mysql-wire/bolt-wire follow) — PURE-RUST, no new dependency. Kept OUT
+# of pi (a network listener). The listener only starts when ALSO configured via
+# EPISTEMIC_GRAPH_REDIS_ADDR. DELIBERATELY NOT folded into node/full/cluster here —
+# the orchestrator folds it at merge time (avoids a tier-line merge conflict).
+# EG-174: fold redis-wire into node/full/cluster
+redis-wire = ["kv", "server"]
+# S3-compatible object-storage REST surface (CONCEPT:EG-176) — an Amazon-S3/MinIO-
+# shaped HTTP API so any S3 SDK / `aws s3` CLI / `mc` talks to the engine directly.
+# Object BYTES land in the content-addressed BLOB CAS (⇒ `blob`), the bucket/object
+# listing index lives on the durable KV surface (⇒ `kv`), and a SigV4-lite auth guard
+# gates writes when credentials are configured. A HAND-ROLLED HTTP/1.1 listener (the
+# same dependency-free tokio idiom as `obs`/`sparql-http`) — links NO aws/object-store
+# SDK, no XML crate (hand-built XML), so it adds NO new dependency. Kept OUT of pi (a
+# network listener). The listener only starts when ALSO configured via
+# EPISTEMIC_GRAPH_S3_ADDR. DELIBERATELY NOT folded into node/full here — the
+# orchestrator folds it at merge time.
+# EG-176: fold s3-api into node/full
+s3-api = ["blob", "kv", "server"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
