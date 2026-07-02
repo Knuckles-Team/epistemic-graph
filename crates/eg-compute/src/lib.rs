@@ -21,5 +21,10 @@ pub mod screen;
 pub mod datascience;
 #[cfg(feature = "finance")]
 pub mod finance;
+// CONCEPT:EG-086 — Bayesian-update / mixture / fusion helpers over the
+// `eg_types::Distribution` value. Conjugate posteriors are closed-form (no
+// sampling), so this rides the pure `reasoning` feature (no heavy dep).
+#[cfg(feature = "reasoning")]
+pub mod probabilistic;
 #[cfg(feature = "reasoning")]
 pub mod reasoning;
