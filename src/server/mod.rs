@@ -53,6 +53,13 @@ pub mod pgwire;
 // `wire`). Pure-Rust — NO C-linked sqlite. Kept OUT of node/full — the orchestrator folds it.
 #[cfg(feature = "sqlite-wire")]
 pub mod sqlite_wire;
+// MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076). A hand-rolled MySQL
+// client/server protocol (handshake v10 + `mysql_native_password` + `COM_QUERY`)
+// behind the `mysql-wire` cargo feature. The SECOND `wire::WireProtocol` adapter
+// (CONCEPT:EG-074), reusing the shared `WireSession` execution core. Default/pi/node/
+// full builds compile NONE of it.
+#[cfg(feature = "mysql-wire")]
+pub mod mysql_wire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
