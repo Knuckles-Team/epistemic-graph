@@ -114,6 +114,13 @@ tensor = ["query"]
 # windows) lives in the eg-stream crate, and the executor in eg-plan, both behind their
 # own `stream` gates; this only adds enum variants (Pi-safe wire data, no dep).
 stream = ["query"]
+# Multimodal sensor fusion (CONCEPT:EG-098): gates the `Op::SensorFuse { streams,
+# tolerance_ns }` TRANSFORM/SOURCE op of the cross-modal plan AST. The op lives inside the
+# `query`-gated `Op` enum, so this implies `query`. PURE serde — the time-alignment
+# (successive eg-tsdb ASOF backward-joins over heterogeneous sensor streams) lives in
+# eg-tsdb, and the executor in eg-plan, both behind eg-plan's own `timeseries` gate; this
+# only adds one enum variant (Pi-safe wire data, no dep). Mirrors `tensor`/`stream`.
+timeseries = ["query"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
