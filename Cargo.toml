@@ -56,6 +56,24 @@ algorithms = []
 # gauges and a /metrics HTTP listener (--metrics-addr). ON by default; opt out
 # with --no-default-features for a leaner lib-only build.
 metrics = ["dep:prometheus", "eg-types/metrics"]
+# OpenTelemetry OTLP span export (CONCEPT:EG-091). Layers a `tracing-opentelemetry`
+# batch OTLP exporter ON TOP of the existing `tracing` subscriber, additively: it
+# installs ONLY when built with this feature AND `EPISTEMIC_GRAPH_OTLP_ENDPOINT` is
+# set, exporting the spans the engine already emits — no new spans, no behavior
+# change when off/unset. All four deps are OPTIONAL + referenced only under
+# `#[cfg(feature = "otel")]`, so a default/pi/full build links NONE of them
+# (asserted by `cargo tree`). Implies `server` (the subscriber init lives there +
+# tracing-subscriber is server-gated). Pulls tonic/prost/network, so it is kept OUT
+# of `pi` — and deliberately NOT folded into `node`/`full` here: the orchestrator
+# folds `otel` into node/full at merge time (avoids a tier-line merge conflict with
+# concurrent waves).
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+    "server",
+]
 finance = ["eg-compute/finance", "eg-types/finance"]
 ast = ["eg-compute/ast"]
 # Extended-language grammar tier (CONCEPT:KG-2.106), folded into `full`.
@@ -499,6 +517,15 @@ futures = { version = "0.3", optional = true }
 # Optional Prometheus observability (feature `metrics`, on by default).
 # default-features = false drops the protobuf encoder — text exposition only.
 prometheus = { version = "0.14", optional = true, default-features = false }
+# Optional OpenTelemetry OTLP span export (feature `otel`, CONCEPT:EG-091). All
+# four are OPTIONAL + referenced ONLY under #[cfg(feature = "otel")], so a
+# default/pi/full build links none of them (nor tonic/prost/network) — asserted
+# by `cargo tree`. The batch span processor runs on the tokio runtime
+# (`opentelemetry_sdk` `rt-tokio`); `grpc-tonic` is the OTLP transport.
+opentelemetry = { version = "0.31", optional = true }
+opentelemetry_sdk = { version = "0.31", optional = true, features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", optional = true, features = ["grpc-tonic"] }
+tracing-opentelemetry = { version = "0.32", optional = true }
 hmac = "0.12"
 hex = "0.4"
 rmp-serde = "1.3"
