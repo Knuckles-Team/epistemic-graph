@@ -239,6 +239,81 @@ pub(crate) async fn try_handle(
             let delivered = crate::broker::publish(&core, &exchange, &routing_key, &payload);
             Response::ok(req_id, ResultPayload::Count(delivered as u64))
         }
+        // ── Broker policy extensions (CONCEPT:EG-276..280) ───────────────
+        // Same handler home + durable/deterministic contract as EG-275: each mutates
+        // control-graph nodes from explicit args (caller-supplied `now_ms`), so
+        // `wal::apply` replays them identically. Consume/ack/reject reuse the CAS +
+        // claim primitives internally.
+        #[cfg(feature = "broker")]
+        Method::DeclareQueue {
+            queue,
+            dl_exchange,
+            dl_routing_key,
+            max_delivery_count,
+            message_ttl_ms,
+            queue_expiry_ms,
+            max_priority,
+        } => {
+            let policy = crate::broker::QueuePolicy {
+                dl_exchange,
+                dl_routing_key,
+                max_delivery_count,
+                message_ttl_ms,
+                queue_expiry_ms,
+                max_priority,
+            };
+            crate::broker::declare_queue(&core, &queue, &policy);
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
+        }
+        #[cfg(feature = "broker")]
+        Method::PublishEx {
+            exchange,
+            routing_key,
+            payload,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let delivered = crate::broker::publish_ex(
+                &core, &exchange, &routing_key, &payload, priority, delay_ms, ttl_ms, now_ms,
+            );
+            Response::ok(req_id, ResultPayload::Count(delivered as u64))
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerConsume {
+            queue,
+            group,
+            consumer,
+            now_ms,
+            lease_ms,
+            prefetch,
+        } => {
+            let claimed = crate::broker::broker_consume(
+                &core, &queue, &group, &consumer, now_ms, lease_ms, prefetch,
+            );
+            Response::ok(req_id, ResultPayload::raw(&claimed))
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerAck { queue, node_id } => {
+            let existed = crate::broker::broker_ack(&core, &queue, &node_id);
+            Response::ok(req_id, ResultPayload::Bool(existed))
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerReject {
+            queue,
+            node_id,
+            requeue,
+            now_ms,
+        } => {
+            let outcome = crate::broker::broker_reject(&core, &queue, &node_id, requeue, now_ms);
+            Response::ok(req_id, ResultPayload::String(outcome))
+        }
+        #[cfg(feature = "broker")]
+        Method::SweepExpired { now_ms } => {
+            let acted = crate::broker::sweep_expired(&core, now_ms);
+            Response::ok(req_id, ResultPayload::Count(acted as u64))
+        }
         Method::GetNodePropertiesBatch { node_ids } => {
             if node_ids.len() > MAX_BATCH_IDS {
                 return Response::err(

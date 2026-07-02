@@ -39,6 +39,14 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::BindQueue { .. }
             | Method::UnbindQueue { .. }
             | Method::Publish { .. }
+            // Broker policy extensions (CONCEPT:EG-276..280) all mutate control-graph
+            // nodes (policy/message/dead-letter/claim state) → writes.
+            | Method::DeclareQueue { .. }
+            | Method::PublishEx { .. }
+            | Method::BrokerConsume { .. }
+            | Method::BrokerAck { .. }
+            | Method::BrokerReject { .. }
+            | Method::SweepExpired { .. }
     ) {
         return true;
     }
