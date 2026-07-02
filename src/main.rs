@@ -807,6 +807,33 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── SQLite-compatible served surface (CONCEPT:EG-075) ────────────────
+    // Opt-in AND feature-gated: the listener starts ONLY when built `--features
+    // sqlite-wire` AND EPISTEMIC_GRAPH_SQLITE_ADDR is set. With the feature off, or on
+    // but unset, this is a no-op. SQLite has no wire protocol, so this speaks a tiny
+    // NDJSON-over-TCP request/response line protocol, translating SQLite-dialect SQL and
+    // running it through the SAME shared `WireSession` the pgwire shim uses (EG-074).
+    // Deploy-configurable (CONCEPT:EG-022): a bare enable token binds the safe localhost
+    // default `127.0.0.1:5461`, a bare port binds loopback:port, a full addr verbatim.
+    #[cfg(feature = "sqlite-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::sqlite_wire::SQLITE_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:5461",
+    ) {
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(listener) => {
+                info!("sqlite-wire: serving SQLite-dialect SQL (NDJSON) on {}", addr);
+                let sq_state = state.clone();
+                tokio::spawn(async move {
+                    epistemic_graph::server::sqlite_wire::serve(listener, sq_state).await;
+                });
+            }
+            Err(e) => tracing::error!("sqlite-wire bind {} failed: {}", addr, e),
+        }
+    }
+
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
