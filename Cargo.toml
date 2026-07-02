@@ -403,6 +403,24 @@ broker = ["eg-core/broker", "eg-types/broker"]
 # folded into node/full/cluster here — the orchestrator folds it at merge time.
 amqp-wire = ["broker", "server"]
 # EG-275: fold broker/amqp-wire into cluster
+# MQTT 3.1.1 (+ basic 5.0) wire listener (CONCEPT:EG-281): a HAND-ROLLED MQTT server (no
+# heavy MQTT crate — the Pi contract) that maps CONNECT/PUBLISH/SUBSCRIBE/… onto the
+# `broker` TOPIC exchange + per-session queues via the engine dispatch (MQTT `+`/`#`
+# filters → broker topic bindings). Needs `broker` + `server` (the listener rides the
+# Tokio transport). The listener only starts when ALSO configured via
+# EPISTEMIC_GRAPH_MQTT_ADDR. Kept OUT of pi (a network listener) and NOT folded into
+# node/full/cluster here — the orchestrator folds it at merge time.
+# EG-281: fold mqtt-wire into node/full/cluster
+mqtt-wire = ["broker", "server"]
+# STOMP 1.2 wire listener (CONCEPT:EG-282): a HAND-ROLLED STOMP text-frame server (no
+# heavy STOMP crate — the Pi contract) that maps CONNECT/SEND/SUBSCRIBE/ACK/… onto the
+# `broker` primitives (STOMP destinations → a broker exchange + per-subscription queues)
+# via the engine dispatch. Needs `broker` + `server` (the listener rides the Tokio
+# transport). The listener only starts when ALSO configured via
+# EPISTEMIC_GRAPH_STOMP_ADDR. Kept OUT of pi (a network listener) and NOT folded into
+# node/full/cluster here — the orchestrator folds it at merge time.
+# EG-282: fold stomp-wire into node/full/cluster
+stomp-wire = ["broker", "server"]
 # MSSQL TDS wire-protocol listener (CONCEPT:EG-077) — the MSSQL `WireProtocol` adapter
 # (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` (the Pi
 # contract: NO server-side `tiberius`/`tds` crate), so it adds NO new dependency —
