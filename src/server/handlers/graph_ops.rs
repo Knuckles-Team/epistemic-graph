@@ -314,6 +314,91 @@ pub(crate) async fn try_handle(
             let acted = crate::broker::sweep_expired(&core, now_ms);
             Response::ok(req_id, ResultPayload::Count(acted as u64))
         }
+        // ── Replayable append-log streams (CONCEPT:EG-283) ───────────────
+        // Same handler home + durable/deterministic contract as EG-275/276..280: each
+        // mutation writes control-graph nodes from explicit args (caller `now_ms` +
+        // durable counters), so `wal::apply` replays them identically. Reads are pure.
+        #[cfg(feature = "broker")]
+        Method::StreamDeclare {
+            stream,
+            max_messages,
+            max_age_ms,
+        } => {
+            let retention = crate::broker::StreamRetention {
+                max_messages,
+                max_age_ms,
+            };
+            crate::broker::declare_stream(&core, &stream, &retention);
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamPublish {
+            stream,
+            payload,
+            now_ms,
+        } => {
+            let offset = crate::broker::stream_publish(&core, &stream, &payload, now_ms);
+            Response::ok(req_id, ResultPayload::Count(offset as u64))
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamRead {
+            stream,
+            from_offset,
+            max,
+        } => {
+            let from = crate::broker::ReadFrom::from_wire(from_offset);
+            let msgs = crate::broker::stream_read(&core, &stream, from, max as usize);
+            Response::ok(req_id, ResultPayload::raw(&msgs))
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamTrim { stream, now_ms } => {
+            let dropped = crate::broker::stream_trim(&core, &stream, now_ms);
+            Response::ok(req_id, ResultPayload::Count(dropped as u64))
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamCommitOffset {
+            stream,
+            group,
+            offset,
+        } => {
+            crate::broker::commit_offset(&core, &stream, &group, offset);
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamCommittedOffset { stream, group } => {
+            let committed = crate::broker::committed_offset(&core, &stream, &group);
+            Response::ok(req_id, ResultPayload::raw(&committed))
+        }
+        // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-284) ──────
+        #[cfg(feature = "broker")]
+        Method::PublishConfirmed {
+            exchange,
+            routing_key,
+            payload,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let token = crate::broker::publish_confirmed(
+                &core, &exchange, &routing_key, &payload, priority, delay_ms, ttl_ms, now_ms,
+            );
+            Response::ok(req_id, ResultPayload::raw(&token))
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerAckTag { delivery_tag } => {
+            let existed = crate::broker::broker_ack_tag(&core, delivery_tag);
+            Response::ok(req_id, ResultPayload::Bool(existed))
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerNackTag {
+            delivery_tag,
+            requeue,
+            now_ms,
+        } => {
+            let outcome = crate::broker::broker_nack_tag(&core, delivery_tag, requeue, now_ms);
+            Response::ok(req_id, ResultPayload::String(outcome))
+        }
         Method::GetNodePropertiesBatch { node_ids } => {
             if node_ids.len() > MAX_BATCH_IDS {
                 return Response::err(
