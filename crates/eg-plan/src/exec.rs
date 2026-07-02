@@ -206,6 +206,16 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "tensor")]
         Op::TensorOp { kind } => Ok(tensor_op(ctx.view, input, kind)),
 
+        // TRANSFORM (probabilistic, CONCEPT:EG-086) — score each row by a closed-form
+        // probabilistic query (expectation / marginal / conditional posterior / seeded
+        // sample) over its stored `Distribution` value and re-order by that score
+        // descending, dropping rows without a valid distribution or where the query does
+        // not apply. Gated behind `probabilistic`; the variant only exists when
+        // eg-types/probabilistic is on (pulled by eg-plan/probabilistic), so a build
+        // without it has neither the variant nor this arm (the tensor/stream precedent).
+        #[cfg(feature = "probabilistic")]
+        Op::Probabilistic { query } => Ok(probabilistic_op(ctx.view, input, query)),
+
         // TRANSFORM (stream, CONCEPT:EG-088) — interpret the input RowSet as a
         // time-ordered event stream and run the eg-stream bounded NFA CEP engine over it,
         // keeping the rows that participate in a match. Gated behind `stream`; the variant
@@ -1139,6 +1149,78 @@ fn apply_tensor_op(
             };
             Ok(t.elementwise(o, *scalar))
         }
+    }
+}
+
+// ── the probabilistic leg — eg-types Distribution + eg-compute Bayes (EG-086) ────
+
+/// TRANSFORM (probabilistic, CONCEPT:EG-086): evaluate `query` against each row's stored
+/// `Distribution` value and SCORE the row with the closed-form result, returning the rows
+/// re-ordered by that score DESCENDING — a ranked RowSet a downstream `Limit` respects,
+/// exactly like `Rank`. Rows whose `distribution` property is missing/invalid, or where
+/// the query does not apply (an unsupported `Conditional` conjugate pair), are DROPPED.
+/// Deterministic: a `Sample { seed }` draws the SAME value every run (no RNG-from-clock).
+#[cfg(feature = "probabilistic")]
+fn probabilistic_op(view: &GraphView, input: RowSet, query: &eg_types::wire::ProbQuery) -> RowSet {
+    let mut scored: Vec<(String, f32)> = input
+        .rows()
+        .iter()
+        .filter_map(|r| {
+            let dist = row_distribution(view, &r.id)?;
+            let val = eval_prob_query(&dist, query)?;
+            Some((r.id.clone(), val as f32))
+        })
+        .collect();
+    // Descending by score → a ranked order (a NaN score sorts last, never above a real one).
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    RowSet::from_scored(scored)
+}
+
+/// Read node `id`'s distribution from the conventional `distribution` property of its
+/// blob (CONCEPT:EG-086), decoding the tagged serde form of `eg_types::Distribution`.
+#[cfg(feature = "probabilistic")]
+fn row_distribution(view: &GraphView, id: &str) -> Option<eg_types::Distribution> {
+    let blob = view.node_properties.get(id)?;
+    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    serde_json::from_value::<eg_types::Distribution>(v.get("distribution")?.clone()).ok()
+}
+
+/// Lower the pure-serde wire `ProbQuery` (eg-types) onto the real distribution math: the
+/// `Distribution` moment/pdf/pmf/sample methods (eg-types) + the conjugate
+/// `bayesian_update` (eg-compute) behind the `probabilistic` gate (CONCEPT:EG-086).
+/// Returns `None` when the query does not apply (unsupported conjugate pair) so the
+/// caller drops the row.
+#[cfg(feature = "probabilistic")]
+fn eval_prob_query(dist: &eg_types::Distribution, query: &eg_types::wire::ProbQuery) -> Option<f64> {
+    use eg_types::wire::{ProbEvidenceSpec, ProbQuery};
+    match query {
+        ProbQuery::Expectation => Some(dist.mean()),
+        ProbQuery::Marginal { at, label } => Some(match label {
+            Some(l) => dist.pmf(l),
+            None => dist.pdf(*at),
+        }),
+        ProbQuery::Conditional { evidence } => {
+            let ev = match evidence {
+                ProbEvidenceSpec::Bernoulli {
+                    successes,
+                    failures,
+                } => eg_compute::probabilistic::Evidence::Bernoulli {
+                    successes: *successes,
+                    failures: *failures,
+                },
+                ProbEvidenceSpec::Gaussian {
+                    observations,
+                    known_variance,
+                } => eg_compute::probabilistic::Evidence::Gaussian {
+                    observations: observations.clone(),
+                    known_variance: *known_variance,
+                },
+            };
+            eg_compute::probabilistic::bayesian_update(dist, &ev)
+                .ok()
+                .map(|post| post.mean())
+        }
+        ProbQuery::Sample { seed } => Some(dist.sample(*seed)),
     }
 }
 
