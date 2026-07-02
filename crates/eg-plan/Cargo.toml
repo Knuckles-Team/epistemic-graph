@@ -106,6 +106,14 @@ tensor = ["query", "dep:eg-tensor", "eg-types/tensor"]
 # EG-067 `Op::Window` is the plan-side windowing primitive; the live standing-query loop
 # fed by the EG-064 CDC bus is a documented follow-up.
 stream = ["query", "dep:eg-stream", "eg-types/stream"]
+# Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
+# `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
+# only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete
+# planner POSTs to an OpenAI-compatible endpoint over the SAME pure-Rust rustls client
+# `ureq` the `federation` sources already pull — NO new HTTP dep, NO openssl — so it is
+# OFF by default and the facade folds it into node/full but NEVER `pi` (the Pi contract:
+# a `pi` build links no ureq/rustls/ring).
+nl-query = ["query", "dep:ureq"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its

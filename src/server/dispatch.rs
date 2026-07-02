@@ -730,6 +730,27 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
         }
 
         // ── Graph operations (dispatch to target graph) ──────────────
+        // Natural-language query (CONCEPT:EG-078/EG-080): the graph rides the METHOD
+        // (the `/nl` HTTP facade path has no request envelope), so route to the method's
+        // `graph`, falling back to the request envelope's graph when it is empty. The
+        // handler (behind `nl-query`) turns NL→UQL and runs the deterministic
+        // `UnifiedQueryText` pipeline; a build without `nl-query` reaches the graph_ops
+        // "not available" catch-all like any other feature-off method.
+        Method::NlQuery { ref graph, .. } => {
+            let target = if graph.is_empty() {
+                req.graph.clone()
+            } else {
+                graph.clone()
+            };
+            dispatch_graph_op(
+                state,
+                &target,
+                req.id,
+                req.agent_id.as_deref(),
+                req.method,
+            )
+            .await
+        }
         _ => {
             dispatch_graph_op(
                 state,
