@@ -1730,7 +1730,7 @@ fn parse_drop_extension(sql: &str) -> Option<(String, bool)> {
 /// Whether `sql` begins `CREATE [OR REPLACE] FUNCTION …` (case-insensitive). Used to
 /// route to the textual [`parse_create_function`] before the parser (CONCEPT:EG-118).
 fn is_create_function(sql: &str) -> bool {
-    let mut toks = sql.trim_start().split_whitespace();
+    let mut toks = sql.split_whitespace();
     if !toks.next().is_some_and(|t| t.eq_ignore_ascii_case("CREATE")) {
         return false;
     }
@@ -1754,7 +1754,7 @@ fn is_create_function(sql: &str) -> bool {
 
 /// Whether `sql` begins `DROP FUNCTION …` (case-insensitive) (CONCEPT:EG-118).
 fn is_drop_function(sql: &str) -> bool {
-    let mut toks = sql.trim_start().split_whitespace();
+    let mut toks = sql.split_whitespace();
     toks.next().is_some_and(|t| t.eq_ignore_ascii_case("DROP"))
         && toks.next().is_some_and(|t| t.eq_ignore_ascii_case("FUNCTION"))
 }
