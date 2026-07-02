@@ -33,8 +33,8 @@ pub use exec::{
 };
 // CONCEPT:EG-114/116/117/119 — Postgres-family extension parity plans + planners.
 pub use pgfamily::{
-    parse_create_ann_index, parse_cypher_call, plan_ann_search, plan_bm25_search,
-    project_cypher_rows, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan, ContinuousAggPlan,
-    CypherCallPlan, CypherColumn, HypertablePlan, VectorMetric,
+    cypher_output_columns, parse_create_ann_index, parse_cypher_call, plan_ann_search,
+    plan_bm25_search, project_cypher_rows, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan,
+    ContinuousAggPlan, CypherCallPlan, CypherColumn, HypertablePlan, VectorMetric,
 };
 pub use providers::SqlCache;

@@ -355,6 +355,30 @@ pub fn project_cypher_rows(
     })
 }
 
+/// The typed output columns an AGE `cypher()` call produces (CONCEPT:EG-114) — the
+/// `AS` column list narrowed by the outer projection. Used by the pgwire Describe step
+/// (extended protocol) to report the `RowDescription` WITHOUT executing the Cypher.
+/// Lenient: an unknown projected name is dropped (Describe never errors).
+pub fn cypher_output_columns(plan: &CypherCallPlan) -> Vec<TypedColumn> {
+    let idx: Vec<usize> = match &plan.projection {
+        None => (0..plan.columns.len()).collect(),
+        Some(names) => names
+            .iter()
+            .filter_map(|n| {
+                plan.columns
+                    .iter()
+                    .position(|c| c.name.eq_ignore_ascii_case(n))
+            })
+            .collect(),
+    };
+    idx.into_iter()
+        .map(|i| TypedColumn {
+            name: plan.columns[i].name.clone(),
+            ty: pg_type_of(&plan.columns[i].type_name),
+        })
+        .collect()
+}
+
 /// Map a raw SQL type spelling to the coarse pg-mappable wire type (CONCEPT:EG-114).
 /// AGE's `agtype` (and any JSON-ish type) surfaces as text.
 pub(crate) fn pg_type_of(type_name: &str) -> PgColType {

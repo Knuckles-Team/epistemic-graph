@@ -821,6 +821,65 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DROP EXTENSION", r)
         }
+        // ── Postgres-family extension parity (wave 19) ──────────────────────────
+        // CONCEPT:EG-114 — Apache AGE cypher() is a read; run it + project the agtype
+        // result onto the AS columns, returning a result set (like the read path).
+        K::CypherCall(plan) => {
+            #[cfg(feature = "cypher")]
+            {
+                let core = core.clone();
+                let r = compute_off_lock(req_id, move || {
+                    let snap = core.analysis_snapshot();
+                    let result = eg_query::exec_cypher(&snap, &plan.cypher)?;
+                    let typed = eg_query::project_cypher_rows(
+                        &result,
+                        &plan.columns,
+                        plan.projection.as_deref(),
+                    )?;
+                    Ok::<_, String>(crate::protocol::QueryResult {
+                        columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                        rows: typed
+                            .rows
+                            .iter()
+                            .map(|row| rmp_serde::to_vec_named(row).unwrap_or_default())
+                            .collect(),
+                    })
+                })
+                .await;
+                match r {
+                    Ok(Ok(result)) => Response::ok(
+                        req_id,
+                        ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
+                    ),
+                    Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
+                    Err(resp) => resp,
+                }
+            }
+            #[cfg(not(feature = "cypher"))]
+            {
+                let _ = plan;
+                Response::err(
+                    req_id,
+                    "SQL error: cypher() (Apache AGE) requires the engine's `cypher` feature"
+                        .to_string(),
+                )
+            }
+        }
+        // CONCEPT:EG-116 — acknowledge the pgvector ANN index (brute-force EG-115 still
+        // serves NN queries; durable catalog + eg-ann pushdown is a follow-up).
+        K::CreateAnnIndex(_) => sql_write_ack(req_id, "CREATE INDEX", Ok(Ok(0))),
+        // CONCEPT:EG-117 — accept the hypertable declaration (metadata durability is a
+        // follow-up).
+        K::CreateHypertable(_) => sql_write_ack(req_id, "CREATE TABLE", Ok(Ok(0))),
+        // CONCEPT:EG-117 — lower the continuous aggregate onto the durable view catalog.
+        K::CreateContinuousAggregate(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store.create_view(&plan.name, &plan.select_sql, true).map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "CREATE MATERIALIZED VIEW", r)
+        }
         // `COPY … FROM STDIN` is a streamed, connection-stateful pgwire op (rows arrive
         // as CopyData frames), with no single-request wire form.
         K::CopyIn(_) => Response::err(
