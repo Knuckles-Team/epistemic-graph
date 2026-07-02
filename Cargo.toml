@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm", "crates/eg-graphql"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm", "crates/eg-graphql"]
 
 [package]
 name = "epistemic-graph"
@@ -149,6 +149,19 @@ geo = ["query", "dep:eg-plan", "eg-plan/geo", "eg-types/geo"]
 # full — kept OUT of `pi` (which stays the lean minimal tier). A default/pi build links
 # NO eg-tensor (asserted by `cargo tree`).
 tensor = ["query", "dep:eg-plan", "eg-plan/tensor", "eg-types/tensor"]
+# Event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-088): the
+# `Op::Cep { pattern }` TRANSFORM op — interpret a RowSet as a time-ordered event stream
+# and run a bounded NFA (Sequence/Within/Absence over sliding/tumbling windows) — so a
+# CEP match composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
+# `stream` (the executor + the pure-Rust eg-stream leaf crate: bounded NFA CEP engine +
+# per-event attribute predicates — serde + serde_json only, NO tokio/async/C dep), which
+# IMPLIES `query` (the op lives inside the `query`-gated `Op` enum). PURE-RUST so it is
+# Pi-SAFE by construction, but streaming CEP is NOT a Pi requirement, so it is OFF by
+# default and folded into node/full — kept OUT of `pi` (which stays the lean minimal
+# tier). A default/pi build links NO eg-stream (asserted by `cargo tree`). EG-067
+# `Op::Window` is the windowing primitive; the live standing-query loop fed by the EG-064
+# CDC bus is a documented follow-up.
+stream = ["query", "dep:eg-plan", "eg-plan/stream", "eg-types/stream"]
 # Dep-free Cypher query surface (CONCEPT:KG-2.179): `MATCH … RETURN …` compiled to
 # the engine's own primitives (label index / VF2 / BFS) — NO DataFusion, so it is a
 # HARD requirement of the lean Pi tier. A `cypher`-only build links no DataFusion
@@ -333,7 +346,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -353,7 +366,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
