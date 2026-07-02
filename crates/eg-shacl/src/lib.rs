@@ -28,6 +28,7 @@
 //! [`check_write`] guard for constraint-enforced transactions.
 
 pub mod icv;
+pub mod policy;
 pub mod report;
 pub mod shapes;
 pub mod validate;
@@ -37,6 +38,7 @@ pub use icv::{
     check_write, validate_icv, validate_icv_turtle, validate_icv_with_inferences, IcvReport,
     IcvViolation, WriteCheck,
 };
+pub use policy::{IcvMode, IcvPolicy, IcvPolicyRegistry};
 pub use report::{Severity, ValidationReport, ValidationResult};
 pub use validate::{graph_from_turtle, validate, validate_turtle};
 
