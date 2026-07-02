@@ -23,18 +23,18 @@ pub use sql::{
     exec_sql_typed, exec_sql_typed_with_tables, infer_param_sites, parse_create_ann_index,
     parse_cypher_call, plan_ann_search, plan_bm25_search, project_cypher_rows, returning_columns,
     schema_probe_sql, AlterTablePlan, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan,
-    ColumnDef, ContinuousAggPlan, CopyFormat, CopyPlan, CreateTablePlan, CreateViewPlan,
-    CypherCallPlan, CypherColumn, DeleteNodes, DeleteNodesJoin, DeleteTable, DropTablePlan,
-    DropViewPlan, HypertablePlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
-    InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite, PgColType, QueryResult,
-    SqlCache, StatementKind, TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes,
-    UpdateNodesJoin, UpdateTable, VectorMetric, WhereEq,
+    ColumnDef, ContinuousAggPlan, CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan,
+    CreateViewPlan, CypherCallPlan, CypherColumn, DeleteNodes, DeleteNodesJoin, DeleteTable,
+    DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan, InsertNode, InsertNodes,
+    InsertNodesSelect, InsertSelect, InsertTable, OnConflict, OnConflictAction, ParamLiteralType,
+    ParamSite, PgColType, QueryResult, SqlCache, StatementKind, TableWhereEq, TypedColumn,
+    TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, VectorMetric, WhereEq,
 };
 
 #[cfg(feature = "sql")]
 pub use tables::{
-    Cell, CmpOp, ColCheck, Column, ColumnType, ConflictAction, TableSchema, TableStore, TableTxn,
-    TxnOp,
+    Cell, CmpOp, ColCheck, Column, ColumnType, ConflictAction, FunctionArg, FunctionReturns,
+    StoredFunction, TableSchema, TableStore, TableTxn, TxnOp,
 };
 
 #[cfg(feature = "cypher")]
