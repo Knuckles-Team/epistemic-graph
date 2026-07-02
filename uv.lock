@@ -144,7 +144,7 @@ toml = [
 
 [[package]]
 name = "epistemic-graph"
-version = "1.0.0"
+version = "2.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "msgpack" },
