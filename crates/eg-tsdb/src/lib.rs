@@ -21,6 +21,10 @@
 //! The ONE decay curve both the series `decay_weighted_mean` and the engine's
 //! semantic-memory confidence decay use lives in `eg_core::decay` (CONCEPT:KG-2.211).
 
+// CONCEPT:EG-089 — the native columnar (struct-of-arrays) segment for analytical
+// scans. Pure-Rust + serde only (no Arrow/DataFusion/redb), so it compiles in the
+// lean / Pi build exactly like `point`/`query` — always on, no feature gate.
+pub mod columnar;
 pub mod point;
 pub mod query;
 pub mod time_op;
