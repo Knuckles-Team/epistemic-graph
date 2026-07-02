@@ -282,6 +282,55 @@ flowchart LR
 - Auto-checkpoints run every `--checkpoint-interval` seconds and on `SIGTERM`.
 - In the cluster tier, openraft replicates the authoritative store across nodes.
 
+### Online backup / restore (CONCEPT:EG-090)
+
+The redb tier takes a **consistent backup while the engine keeps serving** — no quiesce,
+no downtime. Per shard it opens a `begin_read()` MVCC snapshot (CONCEPT:EG-027) and streams
+every table **verbatim** into a portable *backup bundle*: a directory of `graph.redb` /
+`graph-<n>.redb` shard files plus a `MANIFEST.json` (format version, engine version, shard
+count K, timestamp + label, row totals). Because the copy is byte-for-byte, encryption-at-rest
+ciphertext and the tamper-evident KG-2.231 audit chain survive without the key and stay
+verifiable. Cross-shard consistency rides commit-before-ack (CONCEPT:KG-2.187): any acked write
+is already durably committed, so each per-shard snapshot is a self-consistent committed prefix.
+
+Trigger it live over the wire (mirrors the EG-038 admin RPCs):
+
+```jsonc
+// Backup: stream a bundle to a directory.
+{"method": {"Backup": {"destination": "/backups/eg-2026-07-01", "label": "nightly"}}}
+// Restore: the running engine holds an exclusive lock on its live persist dir, so this
+// STAGES the rebuilt copy in a sibling dir (returned as `staged_dir`) for you to swap in
+// after stopping the engine.
+{"method": {"Restore": {"source": "/backups/eg-2026-07-01"}}}
+```
+
+For an **in-place** restore, stop the engine and use the offline CLI (it can also re-shard on
+restore — every graph re-routed by the same EG-026 `FNV-1a % K`):
+
+```bash
+# Restore at the bundle's own K.
+restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/epistemic-graph/data
+# Re-shard on restore.
+restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/eg-k8 --shards 8
+```
+
+Both paths are redb-only; a non-redb build returns a clean "not available" error.
+
+### Point-in-time recovery (PITR)
+
+Backup + restore are the low-RPO/RTO DR primitives. PITR to a target instant `T` is:
+
+1. **Restore** the most recent backup bundle taken at or before `T` (`restore` CLI, above) —
+   this rebuilds the durable store to that bundle's crash-consistent point.
+2. **Replay the durable ledger/WAL tail forward** from the bundle's timestamp up to `T`. The
+   per-graph `LEDGER` table (`(graph, seq) → line`) captured verbatim in the bundle is the
+   ordered, timestamped durable history; replaying its entries whose commit time `≤ T` (and
+   discarding the tail beyond `T`) rolls the store to the exact instant. Restoring a *fresh*
+   bundle with no replay recovers to the backup instant (RPO = backup interval).
+
+The recovery objective is therefore tuned by backup cadence (RPO) and bundle size / shard count
+(RTO). Frequent bundles + ledger replay give a low-RPO, low-RTO disaster-recovery story.
+
 ## Observability
 
 With `--metrics-addr` set (default `0.0.0.0:9101` in the image), the server exposes

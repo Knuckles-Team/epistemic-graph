@@ -425,6 +425,26 @@ pub enum Method {
         max_moves: Option<usize>,
     },
 
+    // ── Online backup / restore + PITR (CONCEPT:EG-090) ──────────────
+    // The wire surface for the DR ops the durable store now supports: an ONLINE
+    // consistent backup (per-shard begin_read() MVCC snapshot, EG-027, streamed
+    // verbatim to a portable bundle reusing EG-030's raw-row copy) and a restore
+    // (verbatim import via the EG-030 engine). Redb-only; in a non-redb build they
+    // return a clean "not available" error, exactly like the EG-038 admin surface.
+    /// Take an ONLINE consistent backup of the durable store into `destination` (a bundle
+    /// directory), tagged with `label` (CONCEPT:EG-090). Returns a `BackupReport` JSON.
+    Backup {
+        destination: String,
+        label: Option<String>,
+    },
+    /// Restore from a backup bundle at `source` (CONCEPT:EG-090). The engine holds an
+    /// exclusive lock on its live store, so this stages the rebuilt copy in a sibling dir
+    /// (returned in the response) for the operator to swap in after stopping the engine;
+    /// an in-place restore uses the offline `restore` CLI. Returns a `RestoreReport` JSON.
+    Restore {
+        source: String,
+    },
+
     // ── Dynamic Communication Channels ───────────────────────────────
     CreateChannel {
         channel_id: String,
