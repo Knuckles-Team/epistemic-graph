@@ -158,7 +158,68 @@ pub(crate) async fn try_handle(
             rls,
         )
         .await),
+        // SHACL Core validation (CONCEPT:EG-132). Read-only. Gated `shacl`; a build
+        // without it drops this arm → `other => Err(other)` → the dispatch not-available
+        // catch-all (the variant is unconditional in the enum, like Backup/EG-090).
+        #[cfg(feature = "shacl")]
+        Method::ShaclValidate { shapes, data_graph } => {
+            Ok(handle_shacl_validate(state, req_id, graph_name, &core, shapes, data_graph).await)
+        }
         other => Err(other),
+    }
+}
+
+/// Validate the request graph (or an inline `data_graph` Turtle document) against a
+/// SHACL `shapes` Turtle document (CONCEPT:EG-132), returning a `Json`
+/// `sh:ValidationReport`. Read-only: an empty `data_graph` exports the LIVE graph's RDF
+/// (the same triples `GetRdf` serializes) and validates that.
+#[cfg(feature = "shacl")]
+async fn handle_shacl_validate(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+    shapes: String,
+    data_graph: String,
+) -> Response {
+    let shapes_graph = match eg_shacl::graph_from_turtle(&shapes) {
+        Ok(g) => g,
+        Err(e) => return Response::err(req_id, format!("ShaclValidate: bad shapes graph: {e}")),
+    };
+    // Data graph: an inline Turtle document, else the live graph's exported RDF.
+    let data = if data_graph.trim().is_empty() {
+        #[cfg(feature = "rdf-redb")]
+        let quads = state.read().await.rdf_quads.clone();
+        #[cfg(not(feature = "rdf-redb"))]
+        let _ = state;
+        let exported = eg_rdf::mapping::export_triples(
+            core,
+            graph_name,
+            #[cfg(feature = "rdf-redb")]
+            quads.as_deref(),
+        );
+        match exported {
+            Ok(triples) => {
+                let mut g = eg_shacl::Graph::new();
+                for t in &triples {
+                    g.insert(t);
+                }
+                g
+            }
+            Err(e) => {
+                return Response::err(req_id, format!("ShaclValidate: export live graph: {e}"))
+            }
+        }
+    } else {
+        match eg_shacl::graph_from_turtle(&data_graph) {
+            Ok(g) => g,
+            Err(e) => return Response::err(req_id, format!("ShaclValidate: bad data graph: {e}")),
+        }
+    };
+    let report = eg_shacl::validate(&shapes_graph, &data);
+    match serde_json::to_value(&report) {
+        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+        Err(e) => Response::err(req_id, format!("ShaclValidate: serialize report: {e}")),
     }
 }
 
