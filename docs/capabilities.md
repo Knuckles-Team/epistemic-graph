@@ -322,4 +322,3 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), OFF by default, never in `pi` |
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
-</content>
