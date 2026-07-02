@@ -98,6 +98,15 @@ pub use nl::{plan_and_execute, plan_and_execute_opt, NlPlanner, UreqNlPlanner};
 #[cfg(feature = "federation")]
 pub use federation::{source_for, ForeignSource};
 
+// The federation NAME-RESOLUTION seam (CONCEPT:EG-073): the by-name registry + the
+// registerable owned source kinds (spec-backed / table / closure) + the shared handle.
+// These complete `Op::Foreign` / a `Named` `Op::ForeignScan` — a name → live source →
+// rows resolution the executor consults via `PlanCtx::with_foreign`.
+#[cfg(feature = "federation")]
+pub use federation::{
+    ClosureSource, ForeignSourceRegistry, SharedForeignSource, SpecSource, TableSource,
+};
+
 // Re-export the lexical surface (CONCEPT:KG-2.215) so a caller wiring a text plan
 // names them through eg-plan: the BM25 index, the hit row, and the RRF helper.
 #[cfg(feature = "text")]
@@ -121,6 +130,12 @@ mod owl_tests;
 // a mock HTTP/JSON source joined with the local graph in ONE plan == the manual join.
 #[cfg(all(test, feature = "federation"))]
 mod federation_tests;
+
+// The federation NAME-REGISTRY proofs (CONCEPT:EG-073): a registered source resolves by
+// name (`Named` `Op::ForeignScan` + `Op::Foreign`), composes with a local Join, an
+// unbound name errors cleanly, and an empty/absent registry keeps the prior behavior.
+#[cfg(all(test, feature = "federation"))]
+mod federation_registry_tests;
 
 // The external-SQL federation proofs (CONCEPT:KG-2.239): an external relational-SQL
 // source (`ForeignSourceSpec::Sql`) joined with the local graph in ONE plan == the

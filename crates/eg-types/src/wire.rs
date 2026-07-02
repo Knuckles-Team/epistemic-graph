@@ -305,6 +305,19 @@ pub enum ForeignSourceSpec {
         #[serde(default)]
         score_field: Option<String>,
     },
+    /// A NAMED reference to a foreign source registered in the executor's
+    /// `ForeignSourceRegistry` (CONCEPT:EG-073). Unlike the self-describing variants
+    /// above (which carry the full connection spec inline), this carries ONLY a `name`
+    /// — the executor resolves it to a concrete, pre-registered [`ForeignSource`] at
+    /// plan time. This is the resolution seam the UQL `FOREIGN "<name>"` clause needs:
+    /// the parser only ever sees a name, and binding that name to a live source lives
+    /// with the server/facade (which owns the registry), not in the wire DTO. A `Named`
+    /// spec handed to a source builder WITHOUT a registry is a clean typed error, never
+    /// a silent empty set.
+    Named {
+        /// The registry key naming a pre-registered foreign source.
+        name: String,
+    },
 }
 
 /// Which JSON element fields become a RowSet row's id / score (for
