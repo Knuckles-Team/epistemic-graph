@@ -60,6 +60,18 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::BrokerAck { .. }
             | Method::BrokerReject { .. }
             | Method::SweepExpired { .. }
+            // Streams (CONCEPT:EG-283) + publisher-confirm / consumer-ack (CONCEPT:
+            // EG-284): the mutating variants (append/trim/commit/confirm/ack-tag/
+            // nack-tag) write control-graph nodes deterministically from explicit args
+            // (caller `now_ms` + durable counters), so replay reproduces them. Pure
+            // reads (`StreamRead`/`StreamCommittedOffset`) are NOT logged.
+            | Method::StreamDeclare { .. }
+            | Method::StreamPublish { .. }
+            | Method::StreamTrim { .. }
+            | Method::StreamCommitOffset { .. }
+            | Method::PublishConfirmed { .. }
+            | Method::BrokerAckTag { .. }
+            | Method::BrokerNackTag { .. }
     ) {
         return true;
     }
@@ -412,6 +424,68 @@ pub fn apply(core: &GraphCore, m: &Method) {
         #[cfg(feature = "broker")]
         Method::SweepExpired { now_ms } => {
             let _ = crate::broker::sweep_expired(core, *now_ms);
+        }
+        // Streams (CONCEPT:EG-283) + confirms/acks (CONCEPT:EG-284): re-run the SAME
+        // broker fn with the SAME explicit args. Offsets/tags come from durable counter
+        // nodes and `now_ms` is logged, so message / commit / tag state is reproduced
+        // byte-identically. Results are ignored on replay.
+        #[cfg(feature = "broker")]
+        Method::StreamDeclare {
+            stream,
+            max_messages,
+            max_age_ms,
+        } => {
+            let retention = crate::broker::StreamRetention {
+                max_messages: *max_messages,
+                max_age_ms: *max_age_ms,
+            };
+            crate::broker::declare_stream(core, stream, &retention);
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamPublish {
+            stream,
+            payload,
+            now_ms,
+        } => {
+            let _ = crate::broker::stream_publish(core, stream, payload, *now_ms);
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamTrim { stream, now_ms } => {
+            let _ = crate::broker::stream_trim(core, stream, *now_ms);
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamCommitOffset {
+            stream,
+            group,
+            offset,
+        } => {
+            crate::broker::commit_offset(core, stream, group, *offset);
+        }
+        #[cfg(feature = "broker")]
+        Method::PublishConfirmed {
+            exchange,
+            routing_key,
+            payload,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let _ = crate::broker::publish_confirmed(
+                core, exchange, routing_key, payload, *priority, *delay_ms, *ttl_ms, *now_ms,
+            );
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerAckTag { delivery_tag } => {
+            let _ = crate::broker::broker_ack_tag(core, *delivery_tag);
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerNackTag {
+            delivery_tag,
+            requeue,
+            now_ms,
+        } => {
+            let _ = crate::broker::broker_nack_tag(core, *delivery_tag, *requeue, *now_ms);
         }
         _ => {}
     }

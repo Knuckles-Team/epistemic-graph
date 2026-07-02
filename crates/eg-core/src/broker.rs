@@ -667,6 +667,21 @@ pub fn broker_consume(
             },
         );
         if core.compare_and_set_fields(&cand.id, &conditions, &updates) {
+            // EG-284 at-least-once: on a successful claim allocate a broker-wide
+            // monotonic consumer delivery-tag, stamp it on the message, and write a
+            // reverse-lookup node so the consumer can ack/nack by tag without the id.
+            // Allocated AFTER the CAS so only genuinely-claimed messages consume a tag
+            // (deterministic: the tag counter is durable + replay re-runs this claim).
+            let tag = core.broker_next_counter(&dtag_seq_node_id(), BROKER_COUNTER_TYPE);
+            let mut tag_update = serde_json::Map::new();
+            tag_update.insert("delivery_tag".into(), serde_json::Value::from(tag));
+            core.compare_and_set_fields(&cand.id, &serde_json::Map::new(), &tag_update);
+            let lookup = serde_json::json!({
+                "type": DTAG_LOOKUP_TYPE,
+                "node_id": cand.id,
+                "queue": queue,
+            });
+            core.add_node(dtag_lookup_node_id(tag), to_msgpack(&lookup));
             let blob = core.get_node_properties(&cand.id)?;
             let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
             return Some((cand.id, val));
@@ -681,6 +696,13 @@ pub fn broker_consume(
 pub fn broker_ack(core: &GraphCore, _queue: &str, node_id: &str) -> bool {
     let existed = core.has_node(node_id);
     if existed {
+        // EG-284: drop the message's delivery-tag reverse-lookup node (if it was
+        // consumed via the tag path) so ack-by-id and ack-by-tag never leak it.
+        if let Some(o) = node_object(core, node_id) {
+            if let Some(tag) = o.get("delivery_tag").and_then(|v| v.as_i64()) {
+                core.remove_node(dtag_lookup_node_id(tag));
+            }
+        }
         core.remove_node(node_id.to_string());
     }
     existed
@@ -708,6 +730,12 @@ pub fn broker_reject(
         return "absent".into();
     };
     let dc = f_i64(obj, "delivery_count", 0);
+    // EG-284: retire this delivery's tag reverse-lookup — a requeue/dead-letter ends
+    // the current delivery, so the old tag must no longer resolve (a later re-claim
+    // issues a fresh tag). Harmless when the message was consumed by node-id.
+    if let Some(tag) = obj.get("delivery_tag").and_then(|v| v.as_i64()) {
+        core.remove_node(dtag_lookup_node_id(tag));
+    }
     let policy = load_queue_policy(core, queue);
     let under_max = policy
         .max_delivery_count
@@ -720,6 +748,7 @@ pub fn broker_reject(
         updates.insert("lease_until".into(), serde_json::Value::Null);
         updates.insert("owner_consumer".into(), serde_json::Value::Null);
         updates.insert("owner_group".into(), serde_json::Value::Null);
+        updates.insert("delivery_tag".into(), serde_json::Value::Null);
         core.compare_and_set_fields(node_id, &serde_json::Map::new(), &updates);
         return "requeued".into();
     }
@@ -866,6 +895,372 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
         }
     }
     acted
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Replayable append-log streams (CONCEPT:EG-283) + publisher confirms / consumer
+// QoS acks (CONCEPT:EG-284) — the Kafka-class retain+offset log and the
+// at-least-once confirm/ack surface, both ADDITIVE over EG-275/276..280.
+//
+// EG-283 STREAMS differ from the KG-2.303 work-queue in ONE way: a queue message
+// is DELETED on claim (consume), whereas a stream message is RETAINED and read by
+// offset (replay). A `Stream` is therefore a second message shape living ALONGSIDE
+// the queue shape on the same control graph — messages labeled `smsg:<stream>` with
+// a per-stream monotonic `offset` (from a durable counter node, exactly like the
+// queue seq), never removed by a read, only by an explicit retention trim. A queue
+// with no stream usage is byte-for-byte unchanged.
+//
+// EG-284 CONFIRMS/ACKS layer at-least-once on the EXISTING claim path: a
+// publisher-confirm allocates a broker-wide monotonic delivery-tag once the message
+// is durably enqueued (or nacks when the exchange is unknown), and every successful
+// [`broker_consume`] claim now stamps a monotonic consumer delivery-tag plus a
+// reverse-lookup node so a consumer can ack/nack by tag without knowing the node id.
+//
+// Determinism/atomicity: every counter bump + append + trim + tag allocation runs
+// under GraphCore's write guard and derives only from graph state + the EXPLICIT
+// `now_ms` (no server clock / RNG), so a WAL/Raft replay of the originating Method
+// reproduces byte-identical nodes — the same discipline EG-275/276..280 follow.
+// ══════════════════════════════════════════════════════════════════════════
+
+const STREAM_CONFIG_TYPE: &str = "BrokerStream";
+const STREAM_COMMIT_TYPE: &str = "BrokerStreamCommit";
+const DTAG_LOOKUP_TYPE: &str = "BrokerDeliveryTag";
+/// Type carried by the two broker-wide monotonic counter nodes (confirm + dtag).
+pub const BROKER_COUNTER_TYPE: &str = "BrokerCounter";
+/// Type carried by a stream's durable monotonic offset counter node.
+pub const STREAM_OFFSET_TYPE: &str = "BrokerStreamOffset";
+
+/// Node id for a stream's durable retention-policy / config node (CONCEPT:EG-283).
+pub fn stream_config_node_id(stream: &str) -> String {
+    format!("broker:stream:{stream}")
+}
+
+/// Node id for a stream's durable monotonic offset counter (CONCEPT:EG-283).
+pub fn stream_offset_node_id(stream: &str) -> String {
+    format!("broker:soff:{stream}")
+}
+
+/// The label a stream's RETAINED message nodes carry (CONCEPT:EG-283). Distinct from
+/// the queue label `qmsg:<queue>` so a stream is never scanned by the queue claim.
+pub fn stream_msg_label(stream: &str) -> String {
+    format!("smsg:{stream}")
+}
+
+/// Node id for the message appended to `stream` at `offset` (CONCEPT:EG-283).
+pub fn stream_msg_node_id(stream: &str, offset: i64) -> String {
+    format!("broker:smsg:{stream}:{offset}")
+}
+
+/// Node id for a consumer-group's committed read offset on a stream (CONCEPT:EG-283).
+/// The `\u{1}` delimiter cannot appear in a stream/group name, so the id is unique.
+pub fn stream_commit_node_id(stream: &str, group: &str) -> String {
+    format!("broker:scommit:{stream}\u{1}{group}")
+}
+
+/// Node id of the broker-wide monotonic publisher-confirm delivery-tag counter
+/// (CONCEPT:EG-284).
+pub fn confirm_seq_node_id() -> String {
+    "broker:confirm_seq".to_string()
+}
+
+/// Node id of the broker-wide monotonic consumer delivery-tag counter (CONCEPT:EG-284).
+pub fn dtag_seq_node_id() -> String {
+    "broker:dtag_seq".to_string()
+}
+
+/// Node id of the reverse-lookup node mapping a consumer `delivery_tag` → the claimed
+/// message node id + queue, so ack/nack-by-tag resolves in O(1) (CONCEPT:EG-284).
+pub fn dtag_lookup_node_id(tag: i64) -> String {
+    format!("broker:dtag:{tag}")
+}
+
+/// A stream's durable retention policy (CONCEPT:EG-283). Both bounds optional; an
+/// all-`None` policy (the default when no config node exists) makes the stream an
+/// unbounded append log that [`stream_trim`] never touches.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamRetention {
+    /// Keep at most this many newest messages; older ones are dropped on trim.
+    pub max_messages: Option<u64>,
+    /// Drop messages whose age (`now_ms - ts`) exceeds this many ms on trim.
+    pub max_age_ms: Option<u64>,
+}
+
+/// Where a [`stream_read`] starts (CONCEPT:EG-283): the earliest retained message
+/// (offset 0), only messages published AFTER now (the current end), or an explicit
+/// offset. Reads are inclusive of the resolved start offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadFrom {
+    /// From offset 0 (the earliest still-retained message).
+    Earliest,
+    /// From the current end — returns nothing now, used to resume "only new" reads.
+    Latest,
+    /// From an explicit offset (clamped at 0).
+    Offset(i64),
+}
+
+impl ReadFrom {
+    /// Decode the wire encoding used by `Method::StreamRead` (CONCEPT:EG-283): a
+    /// negative value ⇒ [`ReadFrom::Latest`]; otherwise an explicit offset (`0` is the
+    /// earliest). Keeps the protocol a single `i64` field, deterministic on replay.
+    pub fn from_wire(v: i64) -> Self {
+        if v < 0 {
+            ReadFrom::Latest
+        } else {
+            ReadFrom::Offset(v)
+        }
+    }
+}
+
+/// A publisher-confirm token (CONCEPT:EG-284): a broker-wide monotonic `delivery_tag`
+/// identifying the publish, plus whether the broker durably accepted it (`confirmed`)
+/// or nacked it (unknown exchange). Mirrors AMQP publisher confirms / Kafka acks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmToken {
+    pub delivery_tag: i64,
+    pub confirmed: bool,
+}
+
+/// Ensure a stream's durable monotonic offset counter node exists (starting at 0),
+/// mirroring [`ensure_queue_seq`] (CONCEPT:EG-283). Called on declare + publish so a
+/// declared-but-empty OR an undeclared-but-published stream is still monotonic.
+pub fn ensure_stream_offset(core: &GraphCore, stream: &str) {
+    let id = stream_offset_node_id(stream);
+    if !core.has_node(&id) {
+        let props = serde_json::json!({
+            "type": STREAM_OFFSET_TYPE,
+            "stream": stream,
+            "next_offset": 0,
+        });
+        core.add_node(id, to_msgpack(&props));
+    }
+}
+
+/// Declare (idempotently upsert) a stream's retention policy (CONCEPT:EG-283). Also
+/// ensures the offset counter exists so a freshly-declared stream is publishable.
+/// Re-declaring with a new policy replaces it (RabbitMQ-stream style), which never
+/// touches already-appended messages.
+pub fn declare_stream(core: &GraphCore, stream: &str, retention: &StreamRetention) {
+    ensure_stream_offset(core, stream);
+    let mut props = serde_json::Map::new();
+    props.insert("type".into(), serde_json::Value::String(STREAM_CONFIG_TYPE.into()));
+    props.insert("stream".into(), serde_json::Value::String(stream.into()));
+    if let Ok(v) = serde_json::to_value(retention) {
+        if let Some(o) = v.as_object() {
+            for (k, val) in o {
+                props.insert(k.clone(), val.clone());
+            }
+        }
+    }
+    core.add_node(
+        stream_config_node_id(stream),
+        to_msgpack(&serde_json::Value::Object(props)),
+    );
+}
+
+/// Read a stream's retention policy (CONCEPT:EG-283), or `None` if it was never
+/// declared (⇒ an unbounded append log).
+pub fn load_stream_retention(core: &GraphCore, stream: &str) -> Option<StreamRetention> {
+    let o = node_object(core, &stream_config_node_id(stream))?;
+    serde_json::from_value(serde_json::Value::Object(o)).ok()
+}
+
+/// The stream's current end offset — the value the NEXT publish will use, i.e. the
+/// count of offsets ever issued (CONCEPT:EG-283). `0` for an unknown/empty stream.
+pub fn stream_end_offset(core: &GraphCore, stream: &str) -> i64 {
+    node_object(core, &stream_offset_node_id(stream))
+        .and_then(|o| o.get("next_offset").and_then(|v| v.as_i64()))
+        .unwrap_or(0)
+}
+
+/// Append `payload` to `stream` and return its assigned monotonic offset
+/// (CONCEPT:EG-283). Ensures the offset counter, then atomically bumps it and writes
+/// one RETAINED message node (labeled `smsg:<stream>`) carrying the hex payload +
+/// `ts = now_ms`. Unlike a queue publish the message is NEVER auto-consumed; it is
+/// read by [`stream_read`] and only removed by [`stream_trim`]. Deterministic: the
+/// offset derives purely from the counter node and `now_ms` is explicit, so replay of
+/// `Method::StreamPublish` reproduces the identical node.
+pub fn stream_publish(core: &GraphCore, stream: &str, payload: &[u8], now_ms: u64) -> i64 {
+    ensure_stream_offset(core, stream);
+    let payload_hex = hex_encode(payload);
+    core.stream_append(stream, &payload_hex, now_ms)
+}
+
+/// Read up to `max` retained messages from `stream` starting at `from` (CONCEPT:
+/// EG-283 — replay). Returns `(offset, payload)` pairs in ascending offset order
+/// WITHOUT deleting anything, so the same range can be replayed any number of times.
+/// `max == 0` means no cap. `from` resolves earliest→0, latest→the current end (⇒
+/// empty), explicit→that offset (clamped at 0).
+pub fn stream_read(
+    core: &GraphCore,
+    stream: &str,
+    from: ReadFrom,
+    max: usize,
+) -> Vec<(i64, Vec<u8>)> {
+    let start = match from {
+        ReadFrom::Earliest => 0,
+        ReadFrom::Latest => stream_end_offset(core, stream),
+        ReadFrom::Offset(o) => o.max(0),
+    };
+    let label = stream_msg_label(stream);
+    let mut out: Vec<(i64, Vec<u8>)> = core
+        .get_nodes_by_label(&label, 0)
+        .into_iter()
+        .filter_map(|(_, blob)| {
+            let v = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            let o = v.as_object()?;
+            let offset = o.get("offset")?.as_i64()?;
+            if offset < start {
+                return None;
+            }
+            let payload = hex_decode(f_str(o, "payload"))?;
+            Some((offset, payload))
+        })
+        .collect();
+    out.sort_by_key(|(off, _)| *off);
+    if max > 0 && out.len() > max {
+        out.truncate(max);
+    }
+    out
+}
+
+/// Trim `stream` per its declared retention (CONCEPT:EG-283): drop messages beyond
+/// `max_messages` (oldest first) AND/OR older than `max_age_ms` (`now_ms - ts`),
+/// returning the number removed. An undeclared / all-`None` policy trims nothing (an
+/// unbounded log). Removal runs under ONE write guard; the drop set is offset-ordered
+/// so replay of `Method::StreamTrim` removes byte-identically.
+pub fn stream_trim(core: &GraphCore, stream: &str, now_ms: u64) -> usize {
+    let Some(ret) = load_stream_retention(core, stream) else {
+        return 0;
+    };
+    if ret.max_messages.is_none() && ret.max_age_ms.is_none() {
+        return 0;
+    }
+    // Snapshot (offset, ts, id), ascending by offset (oldest first).
+    let mut msgs: Vec<(i64, u64, String)> = core
+        .get_nodes_by_label(&stream_msg_label(stream), 0)
+        .into_iter()
+        .filter_map(|(id, blob)| {
+            let v = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            let o = v.as_object()?;
+            let offset = o.get("offset")?.as_i64()?;
+            let ts = f_u64(o, "ts").unwrap_or(0);
+            Some((offset, ts, id))
+        })
+        .collect();
+    msgs.sort_by_key(|(off, _, _)| *off);
+    let n = msgs.len();
+    let mut drop_ids: Vec<String> = Vec::new();
+    // Count bound: the oldest `n - max_messages` overflow.
+    if let Some(maxc) = ret.max_messages {
+        let maxc = maxc as usize;
+        if n > maxc {
+            for (_, _, id) in &msgs[0..(n - maxc)] {
+                drop_ids.push(id.clone());
+            }
+        }
+    }
+    // Age bound: anything older than the horizon (union with the count overflow).
+    if let Some(maxa) = ret.max_age_ms {
+        for (_, ts, id) in &msgs {
+            if now_ms.saturating_sub(*ts) > maxa && !drop_ids.contains(id) {
+                drop_ids.push(id.clone());
+            }
+        }
+    }
+    if drop_ids.is_empty() {
+        return 0;
+    }
+    drop_ids.sort();
+    core.stream_trim_nodes(&drop_ids)
+}
+
+/// Commit a consumer-group's read `offset` on `stream` (CONCEPT:EG-283), so the group
+/// can resume from where it left off. Idempotent upsert of a small commit node.
+pub fn commit_offset(core: &GraphCore, stream: &str, group: &str, offset: i64) {
+    let props = serde_json::json!({
+        "type": STREAM_COMMIT_TYPE,
+        "stream": stream,
+        "group": group,
+        "committed_offset": offset,
+    });
+    core.add_node(stream_commit_node_id(stream, group), to_msgpack(&props));
+}
+
+/// Read a consumer-group's committed offset on `stream` (CONCEPT:EG-283), or `None`
+/// if the group has never committed (⇒ resume from earliest / its own choice).
+pub fn committed_offset(core: &GraphCore, stream: &str, group: &str) -> Option<i64> {
+    node_object(core, &stream_commit_node_id(stream, group))?
+        .get("committed_offset")?
+        .as_i64()
+}
+
+/// Publish with a publisher confirm (CONCEPT:EG-284). Allocates a broker-wide
+/// monotonic `delivery_tag`, then routes+enqueues exactly like [`publish_ex`]. Returns
+/// a [`ConfirmToken`]: `confirmed = true` once the message is durably enqueued (the
+/// exchange exists — an unroutable-but-accepted publish still confirms, RabbitMQ-style),
+/// or `confirmed = false` (a nack) when the exchange is unknown and the broker cannot
+/// accept it. The tag is allocated on EVERY call so it is strictly monotonic across
+/// confirms and nacks alike. Deterministic: the tag is a durable counter and `now_ms`
+/// is explicit, so replay of `Method::PublishConfirmed` reproduces the identical state.
+#[allow(clippy::too_many_arguments)]
+pub fn publish_confirmed(
+    core: &GraphCore,
+    exchange: &str,
+    routing_key: &str,
+    payload: &[u8],
+    priority: i64,
+    delay_ms: Option<u64>,
+    ttl_ms: Option<u64>,
+    now_ms: Option<u64>,
+) -> ConfirmToken {
+    let delivery_tag = core.broker_next_counter(&confirm_seq_node_id(), BROKER_COUNTER_TYPE);
+    let confirmed = if load_exchange_kind(core, exchange).is_some() {
+        let _ = publish_ex(core, exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms);
+        true
+    } else {
+        false
+    };
+    ConfirmToken {
+        delivery_tag,
+        confirmed,
+    }
+}
+
+/// Resolve a consumer `delivery_tag` to its `(node_id, queue)` via the reverse-lookup
+/// node (CONCEPT:EG-284). `None` if the tag was never issued / already acked.
+fn resolve_delivery_tag(core: &GraphCore, tag: i64) -> Option<(String, String)> {
+    let o = node_object(core, &dtag_lookup_node_id(tag))?;
+    Some((f_str(&o, "node_id").to_string(), f_str(&o, "queue").to_string()))
+}
+
+/// Acknowledge (remove) a claimed message by its consumer `delivery_tag` (CONCEPT:
+/// EG-284) — the tag-addressed sibling of [`broker_ack`], for a consumer that tracks
+/// tags instead of node ids. Frees the in-flight slot + drops the reverse-lookup node.
+/// Returns whether the message existed.
+pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64) -> bool {
+    let Some((node_id, _queue)) = resolve_delivery_tag(core, delivery_tag) else {
+        return false;
+    };
+    core.remove_node(dtag_lookup_node_id(delivery_tag));
+    let existed = core.has_node(&node_id);
+    if existed {
+        core.remove_node(node_id);
+    }
+    existed
+}
+
+/// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-284) — the
+/// tag-addressed sibling of [`broker_reject`]. With `requeue` the message returns to
+/// the claimable pool (at-least-once redelivery) unless it has exhausted its delivery
+/// budget, in which case it is dead-lettered; without `requeue` it is dead-lettered /
+/// dropped. Drops the reverse-lookup node and returns the reject outcome (`requeued` /
+/// `dead-lettered` / `dropped` / `absent`).
+pub fn broker_nack_tag(core: &GraphCore, delivery_tag: i64, requeue: bool, now_ms: u64) -> String {
+    let Some((node_id, queue)) = resolve_delivery_tag(core, delivery_tag) else {
+        return "absent".into();
+    };
+    core.remove_node(dtag_lookup_node_id(delivery_tag));
+    broker_reject(core, &queue, &node_id, requeue, now_ms)
 }
 
 #[cfg(test)]
@@ -1339,5 +1734,231 @@ mod tests {
         assert!(broker_ack(&core, "q", &id));
         assert!(!core.has_node(&id));
         assert!(!broker_ack(&core, "q", &id), "second ack is a no-op");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // CONCEPT:EG-283 replayable append-log streams
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn eg283_stream_append_offsets_are_monotonic_and_ordered() {
+        let core = GraphCore::new();
+        assert_eq!(stream_publish(&core, "s", b"a", 10), 0);
+        assert_eq!(stream_publish(&core, "s", b"b", 11), 1);
+        assert_eq!(stream_publish(&core, "s", b"c", 12), 2);
+        // The end offset tracks the count of issued offsets.
+        assert_eq!(stream_end_offset(&core, "s"), 3);
+        // A second, independent stream keeps its OWN monotonic offset space.
+        assert_eq!(stream_publish(&core, "other", b"z", 1), 0);
+    }
+
+    #[test]
+    fn eg283_stream_read_by_offset_replays_without_deleting() {
+        let core = GraphCore::new();
+        for (i, m) in [b"m0".as_ref(), b"m1", b"m2"].iter().enumerate() {
+            stream_publish(&core, "s", m, 100 + i as u64);
+        }
+        // Read the whole log …
+        let first = stream_read(&core, "s", ReadFrom::Earliest, 0);
+        assert_eq!(
+            first,
+            vec![
+                (0, b"m0".to_vec()),
+                (1, b"m1".to_vec()),
+                (2, b"m2".to_vec())
+            ]
+        );
+        // … and read it AGAIN: replay is non-destructive, identical result.
+        let again = stream_read(&core, "s", ReadFrom::Earliest, 0);
+        assert_eq!(again, first);
+        // Reading from an explicit mid-offset returns the tail (inclusive).
+        assert_eq!(
+            stream_read(&core, "s", ReadFrom::Offset(1), 0),
+            vec![(1, b"m1".to_vec()), (2, b"m2".to_vec())]
+        );
+        // `max` caps the batch (still starting at the requested offset).
+        assert_eq!(
+            stream_read(&core, "s", ReadFrom::Earliest, 2),
+            vec![(0, b"m0".to_vec()), (1, b"m1".to_vec())]
+        );
+    }
+
+    #[test]
+    fn eg283_stream_read_from_earliest_latest_and_explicit() {
+        let core = GraphCore::new();
+        stream_publish(&core, "s", b"x", 1);
+        stream_publish(&core, "s", b"y", 2);
+        // Latest = the current end → nothing yet (used to resume "only new").
+        assert!(stream_read(&core, "s", ReadFrom::Latest, 0).is_empty());
+        // A message published AFTER establishing "latest" is then visible from there.
+        let end_before = stream_end_offset(&core, "s");
+        stream_publish(&core, "s", b"new", 3);
+        assert_eq!(
+            stream_read(&core, "s", ReadFrom::Offset(end_before), 0),
+            vec![(2, b"new".to_vec())]
+        );
+        // Wire decode: negative ⇒ Latest, 0 ⇒ earliest offset.
+        assert_eq!(ReadFrom::from_wire(-1), ReadFrom::Latest);
+        assert_eq!(ReadFrom::from_wire(0), ReadFrom::Offset(0));
+        assert_eq!(ReadFrom::from_wire(5), ReadFrom::Offset(5));
+    }
+
+    #[test]
+    fn eg283_stream_trim_by_count_drops_oldest() {
+        let core = GraphCore::new();
+        declare_stream(
+            &core,
+            "s",
+            &StreamRetention {
+                max_messages: Some(2),
+                max_age_ms: None,
+            },
+        );
+        for (i, m) in [b"a".as_ref(), b"b", b"c", b"d"].iter().enumerate() {
+            stream_publish(&core, "s", m, 100 + i as u64);
+        }
+        // 4 messages, keep newest 2 → drop offsets 0,1.
+        assert_eq!(stream_trim(&core, "s", 1000), 2);
+        assert_eq!(
+            stream_read(&core, "s", ReadFrom::Earliest, 0),
+            vec![(2, b"c".to_vec()), (3, b"d".to_vec())]
+        );
+        // Offsets keep advancing after a trim (monotonic, not reused).
+        assert_eq!(stream_publish(&core, "s", b"e", 200), 4);
+    }
+
+    #[test]
+    fn eg283_stream_trim_by_age_drops_old_messages() {
+        let core = GraphCore::new();
+        declare_stream(
+            &core,
+            "s",
+            &StreamRetention {
+                max_messages: None,
+                max_age_ms: Some(50),
+            },
+        );
+        stream_publish(&core, "s", b"old", 100); // ts=100
+        stream_publish(&core, "s", b"mid", 180); // ts=180
+        stream_publish(&core, "s", b"new", 195); // ts=195
+        // At now=200 with max_age 50: horizon 150 → only ts=100 is too old.
+        assert_eq!(stream_trim(&core, "s", 200), 1);
+        assert_eq!(
+            stream_read(&core, "s", ReadFrom::Earliest, 0),
+            vec![(1, b"mid".to_vec()), (2, b"new".to_vec())]
+        );
+        // An undeclared / unbounded stream is never trimmed.
+        stream_publish(&core, "unbounded", b"keep", 1);
+        assert_eq!(stream_trim(&core, "unbounded", 10_000), 0);
+    }
+
+    #[test]
+    fn eg283_commit_and_resume_offset() {
+        let core = GraphCore::new();
+        for (i, m) in [b"0".as_ref(), b"1", b"2", b"3"].iter().enumerate() {
+            stream_publish(&core, "s", m, i as u64);
+        }
+        // No commit yet → None (resume from earliest).
+        assert_eq!(committed_offset(&core, "s", "g"), None);
+        // A consumer processes through offset 1 and commits its resume point (2).
+        commit_offset(&core, "s", "g", 2);
+        assert_eq!(committed_offset(&core, "s", "g"), Some(2));
+        // Resuming from the committed offset yields only the unprocessed tail.
+        let resume = committed_offset(&core, "s", "g").unwrap();
+        assert_eq!(
+            stream_read(&core, "s", ReadFrom::Offset(resume), 0),
+            vec![(2, b"2".to_vec()), (3, b"3".to_vec())]
+        );
+        // A different group tracks its own offset independently.
+        assert_eq!(committed_offset(&core, "s", "other"), None);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // CONCEPT:EG-284 publisher confirms + consumer QoS acks
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn eg284_publish_confirmed_delivery_tag_is_monotonic() {
+        let core = rig();
+        let t1 = publish_confirmed(&core, "ex", "k", b"a", 0, None, None, Some(1));
+        let t2 = publish_confirmed(&core, "ex", "k", b"b", 0, None, None, Some(2));
+        let t3 = publish_confirmed(&core, "ex", "k", b"c", 0, None, None, Some(3));
+        assert!(t1.confirmed && t2.confirmed && t3.confirmed);
+        // Strictly increasing, 1-based.
+        assert_eq!(t1.delivery_tag, 1);
+        assert_eq!(t2.delivery_tag, 2);
+        assert_eq!(t3.delivery_tag, 3);
+        // All three messages were genuinely enqueued and are claimable.
+        let mut got = Vec::new();
+        while let Some((id, p)) = broker_consume(&core, "q", "g", "c", 10, 0, 0) {
+            got.push(payload_of(&p));
+            broker_ack(&core, "q", &id);
+        }
+        assert_eq!(got, vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]);
+    }
+
+    #[test]
+    fn eg284_publish_confirmed_nacks_unknown_exchange() {
+        let core = rig();
+        // Unknown exchange → nack, but the tag still advances (RabbitMQ-style).
+        let nack = publish_confirmed(&core, "nope", "k", b"x", 0, None, None, Some(1));
+        assert!(!nack.confirmed);
+        assert_eq!(nack.delivery_tag, 1);
+        // Nothing was enqueued on the real queue.
+        assert!(broker_consume(&core, "q", "g", "c", 2, 0, 0).is_none());
+        // The next confirmed publish gets the following monotonic tag.
+        let ok = publish_confirmed(&core, "ex", "k", b"y", 0, None, None, Some(3));
+        assert!(ok.confirmed);
+        assert_eq!(ok.delivery_tag, 2);
+    }
+
+    #[test]
+    fn eg284_manual_ack_by_tag_removes_message() {
+        let core = rig();
+        assert_eq!(publish(&core, "ex", "k", b"m"), 1);
+        // Consume stamps a monotonic consumer delivery-tag on the claimed message.
+        let (id, p) = broker_consume(&core, "q", "g", "c", 1, 0, 0).unwrap();
+        let tag = p.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
+        assert_eq!(tag, 1);
+        // Ack BY TAG removes the message + its reverse-lookup node.
+        assert!(broker_ack_tag(&core, tag));
+        assert!(!core.has_node(&id));
+        assert!(!core.has_node(&dtag_lookup_node_id(tag)));
+        // A second ack of the same tag is a no-op.
+        assert!(!broker_ack_tag(&core, tag));
+    }
+
+    #[test]
+    fn eg284_nack_by_tag_requeue_redelivers() {
+        let core = rig();
+        assert_eq!(publish(&core, "ex", "k", b"redo"), 1);
+        // Deliver #1 → nack/requeue by tag → back to claimable.
+        let (id, p1) = broker_consume(&core, "q", "g", "c", 1, 0, 0).unwrap();
+        let tag1 = p1.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
+        assert_eq!(broker_nack_tag(&core, tag1, true, 1), "requeued");
+        // The old tag no longer resolves; the message is redelivered with a NEW tag.
+        assert!(!core.has_node(&dtag_lookup_node_id(tag1)));
+        let (id2, p2) = broker_consume(&core, "q", "g", "c", 2, 0, 0).unwrap();
+        assert_eq!(id2, id, "same message redelivered (at-least-once)");
+        assert_eq!(p2.get("delivery_count").and_then(|v| v.as_i64()), Some(2));
+        let tag2 = p2.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
+        assert_eq!(tag2, 2, "a fresh delivery-tag is issued on re-claim");
+        // Ack the redelivery to finish.
+        assert!(broker_ack_tag(&core, tag2));
+        assert!(!core.has_node(&id));
+    }
+
+    #[test]
+    fn eg284_nack_by_tag_no_requeue_dead_letters() {
+        let core = rig();
+        with_dlq(&core, QueuePolicy::default());
+        assert_eq!(publish(&core, "ex", "k", b"bye"), 1);
+        let (_id, p) = broker_consume(&core, "q", "g", "c", 5, 0, 0).unwrap();
+        let tag = p.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
+        assert_eq!(broker_nack_tag(&core, tag, false, 5), "dead-lettered");
+        // Present on the DLQ, absent from the source queue.
+        assert!(broker_consume(&core, "q", "g", "c", 6, 0, 0).is_none());
+        let (_, dl) = consume_dlq(&core, 7).expect("nacked message dead-lettered");
+        assert_eq!(payload_of(&dl), b"bye".to_vec());
     }
 }

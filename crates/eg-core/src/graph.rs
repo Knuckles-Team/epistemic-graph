@@ -1981,6 +1981,97 @@ impl GraphCore {
         delivered
     }
 
+    /// Append one RETAINED message to `stream` and return its monotonic offset
+    /// (CONCEPT:EG-283 — replayable append-log streams). Under ONE topology write
+    /// guard: read+bump the stream's durable `next_offset` counter node
+    /// (`broker:soff:<stream>`) and append a message node labeled `smsg:<stream>`
+    /// carrying the hex payload + `ts = now_ms`. Unlike [`broker_enqueue`](Self::
+    /// broker_enqueue) the message is NEVER consumed/deleted by a read — it is served
+    /// by offset until an explicit retention trim removes it.
+    ///
+    /// Deterministic: the offset comes purely from the counter node's current state and
+    /// `now_ms` is explicit, so replaying `Method::StreamPublish` over the same
+    /// pre-image reproduces a byte-identical node — the same discipline the queue
+    /// enqueue follows. Bumps the lazy label index so the appended message is visible
+    /// to the very next `stream_read`.
+    #[cfg(feature = "broker")]
+    pub fn stream_append(&self, stream: &str, payload_hex: &str, now_ms: u64) -> i64 {
+        let mut txn = self.txn();
+        let off_id = crate::broker::stream_offset_node_id(stream);
+        let offset = txn
+            .node_row_map(&off_id)
+            .and_then(|m| m.get("next_offset").and_then(|s| s.as_i64()))
+            .unwrap_or(0);
+        let off_props = serde_json::json!({
+            "type": crate::broker::STREAM_OFFSET_TYPE,
+            "stream": stream,
+            "next_offset": offset + 1,
+        });
+        if let Ok(blob) = rmp_serde::to_vec_named(&off_props) {
+            txn.add_node(off_id, blob);
+        }
+        let msg_props = serde_json::json!({
+            "type": crate::broker::stream_msg_label(stream),
+            "offset": offset,
+            "payload": payload_hex,
+            "ts": now_ms,
+        });
+        if let Ok(blob) = rmp_serde::to_vec_named(&msg_props) {
+            txn.add_node(crate::broker::stream_msg_node_id(stream, offset), blob);
+        }
+        drop(txn);
+        self.mark_dirty();
+        offset
+    }
+
+    /// Remove a set of stream message nodes under ONE topology write guard
+    /// (CONCEPT:EG-283 — retention trim). Returns how many of `ids` were present and
+    /// removed. Backs [`broker::stream_trim`](crate::broker::stream_trim): the caller
+    /// resolves the offset-ordered drop set from the retention policy, so this is a
+    /// deterministic bulk delete that replays byte-identically.
+    #[cfg(feature = "broker")]
+    pub fn stream_trim_nodes(&self, ids: &[String]) -> usize {
+        let mut txn = self.txn();
+        let mut removed = 0usize;
+        for id in ids {
+            if txn.node_properties.contains_key(id) {
+                txn.remove_node(id.clone());
+                removed += 1;
+            }
+        }
+        drop(txn);
+        if removed > 0 {
+            self.mark_dirty();
+        }
+        removed
+    }
+
+    /// Issue the next value of a broker-wide monotonic counter node and persist the
+    /// bump under ONE topology write guard (CONCEPT:EG-284 — publisher-confirm +
+    /// consumer delivery tags). The counter's `last_tag` starts at 0, so the FIRST
+    /// issued tag is `1` and every subsequent call returns a strictly greater value.
+    /// Deterministic: the value derives purely from the counter node, so replaying the
+    /// originating Method reproduces the identical tag.
+    #[cfg(feature = "broker")]
+    pub fn broker_next_counter(&self, node_id: &str, type_str: &str) -> i64 {
+        let mut txn = self.txn();
+        let last = txn
+            .node_row_map(node_id)
+            .and_then(|m| m.get("last_tag").and_then(|s| s.as_i64()))
+            .unwrap_or(0);
+        let issued = last + 1;
+        let props = serde_json::json!({
+            "type": type_str,
+            "last_tag": issued,
+        });
+        if let Ok(blob) = rmp_serde::to_vec_named(&props) {
+            txn.add_node(node_id.to_string(), blob);
+        }
+        drop(txn);
+        self.mark_dirty();
+        issued
+    }
+
     /// One-shot non-destructive edge invalidation (CONCEPT:KG-2.251). See
     /// [`GraphTxn::invalidate_edge`]; runs under one topology write guard.
     pub fn invalidate_edge(
