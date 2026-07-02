@@ -82,6 +82,14 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_GRAPHQL_ADDR")]
     graphql_addr: Option<String>,
 
+    /// Observability log-ingestion HTTP listener address (e.g. 127.0.0.1:5080),
+    /// feature `obs` (CONCEPT:EG-160/161). Disabled when unset. Accepts OTLP/HTTP
+    /// (`/v1/logs`), Elasticsearch `_bulk`/`_doc`, and JSON-lines log records, landing
+    /// them in eg-tsdb series + eg-text full-text indices and rolling Parquet segments
+    /// into the blob CAS. Separate from the RPC transports.
+    #[arg(long, env = "EPISTEMIC_GRAPH_OBS_ADDR")]
+    obs_addr: Option<String>,
+
     /// Self-terminate after N seconds with ZERO active connections (reference-
     /// counted idle shutdown). 0 or absent ⇒ NEVER self-terminate on idle: the
     /// engine is long-living/persistent and runs forever like a normal server.
@@ -597,6 +605,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
+    // Capture the persist dir for the observability ingest state before `args` is
+    // moved into ServerState below (the obs listener owns its own substrate under it).
+    #[cfg(feature = "obs")]
+    let obs_persist_dir = args.persist_dir.clone();
+
     let state = Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
@@ -731,6 +744,43 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "graphql"))]
     if graphql_addr.is_some() {
         tracing::warn!("--graphql-addr ignored: binary built without the `graphql` feature");
+    }
+
+    // ── Observability log ingestion (CONCEPT:EG-160/161) ─────────────────
+    // Opt-in AND feature-gated: the listener starts ONLY when built `--features obs`
+    // AND --obs-addr / EPISTEMIC_GRAPH_OBS_ADDR is set. With the feature off, or
+    // unset, this is a no-op. Ingests logs (OTLP/HTTP, Elasticsearch `_bulk`/`_doc`,
+    // JSON-lines) into eg-tsdb series + eg-text full-text indices and rolls Parquet
+    // segments into the blob CAS. Self-contained (its own ObsState under the persist
+    // dir). Deploy-configurable (EG-022): a bare enable token binds the safe localhost
+    // default `127.0.0.1:5080` (O2's log-ingest port); a bare port binds loopback:port.
+    let obs_addr = resolve_listener_addr(args.obs_addr.as_deref(), "127.0.0.1:5080");
+    #[cfg(feature = "obs")]
+    if let Some(ref obs_addr) = obs_addr {
+        use epistemic_graph::server::obs::{ObsState, DEFAULT_FLUSH_RECORDS, OBS_FLUSH_RECORDS_ENV};
+        let flush = std::env::var(OBS_FLUSH_RECORDS_ENV)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(DEFAULT_FLUSH_RECORDS);
+        match ObsState::open(obs_persist_dir.as_deref(), flush) {
+            Ok(obs_state) => {
+                let listener = tokio::net::TcpListener::bind(obs_addr).await?;
+                info!(
+                    "Observability: serving log ingestion (OTLP/ES/JSON-lines) on http://{}",
+                    obs_addr
+                );
+                let obs_state = std::sync::Arc::new(obs_state);
+                tokio::spawn(async move {
+                    epistemic_graph::server::obs::serve(listener, obs_state).await;
+                });
+            }
+            Err(e) => tracing::error!("--obs-addr {}: failed to open ingest state: {}", obs_addr, e),
+        }
+    }
+    #[cfg(not(feature = "obs"))]
+    if obs_addr.is_some() {
+        tracing::warn!("--obs-addr ignored: binary built without the `obs` feature");
     }
 
     // ── Postgres wire-protocol shim (CONCEPT:KG-2.189) ───────────────────
