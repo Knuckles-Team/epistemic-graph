@@ -75,6 +75,27 @@ class NodeClient:
             },
         )
 
+    async def claim_next(
+        self, label: str, updates: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Atomically claim the oldest pending node of ``label`` (CONCEPT:KG-2.303).
+
+        Among ``label``'s nodes whose ``status == "pending"``, the engine picks the
+        smallest ``seq`` and merges ``updates`` (the claim marker) in ONE round-trip
+        under the write guard — the single-round-trip form of scan+``compare_and_set``.
+        Returns ``(node_id, updated_properties)`` or ``None`` if nothing is claimable.
+        ``updates`` MUST carry no wall-clock read (pass the lease/marker in) so WAL
+        and Raft replay stay deterministic."""
+        raw_val = await self._client._send(
+            "ClaimNext",
+            {"label": label, "updates_msgpack": list(msgpack.packb(updates))},
+        )
+        if isinstance(raw_val, bytes):
+            raw_val = msgpack.unpackb(raw_val, raw=False)
+        if not raw_val:
+            return None
+        return raw_val[0], raw_val[1]
+
     async def list(self) -> builtins.list[tuple[str, str]]:
         """Dump EVERY node in the graph (unbounded full-graph read).
 

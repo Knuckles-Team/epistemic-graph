@@ -165,6 +165,27 @@ pub(crate) async fn try_handle(
             let ok = g.compare_and_set_fields(&node_id, &conditions, &updates);
             Response::ok(req_id, ResultPayload::Bool(ok))
         }
+        Method::ClaimNext {
+            label,
+            updates_msgpack,
+        } => {
+            // CONCEPT:KG-2.303 — atomically claim the oldest pending node of `label`.
+            // A decode failure ⇒ nothing claimed (Raw None), never a transport error.
+            let updates = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                &updates_msgpack,
+            ) {
+                Ok(m) => m,
+                Err(_) => {
+                    return Response::ok(
+                        req_id,
+                        ResultPayload::raw(&Option::<(String, serde_json::Value)>::None),
+                    )
+                }
+            };
+            let g = &*core;
+            let claimed = g.claim_next_fields(&label, &updates);
+            Response::ok(req_id, ResultPayload::raw(&claimed))
+        }
         Method::GetNodePropertiesBatch { node_ids } => {
             if node_ids.len() > MAX_BATCH_IDS {
                 return Response::err(

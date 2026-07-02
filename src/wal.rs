@@ -50,6 +50,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::InvalidateEdge { .. }
             | Method::SupersedeEdge { .. }
             | Method::BatchUpdate { .. }
+            | Method::ClaimNext { .. }
             | Method::ClearGraph
     )
 }
@@ -168,6 +169,20 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 ),
             ) {
                 let _ = core.compare_and_set_fields(node_id, &conditions, &updates);
+            }
+        }
+        Method::ClaimNext {
+            label,
+            updates_msgpack,
+        } => {
+            // Deterministic replay (CONCEPT:KG-2.303): re-run the same oldest-pending
+            // pick + CAS over identical state. `updates` carries no clock, so the
+            // claimed node + merged marker are reproduced byte-identically; the
+            // returned node id is ignored on replay.
+            if let Ok(updates) =
+                rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(updates_msgpack)
+            {
+                let _ = core.claim_next_fields(label, &updates);
             }
         }
         Method::AddEdge {
