@@ -44,6 +44,10 @@
 //! separate planner/evaluator, no classify change needed. See
 //! `tests/window_functions.rs` for the partition → order → frame coverage.
 
+/// Real pgvector ANN top-k pushdown execution (CONCEPT:EG-313) — build/consult a real
+/// eg-ann HNSW/IVF index over a vector column and return the true nearest-k, replacing
+/// the EG-115 brute-force `vector_l2()` scan when a matching EG-116 index is registered.
+mod ann;
 mod catalog;
 mod classify;
 mod exec;
