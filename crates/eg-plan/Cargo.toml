@@ -85,6 +85,15 @@ federation-sql = ["federation", "dep:sqlx", "dep:tokio"]
 # leg). OFF by default; the facade folds it into node/full but NEVER `pi`. A default/Pi
 # build (neither feature) links no eg-geo and drops the spatial arm.
 geo = ["query", "dep:eg-geo", "eg-types/geo"]
+# Array / tensor modality (CONCEPT:EG-085): the `Op::TensorScan` SOURCE op (seed the
+# RowSet with a `layer`'s tensor-bearing nodes) + the `Op::TensorOp { kind }` TRANSFORM
+# op (apply eg-tensor's slice/reduce/elementwise to each row's stored tensor). Pulls the
+# pure-Rust eg-tensor leaf crate (only serde — NO BLAS/LAPACK/C dep) and turns on the
+# `tensor` wire variants in eg-types. IMPLIES `query` (the ops live inside the
+# `query`-gated `Op` enum, beside the DataFusion FILTER leg). OFF by default; the facade
+# folds it into node/full but NEVER `pi`. A default/Pi build (neither feature) links no
+# eg-tensor and drops the tensor arms.
+tensor = ["query", "dep:eg-tensor", "eg-types/tensor"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -114,6 +123,11 @@ eg-rdf = { path = "../eg-rdf", optional = true }
 # Optional + only referenced under #[cfg(feature = "geo")]; only-serde leaf crate (NO
 # GEOS/PROJ/C dep), so a default/Pi build links none of it.
 eg-geo = { path = "../eg-geo", optional = true }
+# The pure-Rust array / tensor modality (dense N-D array + slice/reduce/elementwise/
+# reshape + byte-blob codec) backing the `TensorScan` / `TensorOp` ops (feature
+# `tensor`, CONCEPT:EG-085). Optional + only referenced under #[cfg(feature = "tensor")];
+# only-serde leaf crate (NO BLAS/LAPACK/C dep), so a default/Pi build links none of it.
+eg-tensor = { path = "../eg-tensor", optional = true }
 # The native time-series windowed-aggregate primitives (`time_bucket`/`aggregate`)
 # backing the `Op::Window` executor (feature `timeseries`, CONCEPT:EG-067). Optional +
 # only referenced under #[cfg(feature = "timeseries")]; its `query` primitives are
