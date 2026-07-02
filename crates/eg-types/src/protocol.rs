@@ -1104,6 +1104,14 @@ pub enum Method {
     #[cfg(feature = "graphql")]
     GraphQl {
         query: String,
+        /// Optional GraphQL `$variables` — a JSON object bound at execution
+        /// (CONCEPT:EG-065 variables, wired through the wire path as an EG-064
+        /// follow-up). The handler binds these via `execute_with_variables`
+        /// (`@skip`/`@include` + `$var` args). Absent / `None` ⇒ an empty binding, so
+        /// this is non-breaking: an old client that omits the field still deserializes
+        /// and runs exactly as before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        variables: Option<serde_json::Value>,
     },
 
     // ── Unified cross-modal query (CONCEPT:KG-2.208/209) ──────────────────
