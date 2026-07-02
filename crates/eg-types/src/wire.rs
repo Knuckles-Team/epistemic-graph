@@ -84,6 +84,69 @@ pub enum TensorOpKind {
     Elementwise { op: TensorElementwiseOp, scalar: f64 },
 }
 
+/// STREAM — a per-event attribute predicate for a CEP matcher (CONCEPT:EG-088). Mirrors
+/// eg-stream's `AttrPredicate`, but defined HERE (pure serde, no eg-stream dep) so the
+/// wire stays Pi-safe; the executor maps it to eg-stream's enum behind eg-plan's
+/// `stream` gate.
+#[cfg(feature = "stream")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CepAttrPredSpec {
+    Eq { field: String, value: serde_json::Value },
+    Gt { field: String, value: f64 },
+    Lt { field: String, value: f64 },
+    Exists { field: String },
+}
+
+/// STREAM — one event matcher: an optional event `key` + attribute predicates that ALL
+/// must hold (CONCEPT:EG-088). Mirrors eg-stream's `EventMatcher`; pure serde here.
+#[cfg(feature = "stream")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CepMatcherSpec {
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub preds: Vec<CepAttrPredSpec>,
+}
+
+/// STREAM — the sliding / tumbling window a CEP pattern runs over (CONCEPT:EG-088).
+/// Mirrors eg-stream's `Window`; pure serde here.
+#[cfg(feature = "stream")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CepWindowSpec {
+    Sliding { size: u64 },
+    Tumbling { size: u64 },
+}
+
+/// STREAM — the CEP pattern tree (CONCEPT:EG-088): `Sequence` (matchers in order within
+/// the window), `Within` (a duration constraint wrapping an inner pattern), `Absence`
+/// (`a` NOT-followed-by `b` within `within`). Mirrors eg-stream's `CepPattern`; pure
+/// serde — the actual NFA lives in eg-stream behind eg-plan's `stream` gate.
+#[cfg(feature = "stream")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CepNodeSpec {
+    Sequence(Vec<CepMatcherSpec>),
+    Within {
+        within: u64,
+        pattern: Box<CepNodeSpec>,
+    },
+    Absence {
+        a: CepMatcherSpec,
+        b: CepMatcherSpec,
+        within: u64,
+    },
+}
+
+/// STREAM — the full CEP spec carried by `Op::Cep` (CONCEPT:EG-088): the `pattern` tree
+/// + the `window` it is evaluated over. PURE serde — the executor turns it into an
+/// eg-stream `run(pattern, events, window)` call behind eg-plan's `stream` gate; this is
+/// the wire variant.
+#[cfg(feature = "stream")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CepPatternSpec {
+    pub pattern: CepNodeSpec,
+    pub window: CepWindowSpec,
+}
+
 /// A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`
 /// (CONCEPT:KG-2.232, Lane P). A federated query reads rows from a source OUTSIDE
 /// the local engine and composes them with the local graph/vector/SQL ops — so a
@@ -358,6 +421,18 @@ pub enum Op {
     /// N-D array math lives in eg-tensor behind eg-plan's `tensor` gate.
     #[cfg(feature = "tensor")]
     TensorOp { kind: TensorOpKind },
+    /// TRANSFORM (stream, CONCEPT:EG-088) — run the bounded NFA CEP engine (eg-stream)
+    /// over the input RowSet interpreted as a time-ordered event stream: each row's node
+    /// blob carries `ts`/`key`/`attrs`, and the op keeps the rows that participate in a
+    /// detected match (order-preserving, exactly as the spatial/tensor legs narrow their
+    /// input). `pattern` carries the pattern tree (sequence/within/absence) + the
+    /// sliding/tumbling `window`. Gated by `stream` (the NFA lives in eg-stream behind
+    /// eg-plan's own `stream` gate; this is the wire variant). EG-067 `Op::Window` is the
+    /// windowing primitive; a live standing CEP query fed by the EG-064 CDC
+    /// `ChangeNotifier` bus is a documented follow-up — the batch `Op::Cep` over a RowSet
+    /// is what lands.
+    #[cfg(feature = "stream")]
+    Cep { pattern: CepPatternSpec },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
@@ -709,6 +784,76 @@ mod tensor_tests {
                 kind: TensorOpKind::Elementwise {
                     op: TensorElementwiseOp::Mul,
                     scalar: 2.0,
+                },
+            },
+            Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+}
+
+// ── stream / CEP wire-variant round-trip (CONCEPT:EG-088) ─────────────────────
+#[cfg(all(test, feature = "stream"))]
+mod stream_tests {
+    use super::*;
+
+    /// The `Op::Cep` variant + its `CepPatternSpec` tree (sequence/within/absence,
+    /// matchers, attribute predicates, window) are pure-serde and round-trip through
+    /// MessagePack (the wire format) unchanged — the proof `Method::UnifiedQuery { plan }`
+    /// can carry a CEP plan.
+    #[test]
+    fn cep_variant_round_trips() {
+        let matcher = CepMatcherSpec {
+            key: Some("trade".into()),
+            preds: vec![
+                CepAttrPredSpec::Gt {
+                    field: "qty".into(),
+                    value: 100.0,
+                },
+                CepAttrPredSpec::Eq {
+                    field: "sym".into(),
+                    value: serde_json::json!("ACME"),
+                },
+                CepAttrPredSpec::Exists {
+                    field: "venue".into(),
+                },
+            ],
+        };
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Event".into(),
+            },
+            Op::Cep {
+                pattern: CepPatternSpec {
+                    pattern: CepNodeSpec::Within {
+                        within: 30,
+                        pattern: Box::new(CepNodeSpec::Sequence(vec![
+                            matcher.clone(),
+                            CepMatcherSpec {
+                                key: Some("cancel".into()),
+                                preds: vec![],
+                            },
+                        ])),
+                    },
+                    window: CepWindowSpec::Sliding { size: 60 },
+                },
+            },
+            Op::Cep {
+                pattern: CepPatternSpec {
+                    pattern: CepNodeSpec::Absence {
+                        a: matcher,
+                        b: CepMatcherSpec {
+                            key: Some("ack".into()),
+                            preds: vec![CepAttrPredSpec::Lt {
+                                field: "latency".into(),
+                                value: 5.0,
+                            }],
+                        },
+                        within: 10,
+                    },
+                    window: CepWindowSpec::Tumbling { size: 100 },
                 },
             },
             Op::Limit { k: 5 },
