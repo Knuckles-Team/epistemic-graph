@@ -56,6 +56,16 @@
 pub mod algebra;
 pub mod cost;
 
+/// Structured hierarchical retrieval (CONCEPT:EG-195) — the LeanRAG method as a
+/// library API over the EG-220 summary tier: retrieve at the summary/abstraction
+/// level, then drill down `SUMMARIZES`/`CONSOLIDATES` provenance to the supporting
+/// leaves, assembling a de-duplicated multi-level context that beats flat top-k on
+/// coverage. Pure-Rust + dep-free (Pi-tier clean): it reads the graph and ANN index
+/// through the small [`leanrag::GraphTopology`] / [`leanrag::AnnIndex`] accessor
+/// traits, so it links no DataFusion and edits no eg-core. It is a retrieval helper
+/// a caller composes ABOVE the planner, NOT a wire `Op`.
+pub mod leanrag;
+
 /// The UQL text front-end (CONCEPT:KG-2.214) — `uql::parse(text) -> wire::Plan`. It
 /// is a pure parser (lexer + recursive descent, NO DataFusion), so it ships in a
 /// default/Pi build alongside the algebra/cost/IR; only EXECUTION of the resulting
@@ -80,6 +90,14 @@ pub mod federation;
 pub mod oracle;
 
 pub use algebra::{Op, Plan, Pred};
+
+// The hierarchical-retrieval surface (CONCEPT:EG-195): the retriever + its accessor
+// traits + the structured result + the flat-top-k baseline, so a caller names them
+// through eg-plan.
+pub use leanrag::{
+    flat_top_k, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever, RetrievalParams,
+    Scored,
+};
 pub use cost::{CostModel, Order, Stats};
 pub use rowset::RowSet;
 
