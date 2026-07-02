@@ -51,6 +51,15 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::BindQueue { .. }
             | Method::UnbindQueue { .. }
             | Method::Publish { .. }
+            // Broker policy extensions (CONCEPT:EG-276..280): all mutate control-graph
+            // nodes deterministically from explicit args (caller `now_ms`), so replay
+            // reproduces identical state (routing + monotonic seq derive from graph).
+            | Method::DeclareQueue { .. }
+            | Method::PublishEx { .. }
+            | Method::BrokerConsume { .. }
+            | Method::BrokerAck { .. }
+            | Method::BrokerReject { .. }
+            | Method::SweepExpired { .. }
     ) {
         return true;
     }
@@ -335,6 +344,74 @@ pub fn apply(core: &GraphCore, m: &Method) {
             payload,
         } => {
             let _ = crate::broker::publish(core, exchange, routing_key, payload);
+        }
+        // Broker policy extensions (CONCEPT:EG-276..280): re-run the SAME broker fn
+        // with the SAME explicit args. Routing reads (already-replayed) bindings, seq
+        // comes from the durable counter, and `now_ms` is logged — so the message /
+        // dead-letter / claim state is reproduced byte-identically. Results ignored.
+        #[cfg(feature = "broker")]
+        Method::DeclareQueue {
+            queue,
+            dl_exchange,
+            dl_routing_key,
+            max_delivery_count,
+            message_ttl_ms,
+            queue_expiry_ms,
+            max_priority,
+        } => {
+            let policy = crate::broker::QueuePolicy {
+                dl_exchange: dl_exchange.clone(),
+                dl_routing_key: dl_routing_key.clone(),
+                max_delivery_count: *max_delivery_count,
+                message_ttl_ms: *message_ttl_ms,
+                queue_expiry_ms: *queue_expiry_ms,
+                max_priority: *max_priority,
+            };
+            crate::broker::declare_queue(core, queue, &policy);
+        }
+        #[cfg(feature = "broker")]
+        Method::PublishEx {
+            exchange,
+            routing_key,
+            payload,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let _ = crate::broker::publish_ex(
+                core, exchange, routing_key, payload, *priority, *delay_ms, *ttl_ms, *now_ms,
+            );
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerConsume {
+            queue,
+            group,
+            consumer,
+            now_ms,
+            lease_ms,
+            prefetch,
+        } => {
+            let _ = crate::broker::broker_consume(
+                core, queue, group, consumer, *now_ms, *lease_ms, *prefetch,
+            );
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerAck { queue, node_id } => {
+            let _ = crate::broker::broker_ack(core, queue, node_id);
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerReject {
+            queue,
+            node_id,
+            requeue,
+            now_ms,
+        } => {
+            let _ = crate::broker::broker_reject(core, queue, node_id, *requeue, *now_ms);
+        }
+        #[cfg(feature = "broker")]
+        Method::SweepExpired { now_ms } => {
+            let _ = crate::broker::sweep_expired(core, *now_ms);
         }
         _ => {}
     }
