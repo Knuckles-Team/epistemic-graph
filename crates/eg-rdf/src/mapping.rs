@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use eg_core::graph::GraphCore;
 use oxrdf::{BlankNode, Literal, NamedNode, Subject, Term, Triple};
-use oxttl::{NTriplesParser, NTriplesSerializer, TurtleParser};
+use oxttl::{NTriplesParser, NTriplesSerializer, TurtleParser, TurtleSerializer};
 
 /// The engine `type` of the marker node that records "this graph is an RDF named
 /// graph" (the `:NamedGraph` node shape linking the RDF surface to the registry).
@@ -368,6 +368,20 @@ pub fn to_ntriples(triples: &[Triple]) -> Result<String, String> {
     }
     ser.finish();
     String::from_utf8(buf).map_err(|e| format!("nt utf8: {e}"))
+}
+
+/// Serialize triples to a Turtle string (CONCEPT:EG-050 — the `text/turtle` content-
+/// negotiation form for CONSTRUCT/DESCRIBE). Mirrors [`to_ntriples`] but uses the oxttl
+/// `TurtleSerializer`, which abbreviates predicate/object lists into compact Turtle.
+pub fn to_turtle(triples: &[Triple]) -> Result<String, String> {
+    let mut buf = Vec::new();
+    let mut ser = TurtleSerializer::new().for_writer(&mut buf);
+    for t in triples {
+        ser.serialize_triple(t.as_ref())
+            .map_err(|e| format!("ttl serialize: {e}"))?;
+    }
+    ser.finish().map_err(|e| format!("ttl finish: {e}"))?;
+    String::from_utf8(buf).map_err(|e| format!("ttl utf8: {e}"))
 }
 
 /// A canonical, bnode/order-insensitive comparison key for a triple set: literals
