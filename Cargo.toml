@@ -261,6 +261,24 @@ promql = ["obs", "eg-tsdb/promql"]
 # tier-line conflict with the concurrent wave-18 work.
 # EG-163: fold traces into obs/node/full
 traces = ["obs", "eg-tsdb/traces"]
+# CONCEPT:EG-316 — the OBSERVABILITY EGRESS half + a Prometheus push receiver. Two
+# additive, feature-gated capabilities that close the obs loop the engine already
+# INGESTS (logs EG-160, metrics/PromQL EG-172, traces EG-163):
+#   1. OTLP EXPORT — push the engine's OWN Prometheus metrics + its stored spans to an
+#      external OpenTelemetry collector over OTLP/HTTP JSON (the same OTLP shape the
+#      EG-160/163 ingest side parses), via the pure-Rust `ureq` client.
+#   2. Prometheus `remote_write` RECEIVER — accept snappy-compressed protobuf
+#      `WriteRequest` POSTs (`/api/v1/write`) on the obs listener and land the samples
+#      in the durable eg-tsdb SeriesStore, so an external Prometheus can PUSH to us.
+# Implies `obs` (the listener + ObsState + SeriesStore), `metrics` (the engine's own
+# Prometheus registry to export) and `traces` (the span store to export). Pulls
+# `prost` (protobuf codec for the remote-write WriteRequest) + `snap` (snappy block
+# decompression) — BOTH pure-Rust, NO C/tonic/network-codegen — plus the already-linked
+# `ureq`. DELIBERATELY kept OUT of `pi` (no prost/protobuf in a pi build) and NOT folded
+# into node/full/cluster here — the orchestrator folds it at merge time to avoid a
+# tier-line conflict with the concurrent wave.
+# EG-316: fold otel-export into node/full
+otel-export = ["obs", "metrics", "traces", "dep:prost", "dep:snap", "dep:ureq"]
 # Streaming / CDC / continuous queries / subscriptions / triggers (CONCEPT:KG-2.229/
 # 230, Lane L). Reactivity layered over the existing per-graph durable change record
 # (the ledger): every durable mutation the dispatch shell records also emits an
@@ -779,6 +797,14 @@ opentelemetry = { version = "0.31", optional = true }
 opentelemetry_sdk = { version = "0.31", optional = true, features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.31", optional = true, features = ["grpc-tonic"] }
 tracing-opentelemetry = { version = "0.32", optional = true }
+# CONCEPT:EG-316 — protobuf codec for the Prometheus `remote_write` WriteRequest, and
+# snappy block decompression for its wire framing. BOTH are pure-Rust (NO C, NO
+# tonic/grpc, NO build.rs codegen — the WriteRequest schema is hand-declared with the
+# `prost::Message` derive), OPTIONAL + referenced ONLY under #[cfg(feature =
+# "otel-export")], so a default/pi/full build links NEITHER (asserted by `cargo tree`;
+# the Pi contract holds — a `--features pi` build has no prost/protobuf).
+prost = { version = "0.13", optional = true }
+snap = { version = "1.1", optional = true }
 hmac = "0.12"
 hex = "0.4"
 rmp-serde = "1.3"
