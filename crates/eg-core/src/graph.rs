@@ -1094,6 +1094,144 @@ impl<'a> GraphTxn<'a> {
         }
         semantic_id
     }
+
+    // ── Scene-graph / 3D world model (CONCEPT:EG-087) ─────────────────────────
+    //
+    // A `:SceneObject` node carries a local `pose` (translation + rotation quaternion
+    // + scale) in its property blob; a parent/child transform hierarchy is expressed
+    // with reciprocal typed edges — child →`CHILD_OF`→ parent and parent →`HAS_CHILD`
+    // → child — so the world transform is the composition of local poses up the
+    // parent chain. Optional spatial relations (`ON`/`IN`/`NEAR`/`SUPPORTS`) and an
+    // axis-aligned bounding volume attach with the same edge/property conventions the
+    // memory primitives use. Deterministic (ids derived from graph state + inputs, no
+    // clock/RNG) and atomic under the held write guard, so it replays identically.
+
+    /// Deterministic id for a new scene object over `(sequence, parent, pose)`
+    /// (CONCEPT:EG-087). `sequence` is the live node count at insertion time, which
+    /// is monotonic under replay, so identical WAL replay yields the identical id
+    /// while distinct inserts never collide. No RNG/clock.
+    fn derive_scene_id(sequence: usize, parent: Option<&str>, pose: &crate::scene::Pose) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        sequence.hash(&mut h);
+        parent.unwrap_or("").hash(&mut h);
+        // Hash the canonical pose JSON string so the seed depends on the pose too.
+        pose.to_json().to_string().hash(&mut h);
+        format!("scene:{:016x}", h.finish())
+    }
+
+    /// Write the reciprocal parent/child transform edges (child `CHILD_OF` parent +
+    /// parent `HAS_CHILD` child) idempotently, skipping an absent parent so no
+    /// dangling edge is created. Runs under the held write guard.
+    fn link_parent(&mut self, child: &str, parent: &str) {
+        if child == parent || !self.topo.node_map.contains_key(parent) {
+            return;
+        }
+        if !self.has_relationship_edge(child, parent, "CHILD_OF") {
+            if let Ok(e) = rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CHILD_OF"})) {
+                let _ = self.add_edge(child.to_string(), parent.to_string(), e);
+            }
+        }
+        if !self.has_relationship_edge(parent, child, "HAS_CHILD") {
+            if let Ok(e) = rmp_serde::to_vec_named(&serde_json::json!({"relationship": "HAS_CHILD"}))
+            {
+                let _ = self.add_edge(parent.to_string(), child.to_string(), e);
+            }
+        }
+    }
+
+    /// The current transform parent of `child`: the target of its outgoing `CHILD_OF`
+    /// edge, if any. Read under the held write guard.
+    fn transform_parent(&self, child: &str) -> Option<String> {
+        let &idx = self.topo.node_map.get(child)?;
+        let targets: Vec<String> = self
+            .topo
+            .graph
+            .edges_directed(idx, petgraph::Direction::Outgoing)
+            .map(|e| self.topo.graph[e.target()].clone())
+            .collect();
+        targets
+            .into_iter()
+            .find(|t| self.has_relationship_edge(child, t, "CHILD_OF"))
+    }
+
+    /// CONCEPT:EG-087 — create a `:SceneObject` node with local `pose`, optionally
+    /// parented under `parent` via reciprocal `CHILD_OF`/`HAS_CHILD` edges (an absent
+    /// parent is skipped — no dangling edge). Returns the new object's deterministic
+    /// id. Runs under the held write guard.
+    pub fn add_scene_object(
+        &mut self,
+        pose: &crate::scene::Pose,
+        parent: Option<&str>,
+    ) -> String {
+        let id = Self::derive_scene_id(self.topo.node_map.len(), parent, pose);
+        let obj = serde_json::json!({ "type": "SceneObject", "pose": pose.to_json() });
+        if let Ok(blob) = rmp_serde::to_vec_named(&obj) {
+            self.add_node(id.clone(), blob);
+        }
+        if let Some(p) = parent {
+            self.link_parent(&id, p);
+        }
+        id
+    }
+
+    /// CONCEPT:EG-087 — replace the local `pose` of scene object `id`. No-op
+    /// returning `false` if the node is absent. Runs under the held write guard.
+    pub fn set_pose(&mut self, id: &str, pose: &crate::scene::Pose) -> bool {
+        let mut update = serde_json::Map::new();
+        update.insert("pose".to_string(), pose.to_json());
+        self.merge_fields(id, &update)
+    }
+
+    /// CONCEPT:EG-087 — reparent scene object `id` under `new_parent` (or detach to a
+    /// root with `None`): drops the existing reciprocal transform edges to the old
+    /// parent and links the new one, so `world_transform` recomposes down the new
+    /// chain. No-op returning `false` if `id` is absent or `new_parent` is missing.
+    /// Runs under the held write guard.
+    pub fn reparent(&mut self, id: &str, new_parent: Option<&str>) -> bool {
+        if !self.topo.node_map.contains_key(id) {
+            return false;
+        }
+        if let Some(np) = new_parent {
+            if np == id || !self.topo.node_map.contains_key(np) {
+                return false;
+            }
+        }
+        if let Some(old) = self.transform_parent(id) {
+            self.remove_edge(id.to_string(), old.clone());
+            self.remove_edge(old, id.to_string());
+        }
+        if let Some(np) = new_parent {
+            self.link_parent(id, np);
+        }
+        true
+    }
+
+    /// CONCEPT:EG-087 — add a spatial relationship edge `from →<rel>→ to` (e.g.
+    /// `ON`/`IN`/`NEAR`/`SUPPORTS`), idempotently. Returns `false` if either endpoint
+    /// is absent or the same edge already exists. Runs under the held write guard.
+    pub fn add_spatial_relation(&mut self, from: &str, to: &str, rel: &str) -> bool {
+        if from == to
+            || !self.topo.node_map.contains_key(from)
+            || !self.topo.node_map.contains_key(to)
+            || self.has_relationship_edge(from, to, rel)
+        {
+            return false;
+        }
+        match rmp_serde::to_vec_named(&serde_json::json!({"relationship": rel})) {
+            Ok(e) => self.add_edge(from.to_string(), to.to_string(), e).is_ok(),
+            Err(_) => false,
+        }
+    }
+
+    /// CONCEPT:EG-087 — attach (or replace) the axis-aligned bounding volume of scene
+    /// object `id`. No-op returning `false` if the node is absent. Runs under the
+    /// held write guard.
+    pub fn set_bounding_volume(&mut self, id: &str, aabb: &crate::scene::Aabb) -> bool {
+        let mut update = serde_json::Map::new();
+        update.insert("aabb".to_string(), aabb.to_json());
+        self.merge_fields(id, &update)
+    }
 }
 
 impl GraphCore {
@@ -3096,6 +3234,191 @@ impl GraphCore {
                 let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
                 let lvl = val.get("summary_level").and_then(|v| v.as_u64())?;
                 (lvl == level as u64).then_some(id)
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    // ── Scene-graph / 3D world model — one-shot wrappers + queries ────────────
+    //     (CONCEPT:EG-087)
+
+    /// One-shot [`GraphTxn::add_scene_object`] (CONCEPT:EG-087): create the node +
+    /// link its parent under ONE write guard, then invalidate the lazy secondary
+    /// indexes so a subsequent `scene_children` / `SceneObject` label query sees it.
+    /// Returns the new object's id.
+    pub fn add_scene_object(&self, pose: &crate::scene::Pose, parent: Option<&str>) -> String {
+        let id = self.txn().add_scene_object(pose, parent);
+        self.mark_dirty();
+        id
+    }
+
+    /// One-shot [`GraphTxn::set_pose`] (CONCEPT:EG-087).
+    pub fn set_pose(&self, id: &str, pose: &crate::scene::Pose) -> bool {
+        let ok = self.txn().set_pose(id, pose);
+        if ok {
+            self.mark_dirty();
+        }
+        ok
+    }
+
+    /// One-shot [`GraphTxn::reparent`] (CONCEPT:EG-087).
+    pub fn reparent(&self, id: &str, new_parent: Option<&str>) -> bool {
+        let ok = self.txn().reparent(id, new_parent);
+        if ok {
+            self.mark_dirty();
+        }
+        ok
+    }
+
+    /// One-shot [`GraphTxn::add_spatial_relation`] (CONCEPT:EG-087).
+    pub fn add_spatial_relation(&self, from: &str, to: &str, rel: &str) -> bool {
+        let ok = self.txn().add_spatial_relation(from, to, rel);
+        if ok {
+            self.mark_dirty();
+        }
+        ok
+    }
+
+    /// One-shot [`GraphTxn::set_bounding_volume`] (CONCEPT:EG-087).
+    pub fn set_bounding_volume(&self, id: &str, aabb: &crate::scene::Aabb) -> bool {
+        let ok = self.txn().set_bounding_volume(id, aabb);
+        if ok {
+            self.mark_dirty();
+        }
+        ok
+    }
+
+    /// CONCEPT:EG-087 — the stored LOCAL pose of scene object `id`. `None` if the
+    /// node is absent or carries no (decodable) `pose`.
+    pub fn get_pose(&self, id: &str) -> Option<crate::scene::Pose> {
+        let blob = self.get_node_properties(id)?;
+        let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+        crate::scene::Pose::from_json(val.as_object()?.get("pose")?)
+    }
+
+    /// CONCEPT:EG-087 — the stored axis-aligned bounding volume of scene object `id`,
+    /// in its LOCAL frame. `None` if absent / no (decodable) `aabb`.
+    pub fn get_bounding_volume(&self, id: &str) -> Option<crate::scene::Aabb> {
+        let blob = self.get_node_properties(id)?;
+        let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+        crate::scene::Aabb::from_json(val.as_object()?.get("aabb")?)
+    }
+
+    /// CONCEPT:EG-087 — the transform parent of scene object `id`: the target of its
+    /// outgoing `CHILD_OF` edge, or `None` for a root object / absent node.
+    pub fn scene_parent(&self, id: &str) -> Option<String> {
+        let idx = *self.topo.read().node_map.get(id)?;
+        let targets: Vec<String> = {
+            let topo = self.topo.read();
+            topo.graph
+                .edges_directed(idx, petgraph::Direction::Outgoing)
+                .map(|e| topo.graph[e.target()].clone())
+                .collect()
+        };
+        targets
+            .into_iter()
+            .find(|t| self.edge_has_relationship(id, t, "CHILD_OF"))
+    }
+
+    /// CONCEPT:EG-087 — the WORLD pose of scene object `id`: its local pose composed
+    /// with every ancestor's local pose up the `CHILD_OF` chain (root ∘ … ∘ local).
+    /// `None` if `id` is absent / has no pose. A cycle guard bounds the walk (a
+    /// well-formed hierarchy is acyclic; the guard just prevents a pathological loop
+    /// from spinning). Off-lock pure math once the chain is gathered.
+    pub fn world_transform(&self, id: &str) -> Option<crate::scene::Pose> {
+        // Gather the chain of ids from `id` up to the root (id first).
+        let mut chain: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut cur = id.to_string();
+        while seen.insert(cur.clone()) {
+            chain.push(cur.clone());
+            match self.scene_parent(&cur) {
+                Some(p) => cur = p,
+                None => break,
+            }
+        }
+        // Compose from the ROOT down to `id`: world = root ∘ … ∘ local(id).
+        let mut world: Option<crate::scene::Pose> = None;
+        for node in chain.iter().rev() {
+            let local = self.get_pose(node)?;
+            world = Some(match world {
+                Some(w) => w.compose(&local),
+                None => local,
+            });
+        }
+        world
+    }
+
+    /// CONCEPT:EG-087 — the direct transform children of scene object `id`: the
+    /// targets of its outgoing `HAS_CHILD` edges. Sorted + deduped; empty if absent /
+    /// no children.
+    pub fn scene_children(&self, id: &str) -> Vec<String> {
+        let targets: Vec<String> = {
+            let topo = self.topo.read();
+            let Some(&idx) = topo.node_map.get(id) else {
+                return Vec::new();
+            };
+            topo.graph
+                .edges_directed(idx, petgraph::Direction::Outgoing)
+                .map(|e| topo.graph[e.target()].clone())
+                .collect()
+        };
+        let mut out: Vec<String> = targets
+            .into_iter()
+            .filter(|t| self.edge_has_relationship(id, t, "HAS_CHILD"))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// CONCEPT:EG-087 — all transitive transform descendants of scene object `id`
+    /// (breadth-first over `HAS_CHILD`). Sorted + deduped; excludes `id` itself. A
+    /// visited-set makes it robust to a malformed cyclic hierarchy.
+    pub fn scene_descendants(&self, id: &str) -> Vec<String> {
+        let mut out: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+        queue.push_back(id.to_string());
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        visited.insert(id.to_string());
+        while let Some(n) = queue.pop_front() {
+            for c in self.scene_children(&n) {
+                if visited.insert(c.clone()) {
+                    out.insert(c.clone());
+                    queue.push_back(c);
+                }
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    /// CONCEPT:EG-087 — every `(from, to)` pair connected by a spatial relationship
+    /// edge carrying `rel` (e.g. `ON`/`IN`/`NEAR`/`SUPPORTS`). Sorted + deduped.
+    pub fn objects_with_relation(&self, rel: &str) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = self
+            .edge_properties
+            .iter()
+            .filter_map(|entry| {
+                let (src, tgt) = entry.key();
+                entry
+                    .value()
+                    .iter()
+                    .any(|b| {
+                        rmp_serde::from_slice::<serde_json::Value>(b)
+                            .ok()
+                            .and_then(|v| {
+                                v.as_object()
+                                    .and_then(|o| {
+                                        o.get("relationship").or_else(|| o.get("type"))
+                                    })
+                                    .and_then(|r| r.as_str())
+                                    .map(|s| s == rel)
+                            })
+                            .unwrap_or(false)
+                    })
+                    .then(|| (src.clone(), tgt.clone()))
             })
             .collect();
         out.sort();
