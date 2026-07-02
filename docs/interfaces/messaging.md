@@ -9,7 +9,9 @@ MQTT/STOMP by topic.
 
 > Status snapshot: the broker (exchanges/routing, DLQ, TTL, priority, delayed delivery, consumer groups +
 > QoS/prefetch, replayable streams, publisher confirms + manual acks) is shipped (EG-275..284), as are the
-> AMQP (EG-275), MQTT (EG-281), and STOMP (EG-282) wires. See the [capability matrix](../capabilities.md).
+> AMQP (EG-275), MQTT (EG-281), and STOMP (EG-282) wires. Program B adds **effectively-exactly-once**
+> delivery (idempotent producer) + AMQP `confirm.select` / MQTT 5 frame exposure (EG-314). See the
+> [capability matrix](../capabilities.md).
 
 ## The broker model
 
@@ -23,6 +25,7 @@ MQTT/STOMP by topic.
 | **Consumer groups + QoS/prefetch** | Named consumer groups sharing a queue, per-consumer prefetch (unacked-in-flight limit), fair round-robin dispatch, per-consumer visibility leases | EG-280 |
 | **Replayable streams** | Kafka/RabbitMQ-Streams-style persistent append-only logs: messages retained (not deleted on consume) in an ordered offset-indexed log; consumers read from an explicit offset (earliest/latest/N) and replay; retention by size/age | EG-283 |
 | **Publisher confirms + consumer acks** | Per-message confirm/nack once durably enqueued (monotonic delivery-tag ⇒ at-least-once) + consumer manual-ack / nack-with-requeue over the claim path | EG-284 |
+| **Exactly-once (idempotent producer)** | A producer-id + monotonic sequence lets the broker **drop duplicate publishes** (a retried publish after a lost confirm is de-duplicated) for effectively-exactly-once on top of at-least-once; the stream/confirm/ack ops are exposed over the AMQP `confirm.select` + MQTT 5 wire frames (previously engine-Method-only) | EG-314 |
 
 Work-queue (claim/delete) semantics and stream (retain/replay) semantics coexist: the queue is the
 task/RPC pattern, the stream is the event-log pattern.

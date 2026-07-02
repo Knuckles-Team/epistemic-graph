@@ -6,10 +6,11 @@ node/full, out of the lean `pi` tier). Geometries persist as a typed value in th
 durable R-tree indexes them, and spatial predicates compose with graph traversal / vector / SQL in one
 plan. GeoSPARQL surfaces it over SPARQL; SQL `ST_*` functions surface it over pgwire.
 
-> Status snapshot: geometry model + WKT/WKB/GeoJSON/GPX I/O (EG-083/257/264), DE-9IM + RCC8/Egenhofer
-> relations (EG-258/155), constructive algebra (EG-259), CRS + reprojection + geodesic distance
-> (EG-255/262/256), a durable R-tree index (EG-263), map tiles (EG-265), routing/isochrones/TSP (EG-266),
-> and map-based task tracking (EG-267) are shipped. See the [capability matrix](../capabilities.md).
+> Status snapshot: geometry model + WKT/WKB/GeoJSON/GPX I/O (EG-083/257/264) — plus **Shapefile/KML/
+> GeoParquet** (EG-306) — DE-9IM + RCC8/Egenhofer relations (EG-258/155), constructive algebra (EG-259),
+> CRS + reprojection + geodesic distance (EG-255/262/256), a durable R-tree index (EG-263), map tiles
+> (EG-265), routing/isochrones/TSP (EG-266) with **turn-restrictions + time-windows** (EG-312), and
+> map-based task tracking (EG-267) are shipped. See the [capability matrix](../capabilities.md).
 
 ## Geometry model (EG-083/257)
 
@@ -18,10 +19,13 @@ The full OGC geometry set: `Point`, `LineString`, `Polygon` (with interior rings
 Stored as a typed redb value with a per-shard durable R-tree (EG-263) consulted by `Op::SpatialScan` for
 selectivity.
 
-## Format I/O (EG-264)
+## Format I/O (EG-264/306)
 
 Reader/writer for **GeoJSON** (Feature / FeatureCollection), **WKB** (binary geometry), and **GPX** tracks
-— round-tripping eg-geo geometries. (Shapefile / KML / GeoParquet are documented follow-ups.)
+— round-tripping eg-geo geometries. Program B completes the map-data ingest/export matrix with **ESRI
+Shapefile** (.shp/.dbf/.shx), **KML/KMZ**, and **GeoParquet** (EG-306), round-tripping geometries **and**
+their attributes — so field data from GIS tooling (QGIS/ArcGIS exports, Google Earth KML, columnar
+GeoParquet lakes) loads and exports directly.
 
 ## Predicates & relations (EG-258/155)
 
@@ -50,11 +54,18 @@ Slippy-map tile addressing (XYZ / TMS `z/x/y` ↔ lon/lat/bbox via Web-Mercator)
 (MVT protobuf-lite) encoding of features clipped to a tile, so a web map (Leaflet / MapLibre) renders the
 graph's spatial data.
 
-## Routing, isochrones & TSP (EG-266)
+## Routing, isochrones & TSP (EG-266/312)
 
 Graph routing over a spatial network: weighted shortest path (Dijkstra / A* with a geo heuristic),
 isochrones (reachability within a cost budget), and a nearest-neighbour + 2-opt TSP tour — the
-logistics / urban-planning primitives, reusing the engine's graph traversal.
+logistics / urban-planning primitives, reusing the engine's graph traversal. Program B extends the router
+for **realistic logistics** (EG-312):
+
+- **Turn restrictions** — per-turn penalties (via an edge/turn cost), so a banned or costly turn is avoided;
+  one-way edges were already supported.
+- **Time-windows / time-dependent weights** — an edge weight can be a **function of departure time**, so
+  rush-hour congestion or time-restricted access is modelled and the shortest path depends on *when* you
+  leave.
 
 ## Map-based task tracking (EG-267)
 

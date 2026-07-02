@@ -6,28 +6,102 @@ epistemic-graph converges many modalities under one durable engine and one plann
 **🔶 in-progress** · **🗺 designed, not started**.
 
 > The **Universal-DB Program** (EG-045..297) that this page used to track is essentially complete: the
-> whole SQL/SPARQL/OWL/Cypher/GraphQL parity backlog shipped, and this cycle (waves 18–22) added the
+> whole SQL/SPARQL/OWL/Cypher/GraphQL parity backlog shipped, and the 2.2.0 cycle (waves 18–22) added the
 > multi-wire adapters, the message broker, the observability stack, GIS, tensors, streams, the LLM
-> KV-cache, and the agent-memory primitives. Those are now in [**Shipped in 2.2.0**](#shipped-in-220)
-> below. What remains is a short list of **genuinely-deferred** items.
+> KV-cache, and the agent-memory primitives. **Program B** (waves B-1..B-6, EG-298..320) then turned the
+> deferred tail from stubs into real implementations — the LTAP lakehouse tier, real pgvector ANN pushdown,
+> GDS-over-Cypher, real ParadeDB BM25, exactly-once broker delivery, OTel egress, a QoS scheduler, durable
+> RBAC/JSONPath, `ALTER TABLE`, R2RML, Shapefile/KML, routing turn-restrictions, HNSW, cross-shard kNN, and
+> the memory/scene/trajectory wire surface. Those are now in [**Shipped in 2.2.0**](#shipped-in-220) and
+> [**Shipped in Program B**](#shipped-in-program-b) below. What remains is a short list of
+> **genuinely-deferred** items.
 
 ## Forward roadmap — genuinely deferred
 
 | Item | Status | Notes |
 |------|:------:|-------|
 | **ROS2 / DDS bridge** | 🗺 | A robotics transport bridge (DDS/RTPS) onto the broker + tensor/stream modalities; no wire adapter yet. |
+| **GPU-accelerated compute** | 🗺 | Offloading ANN build / tensor ops / reasoning to a GPU; the pure-Rust CPU path is the only backend today. |
 | **Admin console UI** | 🗺 | A browser admin surface (tenants, shards, RBAC, backup/PITR). The engine exposes the APIs; the UI is unbuilt. |
-| **Live dashboards UI** | 🗺 | A Grafana-style dashboard front-end over the PromQL/logs/traces query APIs (EG-172/162/163). The query side ships; the UI does not. |
-| **Python LMCache connector** | 🗺 | A shipped `pip`-installable vLLM/LMCache remote-backend client for the EG-187 KV-cache endpoint (the server surface + contract exist; the packaged Python connector does not). |
+| **Live dashboards UI** | 🗺 | A Grafana-style dashboard front-end over the PromQL/logs/traces query APIs (EG-172/302/162/163). The query side ships; the UI does not. |
+| **Python LMCache connector (driver)** | 🗺 | A shipped `pip`-installable vLLM/LMCache remote-backend client for the EG-187 KV-cache endpoint (the server surface + contract exist; the packaged Python connector/driver does not). |
 | **Cross-region async replica** | 🗺 | Asynchronous (non-Raft) cross-region follower replication, beyond the synchronous multi-Raft groups + super-cluster federated *read* (EG-243). |
-| **Exactly-once broker delivery** | 🗺 | Idempotent-producer / transactional exactly-once semantics on top of the at-least-once publisher-confirms + acks (EG-284). |
-| **Raster tiles / Shapefile / KML** | 🗺 | GIS I/O beyond the shipped GeoJSON/WKB/GPX + MVT vector tiles (EG-264/265): raster tile pyramids, ESRI Shapefile, and KML readers/writers. |
+| **Full Iceberg Avro manifest** | 🔶 | The LTAP lakehouse tier (EG-317) ships the Delta path + Iceberg-REST catalog + LSN as-of; the Iceberg **Avro manifest** writer is still a stub. |
+| **Raster tile pyramids** | 🗺 | Raster tile pyramids beyond the shipped vector-tile (MVT) + Shapefile/KML/GeoParquet GIS I/O (EG-265/306). |
 | **PL/pgSQL procedural bodies** | 🗺 | Stored-procedure/function *procedural* execution (loops, variables, control flow) beyond the shipped SQL views + DDL. |
 | **Memory → weights distillation** | 🗺 | Distilling consolidated agent-memory (EG-220/221) into model weights (a fine-tune/LoRA export), beyond the retrieval-time context assembly (EG-195). |
-| **Cross-shard kNN merge (full scatter)** | 🔶 | The `merge_topk` gather LEAF primitive ships + is tested (EG-069); the full scatter of a query across per-shard eg-ann indexes → global top-k is not yet wired. |
 | **Full Calvin deterministic-ordering commit** | 🗺 | A global sequencer / deterministic total order for cross-shard commit. Parallel-commit + read-only-participant + a non-blocking Paxos-Commit-lite Raft-replicated decision already ship (EG-081/082); full Calvin remains open. |
-| **`ALTER` beyond ADD COLUMN** | 🔶 | `ALTER TABLE … ADD COLUMN` ships on the durable user-table catalog (EG-018); other `ALTER` forms (DROP/RENAME/TYPE) are not yet built. |
 | **SQLite `.db` file I/O** | 🔶 | The SQLite-dialect NDJSON-over-TCP wire ships (EG-075); reading/writing an on-disk `sqlite3` `.db` file is a documented follow-up. |
+
+---
+
+## Shipped in Program B
+
+Program B (waves B-1..B-6, `CONCEPT:EG-298..320`) closed the deferred tail. Every item below is now ✅ —
+see the [capability matrix](capabilities.md) for the per-operation evidence and [concepts](concepts.md) for
+the authoritative `CONCEPT:EG-*` definitions.
+
+### SQL / tables
+- **`ALTER TABLE` beyond `ADD COLUMN`** — `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN TYPE`
+  (with data migration), `DROP CONSTRAINT` on the durable user-table catalog (EG-310).
+- **Real ParadeDB BM25** — real relevance scoring + highlighted snippets behind `@@@` / `paradedb.score()` /
+  `snippet()` (EG-311, replacing the placeholder `1.0`).
+- **Real pgvector ANN pushdown** — `ORDER BY col <-> $1 LIMIT k` pushes to the eg-ann HNSW/IVF index with an
+  exact re-rank (EG-313).
+
+### Lakehouse interop (LTAP)
+- **eg-lake LTAP tier** — Parquet-on-object-store materialization + Delta transaction log + Iceberg-REST
+  catalog + LSN-style as-of snapshots, so external lakehouse engines (Databricks/Spark/Trino/DuckDB) read the
+  engine's tables with zero ETL (EG-317). *(Iceberg Avro manifest writer still a stub — see forward roadmap.)*
+
+### Graph / Cypher
+- **GDS over Cypher** — `CALL gds.<algo>(…) YIELD …` (PageRank/Louvain/WCC/SCC/betweenness/Dijkstra/similarity)
+  over eg-compute (EG-298).
+
+### Vector / ANN
+- **HNSW index** — hierarchical-navigable-small-world graph index for higher recall-per-probe than IVF-PQ,
+  with insert/search/serde-persist (EG-301).
+- **Cross-shard kNN scatter-gather** — a kNN query scatters across per-shard eg-ann indexes and merges to a
+  deterministic global top-k via the `merge_topk` leaf (EG-319, completing EG-069).
+
+### Broker / streams
+- **Exactly-once broker delivery** — idempotent-producer dedup (producer id + sequence) + the stream/confirm/ack
+  ops exposed over the AMQP `confirm.select` + MQTT 5 wire frames (EG-314).
+- **Live CEP subscription** — register a CEP pattern, subscribe, receive pushed matches fed by the CDC bus
+  (EG-299).
+- **Redis pub/sub + S3 multipart** — RESP `SUBSCRIBE`/`PSUBSCRIBE`/`PUBLISH` + `MULTI`/`EXEC` (EG-174) and S3
+  multipart upload + range GET (EG-176), both EG-307.
+
+### RDF / OBDA
+- **ICV write-path enforcement** — a commit guard rejects a transaction that would introduce a SHACL-as-constraint
+  violation, configurable enforce/warn (EG-300).
+- **Full R2RML Turtle parse** — standard R2RML mapping documents drive an OBDA virtual graph (EG-305).
+
+### Observability
+- **PromQL extended function set** — `_over_time` family, `delta`/`idelta`/`deriv`, `topk`/`bottomk`/`quantile`,
+  `label_replace`/`label_join`, `clamp*` (EG-302).
+- **OTel export + Prometheus remote-write + OTLP** — the engine emits its own metrics/traces to an external OTel
+  collector + accepts a Prometheus remote-write receiver (EG-316).
+
+### GIS
+- **Shapefile / KML / GeoParquet I/O** — ESRI Shapefile, KML/KMZ, and GeoParquet reader/writer round-tripping
+  eg-geo geometries + attributes (EG-306).
+- **Routing turn-restrictions + time-windows** — turn-restriction penalties + time-dependent edge weights on the
+  EG-266 router (EG-312).
+
+### KV-cache
+- **Real KV warm-tier compression** — zstd (optional lz4) replacing the RLE fallback (EG-315).
+
+### Durability / wire surface / scheduling
+- **Durable RBAC persistence** — roles/grants + agent identities persist to redb + reload at boot (EG-303).
+- **Tensor-op CAS write-back** — derived tensors persist into the content-addressed tensor store on the exec path
+  (EG-304).
+- **Durable JSONPath index** — the inverted JSONPath index persists to redb + rehydrates at boot + feeds planner
+  cost `Stats` (EG-308).
+- **Federated typed result fusion** — schema-aware SQL + SPARQL column-union + typed dedup/merge (EG-309).
+- **Memory/scene/trajectory wire-Ops** — the agent-memory + scene-graph + trajectory library APIs exposed over the
+  wire as additive `Method`s + dispatch + WAL replay (EG-318).
+- **Real-time QoS/SLO scheduler** — per-tenant/priority admission + deadline scheduling + backpressure (EG-320).
 
 ---
 

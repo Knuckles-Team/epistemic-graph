@@ -92,6 +92,7 @@ nav:
       - Universal-DB Parity Roadmap: roadmap.md
       - Master-of-all Engine: architecture/engine.md
       - Subsystems (C4 Containers): architecture/subsystems.md
+      - Lakehouse LTAP Interop (EG-317): architecture/lakehouse-ltap.md
       - UQL & Unified Planner: uql.md
       - Tiers & Binaries: architecture/tiers.md
       - Engine Modes: engine-modes.md

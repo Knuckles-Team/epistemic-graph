@@ -7,8 +7,11 @@ search, and a super-cluster `/federated` fan-out unifies many regions. It is cro
 pipeline can enrich a record from the graph, and a query can join logs against graph/SQL data.
 
 > Status snapshot: log ingestion (EG-160), Parquet-on-object-store segments (EG-161), log search/query API
-> (EG-162), VRL-style ingest pipelines (EG-165), PromQL (EG-172), and distributed traces + trace search
-> (EG-163) are shipped. See the [capability matrix](../capabilities.md).
+> (EG-162), VRL-style ingest pipelines (EG-165), PromQL (EG-172) — with the Program-B **extended function
+> set** (EG-302) — and distributed traces + trace search (EG-163) are shipped. Program B also adds the
+> engine's **own** telemetry egress: OTLP export + a Prometheus remote-write receiver (EG-316), and
+> **typed** SQL/SPARQL result fusion for federated search (EG-309). See the
+> [capability matrix](../capabilities.md).
 
 All the HTTP surfaces below share **one** obs listener: `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`, default
 `127.0.0.1:5080`).
@@ -61,6 +64,18 @@ curl -s 'http://127.0.0.1:5080/api/v1/query_range?query=rate(http_requests[5m])&
 curl -s 'http://127.0.0.1:5080/api/v1/labels'
 ```
 
+### Extended function set (EG-302)
+
+Program B rounds out the evaluator to the functions dashboards actually emit: the **`_over_time`** family
+(`sum_over_time`/`avg_over_time`/`min_over_time`/`max_over_time`/`count_over_time`/`stddev_over_time`/
+`quantile_over_time`), **`delta`**/**`idelta`**/**`deriv`**, the **`topk`**/**`bottomk`**/**`quantile`**
+aggregators, **`label_replace`**/**`label_join`** relabeling, and the **`clamp`**/`clamp_min`/`clamp_max`
+clamps — so a Grafana Prometheus panel that uses them evaluates correctly.
+
+```bash
+curl -s 'http://127.0.0.1:5080/api/v1/query?query=topk(5, avg_over_time(cpu[10m]))'
+```
+
 Point a Grafana **Prometheus** data source at the obs listener. (Feature `promql`, implies `obs`.) See
 also [time-series](timeseries.md#promql--prometheus-http-api-eg-172-feature-promql-on-the-obs-listener).
 
@@ -85,8 +100,10 @@ curl -s 'http://127.0.0.1:5080/api/traces?service=my-svc'
 
 A read query fans out across a peer registry of engine instances (regions/clusters) and the local store,
 then unions/de-dups + RRF-re-ranks the partials — a slow/dead peer degrades to `partial: true`, never
-fails. This is its **own** listener (`EPISTEMIC_GRAPH_FEDERATED_ADDR`, feature `federation-search`), not on
-the obs listener:
+fails. Program B adds **typed result fusion** for SQL + SPARQL partials — a schema-aware column union +
+typed dedup/merge rather than a plain hashed-key union — so cross-instance SQL/SPARQL results combine
+correctly (EG-309). This is its **own** listener (`EPISTEMIC_GRAPH_FEDERATED_ADDR`, feature
+`federation-search`), not on the obs listener:
 
 ```bash
 EPISTEMIC_GRAPH_FEDERATED_ADDR=127.0.0.1:7900 \
@@ -109,3 +126,17 @@ Distinct from ingesting *other* systems' observability, the engine exports its *
 Prometheus `/metrics` (feature `metrics`, default-on, `GRAPH_SERVICE_METRICS_ADDR`) and OTLP span export
 (feature `otel`, `EPISTEMIC_GRAPH_OTLP_ENDPOINT`) + a slow-query log (`EPISTEMIC_GRAPH_SLOW_QUERY_MS`).
 See the [runbook](../operations/runbook.md#8-observability-of-the-engine-itself).
+
+### OTel export + Prometheus remote-write (EG-316)
+
+Program B closes the observability loop — the engine both **ingests** other systems' telemetry (above) and
+**emits** its own to external collectors. The `otel-export` feature (adds a protobuf/`prost` dep, out of
+`pi`) turns on:
+
+- **OTLP push** of the engine's metrics + traces to an external OpenTelemetry collector (endpoint via env),
+  so the engine is a first-class OTLP producer, not only a `/v1/traces` sink.
+- A **Prometheus remote-write receiver**, so a Prometheus server (or any remote-write producer) can ship its
+  samples *into* the engine's tsdb — the engine as a Prometheus long-term-storage backend.
+
+This complements the pull-based `/metrics` exposition (a scrape) with push-based egress + remote-write
+ingest.

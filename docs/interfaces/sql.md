@@ -8,12 +8,16 @@ epistemic-graph speaks SQL two ways:
    ORM connects as if to Postgres.
 
 > Status snapshot: read-path `SELECT` is full DataFusion (incl. window functions, EG-089). Writes are
-> `INSERT`/`UPDATE`/`DELETE` on `nodes` and on **arbitrary user tables**, with DDL
-> (`CREATE`/`ALTER ADD COLUMN`/`DROP TABLE`/`CREATE VIEW`/`CREATE FUNCTION`, `COPY`) over a durable redb
-> catalog. Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML (`UPDATE…FROM`/`DELETE…USING`),
-> `ON CONFLICT` upsert, user-table `RETURNING`, and mixed-store wire transactions are **shipped**
-> (EG-045..049, EG-072). Postgres-extension surfaces (`pg_catalog`/`information_schema`, arrays/ranges,
-> pgvector, AGE `cypher()`, TimescaleDB, ParadeDB) light up via `CREATE EXTENSION`. See the
+> `INSERT`/`UPDATE`/`DELETE` on `nodes` and on **arbitrary user tables**, with full DDL
+> (`CREATE`/`ALTER TABLE`/`DROP TABLE`/`CREATE VIEW`/`CREATE FUNCTION`, `COPY`) over a durable redb
+> catalog — `ALTER TABLE` now covers `DROP`/`RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN TYPE`, `DROP
+> CONSTRAINT` (EG-310). Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML
+> (`UPDATE…FROM`/`DELETE…USING`), `ON CONFLICT` upsert, user-table `RETURNING`, and mixed-store wire
+> transactions are **shipped** (EG-045..049, EG-072). Postgres-extension surfaces
+> (`pg_catalog`/`information_schema`, arrays/ranges, pgvector with **real ANN pushdown** (EG-313), AGE
+> `cypher()`, TimescaleDB, ParadeDB with **real BM25** (EG-311)) light up via `CREATE EXTENSION`. The same
+> tables are also readable as an open **Parquet + Delta + Iceberg** lakehouse with zero ETL — see
+> [lakehouse-ltap](../architecture/lakehouse-ltap.md) (EG-317). See the
 > [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
 
 ## The tables
@@ -92,11 +96,25 @@ an aborted txn rejects statements until `ROLLBACK` (`25P02`). The node↔table c
 
 ## DDL, views & user tables
 
-Arbitrary user tables are first-class: `CREATE TABLE`, `ALTER TABLE … ADD COLUMN`, `DROP TABLE`, `COPY`,
+Arbitrary user tables are first-class: `CREATE TABLE`, full `ALTER TABLE`, `DROP TABLE`, `COPY`,
 and `CREATE VIEW` / `DROP VIEW` (EG-072 — a referenced view expands to its stored SELECT) persist to a
 durable redb catalog (`crates/eg-query/src/tables/`, EG-018/EG-020). User-table DML
 (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `RETURNING`) executes against it, and user tables are
 JOINable to the graph `nodes`/`edges` in a single query. Reserved names `nodes`/`edges` are rejected for DDL.
+
+### `ALTER TABLE` (EG-310)
+
+Beyond `ADD COLUMN`, the durable user-table catalog supports the full evolving-schema set with data
+migration: `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO` (rename the table), `ALTER COLUMN … TYPE` (with a
+row-rewrite migration), and `DROP CONSTRAINT`:
+
+```sql
+ALTER TABLE metrics ADD COLUMN region text;
+ALTER TABLE metrics RENAME COLUMN value TO score;
+ALTER TABLE metrics ALTER COLUMN score TYPE double precision;
+ALTER TABLE metrics DROP COLUMN region;
+ALTER TABLE metrics RENAME TO measurements;
+```
 
 ### Stored functions (EG-118)
 
@@ -126,10 +144,10 @@ are recorded in a durable catalog:
 
 | Extension | Surfaces | Concept |
 |-----------|----------|---------|
-| `vector` (pgvector) | `vector(n)` column type + `<->` (L2) / `<=>` (cosine) / `<#>` (neg-inner) operators; `CREATE INDEX … USING hnsw/ivfflat` pushes `ORDER BY emb <-> $1 LIMIT k` down to the eg-ann index | EG-115 / EG-116 |
+| `vector` (pgvector) | `vector(n)` column type + `<->` (L2) / `<=>` (cosine) / `<#>` (neg-inner) operators; `CREATE INDEX … USING hnsw/ivfflat` pushes `ORDER BY emb <-> $1 LIMIT k` down to the eg-ann index — a **real ANN top-k** (HNSW/IVF) + exact re-rank, not the brute-force fallback (which stays as the no-index path) | EG-115 / EG-116 / EG-313 |
 | `pg_age` (Apache AGE) | `SELECT * FROM cypher('graph', $$ MATCH … RETURN … $$) AS (a agtype)` routes the inner Cypher to the eg-query Cypher engine | EG-114 |
 | `timescaledb` | `create_hypertable()`, `time_bucket()` gap-fill, and `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates over the eg-tsdb store | EG-117 |
-| `pg_search` (ParadeDB) | the `@@@` BM25 search operator + `paradedb.*` `score()`/`snippet()` over the eg-text index | EG-119 |
+| `pg_search` (ParadeDB) | the `@@@` BM25 search operator + `paradedb.*` `score()`/`snippet()` over the eg-text index — **real BM25 relevance scoring + highlighted snippets** (not a placeholder `1.0`) | EG-119 / EG-311 |
 
 ```sql
 CREATE EXTENSION vector;
