@@ -40,7 +40,7 @@ const MAX_ROWS: usize = 50_000;
 pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run(view, nodes, edges, Vec::new(), sql)
+    run(view, nodes, edges, Vec::new(), Vec::new(), sql)
 }
 
 /// Materialize EVERY user table in `store` into an Arrow `(name, schema, batch)` so
@@ -98,7 +98,7 @@ pub struct TypedQueryResult {
 pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run_typed(view, nodes, edges, Vec::new(), sql)
+    run_typed(view, nodes, edges, Vec::new(), Vec::new(), sql)
 }
 
 /// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-018). Identical
@@ -114,7 +114,10 @@ pub fn exec_sql_typed_with_tables(
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
     let user = materialize_user_tables(store)?;
-    run_typed(view, nodes, edges, user, sql)
+    // CONCEPT:EG-072: the durable views, registered as read-only named queries so a
+    // SELECT that references a view expands its stored SELECT during context build.
+    let views = store.list_views()?;
+    run_typed(view, nodes, edges, user, views, sql)
 }
 
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
@@ -128,7 +131,7 @@ pub fn exec_sql_cached(
     sql: &str,
 ) -> Result<QueryResult, String> {
     let tables = cache.tables_at(view, version)?;
-    run(view, tables.nodes, tables.edges, Vec::new(), sql)
+    run(view, tables.nodes, tables.edges, Vec::new(), Vec::new(), sql)
 }
 
 /// Build the shared `SessionContext` for a SQL run: register the `nodes`/`edges`
@@ -208,6 +211,7 @@ fn run(
         arrow::record_batch::RecordBatch,
     ),
     user_tables: Vec<UserTable>,
+    views: Vec<(String, String)>,
     sql: &str,
 ) -> Result<QueryResult, String> {
     // The graph table functions run their kernel over an owned snapshot; clone the
@@ -221,10 +225,37 @@ fn run(
 
     rt.block_on(async move {
         let ctx = build_ctx(snap, nodes, edges, user_tables)?;
+        register_views(&ctx, &views).await?;
         let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_result(&batches)
     })
+}
+
+/// Register each durable view as a DataFusion logical view (CONCEPT:EG-072): plan its
+/// stored SELECT against the already-registered `nodes`/`edges`/user tables, then
+/// register the resulting `ViewTable` under the view's name so a query that references
+/// it expands the SELECT. A view whose SELECT fails to plan (e.g. it referenced a table
+/// since dropped) is skipped with a debug log rather than failing every query.
+async fn register_views(ctx: &SessionContext, views: &[(String, String)]) -> Result<(), String> {
+    for (name, select_sql) in views {
+        match ctx.sql(select_sql).await {
+            Ok(df) => {
+                let provider = df.into_view();
+                if let Err(e) = ctx.register_table(name.as_str(), provider) {
+                    tracing::debug!(
+                        target: "eg_query::sql",
+                        "skipping view `{name}`: register failed: {e}"
+                    );
+                }
+            }
+            Err(e) => tracing::debug!(
+                target: "eg_query::sql",
+                "skipping view `{name}`: SELECT failed to plan: {e}"
+            ),
+        }
+    }
+    Ok(())
 }
 
 /// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
@@ -241,6 +272,7 @@ fn run_typed(
         arrow::record_batch::RecordBatch,
     ),
     user_tables: Vec<UserTable>,
+    views: Vec<(String, String)>,
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
     let snap = Arc::new(view.clone());
@@ -252,6 +284,7 @@ fn run_typed(
 
     rt.block_on(async move {
         let ctx = build_ctx(snap, nodes, edges, user_tables)?;
+        register_views(&ctx, &views).await?;
         let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
