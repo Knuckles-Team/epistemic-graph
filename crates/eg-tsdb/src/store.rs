@@ -337,6 +337,21 @@ impl SeriesStore {
         self.range(series_id, Ts::MIN, Ts::MAX)
     }
 
+    /// List every series id present (scans the meta table's keys). Additive read used
+    /// by the PromQL facade to resolve label matchers / enumerate labels (CONCEPT:EG-172)
+    /// — the store keys series by opaque id, so the PromQL layer encodes a metric's
+    /// labels INTO the id and enumerates them here.
+    pub fn list_series(&self) -> Result<Vec<String>> {
+        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let tab = rtx.open_table(SERIES_META).map_err(redb_err)?;
+        let mut out = Vec::new();
+        for item in tab.iter().map_err(redb_err)? {
+            let (k, _v) = item.map_err(redb_err)?;
+            out.push(k.value().to_string());
+        }
+        Ok(out)
+    }
+
     /// Retention: drop every point of `series_id` older than `cutoff`. Returns the
     /// number of WHOLE buckets removed. Two cases (CONCEPT:EG-068):
     ///  * a bucket whose entire span ends at-or-before `cutoff` is range-deleted whole
