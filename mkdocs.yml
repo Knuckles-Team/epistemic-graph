@@ -96,6 +96,7 @@ nav:
       - Engine Modes: engine-modes.md
       - Service Mode: service_mode.md
   - Interfaces:
+      - Connecting (per-wire guide): interfaces/connecting.md
       - SQL & pgwire: interfaces/sql.md
       - SPARQL & RDF: interfaces/sparql.md
       - Cypher: interfaces/cypher.md
@@ -105,6 +106,7 @@ nav:
       - Key-value & Blob: interfaces/kv-blob.md
       - Ontology Lifecycle: interfaces/ontology.md
   - Deploy & Operate:
+      - Operations Runbook: operations/runbook.md
       - Deployment (database): deployment.md
       - Cost Model & Capacity: cost-model.md
       - Binary Promotion (deploy): deploy/binary-promotion.md
