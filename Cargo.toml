@@ -269,6 +269,14 @@ rdf = ["server", "dep:eg-rdf", "eg-rdf/rdf", "eg-types/rdf"]
 # Native SPARQL 1.1 surface (CONCEPT:KG-2.218): compiles spargebra's algebra to
 # GraphView scans (eg-rdf). IMPLIES `rdf`; pure-Rust (spargebra), no native dep.
 sparql = ["rdf", "eg-rdf/sparql", "eg-types/sparql"]
+# SPARQL standards completeness (CONCEPT:EG-127/130/131) forwarded from eg-rdf. All
+# pure-Rust (RustCrypto hashes; oxrdfxml/oxjsonld; oxrdf/oxttl/spargebra rdf-12 flags),
+# gated OUT of `pi` (the Pi contract requires sha1/md-5/oxrdfxml/oxjsonld = 0) and folded
+# into node/full so deployment ships the full builtin/serialization/RDF-star surface.
+sparql-hash = ["sparql", "eg-rdf/sparql-hash"]     # MD5/SHA1/SHA2 SPARQL hash builtins
+rdf-xml = ["rdf", "eg-rdf/rdf-xml"]                 # RDF/XML reader+writer
+json-ld = ["rdf", "eg-rdf/json-ld"]                 # JSON-LD 1.1 (expansion form)
+sparql-star = ["sparql", "eg-rdf/sparql-star"]      # RDF-star / SPARQL-star quoted triples
 # W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017): a minimal hand-rolled
 # HTTP/1.1 listener (the SAME dep-free idiom as the Prometheus `--metrics-addr`
 # exposition — NO axum/hyper/warp) so existing Stardog/Jena/rdflib SPARQL clients can
@@ -318,7 +326,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -338,7 +346,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
