@@ -127,9 +127,10 @@ pub fn describe(method: &Method) -> Option<SlowQuery> {
     }
 }
 
-/// Describe a raw SQL statement on the pgwire path for slow-query timing
-/// (CONCEPT:EG-091). `None` when logging is disabled.
-#[cfg(feature = "pgwire")]
+/// Describe a raw SQL statement on a wire (pgwire / TDS / …) path for slow-query
+/// timing (CONCEPT:EG-091). Gated on the shared `wire` core (CONCEPT:EG-074) that
+/// calls it, so ANY wire adapter builds it — not just pgwire. `None` when disabled.
+#[cfg(feature = "wire")]
 pub fn describe_sql(sql: &str) -> Option<SlowQuery> {
     if !enabled() {
         return None;
