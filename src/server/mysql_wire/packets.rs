@@ -426,7 +426,7 @@ mod tests {
         put_lenenc_int(&mut b, 300);
         assert_eq!(b, vec![0xfc, 0x2c, 0x01]); // 300 = 0x012c LE
         b.clear();
-        put_lenenc_int(&mut b, 0x1234_56);
+        put_lenenc_int(&mut b, 0x123456);
         assert_eq!(b, vec![0xfd, 0x56, 0x34, 0x12]);
     }
 

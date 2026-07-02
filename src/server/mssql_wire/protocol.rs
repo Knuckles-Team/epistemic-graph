@@ -526,7 +526,7 @@ mod tests {
 
         let mut rec = vec![0u8; LOGIN7_FIXED_LEN];
         let mut data = Vec::new();
-        let mut put =
+        let put =
             |rec: &mut Vec<u8>, data: &mut Vec<u8>, ib_off: usize, cch_off: usize, bytes: &[u8]| {
                 let ib = (LOGIN7_FIXED_LEN + data.len()) as u16;
                 let cch = (bytes.len() / 2) as u16;
