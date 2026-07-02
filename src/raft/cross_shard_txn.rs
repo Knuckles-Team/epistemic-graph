@@ -93,6 +93,62 @@
 //! through Raft so a surviving node can resolve) plus Calvin-style deterministic
 //! ordering remain a separate follow-up track (CONCEPT:EG-082); so is a cross-NODE
 //! participant path and a larger >2-group scale test.
+//!
+//! ## Non-blocking commit — Raft-replicated decision (CONCEPT:EG-082)
+//!
+//! The blocking window above exists for ONE reason: in classic 2PC the durable COMMIT
+//! decision lives ONLY in the coordinator's private redb (`xshard_decision_put`). A
+//! participant that voted YES cannot resolve itself until THAT coordinator's redb comes
+//! back — no other node holds the decision. EG-082 removes the window by making the
+//! decision a **Raft-replicated log entry** instead of a coordinator-private record
+//! (Paxos-Commit / "3PC-lite"; the tractable option chosen over full Calvin — see the
+//! design note below).
+//!
+//! [`CrossShardCoordinator::commit_cross_shard_nonblocking`] runs the SAME PHASE 1
+//! (durable, commit-before-vote prepare — every invariant preserved) and the SAME PHASE
+//! 2 apply, but at the atomic commit point it replicates the decision through a Raft
+//! **decision group**: it writes an `AddNode(txn_id, {xshard_commit})` into a dedicated
+//! [`XSHARD_DECISION_GRAPH`] via that group's `client_write`. Once `client_write`
+//! returns `Ok` the decision is quorum-committed to the group's Raft log AND applied to
+//! its replicated state machine — so it is durable on a quorum and **readable on every
+//! replica**, not just the coordinator. Crucially the coordinator-private redb decision
+//! table is NEVER written on this path (`xshard_decision_get(txn_id)` stays `None`),
+//! which is exactly what a test asserts to distinguish it from 2PC.
+//!
+//! [`CrossShardCoordinator::recover_in_doubt_nonblocking`] scans the durable PREPARE
+//! records exactly as 2PC recovery does, but LEARNS each txn's outcome from the
+//! replicated decision graph rather than the coordinator's redb. Therefore ANY node that
+//! carries the decision group's replicated state — a surviving replica, or a wholly
+//! different coordinator instance — resolves the in-doubt txn and drives PHASE 2 to
+//! completion WITHOUT waiting on the node that made the decision. That is the removed
+//! blocking window, and the `xshard_harness` `nonblocking_*` tests prove it: (a)
+//! atomicity holds, (b) a coordinator dropped between decision and apply does not block —
+//! a fresh resolver finishes the txn from the replicated decision, and (c) the outcome
+//! agrees with 2PC for the same inputs.
+//!
+//! **Why Paxos-Commit-lite and not Calvin.** Calvin (a global sequencer assigning a
+//! total order, deterministic execution, no vote round) is a larger rewrite: it needs a
+//! new sequencer service, a batching/epoch protocol, and a re-plumb of how slices reach
+//! participants — and it discards the OCC/prepare machinery this module already has.
+//! The Paxos-Commit approach reuses the engine's EXISTING openraft integration wholesale
+//! (a group's `client_write` IS a replicated durable log append), touches only
+//! `src/raft`, adds no dependency, and keeps the prepare/OCC/presumed-abort invariants
+//! byte-for-byte — so it is the sound, additive, tractable subset. Calvin remains open.
+//!
+//! **Feature/runtime gating.** The whole non-blocking path is compiled only under
+//! `feature = "nonblocking"` (a standalone feature in NO deployment tier) OR the
+//! `test`/`harness` proof build; a plain `--features raft` build does not link it, and
+//! even when linked the DEFAULT commit path stays [`CrossShardCoordinator::commit_cross_shard`]
+//! (2PC) — the non-blocking path is opt-in per call (the caller passes the decision
+//! group id).
+//!
+//! **Landed subset / what remains.** Landed: the Raft-replicated decision record, the
+//! participant-/replica-learns-from-log recovery path, decision-record GC after
+//! resolution, and the correctness+liveness gauntlet. Deliberately still open
+//! (documented, not weakened): a cross-NODE participant apply path (participants are
+//! local groups on the coordinator node today), a dedicated always-on decision Raft group
+//! wired into the server bootstrap (the group id is a per-call parameter here), and full
+//! Calvin deterministic ordering.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -532,7 +588,274 @@ impl CrossShardCoordinator {
     pub async fn decide_only(&self, txn_id: &str, commit: bool) -> Result<(), String> {
         self.redb()?.xshard_decision_put(txn_id, commit).await
     }
+
+    // ── EG-082: NON-BLOCKING commit via a Raft-replicated decision ──────────────
+    // Everything below is compiled ONLY under `feature = "nonblocking"` (a standalone
+    // feature in no deployment tier) OR the `test`/`harness` proof build — a plain
+    // `--features raft` build links none of it, and the DEFAULT commit path stays the
+    // 2PC `commit_cross_shard` above. See the module-level "Non-blocking commit"
+    // section for the design.
+
+    /// Run the NON-BLOCKING cross-shard commit (CONCEPT:EG-082): identical to
+    /// [`commit_cross_shard`] except the atomic commit point REPLICATES the decision
+    /// through the `decision_gid` Raft group (a durable, quorum-committed log entry in
+    /// [`XSHARD_DECISION_GRAPH`]) instead of writing it to the coordinator-private redb.
+    /// Because the decision lives in a replicated log, a coordinator crash between the
+    /// decision and PHASE 2 no longer blocks participants — any node carrying the
+    /// decision group's replicated state resolves the txn (see
+    /// [`recover_in_doubt_nonblocking`]).
+    ///
+    /// Preserves every 2PC invariant: durable commit-before-vote prepare, presumed-abort
+    /// (an in-doubt txn with no replicated decision aborts), commit-before-ack (PHASE 2
+    /// only runs after the decision is quorum-durable), and the read-only fast path.
+    ///
+    /// [`recover_in_doubt_nonblocking`]: CrossShardCoordinator::recover_in_doubt_nonblocking
+    #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+    pub async fn commit_cross_shard_nonblocking(
+        &self,
+        txn: &CrossShardTxn,
+        decision_gid: GroupId,
+    ) -> Result<TxnOutcome, String> {
+        let redb = self.redb()?;
+        let participants = self.participants(txn);
+        if participants.len() < 2 {
+            return Err(format!(
+                "commit_cross_shard_nonblocking called for a {}-group txn (use the single-group path)",
+                participants.len()
+            ));
+        }
+
+        // Read-only fast path — identical to 2PC (EG-081): validate read-only
+        // participants without any durable/replicated state; a fully read-only txn
+        // commits with zero records.
+        let (writing, read_only) = self.split_participants(participants);
+        self.readonly_skipped
+            .fetch_add(read_only.len() as u64, Ordering::Relaxed);
+        for (gid, slices) in &read_only {
+            if !self.validate_read_only_participant(*gid, slices).await? {
+                return Ok(TxnOutcome::Aborted);
+            }
+        }
+        if writing.is_empty() {
+            return Ok(TxnOutcome::Committed);
+        }
+
+        // PHASE 1: durable, commit-before-vote prepare of every WRITING participant,
+        // issued concurrently — byte-for-byte the 2PC prepare (same invariant).
+        let prepare_futs = writing.iter().map(|(gid, slices)| {
+            let gid = *gid;
+            async move {
+                (
+                    gid,
+                    self.prepare_participant(redb, &txn.txn_id, gid, slices)
+                        .await,
+                )
+            }
+        });
+        let votes = futures::future::join_all(prepare_futs).await;
+        let mut prepared_groups: Vec<GroupId> = Vec::new();
+        let mut all_yes = true;
+        for (gid, vote) in votes {
+            match vote {
+                Ok(true) => prepared_groups.push(gid),
+                Ok(false) => all_yes = false,
+                Err(e) => {
+                    tracing::warn!(
+                        "xshard-nb {}: prepare of group {} errored ({e}) → abort",
+                        txn.txn_id,
+                        gid
+                    );
+                    all_yes = false;
+                }
+            }
+        }
+        let commit = all_yes && prepared_groups.len() == writing.len();
+
+        // ── THE ATOMIC COMMIT POINT: REPLICATE the decision through Raft ────────
+        // NOT the coordinator-private redb. Once this returns Ok the decision is
+        // quorum-committed + applied to the decision group's state machine, so any
+        // replica can learn it. This single replicated write is the linearization
+        // point of the whole non-blocking txn.
+        self.replicate_decision(decision_gid, &txn.txn_id, commit)
+            .await?;
+
+        // ── PHASE 2: apply the (replicated) decision ────────────────────────────
+        if commit {
+            self.apply_commit(redb, &txn.txn_id, &writing).await?;
+        } else {
+            self.apply_abort(redb, &txn.txn_id, &prepared_groups)
+                .await?;
+        }
+        // GC the resolved decision record from the replicated graph (idempotent; a
+        // recovery that re-runs before this clears will simply re-learn + re-apply the
+        // same outcome, which is a no-op on the graph data).
+        self.clear_replicated_decision(decision_gid, &txn.txn_id)
+            .await?;
+        Ok(if commit {
+            TxnOutcome::Committed
+        } else {
+            TxnOutcome::Aborted
+        })
+    }
+
+    /// Resolve every in-doubt cross-shard txn for the NON-BLOCKING path (CONCEPT:EG-082).
+    /// Like [`recover_in_doubt`] it scans the durable PREPARE records, but it LEARNS each
+    /// txn's outcome from the REPLICATED decision graph ([`learn_decision`]) rather than
+    /// the coordinator-private redb — so ANY node holding the decision group's replicated
+    /// state (a surviving replica, or a different coordinator entirely) can run it and
+    /// drive the in-doubt txn to completion without the crashed coordinator. This is the
+    /// removed blocking window. Returns the number of in-doubt txns resolved.
+    ///
+    /// [`learn_decision`]: CrossShardCoordinator::learn_decision
+    #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+    pub async fn recover_in_doubt_nonblocking(
+        &self,
+        decision_gid: GroupId,
+    ) -> Result<usize, String> {
+        let redb = self.redb()?;
+        let mut by_txn: BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>> = BTreeMap::new();
+        for (txn_id, gid, blob) in redb.xshard_scan_prepares()? {
+            let slices: Vec<GraphSlice> =
+                rmp_serde::from_slice(&blob).map_err(|e| e.to_string())?;
+            by_txn.entry(txn_id).or_default().insert(gid, slices);
+        }
+        let mut resolved = 0usize;
+        for (txn_id, participants) in by_txn {
+            // Learn the outcome from the REPLICATED decision, not coordinator redb.
+            match self.learn_decision(&txn_id).await? {
+                // COMMIT replicated → re-run phase 2 commit (re-apply, then clear), then
+                // GC the replicated decision.
+                Some(true) => {
+                    tracing::info!("xshard-nb recovery: {txn_id} → COMMIT (re-applying)");
+                    self.apply_commit(redb, &txn_id, &participants).await?;
+                    self.clear_replicated_decision(decision_gid, &txn_id).await?;
+                }
+                // ABORT replicated → clear prepares, then GC the replicated decision.
+                Some(false) => {
+                    tracing::info!("xshard-nb recovery: {txn_id} → ABORT (clearing prepares)");
+                    let gids: Vec<GroupId> = participants.keys().copied().collect();
+                    self.apply_abort(redb, &txn_id, &gids).await?;
+                    self.clear_replicated_decision(decision_gid, &txn_id).await?;
+                }
+                // NO replicated decision at all → presumed-abort (a crash before the
+                // decision was replicated). Correct: apply only ever runs after the
+                // decision is quorum-durable, so no participant could have applied.
+                None => {
+                    tracing::info!("xshard-nb recovery: {txn_id} → ABORT (presumed, no decision)");
+                    let gids: Vec<GroupId> = participants.keys().copied().collect();
+                    self.apply_abort(redb, &txn_id, &gids).await?;
+                }
+            }
+            resolved += 1;
+        }
+        Ok(resolved)
+    }
+
+    /// Replicate the COMMIT/ABORT decision through the `decision_gid` Raft group
+    /// (CONCEPT:EG-082): an `AddNode(txn_id, {xshard_commit})` into [`XSHARD_DECISION_GRAPH`]
+    /// committed via that group's `client_write`. Returns after the entry is
+    /// quorum-committed AND applied locally — the decision is now durable on a quorum and
+    /// readable on every replica. Writes NOTHING to the coordinator-private redb.
+    #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+    async fn replicate_decision(
+        &self,
+        decision_gid: GroupId,
+        txn_id: &str,
+        commit: bool,
+    ) -> Result<(), String> {
+        let group = self.multi.group(decision_gid).await.ok_or_else(|| {
+            format!("xshard-nb: decision group {decision_gid} not running on this node")
+        })?;
+        let properties_msgpack = rmp_serde::to_vec_named(&serde_json::json!({
+            "kind": "xshard_decision",
+            "xshard_commit": commit,
+        }))
+        .map_err(|e| e.to_string())?;
+        let req = RaftRequest {
+            graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
+            graph_name: XSHARD_DECISION_GRAPH.to_string(),
+            graph_type: GraphType::Global,
+            method: Method::AddNode {
+                node_id: txn_id.to_string(),
+                properties_msgpack,
+            },
+        };
+        group.client_write(req).await?;
+        Ok(())
+    }
+
+    /// GC a resolved txn's replicated decision node (CONCEPT:EG-082) — a `RemoveNode`
+    /// through the decision group. Idempotent (removing an absent node is a no-op), so a
+    /// recovery retry is safe. A missing decision group is tolerated (nothing to clear).
+    #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+    async fn clear_replicated_decision(
+        &self,
+        decision_gid: GroupId,
+        txn_id: &str,
+    ) -> Result<(), String> {
+        let Some(group) = self.multi.group(decision_gid).await else {
+            return Ok(());
+        };
+        let req = RaftRequest {
+            graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
+            graph_name: XSHARD_DECISION_GRAPH.to_string(),
+            graph_type: GraphType::Global,
+            method: Method::RemoveNode {
+                node_id: txn_id.to_string(),
+            },
+        };
+        group.client_write(req).await?;
+        Ok(())
+    }
+
+    /// Learn a txn's outcome from the REPLICATED decision graph (CONCEPT:EG-082):
+    /// `Some(true)` = COMMIT, `Some(false)` = ABORT, `None` = no decision replicated
+    /// (undecided → presumed-abort). Reads the decision group's applied state machine
+    /// (the registry [`XSHARD_DECISION_GRAPH`] core), NOT the coordinator-private redb —
+    /// so it works on any replica that has applied the committed decision entry. Public
+    /// so the gauntlet can assert the decision is readable from replicated state.
+    #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+    pub async fn learn_decision(&self, txn_id: &str) -> Result<Option<bool>, String> {
+        let state = self.multi.app_state();
+        let s = state.read().await;
+        let core = match s.registry.get(XSHARD_DECISION_GRAPH) {
+            Some(e) => e.core.clone(),
+            None => return Ok(None),
+        };
+        match core.get_node_properties(txn_id) {
+            None => Ok(None),
+            Some(blob) => {
+                let v: serde_json::Value =
+                    rmp_serde::from_slice(&blob).map_err(|e| e.to_string())?;
+                Ok(Some(
+                    v.get("xshard_commit")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false),
+                ))
+            }
+        }
+    }
+
+    /// Replicate a decision WITHOUT applying phase 2 (CONCEPT:EG-082 harness crash
+    /// window: the decision is quorum-durable in the replicated log, apply not yet done).
+    /// The analog of [`decide_only`] for the non-blocking path.
+    #[cfg(any(test, feature = "harness"))]
+    pub async fn decide_replicated_only(
+        &self,
+        txn_id: &str,
+        decision_gid: GroupId,
+        commit: bool,
+    ) -> Result<(), String> {
+        self.replicate_decision(decision_gid, txn_id, commit).await
+    }
 }
+
+/// The dedicated graph that holds Raft-replicated cross-shard commit decisions
+/// (CONCEPT:EG-082). One node per txn — id = `txn_id`, property `xshard_commit: bool`.
+/// Lives in the decision Raft group's replicated state machine, so every replica can
+/// read a txn's outcome without the coordinator.
+#[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+pub const XSHARD_DECISION_GRAPH: &str = "__xshard_decisions__";
 
 /// Does ANY slice in the txn insert `node_id`? An AddEdge whose endpoint is added by
 /// a sibling slice in the SAME cross-shard txn is valid (the endpoint will exist
