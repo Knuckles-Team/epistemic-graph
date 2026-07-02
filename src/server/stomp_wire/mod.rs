@@ -503,7 +503,7 @@ impl Frame {
         let mut lines = head.split(|&b| b == b'\n');
         let command = lines
             .next()
-            .map(|l| trim_cr(l))
+            .map(trim_cr)
             .map(|l| String::from_utf8_lossy(l).into_owned())
             .unwrap_or_default();
         let mut headers = Vec::new();

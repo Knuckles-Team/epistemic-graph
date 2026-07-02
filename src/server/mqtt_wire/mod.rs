@@ -354,13 +354,11 @@ async fn handle_connection(
                 )
                 .await?;
             }
-            PKT_PUBACK => {
+            PKT_PUBACK if payload.len() >= 2 => {
                 // A subscriber's QoS-1 delivery acknowledgement (echoed packet id).
-                if payload.len() >= 2 {
-                    let id = u16::from_be_bytes([payload[0], payload[1]]);
-                    if let Some(node_id) = unacked.remove(&id) {
-                        ack_message(&state, &graph, &node_id).await;
-                    }
+                let id = u16::from_be_bytes([payload[0], payload[1]]);
+                if let Some(node_id) = unacked.remove(&id) {
+                    ack_message(&state, &graph, &node_id).await;
                 }
             }
             PKT_PINGREQ => {
@@ -544,9 +542,7 @@ fn build_unsuback(packet_id: u16, count: usize, version: u8) -> Vec<u8> {
     p.extend_from_slice(&packet_id.to_be_bytes());
     if version >= 5 {
         p.push(0); // property length = 0
-        for _ in 0..count {
-            p.push(0x00); // reason: success
-        }
+        p.resize(p.len() + count, 0x00); // one success reason byte per filter
     }
     p
 }
