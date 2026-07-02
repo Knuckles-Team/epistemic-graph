@@ -47,10 +47,11 @@ use tokio::sync::RwLock;
 
 use eg_query::{
     AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan, CopyFormat, CopyPlan,
-    CreateTablePlan, CreateViewPlan, CypherCallPlan, DeleteNodes, DeleteNodesJoin, DeleteTable,
-    DropTablePlan, DropViewPlan, HypertablePlan, InsertNodes, InsertNodesSelect, InsertSelect,
-    InsertTable, OnConflictAction, PgColType, StatementKind, TableSchema, TableStore, TableTxn,
-    TxnOp, TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    CreateFunctionPlan, CreateTablePlan, CreateViewPlan, CypherCallPlan, DeleteNodes,
+    DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
+    InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflictAction, PgColType,
+    StatementKind, TableSchema, TableStore, TableTxn, TxnOp, TypedColumn, TypedQueryResult,
+    UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 
 use crate::isolation::AccessLevel;
@@ -759,6 +760,9 @@ impl WireSession {
             StatementKind::DropExtension { name, if_exists } => {
                 self.run_drop_extension(name, if_exists).await
             }
+            // CONCEPT:EG-118 — CREATE/DROP FUNCTION over the durable function catalog.
+            StatementKind::CreateFunction(plan) => self.run_create_function(plan).await,
+            StatementKind::DropFunction(plan) => self.run_drop_function(plan).await,
             // ── Postgres-family extension parity (wave 19) ──────────────────────────
             // CONCEPT:EG-114 — Apache AGE cypher() set-returning function.
             StatementKind::CypherCall(plan) => self.run_cypher_call(graph, plan).await,
@@ -991,6 +995,28 @@ impl WireSession {
             .map_err(|e| user_err(format!("drop extension task failed: {e}")))?
             .map_err(user_err)?;
         Ok(WireOutcome::command("DROP EXTENSION"))
+    }
+
+    /// CONCEPT:EG-118 — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql`: persist the SQL
+    /// stored function in the durable function catalog (commit-before-ack). A later
+    /// `SELECT fn(args)` / `FROM fn(args)` expands it during the read path.
+    async fn run_create_function(&self, plan: CreateFunctionPlan) -> WireResult<WireOutcome> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.create_function(&plan.func, plan.or_replace))
+            .await
+            .map_err(|e| user_err(format!("create function task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(WireOutcome::command("CREATE FUNCTION"))
+    }
+
+    /// CONCEPT:EG-118 — `DROP FUNCTION [IF EXISTS] name`.
+    async fn run_drop_function(&self, plan: DropFunctionPlan) -> WireResult<WireOutcome> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.drop_function(&plan.name, plan.if_exists))
+            .await
+            .map_err(|e| user_err(format!("drop function task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(WireOutcome::command("DROP FUNCTION"))
     }
 
     /// CONCEPT:EG-114 — `SELECT … FROM cypher('graph', $$ … $$) AS (cols…)`: run the
