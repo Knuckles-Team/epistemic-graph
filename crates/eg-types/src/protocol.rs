@@ -113,6 +113,19 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
     },
+    /// Atomically claim the oldest pending node of `label` (CONCEPT:KG-2.303 —
+    /// native task queue). Under the topology write guard: among `label`'s nodes
+    /// whose `status == "pending"`, pick the smallest `seq`, merge
+    /// `updates_msgpack` (the claim marker — computed CLIENT-side, carrying NO
+    /// server clock so WAL/Raft replay stays deterministic), and return
+    /// `Raw(Option<(node_id, properties)>)` (nil ⇒ nothing claimable). One
+    /// in-engine resolve+CAS; deterministic over identical state, so a committed
+    /// Raft entry / replayed WAL record reproduces the same claim.
+    ClaimNext {
+        label: String,
+        #[serde(with = "serde_bytes")]
+        updates_msgpack: Vec<u8>,
+    },
     /// Batch property read: fetch properties for many nodes in ONE round-trip
     /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
     /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the
