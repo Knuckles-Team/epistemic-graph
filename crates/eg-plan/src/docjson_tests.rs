@@ -5,6 +5,7 @@
 //!  * `JsonPathOp::Exists`   — deep path existence (`jsonb_path_query` / `@?`);
 //!  * `JsonPathOp::Eq`       — deep `->>`-style equality (with numeric→text coercion);
 //!  * `JsonPathOp::Contains` — Postgres `@>` JSON containment.
+//!
 //! Plus a compose proof: a relational `Scan` then a JSONPath `Filter` in ONE plan.
 
 use eg_core::compute::semantic::SemanticStore;
