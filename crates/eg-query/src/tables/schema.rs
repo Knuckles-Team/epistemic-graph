@@ -374,3 +374,57 @@ pub(crate) fn parse_vector_text(s: &str) -> Result<Vec<f32>, String> {
         })
         .collect()
 }
+
+// ── SQL stored functions (CONCEPT:EG-118) ─────────────────────────────────────
+
+/// One argument of a SQL stored function (CONCEPT:EG-118): `argname argtype`. The
+/// `type_name` is the raw SQL type spelling (`int`, `text`, `double precision`, …);
+/// execution relies on DataFusion's schema inference over the EXPANDED body, so the
+/// declared type is catalog metadata (surfaced by a future `pg_proc`), not a coercion
+/// applied here. Reused for a `RETURNS TABLE(col type, …)` column too.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FunctionArg {
+    pub name: String,
+    pub type_name: String,
+}
+
+/// What a SQL stored function returns (CONCEPT:EG-118). A `Scalar` function's body is a
+/// single-expression `SELECT` inlined into an expression; a `Table`/`SetOf` function's
+/// body is a `SELECT` expanded as a parameterized-view subquery in a `FROM` clause.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FunctionReturns {
+    /// `RETURNS <scalar type>` — the body is `SELECT <expr>`; a call inlines `<expr>`.
+    Scalar(String),
+    /// `RETURNS TABLE(col type, …)` — the declared output columns; the body is a SELECT.
+    Table(Vec<FunctionArg>),
+    /// `RETURNS SETOF <type>` — set-returning; the body SELECT drives the output schema.
+    SetOf(String),
+}
+
+/// A durable SQL-language stored function (CONCEPT:EG-118), persisted in the function
+/// catalog beside the view/table catalogs and EXPANDED into a query at plan time so
+/// DataFusion's existing planner executes it — there is NO separate function evaluator.
+/// PL/pgSQL procedural bodies (IF/LOOP/variables/RETURN) are a documented follow-up
+/// (the path is a WASM-compiled body or a small statement interpreter); only
+/// `LANGUAGE sql` is implemented.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredFunction {
+    pub name: String,
+    pub args: Vec<FunctionArg>,
+    pub returns: FunctionReturns,
+    /// The `LANGUAGE sql` body (a dollar-/single-quoted `SELECT …`) whose argument
+    /// identifiers reference `args` by name.
+    pub body: String,
+}
+
+impl StoredFunction {
+    /// Whether this function returns a set of rows (`RETURNS TABLE(...)`/`SETOF`) — so a
+    /// call is expanded as a `FROM`-clause subquery — versus a scalar function whose
+    /// body expression is inlined into an expression (CONCEPT:EG-118).
+    pub fn is_table(&self) -> bool {
+        matches!(
+            self.returns,
+            FunctionReturns::Table(_) | FunctionReturns::SetOf(_)
+        )
+    }
+}

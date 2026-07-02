@@ -49,7 +49,9 @@ use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 use serde_json::{Map, Value};
 
-use crate::tables::schema::{CmpOp, ColCheck};
+use crate::tables::schema::{
+    CmpOp, ColCheck, FunctionArg as CatalogArg, FunctionReturns, StoredFunction,
+};
 
 /// How a single parsed SQL statement should be routed by the wire shim.
 #[derive(Debug, Clone, PartialEq)]
@@ -147,6 +149,15 @@ pub enum StatementKind {
     /// `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS SELECT …`
     /// (CONCEPT:EG-117) — a continuous aggregate lowered onto the durable view catalog.
     CreateContinuousAggregate(ContinuousAggPlan),
+
+    // ── SQL stored functions (CONCEPT:EG-118) ───────────────────────────────────
+    /// `CREATE [OR REPLACE] FUNCTION name(arg type, …) RETURNS … AS $$ … $$ LANGUAGE sql`
+    /// — record a SQL-language stored function in the durable function catalog. A later
+    /// `SELECT fn(args)` (scalar) inlines the body expression, and a `FROM fn(args)`
+    /// (`RETURNS TABLE`/`SETOF`) expands the body as a parameterized-view subquery.
+    CreateFunction(CreateFunctionPlan),
+    /// `DROP FUNCTION [IF EXISTS] name [(…)]` (CONCEPT:EG-118) — remove a function.
+    DropFunction(DropFunctionPlan),
 }
 
 /// A decoded `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020). `columns` empty ⇒
@@ -307,6 +318,23 @@ pub struct DropViewPlan {
     pub if_exists: bool,
 }
 
+/// A decoded `CREATE [OR REPLACE] FUNCTION …` (CONCEPT:EG-118). `func` is the durable
+/// definition persisted in the function catalog; `or_replace` mirrors `OR REPLACE`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateFunctionPlan {
+    pub func: StoredFunction,
+    pub or_replace: bool,
+}
+
+/// A decoded `DROP FUNCTION [IF EXISTS] name [(…)]` (CONCEPT:EG-118). Functions are
+/// keyed by name (overloading by argument-type signature is a documented follow-up), so
+/// the argument-type list — if present — is parsed and ignored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DropFunctionPlan {
+    pub name: String,
+    pub if_exists: bool,
+}
+
 /// A decoded `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-018). The SELECT
 /// is kept as text and run through the SAME DataFusion path (so it can JOIN user
 /// tables and the graph), and its rows are then inserted.
@@ -397,6 +425,18 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
     // the `COPY … FROM STDIN` pre-check) and route it to the extension catalog.
     if let Some((name, if_exists)) = parse_drop_extension(sql) {
         return Ok(StatementKind::DropExtension { name, if_exists });
+    }
+    // CONCEPT:EG-118 — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql` and `DROP FUNCTION`.
+    // The dollar-quoted `$$ … $$` body + the typed argument/`RETURNS TABLE(...)` lists do
+    // not round-trip through `sqlparser` 0.51's `CreateFunction` AST cleanly, so — exactly
+    // like AGE `cypher()` / `DROP EXTENSION` — the shape is recognized TEXTUALLY before the
+    // parser. A malformed `CREATE FUNCTION` returns a precise `Err` (never silently mis-
+    // routed to the parser, which would emit a confusing message).
+    if is_create_function(sql) {
+        return parse_create_function(sql).map(StatementKind::CreateFunction);
+    }
+    if is_drop_function(sql) {
+        return parse_drop_function(sql).map(StatementKind::DropFunction);
     }
     // CONCEPT:EG-114 — Apache AGE `cypher('g', $$ … $$) AS (cols…)`. `sqlparser` 0.51
     // cannot parse the typed `AS` column list on a table function, so recognize it
@@ -1683,6 +1723,439 @@ fn parse_drop_extension(sql: &str) -> Option<(String, bool)> {
         }
     }
     Some((name.to_string(), if_exists))
+}
+
+// ── SQL stored functions (CONCEPT:EG-118) ─────────────────────────────────────
+
+/// Whether `sql` begins `CREATE [OR REPLACE] FUNCTION …` (case-insensitive). Used to
+/// route to the textual [`parse_create_function`] before the parser (CONCEPT:EG-118).
+fn is_create_function(sql: &str) -> bool {
+    let mut toks = sql.split_whitespace();
+    if !toks.next().is_some_and(|t| t.eq_ignore_ascii_case("CREATE")) {
+        return false;
+    }
+    let mut next = match toks.next() {
+        Some(t) => t,
+        None => return false,
+    };
+    if next.eq_ignore_ascii_case("OR") {
+        if !toks.next().is_some_and(|t| t.eq_ignore_ascii_case("REPLACE")) {
+            return false;
+        }
+        next = match toks.next() {
+            Some(t) => t,
+            None => return false,
+        };
+    }
+    // The FUNCTION keyword may be glued to the name's `(` only after a space, so a bare
+    // token compare is enough (`FUNCTION add(...)` tokenizes `FUNCTION` separately).
+    next.eq_ignore_ascii_case("FUNCTION")
+}
+
+/// Whether `sql` begins `DROP FUNCTION …` (case-insensitive) (CONCEPT:EG-118).
+fn is_drop_function(sql: &str) -> bool {
+    let mut toks = sql.split_whitespace();
+    toks.next().is_some_and(|t| t.eq_ignore_ascii_case("DROP"))
+        && toks.next().is_some_and(|t| t.eq_ignore_ascii_case("FUNCTION"))
+}
+
+/// Parse `CREATE [OR REPLACE] FUNCTION name(arg type, …) RETURNS <ret> AS $$ body $$
+/// LANGUAGE sql` textually (CONCEPT:EG-118) into a [`CreateFunctionPlan`]. `<ret>` is a
+/// scalar type, `TABLE(col type, …)`, or `SETOF type`; the `AS <body>` and `LANGUAGE
+/// <lang>` clauses may appear in either order. Only `LANGUAGE sql` is implemented — a
+/// procedural `LANGUAGE plpgsql` body is a documented follow-up and returns a precise
+/// `Err`.
+fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
+    let s = sql.trim();
+    let rest = strip_leading_kw(s, "CREATE")
+        .ok_or("CREATE FUNCTION: expected `CREATE` (CONCEPT:EG-118)")?;
+    let (or_replace, rest) = match strip_leading_kw(rest, "OR") {
+        Some(r) => (
+            true,
+            strip_leading_kw(r, "REPLACE").ok_or("CREATE OR …: expected `REPLACE`")?,
+        ),
+        None => (false, rest),
+    };
+    let rest = strip_leading_kw(rest, "FUNCTION").ok_or("expected `FUNCTION` keyword")?;
+
+    // Function name up to the argument-list `(`.
+    let paren = rest
+        .find('(')
+        .ok_or("CREATE FUNCTION requires a parenthesized argument list")?;
+    let name = last_ident_str(rest[..paren].trim());
+    if name.is_empty() {
+        return Err("CREATE FUNCTION requires a function name".to_string());
+    }
+
+    // Argument list (matching paren; types may themselves carry parens like `numeric(10,2)`).
+    let (args_inner, after_args) = read_balanced_parens(rest, paren)
+        .ok_or("CREATE FUNCTION argument list is not balanced")?;
+    let args = parse_arg_defs(args_inner, "argument")?;
+
+    let after = rest[after_args..].trim_start();
+    let after = strip_leading_kw(after, "RETURNS")
+        .ok_or("CREATE FUNCTION requires a `RETURNS` clause")?;
+    let (returns, after_ret) = parse_returns(after)?;
+
+    let (body, language) = parse_body_and_language(after_ret)?;
+    if !language.eq_ignore_ascii_case("sql") {
+        return Err(format!(
+            "CREATE FUNCTION LANGUAGE `{language}` is not implemented — only LANGUAGE sql is \
+             supported; a procedural PL/pgSQL body (IF/LOOP/variables/RETURN) is a documented \
+             follow-up (CONCEPT:EG-118)"
+        ));
+    }
+    let body = body.trim().to_string();
+    if body.is_empty() {
+        return Err("CREATE FUNCTION body is empty".to_string());
+    }
+    Ok(CreateFunctionPlan {
+        func: StoredFunction {
+            name,
+            args,
+            returns,
+            body,
+        },
+        or_replace,
+    })
+}
+
+/// Parse `DROP FUNCTION [IF EXISTS] name [(argtypes…)] [CASCADE|RESTRICT]` textually
+/// (CONCEPT:EG-118). The optional argument-type signature and CASCADE/RESTRICT are
+/// parsed and ignored (functions are keyed by name; overloading is a follow-up).
+fn parse_drop_function(sql: &str) -> Result<DropFunctionPlan, String> {
+    let s = sql.trim().trim_end_matches(';').trim();
+    let rest = strip_leading_kw(s, "DROP").ok_or("DROP FUNCTION: expected `DROP`")?;
+    let rest = strip_leading_kw(rest, "FUNCTION").ok_or("expected `FUNCTION` keyword")?;
+    let (if_exists, rest) = match strip_leading_kw(rest, "IF") {
+        Some(r) => (
+            true,
+            strip_leading_kw(r, "EXISTS").ok_or("DROP FUNCTION IF …: expected `EXISTS`")?,
+        ),
+        None => (false, rest),
+    };
+    // Name runs until whitespace, `(` (an argument-type signature), or end.
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '(')
+        .unwrap_or(rest.len());
+    let name = last_ident_str(rest[..end].trim());
+    if name.is_empty() {
+        return Err("DROP FUNCTION requires a function name".to_string());
+    }
+    Ok(DropFunctionPlan { name, if_exists })
+}
+
+/// Strip a leading whole-word keyword (case-insensitive) from `s`, returning the
+/// remaining text trimmed of leading whitespace, or `None` if `s` does not start with
+/// `kw` on a word boundary.
+fn strip_leading_kw<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
+    let s = s.trim_start();
+    if s.len() >= kw.len() && s[..kw.len()].eq_ignore_ascii_case(kw) {
+        let after = &s[kw.len()..];
+        // Word boundary: the char after the keyword must not continue an identifier.
+        if after
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphanumeric() && c != '_')
+        {
+            return Some(after.trim_start());
+        }
+    }
+    None
+}
+
+/// The last (unqualified) segment of a possibly schema-qualified name, with surrounding
+/// double-quotes stripped (`public."Add"` → `Add`, `add` → `add`).
+fn last_ident_str(name: &str) -> String {
+    name.rsplit('.')
+        .next()
+        .unwrap_or(name)
+        .trim()
+        .trim_matches('"')
+        .to_string()
+}
+
+/// Read a balanced `(…)` group whose opening paren is at byte `open` in `s`. Returns the
+/// INNER text (between the parens) and the byte index just past the matching `)`. Skips
+/// `'…'` string literals and `$$…$$` dollar bodies so a paren inside them does not
+/// unbalance the count.
+fn read_balanced_parens(s: &str, open: usize) -> Option<(&str, usize)> {
+    let bytes = s.as_bytes();
+    if *bytes.get(open)? != b'(' {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut i = open;
+    let mut in_squote = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_squote {
+            if c == b'\'' {
+                in_squote = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\'' => in_squote = true,
+            b'$' => {
+                // A dollar-quoted body — skip it wholesale.
+                if let Some((_, end)) = super::pgfamily::read_dollar_quoted(s, i) {
+                    i = end;
+                    continue;
+                }
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((&s[open + 1..i], i + 1));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Split `inner` (the text between an argument list's parens) into `name type` defs at
+/// top-level commas (CONCEPT:EG-118). Empty (or whitespace-only) `inner` ⇒ no args. Each
+/// entry's FIRST token is the name and the REST is the type spelling (so `n numeric(10,2)`
+/// and `ts double precision` decode correctly). `what` names the context for errors.
+fn parse_arg_defs(inner: &str, what: &str) -> Result<Vec<CatalogArg>, String> {
+    let mut out = Vec::new();
+    for piece in split_top_level_commas(inner) {
+        let piece = piece.trim();
+        if piece.is_empty() {
+            continue;
+        }
+        let mut it = piece.splitn(2, char::is_whitespace);
+        let name = it.next().unwrap_or("").trim().trim_matches('"');
+        let type_name = it.next().map(|t| t.trim()).unwrap_or("");
+        if name.is_empty() || type_name.is_empty() {
+            return Err(format!(
+                "CREATE FUNCTION {what} `{piece}` must be `name type` (CONCEPT:EG-118)"
+            ));
+        }
+        out.push(CatalogArg {
+            name: name.to_string(),
+            type_name: type_name.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// Split `s` at commas that are NOT nested inside parens / `'…'` / `$$…$$`.
+fn split_top_level_commas(s: &str) -> Vec<&str> {
+    let bytes = s.as_bytes();
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut in_squote = false;
+    let mut start = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_squote {
+            if c == b'\'' {
+                in_squote = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\'' => in_squote = true,
+            b'$' => {
+                if let Some((_, end)) = super::pgfamily::read_dollar_quoted(s, i) {
+                    i = end;
+                    continue;
+                }
+            }
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                parts.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    parts.push(&s[start..]);
+    parts
+}
+
+/// Parse a `RETURNS` spec at the START of `after` (CONCEPT:EG-118): `TABLE(col type, …)`,
+/// `SETOF <type>`, or a scalar `<type>`. Returns the decoded [`FunctionReturns`] and the
+/// remaining text (the `AS`/`LANGUAGE` tail).
+fn parse_returns(after: &str) -> Result<(FunctionReturns, &str), String> {
+    if let Some(rest) = strip_leading_kw(after, "TABLE") {
+        let rest = rest.trim_start();
+        let open = rest
+            .find('(')
+            .ok_or("RETURNS TABLE requires a `(col type, …)` column list")?;
+        let (inner, end) =
+            read_balanced_parens(rest, open).ok_or("RETURNS TABLE column list is not balanced")?;
+        let cols = parse_arg_defs(inner, "RETURNS TABLE column")?;
+        return Ok((FunctionReturns::Table(cols), rest[end..].trim_start()));
+    }
+    if let Some(rest) = strip_leading_kw(after, "SETOF") {
+        let (ty, tail) = read_return_type_word(rest)?;
+        return Ok((FunctionReturns::SetOf(ty), tail));
+    }
+    // A scalar return type: everything up to the first top-level `AS` / `LANGUAGE`.
+    let end = [
+        find_top_level_kw(after, "AS"),
+        find_top_level_kw(after, "LANGUAGE"),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
+    .ok_or("CREATE FUNCTION requires an `AS <body>` clause")?;
+    let ty = after[..end].trim();
+    if ty.is_empty() {
+        return Err("RETURNS requires a return type".to_string());
+    }
+    Ok((FunctionReturns::Scalar(ty.to_string()), after[end..].trim_start()))
+}
+
+/// Read a single whitespace-delimited return-type word (e.g. after `SETOF`) and return it
+/// plus the remaining tail.
+fn read_return_type_word(s: &str) -> Result<(String, &str), String> {
+    let s = s.trim_start();
+    let end = s.find(char::is_whitespace).unwrap_or(s.len());
+    let ty = s[..end].trim();
+    if ty.is_empty() {
+        return Err("SETOF requires a type".to_string());
+    }
+    Ok((ty.to_string(), s[end..].trim_start()))
+}
+
+/// Parse the `AS <body>` + `LANGUAGE <lang>` tail (CONCEPT:EG-118), in EITHER order.
+/// `<body>` is a `$$…$$`/`$tag$…$tag$` dollar body or a `'…'` single-quoted string.
+/// Returns `(body, language)`.
+fn parse_body_and_language(tail: &str) -> Result<(String, String), String> {
+    let mut body: Option<String> = None;
+    let mut language: Option<String> = None;
+    let mut cur = tail.trim_start();
+    // Up to two clauses (`AS` and `LANGUAGE`), any order.
+    for _ in 0..2 {
+        if let Some(rest) = strip_leading_kw(cur, "AS") {
+            let (b, next) = read_function_body(rest)?;
+            body = Some(b);
+            cur = next.trim_start();
+        } else if let Some(rest) = strip_leading_kw(cur, "LANGUAGE") {
+            let rest = rest.trim_start();
+            let end = rest
+                .find(|c: char| c.is_whitespace() || c == ';')
+                .unwrap_or(rest.len());
+            language = Some(rest[..end].trim().to_string());
+            cur = rest[end..].trim_start();
+        } else {
+            break;
+        }
+    }
+    match (body, language) {
+        (Some(b), Some(l)) => Ok((b, l)),
+        (Some(_), None) => Err("CREATE FUNCTION requires a `LANGUAGE` clause".to_string()),
+        _ => Err("CREATE FUNCTION requires an `AS <body>` clause".to_string()),
+    }
+}
+
+/// Read a function body at the START of `s`: a `$$…$$`/`$tag$…$tag$` dollar body or a
+/// `'…'` single-quoted string. Returns the body text and the remaining tail.
+fn read_function_body(s: &str) -> Result<(String, &str), String> {
+    let s = s.trim_start();
+    let bytes = s.as_bytes();
+    match bytes.first() {
+        Some(b'$') => {
+            let (body, end) = super::pgfamily::read_dollar_quoted(s, 0)
+                .ok_or("CREATE FUNCTION dollar-quoted body is not closed")?;
+            Ok((body, s[end..].trim_start()))
+        }
+        Some(b'\'') => {
+            // A single-quoted body; `''` is an escaped quote.
+            let mut i = 1usize;
+            let mut buf = String::new();
+            while i < bytes.len() {
+                if bytes[i] == b'\'' {
+                    if bytes.get(i + 1) == Some(&b'\'') {
+                        buf.push('\'');
+                        i += 2;
+                        continue;
+                    }
+                    return Ok((buf, s[i + 1..].trim_start()));
+                }
+                buf.push(bytes[i] as char);
+                i += 1;
+            }
+            Err("CREATE FUNCTION single-quoted body is not closed".to_string())
+        }
+        _ => Err("CREATE FUNCTION `AS` must be followed by a `$$…$$` or '…' body".to_string()),
+    }
+}
+
+/// Find the byte index of the first whole-word, case-insensitive occurrence of `kw` in
+/// `s` at TOP LEVEL — not inside `'…'`, `$$…$$`, or `(…)` (CONCEPT:EG-118). Returns
+/// `None` if absent.
+fn find_top_level_kw(s: &str, kw: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let kb = kw.as_bytes();
+    let mut depth = 0usize;
+    let mut in_squote = false;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_squote {
+            if c == b'\'' {
+                in_squote = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'\'' => {
+                in_squote = true;
+                i += 1;
+                continue;
+            }
+            b'$' => {
+                if let Some((_, end)) = super::pgfamily::read_dollar_quoted(s, i) {
+                    i = end;
+                    continue;
+                }
+            }
+            b'(' => {
+                depth += 1;
+                i += 1;
+                continue;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+        if depth == 0
+            && i + kb.len() <= bytes.len()
+            && s[i..i + kb.len()].eq_ignore_ascii_case(kw)
+        {
+            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            let after_ok =
+                i + kb.len() == bytes.len() || !is_ident_byte(bytes[i + kb.len()]);
+            if before_ok && after_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Whether `b` continues a SQL identifier (`[A-Za-z0-9_]`).
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Decode `ALTER TABLE name ADD COLUMN col type`. Only a single `ADD COLUMN`
