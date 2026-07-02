@@ -1063,6 +1063,29 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── Remote KV-cache HTTP surface (CONCEPT:EG-187) ─────────────────────
+    // Opt-in AND feature-gated, mirroring the s3 listener: it starts ONLY when the
+    // binary is built `--features kvcache-server` AND EPISTEMIC_GRAPH_KVCACHE_ADDR is
+    // set. With the feature off, or on but unset, this is a no-op. Exposes the
+    // `eg-kvcache` shared, content-addressed backend (EG-186) over HTTP so parallel
+    // vLLM/LMCache instances SHARE KV blocks by token-hash; a bare enable token binds
+    // the safe localhost default `127.0.0.1:9130`. Bearer-token guard (anonymous unless
+    // EPISTEMIC_GRAPH_KVCACHE_TOKEN is configured).
+    #[cfg(feature = "kvcache-server")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::kvcache_http::KVCACHE_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:9130",
+    ) {
+        info!("kvcache-server: serving shared KV-cache HTTP surface on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::kvcache_http::serve(&addr).await {
+                tracing::error!("kvcache-server error: {}", e);
+            }
+        });
+    }
+
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
