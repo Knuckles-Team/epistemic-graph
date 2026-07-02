@@ -12,13 +12,19 @@ name = "eg_kvcache"
 # Pure-Rust, Pi-lean by design — a leaf crate like eg-ann / eg-tensor. The RAM-only
 # build (hot + compressed-warm + in-memory-cold) links NO dependency at all: the
 # content hash (FNV-1a-128), the RLE compressor and the tiered LRU are all
-# hand-written. The DURABLE cold tier (offload-to-disk so the KV cache survives an
-# OOM / restart) is behind the optional `durable` feature and is the ONLY thing that
-# pulls redb — mirroring how eg-ann/eg-tsdb gate their redb tier. So a `pi`/default
-# build of this crate carries no redb, and the durable tier reuses the engine's
-# existing KG-2.195 redb durability tier.
+# hand-written. Two optional features each pull ONE dependency: the DURABLE cold tier
+# (`durable` → redb) and a REAL warm-tier codec (CONCEPT:EG-315, `compression` → zstd;
+# optional `lz4` → lz4_flex). All OFF by default — mirroring how eg-ann/eg-tsdb gate
+# their redb tier — so a `pi`/default build of this crate carries no redb and no zstd,
+# and the durable tier reuses the engine's existing KG-2.195 redb durability tier.
 [dependencies]
 redb = { version = "4.1", optional = true }
+# CONCEPT:EG-315 — the real WARM-tier codec. `zstd` gives production-grade compression
+# ratios on KV pages (far above the built-in RLE) at the cost of one dependency, so it
+# is OFF by default (`compression` feature) to keep the base/pi build dependency-free.
+zstd = { version = "0.13", optional = true }
+# CONCEPT:EG-315 — an OPTIONAL faster/lighter pure-Rust codec alternative to zstd.
+lz4_flex = { version = "0.13", optional = true }
 
 [features]
 default = []
@@ -26,6 +32,13 @@ default = []
 # store the cache demotes cold bytes into, so the KV cache SURVIVES an OOM / process
 # restart. OFF by default (the RAM-only build needs no redb).
 durable = ["dep:redb"]
+# Real WARM-tier compression codec (CONCEPT:EG-315): enables `Codec::Zstd`, selectable
+# via `TieredCache::with_warm_codec`. Pulls `zstd`. OFF by default so the base/pi build
+# stays dependency-free (the hand-rolled RLE remains the default codec either way).
+compression = ["dep:zstd"]
+# OPTIONAL alternative WARM codec (CONCEPT:EG-315): enables `Codec::Lz4` (pure-Rust
+# `lz4_flex`) — faster/lighter than zstd. OFF by default.
+lz4 = ["dep:lz4_flex"]
 
 [dev-dependencies]
 # Only the `durable` redb cold-tier test touches the filesystem.
