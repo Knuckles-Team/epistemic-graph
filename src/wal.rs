@@ -91,6 +91,25 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::BatchUpdate { .. }
             | Method::ClaimNext { .. }
             | Method::ClearGraph
+            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-318):
+            // each writes durable nodes/edges via an eg-core primitive whose
+            // generated ids derive deterministically from sorted inputs / node-count
+            // / step ordinals and whose only clock is the EXPLICIT caller `now_ms`, so
+            // `apply` below re-runs the SAME primitive over the same pre-image and
+            // reproduces byte-identical state (mirrors the EG-276..284 broker
+            // precedent). The paired READ variants are recomputable ⇒ not logged.
+            | Method::CreateSummaryNode { .. }
+            | Method::Consolidate { .. }
+            | Method::Reinforce { .. }
+            | Method::DecayNode { .. }
+            | Method::DecayMemories { .. }
+            | Method::EvictBelow { .. }
+            | Method::Maintain { .. }
+            | Method::AddSceneObject { .. }
+            | Method::SetPose { .. }
+            | Method::Reparent { .. }
+            | Method::StartTrajectory { .. }
+            | Method::AppendStep { .. }
     )
 }
 
@@ -534,8 +553,125 @@ pub fn apply(core: &GraphCore, m: &Method) {
         } => {
             let _ = crate::broker::broker_nack_tag(core, *delivery_tag, *requeue, *now_ms);
         }
+        // Agent-memory / scene-graph / trajectory replay (CONCEPT:EG-318): re-run the
+        // SAME eg-core primitive with the SAME explicit args over the same pre-image.
+        // Every generated id derives deterministically (sorted inputs / monotonic
+        // node-count / step ordinal) and the only clock is the logged `now_ms`, so the
+        // node/edge state is reproduced byte-identically. Results are ignored on replay.
+        Method::CreateSummaryNode {
+            level,
+            child_ids,
+            props_msgpack,
+        } => {
+            let _ = core.create_summary_node(*level, child_ids, wal_json_object(props_msgpack));
+        }
+        Method::Consolidate {
+            episodic_ids,
+            semantic_props_msgpack,
+        } => {
+            let _ = core.consolidate(episodic_ids, wal_json_object(semantic_props_msgpack));
+        }
+        Method::Reinforce {
+            node_id,
+            now_ms,
+            weight,
+        } => {
+            let _ = core.reinforce(node_id, *now_ms, *weight);
+        }
+        Method::DecayNode {
+            node_id,
+            now_ms,
+            half_life_ms,
+        } => {
+            let _ = core.decay_node(node_id, *now_ms, *half_life_ms);
+        }
+        Method::DecayMemories {
+            now_ms,
+            half_life_ms,
+            ids,
+        } => {
+            let _ = core.decay_memories(*now_ms, *half_life_ms, ids);
+        }
+        Method::EvictBelow {
+            ids,
+            threshold,
+            delete,
+        } => {
+            let _ = core.evict_below(ids, *threshold, *delete);
+        }
+        Method::Maintain {
+            ids,
+            now_ms,
+            half_life_ms,
+            evict_threshold,
+            delete,
+        } => {
+            let _ = core.maintain(ids, *now_ms, *half_life_ms, *evict_threshold, *delete);
+        }
+        Method::AddSceneObject {
+            pose_msgpack,
+            parent,
+        } => {
+            if let Some(pose) = wal_pose(pose_msgpack) {
+                let _ = core.add_scene_object(&pose, parent.as_deref());
+            }
+        }
+        Method::SetPose {
+            node_id,
+            pose_msgpack,
+        } => {
+            if let Some(pose) = wal_pose(pose_msgpack) {
+                let _ = core.set_pose(node_id, &pose);
+            }
+        }
+        Method::Reparent {
+            node_id,
+            new_parent,
+        } => {
+            let _ = core.reparent(node_id, new_parent.as_deref());
+        }
+        Method::StartTrajectory { props_msgpack } => {
+            let _ = core.start_trajectory(wal_json_object(props_msgpack));
+        }
+        Method::AppendStep {
+            traj_id,
+            action_msgpack,
+            reward,
+            state_ref,
+            next_state_ref,
+            t,
+        } => {
+            let action = rmp_serde::from_slice::<serde_json::Value>(action_msgpack)
+                .unwrap_or(serde_json::Value::Null);
+            let _ = core.append_step(
+                traj_id,
+                action,
+                *reward,
+                state_ref.as_deref(),
+                next_state_ref.as_deref(),
+                *t,
+            );
+        }
         _ => {}
     }
+}
+
+/// Decode a MessagePack-encoded JSON object blob for WAL replay (CONCEPT:EG-318). A
+/// missing/undecodable/non-object blob yields an empty map — the same discipline the
+/// dispatch handler uses, so replay applies the identical props.
+fn wal_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
+    match rmp_serde::from_slice::<serde_json::Value>(blob) {
+        Ok(serde_json::Value::Object(o)) => o,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// Decode a MessagePack-encoded pose blob for WAL replay (CONCEPT:EG-318/EG-087).
+/// `None` only if the blob is not a decodable JSON object — matching the dispatch
+/// handler's `decode_pose` so replay reconstructs the identical scene node.
+fn wal_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
+    let val = rmp_serde::from_slice::<serde_json::Value>(blob).ok()?;
+    eg_core::scene::Pose::from_json(&val)
 }
 
 /// Replay a WAL file into `core` (after the snapshot is loaded). Returns the
@@ -662,6 +798,114 @@ mod tests {
         w.truncate_prefix(w.position()).unwrap();
         let g = GraphCore::new();
         assert_eq!(replay(&g, &path), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-318 — the memory/scene/trajectory durable Methods are all
+    /// classified `is_durable_mutation` and replay byte-identically: a fresh graph
+    /// fed only the logged Methods reproduces the SAME summary children, world
+    /// transform, and discounted return as the live graph, because every generated id
+    /// is deterministic (sorted inputs / node-count / step ordinal) and the only clock
+    /// is the logged `now_ms`.
+    #[test]
+    fn eg318_memory_scene_trajectory_methods_replay_deterministically() {
+        use crate::graph::GraphCore;
+
+        // Build a working graph directly via the eg-core primitives (the "live" side).
+        let live = GraphCore::new();
+        live.add_node("e1".into(), props(serde_json::json!({"type": "Episodic"})));
+        live.add_node("e2".into(), props(serde_json::json!({"type": "Episodic"})));
+        let sum_id = live.create_summary_node(
+            1,
+            &["e1".into(), "e2".into()],
+            serde_json::Map::new(),
+        );
+        let pose = serde_json::json!({"translation": {"x": 1.0, "y": 2.0, "z": 3.0}});
+        let obj_id = {
+            let p = eg_core::scene::Pose::from_json(&pose).unwrap();
+            live.add_scene_object(&p, None)
+        };
+        let traj_id = live.start_trajectory(serde_json::Map::new());
+        live.append_step(&traj_id, serde_json::json!("go"), 2.0, None, None, 0);
+        live.append_step(&traj_id, serde_json::json!("go"), 4.0, None, None, 1);
+
+        // The SAME sequence as durable Methods (what the dispatch shell would log).
+        let pose_blob = props(pose.clone());
+        let ops = vec![
+            Method::AddNode {
+                node_id: "e1".into(),
+                properties_msgpack: props(serde_json::json!({"type": "Episodic"})),
+            },
+            Method::AddNode {
+                node_id: "e2".into(),
+                properties_msgpack: props(serde_json::json!({"type": "Episodic"})),
+            },
+            Method::CreateSummaryNode {
+                level: 1,
+                child_ids: vec!["e1".into(), "e2".into()],
+                props_msgpack: props(serde_json::json!({})),
+            },
+            Method::AddSceneObject {
+                pose_msgpack: pose_blob.clone(),
+                parent: None,
+            },
+            Method::StartTrajectory {
+                props_msgpack: props(serde_json::json!({})),
+            },
+            Method::AppendStep {
+                traj_id: traj_id.clone(),
+                action_msgpack: props(serde_json::json!("go")),
+                reward: 2.0,
+                state_ref: None,
+                next_state_ref: None,
+                t: 0,
+            },
+            Method::AppendStep {
+                traj_id: traj_id.clone(),
+                action_msgpack: props(serde_json::json!("go")),
+                reward: 4.0,
+                state_ref: None,
+                next_state_ref: None,
+                t: 1,
+            },
+        ];
+        // Every mutating variant MUST be logged.
+        for m in &ops[2..] {
+            assert!(is_durable_mutation(m), "EG-318 mutation must be durable: {m:?}");
+        }
+
+        let dir = std::env::temp_dir().join(format!("eg-wal-eg318-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = wal_path(dir.to_str().unwrap(), "g");
+        {
+            let mut w = WalWriter::open(&path).unwrap();
+            for m in &ops {
+                w.append(m).unwrap();
+            }
+        }
+        // Replay into a fresh graph and prove the derived reads match the live graph.
+        let replayed = GraphCore::new();
+        let n = replay(&replayed, &path);
+        assert_eq!(n, ops.len());
+
+        // Deterministic ids reproduced.
+        assert_eq!(
+            replayed.summary_children(&sum_id),
+            live.summary_children(&sum_id)
+        );
+        assert_eq!(replayed.summary_children(&sum_id), vec!["e1", "e2"]);
+        // Scene world transform reproduced.
+        let lw = live.world_transform(&obj_id).unwrap();
+        let rw = replayed.world_transform(&obj_id).unwrap();
+        assert_eq!(lw.to_json(), rw.to_json());
+        // Trajectory discounted return reproduced (2.0 + 0.5*4.0 = 4.0 at gamma=0.5).
+        assert!((replayed.discounted_return(&traj_id, 0.5) - 4.0).abs() < 1e-9);
+        assert!(
+            (replayed.discounted_return(&traj_id, 0.5)
+                - live.discounted_return(&traj_id, 0.5))
+            .abs()
+                < 1e-9
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
