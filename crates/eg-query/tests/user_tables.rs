@@ -679,3 +679,252 @@ fn psql_backslash_d_style_query_eg103() {
         );
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONCEPT:EG-310 — ALTER TABLE beyond ADD COLUMN (DROP/RENAME COLUMN, RENAME TABLE,
+// ALTER COLUMN TYPE with per-row coercion, DROP CONSTRAINT). Each exercises the full
+// classify → route → redb store path and reads back through DataFusion.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// CONCEPT:EG-310 — DROP COLUMN removes it from the schema AND drops its cell from
+/// every stored row; the surviving columns keep their values.
+#[test]
+fn eg310_drop_column_removes_schema_and_cells() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price DOUBLE, note TEXT)");
+    run(
+        &store,
+        &view,
+        "INSERT INTO prices (symbol, price, note) VALUES ('AAPL', 1.5, 'x'), ('MSFT', 2.5, 'y')",
+    );
+
+    run(&store, &view, "ALTER TABLE prices DROP COLUMN price");
+
+    // Schema no longer has the column.
+    let schema = store.get_schema("prices").unwrap().unwrap();
+    assert!(schema.column("price").is_none());
+    assert_eq!(schema.columns.len(), 2);
+    // Stored rows were migrated: each cell for the dropped column is gone.
+    for row in store.scan("prices").unwrap() {
+        assert_eq!(row.len(), 2);
+    }
+    // Surviving columns still read their original values.
+    let res = run(&store, &view, "SELECT symbol, note FROM prices ORDER BY symbol").unwrap();
+    assert_eq!(res.rows.len(), 2);
+    assert_eq!(res.rows[0][0], json!("AAPL"));
+    assert_eq!(res.rows[0][1], json!("x"));
+    // Selecting the dropped column no longer plans.
+    assert!(exec_sql_typed_with_tables(&view, &store, "SELECT price FROM prices").is_err());
+}
+
+/// CONCEPT:EG-310 — RENAME COLUMN keeps every stored value (rows are positional); the
+/// old name disappears and the new name projects the same data.
+#[test]
+fn eg310_rename_column_preserves_values() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price DOUBLE)");
+    run(&store, &view, "INSERT INTO prices (symbol, price) VALUES ('AAPL', 9.9)");
+
+    run(&store, &view, "ALTER TABLE prices RENAME COLUMN price TO amount");
+
+    let schema = store.get_schema("prices").unwrap().unwrap();
+    assert!(schema.column("price").is_none());
+    assert!(schema.column("amount").is_some());
+    let res = run(&store, &view, "SELECT amount FROM prices").unwrap();
+    assert_eq!(res.rows[0][0], json!(9.9));
+    assert!(exec_sql_typed_with_tables(&view, &store, "SELECT price FROM prices").is_err());
+}
+
+/// CONCEPT:EG-310 — RENAME TABLE moves the catalog entry, the sequence, and every stored
+/// row; the old name is gone and SERIAL ids continue (never reused).
+#[test]
+fn eg310_rename_table_moves_rows() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE prices (id SERIAL PRIMARY KEY, symbol TEXT)");
+    run(&store, &view, "INSERT INTO prices (symbol) VALUES ('AAPL'), ('MSFT')");
+
+    run(&store, &view, "ALTER TABLE prices RENAME TO quotes");
+
+    assert!(store.get_schema("prices").unwrap().is_none());
+    assert!(store.get_schema("quotes").unwrap().is_some());
+    let res = run(&store, &view, "SELECT id, symbol FROM quotes ORDER BY id").unwrap();
+    assert_eq!(res.rows.len(), 2);
+    assert_eq!(res.rows[0][0], json!(1));
+    assert_eq!(res.rows[1][1], json!("MSFT"));
+    // Old name no longer plans.
+    assert!(exec_sql_typed_with_tables(&view, &store, "SELECT id FROM prices").is_err());
+    // SERIAL sequence carried forward — a new row gets id 3, not 1.
+    run(&store, &view, "INSERT INTO quotes (symbol) VALUES ('GOOG')");
+    let res = run(&store, &view, "SELECT id FROM quotes ORDER BY id").unwrap();
+    assert_eq!(res.rows.last().unwrap()[0], json!(3));
+}
+
+/// CONCEPT:EG-310 — ALTER COLUMN TYPE migrates every stored cell best-effort: numeric
+/// text → bigint, int → double, and int → text all coerce correctly.
+#[test]
+fn eg310_alter_column_type_coerces_rows() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE t (a TEXT, b INT, c INT)");
+    run(&store, &view, "INSERT INTO t (a, b, c) VALUES ('42', 5, 7), ('100', 9, 11)");
+
+    // numeric text → bigint
+    run(&store, &view, "ALTER TABLE t ALTER COLUMN a TYPE BIGINT");
+    // int → double
+    run(&store, &view, "ALTER TABLE t ALTER COLUMN b TYPE DOUBLE PRECISION");
+    // int → text
+    run(&store, &view, "ALTER TABLE t ALTER COLUMN c TYPE TEXT");
+
+    assert_eq!(store.get_schema("t").unwrap().unwrap().column("a").unwrap().ty, ColumnType::BigInt);
+    let res = run(&store, &view, "SELECT a, b, c FROM t ORDER BY a").unwrap();
+    assert_eq!(res.rows[0][0], json!(42));   // '42' -> 42 (int)
+    assert_eq!(res.rows[0][1], json!(5.0));  // 5 -> 5.0 (double)
+    assert_eq!(res.rows[0][2], json!("7"));  // 7 -> "7" (text)
+    assert_eq!(res.rows[1][0], json!(100));
+}
+
+/// CONCEPT:EG-310 — ALTER COLUMN TYPE rejects an incompatible value and rolls back the
+/// WHOLE change: the schema type and every stored cell are left untouched.
+#[test]
+fn eg310_alter_column_type_rejects_incompatible() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE t (a TEXT)");
+    run(&store, &view, "INSERT INTO t (a) VALUES ('abc')");
+
+    let err = store.alter_column_type("t", "a", ColumnType::Int);
+    assert!(err.is_err(), "expected rejection coercing 'abc' -> int");
+
+    // Rolled back: column still TEXT and the value is intact.
+    assert_eq!(store.get_schema("t").unwrap().unwrap().column("a").unwrap().ty, ColumnType::Text);
+    let res = run(&store, &view, "SELECT a FROM t").unwrap();
+    assert_eq!(res.rows[0][0], json!("abc"));
+}
+
+/// CONCEPT:EG-310 — every ALTER rejects a nonexistent column/table; `IF EXISTS` turns the
+/// DROP COLUMN into a harmless no-op.
+#[test]
+fn eg310_reject_nonexistent() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE t (a INT)");
+
+    assert!(store.drop_column("t", "nope", false).is_err());
+    assert!(store.drop_column("t", "nope", true).is_ok()); // IF EXISTS no-op
+    assert!(store.rename_column("t", "nope", "x").is_err());
+    assert!(store.rename_column("nope", "a", "x").is_err()); // missing table
+    assert!(store.alter_column_type("t", "nope", ColumnType::Text).is_err());
+    assert!(store.rename_table("nope", "x").is_err()); // missing source
+    // Dropping the only column is refused.
+    assert!(store.drop_column("t", "a", false).is_err());
+}
+
+/// CONCEPT:EG-310 — RENAME TABLE onto an existing name, and RENAME COLUMN onto an
+/// existing column name, are both rejected (no clobber).
+#[test]
+fn eg310_reject_collisions() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE a (x INT, y INT)");
+    run(&store, &view, "CREATE TABLE b (z INT)");
+
+    assert!(store.rename_table("a", "b").is_err()); // target exists
+    assert!(store.rename_column("a", "x", "y").is_err()); // target column exists
+}
+
+/// CONCEPT:EG-310 — DROP CONSTRAINT clears a UNIQUE/PK constraint (matched by Postgres's
+/// synthesized name), after which a previously-rejected duplicate insert succeeds.
+#[test]
+fn eg310_drop_constraint_relaxes_uniqueness() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE u (id INT PRIMARY KEY, email TEXT)");
+    run(&store, &view, "INSERT INTO u (id, email) VALUES (1, 'a@x')");
+    // Duplicate PK rejected while the constraint stands.
+    assert!(store.insert_rows("u", &["id".into(), "email".into()], &[vec![json!(1), json!("b@x")]]).is_err());
+
+    // Drop the PK constraint (synthesized name `u_pkey`), then the dup id inserts.
+    run(&store, &view, "ALTER TABLE u DROP CONSTRAINT u_pkey");
+    run(&store, &view, "INSERT INTO u (id, email) VALUES (1, 'b@x')");
+    let res = run(&store, &view, "SELECT COUNT(*) AS c FROM u WHERE id = 1").unwrap();
+    assert_eq!(res.rows[0][0], json!(2));
+
+    // A nonexistent constraint is rejected unless IF EXISTS.
+    assert!(store.drop_constraint("u", "u_nope", false).is_err());
+    assert!(store.drop_constraint("u", "u_nope", true).is_ok());
+}
+
+/// CONCEPT:EG-310 — every ALTER persists across a store reopen (redb durability): the
+/// migrated schema and rows survive dropping and re-opening the database file.
+#[test]
+fn eg310_persists_across_reopen() {
+    let (store, path) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price INT, note TEXT)");
+    run(&store, &view, "INSERT INTO prices (symbol, price, note) VALUES ('AAPL', 42, 'x')");
+    run(&store, &view, "ALTER TABLE prices DROP COLUMN note");
+    run(&store, &view, "ALTER TABLE prices RENAME COLUMN price TO amount");
+    run(&store, &view, "ALTER TABLE prices ALTER COLUMN amount TYPE TEXT");
+    run(&store, &view, "ALTER TABLE prices RENAME TO quotes");
+
+    // Reopen the SAME redb file (drop every handle first).
+    drop(store);
+    let store = TableStore::open(&path).unwrap();
+
+    assert!(store.get_schema("prices").unwrap().is_none());
+    let schema = store.get_schema("quotes").unwrap().unwrap();
+    assert!(schema.column("note").is_none());
+    assert_eq!(schema.column("amount").unwrap().ty, ColumnType::Text);
+    let res = run(&store, &view, "SELECT symbol, amount FROM quotes").unwrap();
+    assert_eq!(res.rows[0][0], json!("AAPL"));
+    assert_eq!(res.rows[0][1], json!("42")); // int -> text migration survived
+}
+
+/// CONCEPT:EG-310 — a multi-statement `BEGIN … ALTER … COMMIT` applies the ALTER in the
+/// SAME redb write txn; an incompatible ALTER COLUMN TYPE aborts and rolls back the LOT.
+#[test]
+fn eg310_multi_statement_txn_atomic() {
+    use eg_query::{TableTxn, TxnOp};
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(&store, &view, "CREATE TABLE t (a TEXT, b INT)");
+    run(&store, &view, "INSERT INTO t (a, b) VALUES ('abc', 1)");
+
+    // A txn whose second op (ALTER a -> INT over 'abc') is incompatible must roll back
+    // the FIRST op (ADD COLUMN c) too.
+    let mut txn = TableTxn::new();
+    txn.push(TxnOp::AddColumn {
+        table: "t".into(),
+        column: Column::new("c", ColumnType::Int, true, false),
+    });
+    txn.push(TxnOp::AlterColumnType {
+        table: "t".into(),
+        column: "a".into(),
+        new_type: ColumnType::Int,
+    });
+    assert!(store.commit_txn(&txn).is_err());
+
+    // Nothing applied: no `c` column, `a` still TEXT.
+    let schema = store.get_schema("t").unwrap().unwrap();
+    assert!(schema.column("c").is_none());
+    assert_eq!(schema.column("a").unwrap().ty, ColumnType::Text);
+
+    // A well-typed txn commits both ops atomically.
+    let mut txn = TableTxn::new();
+    txn.push(TxnOp::AddColumn {
+        table: "t".into(),
+        column: Column::new("c", ColumnType::Int, true, false),
+    });
+    txn.push(TxnOp::RenameColumn {
+        table: "t".into(),
+        from: "b".into(),
+        to: "qty".into(),
+    });
+    store.commit_txn(&txn).unwrap();
+    let schema = store.get_schema("t").unwrap().unwrap();
+    assert!(schema.column("c").is_some());
+    assert!(schema.column("qty").is_some());
+}
