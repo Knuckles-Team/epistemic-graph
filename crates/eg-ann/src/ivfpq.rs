@@ -539,6 +539,72 @@ pub fn merge_topk(shards: &[Vec<SearchResult>], k: usize) -> Vec<SearchResult> {
     out
 }
 
+/// Deterministic gather for the cross-shard scatter (CONCEPT:EG-319). Like
+/// [`merge_topk`] but under a TOTAL order — distance ascending, then id ascending —
+/// so ties resolve to the SMALLER id regardless of which shard delivered a hit or in
+/// what order shards answered. This is what makes a scattered kNN reproducible: two
+/// candidates at the same distance can straddle the k-boundary, and without an id
+/// tiebreak which one is kept would depend on shard arrival order. Same bounded-heap
+/// budget as [`merge_topk`]: O(total · log k) time, O(k) memory; the output order is
+/// identical to a single combined index that sorts by `(distance, id)` (the
+/// convention [`crate::FlatIndex`] uses for its ground-truth top-k).
+pub fn merge_topk_stable(shards: &[Vec<SearchResult>], k: usize) -> Vec<SearchResult> {
+    use std::cmp::Ordering;
+    use std::collections::BinaryHeap;
+
+    if k == 0 {
+        return Vec::new();
+    }
+
+    // Total "worseness" order: a is worse (evicted sooner) if it is farther, or — at
+    // equal distance — has the LARGER id. A NaN distance is treated as the worst.
+    #[inline]
+    fn worse_than(a: &SearchResult, b: &SearchResult) -> Ordering {
+        match a.distance.partial_cmp(&b.distance) {
+            Some(Ordering::Equal) | None => a.id.cmp(&b.id),
+            Some(o) => o,
+        }
+    }
+
+    // Max-heap on the total order: the root is the CURRENT worst kept hit, so a
+    // candidate that is strictly better (by `(distance, id)`) than the root evicts it.
+    struct Worst(SearchResult);
+    impl PartialEq for Worst {
+        fn eq(&self, o: &Self) -> bool {
+            self.0.id == o.0.id && self.0.distance == o.0.distance
+        }
+    }
+    impl Eq for Worst {}
+    impl PartialOrd for Worst {
+        fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+            Some(self.cmp(o))
+        }
+    }
+    impl Ord for Worst {
+        fn cmp(&self, o: &Self) -> Ordering {
+            worse_than(&self.0, &o.0)
+        }
+    }
+
+    let mut heap: BinaryHeap<Worst> = BinaryHeap::with_capacity(k + 1);
+    for shard in shards {
+        for r in shard {
+            if heap.len() < k {
+                heap.push(Worst(r.clone()));
+            } else if let Some(top) = heap.peek() {
+                // Keep the candidate iff it is strictly better than the worst kept.
+                if worse_than(r, &top.0) == Ordering::Less {
+                    heap.pop();
+                    heap.push(Worst(r.clone()));
+                }
+            }
+        }
+    }
+    let mut out: Vec<SearchResult> = heap.into_iter().map(|w| w.0).collect();
+    out.sort_by(|a, b| worse_than(a, b));
+    out
+}
+
 /// Train `m` PQ subspace codebooks (each 256 entries of `dsub`) over `vectors`.
 fn train_pq(
     vectors: &[Vec<f32>],
