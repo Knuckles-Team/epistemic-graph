@@ -25,6 +25,9 @@ name = "eg_shacl"
 # A shapes graph and a data graph are both `eg_rdf::oxrdf::Graph`.
 eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
 serde = { version = "1", features = ["derive"] }
+# ICV write-path enforcement (CONCEPT:EG-300) serializes the introduced violations into
+# the eg-rdf `GuardRejection.details` payload. Pure Rust, already in the tree via eg-rdf.
+serde_json = "1"
 # `sh:pattern` regex. Pure-Rust, already pulled by eg-rdf's `sparql` feature (EG-053),
 # so this pins the SAME crate — no new dependency in a `full` build.
 regex = "1"
