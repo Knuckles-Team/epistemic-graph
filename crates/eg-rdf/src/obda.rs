@@ -42,17 +42,28 @@
 //! `ForeignSource` (id-only) into an [`ObdaSource`] (single `id` column) is a documented
 //! follow-up.
 //!
-//! Full R2RML Turtle parsing (`rr:TriplesMap`/`rr:subjectMap`/`rr:predicateObjectMap`),
-//! typed/lang object literals, and SPARQL→SQL pushdown (issuing a filtered SQL query to
-//! the source rather than scanning + filtering locally) are documented follow-ups; this
-//! increment supports programmatic construction plus a minimal textual mapping form.
+//! ## Full R2RML Turtle parsing (CONCEPT:EG-305)
+//!
+//! Beyond EG-101's programmatic builders + minimal textual form, [`parse_r2rml_turtle`]
+//! reads a STANDARD R2RML mapping document written in Turtle (`rr:TriplesMap`,
+//! `rr:logicalTable`/`rr:tableName`, `rr:subjectMap` with `rr:template`/`rr:column`/
+//! `rr:class`, `rr:predicateObjectMap` with `rr:predicate`/`rr:predicateMap` and
+//! `rr:objectMap` carrying `rr:column`/`rr:template`/`rr:constant`/`rr:datatype`/
+//! `rr:language`/`rr:termType`) into the SAME [`TriplesMap`]/[`ObjectMap`]/[`VirtualGraph`]
+//! model. It REUSES the existing Turtle parser ([`crate::mapping::parse_turtle`]) to read
+//! the RDF, then interprets the `rr:` vocabulary over the parsed triples — so typed/lang
+//! object literals now materialize as `xsd:`-typed / language-tagged terms.
+//!
+//! SPARQL→SQL pushdown (issuing a filtered SQL query to the source rather than scanning +
+//! filtering locally), `rr:sqlQuery` logical views, `rr:joinCondition` referencing object
+//! maps, and dynamic (`rr:template`) predicate maps remain documented follow-ups.
 //!
 //! [`ForeignSource`]: ../../eg_plan/federation/trait.ForeignSource.html
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use oxrdf::{Literal, NamedNode, Term, Triple};
+use oxrdf::{Literal, NamedNode, Subject, Term, Triple};
 
 use crate::sparql::{Projection, QueryOutcome, SparqlResult};
 
@@ -250,6 +261,13 @@ impl ObdaSourceRegistry {
 pub enum ObjectMap {
     /// A LITERAL from a column value (`rr:column`). A missing/empty column ⇒ no triple.
     Column(String),
+    /// A TYPED literal from a column value with an explicit datatype IRI (`rr:column` +
+    /// `rr:datatype`, e.g. `xsd:integer`). A missing/empty column ⇒ no triple.
+    /// CONCEPT:EG-305 — typed R2RML object maps.
+    TypedColumn(String, String),
+    /// A LANGUAGE-TAGGED literal from a column value (`rr:column` + `rr:language`, e.g.
+    /// `en`). A missing/empty column ⇒ no triple. CONCEPT:EG-305.
+    LangColumn(String, String),
     /// An IRI built from a `{col}` template (`rr:template` — a reference / join to
     /// another entity's subject IRI).
     Template(String),
@@ -257,17 +275,24 @@ pub enum ObjectMap {
     ConstantIri(String),
     /// A constant literal object (`rr:constant`, a literal).
     ConstantLiteral(String),
+    /// A constant TYPED literal object (`rr:constant` + `rr:datatype`).
+    /// CONCEPT:EG-305.
+    TypedConstantLiteral(String, String),
 }
 
 impl ObjectMap {
     /// The foreign columns this object map references (added to `out`).
     fn columns_into(&self, out: &mut BTreeSet<String>) {
         match self {
-            ObjectMap::Column(c) => {
+            ObjectMap::Column(c)
+            | ObjectMap::TypedColumn(c, _)
+            | ObjectMap::LangColumn(c, _) => {
                 out.insert(c.clone());
             }
             ObjectMap::Template(t) => template_columns_into(t, out),
-            ObjectMap::ConstantIri(_) | ObjectMap::ConstantLiteral(_) => {}
+            ObjectMap::ConstantIri(_)
+            | ObjectMap::ConstantLiteral(_)
+            | ObjectMap::TypedConstantLiteral(_, _) => {}
         }
     }
 
@@ -281,12 +306,33 @@ impl ObjectMap {
                 }
                 Some(Term::Literal(Literal::new_simple_literal(v)))
             }
+            ObjectMap::TypedColumn(c, dt) => {
+                let v = row.get(c)?;
+                if v.is_empty() {
+                    return None;
+                }
+                let datatype = NamedNode::new(dt).ok()?;
+                Some(Term::Literal(Literal::new_typed_literal(v, datatype)))
+            }
+            ObjectMap::LangColumn(c, lang) => {
+                let v = row.get(c)?;
+                if v.is_empty() {
+                    return None;
+                }
+                Some(Term::Literal(
+                    Literal::new_language_tagged_literal(v, lang).ok()?,
+                ))
+            }
             ObjectMap::Template(t) => {
                 let iri = expand_template(t, row)?;
                 Some(Term::NamedNode(NamedNode::new(iri).ok()?))
             }
             ObjectMap::ConstantIri(iri) => Some(Term::NamedNode(NamedNode::new(iri).ok()?)),
             ObjectMap::ConstantLiteral(v) => Some(Term::Literal(Literal::new_simple_literal(v))),
+            ObjectMap::TypedConstantLiteral(v, dt) => {
+                let datatype = NamedNode::new(dt).ok()?;
+                Some(Term::Literal(Literal::new_typed_literal(v, datatype)))
+            }
         }
     }
 }
@@ -328,6 +374,21 @@ impl TriplesMap {
     pub fn add_column(mut self, predicate: impl Into<String>, column: impl Into<String>) -> Self {
         self.predicate_object_maps
             .push((predicate.into(), ObjectMap::Column(column.into())));
+        self
+    }
+
+    /// Add a predicate→typed-literal-column map with an explicit datatype IRI (builder).
+    /// CONCEPT:EG-305.
+    pub fn add_typed_column(
+        mut self,
+        predicate: impl Into<String>,
+        column: impl Into<String>,
+        datatype: impl Into<String>,
+    ) -> Self {
+        self.predicate_object_maps.push((
+            predicate.into(),
+            ObjectMap::TypedColumn(column.into(), datatype.into()),
+        ));
         self
     }
 
@@ -785,6 +846,355 @@ impl PartialMap {
     }
 }
 
+// ── full R2RML Turtle parsing (CONCEPT:EG-305) ───────────────────────────────────
+
+// R2RML term IRIs, built from the `rr:` vocabulary namespace
+// (`http://www.w3.org/ns/r2rml#`) at compile time.
+macro_rules! rr {
+    ($name:literal) => {
+        concat!("http://www.w3.org/ns/r2rml#", $name)
+    };
+}
+
+/// A flat index of the parsed R2RML Turtle: subject-node-key → `(predicate IRI, object)`.
+/// The key is the canonical `<iri>` / `_:bnode` id ([`node_key`]) so a term map / logical
+/// table referenced by another node can be followed. CONCEPT:EG-305.
+struct R2rmlDoc {
+    by_subject: HashMap<String, Vec<(String, Term)>>,
+}
+
+impl R2rmlDoc {
+    /// Build the index from a parsed Turtle triple set.
+    fn from_triples(triples: &[Triple]) -> Self {
+        let mut by_subject: HashMap<String, Vec<(String, Term)>> = HashMap::new();
+        for t in triples {
+            by_subject
+                .entry(subject_key(&t.subject))
+                .or_default()
+                .push((t.predicate.as_str().to_string(), t.object.clone()));
+        }
+        Self { by_subject }
+    }
+
+    /// Every object of `subject`'s `pred` edges (cloned — the R2RML docs are small).
+    fn objects(&self, subject: &str, pred: &str) -> Vec<Term> {
+        self.by_subject
+            .get(subject)
+            .map(|pairs| {
+                pairs
+                    .iter()
+                    .filter(|(p, _)| p.as_str() == pred)
+                    .map(|(_, o)| o.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The first object of `subject`'s `pred` edges.
+    fn first_object(&self, subject: &str, pred: &str) -> Option<Term> {
+        self.objects(subject, pred).into_iter().next()
+    }
+
+    /// Whether `subject` is `rdf:type ty`.
+    fn has_type(&self, subject: &str, ty: &str) -> bool {
+        self.objects(subject, RDF_TYPE_IRI)
+            .iter()
+            .any(|o| matches!(o, Term::NamedNode(n) if n.as_str() == ty))
+    }
+}
+
+/// Canonical node key for an RDF subject (`<iri>` or `_:bnode`).
+fn subject_key(s: &Subject) -> String {
+    match s {
+        Subject::NamedNode(n) => format!("<{}>", n.as_str()),
+        Subject::BlankNode(b) => format!("_:{}", b.as_str()),
+        #[allow(unreachable_patterns)]
+        _ => String::new(), // RDF-star quoted-triple subject — not an R2RML node.
+    }
+}
+
+/// Canonical node key for an IRI/bnode TERM (so it can be followed as a subject); `None`
+/// for a literal (literals are leaves, never term-map anchors).
+fn node_key(t: &Term) -> Option<String> {
+    match t {
+        Term::NamedNode(n) => Some(format!("<{}>", n.as_str())),
+        Term::BlankNode(b) => Some(format!("_:{}", b.as_str())),
+        _ => None,
+    }
+}
+
+/// The IRI of a term, if it is a `NamedNode`.
+fn iri_value(t: &Term) -> Option<String> {
+    match t {
+        Term::NamedNode(n) => Some(n.as_str().to_string()),
+        _ => None,
+    }
+}
+
+/// The lexical value of a term, if it is a `Literal`.
+fn literal_value(t: &Term) -> Option<String> {
+    match t {
+        Term::Literal(l) => Some(l.value().to_string()),
+        _ => None,
+    }
+}
+
+/// Strip an R2RML SQL identifier's optional surrounding double-quotes (`"EMP"` → `EMP`).
+fn unquote_identifier(s: &str) -> String {
+    s.trim_matches('"').to_string()
+}
+
+/// CONCEPT:EG-305 — parse a STANDARD R2RML mapping document (in Turtle) into a
+/// [`VirtualGraph`]. This reuses the existing Turtle parser ([`crate::mapping::parse_turtle`])
+/// to read the RDF, then interprets the `rr:` vocabulary over the parsed triples, mapping
+/// onto the EG-101 [`TriplesMap`]/[`ObjectMap`] model.
+///
+/// Supported R2RML constructs:
+/// - `rr:TriplesMap` (recognized by `rr:logicalTable`/`rr:subjectMap`/`rr:subject`/type).
+/// - `rr:logicalTable` → `rr:tableName` (or `rr:sqlQuery` best-effort) → `logical_source`.
+/// - `rr:subjectMap` with `rr:template` / `rr:column` (→ `{col}`) / `rr:constant`, plus
+///   one-or-more `rr:class` (first → `subject_class`, extras → `rdf:type` object maps);
+///   `rr:subject` constant shortcut.
+/// - `rr:predicateObjectMap` with `rr:predicate` / `rr:predicateMap`→`rr:constant`, and
+///   `rr:object` (constant shortcut) / `rr:objectMap` carrying `rr:column` /
+///   `rr:template` / `rr:constant`, refined by `rr:datatype` (typed literal),
+///   `rr:language` (lang literal) and `rr:termType` (`rr:IRI` on a column ⇒ IRI object).
+///   Multiple predicates × multiple object maps expand to the R2RML cross-product.
+///
+/// Returns a `Result` (Turtle can fail to parse, and a malformed map is a real error).
+/// The EG-101 programmatic + [`parse_mapping`] builders are unaffected.
+pub fn parse_r2rml_turtle(doc: &str) -> Result<VirtualGraph, String> {
+    let triples = crate::mapping::parse_turtle(doc)?;
+    let index = R2rmlDoc::from_triples(&triples);
+
+    // Discover triples-map anchors: any node carrying the R2RML TriplesMap shape.
+    let mut tm_keys: BTreeSet<String> = BTreeSet::new();
+    for (key, pairs) in &index.by_subject {
+        let is_tm = index.has_type(key, rr!("TriplesMap"))
+            || pairs.iter().any(|(p, _)| {
+                matches!(
+                    p.as_str(),
+                    rr!("logicalTable") | rr!("subjectMap") | rr!("subject")
+                )
+            });
+        if is_tm {
+            tm_keys.insert(key.clone());
+        }
+    }
+    if tm_keys.is_empty() {
+        return Err("obda: R2RML document defines no rr:TriplesMap (CONCEPT:EG-305)".into());
+    }
+
+    let mut vg = VirtualGraph::new();
+    for tm_key in &tm_keys {
+        vg.triples_maps
+            .push(parse_triples_map(&index, tm_key)?);
+    }
+    Ok(vg)
+}
+
+/// Parse one R2RML triples map (anchored at `tm_key`) into a [`TriplesMap`]. CONCEPT:EG-305.
+fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, String> {
+    // (1) logical source: rr:logicalTable → rr:tableName (or rr:sqlQuery best-effort).
+    let logical_source = index
+        .first_object(tm_key, rr!("logicalTable"))
+        .and_then(|lt| node_key(&lt))
+        .and_then(|lt_key| {
+            index
+                .first_object(&lt_key, rr!("tableName"))
+                .and_then(|t| literal_value(&t))
+                .map(|n| unquote_identifier(&n))
+                .or_else(|| {
+                    index
+                        .first_object(&lt_key, rr!("sqlQuery"))
+                        .and_then(|t| literal_value(&t))
+                })
+        })
+        .ok_or_else(|| {
+            format!(
+                "obda: R2RML triples map {tm_key} has no rr:logicalTable with \
+                 rr:tableName/rr:sqlQuery (CONCEPT:EG-305)"
+            )
+        })?;
+
+    // (2) subject map: rr:subjectMap [ rr:template|rr:column|rr:constant ; rr:class* ] or
+    //     the rr:subject constant shortcut.
+    let mut subject_class: Option<String> = None;
+    let mut extra_class_poms: Vec<(String, ObjectMap)> = Vec::new();
+    let subject_template = if let Some(sm) = index
+        .first_object(tm_key, rr!("subjectMap"))
+        .and_then(|t| node_key(&t))
+    {
+        // Classes: first → subject_class; any extras → rdf:type constant object maps so
+        // no class is dropped (the struct carries a single subject_class).
+        for class in index.objects(&sm, rr!("class")) {
+            if let Some(iri) = iri_value(&class) {
+                if subject_class.is_none() {
+                    subject_class = Some(iri);
+                } else {
+                    extra_class_poms
+                        .push((RDF_TYPE_IRI.to_string(), ObjectMap::ConstantIri(iri)));
+                }
+            }
+        }
+        subject_term_string(index, &sm).ok_or_else(|| {
+            format!(
+                "obda: rr:subjectMap of {tm_key} has no rr:template/rr:column/rr:constant \
+                 (CONCEPT:EG-305)"
+            )
+        })?
+    } else if let Some(subj) = index
+        .first_object(tm_key, rr!("subject"))
+        .and_then(|t| iri_value(&t))
+    {
+        // rr:subject constant shortcut (a fixed subject IRI, no placeholders).
+        subj
+    } else {
+        return Err(format!(
+            "obda: R2RML triples map {tm_key} has no rr:subjectMap/rr:subject (CONCEPT:EG-305)"
+        ));
+    };
+
+    let mut predicate_object_maps: Vec<(String, ObjectMap)> = Vec::new();
+
+    // (3) predicate-object maps: rr:predicateObjectMap [ rr:predicate* ; rr:object(Map)* ].
+    for pom in index.objects(tm_key, rr!("predicateObjectMap")) {
+        let Some(pom_key) = node_key(&pom) else {
+            continue;
+        };
+
+        // Predicates: rr:predicate <IRI> and rr:predicateMap [ rr:constant <IRI> ].
+        let mut predicates: Vec<String> = Vec::new();
+        for p in index.objects(&pom_key, rr!("predicate")) {
+            if let Some(iri) = iri_value(&p) {
+                predicates.push(iri);
+            }
+        }
+        for pm in index.objects(&pom_key, rr!("predicateMap")) {
+            if let Some(pm_key) = node_key(&pm) {
+                if let Some(iri) = index
+                    .first_object(&pm_key, rr!("constant"))
+                    .and_then(|t| iri_value(&t))
+                {
+                    predicates.push(iri);
+                }
+            }
+        }
+
+        // Object maps: rr:object <term> (constant shortcut) and rr:objectMap [ … ].
+        let mut object_maps: Vec<ObjectMap> = Vec::new();
+        for o in index.objects(&pom_key, rr!("object")) {
+            object_maps.push(constant_object_map(&o));
+        }
+        for om in index.objects(&pom_key, rr!("objectMap")) {
+            if let Some(om_key) = node_key(&om) {
+                if let Some(obj) = parse_object_map(index, &om_key) {
+                    object_maps.push(obj);
+                }
+            }
+        }
+
+        // R2RML cross-product: each predicate × each object map.
+        for pred in &predicates {
+            for obj in &object_maps {
+                predicate_object_maps.push((pred.clone(), obj.clone()));
+            }
+        }
+    }
+
+    predicate_object_maps.extend(extra_class_poms);
+
+    Ok(TriplesMap {
+        logical_source,
+        subject_template,
+        subject_class,
+        predicate_object_maps,
+    })
+}
+
+/// Resolve a subject term map's IRI-producing form to a subject template string:
+/// `rr:template "…{col}…"`, `rr:column "c"` (→ `{c}`), or `rr:constant <IRI>`.
+fn subject_term_string(index: &R2rmlDoc, sm_key: &str) -> Option<String> {
+    if let Some(t) = index
+        .first_object(sm_key, rr!("template"))
+        .and_then(|t| literal_value(&t))
+    {
+        return Some(t);
+    }
+    if let Some(c) = index
+        .first_object(sm_key, rr!("column"))
+        .and_then(|t| literal_value(&t))
+    {
+        return Some(format!("{{{c}}}"));
+    }
+    index
+        .first_object(sm_key, rr!("constant"))
+        .and_then(|t| iri_value(&t))
+}
+
+/// Interpret a constant object (`rr:object`): an IRI ⇒ [`ObjectMap::ConstantIri`], a
+/// datatyped literal ⇒ [`ObjectMap::TypedConstantLiteral`], else a plain constant literal.
+fn constant_object_map(term: &Term) -> ObjectMap {
+    match term {
+        Term::NamedNode(n) => ObjectMap::ConstantIri(n.as_str().to_string()),
+        Term::Literal(l) => {
+            let dt = l.datatype();
+            // A plain (xsd:string) literal → simple constant; anything else keeps its type.
+            if dt.as_str() == "http://www.w3.org/2001/XMLSchema#string" {
+                ObjectMap::ConstantLiteral(l.value().to_string())
+            } else {
+                ObjectMap::TypedConstantLiteral(l.value().to_string(), dt.as_str().to_string())
+            }
+        }
+        _ => ObjectMap::ConstantLiteral(String::new()),
+    }
+}
+
+/// Parse an `rr:objectMap` term map node into an [`ObjectMap`]. CONCEPT:EG-305:
+/// `rr:column` (+ `rr:datatype`/`rr:language`/`rr:termType rr:IRI`), `rr:template`, or
+/// `rr:constant`.
+fn parse_object_map(index: &R2rmlDoc, om_key: &str) -> Option<ObjectMap> {
+    let term_type = index
+        .first_object(om_key, rr!("termType"))
+        .and_then(|t| iri_value(&t));
+    let datatype = index
+        .first_object(om_key, rr!("datatype"))
+        .and_then(|t| iri_value(&t));
+    let language = index
+        .first_object(om_key, rr!("language"))
+        .and_then(|t| literal_value(&t));
+
+    if let Some(col) = index
+        .first_object(om_key, rr!("column"))
+        .and_then(|t| literal_value(&t))
+    {
+        // rr:termType rr:IRI on a column ⇒ the column value IS an IRI object.
+        if term_type.as_deref() == Some(rr!("IRI")) {
+            return Some(ObjectMap::Template(format!("{{{col}}}")));
+        }
+        if let Some(dt) = datatype {
+            return Some(ObjectMap::TypedColumn(col, dt));
+        }
+        if let Some(lang) = language {
+            return Some(ObjectMap::LangColumn(col, lang));
+        }
+        return Some(ObjectMap::Column(col));
+    }
+
+    if let Some(tpl) = index
+        .first_object(om_key, rr!("template"))
+        .and_then(|t| literal_value(&t))
+    {
+        // A template defaults to an IRI term; rr:termType rr:Literal is a documented
+        // follow-up (our Template variant always yields an IRI).
+        return Some(ObjectMap::Template(tpl));
+    }
+
+    index
+        .first_object(om_key, rr!("constant"))
+        .map(|c| constant_object_map(&c))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1024,5 +1434,252 @@ mod tests {
         assert_eq!(expand_template("http://ex/p/{missing}", &row), None);
         // Escaped braces.
         assert_eq!(expand_template("a{{b}}c", &row), Some("a{b}c".to_string()));
+    }
+
+    // ── CONCEPT:EG-305 — full R2RML Turtle parsing ───────────────────────────────
+
+    /// A standard R2RML mapping document (in Turtle) over the `people` table: a subject
+    /// template + class, a plain-literal name, a typed (xsd:integer) age, and an IRI-
+    /// template `knows` reference to another person's subject.
+    const PEOPLE_R2RML: &str = r#"
+        @prefix rr:  <http://www.w3.org/ns/r2rml#> .
+        @prefix ex:  <http://example.org/> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+        <http://example.org/map/People> a rr:TriplesMap ;
+            rr:logicalTable [ rr:tableName "people" ] ;
+            rr:subjectMap [
+                rr:template "http://example.org/person/{id}" ;
+                rr:class ex:Person
+            ] ;
+            rr:predicateObjectMap [
+                rr:predicate ex:name ;
+                rr:objectMap [ rr:column "name" ]
+            ] ;
+            rr:predicateObjectMap [
+                rr:predicate ex:age ;
+                rr:objectMap [ rr:column "age" ; rr:datatype xsd:integer ]
+            ] ;
+            rr:predicateObjectMap [
+                rr:predicate ex:knows ;
+                rr:objectMap [ rr:template "http://example.org/person/{friend_id}" ]
+            ] .
+    "#;
+
+    /// CONCEPT:EG-305 — a real R2RML Turtle doc parses to a VirtualGraph whose SPARQL
+    /// results match the EG-101 programmatic graph (subject template + class + name).
+    #[test]
+    fn eg305_r2rml_turtle_parses_and_selects() {
+        let vg = parse_r2rml_turtle(PEOPLE_R2RML).unwrap();
+        assert_eq!(vg.triples_maps.len(), 1);
+        assert_eq!(vg.triples_maps[0].logical_source, "people");
+        assert_eq!(
+            vg.triples_maps[0].subject_class.as_deref(),
+            Some("http://example.org/Person")
+        );
+
+        let reg = people_registry();
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE { ?p a ex:Person ; ex:name ?name . }"#,
+        )
+        .unwrap();
+        let mut names: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Alice", "Bob", "Carol"]);
+    }
+
+    /// CONCEPT:EG-305 — the subject IRI template from `rr:subjectMap`/`rr:template` is
+    /// applied when selecting the subject variable.
+    #[test]
+    fn eg305_r2rml_subject_template_applies() {
+        let vg = parse_r2rml_turtle(PEOPLE_R2RML).unwrap();
+        let reg = people_registry();
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?p WHERE { ?p ex:name "Alice" . }"#,
+        )
+        .unwrap();
+        let subjects: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("p").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(subjects, vec!["<http://example.org/person/1>"]);
+    }
+
+    /// CONCEPT:EG-305 — a typed object map (`rr:column` + `rr:datatype xsd:integer`)
+    /// materializes a TYPED literal, so a numeric SPARQL FILTER compares as an integer.
+    #[test]
+    fn eg305_r2rml_typed_object_map_numeric_filter() {
+        let vg = parse_r2rml_turtle(PEOPLE_R2RML).unwrap();
+
+        // The parsed object map for ex:age carries the xsd:integer datatype.
+        let age_pom = vg.triples_maps[0]
+            .predicate_object_maps
+            .iter()
+            .find(|(p, _)| p == "http://example.org/age")
+            .map(|(_, o)| o.clone());
+        assert_eq!(
+            age_pom,
+            Some(ObjectMap::TypedColumn(
+                "age".to_string(),
+                "http://www.w3.org/2001/XMLSchema#integer".to_string()
+            ))
+        );
+
+        let reg = people_registry();
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?name WHERE {
+                 ?p ex:name ?name ; ex:age ?age .
+                 FILTER (?age > 28)
+               }"#,
+        )
+        .unwrap();
+        let mut names: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("name").map(|b| b.as_str().to_string()))
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Alice", "Carol"]);
+    }
+
+    /// CONCEPT:EG-305 — an IRI-template object map (`rr:objectMap`/`rr:template`) joins
+    /// across the virtual graph: `?a knows ?b`, `?b name ?bname`.
+    #[test]
+    fn eg305_r2rml_ref_template_joins() {
+        let vg = parse_r2rml_turtle(PEOPLE_R2RML).unwrap();
+        let reg = people_registry();
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?aname ?bname WHERE {
+                 ?a ex:name ?aname .
+                 ?a ex:knows ?b .
+                 ?b ex:name ?bname .
+               }"#,
+        )
+        .unwrap();
+        let mut pairs: Vec<(String, String)> = res
+            .solutions
+            .iter()
+            .filter_map(|s| {
+                Some((
+                    s.get("aname")?.as_str().to_string(),
+                    s.get("bname")?.as_str().to_string(),
+                ))
+            })
+            .collect();
+        pairs.sort();
+        assert_eq!(
+            pairs,
+            vec![
+                ("Alice".to_string(), "Bob".to_string()),
+                ("Carol".to_string(), "Alice".to_string()),
+            ]
+        );
+    }
+
+    /// CONCEPT:EG-305 — the R2RML shortcuts `rr:predicate`/`rr:object` (constant IRI) and
+    /// a `rr:predicateMap`/`rr:constant` all resolve; multiple `rr:class` are preserved
+    /// (first → subject_class, extras → rdf:type object maps).
+    #[test]
+    fn eg305_r2rml_shortcuts_and_multiple_classes() {
+        let doc = r#"
+            @prefix rr:  <http://www.w3.org/ns/r2rml#> .
+            @prefix ex:  <http://example.org/> .
+            @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+            <http://example.org/map/M> a rr:TriplesMap ;
+                rr:logicalTable [ rr:tableName "people" ] ;
+                rr:subjectMap [
+                    rr:template "http://example.org/person/{id}" ;
+                    rr:class ex:Person ;
+                    rr:class ex:Agent
+                ] ;
+                rr:predicateObjectMap [
+                    rr:predicate ex:name ;
+                    rr:objectMap [ rr:column "name" ]
+                ] ;
+                rr:predicateObjectMap [
+                    rr:predicate ex:kind ;
+                    rr:object ex:Human
+                ] .
+        "#;
+        let vg = parse_r2rml_turtle(doc).unwrap();
+        let tm = &vg.triples_maps[0];
+        // One of the two classes lands in subject_class; the other as an rdf:type pom.
+        assert!(tm.subject_class.is_some());
+        assert!(tm
+            .predicate_object_maps
+            .iter()
+            .any(|(p, o)| p == RDF_TYPE_IRI
+                && matches!(o, ObjectMap::ConstantIri(i) if i == "http://example.org/Agent")));
+        // The rr:object constant shortcut → ConstantIri.
+        assert!(tm.predicate_object_maps.iter().any(|(p, o)| p
+            == "http://example.org/kind"
+            && matches!(o, ObjectMap::ConstantIri(i) if i == "http://example.org/Human")));
+
+        // Every person is both ex:Person and ex:Agent.
+        let reg = people_registry();
+        let res = run_virtual(
+            &vg,
+            &reg,
+            r#"PREFIX ex: <http://example.org/>
+               SELECT ?p WHERE { ?p a ex:Agent . }"#,
+        )
+        .unwrap();
+        assert_eq!(res.solutions.len(), 3);
+    }
+
+    /// CONCEPT:EG-305 — a document with no triples map is a clean, cited error.
+    #[test]
+    fn eg305_r2rml_empty_document_errors() {
+        let err = parse_r2rml_turtle("@prefix ex: <http://example.org/> . ex:a ex:b ex:c .")
+            .unwrap_err();
+        assert!(err.contains("no rr:TriplesMap"));
+        assert!(err.contains("CONCEPT:EG-305"));
+    }
+
+    /// CONCEPT:EG-305 — a triples map missing its logical table is a cited error.
+    #[test]
+    fn eg305_r2rml_missing_logical_table_errors() {
+        let doc = r#"
+            @prefix rr: <http://www.w3.org/ns/r2rml#> .
+            @prefix ex: <http://example.org/> .
+            <http://example.org/map/M> a rr:TriplesMap ;
+                rr:subjectMap [ rr:template "http://example.org/person/{id}" ] .
+        "#;
+        let err = parse_r2rml_turtle(doc).unwrap_err();
+        assert!(err.contains("rr:logicalTable"));
+        assert!(err.contains("CONCEPT:EG-305"));
+    }
+
+    /// CONCEPT:EG-305 — parsing does not disturb the EG-101 builders: the minimal textual
+    /// form still round-trips to the programmatic graph.
+    #[test]
+    fn eg305_eg101_builders_still_work() {
+        let mapping = r#"
+            SOURCE  people
+            SUBJECT http://example.org/person/{id}
+            CLASS   http://example.org/Person
+            COLUMN  http://example.org/name  name
+            COLUMN  http://example.org/age   age
+            REF     http://example.org/knows http://example.org/person/{friend_id}
+        "#;
+        assert_eq!(parse_mapping(mapping).unwrap(), people_vgraph());
     }
 }
