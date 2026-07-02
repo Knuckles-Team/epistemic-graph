@@ -110,6 +110,13 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             store.create_function(&plan.func, plan.or_replace).unwrap();
             None
         }
+        // CONCEPT:EG-116/EG-313 — route `CREATE INDEX … USING hnsw|ivfflat` to the
+        // durable ANN index catalog so a matching `ORDER BY col <-> $1 LIMIT k` pushes
+        // down to a real eg-ann index. Mirrors the pgwire shim's routing.
+        StatementKind::CreateAnnIndex(plan) => {
+            store.put_ann_index(&plan).unwrap();
+            None
+        }
         other => panic!("unexpected statement kind for user-table test: {other:?}"),
     }
 }
@@ -430,6 +437,169 @@ fn vector_column_distance_nearest_neighbour() {
     )
     .unwrap();
     assert_eq!(d.rows[0][0], json!(0.0));
+}
+
+// ── pgvector real ANN top-k pushdown (CONCEPT:EG-313) ────────────────────────
+
+/// Seed a `vecs (id INT, emb vector(4))` table with `n` distinct deterministic
+/// embeddings — the shared fixture for the EG-313 pushdown-vs-brute-force tests.
+fn seed_vecs(store: &TableStore, view: &GraphView, n: usize) {
+    run(store, view, "CREATE TABLE vecs (id INT, emb vector(4))");
+    for i in 0..n {
+        let v: Vec<f32> = (0..4)
+            .map(|j| ((i * 5 + j * 2) % 13) as f32 + (i as f32) * 0.01)
+            .collect();
+        let lit = format!("[{},{},{},{}]", v[0], v[1], v[2], v[3]);
+        run(
+            store,
+            view,
+            &format!("INSERT INTO vecs (id, emb) VALUES ({i}, '{lit}')"),
+        );
+    }
+}
+
+/// The nearest ids the EG-115 brute-force `vector_l2()` scan returns for `query`,
+/// LIMIT `k` — the ground-truth reference. Computed on a FRESH store with NO ANN index
+/// registered, so the exec path takes the full-scan fallback.
+fn brute_nearest_ids(query: &str, k: usize, n: usize, op: &str) -> Vec<Value> {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    seed_vecs(&store, &view, n);
+    let sql = format!("SELECT id FROM vecs ORDER BY emb {op} '{query}' LIMIT {k}");
+    run(&store, &view, &sql)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|r| r[0].clone())
+        .collect()
+}
+
+/// With a `hnsw` index registered, `ORDER BY emb <-> $q LIMIT k` pushes down to a real
+/// eg-ann HNSW index and returns the TRUE nearest-k — bit-identical to the brute-force
+/// reference (CONCEPT:EG-313).
+#[test]
+fn eg313_hnsw_pushdown_matches_brute_force_l2() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    let n = 12;
+    seed_vecs(&store, &view, n);
+    run(
+        &store,
+        &view,
+        "CREATE INDEX ON vecs USING hnsw (emb vector_l2_ops)",
+    );
+    assert_eq!(store.list_ann_indexes().unwrap().len(), 1);
+
+    let q = "[6.2, 1.1, 8.3, 3.0]";
+    for k in [1usize, 3, 5] {
+        let pushed = run(
+            &store,
+            &view,
+            &format!("SELECT id FROM vecs ORDER BY emb <-> '{q}' LIMIT {k}"),
+        )
+        .unwrap();
+        let want = brute_nearest_ids(q, k, n, "<->");
+        let got: Vec<Value> = pushed.rows.into_iter().map(|r| r[0].clone()).collect();
+        assert_eq!(got, want, "EG-313 hnsw pushdown top-{k} must equal brute force");
+    }
+}
+
+/// With an `ivfflat` index the pushdown consults a real eg-ann IVF-PQ index; the true
+/// nearest-k (after exact rerank) still equals the brute-force reference (CONCEPT:EG-313).
+#[test]
+fn eg313_ivfflat_pushdown_matches_brute_force_l2() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    let n = 16;
+    seed_vecs(&store, &view, n);
+    run(
+        &store,
+        &view,
+        "CREATE INDEX ON vecs USING ivfflat (emb vector_l2_ops)",
+    );
+
+    let q = "[3.0, 9.0, 2.5, 7.0]";
+    for k in [1usize, 4] {
+        let pushed = run(
+            &store,
+            &view,
+            &format!("SELECT id FROM vecs ORDER BY emb <-> '{q}' LIMIT {k}"),
+        )
+        .unwrap();
+        let want = brute_nearest_ids(q, k, n, "<->");
+        let got: Vec<Value> = pushed.rows.into_iter().map(|r| r[0].clone()).collect();
+        assert_eq!(got, want, "EG-313 ivfflat pushdown top-{k} must equal brute force");
+    }
+}
+
+/// A `vector_cosine_ops` (`<=>`) index pushes the cosine nearest-neighbour query down;
+/// the result equals the cosine brute-force reference (CONCEPT:EG-313).
+#[test]
+fn eg313_cosine_pushdown_matches_brute_force() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    let n = 12;
+    seed_vecs(&store, &view, n);
+    run(
+        &store,
+        &view,
+        "CREATE INDEX ON vecs USING hnsw (emb vector_cosine_ops)",
+    );
+
+    let q = "[5.0, 4.0, 6.0, 2.0]";
+    let pushed = run(
+        &store,
+        &view,
+        &format!("SELECT id FROM vecs ORDER BY emb <=> '{q}' LIMIT 3"),
+    )
+    .unwrap();
+    let want = brute_nearest_ids(q, 3, n, "<=>");
+    let got: Vec<Value> = pushed.rows.into_iter().map(|r| r[0].clone()).collect();
+    assert_eq!(got, want, "EG-313 cosine pushdown top-3 must equal brute force");
+}
+
+/// No registered index ⇒ the exec path keeps the EG-115 brute-force fallback and still
+/// returns the correct nearest-k (CONCEPT:EG-313). A cosine `<=>` query with only an L2
+/// index registered ALSO falls back (metric not covered), still correct.
+#[test]
+fn eg313_no_matching_index_falls_back_to_brute_force() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    let n = 10;
+    seed_vecs(&store, &view, n);
+
+    let q = "[7.0, 2.0, 5.0, 8.0]";
+    // No index at all → fallback.
+    assert!(store.list_ann_indexes().unwrap().is_empty());
+    let no_index = run(
+        &store,
+        &view,
+        &format!("SELECT id FROM vecs ORDER BY emb <-> '{q}' LIMIT 3"),
+    )
+    .unwrap();
+    let want = brute_nearest_ids(q, 3, n, "<->");
+    let got: Vec<Value> = no_index.rows.into_iter().map(|r| r[0].clone()).collect();
+    assert_eq!(got, want, "EG-313 no-index must fall back to brute force");
+
+    // Register an L2-only index, then issue a COSINE query — metric not covered ⇒
+    // fallback, still correct against the cosine brute-force reference.
+    run(
+        &store,
+        &view,
+        "CREATE INDEX ON vecs USING hnsw (emb vector_l2_ops)",
+    );
+    let cos = run(
+        &store,
+        &view,
+        &format!("SELECT id FROM vecs ORDER BY emb <=> '{q}' LIMIT 3"),
+    )
+    .unwrap();
+    let want_cos = brute_nearest_ids(q, 3, n, "<=>");
+    let got_cos: Vec<Value> = cos.rows.into_iter().map(|r| r[0].clone()).collect();
+    assert_eq!(
+        got_cos, want_cos,
+        "EG-313 uncovered metric must fall back to brute force"
+    );
 }
 
 /// A `vector(n)` column rejects an embedding whose dimension disagrees with `n`.
