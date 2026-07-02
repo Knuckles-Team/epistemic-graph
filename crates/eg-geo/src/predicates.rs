@@ -269,6 +269,37 @@ pub fn crosses(a: &Geometry, b: &Geometry) -> bool {
     interiors_intersect(a, b) && !covers(a, b) && !covers(b, a) && !overlaps(a, b)
 }
 
+/// Do the BOUNDARIES of `a` and `b` share at least one point — the DE-9IM `B(a) ∩ B(b)`
+/// cell (CONCEPT:EG-155)?
+///
+/// The boundary is the polygon's rings (exterior + holes) or a linestring's chain
+/// segments; a point has an empty boundary (so it never boundary-intersects). This is the
+/// single extra cell needed on top of the EG-258 predicate set to separate the
+/// **tangential** from the **non-tangential** part relations of the RCC8 / Egenhofer
+/// families (TPP vs NTPP, `ehCoveredBy`/`ehCovers` vs `ehInside`/`ehContains`): a proper
+/// part whose boundary meets its container's boundary is *tangential*, otherwise
+/// *non-tangential*. Exact for the common polygon cases; segment-based like the sibling
+/// predicates. (CONCEPT:EG-155)
+pub fn boundaries_intersect(a: &Geometry, b: &Geometry) -> bool {
+    let (pa, pb) = (prims(a), prims(b));
+    for x in &pa {
+        let sa = prim_segments(x);
+        if sa.is_empty() {
+            continue;
+        }
+        for y in &pb {
+            for (a1, a2) in &sa {
+                for (b1, b2) in prim_segments(y) {
+                    if seg_seg_intersect(a1, a2, &b1, &b2) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Topological dimension of a geometry: 0 (point), 1 (line), 2 (polygon) — the MAX over
 /// its flattened primitives; `-1` for an empty geometry.
 fn dim(g: &Geometry) -> i8 {
