@@ -19,7 +19,7 @@ use eg_core::graph::GraphView;
 // The wire DTO lives at the bottom of the DAG (eg-types); the algorithm stays here.
 pub use eg_types::protocol::QueryResult;
 
-use super::catalog::register_pg_catalog;
+use super::catalog::register_system_catalogs;
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, PagerankFunc};
 use super::udfs::{
@@ -197,10 +197,28 @@ pub fn exec_sql_cached(
     )
 }
 
+/// The materialized `SessionContext` plus the live-relation Arrow schemas the
+/// system catalogs are synthesized from (CONCEPT:EG-103). Returned by [`build_ctx`]
+/// so the caller can register the `pg_catalog` + `information_schema` system views
+/// AFTER the durable views are registered (their columns are read back from the
+/// registered view providers).
+struct BuiltCtx {
+    ctx: SessionContext,
+    nodes_schema: SchemaRef,
+    edges_schema: SchemaRef,
+    user_relations: Vec<(String, SchemaRef)>,
+}
+
 /// Build the shared `SessionContext` for a SQL run: register the `nodes`/`edges`
-/// tables, the scalar/aggregate UDFs, the graph table functions, the synthetic
-/// `pg_catalog` + catalog functions (CONCEPT:KG-2.201), and enable DataFusion's
-/// native `information_schema` so a real driver/ORM can introspect on connect.
+/// tables, the scalar/aggregate UDFs, and the graph table functions. The synthetic
+/// Postgres system catalogs (`pg_catalog.*` + a fully-synthesized `information_schema.*`,
+/// CONCEPT:EG-103, extending CONCEPT:KG-2.201) are registered SEPARATELY by
+/// [`register_system_catalogs`] AFTER the durable views are wired, so views appear as
+/// relations (`relkind='v'`) with their real columns. DataFusion's NATIVE
+/// `information_schema` is deliberately DISABLED here because the engine synthesizes the
+/// whole schema itself (native cannot be extended with `routines`/`key_column_usage`/
+/// `table_constraints`); the synthesized `information_schema.tables`/`.columns` stay in
+/// sync with the same schema-on-read inference.
 ///
 /// `nodes_schema`/`edges_schema` are the inferred Arrow schemas the catalog is
 /// derived from (the catalog reports exactly the columns a SELECT returns). The
@@ -210,7 +228,7 @@ fn build_ctx(
     nodes: (SchemaRef, arrow::record_batch::RecordBatch),
     edges: (SchemaRef, arrow::record_batch::RecordBatch),
     user_tables: Vec<UserTable>,
-) -> Result<SessionContext, String> {
+) -> Result<BuiltCtx, String> {
     let nodes_schema = nodes.0.clone();
     let edges_schema = edges.0.clone();
 
@@ -221,9 +239,11 @@ fn build_ctx(
     let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
         .map_err(|e| format!("edges mem table: {e}"))?;
 
-    // CONCEPT:KG-2.201: enable DataFusion's native `information_schema` so
-    // `information_schema.tables`/`.columns` reflect the registered relations.
-    let config = SessionConfig::new().with_information_schema(true);
+    // CONCEPT:EG-103: DataFusion's native `information_schema` is DISABLED — the engine
+    // synthesizes the whole `information_schema` (plus `pg_catalog`) itself in
+    // `register_system_catalogs`, because native cannot be extended with the
+    // `routines`/`key_column_usage`/`table_constraints` views psql/ORMs also probe.
+    let config = SessionConfig::new().with_information_schema(false);
     let ctx = SessionContext::new_with_config(config);
 
     ctx.register_table("nodes", Arc::new(nodes_table))
@@ -266,10 +286,15 @@ fn build_ctx(
         ctx.register_udaf(super::udfs::var_udaf());
         ctx.register_udaf(super::udfs::cvar_udaf());
     }
-    // CONCEPT:KG-2.201/EG-018: supplement the pg_catalog DataFusion does not provide,
-    // including the user tables so an ORM reflects them.
-    register_pg_catalog(&ctx, &nodes_schema, &edges_schema, &user_relations)?;
-    Ok(ctx)
+    // CONCEPT:EG-103: the `pg_catalog` + `information_schema` system views are registered
+    // by the caller via `register_system_catalogs` AFTER `register_views`, so views are
+    // synthesized as relations with their real column schemas.
+    Ok(BuiltCtx {
+        ctx,
+        nodes_schema,
+        edges_schema,
+        user_relations,
+    })
 }
 
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
@@ -298,17 +323,34 @@ fn run(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-103 — strip the `pg_catalog.` qualifier off catalog FUNCTION calls
+    // (psql `\d`/ORMs emit `pg_catalog.format_type(...)`) so the bare-name UDFs resolve;
+    // schema-qualified TABLE refs (`pg_catalog.pg_class`) are untouched.
+    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
     // CONCEPT:EG-118 — expand SQL stored-function calls into inline SQL (scalar subquery /
     // parameterized-view subquery) BEFORE the pgvector desugar + planning, so an inlined
     // body is itself desugared and planned. A no-op when there are no functions.
-    let sql = super::funcs::expand_functions(sql, &functions)?;
+    let sql = super::funcs::expand_functions(&sql, &functions)?;
     // CONCEPT:EG-115 — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
     // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
     // operator for them). A no-op when none are present or the SQL doesn't parse.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
-        let ctx = build_ctx(snap, nodes, edges, user_tables)?;
+        let built = build_ctx(snap, nodes, edges, user_tables)?;
+        let ctx = built.ctx;
         register_views(&ctx, &views, &functions).await?;
+        // CONCEPT:EG-103 — synthesize `pg_catalog` + `information_schema` from the live
+        // relations (nodes/edges/user tables), the now-registered views, and the stored
+        // functions, so psql/ORMs can introspect the real schema.
+        register_system_catalogs(
+            &ctx,
+            &built.nodes_schema,
+            &built.edges_schema,
+            &built.user_relations,
+            &views,
+            &functions,
+        )
+        .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_result(&batches)
@@ -375,13 +417,26 @@ fn run_typed(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-103 — see `run`: strip `pg_catalog.` off catalog function calls first.
+    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
     // CONCEPT:EG-118 — see `run`: expand SQL stored-function calls before desugar/planning.
-    let sql = super::funcs::expand_functions(sql, &functions)?;
+    let sql = super::funcs::expand_functions(&sql, &functions)?;
     // CONCEPT:EG-115 — see `run`: desugar the pgvector operators before planning.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
-        let ctx = build_ctx(snap, nodes, edges, user_tables)?;
+        let built = build_ctx(snap, nodes, edges, user_tables)?;
+        let ctx = built.ctx;
         register_views(&ctx, &views, &functions).await?;
+        // CONCEPT:EG-103 — synthesize `pg_catalog` + `information_schema` (see `run`).
+        register_system_catalogs(
+            &ctx,
+            &built.nodes_schema,
+            &built.edges_schema,
+            &built.user_relations,
+            &views,
+            &functions,
+        )
+        .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
