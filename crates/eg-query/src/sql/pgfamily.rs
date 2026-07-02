@@ -1064,4 +1064,57 @@ mod tests {
         assert_eq!(out.rows[0][0], Value::from(0i64));
         assert_eq!(out.rows[1][0], Value::from(7_200i64));
     }
+
+    /// CONCEPT:EG-311 — REAL BM25 ranking + highlighted snippets through DataFusion.
+    /// The 2-arg `bm25_score(body, 'query')` / `bm25_snippet(body, 'query', n)` forms
+    /// carry the query into the per-row UDF, so `ORDER BY bm25_score(...) DESC` puts the
+    /// more-relevant document FIRST (not the constant-1.0 placeholder order) and the
+    /// snippet wraps matched terms in `<b>…</b>`.
+    #[test]
+    fn eg311_bm25_real_score_orders_and_snippet_highlights() {
+        use arrow::array::StringArray;
+        use arrow::datatypes::{DataType, Field, Schema};
+        use arrow::record_batch::RecordBatch;
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("body", DataType::Utf8, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(StringArray::from(vec!["low", "high"])),
+                Arc::new(StringArray::from(vec![
+                    "the quick brown fox jumps over the lazy dog just once",
+                    "the lazy dog naps while another lazy dog guards the dog house",
+                ])),
+            ],
+        )
+        .unwrap();
+
+        let out = crate::exec_sql_over_tables(
+            vec![("docs".to_string(), schema, vec![batch])],
+            "SELECT id, bm25_snippet(body, 'lazy dog', 40) AS snip \
+             FROM docs WHERE body @@@ 'lazy dog' \
+             ORDER BY bm25_score(body, 'lazy dog') DESC",
+        )
+        .unwrap();
+
+        assert_eq!(out.rows.len(), 2, "both docs contain the terms");
+        // The doc with more 'lazy dog' occurrences ranks FIRST — real BM25, not 1.0.
+        assert_eq!(
+            out.rows[0][0],
+            Value::from("high"),
+            "more-relevant doc ranked first: {:?}",
+            out.rows
+        );
+        assert_eq!(out.rows[1][0], Value::from("low"));
+        // The snippet highlights the matched terms.
+        let snip = out.rows[0][1].as_str().unwrap_or_default();
+        assert!(
+            snip.contains("<b>lazy</b>") || snip.contains("<b>dog</b>"),
+            "snippet highlights a matched term: {snip:?}"
+        );
+    }
 }
