@@ -29,6 +29,13 @@ pub mod point;
 pub mod query;
 pub mod time_op;
 
+// CONCEPT:EG-098 — multi-rate sensor-stream alignment for multimodal fusion: resample N
+// different-rate sensor series onto ONE target grid with per-channel Nearest/Linear/
+// AsofHold interpolation (AsofHold reuses `query::asof_join_backward`). Pure-Rust (no
+// redb/Arrow), always on — the time half of fusion; `eg-tensor::fusion` stacks the
+// aligned frame into a tensor.
+pub mod fusion;
+
 #[cfg(feature = "promql")]
 pub mod promql;
 
