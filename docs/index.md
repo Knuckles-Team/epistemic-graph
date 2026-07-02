@@ -19,6 +19,33 @@ flowchart LR
     EDGE --> NODE --> CLUSTER
 ```
 
+It also fronts **many wire protocols** and **cross-cutting subsystems** on that one substrate — a
+message broker, an observability stack, GIS, tensors, streams, and an LLM KV-cache — so the same durable
+store answers a Postgres, Neo4j, Redis, S3, AMQP, or PromQL client:
+
+```mermaid
+flowchart TB
+    subgraph Wires["Wire adapters (one WireProtocol exec path)"]
+        W["native · pgwire · sqlite · mysql · mssql · bolt · redis · s3 · amqp · mqtt · stomp · obs"]
+    end
+    subgraph Subsys["Cross-cutting subsystems"]
+        BR["broker"]
+        OB["observability"]
+        MM["agent-memory"]
+        KV["KV-cache"]
+    end
+    subgraph Modalities["Modality engines"]
+        MOD["graph · vector · SQL · RDF/OWL · SHACL/ShEx · TSDB · text · GIS · tensor · stream · BLOB"]
+    end
+    CORE["one durable substrate<br/>GraphCore + redb-authoritative + unified RowSet planner"]
+
+    Wires --> CORE
+    Subsys --> CORE
+    CORE --> Modalities
+```
+
+See the [subsystems reference](architecture/subsystems.md) for how each composes on the substrate.
+
 > **Honesty first.** Every capability is tracked operation-by-operation in the
 > **[capabilities & parity matrix](capabilities.md)** with a status tag (✅ supported · 🔶 in-progress ·
 > 🗺 roadmap), and the **[parity roadmap](roadmap.md)** names exactly which drop-in gaps are being
