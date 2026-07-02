@@ -21,11 +21,22 @@
 //!   de-duplicated by key; ranked/search partials are re-ranked with Reciprocal Rank
 //!   Fusion (RRF, the `Op::FuseRrf` idea). A slow / dead peer is SKIPPED and noted in
 //!   `failed_peers` with `partial: true` — it never fails the whole query.
+//! * Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-309) — the ranked-search
+//!   merge above dedups by a hash of the row payload, which is wrong for tabular
+//!   (SQL row / SPARQL solution) partials whose peers may list the SAME columns in a
+//!   DIFFERENT order, serialize the SAME value with a DIFFERENT JSON type (`30` vs
+//!   `30.0` vs `"30"`), or expose HETEROGENEOUS-but-compatible schemas (one peer has
+//!   an extra column). For `lang == "sql" | "sparql"`, [`merge_partials_typed`] instead
+//!   aligns columns/variables BY NAME across peers into one union schema, reconciles
+//!   each cell to a canonical typed value, de-duplicates by that typed tuple (not by a
+//!   hash of the JSON), and re-projects every row onto the union schema — filling a
+//!   column a given peer lacked with `null`. The ranked-search RRF path is untouched,
+//!   and a slow/dead peer still degrades to `partial: true` exactly as before.
 //! * HTTP surface — a small `/federated` POST listener (`{query, lang}` → merged
 //!   rows + a `metadata` block). Reuses the same hand-rolled HTTP framing idiom as
 //!   `sparql_http` (no new HTTP dep).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -405,6 +416,210 @@ fn rrf_scores(lists: &[Vec<FedRow>]) -> HashMap<String, f64> {
     scores
 }
 
+// ── Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-309) ────────────
+
+/// The schema field name a decoded partial carries for a given `lang` (CONCEPT:EG-309).
+/// SQL rows carry their column names under `"columns"`; SPARQL solutions carry their
+/// projected variables under `"vars"` (see [`decode_local_rows`]).
+fn typed_schema_field(lang: &str) -> &'static str {
+    match lang {
+        "sparql" => "vars",
+        _ => "columns",
+    }
+}
+/// `true` when a `lang` produces tabular partials that want schema-aware typed fusion
+/// rather than the ranked-search RRF merge (CONCEPT:EG-309).
+pub fn is_typed_lang(lang: &str) -> bool {
+    matches!(lang, "sql" | "sparql")
+}
+
+/// Pull `(column/variable names, cells)` out of a decoded [`FedRow::data`] payload
+/// (CONCEPT:EG-309). Reads the name list from `field` (`"columns"` / `"vars"`) and the
+/// values from `"cells"`; a missing/oddly-shaped payload yields empty vecs so the row is
+/// merged as an empty tuple rather than crashing the fusion.
+fn extract_schema_cells(data: &serde_json::Value, field: &str) -> (Vec<String>, Vec<serde_json::Value>) {
+    let names = data
+        .get(field)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let cells = data
+        .get("cells")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    (names, cells)
+}
+
+/// Reconcile one cell value to a canonical, type-aware token used for typed dedup
+/// (CONCEPT:EG-309). The intent is that logically-equal values compare equal ACROSS
+/// heterogeneous stores even when their JSON encodings differ:
+///
+/// * `null` → a single null token;
+/// * booleans → `b<true|false>`;
+/// * numbers → an integral value normalizes to `n<i64>` (so `30` and `30.0` fuse), a
+///   non-integral to `f<canonical-float>`;
+/// * strings that are an EXACT canonical rendering of a number reconcile to that number
+///   (so a SPARQL string cell `"30"` fuses with a SQL numeric cell `30`, while a
+///   non-canonical string like `"007"` or `"3.10"` is preserved as text to avoid a
+///   surprising merge);
+/// * arrays/objects → their compact JSON, so equal composite values still fuse.
+fn canonical_token(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "\u{0}null".to_string(),
+        serde_json::Value::Bool(b) => format!("b{b}"),
+        serde_json::Value::Number(n) => canonical_number_token(n),
+        serde_json::Value::String(s) => canonical_scalar_string_token(s),
+        other => format!("j{other}"),
+    }
+}
+
+/// Canonicalize a JSON number: integral values collapse to `n<i64>` so `30` and `30.0`
+/// (and a `u64`/`i64`/integral `f64` encoding of the same value) all fuse (CONCEPT:EG-309).
+fn canonical_number_token(n: &serde_json::Number) -> String {
+    if let Some(i) = n.as_i64() {
+        return format!("n{i}");
+    }
+    if let Some(u) = n.as_u64() {
+        return format!("n{u}");
+    }
+    if let Some(f) = n.as_f64() {
+        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+            return format!("n{}", f as i64);
+        }
+        return format!("f{f}");
+    }
+    format!("f{n}")
+}
+
+/// Reconcile a string cell (CONCEPT:EG-309): if it is the EXACT canonical rendering of a
+/// number it fuses with the numeric encoding of that value; otherwise it stays text.
+fn canonical_scalar_string_token(s: &str) -> String {
+    if let Ok(i) = s.parse::<i64>() {
+        if i.to_string() == s {
+            return format!("n{i}");
+        }
+    }
+    if let Ok(f) = s.parse::<f64>() {
+        if f.is_finite() {
+            if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+                let iv = f as i64;
+                if iv.to_string() == s {
+                    return format!("n{iv}");
+                }
+            } else if f.to_string() == s {
+                return format!("f{f}");
+            }
+        }
+    }
+    format!("s{s}")
+}
+
+/// Build the typed dedup identity for a row given its `name → value` map and the shared
+/// (sorted, order-independent) union schema (CONCEPT:EG-309). Iterating the union schema
+/// — not the peer's own column order — makes two peers that list the same columns in a
+/// different order produce the SAME key; a column a peer lacked contributes a `null` token
+/// so a short row fuses with a long row iff they agree on every shared column.
+fn typed_dedup_key(map: &HashMap<String, serde_json::Value>, sorted_schema: &[String]) -> String {
+    let mut parts = Vec::with_capacity(sorted_schema.len());
+    for name in sorted_schema {
+        let tok = map
+            .get(name)
+            .map(canonical_token)
+            .unwrap_or_else(|| canonical_token(&serde_json::Value::Null));
+        parts.push(format!("{name}={tok}"));
+    }
+    parts.join("\u{1f}")
+}
+
+/// Schema-aware typed fusion of SQL / SPARQL federated partials (CONCEPT:EG-309).
+///
+/// Replaces the hash-of-JSON union+dedup of [`merge_partials`] for tabular results with a
+/// schema-aware merge: it aligns columns/variables BY NAME across every healthy source
+/// into one union schema (first-seen column order), reconciles each cell to a canonical
+/// typed value, de-duplicates rows by that typed tuple, and re-projects every surviving
+/// row onto the union schema — filling a column the source lacked with `null`. Degraded
+/// sources contribute nothing but still flip `partial` + populate `failed_peers`, exactly
+/// as the ranked-search path does. Rows are unordered (no score / no RRF).
+pub fn merge_partials_typed(outcomes: Vec<PeerOutcome>, lang: &str) -> FederatedResponse {
+    let field = typed_schema_field(lang);
+    let mut peers_queried: Vec<String> = Vec::new();
+    let mut failed_peers: Vec<String> = Vec::new();
+    let mut contributing = 0usize;
+    let mut row_maps: Vec<HashMap<String, serde_json::Value>> = Vec::new();
+    let mut union_schema: Vec<String> = Vec::new();
+
+    for outcome in outcomes {
+        let is_local = outcome.source == "<local>";
+        if !is_local {
+            peers_queried.push(outcome.source.clone());
+        }
+        match outcome.rows {
+            Ok(rows) => {
+                contributing += 1;
+                for row in rows {
+                    let (names, cells) = extract_schema_cells(&row.data, field);
+                    let mut map: HashMap<String, serde_json::Value> = HashMap::new();
+                    for (i, name) in names.into_iter().enumerate() {
+                        if !union_schema.contains(&name) {
+                            union_schema.push(name.clone());
+                        }
+                        let val = cells.get(i).cloned().unwrap_or(serde_json::Value::Null);
+                        map.insert(name, val);
+                    }
+                    row_maps.push(map);
+                }
+            }
+            Err(_) => {
+                if !is_local {
+                    failed_peers.push(outcome.source);
+                }
+            }
+        }
+    }
+
+    // Dedup over the full union schema in a canonical (sorted) order so column ordering
+    // is irrelevant; preserve first-seen row order; project each survivor onto the union.
+    let mut sorted_schema = union_schema.clone();
+    sorted_schema.sort();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut rows: Vec<FedRow> = Vec::new();
+    for map in &row_maps {
+        let key = typed_dedup_key(map, &sorted_schema);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        let cells: Vec<serde_json::Value> = union_schema
+            .iter()
+            .map(|name| map.get(name).cloned().unwrap_or(serde_json::Value::Null))
+            .collect();
+        let data = serde_json::json!({ field: union_schema.clone(), "cells": cells });
+        rows.push(FedRow {
+            key,
+            score: None,
+            data,
+        });
+    }
+
+    let partial = !failed_peers.is_empty();
+    FederatedResponse {
+        rows,
+        metadata: FederatedMetadata {
+            peers_queried,
+            failed_peers,
+            partial,
+            contributing_sources: contributing,
+        },
+    }
+}
+
 // ── Peer fan-out (ureq, blocking) ─────────────────────────────────────────
 
 /// POST the query to ONE peer's `/federated?local=1` endpoint and parse its rows
@@ -642,7 +857,13 @@ pub async fn run_federated(
             outcomes.append(&mut peer_outcomes);
         }
     }
-    merge_partials(outcomes)
+    // Tabular SQL / SPARQL partials get schema-aware typed fusion (CONCEPT:EG-309); the
+    // ranked-search path keeps its hash-union + RRF re-rank (CONCEPT:EG-243) unchanged.
+    if is_typed_lang(lang) {
+        merge_partials_typed(outcomes, lang)
+    } else {
+        merge_partials(outcomes)
+    }
 }
 
 // ── HTTP surface (`/federated`) ───────────────────────────────────────────
@@ -946,5 +1167,216 @@ mod tests {
         assert_eq!(decoded[0].key, "n1");
         assert_eq!(decoded[0].score, Some(0.9f32 as f64));
         assert_eq!(decoded[1].score, None);
+    }
+
+    // ── CONCEPT:EG-309 — schema-aware typed fusion for SQL + SPARQL ──────────
+
+    /// Build a tabular [`FedRow`] the way [`decode_local_rows`] does for a store partial:
+    /// `field` is `"columns"` (SQL) or `"vars"` (SPARQL), paired 1:1 with `cells`.
+    fn tabular_row(field: &str, names: &[&str], cells: Vec<serde_json::Value>) -> FedRow {
+        FedRow {
+            key: String::new(), // typed fusion recomputes the key; the input key is ignored
+            score: None,
+            data: serde_json::json!({ field: names, "cells": cells }),
+        }
+    }
+
+    /// Helper: the aligned union schema from a fused row's payload.
+    fn fused_schema(row: &FedRow, field: &str) -> Vec<String> {
+        row.data[field]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn eg309_sql_typed_fusion_aligns_columns_and_typed_dedups() {
+        // Two peers return the SAME logical row but (a) list columns in a DIFFERENT order
+        // and (b) encode `age` as int `30` on one peer vs float `30.0` on the other.
+        // Schema-aware typed fusion must align by name + reconcile the number ⇒ ONE row.
+        let local = PeerOutcome {
+            source: "<local>".to_string(),
+            rows: Ok(vec![tabular_row(
+                "columns",
+                &["name", "age"],
+                vec![serde_json::json!("alice"), serde_json::json!(30)],
+            )]),
+        };
+        let peer = PeerOutcome {
+            source: "https://p.example".to_string(),
+            rows: Ok(vec![tabular_row(
+                "columns",
+                &["age", "name"], // reversed column order + float encoding
+                vec![serde_json::json!(30.0), serde_json::json!("alice")],
+            )]),
+        };
+        let merged = merge_partials_typed(vec![local, peer], "sql");
+        assert_eq!(merged.rows.len(), 1, "aligned + typed-equal rows dedup to one");
+        assert!(!merged.metadata.partial);
+        assert_eq!(merged.metadata.contributing_sources, 2);
+        // The union schema is stable (first-seen: name, age) and both cells are projected.
+        assert_eq!(fused_schema(&merged.rows[0], "columns"), vec!["name", "age"]);
+        assert_eq!(
+            merged.rows[0].data["cells"],
+            serde_json::json!(["alice", 30])
+        );
+    }
+
+    #[test]
+    fn eg309_sql_typed_fusion_keeps_distinct_rows_distinct() {
+        // Same columns, genuinely different values must NOT be fused away.
+        let local = PeerOutcome {
+            source: "<local>".to_string(),
+            rows: Ok(vec![
+                tabular_row(
+                    "columns",
+                    &["name", "age"],
+                    vec![serde_json::json!("alice"), serde_json::json!(30)],
+                ),
+                tabular_row(
+                    "columns",
+                    &["name", "age"],
+                    vec![serde_json::json!("bob"), serde_json::json!(40)],
+                ),
+            ]),
+        };
+        let merged = merge_partials_typed(vec![local], "sql");
+        assert_eq!(merged.rows.len(), 2);
+    }
+
+    #[test]
+    fn eg309_sparql_variable_alignment_across_peers() {
+        // SPARQL solutions with the SAME variables bound in a DIFFERENT order align by
+        // NAME and dedup; SPARQL cells are strings/null.
+        let local = PeerOutcome {
+            source: "<local>".to_string(),
+            rows: Ok(vec![tabular_row(
+                "vars",
+                &["s", "o"],
+                vec![serde_json::json!("ex:alice"), serde_json::json!("30")],
+            )]),
+        };
+        let peer = PeerOutcome {
+            source: "https://p.example".to_string(),
+            rows: Ok(vec![tabular_row(
+                "vars",
+                &["o", "s"], // reversed
+                vec![serde_json::json!("30"), serde_json::json!("ex:alice")],
+            )]),
+        };
+        let merged = merge_partials_typed(vec![local, peer], "sparql");
+        assert_eq!(merged.rows.len(), 1, "same solution across peers ⇒ one row");
+        assert_eq!(fused_schema(&merged.rows[0], "vars"), vec!["s", "o"]);
+        assert!(!merged.metadata.partial);
+    }
+
+    #[test]
+    fn eg309_heterogeneous_schema_union_fills_nulls() {
+        // Peer A has [name, age]; peer B additionally projects `city`. The union schema is
+        // [name, age, city]; A's rows must gain a `null` city. A row that matches A on the
+        // shared columns AND has a null city (peer B's alice) fuses with A's alice; a row
+        // with a NON-null city (peer B's bob) stays distinct.
+        let peer_a = PeerOutcome {
+            source: "https://a.example".to_string(),
+            rows: Ok(vec![tabular_row(
+                "columns",
+                &["name", "age"],
+                vec![serde_json::json!("alice"), serde_json::json!(30)],
+            )]),
+        };
+        let peer_b = PeerOutcome {
+            source: "https://b.example".to_string(),
+            rows: Ok(vec![
+                tabular_row(
+                    "columns",
+                    &["name", "age", "city"],
+                    vec![
+                        serde_json::json!("alice"),
+                        serde_json::json!(30),
+                        serde_json::Value::Null, // same as A ⇒ fuses
+                    ],
+                ),
+                tabular_row(
+                    "columns",
+                    &["name", "age", "city"],
+                    vec![
+                        serde_json::json!("bob"),
+                        serde_json::json!(40),
+                        serde_json::json!("NYC"), // distinct ⇒ kept
+                    ],
+                ),
+            ]),
+        };
+        let merged = merge_partials_typed(vec![peer_a, peer_b], "sql");
+        // alice(null city) fuses across A and B; bob(NYC) is separate ⇒ 2 rows.
+        assert_eq!(merged.rows.len(), 2);
+        // Every projected row now carries the full union schema.
+        for r in &merged.rows {
+            assert_eq!(fused_schema(r, "columns"), vec!["name", "age", "city"]);
+            assert_eq!(r.data["cells"].as_array().unwrap().len(), 3);
+        }
+        // The alice row (first-seen) has city projected to null.
+        assert_eq!(
+            merged.rows[0].data["cells"],
+            serde_json::json!(["alice", 30, null])
+        );
+        assert!(!merged.metadata.partial);
+    }
+
+    #[test]
+    fn eg309_typed_dedup_reconciles_numeric_string_and_number() {
+        // A SQL numeric cell `30` and a SPARQL-style string cell `"30"` reconcile as the
+        // same typed value; a non-canonical numeric string like `"007"` does NOT.
+        assert_eq!(
+            canonical_token(&serde_json::json!(30)),
+            canonical_token(&serde_json::json!("30"))
+        );
+        assert_eq!(
+            canonical_token(&serde_json::json!(30.0)),
+            canonical_token(&serde_json::json!(30))
+        );
+        assert_ne!(
+            canonical_token(&serde_json::json!("007")),
+            canonical_token(&serde_json::json!(7))
+        );
+        assert_ne!(
+            canonical_token(&serde_json::json!("alice")),
+            canonical_token(&serde_json::json!("bob"))
+        );
+    }
+
+    #[test]
+    fn eg309_failed_peer_degrades_typed_fusion_to_partial() {
+        // A dead peer under the typed path must degrade to `partial: true` with local rows
+        // preserved — identical contract to the ranked-search path (CONCEPT:EG-243).
+        let local = PeerOutcome {
+            source: "<local>".to_string(),
+            rows: Ok(vec![tabular_row(
+                "columns",
+                &["name"],
+                vec![serde_json::json!("alice")],
+            )]),
+        };
+        let dead = PeerOutcome {
+            source: "https://dead.example".to_string(),
+            rows: Err("connect timeout".to_string()),
+        };
+        let merged = merge_partials_typed(vec![local, dead], "sql");
+        assert_eq!(merged.rows.len(), 1);
+        assert_eq!(merged.rows[0].data["cells"], serde_json::json!(["alice"]));
+        assert!(merged.metadata.partial);
+        assert_eq!(merged.metadata.failed_peers, vec!["https://dead.example"]);
+        assert_eq!(merged.metadata.peers_queried, vec!["https://dead.example"]);
+        assert_eq!(merged.metadata.contributing_sources, 1);
+    }
+
+    #[test]
+    fn eg309_is_typed_lang_routes_only_sql_and_sparql() {
+        assert!(is_typed_lang("sql"));
+        assert!(is_typed_lang("sparql"));
+        assert!(!is_typed_lang("nl"));
+        assert!(!is_typed_lang("search"));
     }
 }
