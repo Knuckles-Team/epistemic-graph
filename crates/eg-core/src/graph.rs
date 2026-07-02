@@ -1107,6 +1107,32 @@ impl GraphCore {
         routing_key: &str,
         payload_hex: &str,
     ) -> usize {
+        self.broker_enqueue_ex(
+            queues,
+            exchange,
+            routing_key,
+            payload_hex,
+            &serde_json::Map::new(),
+        )
+    }
+
+    /// Policy-aware sibling of [`broker_enqueue`](Self::broker_enqueue) (CONCEPT:
+    /// EG-277/278/279). Identical atomic multi-queue append, but merges `extra` (e.g.
+    /// `priority` / `deliver_at` / `expires_at` / `x-death`) into each message node so
+    /// the claim predicate can honor per-message priority, delay, and TTL. An EMPTY
+    /// `extra` reproduces the exact EG-275 message shape — the plain `broker_enqueue`
+    /// simply calls this with no extras, so the two paths never diverge. Deterministic:
+    /// `extra` carries only caller-resolved absolute values (no server clock), so WAL
+    /// replay of the originating `Publish`/`PublishEx` reproduces identical nodes.
+    #[cfg(feature = "broker")]
+    pub fn broker_enqueue_ex(
+        &self,
+        queues: &[String],
+        exchange: &str,
+        routing_key: &str,
+        payload_hex: &str,
+        extra: &serde_json::Map<String, serde_json::Value>,
+    ) -> usize {
         let mut txn = self.txn();
         let mut delivered = 0usize;
         for q in queues {
@@ -1125,14 +1151,24 @@ impl GraphCore {
                 txn.add_node(seq_id, blob);
             }
             // The pending message node — labeled so `claim_next_fields` delivers it.
-            let msg_props = serde_json::json!({
-                "type": crate::broker::queue_msg_label(q),
-                "status": "pending",
-                "seq": next,
-                "exchange": exchange,
-                "routing_key": routing_key,
-                "payload": payload_hex,
-            });
+            let mut msg_props = serde_json::Map::new();
+            msg_props.insert(
+                "type".into(),
+                serde_json::Value::String(crate::broker::queue_msg_label(q)),
+            );
+            msg_props.insert("status".into(), serde_json::Value::String("pending".into()));
+            msg_props.insert("seq".into(), serde_json::Value::from(next));
+            msg_props.insert("exchange".into(), serde_json::Value::String(exchange.into()));
+            msg_props.insert(
+                "routing_key".into(),
+                serde_json::Value::String(routing_key.into()),
+            );
+            msg_props.insert("payload".into(), serde_json::Value::String(payload_hex.into()));
+            // Merge caller-resolved policy fields (priority/deliver_at/expires_at/…).
+            for (k, v) in extra {
+                msg_props.insert(k.clone(), v.clone());
+            }
+            let msg_props = serde_json::Value::Object(msg_props);
             if let Ok(blob) = rmp_serde::to_vec_named(&msg_props) {
                 txn.add_node(crate::broker::message_node_id(q, next), blob);
                 delivered += 1;

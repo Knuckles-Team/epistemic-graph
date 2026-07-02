@@ -161,6 +161,94 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
     },
+    // ── Broker policy extensions (CONCEPT:EG-276..280) ────────────────
+    // All ADDITIVE over the EG-275 broker: a queue with no policy node + a message
+    // with no priority/ttl/delay behaves EXACTLY as EG-275. Each variant mutates the
+    // control graph deterministically from its EXPLICIT args (no server clock — the
+    // caller supplies `now_ms`, mirroring `InvalidateEdge`'s `tx_now`), so WAL/Raft
+    // replay reproduces byte-identical state.
+    /// Set (idempotently upsert) a queue's policy node (CONCEPT:EG-276 DLQ /
+    /// EG-277 TTL / EG-278 priority). All fields optional — an all-`None` policy is a
+    /// no-op that keeps the queue behaving exactly as EG-275. Returns `String("ok")`.
+    #[cfg(feature = "broker")]
+    DeclareQueue {
+        queue: String,
+        /// EG-276: exchange to republish dead-lettered messages to (`None` ⇒ drop).
+        dl_exchange: Option<String>,
+        /// EG-276: routing key for dead-lettered messages (`None` ⇒ reuse original).
+        dl_routing_key: Option<String>,
+        /// EG-276: max delivery attempts before a message is dead-lettered.
+        max_delivery_count: Option<u32>,
+        /// EG-277: default per-message TTL in ms applied when a publish omits one.
+        message_ttl_ms: Option<u64>,
+        /// EG-277: queue-expiry hint in ms (unused-queue teardown; advisory).
+        queue_expiry_ms: Option<u64>,
+        /// EG-278: max priority band the queue honors (advisory ceiling).
+        max_priority: Option<u8>,
+    },
+    /// Policy-carrying publish (CONCEPT:EG-277/278/279). Superset of [`Publish`]:
+    /// stamps per-message `priority` (EG-278), and — resolving relative intents
+    /// against the EXPLICIT `now_ms` — a `deliver_at` eta (EG-279 delay) and an
+    /// `expires_at` deadline (EG-277 TTL). With `priority == 0` and all options
+    /// `None`, produces a message node identical to a plain [`Publish`]. Returns the
+    /// delivered-queue count (`Count`).
+    #[cfg(feature = "broker")]
+    PublishEx {
+        exchange: String,
+        routing_key: String,
+        #[serde(with = "serde_bytes")]
+        payload: Vec<u8>,
+        /// EG-278: priority band; higher is delivered first (default 0).
+        #[serde(default)]
+        priority: i64,
+        /// EG-279: hold the message non-claimable for this many ms from `now_ms`.
+        #[serde(default)]
+        delay_ms: Option<u64>,
+        /// EG-277: per-message TTL in ms from `now_ms` (falls back to queue TTL).
+        #[serde(default)]
+        ttl_ms: Option<u64>,
+        /// Caller clock (ms since epoch) used to resolve `delay_ms`/`ttl_ms` to
+        /// absolute etas — explicit so WAL replay is deterministic.
+        #[serde(default)]
+        now_ms: Option<u64>,
+    },
+    /// Consume one message from `queue` for a named consumer-group member
+    /// (CONCEPT:EG-280 groups + QoS/prefetch, honoring EG-277 TTL / EG-278 priority /
+    /// EG-279 delay). Claims the highest-priority, oldest, DUE, non-expired message,
+    /// enforcing per-consumer `prefetch` (0 ⇒ unlimited) and taking a visibility lease
+    /// of `lease_ms` (0 ⇒ no lease). Lazily dead-letters any expired messages it steps
+    /// over. Returns `Raw(Option<(node_id, properties)>)` — nil ⇒ nothing deliverable.
+    #[cfg(feature = "broker")]
+    BrokerConsume {
+        queue: String,
+        group: String,
+        consumer: String,
+        now_ms: u64,
+        lease_ms: u64,
+        prefetch: u32,
+    },
+    /// Acknowledge (remove) a claimed message, freeing the consumer's in-flight slot
+    /// (CONCEPT:EG-280). Returns `Bool(true)` if the message existed.
+    #[cfg(feature = "broker")]
+    BrokerAck { queue: String, node_id: String },
+    /// Reject a claimed message (CONCEPT:EG-276). If `requeue` and the delivery count
+    /// is under the queue's `max_delivery_count`, the message returns to claimable;
+    /// otherwise it is dead-lettered to the queue's DL target (with `x-death` metadata)
+    /// or dropped. Returns `String` outcome (`requeued`/`dead-lettered`/`dropped`/
+    /// `absent`).
+    #[cfg(feature = "broker")]
+    BrokerReject {
+        queue: String,
+        node_id: String,
+        requeue: bool,
+        now_ms: u64,
+    },
+    /// Reaper sweep (CONCEPT:EG-277): dead-letter/drop messages whose `expires_at`
+    /// has passed and return messages whose visibility lease has expired to claimable,
+    /// across every known queue. Called periodically by the scheduler with the current
+    /// clock. Returns `Count` of messages acted on.
+    #[cfg(feature = "broker")]
+    SweepExpired { now_ms: u64 },
     /// Batch property read: fetch properties for many nodes in ONE round-trip
     /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
     /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the
