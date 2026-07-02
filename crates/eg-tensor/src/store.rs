@@ -48,6 +48,12 @@ impl TensorStore {
     /// Content-address a tensor: store its compact blob under its content hash and
     /// return that hash. Idempotent — an identical tensor maps to the same key, so a
     /// re-`put` neither grows the store nor rewrites the blob.
+    ///
+    /// CONCEPT:EG-304 — this is also the DERIVED-tensor write-back sink: when the query
+    /// executor (`eg-plan`) produces a tensor from an `Op::TensorOp`, it `put`s the
+    /// result here, so a derived tensor becomes a durable, dedup-shared CAS blob keyed by
+    /// its deterministic content hash. Two rows (or two runs) yielding the same derived
+    /// tensor collapse to ONE blob — the write-back is idempotent by construction.
     pub fn put(&mut self, t: &Tensor) -> String {
         let bytes = t.to_blob();
         let key = content_hash(&bytes);
@@ -249,5 +255,47 @@ mod tests {
         let dir = TmpDir::new("missing");
         let loaded = TensorStore::load(dir.path()).unwrap();
         assert!(loaded.is_empty());
+    }
+
+    /// A "derived" tensor — the result of applying a tensor op (here a mean-reduce over
+    /// axis 1) to a source tensor, mirroring what `Op::TensorOp` produces in eg-plan.
+    fn derived_tensor() -> Tensor {
+        Tensor::new(vec![2, 3], Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+            .unwrap()
+            .reduce(1, crate::ReduceKind::Mean)
+            .unwrap()
+    }
+
+    /// CONCEPT:EG-304 — a derived tensor (a `TensorOp` result) written back into the CAS
+    /// is RETRIEVABLE by the content hash `put` returns, and survives a persist → load
+    /// restart, proving the store is a durable sink for executor write-back.
+    #[test]
+    fn cas_derived_tensor_write_back_persists_and_retrieves_eg304() {
+        let dir = TmpDir::new("eg304-writeback");
+        let derived = derived_tensor();
+        let mut store = TensorStore::new();
+        // The executor's write-back step: `put` the derived tensor, keep its hash.
+        let hash = store.put(&derived);
+        assert_eq!(hash, content_hash(&derived.to_blob()));
+        assert_eq!(store.get(&hash), Some(derived.clone()));
+
+        // Durability: the derived blob round-trips across a restart under the same hash.
+        store.persist(dir.path()).unwrap();
+        let loaded = TensorStore::load(dir.path()).unwrap();
+        assert_eq!(loaded.get(&hash), Some(derived), "derived blob lost on restart");
+    }
+
+    /// CONCEPT:EG-304 — identical derived tensors DEDUP: writing the SAME `TensorOp`
+    /// result back many times (e.g. many rows collapsing to one value, or a re-run)
+    /// addresses to ONE blob and returns the SAME hash every time.
+    #[test]
+    fn cas_derived_tensor_write_back_dedups_eg304() {
+        let mut store = TensorStore::new();
+        let h1 = store.put(&derived_tensor());
+        let h2 = store.put(&derived_tensor());
+        let h3 = store.put(&derived_tensor());
+        assert_eq!(h1, h2);
+        assert_eq!(h2, h3);
+        assert_eq!(store.len(), 1, "identical derived tensors must dedup to one blob");
     }
 }
