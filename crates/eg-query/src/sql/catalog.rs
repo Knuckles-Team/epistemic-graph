@@ -7,10 +7,12 @@
 //! `pg_catalog.pg_class JOIN pg_catalog.pg_namespace`, `pg_attribute`, `pg_type`,
 //! `pg_proc`, `pg_index`, calling `pg_catalog.pg_table_is_visible(oid)`,
 //! `format_type(oid, typmod)`, `current_schema()`, `current_database()`, `version()`,
-//! `obj_description(oid, catalog)`. The engine only physically stores `nodes`/`edges`
-//! + user tables + views + SQL functions, so this module makes those introspection
-//! queries succeed against SYNTHETIC catalogs derived FROM those live catalogs, so a
-//! real client can connect → reflect/inspect → SELECT (a genuine drop-in).
+//! `obj_description(oid, catalog)`.
+//!
+//! The engine only physically stores `nodes`/`edges` + user tables + views + SQL
+//! functions, so this module makes those introspection queries succeed against
+//! SYNTHETIC catalogs derived FROM those live catalogs — a real client can connect,
+//! reflect/inspect, then SELECT (a genuine drop-in).
 //!
 //! ## Approach (CONCEPT:EG-103)
 //! Everything is synthesized as read-only `MemTable`s registered into the SAME
@@ -252,6 +254,47 @@ async fn collect_relations(
         push(name.clone(), RelKind::View, columns, &mut rels);
     }
     rels
+}
+
+/// Rewrite schema-qualified catalog FUNCTION calls `pg_catalog.<fn>(...)` to bare
+/// `<fn>(...)` (CONCEPT:EG-103). DataFusion resolves scalar UDFs by bare name only, but
+/// psql's `\d`/`\dt` and many ORMs qualify catalog functions with `pg_catalog.`
+/// (`pg_catalog.format_type(...)`, `pg_catalog.pg_table_is_visible(...)`). The qualifier
+/// is stripped ONLY when the identifier is immediately followed by `(` (a call), so
+/// schema-qualified TABLE references (`pg_catalog.pg_class`, NOT followed by `(`) are
+/// left intact and still resolve via the synthesized schema provider. Case-insensitive
+/// on the `pg_catalog.` prefix.
+pub(crate) fn strip_pg_catalog_fn_qualifier(sql: &str) -> String {
+    const PREFIX: &str = "pg_catalog.";
+    let lower = sql.to_ascii_lowercase();
+    let bytes = sql.as_bytes();
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0usize;
+    while i < sql.len() {
+        if lower[i..].starts_with(PREFIX) {
+            let id_start = i + PREFIX.len();
+            let mut j = id_start;
+            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                j += 1;
+            }
+            if j > id_start {
+                // Peek past whitespace for a `(` — only then is it a function call.
+                let mut k = j;
+                while k < bytes.len() && bytes[k].is_ascii_whitespace() {
+                    k += 1;
+                }
+                if k < bytes.len() && bytes[k] == b'(' {
+                    out.push_str(&sql[id_start..j]);
+                    i = j;
+                    continue;
+                }
+            }
+        }
+        let ch = sql[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
 }
 
 // ── pg_catalog tables ─────────────────────────────────────────────────────────
