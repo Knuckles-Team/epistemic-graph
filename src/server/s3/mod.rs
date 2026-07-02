@@ -30,6 +30,7 @@
 //! verification.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -96,10 +97,16 @@ impl S3Store {
         let (kv_dir, blob_dir) = match persist_dir {
             Some(d) => (Some(format!("{d}/s3-index")), format!("{d}/s3-blob")),
             None => {
+                // Process-unique CAS dir: pid + a monotonic counter, so two ephemeral
+                // stores in the same process (e.g. parallel tests) never collide on the
+                // redb file lock.
+                static EPHEMERAL_SEQ: AtomicU64 = AtomicU64::new(0);
+                let seq = EPHEMERAL_SEQ.fetch_add(1, Ordering::Relaxed);
                 let tmp = std::env::temp_dir().join(format!(
-                    "eg-s3-{}-{}",
+                    "eg-s3-{}-{}-{}",
                     std::process::id(),
-                    now_ms()
+                    now_ms(),
+                    seq
                 ));
                 (None, tmp.to_string_lossy().into_owned())
             }
@@ -578,7 +585,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     let persist_dir = { state.read().await.persist_dir.clone() };
     let store = Arc::new(
         S3Store::open(persist_dir.as_deref())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            .map_err(std::io::Error::other)?,
     );
     let auth = resolve_auth();
     serve_with_store(addr, store, auth).await
