@@ -821,6 +821,25 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DROP EXTENSION", r)
         }
+        // CONCEPT:EG-118 — CREATE/DROP FUNCTION over the RPC wire.
+        K::CreateFunction(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store
+                    .create_function(&plan.func, plan.or_replace)
+                    .map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "CREATE FUNCTION", r)
+        }
+        K::DropFunction(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store.drop_function(&plan.name, plan.if_exists).map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "DROP FUNCTION", r)
+        }
         // ── Postgres-family extension parity (wave 19) ──────────────────────────
         // CONCEPT:EG-114 — Apache AGE cypher() is a read; run it + project the agtype
         // result onto the AS columns, returning a result set (like the read path).
