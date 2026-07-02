@@ -30,6 +30,36 @@
 //! set). Parameterized DML works via the extended protocol. Deferred follow-ups:
 //! complex WHERE (AND/OR/ranges/IN), joins/subqueries in DML, `INSERT … SELECT`.
 //!
+//! ## Transactions (CONCEPT:EG-020 / EG-049)
+//! `BEGIN`/`COMMIT`/`ROLLBACK` open a MIXED-STORE transaction that buffers BOTH
+//! user-table ops (DDL/DML over the redb table store) AND graph-node DML
+//! (`INSERT`/`UPDATE`/`DELETE` over `nodes`, including the `… SELECT`/`… FROM`
+//! join forms) and applies them at `COMMIT`. Semantics:
+//!   * **Read-your-own-writes** — a `SELECT` (and any candidate-id / `RETURNING`
+//!     read) issued inside an open txn runs over the live `analysis_snapshot()`
+//!     OVERLAID with the txn's buffered node ops, so it observes the txn's own
+//!     uncommitted inserts/updates/deletes.
+//!   * **Aborted-transaction** — once a statement inside the txn errors, every
+//!     later statement except `COMMIT`/`ROLLBACK` is rejected with SQLSTATE `25P02`
+//!     until the block ends; `COMMIT` while aborted behaves as `ROLLBACK`.
+//!   * **One graph per txn** — the txn is pinned to the graph selected at `BEGIN`;
+//!     `SET graph` is rejected while a txn is open (a txn stays within one redb
+//!     shard, CONCEPT:KG-2.207).
+//!   * **Transaction status** — `BEGIN` returns `TransactionStart` and
+//!     `COMMIT`/`ROLLBACK` return `TransactionEnd`, so pgwire's `ReadyForQuery`
+//!     reports the correct `T`/`E`/`I` status to the driver.
+//!
+//! **COMMIT is best-effort ORDERED across stores, NOT two-phase (2PC).** It (a)
+//! replays the buffered node ops as ONE atomic in-memory batch (single topology
+//! write guard) and records them as ONE durable group (`commit_crossmodal`, one
+//! `WriteTransaction`, under redb-authoritative; else write-behind), THEN (b)
+//! commits the user-table transaction. Each store commits atomically within itself,
+//! but the two are SEQUENCED — so there is a narrow partial-failure window: if the
+//! graph group commits and the user-table commit then fails, the graph writes are
+//! durable while the table writes are not (the COMMIT returns an error and the block
+//! ends). This trade-off (sequenced, no distributed 2PC) is documented in
+//! `docs/service_mode.md`.
+//!
 //! ## Connected graph
 //! The graph a connection runs against is selected, in order: (1) the libpq
 //! `database` startup parameter (e.g. `psql -d 'team:alpha'`), (2) else
@@ -174,9 +204,49 @@ struct EngineBackend {
     /// or `None` when no `BEGIN` is active. `COMMIT` applies the buffer in ONE redb
     /// write txn; `ROLLBACK` drops it. Scoped per connection.
     txn: parking_lot::Mutex<Option<TableTxn>>,
+    /// The OPEN transaction's buffered GRAPH-NODE ops (CONCEPT:EG-049), applied as
+    /// ONE atomic in-memory batch at `COMMIT` (parallel to the user-table `txn`
+    /// buffer). Empty when no `BEGIN` is active or the txn touched no nodes.
+    graph_txn: parking_lot::Mutex<GraphTxnBuffer>,
+    /// The graph a mixed-store transaction is pinned to, captured at `BEGIN`
+    /// (CONCEPT:EG-049 / KG-2.207): a txn stays within ONE graph / redb shard, so
+    /// `SET graph` is rejected while a txn is open. `None` when no txn is active.
+    txn_graph: parking_lot::Mutex<Option<String>>,
+    /// Whether the OPEN transaction has entered the ABORTED state (CONCEPT:EG-049):
+    /// a statement inside the txn errored, so every subsequent statement except
+    /// `COMMIT`/`ROLLBACK` is rejected with SQLSTATE 25P02 until the block ends.
+    /// Cleared on `BEGIN`/`COMMIT`/`ROLLBACK`.
+    txn_failed: parking_lot::Mutex<bool>,
     /// In-flight `COPY … FROM STDIN` state (CONCEPT:EG-020), set between the `CopyIn`
     /// response and `on_copy_done`/`on_copy_fail`.
     copy: parking_lot::Mutex<Option<CopyState>>,
+}
+
+/// The buffered graph-node ops of an OPEN wire transaction (CONCEPT:EG-049).
+/// Applied as ONE atomic in-memory batch (under a single `GraphCore::txn`) and
+/// recorded as ONE durable group at `COMMIT`; dropped on `ROLLBACK`.
+#[derive(Default)]
+struct GraphTxnBuffer {
+    ops: Vec<NodeOp>,
+}
+
+/// One buffered graph-node mutation inside an open wire transaction
+/// (CONCEPT:EG-049). Resolved (against a read-your-own-writes overlaid snapshot)
+/// at statement time and replayed at `COMMIT`. Carries exactly what both the
+/// in-memory replay (`GraphCore::txn`) and the durable `Method` need.
+enum NodeOp {
+    /// `AddNode` — `blob` is the MessagePack-encoded property object.
+    Add { id: String, blob: Vec<u8> },
+    /// `CompareAndSetNodeFields` — merge `updates` when every `conditions` field
+    /// matches (an empty `conditions` is an unconditional merge, matching the
+    /// single-statement `UPDATE nodes` path).
+    Cas {
+        id: String,
+        conditions: serde_json::Map<String, serde_json::Value>,
+        updates: serde_json::Map<String, serde_json::Value>,
+    },
+    /// `RemoveNode`.
+    Remove { id: String },
 }
 
 impl EngineBackend {
@@ -193,6 +263,9 @@ impl EngineBackend {
             actor: parking_lot::Mutex::new(None),
             auth_mode,
             txn: parking_lot::Mutex::new(None),
+            graph_txn: parking_lot::Mutex::new(GraphTxnBuffer::default()),
+            txn_graph: parking_lot::Mutex::new(None),
+            txn_failed: parking_lot::Mutex::new(false),
             copy: parking_lot::Mutex::new(None),
         }
     }
@@ -208,6 +281,37 @@ impl EngineBackend {
         if let Some(t) = self.txn.lock().as_mut() {
             t.push(op);
         }
+    }
+
+    /// Buffer a graph-node op into the open transaction's node buffer (CONCEPT:EG-049).
+    fn buffer_node(&self, op: NodeOp) {
+        self.graph_txn.lock().ops.push(op);
+    }
+
+    /// Whether the OPEN transaction is in the ABORTED state (CONCEPT:EG-049).
+    fn txn_aborted(&self) -> bool {
+        *self.txn_failed.lock()
+    }
+
+    /// Open a fresh transaction (CONCEPT:EG-049): reset both buffers + the aborted
+    /// flag and pin the txn to the current graph (a txn stays within one shard).
+    fn begin_txn(&self) {
+        *self.txn.lock() = Some(TableTxn::new());
+        self.graph_txn.lock().ops.clear();
+        *self.txn_failed.lock() = false;
+        *self.txn_graph.lock() = Some(self.current_graph());
+    }
+
+    /// End the OPEN transaction (CONCEPT:EG-049): drop both buffers, the pinned
+    /// graph, and the aborted flag. Shared by COMMIT and ROLLBACK. Returns the
+    /// user-table `TableTxn` (if any) and the buffered node ops, so COMMIT can
+    /// apply them.
+    fn take_txn(&self) -> (Option<TableTxn>, Vec<NodeOp>) {
+        let table = self.txn.lock().take();
+        let nodes = std::mem::take(&mut self.graph_txn.lock().ops);
+        *self.txn_graph.lock() = None;
+        *self.txn_failed.lock() = false;
+        (table, nodes)
     }
 
     fn current_graph(&self) -> String {
@@ -264,6 +368,18 @@ fn user_err(msg: impl Into<String>) -> PgWireError {
         "ERROR".to_owned(),
         "58000".to_owned(),
         msg.into(),
+    )))
+}
+
+/// The "current transaction is aborted" error (SQLSTATE 25P02, CONCEPT:EG-049) —
+/// what Postgres returns for every statement issued inside a failed transaction
+/// block until it is ended with COMMIT/ROLLBACK.
+fn aborted_txn_err() -> PgWireError {
+    PgWireError::UserError(Box::new(ErrorInfo::new(
+        "ERROR".to_owned(),
+        "25P02".to_owned(),
+        "current transaction is aborted, commands ignored until end of transaction block"
+            .to_owned(),
     )))
 }
 
@@ -460,6 +576,14 @@ impl EngineBackend {
         if name.is_empty() {
             return Some(Err(user_err("SET graph requires a graph name")));
         }
+        // CONCEPT:EG-049 / KG-2.207 — a transaction is pinned to ONE graph (redb
+        // shard) at BEGIN; switching graphs mid-txn would split a supposedly-atomic
+        // commit across shards, so reject it.
+        if self.in_txn() {
+            return Some(Err(user_err(
+                "cannot SET graph inside a transaction (a transaction is scoped to one graph)",
+            )));
+        }
         *self.graph.lock() = name;
         Some(Ok(Tag::new("SET")))
     }
@@ -527,7 +651,15 @@ impl EngineBackend {
     /// pool (DataFusion's executor must not run on a reactor worker).
     async fn run_read(&self, graph: &str, sql: String) -> PgWireResult<TypedQueryResult> {
         let core = self.graph_core(graph).await?;
-        let snap = core.analysis_snapshot();
+        let mut snap = core.analysis_snapshot();
+        // CONCEPT:EG-049 — read-your-own-writes: overlay this connection's buffered
+        // graph-node ops onto the snapshot so a SELECT (or a candidate-id / RETURNING
+        // read) issued INSIDE an open transaction observes the transaction's own
+        // uncommitted inserts/updates/deletes. Off-txn reads are byte-for-byte
+        // unchanged (the buffer is empty).
+        if self.in_txn() {
+            self.apply_node_buffer(&mut snap);
+        }
         // CONCEPT:EG-018: register the user tables alongside the graph projection so a
         // SELECT can read a user table, JOIN it to `nodes`/`edges`, or both in ONE plan.
         let store = user_table_store()?;
@@ -537,6 +669,36 @@ impl EngineBackend {
         .await
         .map_err(|e| user_err(format!("query task failed: {e}")))?
         .map_err(|msg| user_err(format!("SQL error: {msg}")))
+    }
+
+    /// Replay this connection's buffered graph-node ops onto `view` (CONCEPT:EG-049),
+    /// in statement order, so a read over `view` reflects the open transaction's own
+    /// writes. Never touches the live `GraphCore`.
+    fn apply_node_buffer(&self, view: &mut crate::graph::GraphView) {
+        for op in &self.graph_txn.lock().ops {
+            match op {
+                NodeOp::Add { id, blob } => view.overlay_add_node(id.clone(), blob.clone()),
+                NodeOp::Cas {
+                    id,
+                    conditions,
+                    updates,
+                } => {
+                    view.overlay_compare_and_set_fields(id, conditions, updates);
+                }
+                NodeOp::Remove { id } => view.overlay_remove_node(id),
+            }
+        }
+    }
+
+    /// Build a read-your-own-writes overlaid snapshot of `graph` for the OPEN
+    /// transaction (CONCEPT:EG-049) — the live snapshot plus every buffered node op.
+    /// Used to resolve RETURNING rows / ON CONFLICT checks against the txn's own
+    /// uncommitted state.
+    async fn overlaid_snapshot(&self, graph: &str) -> PgWireResult<crate::graph::GraphView> {
+        let core = self.graph_core(graph).await?;
+        let mut view = core.analysis_snapshot();
+        self.apply_node_buffer(&mut view);
+        Ok(view)
     }
 
     /// The shared SQL execution core for BOTH protocols (CONCEPT:KG-2.197). `sql`
@@ -558,18 +720,30 @@ impl EngineBackend {
         let graph = self.current_graph();
         let kind = eg_query::classify(sql).map_err(user_err)?;
 
-        // ── transaction control (CONCEPT:EG-020) — no graph access needed ──────────
+        // ── transaction control (CONCEPT:EG-020 / EG-049) — no graph access needed ──
+        // BEGIN/COMMIT/ROLLBACK return TransactionStart/TransactionEnd so pgwire's
+        // ReadyForQuery reports the correct T/E/I transaction status to the driver.
         match &kind {
             StatementKind::Begin => {
-                *self.txn.lock() = Some(TableTxn::new());
-                return Ok(Response::Execution(Tag::new("BEGIN")));
+                self.begin_txn();
+                return Ok(Response::TransactionStart(Tag::new("BEGIN")));
             }
             StatementKind::Commit => return self.run_commit().await,
             StatementKind::Rollback => {
-                self.txn.lock().take();
-                return Ok(Response::Execution(Tag::new("ROLLBACK")));
+                // ROLLBACK drops both buffers + the RYOW overlay (nothing was applied
+                // in-memory), and always ends the block.
+                self.take_txn();
+                return Ok(Response::TransactionEnd(Tag::new("ROLLBACK")));
             }
             _ => {}
+        }
+
+        // ── aborted-transaction gate (CONCEPT:EG-049) ──────────────────────────────
+        // Once a statement inside an open txn has errored, every subsequent statement
+        // except COMMIT/ROLLBACK (handled above) is rejected with 25P02 until the
+        // block ends — matching Postgres' failed-transaction semantics.
+        if self.in_txn() && self.txn_aborted() {
+            return Err(aborted_txn_err());
         }
 
         // Enforce the engine ACL under the connection's authenticated actor
@@ -581,24 +755,58 @@ impl EngineBackend {
         };
         self.check_access(&graph, access).await?;
 
-        // While a transaction is OPEN, buffer user-table DDL/DML into it (applied
-        // atomically at COMMIT). Reads and graph-node DML still execute immediately —
-        // the SQL transaction is scoped to the durable relational user-table store.
+        // While a transaction is OPEN, buffer BOTH user-table DDL/DML (into `txn`)
+        // and graph-node DML (into `graph_txn`); the buffers are applied at COMMIT.
+        // Reads run immediately but over a read-your-own-writes overlay (CONCEPT:EG-049)
+        // so they observe the txn's own buffered writes.
         let in_txn = self.in_txn();
 
+        // Run the dispatch, latching the transaction into the aborted state on any
+        // error so subsequent statements are rejected with 25P02 (CONCEPT:EG-049).
+        let result = self
+            .dispatch_kind(&graph, sql, kind, in_txn, result_format)
+            .await;
+        if in_txn && result.is_err() {
+            *self.txn_failed.lock() = true;
+        }
+        result
+    }
+
+    /// The classify → read/write dispatch (CONCEPT:KG-2.197 / EG-049), factored out
+    /// of [`Self::execute_sql`] so the caller can latch the aborted-txn state on a
+    /// returned error. When `in_txn`, graph-node and user-table DML buffer instead of
+    /// applying; otherwise behavior is byte-for-byte the immediate path.
+    async fn dispatch_kind(
+        &self,
+        graph: &str,
+        sql: &str,
+        kind: StatementKind,
+        in_txn: bool,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
         match kind {
             StatementKind::Read => {
-                let result = self.run_read(&graph, sql.to_string()).await?;
+                let result = self.run_read(graph, sql.to_string()).await?;
                 Ok(Response::Query(query_response(result, result_format)))
             }
+            // ── graph-node DML (CONCEPT:EG-049): buffer when in a txn ──────────────
+            StatementKind::InsertNodes(ins) if in_txn => {
+                self.buffer_insert(graph, sql, ins, result_format).await
+            }
             StatementKind::InsertNodes(ins) => {
-                self.run_insert(&graph, sql, ins, result_format).await
+                self.run_insert(graph, sql, ins, result_format).await
+            }
+            StatementKind::UpdateNodes(upd) if in_txn => {
+                self.buffer_update(graph, sql, upd, result_format).await
             }
             StatementKind::UpdateNodes(upd) => {
-                self.run_update(&graph, sql, upd, result_format).await
+                self.run_update(graph, sql, upd, result_format).await
+            }
+            StatementKind::DeleteNodes(del) if in_txn => {
+                self.buffer_delete(graph, sql, del, result_format).await
             }
             StatementKind::DeleteNodes(del) => {
-                self.run_delete(&graph, sql, del, result_format).await
+                self.run_delete(graph, sql, del, result_format).await
             }
             // ── arbitrary user-defined relational tables (CONCEPT:EG-018/EG-020) ───
             StatementKind::CreateTable(plan) if in_txn => {
@@ -644,7 +852,7 @@ impl EngineBackend {
             StatementKind::InsertSelect(ins) if in_txn => {
                 // The SELECT half is a read (runs immediately); only the INSERT is
                 // buffered into the transaction.
-                let result = self.run_read(&graph, ins.select_sql).await?;
+                let result = self.run_read(graph, ins.select_sql).await?;
                 if result.columns.len() != ins.columns.len() {
                     return Err(user_err(format!(
                         "INSERT … SELECT column count mismatch: {} target columns, {} selected",
@@ -660,7 +868,7 @@ impl EngineBackend {
                 });
                 Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
             }
-            StatementKind::InsertSelect(ins) => self.run_insert_select(&graph, ins).await,
+            StatementKind::InsertSelect(ins) => self.run_insert_select(graph, ins).await,
             StatementKind::UpdateTable(upd) if in_txn => {
                 self.buffer(TxnOp::Update {
                     table: upd.table,
@@ -681,15 +889,28 @@ impl EngineBackend {
             // `COPY … FROM STDIN` (CONCEPT:EG-020): switch the connection into copy-in
             // mode; the streamed rows are ingested in `on_copy_done`.
             // CONCEPT:EG-046 — INSERT INTO nodes … SELECT (facade dispatch).
+            StatementKind::InsertNodesSelect(ins) if in_txn => {
+                self.buffer_insert_nodes_select(graph, sql, ins, result_format)
+                    .await
+            }
             StatementKind::InsertNodesSelect(ins) => {
-                self.run_insert_nodes_select(&graph, sql, ins, result_format).await
+                self.run_insert_nodes_select(graph, sql, ins, result_format)
+                    .await
             }
             // CONCEPT:EG-047 — UPDATE nodes … FROM … / DELETE FROM nodes … USING … .
+            StatementKind::UpdateNodesJoin(upd) if in_txn => {
+                self.buffer_update_nodes_join(graph, sql, upd, result_format)
+                    .await
+            }
             StatementKind::UpdateNodesJoin(upd) => {
-                self.run_update_nodes_join(&graph, sql, upd, result_format).await
+                self.run_update_nodes_join(graph, sql, upd, result_format).await
+            }
+            StatementKind::DeleteNodesJoin(del) if in_txn => {
+                self.buffer_delete_nodes_join(graph, sql, del, result_format)
+                    .await
             }
             StatementKind::DeleteNodesJoin(del) => {
-                self.run_delete_nodes_join(&graph, sql, del, result_format).await
+                self.run_delete_nodes_join(graph, sql, del, result_format).await
             }
             // CONCEPT:EG-072 — CREATE/DROP VIEW over the durable view catalog.
             StatementKind::CreateView(plan) => self.run_create_view(plan).await,
@@ -702,20 +923,104 @@ impl EngineBackend {
         }
     }
 
-    /// `COMMIT` (CONCEPT:EG-020): apply the open transaction's buffered ops in ONE redb
-    /// write transaction (atomic — a constraint violation rolls the whole batch back).
-    /// A `COMMIT` with no open transaction is a no-op (Postgres-compatible).
+    /// `COMMIT` a MIXED-STORE wire transaction (CONCEPT:EG-049). The open txn may
+    /// have buffered BOTH graph-node ops (into `graph_txn`) and user-table ops (into
+    /// `txn`). This commits them best-effort ORDERED across the two stores (NOT 2PC):
+    ///
+    ///   (a) replay the buffered node ops as ONE atomic in-memory batch under a single
+    ///       `GraphCore::txn`, then record them as ONE durable group
+    ///       ([`Self::record_durable_batch`] — commit-before-ack under redb-authoritative,
+    ///       else folded into the write-behind writer's group commit), THEN
+    ///   (b) commit the user-table `TableTxn` in ONE redb write transaction.
+    ///
+    /// Each store commits atomically WITHIN itself. The two are SEQUENCED, so there is
+    /// a narrow cross-store partial-failure window: if (a) succeeds but (b) fails, the
+    /// graph ops are durable while the table ops are not (the error is returned and the
+    /// txn ends). This window is documented in `docs/service_mode.md` and the module
+    /// header. On any error the whole COMMIT returns `Response::Error`.
+    ///
+    /// An aborted transaction (a statement inside it errored, CONCEPT:EG-049) commits
+    /// as a ROLLBACK — nothing is applied. A `COMMIT` with no open transaction is a
+    /// no-op (Postgres-compatible).
     async fn run_commit(&self) -> PgWireResult<Response> {
-        let txn = match self.txn.lock().take() {
-            Some(t) => t,
-            None => return Ok(Response::Execution(Tag::new("COMMIT"))),
-        };
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.commit_txn(&txn))
-            .await
-            .map_err(|e| user_err(format!("commit task failed: {e}")))?
-            .map_err(user_err)?;
-        Ok(Response::Execution(Tag::new("COMMIT")))
+        // A COMMIT while the txn is aborted behaves as ROLLBACK (drop everything).
+        if self.in_txn() && self.txn_aborted() {
+            self.take_txn();
+            return Ok(Response::TransactionEnd(Tag::new("ROLLBACK")));
+        }
+        // The graph a txn was pinned to at BEGIN (node ops are scoped to it).
+        let graph = self.txn_graph.lock().clone();
+        let (table_txn, node_ops) = self.take_txn();
+        // Postgres-compatible no-op: COMMIT with no BEGIN.
+        if table_txn.is_none() && node_ops.is_empty() && graph.is_none() {
+            return Ok(Response::TransactionEnd(Tag::new("COMMIT")));
+        }
+
+        // (a) Graph store: replay the buffered node ops as ONE atomic in-memory batch
+        //     (single topology write guard), then record them as ONE durable group.
+        if !node_ops.is_empty() {
+            let graph = graph
+                .clone()
+                .ok_or_else(|| user_err("transaction has node ops but no pinned graph"))?;
+            let core = self.graph_core(&graph).await?;
+            let methods = {
+                let mut txn = core.txn();
+                let mut methods: Vec<crate::protocol::Method> = Vec::with_capacity(node_ops.len());
+                for op in &node_ops {
+                    match op {
+                        NodeOp::Add { id, blob } => {
+                            txn.add_node(id.clone(), blob.clone());
+                            methods.push(crate::protocol::Method::AddNode {
+                                node_id: id.clone(),
+                                properties_msgpack: blob.clone(),
+                            });
+                        }
+                        NodeOp::Cas {
+                            id,
+                            conditions,
+                            updates,
+                        } => {
+                            if txn.compare_and_set_fields(id, conditions, updates) {
+                                let cond_blob = rmp_serde::to_vec_named(
+                                    &serde_json::Value::Object(conditions.clone()),
+                                )
+                                .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
+                                let upd_blob = rmp_serde::to_vec_named(
+                                    &serde_json::Value::Object(updates.clone()),
+                                )
+                                .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+                                methods.push(crate::protocol::Method::CompareAndSetNodeFields {
+                                    node_id: id.clone(),
+                                    conditions_msgpack: cond_blob,
+                                    updates_msgpack: upd_blob,
+                                });
+                            }
+                        }
+                        NodeOp::Remove { id } => {
+                            txn.remove_node(id.clone());
+                            methods.push(crate::protocol::Method::RemoveNode {
+                                node_id: id.clone(),
+                            });
+                        }
+                    }
+                }
+                methods
+                // `txn` (the topology write guard) drops here — the whole batch is
+                // atomic w.r.t. other writers.
+            };
+            core.mark_dirty();
+            self.record_durable_batch(&graph, &methods).await?;
+        }
+
+        // (b) User-table store: commit the buffered relational ops atomically.
+        if let Some(txn) = table_txn {
+            let store = user_table_store()?;
+            tokio::task::spawn_blocking(move || store.commit_txn(&txn))
+                .await
+                .map_err(|e| user_err(format!("commit task failed: {e}")))?
+                .map_err(user_err)?;
+        }
+        Ok(Response::TransactionEnd(Tag::new("COMMIT")))
     }
 
     /// `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020): resolve the target schema,
@@ -1162,6 +1467,288 @@ impl EngineBackend {
         Ok((cols, type_map))
     }
 
+    // ── buffered graph-node DML inside an open transaction (CONCEPT:EG-049) ──────
+    // These mirror the immediate `run_*` node-DML methods but BUFFER a `NodeOp`
+    // instead of applying it — the buffer is replayed atomically at COMMIT
+    // (`run_commit`). Candidate-id / SELECT resolution runs immediately over a
+    // read-your-own-writes overlay (`run_read` overlays the buffer when in a txn),
+    // so an in-txn statement sees earlier statements' buffered writes. RETURNING is
+    // resolved against the post-buffer overlaid snapshot.
+
+    /// Buffered `INSERT INTO nodes …` (CONCEPT:EG-049).
+    async fn buffer_insert(
+        &self,
+        graph: &str,
+        sql: &str,
+        ins: InsertNodes,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let n = ins.rows.len();
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        for node in ins.rows {
+            let props = node.properties.clone();
+            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
+                .map_err(|e| user_err(format!("encode node properties: {e}")))?;
+            let node_id = node.node_id.clone();
+            self.buffer_node(NodeOp::Add {
+                id: node.node_id,
+                blob,
+            });
+            if ins.returning {
+                affected.push((node_id, props));
+            }
+        }
+        if ins.returning {
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+        }
+    }
+
+    /// Buffered `UPDATE nodes SET … WHERE …` (CONCEPT:EG-049). Candidate ids resolve
+    /// over the RYOW overlay; each becomes an unconditional-merge `Cas`. RETURNING
+    /// reads back the post-update rows from the overlaid snapshot (which now includes
+    /// the just-buffered merges).
+    async fn buffer_update(
+        &self,
+        graph: &str,
+        sql: &str,
+        upd: UpdateNodes,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let ids = self.matched_ids(graph, &upd.selector).await?;
+        let updates = upd.set;
+        for id in &ids {
+            self.buffer_node(NodeOp::Cas {
+                id: id.clone(),
+                conditions: serde_json::Map::new(),
+                updates: updates.clone(),
+            });
+        }
+        let n = ids.len();
+        if upd.returning {
+            let view = self.overlaid_snapshot(graph).await?;
+            let mut affected = Vec::with_capacity(ids.len());
+            for id in &ids {
+                affected.push((id.clone(), view.node_row_object(id).unwrap_or_default()));
+            }
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("UPDATE").with_rows(n)))
+        }
+    }
+
+    /// Buffered `DELETE FROM nodes WHERE …` (CONCEPT:EG-049). RETURNING captures the
+    /// rows from the overlaid snapshot BEFORE the removes are buffered (they are gone
+    /// after).
+    async fn buffer_delete(
+        &self,
+        graph: &str,
+        sql: &str,
+        del: DeleteNodes,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let ids = self.matched_ids(graph, &del.selector).await?;
+        let returning = if del.returning {
+            let view = self.overlaid_snapshot(graph).await?;
+            let affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = ids
+                .iter()
+                .map(|id| (id.clone(), view.node_row_object(id).unwrap_or_default()))
+                .collect();
+            Some((affected, self.returning_cols(graph, sql).await?))
+        } else {
+            None
+        };
+        for id in &ids {
+            self.buffer_node(NodeOp::Remove { id: id.clone() });
+        }
+        let n = ids.len();
+        match returning {
+            Some((affected, (cols, types))) => Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            ))),
+            None => Ok(Response::Execution(Tag::new("DELETE").with_rows(n))),
+        }
+    }
+
+    /// Buffered `INSERT INTO nodes … SELECT …` (CONCEPT:EG-049). The SELECT resolves
+    /// over the RYOW overlay; `ON CONFLICT` is evaluated against the txn's own evolving
+    /// buffered state (a local overlaid view advanced per row), so a conflict against a
+    /// row inserted earlier in the SAME transaction is honored.
+    async fn buffer_insert_nodes_select(
+        &self,
+        graph: &str,
+        sql: &str,
+        ins: InsertNodesSelect,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let result = self.run_read(graph, ins.select_sql).await?;
+        if result.columns.len() != ins.columns.len() {
+            return Err(user_err(format!(
+                "INSERT INTO nodes … SELECT column count mismatch: {} target columns, {} selected",
+                ins.columns.len(),
+                result.columns.len()
+            )));
+        }
+        let id_pos = ins
+            .columns
+            .iter()
+            .position(|c| c.eq_ignore_ascii_case("id"))
+            .ok_or_else(|| user_err("INSERT INTO nodes … SELECT must include the `id` column"))?;
+        // A local overlaid view, advanced as we buffer, so ON CONFLICT sees this
+        // statement's own buffered writes (and the txn's earlier ones).
+        let mut view = self.overlaid_snapshot(graph).await?;
+        let empty = serde_json::Map::new();
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let mut n = 0usize;
+        for row in result.rows {
+            let node_id = Self::cell_to_node_id(&row[id_pos])?;
+            let mut props = serde_json::Map::new();
+            for (i, col) in ins.columns.iter().enumerate() {
+                if i != id_pos {
+                    props.insert(col.clone(), row[i].clone());
+                }
+            }
+            if view.has_node(&node_id) {
+                match ins.on_conflict.as_ref().map(|oc| &oc.action) {
+                    Some(OnConflictAction::DoNothing) => continue,
+                    Some(OnConflictAction::DoUpdate(set)) => {
+                        self.buffer_node(NodeOp::Cas {
+                            id: node_id.clone(),
+                            conditions: empty.clone(),
+                            updates: set.clone(),
+                        });
+                        view.overlay_compare_and_set_fields(&node_id, &empty, set);
+                        if ins.returning {
+                            affected.push((node_id, set.clone()));
+                        }
+                        n += 1;
+                        continue;
+                    }
+                    None => {} // no ON CONFLICT → overwrite (add_node semantics)
+                }
+            }
+            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
+                .map_err(|e| user_err(format!("encode node properties: {e}")))?;
+            self.buffer_node(NodeOp::Add {
+                id: node_id.clone(),
+                blob: blob.clone(),
+            });
+            view.overlay_add_node(node_id.clone(), blob);
+            if ins.returning {
+                affected.push((node_id, props));
+            }
+            n += 1;
+        }
+        if ins.returning {
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+        }
+    }
+
+    /// Buffered `UPDATE nodes SET … FROM … WHERE …` (CONCEPT:EG-049). The resolution
+    /// SELECT resolves over the RYOW overlay; each matched id becomes an
+    /// unconditional-merge `Cas`. Duplicate ids from the join are applied once.
+    async fn buffer_update_nodes_join(
+        &self,
+        graph: &str,
+        sql: &str,
+        upd: UpdateNodesJoin,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let result = self.run_read(graph, upd.resolve_sql).await?;
+        if result.columns.len() != upd.set_targets.len() + 1 {
+            return Err(user_err(format!(
+                "UPDATE … FROM resolution shape mismatch: expected id + {} set columns, got {}",
+                upd.set_targets.len(),
+                result.columns.len()
+            )));
+        }
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for row in result.rows {
+            let id = Self::cell_to_node_id(&row[0])?;
+            if !seen.insert(id.clone()) {
+                continue; // a join can resolve the same id twice — apply once
+            }
+            let mut updates = serde_json::Map::new();
+            for (i, col) in upd.set_targets.iter().enumerate() {
+                updates.insert(col.clone(), row[i + 1].clone());
+            }
+            self.buffer_node(NodeOp::Cas {
+                id: id.clone(),
+                conditions: serde_json::Map::new(),
+                updates: updates.clone(),
+            });
+            affected.push((id, updates));
+        }
+        let n = affected.len();
+        if upd.returning {
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("UPDATE").with_rows(n)))
+        }
+    }
+
+    /// Buffered `DELETE FROM nodes USING … WHERE …` (CONCEPT:EG-049). RETURNING
+    /// captures rows from the overlaid snapshot before the removes are buffered.
+    async fn buffer_delete_nodes_join(
+        &self,
+        graph: &str,
+        sql: &str,
+        del: DeleteNodesJoin,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let result = self.run_read(graph, del.resolve_sql).await?;
+        let mut ids: Vec<String> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for row in result.rows {
+            let id = Self::cell_to_node_id(&row[0])?;
+            if seen.insert(id.clone()) {
+                ids.push(id);
+            }
+        }
+        let returning = if del.returning {
+            let view = self.overlaid_snapshot(graph).await?;
+            let affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = ids
+                .iter()
+                .map(|id| (id.clone(), view.node_row_object(id).unwrap_or_default()))
+                .collect();
+            Some((affected, self.returning_cols(graph, sql).await?))
+        } else {
+            None
+        };
+        for id in &ids {
+            self.buffer_node(NodeOp::Remove { id: id.clone() });
+        }
+        let n = ids.len();
+        match returning {
+            Some((affected, (cols, types))) => Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            ))),
+            None => Ok(Response::Execution(Tag::new("DELETE").with_rows(n))),
+        }
+    }
+
     async fn run_insert(
         &self,
         graph: &str,
@@ -1381,6 +1968,62 @@ impl EngineBackend {
             }
         } else {
             p.record(&fname, method);
+        }
+        Ok(())
+    }
+
+    /// Record a whole COMMIT's worth of graph-node mutations as ONE durable GROUP
+    /// (CONCEPT:EG-049). Mirrors the two-regime logic of [`Self::record_durable_write`]
+    /// but for a batch:
+    ///
+    ///   * redb-AUTHORITATIVE → `commit_crossmodal` commits ALL methods in ONE
+    ///     `WriteTransaction` (commit-before-ack, one fsync): the group lands
+    ///     atomically or not at all, and the awaited failure is surfaced as an error
+    ///     (the COMMIT is not acked). This is the existing group-commit path — the
+    ///     redb writer already batches — reused for the wire-txn commit.
+    ///   * NOT authoritative (write-behind default) → each method is `record`'d
+    ///     fire-and-forget; they fold into the off-reactor writer's own group commit.
+    ///
+    /// A `None` persistence backend (cache-only) is a no-op, matching the per-op path.
+    async fn record_durable_batch(
+        &self,
+        graph: &str,
+        methods: &[crate::protocol::Method],
+    ) -> PgWireResult<()> {
+        let (persistence, redb_authoritative) = {
+            let s = self.state.read().await;
+            (s.persistence.clone(), s.redb_authoritative)
+        };
+        let Some(p) = persistence else {
+            return Ok(());
+        };
+        // Only durable DATA mutations are recorded (the same guard the per-op path uses).
+        let durable: Vec<crate::protocol::Method> = methods
+            .iter()
+            .filter(|m| crate::wal::is_durable_mutation(m))
+            .cloned()
+            .collect();
+        if durable.is_empty() {
+            return Ok(());
+        }
+        let fname = crate::persist::sanitize(graph);
+        if redb_authoritative {
+            // ONE WriteTransaction for the whole group (atomic durable commit).
+            if let Err(e) = p.commit_crossmodal(&fname, &durable, &[], &[]).await {
+                tracing::error!(
+                    "pgwire redb authoritative: durable GROUP commit FAILED for graph '{}': {} — \
+                     returning error (transaction not acked)",
+                    graph,
+                    e
+                );
+                return Err(user_err(format!(
+                    "durable commit failed (transaction not acknowledged): {e}"
+                )));
+            }
+        } else {
+            for m in &durable {
+                p.record(&fname, m);
+            }
         }
         Ok(())
     }

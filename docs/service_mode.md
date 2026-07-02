@@ -163,6 +163,40 @@ A MessagePack map with `id` plus exactly one of `result` / `error`:
 {"id": 7, "error": "ACCESS_DENIED: agent 'worker2' lacks Write access to graph 'agent:worker1'"}
 ```
 
+## Postgres wire transactions (CONCEPT:EG-049)
+
+When built `--features pgwire` and bound via `EPISTEMIC_GRAPH_PGWIRE_ADDR`, the
+Postgres wire shim supports `BEGIN` / `COMMIT` / `ROLLBACK` over a **mixed-store**
+transaction that buffers BOTH graph-node DML (`INSERT`/`UPDATE`/`DELETE` over
+`nodes`, including the `… SELECT` / `… FROM` join forms) and user-table DDL/DML,
+applying them at `COMMIT`.
+
+- **Read-your-own-writes** — a `SELECT` inside an open transaction sees the
+  transaction's own uncommitted node writes (the read runs over the live snapshot
+  overlaid with the buffered ops).
+- **Aborted transactions** — after any statement inside the block errors, every
+  later statement except `COMMIT`/`ROLLBACK` is rejected with SQLSTATE `25P02`
+  ("current transaction is aborted…"); `COMMIT` while aborted behaves as `ROLLBACK`.
+- **One graph per transaction** — the transaction is pinned to the graph selected
+  at `BEGIN`; `SET graph` is rejected while a transaction is open (a transaction
+  stays within one redb shard, CONCEPT:KG-2.207).
+- **`ReadyForQuery` status** — `BEGIN`/`COMMIT`/`ROLLBACK` drive the driver-visible
+  `T` (in-transaction) / `E` (failed) / `I` (idle) status correctly.
+
+### COMMIT durability — sequenced, NOT two-phase (2PC)
+
+`COMMIT` is **best-effort ordered across stores**. It (a) replays the buffered
+graph-node ops as ONE atomic in-memory batch (a single topology write guard) and
+records them as ONE durable group (a single redb `WriteTransaction` under
+`EPISTEMIC_GRAPH_REDB_AUTHORITATIVE`, else write-behind), THEN (b) commits the
+user-table transaction. **Each store commits atomically within itself, but the two
+are sequenced** — there is a narrow partial-failure window: if the graph group
+commits and the user-table commit then fails, the graph writes are durable while
+the table writes are not (the `COMMIT` returns an error and the block ends). This is
+an intentional trade-off (no distributed two-phase commit across the two engines).
+A transaction confined to a single store (only node ops, or only table ops) has no
+cross-store window and is fully atomic.
+
 ## Authentication Protocol
 
 1. Client and server share a secret (`--auth-secret` / `GRAPH_SERVICE_AUTH_SECRET`)

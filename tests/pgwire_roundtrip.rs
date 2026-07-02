@@ -621,11 +621,15 @@ async fn catalog_introspection_then_select() {
     }
 
     // 3. pg_catalog reflect: list relations under public via pg_class/pg_namespace.
+    // Filter to the graph projections (`nodes`/`edges`) — the user-table SQL store is
+    // a process-global singleton, so a sibling test's user table can otherwise appear
+    // here; this mirrors step 1's `information_schema` query, which also filters.
     let rows = client
         .query(
             "SELECT c.relname FROM pg_catalog.pg_class c \
              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
-             WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY c.relname",
+             WHERE n.nspname = 'public' AND c.relkind = 'r' \
+             AND c.relname IN ('nodes','edges') ORDER BY c.relname",
             &[],
         )
         .await
@@ -868,4 +872,216 @@ fn error_chain(err: &tokio_postgres::Error) -> String {
         src = e.source();
     }
     s.to_lowercase()
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Mixed-store wire transactions (CONCEPT:EG-049) — BEGIN/COMMIT/ROLLBACK over the
+// simple-query protocol, on ONE persistent connection (== one EngineBackend).
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Pull the first-column values from a `simple_query` result as strings.
+fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> {
+    msgs.into_iter()
+        .filter_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A unique user-table name (the SQL table store is a process-global file, so a
+/// fixed name could collide with a prior run / a sibling test).
+fn unique_table() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("kv_{nanos}")
+}
+
+/// ROLLBACK discards a buffered node INSERT, and a SELECT inside the txn sees its
+/// own uncommitted write first (read-your-own-writes). Proves the `T` in-transaction
+/// status (the txn is live and buffering) and clean discard on ROLLBACK.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_txn_rollback_discards_and_ryow() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    client.simple_query("BEGIN").await.expect("BEGIN");
+    client
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('tx1', 'Agent', 42)")
+        .await
+        .expect("INSERT inside txn");
+    // Read-your-own-writes: the uncommitted insert IS visible inside the txn.
+    let seen = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE rank = 42")
+            .await
+            .expect("SELECT inside txn"),
+    );
+    assert_eq!(
+        seen,
+        vec!["tx1".to_string()],
+        "read-your-own-writes: buffered insert visible inside the txn"
+    );
+
+    client.simple_query("ROLLBACK").await.expect("ROLLBACK");
+
+    // After ROLLBACK the buffered insert is gone.
+    let after = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE rank = 42")
+            .await
+            .expect("SELECT after ROLLBACK"),
+    );
+    assert!(
+        after.is_empty(),
+        "ROLLBACK discarded the buffered insert, got {after:?}"
+    );
+}
+
+/// COMMIT applies a buffered node INSERT so it survives the transaction and is seen
+/// by a post-COMMIT SELECT.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_txn_commit_persists_node_insert() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    client.simple_query("BEGIN").await.expect("BEGIN");
+    client
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('tx2', 'Agent', 43)")
+        .await
+        .expect("INSERT inside txn");
+    client.simple_query("COMMIT").await.expect("COMMIT");
+
+    let after = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE rank = 43")
+            .await
+            .expect("SELECT after COMMIT"),
+    );
+    assert_eq!(
+        after,
+        vec!["tx2".to_string()],
+        "COMMIT applied the buffered node insert"
+    );
+}
+
+/// A mixed transaction commits BOTH graph-node ops AND user-table ops atomically
+/// (sequenced across the two stores).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_txn_mixed_node_and_table_commit() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+    let table = unique_table();
+
+    client.simple_query("BEGIN").await.expect("BEGIN");
+    client
+        .simple_query(&format!("CREATE TABLE {table} (k TEXT, v BIGINT)"))
+        .await
+        .expect("CREATE TABLE inside txn");
+    client
+        .simple_query(&format!("INSERT INTO {table} (k, v) VALUES ('a', 1)"))
+        .await
+        .expect("INSERT table inside txn");
+    client
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('mx1', 'Agent', 44)")
+        .await
+        .expect("INSERT node inside txn");
+    client.simple_query("COMMIT").await.expect("COMMIT");
+
+    // Both stores reflect the committed transaction.
+    let node = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE rank = 44")
+            .await
+            .expect("SELECT node after COMMIT"),
+    );
+    assert_eq!(node, vec!["mx1".to_string()], "node op committed");
+
+    let table_rows = simple_ids(
+        client
+            .simple_query(&format!("SELECT k FROM {table}"))
+            .await
+            .expect("SELECT table after COMMIT"),
+    );
+    assert_eq!(table_rows, vec!["a".to_string()], "table op committed");
+
+    // Clean up: the SQL table store is a process-global singleton, so drop the table
+    // to avoid leaking it into other tests / future runs.
+    let _ = client
+        .simple_query(&format!("DROP TABLE {table}"))
+        .await;
+}
+
+/// An error inside an open transaction latches it into the aborted state: every
+/// later statement except COMMIT/ROLLBACK is rejected with SQLSTATE 25P02 (the `E`
+/// failed-transaction status), and ROLLBACK returns the connection to a usable idle
+/// state (`I`) where writes work again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_txn_error_blocks_until_rollback_25p02() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    client.simple_query("BEGIN").await.expect("BEGIN");
+    // A statement that errors inside the txn (unknown table) → aborts the txn.
+    let bad = client.simple_query("SELECT id FROM no_such_table").await;
+    assert!(bad.is_err(), "the bad statement must error");
+
+    // Every subsequent non-COMMIT/ROLLBACK statement is now rejected with 25P02.
+    let blocked = client
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('nope', 'Agent', 45)")
+        .await
+        .expect_err("statement after an in-txn error must be rejected");
+    let chain = error_chain(&blocked);
+    assert!(
+        chain.contains("25p02") || chain.contains("aborted"),
+        "expected 25P02 aborted-transaction error, got: {chain}"
+    );
+
+    // ROLLBACK ends the block and restores a usable connection.
+    client.simple_query("ROLLBACK").await.expect("ROLLBACK");
+    client
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('ok', 'Agent', 46)")
+        .await
+        .expect("writes work again after ROLLBACK");
+    let ok = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE rank = 46")
+            .await
+            .expect("SELECT after recovery"),
+    );
+    assert_eq!(ok, vec!["ok".to_string()], "connection usable after ROLLBACK");
+    // The aborted statement never landed.
+    let nope = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE rank = 45")
+            .await
+            .expect("SELECT for the blocked row"),
+    );
+    assert!(nope.is_empty(), "the blocked insert never applied");
+}
+
+/// SET graph is rejected while a transaction is open (a txn stays within one graph /
+/// redb shard, CONCEPT:KG-2.207).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_txn_set_graph_rejected_while_open() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    client.simple_query("BEGIN").await.expect("BEGIN");
+    let denied = client.simple_query("SET graph = 'other'").await;
+    let err = denied.expect_err("SET graph inside a txn must be rejected");
+    let chain = error_chain(&err);
+    assert!(
+        chain.contains("transaction"),
+        "expected a 'within one graph / transaction' rejection, got: {chain}"
+    );
+    client.simple_query("ROLLBACK").await.expect("ROLLBACK");
 }
