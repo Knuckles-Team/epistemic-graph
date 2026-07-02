@@ -56,7 +56,9 @@ transactions.
 | **Pinecone / Milvus** (vector DB) | native IVF-PQ + OPQ + SQ8 ANN, persistent, warm-on-start | ✅ |
 | **InfluxDB / TimescaleDB** (time-series) | native redb TSDB: ASOF, gap-fill, `time_bucket`, OHLC, decay | ✅ primitives · 🔶 time-ops as planner ops |
 | **S3 / MinIO** (blob) | content-addressed streaming CAS, redb-native or S3-backed | ✅ |
-| **SQLite / RocksDB** (embedded KV) | `EmbeddedEngine` in-process handle + generic namespaced KV over the same redb rows | ✅ embedded graph API · ✅ generic KV · 🔶 multi-wire (SQLite/MySQL/MSSQL) |
+| **SQLite / RocksDB** (embedded KV) | `EmbeddedEngine` in-process handle + generic namespaced KV over the same redb rows | ✅ embedded graph API · ✅ generic KV · ✅ SQLite/MySQL/MSSQL/Bolt wires |
+| **MySQL / MariaDB / SQL Server / Neo4j / RabbitMQ** (protocol clients) | hand-rolled MySQL, MSSQL-TDS, SQLite-NDJSON, Neo4j Bolt v4.4 and AMQP 0.9.1 listeners over the shared wire core | ✅ connect + query via native drivers · see [`connecting.md`](docs/interfaces/connecting.md) |
+| **Prometheus / OpenObserve / Jaeger** (observability) | obs listener: log ingest + PromQL `/api/v1/query` + OTLP traces `/v1/traces` over the durable TSDB | ✅ logs · ✅ PromQL · ✅ traces |
 
 The point is **convergence, not a checkbox**: the modalities share one snapshot, one ACID transaction,
 one security model, and one planner. See the full [capability matrix](#capability-matrix) below for the
@@ -95,7 +97,8 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **OWL** | query-time `Op::Reason` (reasoner seeds a RowSet) | ✅ | `owl-plan` | distributed/cross-shard union supported |
 | **OWL** | OWL-DL (tableau, cardinality, `allValuesFrom`), SWRL user rules | 🗺 | — | out of the EL+RL envelope by design |
 | **Vector / ANN** | IVF-PQ + OPQ + SQ8-refine, persistent (reopen w/o rebuild), warm-on-start | ✅ | `ann` | parallel/SIMD brute-force fallback below threshold |
-| **Vector / ANN** | cross-shard kNN merge, hybrid metadata pre-filter | 🗺 | `ann` | single-shard today |
+| **Vector / ANN** | hybrid metadata pre-filter (kNN + `allow(id)` predicate) | ✅ | `ann` | `search_filtered` (EG-070); filtered during the ADC probe |
+| **Vector / ANN** | cross-shard kNN merge | 🗺 | `ann` | single-shard today; `merge_topk` is the leaf primitive |
 | **Time-series** | store + `time_bucket`, ASOF join, gap-fill LOCF, OHLC, downsample, decay | ✅ | `tsdb` | native redb columnar, no DataFusion |
 | **Time-series** | time-ops as unified planner ops (`Op::Window`) | 🔶 | `tsdb` | functions ready; `Op::Window` is pass-through in the plan today |
 | **Blob / CAS** | content-addressed streaming store (redb-native) | ✅ | `blob` | refcount mark-and-sweep GC; bounded RAM |
@@ -103,7 +106,15 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **Blob / CAS** | content-defined chunking | 🗺 | `blob` | fixed 2 MiB chunks today |
 | **Key-value** | embedded in-process engine API over redb rows | ✅ | `embedded` | `EmbeddedEngine` — no Tokio/socket/HMAC (KG-2.216) |
 | **Key-value** | generic namespaced `get`/`put`/`scan`/`cas` KV surface over redb | ✅ | `redb` | `src/server/kv.rs` (EG-022); durable, commit-before-ack; not graph-scoped |
-| **Multi-wire** | SQLite / MySQL-MariaDB / MSSQL wires behind one `WireProtocol` trait | 🔶 | (per-wire) | Postgres ✅ via `pgwire`; others being added |
+| **Multi-wire** | wire-neutral SQL core (`WireProtocol`/`WireSession`, one classify→exec path) | ✅ | `wire` | `src/server/wire` (EG-074); shared by every SQL wire |
+| **Multi-wire** | MySQL / MariaDB wire (handshake v10 + `mysql_native_password`) | ✅ | `mysql-wire` | `EPISTEMIC_GRAPH_MYSQL_ADDR` (EG-076) |
+| **Multi-wire** | MSSQL TDS wire | ✅ | `mssql-wire` | `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-077) |
+| **Multi-wire** | SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O 🔶 follow-up |
+| **Multi-wire** | Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159) |
+| **Broker** | AMQP 0.9.1 listener + RabbitMQ-class exchanges/queues | ✅ | `amqp-wire` / `broker` | `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
+| **Observability** | log ingest + PromQL `/api/v1/query` + OTLP traces `/v1/traces` | ✅ | `obs`/`promql`/`traces` | `EPISTEMIC_GRAPH_OBS_ADDR`, default `:5080` (EG-160/172/163) |
+| **Spatial / GIS** | `SpatialScan` + `ST_Within`/`ST_DWithin`, GeoSPARQL, CRS/R-tree/GeoJSON/WKB | ✅ | `geo`/`geosparql` | eg-geo (EG-083/261/262/263/264); no GEOS/PROJ |
+| **Agent memory** | bi-temporal `AsOf`, Ebbinghaus decay, episodic→semantic consolidation | ✅ | (core) | `Op::AsOf` (KG-2.250), `decay`, `consolidate` (EG-220/221) |
 | **Full-text** | Tantivy BM25 inverted index, `RankText` + reciprocal-rank fusion | ✅ | `text` | composes in the unified planner |
 | **Unified planner** | `Scan·Filter·Traverse·Rank·RankText·FuseRrf·Reason·SparqlBgp·Udf·ForeignScan·AsOf·Limit` | ✅ | `query`+ | each op feature-gated; see [UQL](docs/uql.md) |
 | **Unified planner** | `Op::Window` / `Op::Foreign` execution | 🔶 | `query` | currently pass-through seams |
