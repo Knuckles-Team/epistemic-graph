@@ -106,6 +106,14 @@ geo = ["query"]
 # both behind their own `tensor` gates; this only adds enum variants (Pi-safe wire data,
 # no dep).
 tensor = ["query"]
+# Event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-088): gates the
+# `Op::Cep { pattern }` TRANSFORM op of the cross-modal plan AST plus the pure-serde
+# `CepPatternSpec`/`CepNodeSpec`/`CepMatcherSpec`/`CepAttrPredSpec`/`CepWindowSpec` DTOs
+# it embeds. The op lives inside the `query`-gated `Op` enum, so this implies `query`.
+# PURE serde — the bounded NFA CEP engine (Sequence/Within/Absence over sliding/tumbling
+# windows) lives in the eg-stream crate, and the executor in eg-plan, both behind their
+# own `stream` gates; this only adds enum variants (Pi-safe wire data, no dep).
+stream = ["query"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
