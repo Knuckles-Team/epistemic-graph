@@ -647,6 +647,468 @@ pub(crate) fn bm25_snippet_udf() -> ScalarUDF {
     })
 }
 
+// ── greatest / least (CONCEPT:EG-104) ───────────────────────────────────────
+
+/// The common result type for a `greatest`/`least` call (CONCEPT:EG-104): `Int64` when
+/// every non-NULL argument is an integer, `Float64` when any is floating, else `Utf8`
+/// (strings / mixed) — mirroring Postgres' "resolve to a common type" rule with a small
+/// bounded lattice. NULL-typed arguments (a bare `NULL` literal) are neutral.
+fn unify_minmax(types: &[DataType]) -> DataType {
+    use DataType::*;
+    let mut has_float = false;
+    let mut all_num = true;
+    let mut any = false;
+    for t in types {
+        match t {
+            Null => {}
+            Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => any = true,
+            Float16 | Float32 | Float64 => {
+                has_float = true;
+                any = true;
+            }
+            _ => {
+                all_num = false;
+                any = true;
+            }
+        }
+    }
+    if !any {
+        Int64
+    } else if !all_num {
+        Utf8
+    } else if has_float {
+        Float64
+    } else {
+        Int64
+    }
+}
+
+/// `greatest(...)` / `least(...)` variadic scalar UDFs (CONCEPT:EG-104) — DataFusion 43
+/// ships neither. Each argument column is cast to the unified result type
+/// ([`unify_minmax`]) and reduced row-wise, IGNORING NULLs (Postgres semantics: the
+/// result is NULL only when EVERY argument is NULL in that row). `is_greatest` picks max
+/// vs min.
+fn minmax_udf(name: &'static str, is_greatest: bool) -> ScalarUDF {
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
+    #[derive(Debug)]
+    struct MinMaxUdf {
+        name: &'static str,
+        signature: Signature,
+        is_greatest: bool,
+    }
+    impl ScalarUDFImpl for MinMaxUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(unify_minmax(arg_types))
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            if arrays.is_empty() {
+                return Err(datafusion::error::DataFusionError::Execution(format!(
+                    "{} expects at least one argument",
+                    self.name
+                )));
+            }
+            let types: Vec<DataType> = arrays.iter().map(|a| a.data_type().clone()).collect();
+            let target = unify_minmax(&types);
+            let casted: Vec<ArrayRef> = arrays
+                .iter()
+                .map(|a| arrow::compute::cast(a, &target))
+                .collect::<Result<_, _>>()
+                .map_err(|e| {
+                    datafusion::error::DataFusionError::Execution(format!("{}: cast: {e}", self.name))
+                })?;
+            let n = casted.iter().map(|a| a.len()).max().unwrap_or(0);
+            let gt = self.is_greatest;
+            let out: ArrayRef = match target {
+                DataType::Int64 => {
+                    let cols: Vec<&Int64Array> = casted
+                        .iter()
+                        .map(|a| a.as_any().downcast_ref::<Int64Array>().unwrap())
+                        .collect();
+                    let a: Int64Array = (0..n)
+                        .map(|r| {
+                            cols.iter()
+                                .filter(|c| !c.is_null(r))
+                                .map(|c| c.value(r))
+                                .reduce(|x, y| if (y > x) == gt { y } else { x })
+                        })
+                        .collect();
+                    Arc::new(a)
+                }
+                DataType::Float64 => {
+                    let cols: Vec<&Float64Array> = casted
+                        .iter()
+                        .map(|a| a.as_any().downcast_ref::<Float64Array>().unwrap())
+                        .collect();
+                    let a: Float64Array = (0..n)
+                        .map(|r| {
+                            cols.iter()
+                                .filter(|c| !c.is_null(r))
+                                .map(|c| c.value(r))
+                                .reduce(|x, y| if (y > x) == gt { y } else { x })
+                        })
+                        .collect();
+                    Arc::new(a)
+                }
+                _ => {
+                    let cols: Vec<&StringArray> = casted
+                        .iter()
+                        .map(|a| a.as_any().downcast_ref::<StringArray>().unwrap())
+                        .collect();
+                    let a: StringArray = (0..n)
+                        .map(|r| {
+                            cols.iter()
+                                .filter(|c| !c.is_null(r))
+                                .map(|c| c.value(r))
+                                .reduce(|x, y| if (y > x) == gt { y } else { x })
+                                .map(|s| s.to_string())
+                        })
+                        .collect();
+                    Arc::new(a)
+                }
+            };
+            Ok(ColumnarValue::Array(out))
+        }
+    }
+    ScalarUDF::new_from_impl(MinMaxUdf {
+        name,
+        signature: Signature::one_of(vec![TypeSignature::VariadicAny], Volatility::Immutable),
+        is_greatest,
+    })
+}
+
+/// `greatest(...)` — the row-wise maximum, ignoring NULLs (CONCEPT:EG-104).
+pub(crate) fn greatest_udf() -> ScalarUDF {
+    minmax_udf("greatest", true)
+}
+
+/// `least(...)` — the row-wise minimum, ignoring NULLs (CONCEPT:EG-104).
+pub(crate) fn least_udf() -> ScalarUDF {
+    minmax_udf("least", false)
+}
+
+// ── PostgreSQL range types (CONCEPT:EG-104) ─────────────────────────────────
+
+/// A range normalized to a discrete half-open integer interval `[start, end)`
+/// (CONCEPT:EG-104). Postgres' full range-type fidelity (a dedicated type OID, discrete
+/// canonicalization, float/`numeric` element ranges, and multiranges) is heavier than
+/// DataFusion's type system supports, so EG-104 models a range PRAGMATICALLY as its
+/// canonical Postgres TEXT form `[lo,hi)` and reduces it to a discrete i64 half-open
+/// interval for the predicates. An empty/omitted bound means unbounded (`i64::MIN` /
+/// `i64::MAX`); the literal `empty` (or any `start >= end`) is the empty range.
+///
+/// DOCUMENTED LIMITATION: bounds are coerced to i64 — `int4range` uses the integers
+/// directly, `tsrange` uses whole epoch-SECONDS (sub-second precision is dropped) — and
+/// exclusive bounds are canonicalized on the integer grid (`(l` ⇒ `l+1`, `h]` ⇒ `h+1`).
+/// This is exact for integer/second-granular points (the common ORM/BI filter), but is
+/// NOT a faithful continuous `tsrange` nor a `numrange`; those remain a follow-up.
+#[derive(Clone, Copy, Debug)]
+struct HalfOpen {
+    empty: bool,
+    start: i64,
+    end: i64,
+}
+
+impl HalfOpen {
+    fn empty() -> Self {
+        Self {
+            empty: true,
+            start: 0,
+            end: 0,
+        }
+    }
+    fn contains_point(&self, x: i64) -> bool {
+        !self.empty && self.start <= x && x < self.end
+    }
+    fn overlaps(&self, other: &HalfOpen) -> bool {
+        !self.empty && !other.empty && self.start < other.end && other.start < self.end
+    }
+    /// `self @> other` — does `self` cover all of `other`?
+    fn contains_range(&self, other: &HalfOpen) -> bool {
+        if other.empty {
+            return true;
+        }
+        if self.empty {
+            return false;
+        }
+        self.start <= other.start && other.end <= self.end
+    }
+}
+
+/// Parse a Postgres range text form (`[1,5)`, `(0,10]`, `[10,)`, `empty`) into the
+/// discrete half-open interval (CONCEPT:EG-104). `None` when the text isn't a range —
+/// the predicate UDFs then yield NULL (the "never error" discipline). Bounds are parsed
+/// as i64; an omitted bound is ±∞.
+fn parse_range(s: &str) -> Option<HalfOpen> {
+    let t = s.trim();
+    if t.eq_ignore_ascii_case("empty") {
+        return Some(HalfOpen::empty());
+    }
+    let bytes = t.as_bytes();
+    if bytes.len() < 3 {
+        return None;
+    }
+    let lo_inc = match bytes[0] {
+        b'[' => true,
+        b'(' => false,
+        _ => return None,
+    };
+    let hi_inc = match bytes[bytes.len() - 1] {
+        b']' => true,
+        b')' => false,
+        _ => return None,
+    };
+    let inner = &t[1..t.len() - 1];
+    let (lo_str, hi_str) = inner.split_once(',')?;
+    let parse_bound = |b: &str| -> Option<Option<i64>> {
+        let b = b.trim().trim_matches('"');
+        if b.is_empty() {
+            Some(None) // unbounded
+        } else {
+            b.parse::<i64>().ok().map(Some)
+        }
+    };
+    let lo = parse_bound(lo_str)?;
+    let hi = parse_bound(hi_str)?;
+    // Normalize to a discrete half-open interval [start, end).
+    let start = match lo {
+        None => i64::MIN,
+        Some(l) if lo_inc => l,
+        Some(l) => l.saturating_add(1),
+    };
+    let end = match hi {
+        None => i64::MAX,
+        Some(h) if hi_inc => h.saturating_add(1),
+        Some(h) => h,
+    };
+    if start >= end {
+        Some(HalfOpen::empty())
+    } else {
+        Some(HalfOpen {
+            empty: false,
+            start,
+            end,
+        })
+    }
+}
+
+/// Read row `row` of `array` as an i64, reusing [`row_to_epoch_secs`] (Int64/Float64/
+/// Timestamp) and additionally accepting an integer-valued Utf8 string.
+fn row_to_i64(array: &dyn Array, row: usize) -> Option<i64> {
+    row_to_epoch_secs(array, row).or_else(|| row_to_string(array, row)?.trim().parse::<i64>().ok())
+}
+
+/// `int4range(lo, hi[, bounds]) -> Utf8` (CONCEPT:EG-104) — the Postgres integer-range
+/// constructor. Emits the canonical text `[lo,hi)` (2-arg default `'[)'`); the optional
+/// 3rd argument is a bounds spelling (`'[]'`, `'[)'`, `'(]'`, `'()'`). An omitted/NULL
+/// bound is rendered as unbounded (`[lo,)`). NULL when both bounds are NULL.
+pub(crate) fn int4range_udf() -> ScalarUDF {
+    range_ctor_udf("int4range")
+}
+
+/// `tsrange(lo, hi[, bounds]) -> Utf8` (CONCEPT:EG-104) — the Postgres timestamp-range
+/// constructor. Bounds are coerced to whole epoch-seconds (see [`HalfOpen`] limitation)
+/// and rendered as the canonical text `[lo,hi)`, so `tsrange` and `int4range` share the
+/// same predicate UDFs.
+pub(crate) fn tsrange_udf() -> ScalarUDF {
+    range_ctor_udf("tsrange")
+}
+
+/// Shared range constructor: `(lo, hi[, bounds]) -> Utf8` canonical range text.
+fn range_ctor_udf(name: &'static str) -> ScalarUDF {
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
+    #[derive(Debug)]
+    struct RangeCtorUdf {
+        name: &'static str,
+        signature: Signature,
+    }
+    impl ScalarUDFImpl for RangeCtorUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(DataType::Utf8)
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            if arrays.len() < 2 {
+                return Err(datafusion::error::DataFusionError::Execution(format!(
+                    "{} expects (lo, hi[, bounds])",
+                    self.name
+                )));
+            }
+            let n = arrays.iter().map(|a| a.len()).max().unwrap_or(1);
+            let out: StringArray = (0..n)
+                .map(|i| {
+                    let li = i.min(arrays[0].len().saturating_sub(1));
+                    let hi_i = i.min(arrays[1].len().saturating_sub(1));
+                    let lo = row_to_i64(arrays[0].as_ref(), li);
+                    let hi = row_to_i64(arrays[1].as_ref(), hi_i);
+                    if lo.is_none() && hi.is_none() {
+                        return None;
+                    }
+                    // Optional bounds spelling (e.g. "[]"); default half-open "[)".
+                    let bounds = arrays
+                        .get(2)
+                        .and_then(|a| {
+                            let bi = i.min(a.len().saturating_sub(1));
+                            row_to_string(a.as_ref(), bi)
+                        })
+                        .filter(|s| s.len() == 2)
+                        .unwrap_or_else(|| "[)".to_string());
+                    let b = bounds.as_bytes();
+                    let lo_s = lo.map(|v| v.to_string()).unwrap_or_default();
+                    let hi_s = hi.map(|v| v.to_string()).unwrap_or_default();
+                    Some(format!(
+                        "{}{lo_s},{hi_s}{}",
+                        b[0] as char, b[1] as char
+                    ))
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+        }
+    }
+    ScalarUDF::new_from_impl(RangeCtorUdf {
+        name,
+        signature: Signature::one_of(
+            vec![TypeSignature::Any(2), TypeSignature::Any(3)],
+            Volatility::Immutable,
+        ),
+    })
+}
+
+/// `range_contains(range, value) -> Boolean` (CONCEPT:EG-104) — the range `@>` element
+/// test: is the point `value` inside the range text `range`? NULL operands ⇒ NULL.
+pub(crate) fn range_contains_udf() -> ScalarUDF {
+    use arrow::array::BooleanArray;
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature};
+    #[derive(Debug)]
+    struct RangeContainsUdf {
+        signature: Signature,
+    }
+    impl ScalarUDFImpl for RangeContainsUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "range_contains"
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(DataType::Boolean)
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            if arrays.len() != 2 {
+                return Err(datafusion::error::DataFusionError::Execution(
+                    "range_contains expects (range, value)".into(),
+                ));
+            }
+            let n = arrays[0].len().max(arrays[1].len());
+            let out: BooleanArray = (0..n)
+                .map(|i| {
+                    let ri = i.min(arrays[0].len().saturating_sub(1));
+                    let vi = i.min(arrays[1].len().saturating_sub(1));
+                    let range = parse_range(&row_to_string(arrays[0].as_ref(), ri)?)?;
+                    let x = row_to_i64(arrays[1].as_ref(), vi)?;
+                    Some(range.contains_point(x))
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+        }
+    }
+    ScalarUDF::new_from_impl(RangeContainsUdf {
+        signature: Signature::any(2, Volatility::Immutable),
+    })
+}
+
+/// A binary range→range predicate UDF (CONCEPT:EG-104): `(range, range) -> Boolean`.
+/// Backs `range_overlaps` (`&&`), `range_contains_range` (`@>`), and `range_contained_by`
+/// (`<@`) — each parses both text operands and applies `kernel`. NULL operands ⇒ NULL.
+fn range_pred_udf(name: &'static str, kernel: fn(&HalfOpen, &HalfOpen) -> bool) -> ScalarUDF {
+    use arrow::array::BooleanArray;
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature};
+    #[derive(Debug)]
+    struct RangePredUdf {
+        name: &'static str,
+        signature: Signature,
+        kernel: fn(&HalfOpen, &HalfOpen) -> bool,
+    }
+    impl ScalarUDFImpl for RangePredUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(DataType::Boolean)
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            if arrays.len() != 2 {
+                return Err(datafusion::error::DataFusionError::Execution(format!(
+                    "{} expects (range, range)",
+                    self.name
+                )));
+            }
+            let n = arrays[0].len().max(arrays[1].len());
+            let out: BooleanArray = (0..n)
+                .map(|i| {
+                    let ai = i.min(arrays[0].len().saturating_sub(1));
+                    let bi = i.min(arrays[1].len().saturating_sub(1));
+                    let a = parse_range(&row_to_string(arrays[0].as_ref(), ai)?)?;
+                    let b = parse_range(&row_to_string(arrays[1].as_ref(), bi)?)?;
+                    Some((self.kernel)(&a, &b))
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+        }
+    }
+    ScalarUDF::new_from_impl(RangePredUdf {
+        name,
+        signature: Signature::any(2, Volatility::Immutable),
+        kernel,
+    })
+}
+
+/// `range_overlaps(a, b) -> Boolean` (CONCEPT:EG-104) — the range `&&` overlap test.
+pub(crate) fn range_overlaps_udf() -> ScalarUDF {
+    range_pred_udf("range_overlaps", |a, b| a.overlaps(b))
+}
+
+/// `range_contains_range(a, b) -> Boolean` (CONCEPT:EG-104) — the range `@>` test
+/// (`a` covers all of `b`).
+pub(crate) fn range_contains_range_udf() -> ScalarUDF {
+    range_pred_udf("range_contains_range", |a, b| a.contains_range(b))
+}
+
+/// `range_contained_by(a, b) -> Boolean` (CONCEPT:EG-104) — the range `<@` test
+/// (`a` is covered by `b`).
+pub(crate) fn range_contained_by_udf() -> ScalarUDF {
+    range_pred_udf("range_contained_by", |a, b| b.contains_range(a))
+}
+
 // ── finance aggregate UDFs (CONCEPT:KG-2.184, feature `finance`) ────────────
 
 /// `var(returns) -> Float64` and `cvar(returns) -> Float64` aggregate UDFs over a
