@@ -28,6 +28,12 @@ pub mod time_op;
 #[cfg(feature = "promql")]
 pub mod promql;
 
+// CONCEPT:EG-163 — distributed span model + indexed span store + trace assembly +
+// service-dependency graph. Dependency-free (no redb/Arrow), so it links wherever the
+// facade's `traces` sub-feature is on. The HTTP glue lives in `src/server/traces`.
+#[cfg(feature = "traces")]
+pub mod traces;
+
 #[cfg(feature = "redb-store")]
 pub mod store;
 

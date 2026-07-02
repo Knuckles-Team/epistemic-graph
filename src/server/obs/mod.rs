@@ -138,6 +138,10 @@ pub struct ObsState {
     flush_threshold: usize,
     /// Monotonic doc-id sequence for text-index document ids.
     next_doc: AtomicU64,
+    /// CONCEPT:EG-163 — the distributed-trace span store (in-memory; a durable tier
+    /// mirroring logs is a follow-up). Present only under the `traces` sub-feature.
+    #[cfg(feature = "traces")]
+    traces: Arc<eg_tsdb::traces::SpanStore>,
 }
 
 impl ObsState {
@@ -172,7 +176,16 @@ impl ObsState {
             text_dir,
             flush_threshold: flush_threshold.max(1),
             next_doc: AtomicU64::new(1),
+            #[cfg(feature = "traces")]
+            traces: Arc::new(eg_tsdb::traces::SpanStore::new()),
         })
+    }
+
+    /// CONCEPT:EG-163 — the distributed-trace span store handle, used by the trace
+    /// facade (`src/server/traces`) to ingest spans and serve trace search/assembly.
+    #[cfg(feature = "traces")]
+    pub fn trace_store(&self) -> Arc<eg_tsdb::traces::SpanStore> {
+        self.traces.clone()
     }
 
     /// In-memory ingest state (temp series/blob, RAM text indices) — for tests.
@@ -726,6 +739,22 @@ async fn handle(
     #[cfg(feature = "promql")]
     if path.starts_with("/api/v1/query") || path == "/api/v1/labels" || path.starts_with("/api/v1/label/") {
         return crate::server::promql::handle(state, &req.method, path, query, &req.body).await;
+    }
+
+    // CONCEPT:EG-163 — distributed-trace surface (GET or POST), routed BEFORE the
+    // POST-only ingest guard (trace SEARCH / assembly / dependency-graph are GET).
+    // Gated on `traces`, which implies `obs`; absent that feature these paths fall
+    // through to 404. Covers OTLP-JSON ingest (`POST /v1/traces`), trace search
+    // (`/api/traces`), single-trace assembly (`/api/traces/<id>`) and the
+    // service-dependency graph (`/api/dependencies`).
+    #[cfg(feature = "traces")]
+    if path == "/v1/traces"
+        || path == "/api/traces"
+        || path.starts_with("/api/traces/")
+        || path == "/api/dependencies"
+        || path == "/api/services/dependencies"
+    {
+        return crate::server::traces::handle(state, &req.method, path, query, &req.body).await;
     }
 
     if req.method != "POST" {
