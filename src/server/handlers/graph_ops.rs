@@ -398,6 +398,33 @@ pub(crate) async fn try_handle(
             );
             Response::ok(req_id, ResultPayload::raw(&token))
         }
+        // ── Idempotent producer / effectively-once (CONCEPT:EG-314) ──────
+        #[cfg(feature = "broker")]
+        Method::PublishIdempotent {
+            exchange,
+            routing_key,
+            payload,
+            producer_id,
+            seq,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let result = crate::broker::publish_idempotent(
+                &core,
+                &exchange,
+                &routing_key,
+                &payload,
+                producer_id.as_deref(),
+                seq,
+                priority,
+                delay_ms,
+                ttl_ms,
+                now_ms,
+            );
+            Response::ok(req_id, ResultPayload::raw(&result))
+        }
         #[cfg(feature = "broker")]
         Method::BrokerAckTag { delivery_tag } => {
             let existed = crate::broker::broker_ack_tag(&core, delivery_tag);

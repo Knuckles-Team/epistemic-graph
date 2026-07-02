@@ -344,6 +344,37 @@ pub enum Method {
         #[serde(default)]
         now_ms: Option<u64>,
     },
+    /// Publish with an OPTIONAL `(producer_id, seq)` idempotency stamp for
+    /// effectively-once delivery (CONCEPT:EG-314) — a superset of [`PublishConfirmed`].
+    /// With `producer_id == None` this is the plain at-least-once path (byte-identical
+    /// to [`PublishEx`]). With `producer_id == Some`, the broker dedups against that
+    /// producer's durable monotonic high-water mark: a `seq` at/under the mark is a
+    /// DUPLICATE (dropped but still confirmed), a `seq` above it advances the mark and
+    /// the message is enqueued. Returns `Raw(IdempotentPublish)`
+    /// (`confirmed`/`duplicate`/`delivered`). Deterministic: the dedup + mark bump
+    /// derive purely from graph state + explicit args, so WAL/Raft replay reproduces
+    /// byte-identical state.
+    #[cfg(feature = "broker")]
+    PublishIdempotent {
+        exchange: String,
+        routing_key: String,
+        #[serde(with = "serde_bytes")]
+        payload: Vec<u8>,
+        /// Stable publisher identity; `None`/empty ⇒ at-least-once (no dedup).
+        #[serde(default)]
+        producer_id: Option<String>,
+        /// Per-producer monotonic sequence number (dedup key).
+        #[serde(default)]
+        seq: i64,
+        #[serde(default)]
+        priority: i64,
+        #[serde(default)]
+        delay_ms: Option<u64>,
+        #[serde(default)]
+        ttl_ms: Option<u64>,
+        #[serde(default)]
+        now_ms: Option<u64>,
+    },
     /// Acknowledge (remove) a claimed message by its consumer `delivery_tag`
     /// (CONCEPT:EG-284) — the tag-addressed sibling of [`BrokerAck`]. Returns
     /// `Bool(true)` if the message existed.

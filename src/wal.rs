@@ -72,6 +72,10 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::PublishConfirmed { .. }
             | Method::BrokerAckTag { .. }
             | Method::BrokerNackTag { .. }
+            // Idempotent producer (CONCEPT:EG-314): the dedup check + high-water-mark
+            // bump mutate a durable producer node deterministically from explicit args,
+            // so replay reproduces the identical mark + duplicate-verdict.
+            | Method::PublishIdempotent { .. }
     ) {
         return true;
     }
@@ -483,6 +487,35 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 exchange,
                 routing_key,
                 payload,
+                *priority,
+                *delay_ms,
+                *ttl_ms,
+                *now_ms,
+            );
+        }
+        // Idempotent producer (CONCEPT:EG-314): re-run the SAME publish with the SAME
+        // producer_id/seq over the same pre-image — a first apply records the mark +
+        // enqueues; a replay of an already-recorded seq is a no-op duplicate. Result
+        // ignored.
+        #[cfg(feature = "broker")]
+        Method::PublishIdempotent {
+            exchange,
+            routing_key,
+            payload,
+            producer_id,
+            seq,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let _ = crate::broker::publish_idempotent(
+                core,
+                exchange,
+                routing_key,
+                payload,
+                producer_id.as_deref(),
+                *seq,
                 *priority,
                 *delay_ms,
                 *ttl_ms,
