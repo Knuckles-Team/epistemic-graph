@@ -128,3 +128,73 @@ fn units_is_metric(units: &str) -> bool {
     let u = units.to_ascii_lowercase();
     u.contains("met")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EG-261: a bare WKT literal and one carrying a leading `<CRS-URI>` token both parse
+    /// to the same geometry (the CRS prefix is stripped).
+    #[test]
+    fn eg261_wkt_literal_parse_with_and_without_crs() {
+        let bare = geom_from_lexical("POINT(1 2)").expect("bare WKT parses");
+        assert!(matches!(bare, Geometry::Point(_)));
+        let crs = geom_from_lexical(
+            "<http://www.opengis.net/def/crs/OGC/1.3/CRS84> POINT(1 2)",
+        )
+        .expect("CRS-prefixed WKT parses");
+        assert!(matches!(crs, Geometry::Point(_)));
+        // A polygon lexical parses too (the eg-geo codec covers every variant).
+        assert!(geom_from_lexical("POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))").is_some());
+        // Malformed input fails SAFE (None).
+        assert!(geom_from_lexical("NOTGEOM(1 2)").is_none());
+    }
+
+    /// EG-261: `geof:sfWithin` is true for a point inside the polygon, false outside —
+    /// lowered onto eg-geo's planar `within` predicate.
+    #[test]
+    fn eg261_sfwithin_true_and_false() {
+        let poly = "POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))";
+        assert_eq!(eval_relation("sfWithin", "POINT(1 1)", poly), Some(true));
+        assert_eq!(eval_relation("sfWithin", "POINT(5 5)", poly), Some(false));
+    }
+
+    /// EG-261: `sfIntersects`/`sfContains`/`sfEquals` route to the matching eg-geo
+    /// predicate; `sfEquals` is spatial equality, not lexical.
+    #[test]
+    fn eg261_relations_intersects_contains_equals() {
+        let poly = "POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))";
+        assert_eq!(eval_relation("sfIntersects", "POINT(2 2)", poly), Some(true));
+        assert_eq!(eval_relation("sfContains", poly, "POINT(2 2)"), Some(true));
+        assert_eq!(eval_relation("sfEquals", "POINT(1 1)", "POINT(1 1)"), Some(true));
+        assert_eq!(eval_relation("sfEquals", "POINT(1 1)", "POINT(2 2)"), Some(false));
+        // Unknown geof: local name → None (unsupported, fails SAFE).
+        assert_eq!(eval_relation("sfNope", "POINT(1 1)", poly), None);
+    }
+
+    /// EG-261: `geof:distance` — planar Euclidean in coordinate units (a 3-4-5 triangle
+    /// gives 5.0), and a metre UOM switches to the WGS84 great-circle metric.
+    #[test]
+    fn eg261_distance_planar_and_metric() {
+        let planar = eval_distance("POINT(0 0)", "POINT(3 4)", "").unwrap();
+        assert!((planar - 5.0).abs() < 1e-9, "planar distance {planar}");
+        let metres = eval_distance(
+            "POINT(0 0)",
+            "POINT(0 1)",
+            "http://www.opengis.net/def/uom/OGC/1.0/metre",
+        )
+        .unwrap();
+        // ~1 degree of latitude ≈ 111 km on the mean-radius sphere.
+        assert!(
+            (100_000.0..120_000.0).contains(&metres),
+            "one degree of latitude in metres was {metres}"
+        );
+    }
+
+    /// EG-261: `geof:buffer` grows the geometry and returns a WKT lexical that re-parses.
+    #[test]
+    fn eg261_buffer_returns_reparseable_wkt() {
+        let wkt = eval_buffer("POINT(0 0)", 1.0, "").expect("buffer produces WKT");
+        assert!(geom_from_lexical(&wkt).is_some(), "buffer WKT re-parses: {wkt}");
+    }
+}
