@@ -1,0 +1,52 @@
+[package]
+name = "eg-lake"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "LTAP lakehouse-interop tier for the epistemic-graph engine (CONCEPT:EG-317). Transcodes engine table/columnar data into Parquet-on-object-store with Delta Lake + Iceberg transaction logs, an Iceberg-REST catalog stub and LSN-style as-of snapshots, so external lakehouse engines (Spark/Trino/DuckDB) read our tables with zero ETL. Heavy arrow/parquet deps sit behind the `lake` feature; the crate is a leaf and stays OUT of the Pi build."
+license = "MIT"
+
+[lib]
+name = "eg_lake"
+
+# CONCEPT:EG-317 — eg-lake is a pure LEAF crate (like eg-geo / eg-ann): it depends on
+# NOTHING inside the workspace. The engine-side wiring (converting a real
+# `eg-tsdb::ColumnarSegment` / a user-table row batch into a `LakeBatch`, and hooking
+# the async materialization tier onto the WAL) is a documented SEAM, kept out of this
+# leaf so the heavy arrow/parquet stack never leaks into the core / Pi build.
+#
+# The table-log surface (Delta `_delta_log`, Iceberg `metadata.json`, the LSN as-of
+# snapshot and the Iceberg-REST catalog) is PURE serde_json — it carries NO arrow /
+# parquet dep and so compiles with the `lake` feature OFF. Only the actual Parquet
+# transcode (`parquet_io`) needs arrow + parquet, and that is the ONLY thing the
+# `lake` feature gates. So a `--no-default-features` build gives you the interop
+# metadata (catalog/log/snapshot) with a tiny footprint; `--features lake` adds the
+# columnar materialization.
+[features]
+default = []
+# Real Parquet materialization + read-back via the arrow + parquet crates. Heavy
+# (Arrow columnar + Parquet codec); pinned to the SAME versions the engine's
+# `eg-tsdb/arrow-seg` + DataFusion path already carry (arrow 53 / parquet 53), so the
+# lockfile footprint is shared, not new. OUT of pi (eg-lake is not a pi member).
+lake = ["dep:arrow", "dep:parquet", "dep:bytes"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Same pins as the engine's `eg-tsdb` arrow-seg path so the Parquet we emit and the
+# Arrow schema we map to line up 1:1 with the rest of the tree. Optional + only
+# referenced under `#[cfg(feature = "lake")]`.
+arrow = { version = "53", optional = true }
+# `default-features = false` drops parquet's C-based compression codecs (zstd-sys /
+# lz4 / brotli / snap) — we write UNCOMPRESSED Parquet, which every lakehouse reader
+# opens, and it keeps eg-lake free of C `*-sys` deps (in the Pi-contract spirit) AND
+# avoids a `zstd-sys` version clash with the workspace lock. Only the `arrow`
+# integration feature is needed (the ArrowWriter / RecordBatchReader).
+parquet = { version = "53", default-features = false, features = ["arrow"], optional = true }
+# `bytes::Bytes` is the parquet `ChunkReader` used to read a materialized file back;
+# `bytes` is already a transitive dep of parquet, so this adds nothing new to the lock.
+bytes = { version = "1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
