@@ -3595,4 +3595,75 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
         assert_eq!(scalar(&v, &format!("STR(PREDICATE({t}))")), "http://example.org/b");
         assert_eq!(scalar(&v, &format!("STR(OBJECT({t}))")), "http://example.org/c");
     }
+
+    // ── EG-261: GeoSPARQL baseline over a full SPARQL query ─────────────────────
+
+    /// Load two features, each with the canonical `geo:hasGeometry`/`geo:asWKT` shape.
+    #[cfg(feature = "geosparql")]
+    fn geo_view() -> GraphView {
+        let ttl = r#"
+@prefix geo: <http://www.opengis.net/ont/geosparql#> .
+@prefix ex:  <http://example.org/> .
+ex:cityA geo:hasGeometry ex:gA .
+ex:gA    geo:asWKT "POINT(1 1)"^^geo:wktLiteral .
+ex:cityB geo:hasGeometry ex:gB .
+ex:gB    geo:asWKT "POINT(5 5)"^^geo:wktLiteral .
+"#;
+        let core = eg_core::graph::GraphCore::new();
+        let mut iris = IriStore::default();
+        load_triples(
+            &core,
+            &mut iris,
+            "g",
+            parse_turtle(ttl).unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        core.analysis_snapshot()
+    }
+
+    /// EG-261: the `?feature geo:hasGeometry ?g . ?g geo:asWKT ?wkt` resolution pattern
+    /// composes with a `geof:sfWithin` FILTER over a `geo:wktLiteral` constant — only the
+    /// feature whose point lies inside the polygon survives.
+    #[cfg(feature = "geosparql")]
+    #[test]
+    fn eg261_hasgeometry_aswkt_sfwithin_full_query() {
+        let view = geo_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX geo:  <http://www.opengis.net/ont/geosparql#>
+            PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
+            SELECT ?f WHERE {
+              ?f geo:hasGeometry ?g .
+              ?g geo:asWKT ?wkt .
+              FILTER(geof:sfWithin(?wkt, "POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))"^^geo:wktLiteral))
+            }"#,
+        )
+        .unwrap();
+        let feats: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("f").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(
+            feats,
+            vec!["<http://example.org/cityA>"],
+            "only cityA's POINT(1 1) is within the polygon; got {feats:?}"
+        );
+    }
+
+    /// EG-261: `geof:distance` is usable as a projected value expression in a full query
+    /// (the 3-4-5 planar triangle → 5).
+    #[cfg(feature = "geosparql")]
+    #[test]
+    fn eg261_distance_value_in_query() {
+        let view = geo_view();
+        let d = scalar(
+            &view,
+            r#"<http://www.opengis.net/def/function/geosparql/distance>("POINT(0 0)"^^<http://www.opengis.net/ont/geosparql#wktLiteral>, "POINT(3 4)"^^<http://www.opengis.net/ont/geosparql#wktLiteral>, "")"#,
+        );
+        assert_eq!(d, "5", "planar distance of a 3-4-5 triangle; got {d}");
+    }
 }
