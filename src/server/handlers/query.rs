@@ -607,6 +607,132 @@ async fn exec_sql_write(
         K::Begin => sql_write_ack(req_id, "BEGIN", Ok(Ok(0))),
         K::Commit => sql_write_ack(req_id, "COMMIT", Ok(Ok(0))),
         K::Rollback => sql_write_ack(req_id, "ROLLBACK", Ok(Ok(0))),
+        // CONCEPT:EG-046 — INSERT INTO nodes … SELECT over the RPC wire (write-ack; no RETURNING).
+        K::InsertNodesSelect(ins) => {
+            let core = core.clone();
+            let store = store.clone();
+            let snap = core.analysis_snapshot();
+            let r = compute_off_lock(req_id, move || {
+                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &ins.select_sql)?;
+                if read.columns.len() != ins.columns.len() {
+                    return Err(format!(
+                        "INSERT INTO nodes … SELECT column count mismatch: {} target columns, {} selected",
+                        ins.columns.len(),
+                        read.columns.len()
+                    ));
+                }
+                let id_pos = ins
+                    .columns
+                    .iter()
+                    .position(|c| c.eq_ignore_ascii_case("id"))
+                    .ok_or("INSERT INTO nodes … SELECT must include the `id` column")?;
+                let empty = serde_json::Map::new();
+                let mut n = 0usize;
+                for row in read.rows {
+                    let node_id = cell_to_node_id(&row[id_pos])?;
+                    let mut props = serde_json::Map::new();
+                    for (i, col) in ins.columns.iter().enumerate() {
+                        if i != id_pos {
+                            props.insert(col.clone(), row[i].clone());
+                        }
+                    }
+                    if core.has_node(&node_id) {
+                        match ins.on_conflict.as_ref().map(|oc| &oc.action) {
+                            Some(eg_query::OnConflictAction::DoNothing) => continue,
+                            Some(eg_query::OnConflictAction::DoUpdate(set)) => {
+                                core.compare_and_set_fields(&node_id, &empty, set);
+                                n += 1;
+                                continue;
+                            }
+                            None => {}
+                        }
+                    }
+                    let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props))
+                        .map_err(|e| format!("encode node properties: {e}"))?;
+                    core.add_node(node_id, blob);
+                    n += 1;
+                }
+                Ok::<usize, String>(n)
+            })
+            .await;
+            sql_write_ack(req_id, "INSERT", r)
+        }
+        // CONCEPT:EG-047 — UPDATE nodes … FROM … over the RPC wire.
+        K::UpdateNodesJoin(upd) => {
+            let core = core.clone();
+            let store = store.clone();
+            let snap = core.analysis_snapshot();
+            let r = compute_off_lock(req_id, move || {
+                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &upd.resolve_sql)?;
+                if read.columns.len() != upd.set_targets.len() + 1 {
+                    return Err(format!(
+                        "UPDATE … FROM resolution shape mismatch: expected id + {} set columns, got {}",
+                        upd.set_targets.len(),
+                        read.columns.len()
+                    ));
+                }
+                let empty = serde_json::Map::new();
+                let mut seen = std::collections::HashSet::new();
+                let mut n = 0usize;
+                for row in read.rows {
+                    let id = cell_to_node_id(&row[0])?;
+                    if !seen.insert(id.clone()) {
+                        continue;
+                    }
+                    let mut updates = serde_json::Map::new();
+                    for (i, col) in upd.set_targets.iter().enumerate() {
+                        updates.insert(col.clone(), row[i + 1].clone());
+                    }
+                    if core.compare_and_set_fields(&id, &empty, &updates) {
+                        n += 1;
+                    }
+                }
+                Ok::<usize, String>(n)
+            })
+            .await;
+            sql_write_ack(req_id, "UPDATE", r)
+        }
+        // CONCEPT:EG-047 — DELETE FROM nodes … USING … over the RPC wire.
+        K::DeleteNodesJoin(del) => {
+            let core = core.clone();
+            let store = store.clone();
+            let snap = core.analysis_snapshot();
+            let r = compute_off_lock(req_id, move || {
+                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &del.resolve_sql)?;
+                let mut seen = std::collections::HashSet::new();
+                let mut n = 0usize;
+                for row in read.rows {
+                    let id = cell_to_node_id(&row[0])?;
+                    if !seen.insert(id.clone()) {
+                        continue;
+                    }
+                    core.remove_node(id);
+                    n += 1;
+                }
+                Ok::<usize, String>(n)
+            })
+            .await;
+            sql_write_ack(req_id, "DELETE", r)
+        }
+        // CONCEPT:EG-072 — CREATE/DROP VIEW over the RPC wire.
+        K::CreateView(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store
+                    .create_view(&plan.name, &plan.select_sql, plan.or_replace)
+                    .map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "CREATE VIEW", r)
+        }
+        K::DropView(plan) => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store.drop_view(&plan.name, plan.if_exists).map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "DROP VIEW", r)
+        }
         // `COPY … FROM STDIN` is a streamed, connection-stateful pgwire op (rows arrive
         // as CopyData frames), with no single-request wire form.
         K::CopyIn(_) => Response::err(
@@ -615,6 +741,19 @@ async fn exec_sql_write(
         ),
         // The caller only routes non-`Read` statements here.
         K::Read => Response::err(req_id, "SQL error: read routed to write path".to_string()),
+    }
+}
+
+/// A scalar cell (from a resolved SELECT row) coerced to the string node-id form the
+/// engine stores (CONCEPT:EG-046/047).
+#[cfg(feature = "query")]
+fn cell_to_node_id(v: &serde_json::Value) -> Result<String, String> {
+    match v {
+        serde_json::Value::String(s) => Ok(s.clone()),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        serde_json::Value::Bool(b) => Ok(b.to_string()),
+        serde_json::Value::Null => Err("resolved a NULL `id` for a node write".to_string()),
+        other => Err(format!("`id` must be a scalar, got {other}")),
     }
 }
 
