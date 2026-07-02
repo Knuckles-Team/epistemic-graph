@@ -126,6 +126,15 @@ stream = ["query"]
 # eg-tsdb, and the executor in eg-plan, both behind eg-plan's own `timeseries` gate; this
 # only adds one enum variant (Pi-safe wire data, no dep). Mirrors `tensor`/`stream`.
 timeseries = ["query"]
+# Probabilistic / uncertainty query op (CONCEPT:EG-086): gates the `Op::Probabilistic
+# { query }` TRANSFORM op of the cross-modal plan AST plus the pure-serde `ProbQuery` /
+# `ProbEvidenceSpec` DTOs it embeds. The op lives inside the `query`-gated `Op` enum, so
+# this implies `query`. PURE serde — the `Distribution` VALUE (always compiled) + the
+# conjugate `bayesian_update` compute live in eg-types/eg-compute, and the executor in
+# eg-plan, all behind eg-plan's own `probabilistic` gate; this only adds enum variants
+# (Pi-safe wire data, no dep). Mirrors `tensor`/`stream`.
+# FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi).
+probabilistic = ["query"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
