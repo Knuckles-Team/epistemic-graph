@@ -30,6 +30,7 @@
 //! dynamic map, never a fixed column. Multi-tenant by **stream**: an org/stream
 //! name gets its own tsdb series id + its own text-index namespace.
 
+pub mod search;
 pub mod segment;
 
 use std::collections::{BTreeMap, HashMap};
@@ -46,6 +47,7 @@ use eg_tsdb::point::Point;
 use eg_tsdb::store::SeriesStore;
 use eg_text::TextIndex;
 
+pub use search::{LogQuery, DEFAULT_SEARCH_SIZE};
 pub use segment::SegmentManifest;
 
 /// Env var carrying the observability-ingest listener bind address (`host:port`),
@@ -714,6 +716,12 @@ async fn handle(
         return ("405 Method Not Allowed", "text/plain", "POST only".to_string());
     }
 
+    // EG-162 search surface: O2/Elasticsearch `_search`-shaped query API. Routed
+    // BEFORE ingest (no ingest path ends with `_search`).
+    if path == "/api/_search" || path == "/_search" || path.ends_with("/_search") {
+        return handle_search(state, path, query, &req.body).await;
+    }
+
     // The `stream` query param is the default stream for shapes that don't name one.
     let default_stream = query_param(query, "stream").unwrap_or_else(|| "default".to_string());
 
@@ -787,6 +795,243 @@ async fn handle(
             format!("ingest task failed: {e}"),
         ),
     }
+}
+
+// ── EG-162 search surface (O2 / Elasticsearch `_search`) ────────────────────────
+
+/// Route + execute a `_search` request → `(status, content_type, body)`.
+///
+/// Two modes on the SAME endpoint, discriminated by the JSON body:
+///  * a raw SQL query — `{"sql": "SELECT …"}` (or `{"query":{"sql":"…"}}`, the O2
+///    shape) — runs DataFusion over the `logs` table (segments + hot buffers);
+///  * a structured log search — `{stream, start_time, end_time, query, size, …}` —
+///    returns O2/ES-shaped hits UNIONed across the hot + cold tiers.
+///
+/// The stream may come from the path (`/api/<org>/<stream>/_search`) or the body.
+async fn handle_search(
+    state: &Arc<ObsState>,
+    path: &str,
+    query: &str,
+    body: &str,
+) -> (&'static str, &'static str, String) {
+    let val: serde_json::Value = if body.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        match serde_json::from_str(body) {
+            Ok(v) => v,
+            Err(e) => {
+                return (
+                    "400 Bad Request",
+                    "text/plain",
+                    format!("parse _search JSON: {e}"),
+                )
+            }
+        }
+    };
+
+    // SQL mode: top-level `sql`, or the O2 `{"query":{"sql":…}}` nesting.
+    let sql = val
+        .get("sql")
+        .and_then(|v| v.as_str())
+        .or_else(|| val.get("query").and_then(|q| q.get("sql")).and_then(|v| v.as_str()));
+    if let Some(sql) = sql {
+        let sql = sql.to_string();
+        let st = state.clone();
+        return match tokio::task::spawn_blocking(move || st.search_sql(&sql)).await {
+            Ok(Ok(res)) => ("200 OK", "application/json", sql_search_response(&res)),
+            Ok(Err(e)) => (
+                "400 Bad Request",
+                "text/plain",
+                format!("sql search failed: {e}"),
+            ),
+            Err(e) => (
+                "500 Internal Server Error",
+                "text/plain",
+                format!("sql search task failed: {e}"),
+            ),
+        };
+    }
+
+    // Structured search mode: resolve the stream (path wins, then body, then `?stream`).
+    let stream = search_stream_from_path(path)
+        .or_else(|| {
+            for key in ["stream", "_stream", "index", "_index"] {
+                if let Some(s) = val.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                    return Some(s.to_string());
+                }
+            }
+            None
+        })
+        .or_else(|| query_param(query, "stream"));
+    let stream = match stream {
+        Some(s) => s,
+        None => {
+            return (
+                "400 Bad Request",
+                "text/plain",
+                "search requires a stream (path /api/<org>/<stream>/_search or body `stream`)"
+                    .to_string(),
+            )
+        }
+    };
+
+    let q = parse_log_query(&val, stream);
+    let st = state.clone();
+    match tokio::task::spawn_blocking(move || st.search_logs(&q)).await {
+        Ok(Ok(hits)) => ("200 OK", "application/json", es_search_response(&hits)),
+        Ok(Err(e)) => (
+            "400 Bad Request",
+            "text/plain",
+            format!("search failed: {e}"),
+        ),
+        Err(e) => (
+            "500 Internal Server Error",
+            "text/plain",
+            format!("search task failed: {e}"),
+        ),
+    }
+}
+
+/// If `path` is `/api/<org>/<stream>/_search`, return `<stream>`; else `None`
+/// (`/api/_search` and `/_search` carry the stream in the body).
+fn search_stream_from_path(path: &str) -> Option<String> {
+    let trimmed = path.trim_start_matches('/');
+    let parts: Vec<&str> = trimmed.split('/').collect();
+    // /api/<org>/<stream>/_search  → ["api", org, stream, "_search"]
+    if parts.len() == 4 && parts[0] == "api" && parts[3] == "_search" && !parts[2].is_empty() {
+        return Some(parts[2].to_string());
+    }
+    // /<stream>/_search → ["stream", "_search"] (but NOT the org-less "/api/_search").
+    if parts.len() == 2 && parts[1] == "_search" && !parts[0].is_empty() && parts[0] != "api" {
+        return Some(parts[0].to_string());
+    }
+    None
+}
+
+/// Build a [`LogQuery`] from the parsed `_search` JSON body. Tolerates the common
+/// shapes: `start_time`/`end_time` (O2) or `from`/`to` for the window; a full-text
+/// `query` string (bare, or the ES `{"query_string":{"query":…}}` nesting); a
+/// `filters` object of attribute equalities + a `severity`; and `size`.
+fn parse_log_query(val: &serde_json::Value, stream: String) -> LogQuery {
+    let ts = |keys: &[&str]| -> Option<i64> {
+        for k in keys {
+            if let Some(n) = val.get(*k).and_then(|v| v.as_i64()) {
+                return Some(n);
+            }
+        }
+        None
+    };
+    let from = ts(&["start_time", "from_ts", "from"]).unwrap_or(i64::MIN);
+    let to = ts(&["end_time", "to_ts", "to"]).unwrap_or(i64::MAX);
+
+    // Full-text terms: bare `query`/`q` string, or ES `query.query_string.query`.
+    let terms = val
+        .get("query")
+        .and_then(|q| q.as_str())
+        .map(str::to_string)
+        .or_else(|| val.get("q").and_then(|v| v.as_str()).map(str::to_string))
+        .or_else(|| {
+            val.get("query")
+                .and_then(|q| q.get("query_string"))
+                .and_then(|qs| qs.get("query"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .filter(|s| !s.trim().is_empty());
+
+    let severity = val
+        .get("severity")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    let mut filters = Vec::new();
+    if let Some(obj) = val.get("filters").and_then(|v| v.as_object()) {
+        for (k, v) in obj {
+            filters.push((k.clone(), scalar_to_string(v)));
+        }
+    }
+
+    let size = val
+        .get("size")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize)
+        .unwrap_or(DEFAULT_SEARCH_SIZE);
+
+    LogQuery {
+        stream,
+        from,
+        to,
+        terms,
+        filters,
+        severity,
+        size,
+    }
+}
+
+/// Render one log record as an Elasticsearch/O2 `_source` object.
+fn record_source(r: &LogRecord) -> serde_json::Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("_timestamp".into(), serde_json::json!(r.ts));
+    obj.insert("stream".into(), serde_json::json!(r.stream));
+    obj.insert("severity".into(), serde_json::json!(r.severity));
+    obj.insert("message".into(), serde_json::json!(r.body));
+    for (k, v) in &r.attrs {
+        // Never let an attribute clobber a reserved field.
+        if !obj.contains_key(k) {
+            obj.insert(k.clone(), serde_json::json!(v));
+        }
+    }
+    serde_json::Value::Object(obj)
+}
+
+/// The Elasticsearch/O2 `_search` response envelope over the matched records.
+fn es_search_response(hits: &[LogRecord]) -> String {
+    let items: Vec<serde_json::Value> = hits
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "_index": r.stream,
+                "_score": 1.0,
+                "_source": record_source(r),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "took": 0,
+        "timed_out": false,
+        "hits": {
+            "total": { "value": hits.len(), "relation": "eq" },
+            "hits": items,
+        }
+    })
+    .to_string()
+}
+
+/// The SQL `_search` response: columns + rows, plus row objects (`hits`) keyed by
+/// column name (the O2 SQL result shape).
+fn sql_search_response(res: &eg_query::TypedQueryResult) -> String {
+    let cols: Vec<&str> = res.columns.iter().map(|c| c.name.as_str()).collect();
+    let hits: Vec<serde_json::Value> = res
+        .rows
+        .iter()
+        .map(|row| {
+            let mut obj = serde_json::Map::new();
+            for (i, cell) in row.iter().enumerate() {
+                if let Some(name) = cols.get(i) {
+                    obj.insert((*name).to_string(), cell.clone());
+                }
+            }
+            serde_json::Value::Object(obj)
+        })
+        .collect();
+    serde_json::json!({
+        "took": 0,
+        "total": res.rows.len(),
+        "columns": cols,
+        "hits": hits,
+    })
+    .to_string()
 }
 
 /// An ES `_bulk` response: `errors:false` with one `index`/`created` item per doc.
@@ -1037,5 +1282,91 @@ mod tests {
         assert_eq!(hits.len(), 1);
         let points = obs.series_range("esstream", 0, 100_000_000).unwrap();
         assert_eq!(points.len(), 1);
+    }
+
+    /// Send a POST to `addr` and return the response text.
+    #[cfg(test)]
+    async fn post(addr: std::net::SocketAddr, path: &str, body: &str) -> String {
+        let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let req = format!(
+            "POST {path} HTTP/1.1\r\nHost: x\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        sock.write_all(req.as_bytes()).await.unwrap();
+        let mut resp = Vec::new();
+        sock.read_to_end(&mut resp).await.unwrap();
+        String::from_utf8_lossy(&resp).to_string()
+    }
+
+    /// The `_search` HTTP surface: a structured search returns ES-shaped hits, and a
+    /// `{"sql":…}` body aggregates over the log segments (CONCEPT:EG-162).
+    #[tokio::test]
+    async fn http_search_end_to_end() {
+        // flush_threshold=2 → two records roll a segment, one stays hot.
+        let obs = Arc::new(ObsState::in_memory(2).unwrap());
+        obs.ingest(vec![
+            LogRecord {
+                ts: 100,
+                stream: "web".into(),
+                severity: "ERROR".into(),
+                body: "search_marker cold".into(),
+                attrs: BTreeMap::new(),
+            },
+            LogRecord {
+                ts: 200,
+                stream: "web".into(),
+                severity: "INFO".into(),
+                body: "quiet cold".into(),
+                attrs: BTreeMap::new(),
+            },
+        ])
+        .unwrap();
+        obs.ingest(vec![LogRecord {
+            ts: 300,
+            stream: "web".into(),
+            severity: "WARN".into(),
+            body: "search_marker hot".into(),
+            attrs: BTreeMap::new(),
+        }])
+        .unwrap();
+        assert_eq!(obs.segments_for("web").len(), 1);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let served = obs.clone();
+        tokio::spawn(async move { serve(listener, served).await });
+
+        // Structured search: time window spanning both tiers, path-derived stream.
+        let text = post(
+            addr,
+            "/api/default/web/_search",
+            r#"{"start_time":0,"end_time":1000}"#,
+        )
+        .await;
+        assert!(text.starts_with("HTTP/1.1 200 OK"), "got: {text}");
+        let json_body = text.split("\r\n\r\n").nth(1).unwrap();
+        let v: serde_json::Value = serde_json::from_str(json_body).unwrap();
+        assert_eq!(v["hits"]["total"]["value"], 3, "both tiers: {json_body}");
+
+        // Full-text term via the `query` string → only the two "search_marker" records.
+        let text = post(addr, "/api/_search", r#"{"stream":"web","query":"search_marker"}"#).await;
+        let v: serde_json::Value =
+            serde_json::from_str(text.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(v["hits"]["total"]["value"], 2);
+
+        // SQL mode: count by severity over the `logs` table (segments + hot).
+        let text = post(
+            addr,
+            "/api/_search",
+            r#"{"sql":"SELECT severity, count(*) AS n FROM logs GROUP BY severity ORDER BY severity"}"#,
+        )
+        .await;
+        assert!(text.starts_with("HTTP/1.1 200 OK"), "got: {text}");
+        let v: serde_json::Value =
+            serde_json::from_str(text.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(v["total"], 3, "ERROR/INFO/WARN buckets: {text}");
+        assert_eq!(v["hits"][0]["severity"], "ERROR");
+        assert_eq!(v["hits"][0]["n"], 1);
     }
 }

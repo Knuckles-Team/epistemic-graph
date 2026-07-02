@@ -94,8 +94,10 @@ fn attrs_json(rec: &LogRecord) -> String {
     serde_json::Value::Object(map).to_string()
 }
 
-/// Build an Arrow `RecordBatch` (the [`log_arrow_schema`]) from log records.
-fn records_to_batch(records: &[LogRecord]) -> Result<RecordBatch, String> {
+/// Build an Arrow `RecordBatch` (the [`log_arrow_schema`]) from log records. Public
+/// to the obs module so the search surface (CONCEPT:EG-162) can register the scanned
+/// hot + cold records as a DataFusion `logs` table.
+pub(super) fn records_to_batch(records: &[LogRecord]) -> Result<RecordBatch, String> {
     let ts: Int64Array = records.iter().map(|r| Some(r.ts)).collect();
     let stream: StringArray = records.iter().map(|r| Some(r.stream.as_str())).collect();
     let severity: StringArray = records.iter().map(|r| Some(r.severity.as_str())).collect();
