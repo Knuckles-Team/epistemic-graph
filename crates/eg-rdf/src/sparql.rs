@@ -3311,6 +3311,169 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
         );
     }
 
+    // ── CONCEPT:EG-135 — SPARQL algebra completeness (ORDER BY spec / VALUES / MINUS) ──
+
+    /// A fixture with a repeated primary sort key (`ex:dept`) so multi-key ORDER BY and
+    /// top-k tie-breaking are exercised.
+    fn ranked_view() -> GraphView {
+        let ttl = r#"
+@prefix ex: <http://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:a ex:dept "Eng"   ; ex:name "Zoe" ; ex:rank "2"^^xsd:integer .
+ex:b ex:dept "Eng"   ; ex:name "Amy" ; ex:rank "1"^^xsd:integer .
+ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
+"#;
+        let core = eg_core::graph::GraphCore::new();
+        let mut iris = IriStore::default();
+        load_triples(
+            &core,
+            &mut iris,
+            "g",
+            parse_turtle(ttl).unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        core.analysis_snapshot()
+    }
+
+    fn ordered_col(view: &GraphView, q: &str, col: &str) -> Vec<String> {
+        run(view, q)
+            .unwrap()
+            .solutions
+            .iter()
+            .map(|s| s.get(col).map(|b| b.as_str().to_string()).unwrap_or_default())
+            .collect()
+    }
+
+    /// EG-135: the ORDER BY term-type total order — unbound < blank node < IRI < literal —
+    /// with typed value comparison WITHIN a kind. This is the correctness gap the EG-125
+    /// arm left: bound values used to compare by lexical string regardless of kind.
+    #[test]
+    fn order_by_term_type_precedence_eg135() {
+        use std::cmp::Ordering;
+        let unbound: Option<Binding> = None;
+        let blank = Some(Binding::Node("_:b1".to_string()));
+        let iri = Some(Binding::Node("<http://ex/x>".to_string()));
+        let lit = Some(Binding::Literal("Alice".to_string()));
+        // Cross-kind precedence (each strictly less than the next kind).
+        assert_eq!(cmp_binding(&unbound, &blank), Ordering::Less);
+        assert_eq!(cmp_binding(&blank, &iri), Ordering::Less);
+        assert_eq!(cmp_binding(&iri, &lit), Ordering::Less);
+        assert_eq!(cmp_binding(&unbound, &lit), Ordering::Less);
+        assert_eq!(cmp_binding(&lit, &unbound), Ordering::Greater);
+        // Within literals: NUMERIC compare (not lexical — "9" must sort before "10").
+        let nine = Some(Binding::Literal("9".to_string()));
+        let ten = Some(Binding::Literal("10".to_string()));
+        assert_eq!(cmp_binding(&nine, &ten), Ordering::Less);
+        // Within literals: xsd:dateTime ISO-8601 lexicals sort chronologically.
+        let early = Some(Binding::Literal("2020-01-01T00:00:00".to_string()));
+        let late = Some(Binding::Literal("2021-06-15T12:00:00".to_string()));
+        assert_eq!(cmp_binding(&early, &late), Ordering::Less);
+        // Same-kind nodes order by term id, IRIs among themselves.
+        let iri_a = Some(Binding::Node("<http://ex/a>".to_string()));
+        let iri_b = Some(Binding::Node("<http://ex/b>".to_string()));
+        assert_eq!(cmp_binding(&iri_a, &iri_b), Ordering::Less);
+    }
+
+    /// EG-135: multi-key ORDER BY (`?dept ASC, DESC(?rank)`) yields the exact top-level
+    /// ROW ORDER — Eng before Sales, and within Eng the higher rank first.
+    #[test]
+    fn order_by_multikey_asc_desc_eg135() {
+        let view = ranked_view();
+        let q = "PREFIX ex: <http://example.org/> \
+                 SELECT ?name WHERE { ?p ex:dept ?dept ; ex:name ?name ; ex:rank ?rank } \
+                 ORDER BY ?dept DESC(?rank)";
+        // Eng{rank2=Zoe, rank1=Amy} then Sales{Bob}.
+        assert_eq!(ordered_col(&view, q, "name"), vec!["Zoe", "Amy", "Bob"]);
+    }
+
+    /// EG-135: `ORDER BY … LIMIT k` returns the correct top-k in order (the sort must run
+    /// BEFORE the slice). ORDER BY ?rank then ?name, LIMIT 2 ⇒ the two lowest ranks,
+    /// name-tie-broken: Amy(1), Bob(1) — Zoe(2) is cut.
+    #[test]
+    fn order_by_limit_topk_eg135() {
+        let view = ranked_view();
+        let q = "PREFIX ex: <http://example.org/> \
+                 SELECT ?name WHERE { ?p ex:name ?name ; ex:rank ?rank } \
+                 ORDER BY ?rank ?name LIMIT 2";
+        assert_eq!(ordered_col(&view, q, "name"), vec!["Amy", "Bob"]);
+    }
+
+    /// EG-135: a `VALUES (?name ?tier)` table JOINED with a BGP both RESTRICTS (Carol,
+    /// absent from the table, is dropped) and EXTENDS (binds the new `?tier` column).
+    #[test]
+    fn values_join_extends_eg135() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name ?tier WHERE {
+              ?p ex:name ?name .
+              VALUES (?name ?tier) { ("Alice" "gold") ("Bob" "silver") }
+            }"#,
+        )
+        .unwrap();
+        let mut rows: Vec<(String, String)> = res
+            .solutions
+            .iter()
+            .map(|s| {
+                (
+                    s.get("name").unwrap().as_str().to_string(),
+                    s.get("tier").unwrap().as_str().to_string(),
+                )
+            })
+            .collect();
+        rows.sort();
+        // Carol has no VALUES row ⇒ dropped; Alice/Bob gain their tier.
+        assert_eq!(
+            rows,
+            vec![
+                ("Alice".to_string(), "gold".to_string()),
+                ("Bob".to_string(), "silver".to_string())
+            ],
+            "VALUES join restricts to the table AND binds ?tier"
+        );
+    }
+
+    /// EG-135: the DEFINITIVE MINUS-vs-NOT-EXISTS distinction — a right pattern sharing NO
+    /// variable with the left. TRUE MINUS removes nothing when the domains are disjoint
+    /// (so all rows survive), whereas FILTER NOT EXISTS evaluates the pattern's mere
+    /// existence and, since `?x ex:knows ?y` HAS matches, removes EVERY row. Proving they
+    /// differ confirms MINUS is real set-difference, not a NOT-EXISTS rewrite.
+    #[test]
+    fn minus_vs_not_exists_distinction_eg135() {
+        let view = loaded_view();
+        let names = |where_clause: &str| -> Vec<String> {
+            let q = format!(
+                "PREFIX ex: <http://example.org/> \
+                 SELECT ?name WHERE {{ ?p ex:name ?name . {where_clause} }}"
+            );
+            let mut v: Vec<String> = run(&view, &q)
+                .unwrap()
+                .solutions
+                .iter()
+                .map(|s| s.get("name").unwrap().as_str().to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        // Disjoint-domain MINUS deletes nothing → all three survive.
+        assert_eq!(
+            names("MINUS { ?x ex:knows ?y }"),
+            vec!["Alice", "Bob", "Carol"],
+            "disjoint-domain MINUS must remove nothing"
+        );
+        // NOT EXISTS on the same disjoint pattern → the pattern HAS matches, so it removes
+        // everything. This is the behavior MINUS deliberately does NOT share.
+        assert_eq!(
+            names("FILTER NOT EXISTS { ?x ex:knows ?y }"),
+            Vec::<String>::new(),
+            "NOT EXISTS on a matching disjoint pattern must remove all rows"
+        );
+    }
+
     // ── CONCEPT:EG-054 — FROM / FROM NAMED ──────────────────────────────────────
 
     /// EG-054: a `FROM <g>` clause scopes the default graph to that graph, so a plain
