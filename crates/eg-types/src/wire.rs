@@ -46,6 +46,44 @@ pub enum Pred {
     },
 }
 
+/// TENSOR — how `TensorOpKind::Reduce` collapses one axis (CONCEPT:EG-085). Mirrors
+/// eg-tensor's `ReduceKind`, but defined HERE (pure serde, no eg-tensor dep) so the
+/// wire stays Pi-safe; the executor maps it to eg-tensor's enum behind eg-plan's
+/// `tensor` gate.
+#[cfg(feature = "tensor")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TensorReduceKind {
+    Sum,
+    Mean,
+    Max,
+    Min,
+}
+
+/// TENSOR — the scalar op `TensorOpKind::Elementwise` applies to every element
+/// (CONCEPT:EG-085). Mirrors eg-tensor's `ElementwiseOp`; pure serde here.
+#[cfg(feature = "tensor")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TensorElementwiseOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+/// TENSOR — the transform carried by `Op::TensorOp` (CONCEPT:EG-085): one of the
+/// eg-tensor array ops, applied per-row to each row's tensor. `Slice` gathers a
+/// hyper-rectangle (`ranges[d] = (start, end)`, one per axis); `Reduce` collapses one
+/// `axis` with `kind`; `Elementwise` applies `op` with `scalar` to every element. PURE
+/// serde (only `usize`/`f64`/the two plain enums) — the actual N-D array math lives in
+/// eg-tensor behind eg-plan's `tensor` gate; this is the wire variant.
+#[cfg(feature = "tensor")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum TensorOpKind {
+    Slice { ranges: Vec<(usize, usize)> },
+    Reduce { axis: usize, kind: TensorReduceKind },
+    Elementwise { op: TensorElementwiseOp, scalar: f64 },
+}
+
 /// A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`
 /// (CONCEPT:KG-2.232, Lane P). A federated query reads rows from a source OUTSIDE
 /// the local engine and composes them with the local graph/vector/SQL ops — so a
@@ -303,6 +341,23 @@ pub enum Op {
     /// + R-tree live in eg-geo behind eg-plan's own `geo` gate; this is the wire variant).
     #[cfg(feature = "geo")]
     SpatialScan { layer: String, bbox: [f64; 4] },
+    /// SOURCE (tensor, CONCEPT:EG-085) — seed the RowSet with every node in the `layer`
+    /// (a node label / `type`) that carries a stored tensor (a dense N-D array in the
+    /// conventional `tensor` node property). The returned candidate set then flows —
+    /// like any source op — into a downstream `TensorOp` (slice/reduce/elementwise) /
+    /// `Traverse` / `Rank` / `Limit`, composing an array modality with graph + vector in
+    /// ONE plan. Gated by `tensor` (the N-D array model + ops live in eg-tensor behind
+    /// eg-plan's own `tensor` gate; this is the wire variant). The persisted tensors are
+    /// content-addressed in the blob CAS per the concept row (`ChunkStore` + EG-071).
+    #[cfg(feature = "tensor")]
+    TensorScan { layer: String },
+    /// TRANSFORM (tensor, CONCEPT:EG-085) — apply the eg-tensor op `kind`
+    /// (slice/reduce/elementwise) to each row's stored tensor. Rows whose tensor is
+    /// missing/invalid or where the op fails are dropped (order-preserving), exactly as
+    /// the spatial `Filter` leg drops rows with no geometry. Gated by `tensor`; the
+    /// N-D array math lives in eg-tensor behind eg-plan's `tensor` gate.
+    #[cfg(feature = "tensor")]
+    TensorOp { kind: TensorOpKind },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
@@ -616,6 +671,45 @@ mod geo_tests {
                         distance: 2.5,
                     },
                 ],
+            },
+            Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+}
+
+// ── tensor wire-variant round-trip (CONCEPT:EG-085) ──────────────────────────
+#[cfg(all(test, feature = "tensor"))]
+mod tensor_tests {
+    use super::*;
+
+    /// The tensor Op variants + `TensorOpKind` are pure-serde and round-trip through
+    /// MessagePack (the wire format) unchanged — the proof `Method::UnifiedQuery { plan }`
+    /// can carry a tensor plan.
+    #[test]
+    fn tensor_variants_round_trip() {
+        let plan = Plan::new(vec![
+            Op::TensorScan {
+                layer: "Frame".into(),
+            },
+            Op::TensorOp {
+                kind: TensorOpKind::Slice {
+                    ranges: vec![(0, 2), (1, 3)],
+                },
+            },
+            Op::TensorOp {
+                kind: TensorOpKind::Reduce {
+                    axis: 1,
+                    kind: TensorReduceKind::Mean,
+                },
+            },
+            Op::TensorOp {
+                kind: TensorOpKind::Elementwise {
+                    op: TensorElementwiseOp::Mul,
+                    scalar: 2.0,
+                },
             },
             Op::Limit { k: 5 },
         ]);

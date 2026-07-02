@@ -1,0 +1,24 @@
+[package]
+name = "eg-tensor"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Pure-Rust dense N-D array / tensor modality for the epistemic-graph engine (CONCEPT:EG-085) — a dtype/shape/row-major-buffer Tensor with slice / reduce / elementwise / reshape ops and a compact little-endian byte-blob codec for content-addressed storage in the blob CAS. NO BLAS/C deps (the Pi contract)."
+license = "MIT"
+
+[lib]
+name = "eg_tensor"
+
+# Pure-Rust, Pi-lean by design — a leaf crate like eg-ann / eg-geo. The ONLY
+# dependency is serde (so a `Tensor` persists as a typed value in the redb per-graph
+# store, per CONCEPT:EG-085). NO BLAS/LAPACK/C deps and NO ndarray: the N-D array
+# model, the slice/reduce/elementwise/reshape ops, and the compact byte-blob codec are
+# all hand-written, so the crate stays truly minimal and folds cleanly into the
+# `tensor` serving tiers (node/full), kept OUT of `pi`.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+# The serde round-trip test proves a `Tensor` survives the typed-property codec (the
+# non-blob persistence form). The compact byte-blob round-trip needs no dep at all.
+serde_json = "1.0"
