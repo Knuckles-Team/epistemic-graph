@@ -52,7 +52,18 @@ sparql-hash = ["sparql", "dep:md-5", "dep:sha1", "dep:sha2"]
 # `rdf-12` / spargebra `sparql-12` feature (pure Rust — NO new crate). Widens the
 # `oxrdf::Term` enum with `Triple(Box<Triple>)`; the mapping/eval match arms cfg-in
 # first-class handling only when this is on. OUT of `pi` (a Pi node stays RDF-1.1).
-sparql-star = ["sparql", "oxrdf/rdf-12", "oxttl/rdf-12", "spargebra/sparql-12"]
+# Weak `oxrdfxml?`/`oxjsonld?` propagation keeps rdf-12 CONSISTENT across the oxrdf
+# family when RDF/XML or JSON-LD is ALSO enabled (feature unification would otherwise
+# give oxrdfxml a rdf-12 `oxrdf::Term` its own match can't cover) — without pulling
+# those crates in when they are off.
+sparql-star = [
+    "sparql",
+    "oxrdf/rdf-12",
+    "oxttl/rdf-12",
+    "spargebra/sparql-12",
+    "oxrdfxml?/rdf-12",
+    "oxjsonld?/rdf-12",
+]
 # W6c — RDF/XML reader+writer (CONCEPT:EG-131) via pure-Rust `oxrdfxml`. Implies `rdf`.
 # OUT of `pi` (RDF/XML is a heavier serialization; N-Quads/TriG ride the in-`rdf` oxttl).
 rdf-xml = ["rdf", "dep:oxrdfxml"]

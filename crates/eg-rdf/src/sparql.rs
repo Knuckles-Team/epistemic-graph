@@ -1549,6 +1549,11 @@ fn bind_object_node(pat: &TermPattern, node_id: &str, sol: &mut Solution) -> boo
             true
         }
         TermPattern::Literal(_) => false, // a literal pattern can't match a resource
+        // RDF-star (CONCEPT:EG-130): a quoted-triple object pattern does not match a
+        // plain resource node (LPG persistence of quoted triples is a documented
+        // follow-up; quoted triples round-trip natively via parse/serialize).
+        #[cfg(feature = "sparql-star")]
+        TermPattern::Triple(_) => false,
     }
 }
 
@@ -1777,6 +1782,13 @@ fn eval_bool_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Soluti
                 .map(|b| matches!(b, Binding::Literal(_)))
                 .unwrap_or(false),
         ),
+        // RDF-star (CONCEPT:EG-130): isTRIPLE tests whether the term is a quoted triple.
+        #[cfg(feature = "sparql-star")]
+        F::IsTriple => Some(
+            eval_term(ctx, args.first()?, sol)
+                .map(|b| is_quoted(&b))
+                .unwrap_or(false),
+        ),
         _ => None,
     }
 }
@@ -1912,6 +1924,28 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
             Some(Binding::Literal(re.replace_all(&s, rep.as_str()).into_owned()))
         }
         F::EncodeForUri => Some(Binding::Literal(encode_for_uri(&expr_str(ctx, args.first()?, sol)?))),
+
+        // ── RDF-star / SPARQL-star term accessors (CONCEPT:EG-130) ────────────
+        // A quoted triple is a first-class term encoded as the canonical `<< s p o >>`
+        // string in a `Binding::Node`; TRIPLE constructs it and SUBJECT/PREDICATE/OBJECT
+        // project its components.
+        #[cfg(feature = "sparql-star")]
+        F::Triple => {
+            let s = eval_term(ctx, args.first()?, sol)?;
+            let p = eval_term(ctx, args.get(1)?, sol)?;
+            let o = eval_term(ctx, args.get(2)?, sol)?;
+            Some(Binding::Node(encode_quoted(&s, &p, &o)))
+        }
+        #[cfg(feature = "sparql-star")]
+        F::Subject => quoted_component(&eval_term(ctx, args.first()?, sol)?, 0),
+        #[cfg(feature = "sparql-star")]
+        F::Predicate => quoted_component(&eval_term(ctx, args.first()?, sol)?, 1),
+        #[cfg(feature = "sparql-star")]
+        F::Object => quoted_component(&eval_term(ctx, args.first()?, sol)?, 2),
+        #[cfg(feature = "sparql-star")]
+        F::IsTriple => Some(Binding::Literal(
+            if eval_bool_function(ctx, f, args, sol)? { "true" } else { "false" }.to_string(),
+        )),
 
         // Boolean built-ins composed in a string context → "true"/"false".
         F::Contains | F::StrStarts | F::StrEnds | F::Regex | F::LangMatches | F::IsIri
@@ -2199,6 +2233,53 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
     let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
     (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+// ── EG-130 helpers: RDF-star quoted-triple term (string-encoded first-class term) ──
+
+/// Render a `Binding` as a term inside a quoted triple: nodes keep their `<iri>`/`_:b`
+/// form; literals are quoted (`"lit"`).
+#[cfg(feature = "sparql-star")]
+fn render_star_term(b: &Binding) -> String {
+    match b {
+        Binding::Node(s) => s.clone(),
+        Binding::Literal(s) => format!("{s:?}"),
+    }
+}
+
+/// Encode a quoted triple from its three component bindings as `<< s p o >>`.
+#[cfg(feature = "sparql-star")]
+fn encode_quoted(s: &Binding, p: &Binding, o: &Binding) -> String {
+    format!(
+        "<< {} {} {} >>",
+        render_star_term(s),
+        render_star_term(p),
+        render_star_term(o)
+    )
+}
+
+/// Whether a binding is a quoted-triple term (`<< … >>`).
+#[cfg(feature = "sparql-star")]
+fn is_quoted(b: &Binding) -> bool {
+    matches!(b, Binding::Node(s) if s.starts_with("<<") && s.ends_with(">>"))
+}
+
+/// Project component `idx` (0=subject, 1=predicate, 2=object) of a quoted-triple term.
+/// Components are whitespace-delimited canonical terms (IRIs/bnodes/simple literals);
+/// space-bearing or nested-quoted components are a documented follow-up.
+#[cfg(feature = "sparql-star")]
+fn quoted_component(b: &Binding, idx: usize) -> Option<Binding> {
+    if !is_quoted(b) {
+        return None;
+    }
+    let Binding::Node(s) = b else { return None };
+    let inner = s.strip_prefix("<<")?.strip_suffix(">>")?.trim();
+    let tok = inner.split_whitespace().nth(idx)?;
+    Some(if tok.starts_with('<') || tok.starts_with("_:") {
+        Binding::Node(tok.to_string())
+    } else {
+        Binding::Literal(tok.trim_matches('"').to_string())
+    })
 }
 
 #[cfg(test)]
@@ -3457,5 +3538,27 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
         // RAND() is a double in [0,1).
         let r: f64 = scalar(&v, "RAND()").parse().unwrap();
         assert!((0.0..1.0).contains(&r), "RAND() = {r}");
+    }
+
+    // ── EG-130: SPARQL-star (RDF 1.2) — construct + project a quoted triple ──
+
+    /// EG-130: TRIPLE() constructs a first-class quoted-triple term that binds to `?t`;
+    /// isTRIPLE tests it and SUBJECT/PREDICATE/OBJECT project its components.
+    #[cfg(feature = "sparql-star")]
+    #[test]
+    fn eg130_sparql_star_accessors() {
+        let v = loaded_view();
+        let t = "TRIPLE(<http://example.org/a>, <http://example.org/b>, <http://example.org/c>)";
+        // The raw binding is the canonical quoted-triple term (STR() would strip the
+        // outer angle brackets, so we read the binding directly here).
+        assert!(
+            scalar(&v, t).starts_with("<<"),
+            "TRIPLE() yields a quoted-triple term"
+        );
+        assert_eq!(scalar(&v, &format!("isTRIPLE({t})")), "true");
+        assert_eq!(scalar(&v, "isTRIPLE(<http://example.org/a>)"), "false");
+        assert_eq!(scalar(&v, &format!("STR(SUBJECT({t}))")), "http://example.org/a");
+        assert_eq!(scalar(&v, &format!("STR(PREDICATE({t}))")), "http://example.org/b");
+        assert_eq!(scalar(&v, &format!("STR(OBJECT({t}))")), "http://example.org/c");
     }
 }
