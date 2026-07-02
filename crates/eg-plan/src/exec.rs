@@ -195,6 +195,15 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "tensor")]
         Op::TensorOp { kind } => Ok(tensor_op(ctx.view, input, kind)),
 
+        // TRANSFORM (stream, CONCEPT:EG-088) — interpret the input RowSet as a
+        // time-ordered event stream and run the eg-stream bounded NFA CEP engine over it,
+        // keeping the rows that participate in a match. Gated behind `stream`; the variant
+        // only exists when eg-types/stream is on (pulled by eg-plan/stream), so a
+        // non-stream build has neither the variant nor this arm (the tensor/geo gating
+        // precedent).
+        #[cfg(feature = "stream")]
+        Op::Cep { pattern } => Ok(cep_op(ctx.view, input, pattern)),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
 }
@@ -840,6 +849,136 @@ fn apply_tensor_op(
             };
             Ok(t.elementwise(o, *scalar))
         }
+    }
+}
+
+// ── the stream / CEP leg — eg-stream bounded NFA over the GraphView blobs (EG-088) ─
+
+/// The reserved attribute key under which [`cep_op`] stashes each event's originating
+/// node id, so a detected [`eg_stream::Match`]'s events can be mapped back to the input
+/// rows that participated. Namespaced with a leading `_` to avoid colliding with a
+/// user's own event attributes.
+#[cfg(feature = "stream")]
+const CEP_ID_ATTR: &str = "_eg_row_id";
+
+/// TRANSFORM (stream, CONCEPT:EG-088): interpret the input RowSet as a time-ordered
+/// event stream — each row's node blob supplies `ts` (u64), `key` (string) and `attrs`
+/// (object) — run the eg-stream bounded NFA for `spec.pattern` over `spec.window`, and
+/// keep the input rows that PARTICIPATE in a detected match (order- and score-preserving
+/// via [`RowSet::intersect_keep_order`], exactly as the spatial/tensor legs narrow their
+/// input). Rows whose blob lacks a numeric `ts` are not events and never match.
+/// (EG-067 `Op::Window` is the plan-side windowing primitive; a live standing CEP query
+/// fed by the EG-064 CDC `ChangeNotifier` bus — matching incrementally as the bus
+/// advances the window — is the documented follow-up; this batch executor is what lands.)
+#[cfg(feature = "stream")]
+fn cep_op(view: &GraphView, input: RowSet, spec: &eg_types::wire::CepPatternSpec) -> RowSet {
+    // Build the event stream from the input rows, tagging each event with its source row
+    // id so matches map back. `run` sorts by `ts` internally.
+    let mut events: Vec<eg_stream::Event> = Vec::new();
+    for r in input.rows() {
+        if let Some(mut ev) = row_event(view, &r.id) {
+            ev.attrs.insert(
+                CEP_ID_ATTR.to_string(),
+                serde_json::Value::String(r.id.clone()),
+            );
+            events.push(ev);
+        }
+    }
+    let pattern = cep_pattern_from_spec(&spec.pattern);
+    let window = cep_window_from_spec(spec.window);
+    let matches = eg_stream::run(&pattern, &events, window);
+
+    let keep_ids: HashSet<String> = matches
+        .iter()
+        .flat_map(|m| m.events.iter())
+        .filter_map(|e| e.attrs.get(CEP_ID_ATTR).and_then(|v| v.as_str()))
+        .map(|s| s.to_string())
+        .collect();
+    let keep: HashSet<&str> = keep_ids.iter().map(|s| s.as_str()).collect();
+    input.intersect_keep_order(&keep)
+}
+
+/// Read node `id`'s event from its blob (CONCEPT:EG-088): the conventional `ts` (u64,
+/// required — a node with no numeric `ts` is not an event), `key` (string, defaults to
+/// empty) and `attrs` (object, defaults to empty).
+#[cfg(feature = "stream")]
+fn row_event(view: &GraphView, id: &str) -> Option<eg_stream::Event> {
+    let blob = view.node_properties.get(id)?;
+    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let ts = v.get("ts").and_then(|t| t.as_u64())?;
+    let key = v
+        .get("key")
+        .and_then(|k| k.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let attrs = v
+        .get("attrs")
+        .and_then(|a| a.as_object())
+        .cloned()
+        .unwrap_or_default();
+    Some(eg_stream::Event { ts, key, attrs })
+}
+
+/// Map the pure-serde wire `CepWindowSpec` (eg-types) to eg-stream's `Window`.
+#[cfg(feature = "stream")]
+fn cep_window_from_spec(w: eg_types::wire::CepWindowSpec) -> eg_stream::Window {
+    use eg_types::wire::CepWindowSpec;
+    match w {
+        CepWindowSpec::Sliding { size } => eg_stream::Window::Sliding { size },
+        CepWindowSpec::Tumbling { size } => eg_stream::Window::Tumbling { size },
+    }
+}
+
+/// Map a pure-serde wire `CepMatcherSpec` (eg-types) to eg-stream's `EventMatcher`.
+#[cfg(feature = "stream")]
+fn cep_matcher_from_spec(m: &eg_types::wire::CepMatcherSpec) -> eg_stream::EventMatcher {
+    use eg_types::wire::CepAttrPredSpec;
+    let preds = m
+        .preds
+        .iter()
+        .map(|p| match p {
+            CepAttrPredSpec::Eq { field, value } => eg_stream::AttrPredicate::Eq {
+                field: field.clone(),
+                value: value.clone(),
+            },
+            CepAttrPredSpec::Gt { field, value } => eg_stream::AttrPredicate::Gt {
+                field: field.clone(),
+                value: *value,
+            },
+            CepAttrPredSpec::Lt { field, value } => eg_stream::AttrPredicate::Lt {
+                field: field.clone(),
+                value: *value,
+            },
+            CepAttrPredSpec::Exists { field } => eg_stream::AttrPredicate::Exists {
+                field: field.clone(),
+            },
+        })
+        .collect();
+    eg_stream::EventMatcher {
+        key: m.key.clone(),
+        preds,
+    }
+}
+
+/// Map the pure-serde wire `CepNodeSpec` tree (eg-types) to eg-stream's `CepPattern`.
+/// The wire enums are Pi-safe (no eg-stream dep); this seam turns them into the real NFA
+/// pattern behind the `stream` gate.
+#[cfg(feature = "stream")]
+fn cep_pattern_from_spec(p: &eg_types::wire::CepNodeSpec) -> eg_stream::CepPattern {
+    use eg_types::wire::CepNodeSpec;
+    match p {
+        CepNodeSpec::Sequence(matchers) => {
+            eg_stream::CepPattern::Sequence(matchers.iter().map(cep_matcher_from_spec).collect())
+        }
+        CepNodeSpec::Within { within, pattern } => eg_stream::CepPattern::Within {
+            within: *within,
+            pattern: Box::new(cep_pattern_from_spec(pattern)),
+        },
+        CepNodeSpec::Absence { a, b, within } => eg_stream::CepPattern::Absence {
+            a: cep_matcher_from_spec(a),
+            b: cep_matcher_from_spec(b),
+            within: *within,
+        },
     }
 }
 
