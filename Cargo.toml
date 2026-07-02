@@ -34,6 +34,13 @@ name = "migrate-shards"
 path = "src/bin/migrate_shards.rs"
 required-features = ["redb", "server"]
 
+# Restore a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-090). Verbatim
+# import via the EG-030 engine; supports re-shard-on-restore. Needs the redb backend.
+[[bin]]
+name = "restore"
+path = "src/bin/restore.rs"
+required-features = ["redb", "server"]
+
 # SQLite-style embedded usage (CONCEPT:KG-2.216). Needs the in-process library API.
 [[example]]
 name = "embedded"
