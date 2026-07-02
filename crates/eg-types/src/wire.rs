@@ -44,6 +44,54 @@ pub enum Pred {
         wkt: String,
         distance: f64,
     },
+    /// SPATIAL (DE-9IM, CONCEPT:EG-258) — keep rows whose geometry (node property `column`,
+    /// WKT) is topologically related to the query geometry `wkt` per the named DE-9IM
+    /// relation. Each mirrors [`Pred::SpatialWithin`] (two strings) and is evaluated per-row
+    /// by eg-geo's `predicates` in eg-plan — NOT lowered to SQL. Gated by `geo`.
+    ///
+    /// `SpatialContains` = the row geometry CONTAINS the query geometry; `SpatialCovers`
+    /// its boundary-inclusive superset; `SpatialTouches` boundary-only contact;
+    /// `SpatialCrosses` interiors meeting in lower dimension; `SpatialOverlaps` same-dim
+    /// partial overlap; `SpatialEquals` geometric equality; `SpatialDisjoint` no shared
+    /// point.
+    #[cfg(feature = "geo")]
+    SpatialContains { column: String, wkt: String },
+    #[cfg(feature = "geo")]
+    SpatialCovers { column: String, wkt: String },
+    #[cfg(feature = "geo")]
+    SpatialTouches { column: String, wkt: String },
+    #[cfg(feature = "geo")]
+    SpatialCrosses { column: String, wkt: String },
+    #[cfg(feature = "geo")]
+    SpatialOverlaps { column: String, wkt: String },
+    #[cfg(feature = "geo")]
+    SpatialEquals { column: String, wkt: String },
+    #[cfg(feature = "geo")]
+    SpatialDisjoint { column: String, wkt: String },
+}
+
+/// SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-259).
+/// Pure serde here (Pi-safe, no eg-geo dep); the executor maps it to eg-geo's `algebra`
+/// behind eg-plan's `geo` gate. Unary ops (`Buffer`/`ConvexHull`/`Simplify`/`Centroid`)
+/// derive from the row geometry alone; binary ops (`Union`/`Intersection`/`Difference`)
+/// take the second operand as a WKT literal.
+#[cfg(feature = "geo")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SpatialOpKind {
+    /// Grow the geometry outward by `distance` (a convex buffer polygon).
+    Buffer { distance: f64 },
+    /// The convex hull of the geometry's vertices.
+    ConvexHull,
+    /// Douglas–Peucker vertex reduction at `tolerance`.
+    Simplify { tolerance: f64 },
+    /// The centroid (a `Point`).
+    Centroid,
+    /// The (convex) union of the row geometry with `wkt`.
+    Union { wkt: String },
+    /// The intersection of the row geometry with `wkt` (Sutherland–Hodgman; convex clip).
+    Intersection { wkt: String },
+    /// The difference of the row geometry minus `wkt` (documented subset).
+    Difference { wkt: String },
 }
 
 /// TENSOR — how `TensorOpKind::Reduce` collapses one axis (CONCEPT:EG-085). Mirrors
@@ -404,6 +452,29 @@ pub enum Op {
     /// + R-tree live in eg-geo behind eg-plan's own `geo` gate; this is the wire variant).
     #[cfg(feature = "geo")]
     SpatialScan { layer: String, bbox: [f64; 4] },
+    /// TRANSFORM (spatial CRS, CONCEPT:EG-255) — reproject each row's stored geometry into
+    /// the target CRS `to_epsg`. The SOURCE CRS is the row geometry's EWKT `SRID=…;` tag
+    /// when present, else the explicit `from_epsg` override. Rows with no/invalid geometry,
+    /// no resolvable source CRS, or an unsupported EPSG code are DROPPED (order-preserving,
+    /// exactly as the tensor/spatial legs narrow their input) — the derived geometry
+    /// validates the transform per row. The pure-Rust reprojection math (WGS84 / Web-Mercator
+    /// / UTM, NO PROJ C dep) lives in eg-geo behind eg-plan's `geo` gate; this is the
+    /// CRS-carrying wire variant. Gated by `geo`.
+    #[cfg(feature = "geo")]
+    Reproject {
+        to_epsg: u32,
+        #[serde(default)]
+        from_epsg: Option<u32>,
+    },
+    /// TRANSFORM (constructive geometry, CONCEPT:EG-259) — apply the constructive op `kind`
+    /// (buffer / convex-hull / simplify / centroid / union / intersection / difference) to
+    /// each row's stored geometry, producing a DERIVED geometry per row. Rows whose geometry
+    /// is missing/invalid or where the op yields nothing (e.g. an empty intersection) are
+    /// DROPPED — order- and score-preserving, exactly as the tensor `TensorOp` leg. The
+    /// pure-Rust algebra lives in eg-geo behind eg-plan's `geo` gate; this is the wire
+    /// variant. Gated by `geo`.
+    #[cfg(feature = "geo")]
+    SpatialOp { kind: SpatialOpKind },
     /// SOURCE (tensor, CONCEPT:EG-085) — seed the RowSet with every node in the `layer`
     /// (a node label / `type`) that carries a stored tensor (a dense N-D array in the
     /// conventional `tensor` node property). The returned candidate set then flows —
@@ -748,6 +819,58 @@ mod geo_tests {
                 ],
             },
             Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+
+    /// The GIS batch wire variants — CRS reprojection (EG-255), the DE-9IM relation preds
+    /// (EG-258), and the constructive `SpatialOp` (EG-259) — all round-trip through
+    /// MessagePack unchanged.
+    #[test]
+    fn gis_batch_variants_round_trip() {
+        let plan = Plan::new(vec![
+            Op::SpatialScan {
+                layer: "Parcel".into(),
+                bbox: [0.0, 0.0, 100.0, 100.0],
+            },
+            Op::Reproject {
+                to_epsg: 3857,
+                from_epsg: Some(4326),
+            },
+            Op::Filter {
+                preds: vec![
+                    Pred::SpatialContains {
+                        column: "geom".into(),
+                        wkt: "POINT (5 5)".into(),
+                    },
+                    Pred::SpatialTouches {
+                        column: "geom".into(),
+                        wkt: "LINESTRING (0 0, 1 1)".into(),
+                    },
+                    Pred::SpatialOverlaps {
+                        column: "geom".into(),
+                        wkt: "POLYGON ((0 0, 2 0, 2 2, 0 2, 0 0))".into(),
+                    },
+                    Pred::SpatialDisjoint {
+                        column: "geom".into(),
+                        wkt: "POINT (99 99)".into(),
+                    },
+                ],
+            },
+            Op::SpatialOp {
+                kind: SpatialOpKind::Buffer { distance: 2.0 },
+            },
+            Op::SpatialOp {
+                kind: SpatialOpKind::ConvexHull,
+            },
+            Op::SpatialOp {
+                kind: SpatialOpKind::Intersection {
+                    wkt: "POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0))".into(),
+                },
+            },
+            Op::Limit { k: 10 },
         ]);
         let bytes = rmp_serde::to_vec_named(&plan).unwrap();
         let back: Plan = rmp_serde::from_slice(&bytes).unwrap();

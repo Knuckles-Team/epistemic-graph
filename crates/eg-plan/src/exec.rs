@@ -185,6 +185,17 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "geo")]
         Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx.view, layer, *bbox)),
 
+        // TRANSFORM (spatial CRS, CONCEPT:EG-255) — reproject each row's geometry into
+        // `to_epsg`; TRANSFORM (constructive, CONCEPT:EG-259) — derive a geometry per row
+        // via the eg-geo `algebra` op. Both gated behind `geo`; the variants only exist
+        // when eg-types/geo is on (the SpatialScan/ForeignScan gating precedent).
+        #[cfg(feature = "geo")]
+        Op::Reproject { to_epsg, from_epsg } => {
+            Ok(spatial_reproject(ctx.view, input, *to_epsg, *from_epsg))
+        }
+        #[cfg(feature = "geo")]
+        Op::SpatialOp { kind } => Ok(spatial_op(ctx.view, input, kind)),
+
         // SOURCE (tensor, CONCEPT:EG-085) — seed the RowSet with the `layer`'s
         // tensor-bearing nodes; TRANSFORM (tensor) — apply the eg-tensor op to each
         // row's stored tensor. Gated behind `tensor`; the variants only exist when
@@ -644,10 +655,8 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     // Partition spatial preds from relational preds (a non-geo build has no spatial
     // variants, so `relational` is simply every pred).
     #[cfg(feature = "geo")]
-    let (relational, spatial): (Vec<Pred>, Vec<Pred>) = preds
-        .iter()
-        .cloned()
-        .partition(|p| !matches!(p, Pred::SpatialWithin { .. } | Pred::SpatialDWithin { .. }));
+    let (relational, spatial): (Vec<Pred>, Vec<Pred>) =
+        preds.iter().cloned().partition(|p| !is_spatial_pred(p));
     #[cfg(not(feature = "geo"))]
     let relational: Vec<Pred> = preds.to_vec();
 
@@ -711,35 +720,156 @@ fn spatial_scan(view: &GraphView, layer: &str, bbox: [f64; 4]) -> RowSet {
     RowSet::from_ids(hits.into_iter().map(|i| ids[i].clone()))
 }
 
-/// FILTER (spatial): keep rows whose stored geometry satisfies `pred` (CONCEPT:EG-083),
-/// reading each row's geometry as WKT from the node property named by the pred's
-/// `column`. `SpatialWithin` keeps rows whose geometry is planar-`within` the query
-/// geometry; `SpatialDWithin` keeps rows within `distance` of it. Rows with no/invalid
-/// geometry are dropped. Order- and score-preserving via [`RowSet::intersect_keep_order`].
+/// Is `pred` a spatial predicate (evaluated per-row by eg-geo, NOT lowered to SQL)?
+/// Covers EG-083's within/dwithin plus the EG-258 DE-9IM relation set.
+#[cfg(feature = "geo")]
+fn is_spatial_pred(pred: &Pred) -> bool {
+    matches!(
+        pred,
+        Pred::SpatialWithin { .. }
+            | Pred::SpatialDWithin { .. }
+            | Pred::SpatialContains { .. }
+            | Pred::SpatialCovers { .. }
+            | Pred::SpatialTouches { .. }
+            | Pred::SpatialCrosses { .. }
+            | Pred::SpatialOverlaps { .. }
+            | Pred::SpatialEquals { .. }
+            | Pred::SpatialDisjoint { .. }
+    )
+}
+
+/// FILTER (spatial): keep rows whose stored geometry satisfies `pred` (CONCEPT:EG-083 for
+/// within/dwithin; CONCEPT:EG-258 for the DE-9IM relations), reading each row's geometry
+/// as WKT from the node property named by the pred's `column`. The relation is evaluated
+/// as `relation(row_geometry, query_geometry)` — e.g. `SpatialContains` keeps rows whose
+/// geometry CONTAINS the query. Rows with no/invalid geometry are dropped. Order- and
+/// score-preserving via [`RowSet::intersect_keep_order`].
 #[cfg(feature = "geo")]
 fn spatial_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSet, String> {
-    let (column, query_geom, max_dist): (&str, eg_geo::Geometry, Option<f64>) = match pred {
-        Pred::SpatialWithin { column, wkt } => (column, eg_geo::parse_wkt(wkt)?, None),
+    /// The relation to test between the row geometry and the query geometry.
+    enum Rel {
+        Within,
+        DWithin(f64),
+        Contains,
+        Covers,
+        Touches,
+        Crosses,
+        Overlaps,
+        Equals,
+        Disjoint,
+    }
+    let (column, wkt, rel): (&str, &str, Rel) = match pred {
+        Pred::SpatialWithin { column, wkt } => (column, wkt, Rel::Within),
         Pred::SpatialDWithin {
             column,
             wkt,
             distance,
-        } => (column, eg_geo::parse_wkt(wkt)?, Some(*distance)),
+        } => (column, wkt, Rel::DWithin(*distance)),
+        Pred::SpatialContains { column, wkt } => (column, wkt, Rel::Contains),
+        Pred::SpatialCovers { column, wkt } => (column, wkt, Rel::Covers),
+        Pred::SpatialTouches { column, wkt } => (column, wkt, Rel::Touches),
+        Pred::SpatialCrosses { column, wkt } => (column, wkt, Rel::Crosses),
+        Pred::SpatialOverlaps { column, wkt } => (column, wkt, Rel::Overlaps),
+        Pred::SpatialEquals { column, wkt } => (column, wkt, Rel::Equals),
+        Pred::SpatialDisjoint { column, wkt } => (column, wkt, Rel::Disjoint),
         // Relational preds never reach here (`filter_op` splits them out).
         _ => return Ok(input),
     };
+    let query_geom = eg_geo::parse_wkt(wkt)?;
     let keep: HashSet<&str> = input
         .rows()
         .iter()
         .filter(|r| {
-            row_geometry(view, &r.id, column).is_some_and(|g| match max_dist {
-                None => eg_geo::within(&g, &query_geom),
-                Some(d) => eg_geo::distance(&g, &query_geom) <= d,
+            row_geometry(view, &r.id, column).is_some_and(|g| match rel {
+                Rel::Within => eg_geo::within(&g, &query_geom),
+                Rel::DWithin(d) => eg_geo::distance(&g, &query_geom) <= d,
+                Rel::Contains => eg_geo::contains(&g, &query_geom),
+                Rel::Covers => eg_geo::covers(&g, &query_geom),
+                Rel::Touches => eg_geo::touches(&g, &query_geom),
+                Rel::Crosses => eg_geo::crosses(&g, &query_geom),
+                Rel::Overlaps => eg_geo::overlaps(&g, &query_geom),
+                Rel::Equals => eg_geo::equals(&g, &query_geom),
+                Rel::Disjoint => eg_geo::disjoint(&g, &query_geom),
             })
         })
         .map(|r| r.id.as_str())
         .collect();
     Ok(input.intersect_keep_order(&keep))
+}
+
+/// TRANSFORM (spatial CRS, CONCEPT:EG-255): reproject each row's stored geometry into
+/// `to_epsg`. The source CRS is the row geometry's EWKT `SRID=…;` tag, or `from_epsg` when
+/// given (an explicit override always wins). Rows with no geometry, no resolvable source
+/// CRS, or an unsupported/failed reprojection are DROPPED — order- and score-preserving,
+/// exactly as the tensor/spatial legs. A v1 executor does NOT persist the reprojected
+/// geometry back to the blob (mirroring `tensor_op`); it validates the transform per row.
+#[cfg(feature = "geo")]
+fn spatial_reproject(
+    view: &GraphView,
+    input: RowSet,
+    to_epsg: u32,
+    from_epsg: Option<u32>,
+) -> RowSet {
+    let to = eg_geo::Crs::from_epsg(to_epsg);
+    let keep: HashSet<&str> = input
+        .rows()
+        .iter()
+        .filter(|r| {
+            row_geometry_srid(view, &r.id).is_some_and(|(srid, g)| {
+                match from_epsg.or(srid).map(eg_geo::Crs::from_epsg) {
+                    Some(from) => eg_geo::reproject(&g, from, to).is_ok(),
+                    None => false, // unknown source CRS ⇒ cannot reproject
+                }
+            })
+        })
+        .map(|r| r.id.as_str())
+        .collect();
+    input.intersect_keep_order(&keep)
+}
+
+/// TRANSFORM (constructive, CONCEPT:EG-259): apply the eg-geo `algebra` op `kind` to each
+/// row's stored geometry (conventional `geometry`/`geom` property), producing a derived
+/// geometry. Rows whose geometry is missing/invalid or where the op yields nothing (e.g.
+/// an empty intersection, a degenerate centroid) are DROPPED — order- and score-preserving,
+/// exactly as [`tensor_op`]. The derived geometry validates the op per row; a v1 executor
+/// does NOT persist it back to the blob (the documented follow-up).
+#[cfg(feature = "geo")]
+fn spatial_op(view: &GraphView, input: RowSet, kind: &eg_types::wire::SpatialOpKind) -> RowSet {
+    let keep: HashSet<&str> = input
+        .rows()
+        .iter()
+        .filter(|r| {
+            row_geometry_conv(view, &r.id).is_some_and(|g| apply_spatial_op(&g, kind).is_some())
+        })
+        .map(|r| r.id.as_str())
+        .collect();
+    input.intersect_keep_order(&keep)
+}
+
+/// Map the pure-serde wire `SpatialOpKind` (eg-types) to the eg-geo `algebra` op and run
+/// it, returning the derived geometry (`None` when the op has no result). Unary ops always
+/// succeed; the binary WKT-operand ops parse the second geometry then apply the op.
+#[cfg(feature = "geo")]
+fn apply_spatial_op(
+    g: &eg_geo::Geometry,
+    kind: &eg_types::wire::SpatialOpKind,
+) -> Option<eg_geo::Geometry> {
+    use eg_types::wire::SpatialOpKind;
+    match kind {
+        SpatialOpKind::Buffer { distance } => Some(eg_geo::buffer(g, *distance)),
+        SpatialOpKind::ConvexHull => Some(eg_geo::convex_hull(g)),
+        SpatialOpKind::Simplify { tolerance } => Some(eg_geo::simplify(g, *tolerance)),
+        SpatialOpKind::Centroid => eg_geo::centroid(g).map(eg_geo::Geometry::Point),
+        SpatialOpKind::Union { wkt } => {
+            eg_geo::parse_wkt(wkt).ok().map(|o| eg_geo::union(g, &o))
+        }
+        SpatialOpKind::Intersection { wkt } => {
+            eg_geo::parse_wkt(wkt).ok().and_then(|o| eg_geo::intersection(g, &o))
+        }
+        SpatialOpKind::Difference { wkt } => {
+            eg_geo::parse_wkt(wkt).ok().and_then(|o| eg_geo::difference(g, &o))
+        }
+    }
 }
 
 /// Read node `id`'s geometry from the WKT string in property `column` of its blob.
@@ -757,6 +887,26 @@ fn row_geometry(view: &GraphView, id: &str, column: &str) -> Option<eg_geo::Geom
 fn geometry_from_value(v: &serde_json::Value) -> Option<eg_geo::Geometry> {
     let wkt = v.get("geometry").or_else(|| v.get("geom"))?.as_str()?;
     eg_geo::parse_wkt(wkt).ok()
+}
+
+/// Read node `id`'s geometry from the conventional `geometry`/`geom` WKT property (the
+/// column-free read used by `Op::SpatialOp`, CONCEPT:EG-259).
+#[cfg(feature = "geo")]
+fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
+    let blob = view.node_properties.get(id)?;
+    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    geometry_from_value(&v)
+}
+
+/// Read node `id`'s geometry AND its EWKT `SRID=…;` CRS tag from the conventional
+/// `geometry`/`geom` WKT property (used by `Op::Reproject`, CONCEPT:EG-255). The `srid`
+/// is `None` when the stored WKT carries no EWKT prefix.
+#[cfg(feature = "geo")]
+fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo::Geometry)> {
+    let blob = view.node_properties.get(id)?;
+    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let wkt = v.get("geometry").or_else(|| v.get("geom"))?.as_str()?;
+    eg_geo::parse_with_srid(wkt).ok()
 }
 
 // ── the tensor leg — eg-tensor N-D arrays over the GraphView blobs (EG-085) ──────
@@ -1000,11 +1150,19 @@ fn where_clause(preds: &[Pred]) -> String {
             }
             Pred::GtNum { prop, n } => format!("{prop} > {n}"),
             Pred::LtNum { prop, n } => format!("{prop} < {n}"),
-            // Spatial preds (CONCEPT:EG-083) are NOT lowered to SQL — `filter_op` splits
-            // them out and applies them per-row via eg-geo, so they never reach here.
+            // Spatial preds (CONCEPT:EG-083 / EG-258) are NOT lowered to SQL — `filter_op`
+            // splits them out and applies them per-row via eg-geo, so they never reach here.
             // This defensive arm keeps the match exhaustive under `geo`: a no-op `1=1`.
             #[cfg(feature = "geo")]
-            Pred::SpatialWithin { .. } | Pred::SpatialDWithin { .. } => "1=1".into(),
+            Pred::SpatialWithin { .. }
+            | Pred::SpatialDWithin { .. }
+            | Pred::SpatialContains { .. }
+            | Pred::SpatialCovers { .. }
+            | Pred::SpatialTouches { .. }
+            | Pred::SpatialCrosses { .. }
+            | Pred::SpatialOverlaps { .. }
+            | Pred::SpatialEquals { .. }
+            | Pred::SpatialDisjoint { .. } => "1=1".into(),
         })
         .collect::<Vec<_>>()
         .join(" AND ")
