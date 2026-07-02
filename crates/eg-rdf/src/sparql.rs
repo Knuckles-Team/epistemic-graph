@@ -274,12 +274,25 @@ fn merge_views<'v>(views: impl Iterator<Item = &'v GraphView>) -> GraphView {
     out
 }
 
+/// A remote SPARQL endpoint the evaluator can delegate a `SERVICE` clause to
+/// (CONCEPT:EG-052). This is the SEAM: `eg-rdf` owns the algebra + the SILENT / join
+/// semantics but knows NOTHING about HTTP — the facade supplies a `ureq`-backed impl
+/// (feature `sparql-service`), keeping the Pi/crate-DAG contract intact (no HTTP dep
+/// enters this pure-Rust crate). `select` runs one remote SELECT and returns its
+/// solution table; `Err` carries a human-readable failure (routed by SILENT).
+pub trait RemoteSparql: Sync {
+    /// Evaluate `query` (a complete SPARQL SELECT) against `endpoint`, returning its rows.
+    fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String>;
+}
+
 /// The active evaluation context: the dataset, the graph the current scans resolve
-/// against (the default, or a `GRAPH`-scoped named graph), and the LPG→RDF projection.
+/// against (the default, or a `GRAPH`-scoped named graph), the LPG→RDF projection, and
+/// the OPTIONAL remote-`SERVICE` client (CONCEPT:EG-052; `None` ⇒ SERVICE is unavailable).
 struct Ctx<'a> {
     ds: &'a Dataset<'a>,
     active: &'a GraphView,
     proj: &'a Projection,
+    service: Option<&'a dyn RemoteSparql>,
 }
 
 impl<'a> Ctx<'a> {
@@ -289,6 +302,7 @@ impl<'a> Ctx<'a> {
             ds: self.ds,
             active,
             proj: self.proj,
+            service: self.service,
         }
     }
 }
@@ -344,6 +358,21 @@ pub fn run_outcome_dataset(
     evaluate_outcome(ds, &q, proj)
 }
 
+/// Parse + evaluate a SPARQL query over a [`Dataset`] with an OPTIONAL remote-`SERVICE`
+/// client bound (CONCEPT:EG-052). Identical to [`run_outcome_dataset`] except a
+/// `SERVICE <ep> { … }` clause dispatches through `service` (a `None` client makes every
+/// non-SILENT SERVICE an error — the fail-closed default). This is the ONE additive entry
+/// the facade calls; all existing entry points forward `service = None` (no behavior change).
+pub fn run_outcome_dataset_service(
+    ds: &Dataset,
+    query_str: &str,
+    proj: &Projection,
+    service: Option<&dyn RemoteSparql>,
+) -> Result<QueryOutcome, String> {
+    let q = parse_query(query_str)?;
+    evaluate_outcome_svc(ds, &q, proj, service)
+}
+
 /// Evaluate a parsed SELECT query over the GraphView (back-compat SELECT-only API).
 pub fn evaluate(
     view: &GraphView,
@@ -368,6 +397,18 @@ pub fn evaluate_outcome(
     ds: &Dataset,
     query: &Query,
     proj: &Projection,
+) -> Result<QueryOutcome, String> {
+    evaluate_outcome_svc(ds, query, proj, None)
+}
+
+/// Service-aware core of [`evaluate_outcome`] (CONCEPT:EG-052): identical, but threads an
+/// optional remote-`SERVICE` client into the evaluation `Ctx`. The public `evaluate_outcome`
+/// forwards `None` (no SERVICE), so no existing caller changes behavior.
+fn evaluate_outcome_svc(
+    ds: &Dataset,
+    query: &Query,
+    proj: &Projection,
+    service: Option<&dyn RemoteSparql>,
 ) -> Result<QueryOutcome, String> {
     // FROM / FROM NAMED (CONCEPT:EG-054): if the query carries a dataset spec, honor it
     // to scope the active dataset instead of always using the server-registered one.
@@ -404,6 +445,7 @@ pub fn evaluate_outcome(
         ds,
         active: ds.default,
         proj,
+        service,
     };
     match query {
         Query::Select { pattern, .. } => {
@@ -446,6 +488,8 @@ pub fn eval_where(
         ds,
         active: ds.default,
         proj,
+        // UPDATE/DESCRIBE WHERE never spans a remote SERVICE (CONCEPT:EG-052).
+        service: None,
     };
     eval_pattern(&ctx, pattern)
 }
@@ -847,8 +891,86 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             variables,
             bindings,
         } => Ok(values_solutions(variables, bindings)),
-        other => Err(format!("eg-rdf SPARQL: unsupported algebra node {other:?}")),
+        // SERVICE <ep> { … } — federated query (CONCEPT:EG-052). Dispatch the inner pattern
+        // to a remote endpoint via `ctx.service`; the returned solutions flow up so the
+        // enclosing Join/LeftJoin combines them with the local BGP (via `hash_join`).
+        GraphPattern::Service {
+            name,
+            inner,
+            silent,
+        } => eval_service(ctx, name, inner, *silent),
+        // With `Service` handled the match is now exhaustive over every `GraphPattern`
+        // variant present in this build (the `Lateral` node is gated behind spargebra's
+        // `sep-0006` feature, which we do not enable) — no catch-all needed.
     }
+}
+
+/// Evaluate a `SERVICE <ep> { inner }` clause (CONCEPT:EG-052) by delegating `inner` to a
+/// remote SPARQL endpoint through `ctx.service`.
+///
+/// SILENT semantics: on ANY failure — a variable endpoint, no bound client, or a remote
+/// HTTP/parse error — `silent` returns ONE empty solution (the join identity, so the
+/// enclosing join passes the local side through unchanged); otherwise the error propagates.
+/// Only a CONSTANT-IRI endpoint is supported (a `?var` endpoint is a failure per the rule).
+fn eval_service(
+    ctx: &Ctx,
+    name: &NamedNodePattern,
+    inner: &GraphPattern,
+    silent: bool,
+) -> Result<Vec<Solution>, String> {
+    // One empty solution = the neutral element for a join (pass-through under SILENT).
+    let hushed = |e: String| -> Result<Vec<Solution>, String> {
+        if silent {
+            Ok(vec![Solution::new()])
+        } else {
+            Err(e)
+        }
+    };
+    let endpoint = match name {
+        NamedNodePattern::NamedNode(n) => n.as_str(),
+        // A variable endpoint (`SERVICE ?ep { … }`) is unsupported: it requires binding the
+        // endpoint from an earlier pattern, which this evaluator does not resolve.
+        NamedNodePattern::Variable(_) => {
+            return hushed("eg-rdf SPARQL: SERVICE with a variable endpoint is unsupported".into());
+        }
+    };
+    let client = match ctx.service {
+        Some(c) => c,
+        // Fail-closed: no client bound (feature off / allowlist empty) ⇒ SERVICE is disabled.
+        None => {
+            return hushed(format!(
+                "eg-rdf SPARQL: SERVICE <{endpoint}> requires a remote client (feature `sparql-service`); none bound"
+            ));
+        }
+    };
+    let remote_query = build_service_query(inner);
+    match client.select(endpoint, &remote_query) {
+        Ok(res) => Ok(res.solutions),
+        Err(e) => hushed(format!("eg-rdf SPARQL: SERVICE <{endpoint}> failed: {e}")),
+    }
+}
+
+/// Build the SPARQL SELECT text sent to a remote SERVICE endpoint (CONCEPT:EG-052): wrap
+/// `inner` in a `SELECT` projecting its in-scope variables and render it with spargebra's
+/// `Display` (which emits valid SPARQL 1.1). The projected vars are what the enclosing join
+/// binds on, so the remote side returns exactly the columns the local pattern needs.
+fn build_service_query(inner: &GraphPattern) -> String {
+    let mut variables: Vec<Variable> = Vec::new();
+    inner.on_in_scope_variable(|v| {
+        if !variables.contains(v) {
+            variables.push(v.clone());
+        }
+    });
+    let pattern = GraphPattern::Project {
+        inner: Box::new(inner.clone()),
+        variables,
+    };
+    Query::Select {
+        dataset: None,
+        pattern,
+        base_iri: None,
+    }
+    .to_string()
 }
 
 /// Stable-sort solutions by an `ORDER BY` comparator list (CONCEPT:EG-125). Each
@@ -2810,5 +2932,124 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
         };
         assert_eq!(from_a.len(), 1, "FROM <g/a> restricts to one edge: {from_a:?}");
         assert!(from_a[0].contains("<http://ex/a>"), "got {from_a:?}");
+    }
+
+    // ── CONCEPT:EG-052 — SPARQL SERVICE federation ──────────────────────────────
+
+    /// A mock [`RemoteSparql`] returning a fixed canned outcome, standing in for the
+    /// facade's `ureq` client so the SERVICE algebra + SILENT/join semantics test in
+    /// pure `eg-rdf` (no HTTP).
+    struct MockService(Result<SparqlResult, String>);
+    impl RemoteSparql for MockService {
+        fn select(&self, _endpoint: &str, _query: &str) -> Result<SparqlResult, String> {
+            self.0.clone()
+        }
+    }
+
+    /// (a) SERVICE solutions JOIN a local BGP on the shared variable `?name`.
+    #[test]
+    fn service_joins_local_bgp() {
+        let view = loaded_view();
+        let ds = Dataset::single(&view);
+        let mut row = Solution::new();
+        row.insert("name".to_string(), Binding::Literal("Alice".to_string()));
+        row.insert("score".to_string(), Binding::Literal("100".to_string()));
+        let svc = MockService(Ok(SparqlResult {
+            vars: vec!["name".to_string(), "score".to_string()],
+            solutions: vec![row],
+        }));
+        let q = r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name ?score WHERE {
+              ?p ex:name ?name .
+              SERVICE <http://remote/e> { ?name ex:score ?score }
+            }"#;
+        let QueryOutcome::Solutions(r) =
+            run_outcome_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).unwrap()
+        else {
+            panic!()
+        };
+        // Only Alice has a remote score → the join keeps exactly one solution.
+        assert_eq!(r.solutions.len(), 1, "got {:?}", r.solutions);
+        assert_eq!(r.solutions[0].get("name").unwrap().as_str(), "Alice");
+        assert_eq!(r.solutions[0].get("score").unwrap().as_str(), "100");
+    }
+
+    /// (b) SILENT swallows a remote error to ONE empty solution → the local side passes
+    /// through (the three people bound by the BGP survive the join unchanged).
+    #[test]
+    fn service_silent_swallows_error() {
+        let view = loaded_view();
+        let ds = Dataset::single(&view);
+        let svc = MockService(Err("remote down".to_string()));
+        let q = r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name WHERE {
+              ?p ex:name ?name .
+              SERVICE SILENT <http://remote/e> { ?name ex:score ?score }
+            }"#;
+        let QueryOutcome::Solutions(r) =
+            run_outcome_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(r.solutions.len(), 3, "SILENT pass-through: {:?}", r.solutions);
+    }
+
+    /// (c) A non-SILENT remote error propagates; a `None` client (fail-closed) errors too.
+    #[test]
+    fn service_error_propagates_without_silent() {
+        let view = loaded_view();
+        let ds = Dataset::single(&view);
+        let svc = MockService(Err("remote down".to_string()));
+        let q = r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name WHERE {
+              ?p ex:name ?name .
+              SERVICE <http://remote/e> { ?name ex:score ?score }
+            }"#;
+        assert!(
+            run_outcome_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).is_err(),
+            "non-SILENT SERVICE error must propagate"
+        );
+        assert!(
+            run_outcome_dataset_service(&ds, q, &Projection::raw(), None).is_err(),
+            "no client bound is fail-closed"
+        );
+    }
+
+    /// (d) The generated remote query round-trips through the parser, projecting the
+    /// inner pattern's in-scope variables.
+    #[test]
+    fn service_remote_query_round_trips() {
+        fn find_service_inner(p: &GraphPattern) -> Option<GraphPattern> {
+            match p {
+                GraphPattern::Service { inner, .. } => Some((**inner).clone()),
+                GraphPattern::Join { left, right } => {
+                    find_service_inner(left).or_else(|| find_service_inner(right))
+                }
+                GraphPattern::Project { inner, .. }
+                | GraphPattern::Filter { inner, .. }
+                | GraphPattern::Distinct { inner }
+                | GraphPattern::Slice { inner, .. } => find_service_inner(inner),
+                _ => None,
+            }
+        }
+        let Query::Select { pattern, .. } = parse_query(
+            "PREFIX ex: <http://example.org/> SELECT * WHERE { SERVICE <http://r/e> { ?s ex:p ?o } }",
+        )
+        .unwrap() else {
+            panic!()
+        };
+        let inner = find_service_inner(&pattern).expect("a SERVICE node");
+        let remote = build_service_query(&inner);
+        assert!(
+            parse_query(&remote).is_ok(),
+            "generated remote query must parse: {remote}"
+        );
+        assert!(
+            remote.contains("?s") && remote.contains("?o"),
+            "projects in-scope vars: {remote}"
+        );
     }
 }

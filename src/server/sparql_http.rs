@@ -42,6 +42,13 @@ use eg_rdf::update::GraphStore;
 pub const DEFAULT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH";
 /// Env var carrying the bind address (`host:port`) when `--sparql-addr` is not passed.
 pub const SPARQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_ADDR";
+/// SSRF allowlist for outbound `SERVICE` federation (CONCEPT:EG-052, feature
+/// `sparql-service`): a comma-separated set of allowed endpoint hosts / `scheme://host:port`
+/// origins. **Empty / unset ⇒ SERVICE is DISABLED (fail-closed)** — no remote client is
+/// bound, so a `SERVICE <ep> { … }` clause errors (or, under `SERVICE SILENT`, yields the
+/// empty solution). A host resolving to a loopback/link-local/RFC-1918 address is refused
+/// unless the allowlist names that exact host literally.
+pub const SERVICE_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW";
 
 /// Serve the SPARQL 1.1 HTTP protocol on `listener`, backed by the engine `state`.
 pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
@@ -251,7 +258,7 @@ async fn run_query(
         let named_refs: Vec<(String, &eg_core::graph::GraphView)> =
             named_views.iter().map(|(n, v)| (n.clone(), v)).collect();
         let ds = Dataset::new(&default_view, named_refs);
-        eg_rdf::sparql::run_outcome_dataset(&ds, &query, &Projection::raw())
+        run_dataset_query(&ds, &query)
     })
     .await;
 
@@ -293,6 +300,203 @@ async fn run_query(
             format!("compute task failed: {e}"),
         ),
     }
+}
+
+/// Evaluate a parsed dataset query, binding the outbound `SERVICE` client when the
+/// `sparql-service` feature is on AND the SSRF allowlist is non-empty (CONCEPT:EG-052).
+/// Otherwise (feature off, or allowlist empty) NO client is bound — SERVICE is fail-closed.
+/// Runs inside the caller's `spawn_blocking` (the `ureq` client is blocking).
+fn run_dataset_query(ds: &Dataset, query: &str) -> Result<QueryOutcome, String> {
+    #[cfg(feature = "sparql-service")]
+    {
+        let client = ServiceClient::from_env();
+        let svc: Option<&dyn eg_rdf::sparql::RemoteSparql> =
+            client.as_ref().map(|c| c as &dyn eg_rdf::sparql::RemoteSparql);
+        eg_rdf::sparql::run_outcome_dataset_service(ds, query, &Projection::raw(), svc)
+    }
+    #[cfg(not(feature = "sparql-service"))]
+    {
+        eg_rdf::sparql::run_outcome_dataset(ds, query, &Projection::raw())
+    }
+}
+
+// ── SPARQL SERVICE federation client (CONCEPT:EG-052, feature `sparql-service`) ───
+
+/// A `ureq`-backed [`eg_rdf::sparql::RemoteSparql`] with an SSRF allowlist. Reuses the SAME
+/// pure-Rust rustls `ureq` stack `federation` already links (no new crate enters the tree).
+#[cfg(feature = "sparql-service")]
+struct ServiceClient {
+    /// Allowed hosts / `scheme://host:port` origins (lower-cased), from `SERVICE_ALLOW_ENV`.
+    allow: Vec<String>,
+}
+
+#[cfg(feature = "sparql-service")]
+impl ServiceClient {
+    /// Bounded HTTP timeouts + a response-size cap (a hostile/misbehaving endpoint must not
+    /// hang or OOM the blocking pool).
+    const CONNECT_TIMEOUT_SECS: u64 = 5;
+    const READ_TIMEOUT_SECS: u64 = 30;
+    const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
+
+    /// Build from `SERVICE_ALLOW_ENV`. Empty / unset ⇒ `None` (SERVICE disabled, fail-closed).
+    fn from_env() -> Option<Self> {
+        let raw = std::env::var(SERVICE_ALLOW_ENV).ok()?;
+        let allow: Vec<String> = raw
+            .split(',')
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if allow.is_empty() {
+            None
+        } else {
+            Some(Self { allow })
+        }
+    }
+
+    /// SSRF guard: the endpoint's scheme must be http/https, its bare host must be in the
+    /// allowlist, and it must not resolve to a loopback/link-local/private/unspecified
+    /// address UNLESS that exact host string is itself an allowlisted IP literal (an
+    /// operator opt-in for an internal endpoint).
+    fn check_endpoint(&self, endpoint: &str) -> Result<(), String> {
+        let rest = endpoint
+            .strip_prefix("https://")
+            .or_else(|| endpoint.strip_prefix("http://"))
+            .ok_or_else(|| format!("endpoint must be http(s): '{endpoint}'"))?;
+        // Strip any path/query/fragment, then split an optional `:port`.
+        let authority = rest
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .rsplit('@') // drop any userinfo
+            .next()
+            .unwrap_or("");
+        let (host, port): (&str, u16) = match authority.rsplit_once(':') {
+            // Guard against IPv6 literals `[::1]:80` — only treat the tail as a port if numeric.
+            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => {
+                (h, p.parse().unwrap_or(0))
+            }
+            _ => (authority, if endpoint.starts_with("https://") { 443 } else { 80 }),
+        };
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        if host.is_empty() {
+            return Err(format!("endpoint has no host: '{endpoint}'"));
+        }
+        let host_lc = host.to_ascii_lowercase();
+        let allowed = self.allow.iter().any(|a| {
+            *a == host_lc
+                || *a == format!("{host_lc}:{port}")
+                || *a == format!("http://{host_lc}")
+                || *a == format!("https://{host_lc}")
+                || *a == format!("http://{host_lc}:{port}")
+                || *a == format!("https://{host_lc}:{port}")
+        });
+        if !allowed {
+            return Err(format!("SSRF guard: host '{host}' not in allowlist"));
+        }
+        // Resolve + reject internal ranges (unless the host itself is an allowlisted IP).
+        use std::net::ToSocketAddrs;
+        let host_is_allowlisted_literal = host.parse::<std::net::IpAddr>().is_ok();
+        let addrs = (host, port)
+            .to_socket_addrs()
+            .map_err(|e| format!("SSRF guard: cannot resolve '{host}': {e}"))?;
+        for sa in addrs {
+            if is_blocked_ip(&sa.ip()) && !host_is_allowlisted_literal {
+                return Err(format!(
+                    "SSRF guard: host '{host}' resolves to internal address {}",
+                    sa.ip()
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// An internal (SSRF-sensitive) IP: loopback, unspecified, link-local, or RFC-1918 /
+/// unique-local private space.
+#[cfg(feature = "sparql-service")]
+fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_unspecified()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.octets()[0] == 0
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                // link-local fe80::/10
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                // unique-local fc00::/7
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+        }
+    }
+}
+
+#[cfg(feature = "sparql-service")]
+impl eg_rdf::sparql::RemoteSparql for ServiceClient {
+    fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String> {
+        use std::io::Read;
+        self.check_endpoint(endpoint)?;
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(std::time::Duration::from_secs(Self::CONNECT_TIMEOUT_SECS))
+            .timeout_read(std::time::Duration::from_secs(Self::READ_TIMEOUT_SECS))
+            .build();
+        let resp = agent
+            .post(endpoint)
+            .set("Content-Type", "application/sparql-query")
+            .set("Accept", "application/sparql-results+json")
+            .send_string(query)
+            .map_err(|e| format!("POST {endpoint} failed: {e}"))?;
+        let mut body = String::new();
+        resp.into_reader()
+            .take(Self::MAX_RESPONSE_BYTES)
+            .read_to_string(&mut body)
+            .map_err(|e| format!("reading {endpoint} response: {e}"))?;
+        parse_results_json(&body)
+    }
+}
+
+/// Parse a SPARQL 1.1 Query Results JSON document into a [`SparqlResult`] — the INVERSE of
+/// [`term_json`]: `{"type":"uri"}` → a `Node <iri>`, `bnode` → `Node _:label`, everything
+/// else (`literal`/`typed-literal`) → a `Literal`. `head.vars` gives the column order.
+#[cfg(feature = "sparql-service")]
+fn parse_results_json(body: &str) -> Result<SparqlResult, String> {
+    let j: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| format!("parse SPARQL-results JSON: {e}"))?;
+    let vars: Vec<String> = j["head"]["vars"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let mut solutions = Vec::new();
+    if let Some(bindings) = j["results"]["bindings"].as_array() {
+        for b in bindings {
+            let mut sol = eg_rdf::sparql::Solution::new();
+            if let Some(obj) = b.as_object() {
+                for (k, term) in obj {
+                    if let Some(binding) = json_term_to_binding(term) {
+                        sol.insert(k.clone(), binding);
+                    }
+                }
+            }
+            solutions.push(sol);
+        }
+    }
+    Ok(SparqlResult { vars, solutions })
+}
+
+/// One SPARQL-results-JSON term object → a [`Binding`] (inverse of [`term_json`]).
+#[cfg(feature = "sparql-service")]
+fn json_term_to_binding(term: &serde_json::Value) -> Option<Binding> {
+    let ty = term.get("type")?.as_str()?;
+    let val = term.get("value")?.as_str()?;
+    Some(match ty {
+        "uri" => Binding::Node(format!("<{val}>")),
+        "bnode" => Binding::Node(format!("_:{val}")),
+        // "literal" / "typed-literal" (+ any unknown kind) → lexical literal.
+        _ => Binding::Literal(val.to_string()),
+    })
 }
 
 /// Execute a SPARQL UPDATE against the live registry graphs (creating any named graph
@@ -798,5 +1002,51 @@ mod tests {
         );
         assert!(boolean_body("application/sparql-results+xml", false).contains("<boolean>false</boolean>"));
         assert_eq!(boolean_body("text/csv", true), "true");
+    }
+
+    // ── CONCEPT:EG-052 — SPARQL SERVICE federation client ────────────────────────
+
+    /// The results-JSON parse is the exact inverse of `term_json`'s uri/bnode/literal split.
+    #[cfg(feature = "sparql-service")]
+    #[test]
+    fn results_json_round_trips_term_json() {
+        let body = r#"{"head":{"vars":["s","b","l"]},"results":{"bindings":[
+            {"s":{"type":"uri","value":"http://x"},
+             "b":{"type":"bnode","value":"n1"},
+             "l":{"type":"literal","value":"hi"}}]}}"#;
+        let r = parse_results_json(body).unwrap();
+        assert_eq!(r.vars, vec!["s", "b", "l"]);
+        let sol = &r.solutions[0];
+        assert_eq!(sol.get("s").unwrap(), &Binding::Node("<http://x>".to_string()));
+        assert_eq!(sol.get("b").unwrap(), &Binding::Node("_:n1".to_string()));
+        assert_eq!(sol.get("l").unwrap(), &Binding::Literal("hi".to_string()));
+        // And `term_json` maps them straight back to the same JSON term kinds.
+        assert_eq!(term_json(sol.get("s").unwrap())["type"], "uri");
+        assert_eq!(term_json(sol.get("b").unwrap())["type"], "bnode");
+        assert_eq!(term_json(sol.get("l").unwrap())["type"], "literal");
+    }
+
+    /// The SSRF guard: allowlist required, internal-address resolutions refused, and an
+    /// explicitly-listed public host permitted.
+    #[cfg(feature = "sparql-service")]
+    #[test]
+    fn ssrf_guard_blocks_and_allows() {
+        // Empty / unset allowlist ⇒ no client (fail-closed).
+        std::env::remove_var(SERVICE_ALLOW_ENV);
+        assert!(ServiceClient::from_env().is_none());
+        // A non-http scheme and a non-allowlisted host are refused.
+        let c = ServiceClient {
+            allow: vec!["sparql.example.org".to_string()],
+        };
+        assert!(c.check_endpoint("ftp://sparql.example.org/x").is_err());
+        assert!(c.check_endpoint("http://evil.example.com/sparql").is_err());
+        // A loopback literal that is NOT allowlisted is refused.
+        assert!(c.check_endpoint("http://127.0.0.1:8080/sparql").is_err());
+        // Blocked-range classification.
+        assert!(is_blocked_ip(&"10.1.2.3".parse().unwrap()));
+        assert!(is_blocked_ip(&"192.168.0.1".parse().unwrap()));
+        assert!(is_blocked_ip(&"169.254.1.1".parse().unwrap()));
+        assert!(is_blocked_ip(&"::1".parse().unwrap()));
+        assert!(!is_blocked_ip(&"8.8.8.8".parse().unwrap()));
     }
 }
