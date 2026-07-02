@@ -41,6 +41,9 @@ use redb::{
 use serde_json::Value;
 
 use super::schema::{Cell, Column, ColumnType, StoredFunction, TableSchema};
+// CONCEPT:EG-116/EG-313 — the durable pgvector ANN index registration the exec
+// pushdown consults to choose a real eg-ann index over the brute-force scan.
+use crate::sql::AnnIndexPlan;
 
 /// Catalog system table: `table_name -> MessagePack(TableSchema)`.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_catalog__");
@@ -60,6 +63,13 @@ const EXTENSIONS: TableDefinition<&str, &str> = TableDefinition::new("__sql_exte
 /// SQL-language stored function (`CREATE FUNCTION … LANGUAGE sql`) mirrored beside the
 /// view/extension catalogs; expanded into a query at plan time (no separate evaluator).
 const FUNCTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_functions__");
+/// pgvector ANN index catalog (CONCEPT:EG-116/EG-313): `index_key -> MessagePack(AnnIndexPlan)`.
+/// A `CREATE INDEX … USING hnsw|ivfflat (col opclass)` registers the index here so a
+/// `ORDER BY col <-> $1 LIMIT k` query pushes down to a real eg-ann index (EG-313)
+/// instead of the EG-115 brute-force scan. Keyed by `"<table>.<column>.<metric>"`
+/// (lower-cased) so one column can carry an index per metric; the value is the durable
+/// [`AnnIndexPlan`] the exec pushdown consults.
+const ANN_INDEXES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_ann_indexes__");
 
 /// The action an `ON CONFLICT` clause takes for a user-table insert (CONCEPT:EG-048).
 /// The store-level mirror of `classify::OnConflictAction` (kept here so the store has
@@ -663,6 +673,85 @@ impl TableStore {
             .collect::<Result<_, _>>()?;
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
+    }
+
+    // ── pgvector ANN index catalog (CONCEPT:EG-116/EG-313) ─────────────────────
+
+    /// The catalog key for an ANN index: `"<table>.<column>.<metric>"` (lower-cased),
+    /// so one column may register a separate index per distance metric.
+    fn ann_index_key(plan: &AnnIndexPlan) -> String {
+        format!(
+            "{}.{}.{:?}",
+            plan.table.to_ascii_lowercase(),
+            plan.column.to_ascii_lowercase(),
+            plan.metric
+        )
+    }
+
+    /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-116): register the
+    /// [`AnnIndexPlan`] so a matching `ORDER BY col <-> $1 LIMIT k` pushes down to a real
+    /// eg-ann index (CONCEPT:EG-313). Idempotent on `if_not_exists` (a re-register of the
+    /// same key is a benign success); an existing key without `if_not_exists` is replaced
+    /// (the newest DDL wins — pgvector's `CREATE INDEX` build is idempotent in practice).
+    pub fn put_ann_index(&self, plan: &AnnIndexPlan) -> Result<(), String> {
+        let key = Self::ann_index_key(plan);
+        let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
+        let wtx = self.begin()?;
+        {
+            let mut idxs = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+            idxs.insert(key.as_str(), bytes.as_slice()).map_err(map_err)?;
+        }
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// `DROP INDEX name` (CONCEPT:EG-116): remove every ANN index registered for
+    /// `table`.`column` (all metrics). `Ok(n)` = number of entries removed.
+    pub fn drop_ann_indexes_for_column(&self, table: &str, column: &str) -> Result<usize, String> {
+        let prefix = format!(
+            "{}.{}.",
+            table.to_ascii_lowercase(),
+            column.to_ascii_lowercase()
+        );
+        let wtx = self.begin()?;
+        let removed = {
+            let mut idxs = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+            let keys: Vec<String> = idxs
+                .iter()
+                .map_err(map_err)?
+                .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
+                .filter(|k| k.starts_with(&prefix))
+                .collect();
+            for k in &keys {
+                idxs.remove(k.as_str()).map_err(map_err)?;
+            }
+            keys.len()
+        };
+        wtx.commit().map_err(map_err)?;
+        Ok(removed)
+    }
+
+    /// Every registered ANN index (sorted by key for determinism) — the set the SQL
+    /// exec path consults to decide the pgvector pushdown (CONCEPT:EG-313).
+    pub fn list_ann_indexes(&self) -> Result<Vec<AnnIndexPlan>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let idxs = match rtx.open_table(ANN_INDEXES) {
+            Ok(t) => t,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let mut pairs: Vec<(String, AnnIndexPlan)> = idxs
+            .iter()
+            .map_err(map_err)?
+            .map(|r| {
+                r.map_err(map_err).and_then(|(k, v)| {
+                    rmp_serde::from_slice::<AnnIndexPlan>(v.value())
+                        .map(|p| (k.value().to_string(), p))
+                        .map_err(|e| format!("decode ann index: {e}"))
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(pairs.into_iter().map(|(_, p)| p).collect())
     }
 
     // ── multi-statement transaction (CONCEPT:EG-020) ──────────────────────────

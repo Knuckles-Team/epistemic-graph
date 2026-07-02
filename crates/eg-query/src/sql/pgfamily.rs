@@ -32,6 +32,7 @@ use datafusion::sql::sqlparser::ast::{
 };
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::exec::{PgColType, TypedColumn, TypedQueryResult};
@@ -64,7 +65,7 @@ pub struct CypherCallPlan {
 
 /// The pgvector distance metric an ANN index / query uses (CONCEPT:EG-116), keyed off
 /// the opclass (`vector_l2_ops` → `L2`, …) and the distance operator (`<->` → `L2`, …).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VectorMetric {
     /// L2 (Euclidean) — opclass `vector_l2_ops`, operator `<->`.
     L2,
@@ -76,7 +77,7 @@ pub enum VectorMetric {
 
 /// The ANN index method (CONCEPT:EG-116). Both lower onto the same `eg-ann` IVF-PQ /
 /// HNSW backend; the spelling is recorded for catalog fidelity + `EXPLAIN`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnnMethod {
     Hnsw,
     IvfFlat,
@@ -84,7 +85,7 @@ pub enum AnnMethod {
 
 /// A decoded `CREATE INDEX [IF NOT EXISTS] [name] ON table USING hnsw|ivfflat
 /// (col opclass)` (CONCEPT:EG-116) — an ANN index registration.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnnIndexPlan {
     pub name: Option<String>,
     pub table: String,

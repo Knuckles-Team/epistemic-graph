@@ -15,7 +15,7 @@ name = "eg_query"
 default = []
 # `eg-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
 # the Postgres/Mongo JSON operators onto (CONCEPT:EG-084) — additive, always on with `sql`.
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "eg-types/query"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "eg-types/query"]
 # Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
 # engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
@@ -35,6 +35,11 @@ eg-compute = { path = "../eg-compute" }
 # eg-text's DEFAULT build is Tantivy-free, so this adds nothing heavy to the tree and
 # stays out of a Pi/`cypher`-only eg-query build.
 eg-text = { path = "../eg-text", optional = true }
+# CONCEPT:EG-313 — the real HNSW/IVF-PQ + exact-rerank ANN indices behind the
+# pgvector `ORDER BY col <-> $1 LIMIT k` pushdown. OPTIONAL, only under `sql` (the
+# sole place the exec pushdown compiles). eg-ann's DEFAULT build links no heavy/GPU
+# deps (pure-Rust, Pi-lean), so this stays out of a `cypher`-only eg-query build.
+eg-ann = { path = "../eg-ann", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
