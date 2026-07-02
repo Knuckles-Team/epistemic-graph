@@ -526,6 +526,16 @@ impl EmbeddedEngine {
                 let n = store.insert_rows(&ins.table, &ins.columns, &ins.rows)?;
                 Ok(count_result(n))
             }
+            // CONCEPT:EG-118 — CREATE/DROP FUNCTION over the durable function catalog; a
+            // later SELECT fn(args)/FROM fn(args) expands it on the read path above.
+            StatementKind::CreateFunction(plan) => {
+                store.create_function(&plan.func, plan.or_replace)?;
+                Ok(status_result("CREATE FUNCTION"))
+            }
+            StatementKind::DropFunction(plan) => {
+                store.drop_function(&plan.name, plan.if_exists)?;
+                Ok(status_result("DROP FUNCTION"))
+            }
             other => Err(format!(
                 "embedded sql_exec supports user-table DDL/DML (CREATE/ALTER/DROP \
                  TABLE, INSERT … VALUES) + SELECT; for node-graph mutations use the \
