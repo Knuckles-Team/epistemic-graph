@@ -158,3 +158,10 @@ mod stream_tests;
 // `sensor_fuse`, and emitted as fused rows that compose with the graph/vector legs.
 #[cfg(all(test, feature = "timeseries"))]
 mod sensor_fuse_tests;
+
+// The probabilistic `Op::Probabilistic` executor proofs (CONCEPT:EG-086): a layer scan
+// seeds distribution-bearing nodes, then a closed-form probabilistic query (expectation /
+// marginal / conditional posterior / seeded sample) scores + ranks each row's stored
+// `Distribution`, composing uncertainty with the graph/vector legs in ONE plan.
+#[cfg(all(test, feature = "probabilistic"))]
+mod probabilistic_tests;
