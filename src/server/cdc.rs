@@ -96,6 +96,13 @@ pub struct CdcHub {
     queries: Mutex<HashMap<String, ContinuousQuery>>,
     triggers: Mutex<HashMap<String, Trigger>>,
     cap: usize,
+    /// Live CEP standing-query surface (CONCEPT:EG-299), feature `stream`. Created LAZILY
+    /// on the first `CepSubscribe` (`cep_surface`), so a CDC feed with no CEP subscriber
+    /// pays nothing and the drain-task spawn always happens inside the async handler (a
+    /// runtime is live). Once set, `emit` feeds every change into it. A `OnceLock` so the
+    /// hot emit path reads it lock-free.
+    #[cfg(feature = "stream")]
+    cep: std::sync::OnceLock<Arc<crate::server::cep::CepSurface>>,
 }
 
 impl Default for CdcHub {
@@ -111,7 +118,19 @@ impl CdcHub {
             queries: Mutex::new(HashMap::new()),
             triggers: Mutex::new(HashMap::new()),
             cap: ring_cap(),
+            #[cfg(feature = "stream")]
+            cep: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The live CEP standing-query surface (CONCEPT:EG-299), lazily created on first use.
+    /// Its drain task is spawned here — always called from the async `CepSubscribe` handler,
+    /// so a Tokio runtime is live. Subsequent `emit`s feed the surface via [`CdcHub::emit`].
+    #[cfg(feature = "stream")]
+    pub fn cep_surface(&self) -> Arc<crate::server::cep::CepSurface> {
+        self.cep
+            .get_or_init(crate::server::cep::CepSurface::new)
+            .clone()
     }
 
     /// Clone the per-graph `Notify` so a `Watch` can await the next change. Creates the
@@ -165,6 +184,13 @@ impl CdcHub {
             // Drive views/triggers under no feed lock (separate locks) by cloning out.
             self.maintain(&event);
             self.fire_triggers(feed, &event);
+            // Feed the live CEP standing-query engine (CONCEPT:EG-299) if a subscriber has
+            // created the surface. Lock-free check; the map→publish is a bounded broadcast
+            // send that never blocks the writer (a full bus drops the oldest event).
+            #[cfg(feature = "stream")]
+            if let Some(cep) = self.cep.get() {
+                cep.feed_change(&event);
+            }
             (seq, feed.notify.clone())
         };
         notify.notify_waiters();
