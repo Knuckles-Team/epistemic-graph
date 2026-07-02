@@ -31,6 +31,9 @@
 //! * **Format I/O** (CONCEPT:EG-264): [`geojson`] (Feature/FeatureCollection with properties;
 //!   behind the `geo-io` feature), [`wkb`] (Well-Known Binary + EWKB), and [`gpx`] (GPS track /
 //!   route / waypoint reader).
+//! * **Web-map tiling** ([`tiles`], CONCEPT:EG-265): XYZ/TMS [`Tile`] addressing over
+//!   Web-Mercator (bounds ⇄ index, y-flip) + a hand-rolled Mapbox Vector Tile
+//!   ([`encode_mvt`]/[`decode_mvt`]) codec — no protobuf codegen.
 //!
 //! The wire algebra (`Op::SpatialScan`/`SpatialOp`, `Pred::Spatial*`) lives in
 //! `eg-types::wire` (pure-serde, Pi-safe); the executor that drives THIS crate lives in
@@ -55,6 +58,7 @@ pub mod predicates;
 pub mod registry;
 pub mod rtree;
 pub mod strtree;
+pub mod tiles;
 pub mod wkb;
 pub mod wkt;
 
@@ -69,6 +73,9 @@ pub use predicates::{
 pub use registry::{st_transform, Affine, CrsDef, CrsRegistry};
 pub use rtree::RTree;
 pub use strtree::StrTree;
+pub use tiles::{
+    decode_mvt, encode_mvt, lonlat_to_tile, MvtFeature, MvtLayer, MvtValue, Tile, DEFAULT_EXTENT,
+};
 pub use wkb::{from_wkb, from_wkb_srid, to_ewkb, to_wkb};
 pub use wkt::{parse as parse_wkt, parse_with_srid, to_wkt};
 
