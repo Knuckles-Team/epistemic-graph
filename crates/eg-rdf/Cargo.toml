@@ -111,3 +111,9 @@ oxjsonld = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+# ICV integration test (CONCEPT:EG-146). eg-shacl sits ABOVE eg-rdf in the DAG (it
+# depends on eg-rdf `rdf`); using it as a DEV-dependency here is a dev-dep cycle, which
+# Cargo permits — it affects ONLY the eg-rdf test build, never `cargo check`/`pi`/`full`
+# (dev-deps are not compiled for a check/lib build). This lets the ICV closed-world
+# behaviour be exercised from `cargo test -p eg-rdf --features sparql`.
+eg-shacl = { path = "../eg-shacl" }
