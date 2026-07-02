@@ -24,6 +24,10 @@ epistemic-graph converges many modalities under one durable engine and one plann
 | **Raster tiles / Shapefile / KML** | 🗺 | GIS I/O beyond the shipped GeoJSON/WKB/GPX + MVT vector tiles (EG-264/265): raster tile pyramids, ESRI Shapefile, and KML readers/writers. |
 | **PL/pgSQL procedural bodies** | 🗺 | Stored-procedure/function *procedural* execution (loops, variables, control flow) beyond the shipped SQL views + DDL. |
 | **Memory → weights distillation** | 🗺 | Distilling consolidated agent-memory (EG-220/221) into model weights (a fine-tune/LoRA export), beyond the retrieval-time context assembly (EG-195). |
+| **Cross-shard kNN merge (full scatter)** | 🔶 | The `merge_topk` gather LEAF primitive ships + is tested (EG-069); the full scatter of a query across per-shard eg-ann indexes → global top-k is not yet wired. |
+| **Full Calvin deterministic-ordering commit** | 🗺 | A global sequencer / deterministic total order for cross-shard commit. Parallel-commit + read-only-participant + a non-blocking Paxos-Commit-lite Raft-replicated decision already ship (EG-081/082); full Calvin remains open. |
+| **`ALTER` beyond ADD COLUMN** | 🔶 | `ALTER TABLE … ADD COLUMN` ships on the durable user-table catalog (EG-018); other `ALTER` forms (DROP/RENAME/TYPE) are not yet built. |
+| **SQLite `.db` file I/O** | 🔶 | The SQLite-dialect NDJSON-over-TCP wire ships (EG-075); reading/writing an on-disk `sqlite3` `.db` file is a documented follow-up. |
 
 ---
 
@@ -61,7 +65,7 @@ authoritative `CONCEPT:EG-*` definitions.
   introspection toggle; EG-296); GraphQL mutations.
 
 ### Time-series · Vector · Blob
-- `Op::Window` execution (EG-067), per-point retention trim (EG-068), cross-shard kNN merge (EG-069),
+- `Op::Window` execution (EG-067), per-point retention trim (EG-068),
   hybrid metadata pre-filtering (EG-070), content-defined chunking (EG-071).
 - **Exact/flat vector index + recall@k harness** (EG-297).
 

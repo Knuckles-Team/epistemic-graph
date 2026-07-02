@@ -27,7 +27,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `CREATE FUNCTION … LANGUAGE sql` (scalar + table UDFs, durable catalog) | ✅ | `query` | CONCEPT:EG-118; PL/pgSQL control-flow is a documented follow-up |
 | Columnar (struct-of-arrays) segments + SQL window frames (`ROW_NUMBER`/`RANK`/`DENSE_RANK`/`LAG`/`LEAD`/`OVER(PARTITION BY … ROWS/RANGE …)`) | ✅ | `query` | CONCEPT:EG-089 |
 | DML on arbitrary user tables (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `COPY`) | ✅ | `query` | durable redb `TableStore` (EG-018/EG-020); `run_insert_table`/`run_update_table`/`run_delete_table` |
-| `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-018); JOINable to the graph; `ALTER` beyond ADD COLUMN 🔶 |
+| `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-018); JOINable to the graph; `ALTER` beyond ADD COLUMN 🔶 → Program B (see `workspace/plans`) |
 
 ### Postgres wire (`pgwire`, also pulled by `cluster`)
 
@@ -99,8 +99,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Ebbinghaus time-decay of facts | ✅ | `eg_core::decay::ebbinghaus_weight`; `GRAPH_SERVICE_DECAY_HALF_LIFE` |
 | Distributed / cross-shard reasoning (union TBox+ABox, one closure) | ✅ | `reason_distributed_weighted` |
 | Query-time `Op::Reason` (reasoner seeds a RowSet) | ✅ | `wire.rs` `Op::Reason` under `owl-plan`; executor seeds class members |
-| OWL-DL (tableau, cardinality, `complementOf`, nominals) | 🔶 | EL approximations of `allValuesFrom`/`hasValue` present; full tableau being added behind `owl-dl` |
-| SWRL user rules | 🔶 | `rules.rs` Horn-rule DSL (`body → head @conf`) with range-safety; SWRL/RuleML atoms + built-in library being added |
+| OWL-DL (tableau, cardinality, `complementOf`, nominals) | ✅ | pure-Rust description-logic tableau behind `owl-dl` (consistency → classification → instance checking); the EL/RL fast path stays default and DL-requiring ontologies route to the tableau (CONCEPT:EG-059) |
+| SWRL user rules | ✅ | `rules.rs` Horn-rule DSL + SWRL/RuleML atoms + the `swrlb:` built-in library (comparison/math/string), head-var range-safe (CONCEPT:EG-060) |
 
 ## Cypher (`eg-query/cypher`)
 
@@ -125,8 +125,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Mutations (`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge`) | ✅ | `mutation.rs` `execute` over eg-core mutations; OCC bumped once per batch |
 | Apollo Federation v2 subgraph: `_service { sdl }` + `_entities(representations:[_Any!]!)`, `@key`/`@shareable`/`@external` directives | ✅ | so the engine is a federated subgraph in an Apollo supergraph (CONCEPT:EG-295) |
 | Enterprise hardening: automatic persisted queries (APQ), query depth + complexity/cost limits, field/node caps, introspection toggle | ✅ | protects the federated subgraph in production (CONCEPT:EG-296) |
-| Subscriptions | 🔶 | poll-only stub (`subscription.rs`); broadcast/CDC + WS/SSE being added (EG-064) |
-| Fragments / variables / directives / relay pagination | 🔶 | rejected at parse today; being added (EG-065/066) |
+| Subscriptions | ✅ | real CDC push: a `LiveQuery` over a `tokio::sync::broadcast` change-stream fed by `GraphCore` `mark_dirty`, WS/SSE carrier (CONCEPT:EG-064) |
+| Fragments / variables / directives / relay pagination | ✅ | `$`/`@` lexer, fragment-spread + inline fragments, variable defs/refs, `@skip`/`@include`, relay `edges`/`node`/`cursor`/`pageInfo` (CONCEPT:EG-065/066) |
 
 ## Vector / ANN (`eg-ann` + `eg-core`)
 
@@ -140,7 +140,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Warm-on-start (index built off the query path) | ✅ | `warm()` / `ensure_index` |
 | Hybrid metadata pre-filter (kNN with an `allow(id)` predicate) | ✅ | `ivfpq.rs` `search_filtered` (EG-070); tested DURING the ADC probe, not post-filter |
 | Exact/flat kNN index (ground-truth) + ANN-candidate re-rank + recall@k/precision self-eval harness | ✅ | brute-force exact + hybrid refinement (CONCEPT:EG-297) |
-| Cross-shard kNN merge | 🔶 | scatter-gather over per-shard eg-ann indexes → global top-k (CONCEPT:EG-069); `merge_topk` is the leaf primitive |
+| Cross-shard kNN merge | 🔶 → Program B | the `merge_topk` gather LEAF primitive ships + is tested (CONCEPT:EG-069); the full scatter across per-shard eg-ann indexes is not yet wired — Program B (see `workspace/plans`) |
 
 ## Time-series (`eg-tsdb`)
 
@@ -150,8 +150,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `time_bucket` (avg/min/max/sum/count/first/last) | ✅ | `query.rs` |
 | ASOF backward join (the primitive DataFusion lacks) | ✅ | `query.rs` `asof_join_backward` |
 | gap-fill LOCF, OHLC bars, downsample/rollup, decay-weighted mean, EWMA, rolling z-score | ✅ | `query.rs` |
-| Time-ops as unified planner ops (`Op::Window` execution) | 🔶 | `Op::Window` is a pass-through seam in `eg-plan/exec.rs` today |
-| Per-point retention trim (vs whole-bucket drop) | 🗺 | deferred |
+| Time-ops as unified planner ops (`Op::Window` execution) | ✅ | real `window_aggregate` over the input RowSet's time/value columns via eg-tsdb `time_bucket`, behind `timeseries` (CONCEPT:EG-067) |
+| Per-point retention trim (vs whole-bucket drop) | ✅ | `evict_before` trims a straddling bucket in place, point-by-point (CONCEPT:EG-068) |
 
 ## Blob / CAS (`src/server/blob`)
 
@@ -160,7 +160,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Content-addressed (sha256) streaming store, manifest of chunk digests | ✅ | `store.rs` `ChunkStore` |
 | redb-native backend, group-commit, refcount mark-and-sweep GC | ✅ | `RedbChunkStore` |
 | S3 / MinIO backend behind the same `ChunkStore` trait | ✅ | `s3.rs` `S3ChunkStore` (`blob-s3`) |
-| Content-defined chunking | 🗺 | fixed 2 MiB chunks today |
+| Content-defined chunking | ✅ | Gear/FastCDC rolling-hash chunker (variable boundaries in `BlobManifest`); sha256 CAS dedup + refcount GC preserved (CONCEPT:EG-071) |
 
 ## Key-value / embedded (`redb`, `embedded`)
 
@@ -184,14 +184,14 @@ for per-wire connect+query recipes and the full env-var/port table.
 | Postgres wire (psql / BI / ORM) | ✅ | `pgwire` | `src/server/pgwire`; `EPISTEMIC_GRAPH_PGWIRE_ADDR` (KG-2.189) |
 | MySQL / MariaDB wire (hand-rolled handshake v10 + `mysql_native_password`) | ✅ | `mysql-wire` | `src/server/mysql_wire`; `EPISTEMIC_GRAPH_MYSQL_ADDR` (EG-076) |
 | MSSQL TDS wire (hand-rolled TDS) | ✅ | `mssql-wire` | `src/server/mssql_wire`; `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-077) |
-| SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O is a documented follow-up |
+| SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O 🔶 → Program B (see `workspace/plans`) |
 | Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `src/server/bolt_wire`; `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159) |
 | AMQP 0.9.1 broker wire (exchanges/queues over the KG-2.303 work-queue) | ✅ | `amqp-wire` (impl `broker`) | `src/server/amqp_wire`; `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
 | MQTT 3.1.1/5.0 broker wire (CONNECT/PUBLISH/SUBSCRIBE, QoS 0/1) | ✅ | `mqtt-wire` (impl `broker`) | `src/server/mqtt_wire`; `EPISTEMIC_GRAPH_MQTT_ADDR` (EG-281) |
 | STOMP 1.2 broker wire (CONNECT/SEND/SUBSCRIBE/ACK) | ✅ | `stomp-wire` (impl `broker`) | `src/server/stomp_wire`; `EPISTEMIC_GRAPH_STOMP_ADDR` (EG-282) |
 | Redis RESP2/RESP3 wire (GET/SET/DEL/EXPIRE/INCR, HSET/HGET, LPUSH/LRANGE, SADD/SMEMBERS, ZADD/ZRANGE, scan) over the KV surface | ✅ | `redis-wire` | `src/server/redis_wire`; `EPISTEMIC_GRAPH_REDIS_ADDR` (EG-174) |
 | S3-compatible REST (bucket + object PUT/GET/DELETE/HEAD/List, SigV4-lite) over the blob CAS | ✅ | `s3-api` | `src/server/s3` (EG-176) |
-| GraphQL SSE subscription carrier | 🔶 | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR`; poll-only broadcast today |
+| GraphQL SSE subscription carrier | ✅ | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR`; real CDC push over WS/SSE (CONCEPT:EG-064) |
 
 ## Message broker (`broker` — surpasses RabbitMQ)
 
@@ -233,11 +233,11 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | `Reason`, `SparqlBgp` | ✅ | `owl-plan` feature |
 | `Udf` (sandboxed WASM) | ✅ | `wasm-udf` feature |
 | `ForeignScan` (remote engine / HTTP-JSON / external SQL) | ✅ | `federation` / `federation-sql` |
-| `Window`, `Foreign` execution | 🔶 | pass-through seams in `exec.rs` today |
+| `Window`, `Foreign` execution | ✅ | `Op::Window` = real eg-tsdb windowed aggregate (`timeseries`, CONCEPT:EG-067); `Op::Foreign` resolves the name → rows via the `ForeignSourceRegistry` (`federation`, CONCEPT:EG-073) |
 | UQL text DSL → `wire::Plan` (dependency-free parser) | ✅ | `eg-plan/src/uql` (KG-2.214) |
 | `SpatialScan` / `Pred::SpatialWithin`/`SpatialDWithin` | ✅ | `geo` feature (EG-083); eg-geo executor + leaf crate |
 | `TensorScan` / `TensorOp`, `Cep` event-stream match | ✅ | `tensor` (EG-085) / `stream` (EG-088) |
-| Natural-language → query (`Method::NlQuery`, `/nl` route) | 🔶 | `nl-query` (EG-078/080); the NL→UQL planning SEAM ships and is LLM-optional — inert (clear "not configured" error, never a panic) until an OpenAI-compatible endpoint is configured |
+| Natural-language → query (`Method::NlQuery`, `/nl` route) | ✅ | `nl-query` (CONCEPT:EG-078/080); complete LLM-optional NL→UQL seam — inert (clear "not configured" error, never a panic) until an OpenAI-compatible endpoint is set; AU-provider integration tracked in Program B |
 
 ## Spatial / GIS (`geo` + `geosparql`)
 
@@ -267,7 +267,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Episodic→semantic consolidation primitive (localized, provenance + bitemporal preserving, importance-weighted) | ✅ | `graph.rs` `consolidate` (CONCEPT:EG-221); tested |
 | Memory maintenance: `reinforce`/`decay`/`evict_below`/`forget` (importance + access-count + last-access) | ✅ | deterministic, caller-supplied now (CONCEPT:EG-222) |
 | LeanRAG hierarchical retrieval (vector-retrieve at summary level → drill down SUMMARIZES/CONSOLIDATES edges) | ✅ | bottom-up aggregation + top-down traversal (CONCEPT:EG-195) |
-| Natural-language → query (`Method::NlQuery`, `/nl`, `nl_query()` UDF) | 🔶 | `nl-query` (CONCEPT:EG-078/080); LLM-optional seam, inert until an OpenAI-compatible endpoint is configured |
+| Natural-language → query (`Method::NlQuery`, `/nl`, `nl_query()` UDF) | ✅ | `nl-query` (CONCEPT:EG-078/080); complete LLM-optional seam, inert until an OpenAI-compatible endpoint is set; AU-provider integration tracked in Program B |
 | Uncertainty-distribution-valued properties (Gaussian/Beta/Categorical/empirical) | ✅ | `graph.rs` `Distribution` accessors + Bayesian update/sampling (CONCEPT:EG-086) |
 
 ## New data modalities (`eg-core` + leaf crates)
@@ -317,7 +317,8 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | openraft replication + automatic failover (`raft`/`cluster`) | ✅ | `src/raft/mod.rs` |
 | Cross-shard 2PC (presumed-abort, crash-recoverable) | ✅ | `src/raft/cross_shard_txn.rs` |
 | Multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `src/raft/multi.rs` `MultiRaft`/`GroupRouter` (KG-2.266/267/268); `reshard.rs` online ownership move |
-| Non-blocking commit / 3PC / Calvin / parallel-commit | 🔶 | 2PC works; parallel-commit + read-only-participant + Calvin/3PC being added |
+| Parallel-commit + read-only-participant fast path + non-blocking (Raft-replicated decision) commit | ✅ | parallel prepare + empty-write-set skip (CONCEPT:EG-081) and the Paxos-Commit-lite Raft-replicated commit decision (CONCEPT:EG-082) over the working 2PC |
+| Full Calvin deterministic-ordering commit | 🗺 → Program B | a global sequencer / deterministic total order (chosen against for now — Paxos-Commit-lite is the tractable subset); Program B (see `workspace/plans`) |
 | Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), OFF by default, never in `pi` |
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
