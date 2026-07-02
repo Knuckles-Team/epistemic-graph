@@ -89,7 +89,7 @@ impl NullBitmap {
         let n_words = len.div_ceil(64);
         let mut words = vec![u64::MAX; n_words];
         // Clear the padding bits beyond `len` in the final word so `count_valid` is exact.
-        if len % 64 != 0 {
+        if !len.is_multiple_of(64) {
             if let Some(last) = words.last_mut() {
                 let used = len % 64;
                 *last = (1u64 << used) - 1;
@@ -164,6 +164,11 @@ impl ColumnData {
             ColumnData::Bool(v) => v.len(),
             ColumnData::Str(v) => v.len(),
         }
+    }
+
+    /// Whether the value vector holds zero rows.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// An empty typed vector for `ty`.
