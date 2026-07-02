@@ -30,10 +30,10 @@ use std::collections::HashMap;
 
 use eg_core::graph::GraphView;
 use spargebra::algebra::{
-    AggregateExpression, AggregateFunction, Expression, Function, GraphPattern,
+    AggregateExpression, AggregateFunction, Expression, Function, GraphPattern, OrderExpression,
     PropertyPathExpression,
 };
-use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
+use spargebra::term::{GroundTerm, NamedNodePattern, TermPattern, TriplePattern, Variable};
 use spargebra::Query;
 
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
@@ -251,6 +251,29 @@ impl<'a> Dataset<'a> {
     }
 }
 
+/// RDF-merge a set of graph views into ONE owned view (CONCEPT:EG-054), used to build
+/// the `FROM`-scoped default graph: node-property and edge-property maps are unioned
+/// (node ids are unique per graph so the first cell wins; edge blob-lists concatenate).
+/// Only the SPARQL-scanned maps are populated — the topology (`graph`/`node_map`) is not
+/// needed by the pattern matcher, which reads `node_properties`/`edge_properties` only.
+fn merge_views<'v>(views: impl Iterator<Item = &'v GraphView>) -> GraphView {
+    let mut out = GraphView::default();
+    for v in views {
+        for (k, cell) in &v.node_properties {
+            out.node_properties
+                .entry(k.clone())
+                .or_insert_with(|| cell.clone());
+        }
+        for (k, blobs) in &v.edge_properties {
+            out.edge_properties
+                .entry(k.clone())
+                .or_default()
+                .extend(blobs.iter().cloned());
+        }
+    }
+    out
+}
+
 /// The active evaluation context: the dataset, the graph the current scans resolve
 /// against (the default, or a `GRAPH`-scoped named graph), and the LPG→RDF projection.
 struct Ctx<'a> {
@@ -346,6 +369,37 @@ pub fn evaluate_outcome(
     query: &Query,
     proj: &Projection,
 ) -> Result<QueryOutcome, String> {
+    // FROM / FROM NAMED (CONCEPT:EG-054): if the query carries a dataset spec, honor it
+    // to scope the active dataset instead of always using the server-registered one.
+    // `merged_default` owns the FROM-union view (if any) so it outlives the borrow.
+    let merged_default;
+    let scoped_ds;
+    let ds: &Dataset = match query.dataset() {
+        Some(qd) => {
+            merged_default = if qd.default.is_empty() {
+                None
+            } else {
+                // Default graph = the RDF-merge of every named `FROM <g>` graph.
+                Some(merge_views(
+                    qd.default.iter().filter_map(|g| ds.named_view(g.as_str())),
+                ))
+            };
+            let default = merged_default.as_ref().unwrap_or(ds.default);
+            // Named graphs = the `FROM NAMED <g>` set (all of them if none given).
+            let named = match &qd.named {
+                Some(names) => names
+                    .iter()
+                    .filter_map(|g| {
+                        ds.named_view(g.as_str()).map(|v| (g.as_str().to_string(), v))
+                    })
+                    .collect(),
+                None => ds.named.clone(),
+            };
+            scoped_ds = Dataset { default, named };
+            &scoped_ds
+        }
+        None => ds,
+    };
     let ctx = Ctx {
         ds,
         active: ds.default,
@@ -645,7 +699,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             let inner_sols = eval_pattern(ctx, inner)?;
             Ok(inner_sols
                 .into_iter()
-                .filter(|s| eval_filter(expr, s))
+                .filter(|s| eval_filter(ctx, expr, s))
                 .collect())
         }
         GraphPattern::Join { left, right } => {
@@ -662,7 +716,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             // (passing the optional FILTER) where one exists.
             let l = eval_pattern(ctx, left)?;
             let r = eval_pattern(ctx, right)?;
-            Ok(left_join(&l, &r, expression.as_ref()))
+            Ok(left_join(ctx, &l, &r, expression.as_ref()))
         }
         GraphPattern::Union { left, right } => {
             let mut l = eval_pattern(ctx, left)?;
@@ -697,7 +751,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             aggregates,
         } => {
             let rows = eval_pattern(ctx, inner)?;
-            Ok(eval_group(rows, variables, aggregates))
+            Ok(eval_group(ctx, rows, variables, aggregates))
         }
         // BIND / the aggregate-projection rename. `Extend` binds `variable` to the
         // value of `expression` in each solution. We evaluate the (already-aggregated
@@ -712,7 +766,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             Ok(rows
                 .into_iter()
                 .map(|mut s| {
-                    if let Some(val) = expr_str(expression, &s) {
+                    if let Some(val) = expr_str(ctx, expression, &s) {
                         s.insert(variable.as_str().to_string(), Binding::Literal(val));
                     }
                     s
@@ -779,7 +833,91 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
                 .filter(|ls| !r.iter().any(|rs| minus_compatible(ls, rs)))
                 .collect())
         }
+        // ORDER BY (CONCEPT:EG-125): a CORRECTNESS fix — the evaluator previously hit the
+        // catch-all and errored, so ordered queries never returned in order. Evaluate the
+        // inner pattern, then STABLE-sort its solutions by the `OrderExpression` list.
+        GraphPattern::OrderBy { inner, expression } => {
+            let mut sols = eval_pattern(ctx, inner)?;
+            sort_solutions(ctx, &mut sols, expression);
+            Ok(sols)
+        }
+        // VALUES (CONCEPT:EG-125): inline a ground-term data table into solutions; the
+        // enclosing operator (a JOIN, typically) merges them with the rest of the pattern.
+        GraphPattern::Values {
+            variables,
+            bindings,
+        } => Ok(values_solutions(variables, bindings)),
         other => Err(format!("eg-rdf SPARQL: unsupported algebra node {other:?}")),
+    }
+}
+
+/// Stable-sort solutions by an `ORDER BY` comparator list (CONCEPT:EG-125). Each
+/// `OrderExpression` is Asc/Desc over an expression; solutions compare on the first
+/// expression that distinguishes them (numeric when both sides parse as numbers, else
+/// lexical). An UNBOUND/error value sorts FIRST in ascending order (SPARQL orders the
+/// unbound below every bound value), and Desc simply reverses that comparator.
+fn sort_solutions(ctx: &Ctx, sols: &mut [Solution], order: &[OrderExpression]) {
+    sols.sort_by(|a, b| {
+        for oe in order {
+            let (expr, desc) = match oe {
+                OrderExpression::Asc(e) => (e, false),
+                OrderExpression::Desc(e) => (e, true),
+            };
+            let ord = cmp_binding(&eval_term(ctx, expr, a), &eval_term(ctx, expr, b));
+            let ord = if desc { ord.reverse() } else { ord };
+            if ord != std::cmp::Ordering::Equal {
+                return ord;
+            }
+        }
+        std::cmp::Ordering::Equal
+    });
+}
+
+/// Compare two (possibly unbound) `ORDER BY` values (CONCEPT:EG-125). Unbound (`None`)
+/// sorts before any bound value; two bound values compare numerically when both parse as
+/// numbers, else by lexical value.
+fn cmp_binding(a: &Option<Binding>, b: &Option<Binding>) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(x), Some(y)) => {
+            let (xs, ys) = (x.as_str(), y.as_str());
+            match (xs.parse::<f64>(), ys.parse::<f64>()) {
+                (Ok(nx), Ok(ny)) => nx.partial_cmp(&ny).unwrap_or(Ordering::Equal),
+                _ => xs.cmp(ys),
+            }
+        }
+    }
+}
+
+/// Turn an inline `VALUES` table into solutions (CONCEPT:EG-125): one solution per row,
+/// binding each variable to its ground term; an `UNDEF` cell (`None`) leaves that
+/// variable unbound in that row.
+fn values_solutions(variables: &[Variable], bindings: &[Vec<Option<GroundTerm>>]) -> Vec<Solution> {
+    bindings
+        .iter()
+        .map(|row| {
+            let mut sol = Solution::new();
+            for (var, cell) in variables.iter().zip(row) {
+                if let Some(gt) = cell {
+                    sol.insert(var.as_str().to_string(), ground_term_binding(gt));
+                }
+            }
+            sol
+        })
+        .collect()
+}
+
+/// A `VALUES` ground term → a solution binding (CONCEPT:EG-125): an IRI becomes a `Node`
+/// (`<iri>`), a literal its lexical `Literal` value (matching how the BGP matcher binds).
+fn ground_term_binding(gt: &GroundTerm) -> Binding {
+    match gt {
+        GroundTerm::NamedNode(n) => Binding::Node(format!("<{}>", n.as_str())),
+        GroundTerm::Literal(l) => Binding::Literal(l.value().to_string()),
+        #[allow(unreachable_patterns)]
+        _ => Binding::Literal(String::new()),
     }
 }
 
@@ -820,6 +958,7 @@ const DEFAULT_GRAPH_IRI: &str = "<urn:eg:graph:default>";
 /// aggregate-result var (the internal name spargebra assigns) to the computed scalar.
 /// The wrapping `Extend` re-binds those internal vars to the user's projected names.
 fn eval_group(
+    ctx: &Ctx,
     rows: Vec<Solution>,
     group_vars: &[spargebra::term::Variable],
     aggregates: &[(spargebra::term::Variable, AggregateExpression)],
@@ -855,7 +994,7 @@ fn eval_group(
         }
         // Compute each aggregate over the group's members.
         for (out_var, agg) in aggregates {
-            let value = compute_aggregate(agg, &members);
+            let value = compute_aggregate(ctx, agg, &members);
             sol.insert(out_var.as_str().to_string(), Binding::Literal(value));
         }
         out.push(sol);
@@ -864,7 +1003,7 @@ fn eval_group(
 }
 
 /// Compute ONE aggregate over a group's member solutions, returning its lexical value.
-fn compute_aggregate(agg: &AggregateExpression, members: &[Solution]) -> String {
+fn compute_aggregate(ctx: &Ctx, agg: &AggregateExpression, members: &[Solution]) -> String {
     match agg {
         // COUNT(*) — count solutions (DISTINCT counts distinct whole solutions).
         AggregateExpression::CountSolutions { distinct } => {
@@ -885,7 +1024,8 @@ fn compute_aggregate(agg: &AggregateExpression, members: &[Solution]) -> String 
             distinct,
         } => {
             // The per-row values of the aggregated expression (skipping unbound rows).
-            let mut vals: Vec<String> = members.iter().filter_map(|s| expr_str(expr, s)).collect();
+            let mut vals: Vec<String> =
+                members.iter().filter_map(|s| expr_str(ctx, expr, s)).collect();
             if *distinct {
                 let mut seen = std::collections::HashSet::new();
                 vals.retain(|v| seen.insert(v.clone()));
@@ -1330,13 +1470,18 @@ fn hash_join(l: &[Solution], r: &[Solution]) -> Vec<Solution> {
     out
 }
 
-fn left_join(l: &[Solution], r: &[Solution], filter: Option<&Expression>) -> Vec<Solution> {
+fn left_join(
+    ctx: &Ctx,
+    l: &[Solution],
+    r: &[Solution],
+    filter: Option<&Expression>,
+) -> Vec<Solution> {
     let mut out = Vec::new();
     for a in l {
         let mut matched = false;
         for b in r {
             if let Some(m) = merge(a, b) {
-                if filter.map(|e| eval_filter(e, &m)).unwrap_or(true) {
+                if filter.map(|e| eval_filter(ctx, e, &m)).unwrap_or(true) {
                     out.push(m);
                     matched = true;
                 }
@@ -1351,8 +1496,8 @@ fn left_join(l: &[Solution], r: &[Solution], filter: Option<&Expression>) -> Vec
 
 // ── FILTER — a small expression evaluator (the increment's subset) ──────────────
 
-fn eval_filter(expr: &Expression, sol: &Solution) -> bool {
-    eval_expr_bool(expr, sol).unwrap_or(false)
+fn eval_filter(ctx: &Ctx, expr: &Expression, sol: &Solution) -> bool {
+    eval_expr_bool(ctx, expr, sol).unwrap_or(false)
 }
 
 // Rich FILTER expression evaluation (CONCEPT:EG-053). The evaluator has three layers:
@@ -1364,70 +1509,85 @@ fn eval_filter(expr: &Expression, sol: &Solution) -> bool {
 // Datatype-aware where feasible (numeric comparison/equality); unsupported forms still
 // fail SAFE (the FILTER yields `false` / the bind yields no value).
 
-fn eval_expr_bool(expr: &Expression, sol: &Solution) -> Option<bool> {
+fn eval_expr_bool(ctx: &Ctx, expr: &Expression, sol: &Solution) -> Option<bool> {
     match expr {
         Expression::Bound(v) => Some(sol.contains_key(v.as_str())),
-        Expression::Equal(a, b) => Some(terms_equal(a, b, sol)),
-        Expression::SameTerm(a, b) => Some(expr_str(a, sol)? == expr_str(b, sol)?),
-        Expression::Greater(a, b) => Some(num(a, sol)? > num(b, sol)?),
-        Expression::GreaterOrEqual(a, b) => Some(num(a, sol)? >= num(b, sol)?),
-        Expression::Less(a, b) => Some(num(a, sol)? < num(b, sol)?),
-        Expression::LessOrEqual(a, b) => Some(num(a, sol)? <= num(b, sol)?),
-        Expression::And(a, b) => Some(eval_expr_bool(a, sol)? && eval_expr_bool(b, sol)?),
-        Expression::Or(a, b) => Some(eval_expr_bool(a, sol)? || eval_expr_bool(b, sol)?),
-        Expression::Not(a) => Some(!eval_expr_bool(a, sol)?),
+        Expression::Equal(a, b) => Some(terms_equal(ctx, a, b, sol)),
+        Expression::SameTerm(a, b) => Some(expr_str(ctx, a, sol)? == expr_str(ctx, b, sol)?),
+        Expression::Greater(a, b) => Some(num(ctx, a, sol)? > num(ctx, b, sol)?),
+        Expression::GreaterOrEqual(a, b) => Some(num(ctx, a, sol)? >= num(ctx, b, sol)?),
+        Expression::Less(a, b) => Some(num(ctx, a, sol)? < num(ctx, b, sol)?),
+        Expression::LessOrEqual(a, b) => Some(num(ctx, a, sol)? <= num(ctx, b, sol)?),
+        Expression::And(a, b) => Some(eval_expr_bool(ctx, a, sol)? && eval_expr_bool(ctx, b, sol)?),
+        Expression::Or(a, b) => Some(eval_expr_bool(ctx, a, sol)? || eval_expr_bool(ctx, b, sol)?),
+        Expression::Not(a) => Some(!eval_expr_bool(ctx, a, sol)?),
         // `IN` (and `NOT IN`, which spargebra parses to `Not(In(…))`) — numeric-aware
         // membership over the candidate list.
         Expression::In(a, list) => {
-            let lhs = eval_term(a, sol)?;
-            Some(
-                list.iter()
-                    .any(|e| eval_term(e, sol).map(|rhs| binding_terms_equal(&lhs, &rhs)).unwrap_or(false)),
-            )
+            let lhs = eval_term(ctx, a, sol)?;
+            Some(list.iter().any(|e| {
+                eval_term(ctx, e, sol)
+                    .map(|rhs| binding_terms_equal(&lhs, &rhs))
+                    .unwrap_or(false)
+            }))
         }
         Expression::If(c, t, e) => {
-            if eval_expr_bool(c, sol).unwrap_or(false) {
-                eval_expr_bool(t, sol)
+            if eval_expr_bool(ctx, c, sol).unwrap_or(false) {
+                eval_expr_bool(ctx, t, sol)
             } else {
-                eval_expr_bool(e, sol)
+                eval_expr_bool(ctx, e, sol)
             }
         }
-        Expression::Coalesce(args) => args.iter().find_map(|e| eval_expr_bool(e, sol)),
-        Expression::FunctionCall(f, args) => eval_bool_function(f, args, sol),
+        Expression::Coalesce(args) => args.iter().find_map(|e| eval_expr_bool(ctx, e, sol)),
+        Expression::FunctionCall(f, args) => eval_bool_function(ctx, f, args, sol),
+        // FILTER EXISTS / NOT EXISTS (CONCEPT:EG-125). `NOT EXISTS` parses to
+        // `Not(Exists(…))`, so the negation is handled by the `Not` arm above. Evaluate
+        // the sub-pattern under the active context and report whether ANY of its solutions
+        // is COMPATIBLE with the current solution (agrees on the shared variables) — the
+        // substitution-and-nonempty semantics of EXISTS.
+        Expression::Exists(pattern) => {
+            let sols = eval_pattern(ctx, pattern).ok()?;
+            Some(sols.iter().any(|s| merge(sol, s).is_some()))
+        }
         // Effective boolean value of any other value-producing expression.
-        _ => eval_term(expr, sol).map(|b| ebv(&b)),
+        _ => eval_term(ctx, expr, sol).map(|b| ebv(&b)),
     }
 }
 
 /// Evaluate any expression to a typed term `Binding` (CONCEPT:EG-053). Preserves the
 /// Node/Literal distinction so `isIRI`/`isLiteral`/`STR`/`DATATYPE` resolve correctly.
-fn eval_term(e: &Expression, sol: &Solution) -> Option<Binding> {
+fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
     match e {
         Expression::Variable(v) => sol.get(v.as_str()).cloned(),
         Expression::Literal(l) => Some(Binding::Literal(l.value().to_string())),
         Expression::NamedNode(n) => Some(Binding::Node(format!("<{}>", n.as_str()))),
-        Expression::Add(a, b) => Some(Binding::Literal(fmt_num(num(a, sol)? + num(b, sol)?))),
-        Expression::Subtract(a, b) => Some(Binding::Literal(fmt_num(num(a, sol)? - num(b, sol)?))),
-        Expression::Multiply(a, b) => Some(Binding::Literal(fmt_num(num(a, sol)? * num(b, sol)?))),
+        Expression::Add(a, b) => Some(Binding::Literal(fmt_num(num(ctx, a, sol)? + num(ctx, b, sol)?))),
+        Expression::Subtract(a, b) => {
+            Some(Binding::Literal(fmt_num(num(ctx, a, sol)? - num(ctx, b, sol)?)))
+        }
+        Expression::Multiply(a, b) => {
+            Some(Binding::Literal(fmt_num(num(ctx, a, sol)? * num(ctx, b, sol)?)))
+        }
         Expression::Divide(a, b) => {
-            let d = num(b, sol)?;
+            let d = num(ctx, b, sol)?;
             if d == 0.0 {
                 return None;
             }
-            Some(Binding::Literal(fmt_num(num(a, sol)? / d)))
+            Some(Binding::Literal(fmt_num(num(ctx, a, sol)? / d)))
         }
-        Expression::UnaryPlus(a) => Some(Binding::Literal(fmt_num(num(a, sol)?))),
-        Expression::UnaryMinus(a) => Some(Binding::Literal(fmt_num(-num(a, sol)?))),
+        Expression::UnaryPlus(a) => Some(Binding::Literal(fmt_num(num(ctx, a, sol)?))),
+        Expression::UnaryMinus(a) => Some(Binding::Literal(fmt_num(-num(ctx, a, sol)?))),
         Expression::If(c, t, f) => {
-            if eval_expr_bool(c, sol).unwrap_or(false) {
-                eval_term(t, sol)
+            if eval_expr_bool(ctx, c, sol).unwrap_or(false) {
+                eval_term(ctx, t, sol)
             } else {
-                eval_term(f, sol)
+                eval_term(ctx, f, sol)
             }
         }
-        Expression::Coalesce(args) => args.iter().find_map(|a| eval_term(a, sol)),
-        Expression::FunctionCall(f, args) => eval_str_function(f, args, sol),
-        // Boolean-valued expressions render as an xsd:boolean lexical.
+        Expression::Coalesce(args) => args.iter().find_map(|a| eval_term(ctx, a, sol)),
+        Expression::FunctionCall(f, args) => eval_str_function(ctx, f, args, sol),
+        // Boolean-valued expressions render as an xsd:boolean lexical — including
+        // `EXISTS` used in a value context, e.g. `BIND(EXISTS { … } AS ?x)` (CONCEPT:EG-125).
         Expression::Bound(_)
         | Expression::Equal(..)
         | Expression::SameTerm(..)
@@ -1438,26 +1598,26 @@ fn eval_term(e: &Expression, sol: &Solution) -> Option<Binding> {
         | Expression::And(..)
         | Expression::Or(..)
         | Expression::Not(..)
-        | Expression::In(..) => Some(Binding::Literal(
-            if eval_expr_bool(e, sol)? { "true" } else { "false" }.to_string(),
+        | Expression::In(..)
+        | Expression::Exists(_) => Some(Binding::Literal(
+            if eval_expr_bool(ctx, e, sol)? { "true" } else { "false" }.to_string(),
         )),
-        Expression::Exists(_) => None,
     }
 }
 
 /// Boolean SPARQL built-ins (CONCEPT:EG-053): `REGEX`, `CONTAINS`/`STRSTARTS`/`STRENDS`,
 /// `LANGMATCHES`, and the `isIRI`/`isBlank`/`isLiteral`/`isNumeric` type tests.
-fn eval_bool_function(f: &Function, args: &[Expression], sol: &Solution) -> Option<bool> {
+fn eval_bool_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solution) -> Option<bool> {
     use spargebra::algebra::Function as F;
     match f {
-        F::Contains => Some(expr_str(args.first()?, sol)?.contains(&expr_str(args.get(1)?, sol)?)),
+        F::Contains => Some(expr_str(ctx, args.first()?, sol)?.contains(&expr_str(ctx, args.get(1)?, sol)?)),
         F::StrStarts => {
-            Some(expr_str(args.first()?, sol)?.starts_with(&expr_str(args.get(1)?, sol)?))
+            Some(expr_str(ctx, args.first()?, sol)?.starts_with(&expr_str(ctx, args.get(1)?, sol)?))
         }
-        F::StrEnds => Some(expr_str(args.first()?, sol)?.ends_with(&expr_str(args.get(1)?, sol)?)),
+        F::StrEnds => Some(expr_str(ctx, args.first()?, sol)?.ends_with(&expr_str(ctx, args.get(1)?, sol)?)),
         F::LangMatches => {
-            let tag = expr_str(args.first()?, sol)?.to_lowercase();
-            let range = expr_str(args.get(1)?, sol)?.to_lowercase();
+            let tag = expr_str(ctx, args.first()?, sol)?.to_lowercase();
+            let range = expr_str(ctx, args.get(1)?, sol)?.to_lowercase();
             Some(
                 (range == "*" && !tag.is_empty())
                     || tag == range
@@ -1465,9 +1625,9 @@ fn eval_bool_function(f: &Function, args: &[Expression], sol: &Solution) -> Opti
             )
         }
         F::Regex => {
-            let text = expr_str(args.first()?, sol)?;
-            let pat = expr_str(args.get(1)?, sol)?;
-            let flags = args.get(2).and_then(|f| expr_str(f, sol)).unwrap_or_default();
+            let text = expr_str(ctx, args.first()?, sol)?;
+            let pat = expr_str(ctx, args.get(1)?, sol)?;
+            let flags = args.get(2).and_then(|f| expr_str(ctx, f, sol)).unwrap_or_default();
             let pattern = if flags.contains('i') {
                 format!("(?i){pat}")
             } else {
@@ -1476,22 +1636,22 @@ fn eval_bool_function(f: &Function, args: &[Expression], sol: &Solution) -> Opti
             regex::Regex::new(&pattern).ok().map(|re| re.is_match(&text))
         }
         F::IsNumeric => Some(
-            eval_term(args.first()?, sol)
+            eval_term(ctx, args.first()?, sol)
                 .map(|b| term_lexical(&b).parse::<f64>().is_ok())
                 .unwrap_or(false),
         ),
         F::IsIri => Some(
-            eval_term(args.first()?, sol)
+            eval_term(ctx, args.first()?, sol)
                 .map(|b| matches!(&b, Binding::Node(s) if s.starts_with('<')))
                 .unwrap_or(false),
         ),
         F::IsBlank => Some(
-            eval_term(args.first()?, sol)
+            eval_term(ctx, args.first()?, sol)
                 .map(|b| matches!(&b, Binding::Node(s) if s.starts_with("_:")))
                 .unwrap_or(false),
         ),
         F::IsLiteral => Some(
-            eval_term(args.first()?, sol)
+            eval_term(ctx, args.first()?, sol)
                 .map(|b| matches!(b, Binding::Literal(_)))
                 .unwrap_or(false),
         ),
@@ -1502,12 +1662,12 @@ fn eval_bool_function(f: &Function, args: &[Expression], sol: &Solution) -> Opti
 /// String/term-valued SPARQL built-ins (CONCEPT:EG-053): `STR`/`IRI`/`LANG`/`DATATYPE`,
 /// `UCASE`/`LCASE`/`STRLEN`/`CONCAT`/`SUBSTR`, plus the boolean built-ins rendered as an
 /// xsd:boolean lexical so they compose inside other string expressions.
-fn eval_str_function(f: &Function, args: &[Expression], sol: &Solution) -> Option<Binding> {
+fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solution) -> Option<Binding> {
     use spargebra::algebra::Function as F;
     match f {
-        F::Str => Some(Binding::Literal(term_lexical(&eval_term(args.first()?, sol)?))),
+        F::Str => Some(Binding::Literal(term_lexical(&eval_term(ctx, args.first()?, sol)?))),
         F::Iri => {
-            let iri = expr_str(args.first()?, sol)?
+            let iri = expr_str(ctx, args.first()?, sol)?
                 .trim_start_matches('<')
                 .trim_end_matches('>')
                 .to_string();
@@ -1518,27 +1678,27 @@ fn eval_str_function(f: &Function, args: &[Expression], sol: &Solution) -> Optio
         F::Lang => Some(Binding::Literal(String::new())),
         F::Datatype => Some(Binding::Node(format!(
             "<{}>",
-            best_effort_datatype(&eval_term(args.first()?, sol)?)
+            best_effort_datatype(&eval_term(ctx, args.first()?, sol)?)
         ))),
-        F::UCase => Some(Binding::Literal(expr_str(args.first()?, sol)?.to_uppercase())),
-        F::LCase => Some(Binding::Literal(expr_str(args.first()?, sol)?.to_lowercase())),
+        F::UCase => Some(Binding::Literal(expr_str(ctx, args.first()?, sol)?.to_uppercase())),
+        F::LCase => Some(Binding::Literal(expr_str(ctx, args.first()?, sol)?.to_lowercase())),
         F::StrLen => Some(Binding::Literal(fmt_num(
-            expr_str(args.first()?, sol)?.chars().count() as f64,
+            expr_str(ctx, args.first()?, sol)?.chars().count() as f64,
         ))),
         F::Concat => {
             let mut s = String::new();
             for a in args {
-                s.push_str(&expr_str(a, sol)?);
+                s.push_str(&expr_str(ctx, a, sol)?);
             }
             Some(Binding::Literal(s))
         }
         F::SubStr => {
             // SPARQL SUBSTR is 1-based; an optional length truncates.
-            let chars: Vec<char> = expr_str(args.first()?, sol)?.chars().collect();
-            let begin = (num(args.get(1)?, sol)?.max(1.0) as usize).saturating_sub(1);
+            let chars: Vec<char> = expr_str(ctx, args.first()?, sol)?.chars().collect();
+            let begin = (num(ctx, args.get(1)?, sol)?.max(1.0) as usize).saturating_sub(1);
             let slice: String = match args.get(2) {
                 Some(lenexpr) => {
-                    let len = num(lenexpr, sol)?.max(0.0) as usize;
+                    let len = num(ctx, lenexpr, sol)?.max(0.0) as usize;
                     chars.iter().skip(begin).take(len).collect()
                 }
                 None => chars.iter().skip(begin).collect(),
@@ -1548,7 +1708,7 @@ fn eval_str_function(f: &Function, args: &[Expression], sol: &Solution) -> Optio
         // Boolean built-ins composed in a string context → "true"/"false".
         F::Contains | F::StrStarts | F::StrEnds | F::Regex | F::LangMatches | F::IsIri
         | F::IsBlank | F::IsLiteral | F::IsNumeric => Some(Binding::Literal(
-            if eval_bool_function(f, args, sol)? { "true" } else { "false" }.to_string(),
+            if eval_bool_function(ctx, f, args, sol)? { "true" } else { "false" }.to_string(),
         )),
         _ => None,
     }
@@ -1592,8 +1752,8 @@ fn ebv(b: &Binding) -> bool {
 
 /// Datatype-aware `=` (CONCEPT:EG-053): numeric comparison when both sides parse as
 /// numbers, else lexical-term equality.
-fn terms_equal(a: &Expression, b: &Expression, sol: &Solution) -> bool {
-    match (eval_term(a, sol), eval_term(b, sol)) {
+fn terms_equal(ctx: &Ctx, a: &Expression, b: &Expression, sol: &Solution) -> bool {
+    match (eval_term(ctx, a, sol), eval_term(ctx, b, sol)) {
         (Some(x), Some(y)) => binding_terms_equal(&x, &y),
         _ => false,
     }
@@ -1607,12 +1767,12 @@ fn binding_terms_equal(x: &Binding, y: &Binding) -> bool {
     }
 }
 
-fn expr_str(e: &Expression, sol: &Solution) -> Option<String> {
-    eval_term(e, sol).map(|b| b.as_str().to_string())
+fn expr_str(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<String> {
+    eval_term(ctx, e, sol).map(|b| b.as_str().to_string())
 }
 
-fn num(e: &Expression, sol: &Solution) -> Option<f64> {
-    expr_str(e, sol)?.parse::<f64>().ok()
+fn num(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<f64> {
+    expr_str(ctx, e, sol)?.parse::<f64>().ok()
 }
 
 #[cfg(test)]
@@ -2478,5 +2638,177 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
             pairs[0].0.contains("alice") && pairs[0].1.contains("carol"),
             "got {pairs:?}"
         );
+    }
+
+    // ── CONCEPT:EG-125 — ORDER BY / VALUES / EXISTS ─────────────────────────────
+
+    fn ordered_names(view: &GraphView, clause: &str) -> Vec<String> {
+        let q = format!(
+            "PREFIX ex: <http://example.org/> \
+             SELECT ?name WHERE {{ ?p ex:name ?name ; ex:age ?age }} {clause}"
+        );
+        run(view, &q)
+            .unwrap()
+            .solutions
+            .iter()
+            .map(|s| s.get("name").unwrap().as_str().to_string())
+            .collect()
+    }
+
+    /// EG-125: ORDER BY on a STRING var, ascending and descending.
+    #[test]
+    fn order_by_string_asc_desc() {
+        let view = loaded_view();
+        assert_eq!(
+            ordered_names(&view, "ORDER BY ?name"),
+            vec!["Alice", "Bob", "Carol"]
+        );
+        assert_eq!(
+            ordered_names(&view, "ORDER BY DESC(?name)"),
+            vec!["Carol", "Bob", "Alice"]
+        );
+    }
+
+    /// EG-125: ORDER BY on a NUMERIC var sorts numerically (not lexically), asc + desc.
+    #[test]
+    fn order_by_numeric_asc_desc() {
+        let view = loaded_view();
+        // ages: Alice 30, Bob 25, Carol 40.
+        assert_eq!(
+            ordered_names(&view, "ORDER BY ?age"),
+            vec!["Bob", "Alice", "Carol"]
+        );
+        assert_eq!(
+            ordered_names(&view, "ORDER BY DESC(?age)"),
+            vec!["Carol", "Alice", "Bob"]
+        );
+    }
+
+    /// EG-125: an inline VALUES table joins with the surrounding BGP, restricting the
+    /// result to the enumerated resources.
+    #[test]
+    fn values_join_restricts() {
+        let view = loaded_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX ex: <http://example.org/>
+            SELECT ?name WHERE {
+              VALUES ?p { ex:alice ex:carol }
+              ?p ex:name ?name .
+            }"#,
+        )
+        .unwrap();
+        let mut names: Vec<String> = res
+            .solutions
+            .iter()
+            .map(|s| s.get("name").unwrap().as_str().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Alice", "Carol"], "VALUES restricts to ?p set");
+    }
+
+    /// EG-125: FILTER EXISTS keeps only solutions whose sub-pattern has a match; NOT
+    /// EXISTS keeps only those WITHOUT. Alice/Carol have ex:knows; Bob does not.
+    #[test]
+    fn filter_exists_and_not_exists() {
+        let view = loaded_view();
+        let names = |clause: &str| -> Vec<String> {
+            let q = format!(
+                "PREFIX ex: <http://example.org/> \
+                 SELECT ?name WHERE {{ ?p ex:name ?name . FILTER {clause} }}"
+            );
+            let mut v: Vec<String> = run(&view, &q)
+                .unwrap()
+                .solutions
+                .iter()
+                .map(|s| s.get("name").unwrap().as_str().to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            names("EXISTS { ?p ex:knows ?o }"),
+            vec!["Alice", "Carol"],
+            "EXISTS keeps the knowers"
+        );
+        assert_eq!(
+            names("NOT EXISTS { ?p ex:knows ?o }"),
+            vec!["Bob"],
+            "NOT EXISTS keeps the non-knowers"
+        );
+    }
+
+    // ── CONCEPT:EG-054 — FROM / FROM NAMED ──────────────────────────────────────
+
+    /// EG-054: a `FROM <g>` clause scopes the default graph to that graph, so a plain
+    /// (non-GRAPH) BGP only sees `g`'s triples — not the whole registered dataset.
+    #[test]
+    fn from_scopes_default_graph() {
+        let core_a = eg_core::graph::GraphCore::new();
+        let mut iris = IriStore::default();
+        load_triples(
+            &core_a,
+            &mut iris,
+            "a",
+            parse_turtle("@prefix ex: <http://ex/> . ex:a ex:p ex:b .").unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        let core_b = eg_core::graph::GraphCore::new();
+        load_triples(
+            &core_b,
+            &mut iris,
+            "b",
+            parse_turtle("@prefix ex: <http://ex/> . ex:c ex:p ex:d .").unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        let va = core_a.analysis_snapshot();
+        let vb = core_b.analysis_snapshot();
+        // A default graph that contains BOTH edges — FROM must narrow away from it.
+        let both = merge_views([&va, &vb].into_iter());
+        let ds = Dataset::new(
+            &both,
+            vec![
+                ("http://g/a".to_string(), &va),
+                ("http://g/b".to_string(), &vb),
+            ],
+        );
+        let subjects = |q: &str| -> Vec<String> {
+            let QueryOutcome::Solutions(r) =
+                run_outcome_dataset(&ds, q, &Projection::raw()).unwrap()
+            else {
+                panic!()
+            };
+            let mut v: Vec<String> = r
+                .solutions
+                .iter()
+                .map(|s| s.get("s").unwrap().as_str().to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        // No FROM: both edges visible in the default graph.
+        assert_eq!(subjects("SELECT ?s WHERE { ?s ?p ?o }").len(), 2);
+        // FROM <g/a>: only graph A's subject (ex:a) is visible.
+        let from_a = {
+            let QueryOutcome::Solutions(r) = run_outcome_dataset(
+                &ds,
+                "SELECT ?s FROM <http://g/a> WHERE { ?s ?p ?o }",
+                &Projection::raw(),
+            )
+            .unwrap() else {
+                panic!()
+            };
+            r.solutions
+                .iter()
+                .map(|s| s.get("s").unwrap().as_str().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(from_a.len(), 1, "FROM <g/a> restricts to one edge: {from_a:?}");
+        assert!(from_a[0].contains("<http://ex/a>"), "got {from_a:?}");
     }
 }
