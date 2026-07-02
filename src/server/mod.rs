@@ -45,6 +45,14 @@ pub mod sparql_http;
 /// `text/event-stream` frames over the same hand-rolled tokio HTTP idiom.
 #[cfg(feature = "graphql")]
 pub mod graphql_sub;
+/// Observability log ingestion + Parquet segment substrate (CONCEPT:EG-160/161,
+/// feature `obs`): a hand-rolled HTTP listener accepting OTLP/HTTP, Elasticsearch
+/// `_bulk`/`_doc` and JSON-lines log records, landing them in eg-tsdb series +
+/// eg-text full-text indices and rolling Parquet-on-blob-CAS segments — the first
+/// slice of Phase T (surpass OpenObserve). Self-contained (its own `ObsState`), not
+/// tied to the graph `ServerState`.
+#[cfg(feature = "obs")]
+pub mod obs;
 // Process-wide user-defined relational table store (CONCEPT:EG-018/EG-023): the ONE
 // `eg_query::TableStore` (redb permits a single handle per file per process) shared by
 // BOTH the wire `Method::Sql` DDL/DML path and the pgwire shim, so a table created via
