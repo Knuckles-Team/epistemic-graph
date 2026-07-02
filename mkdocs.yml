@@ -104,6 +104,11 @@ nav:
       - Vector / ANN: interfaces/vector.md
       - Time-series: interfaces/timeseries.md
       - Key-value & Blob: interfaces/kv-blob.md
+      - Messaging & Broker: interfaces/messaging.md
+      - Observability (logs/metrics/traces): interfaces/observability.md
+      - GIS / Spatial: interfaces/gis.md
+      - KV-cache (vLLM/LMCache): interfaces/kvcache.md
+      - Agent Memory: interfaces/memory.md
       - Ontology Lifecycle: interfaces/ontology.md
   - Deploy & Operate:
       - Operations Runbook: operations/runbook.md
