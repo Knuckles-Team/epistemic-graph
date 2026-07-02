@@ -15,6 +15,8 @@ pub mod decay;
 pub mod graph;
 pub mod index;
 pub mod isolation;
+#[cfg(feature = "security")]
+pub mod rbac;
 pub mod read_through;
 pub mod registry;
 #[cfg(feature = "result-cache")]
