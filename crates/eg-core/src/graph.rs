@@ -1095,6 +1095,202 @@ impl<'a> GraphTxn<'a> {
         semantic_id
     }
 
+    // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-222) ────────────
+    //
+    // Module 4 of the agent-native memory tier ("Are We Ready For An Agent-Native
+    // Memory System?", arXiv 2606.24775): the paper's finding that "localized
+    // maintenance is more cost-efficient than global reorganization". The caller (the
+    // AU maintenance loop) picks a WORKING SET of memory ids; the engine only touches
+    // those nodes — there is NO global scan or reindex. No clock/RNG is read
+    // internally: `now_ms`, `half_life_ms`, `weight`, and `threshold` are all supplied
+    // by the caller, so a run replays identically from the WAL / on a Raft follower.
+    // Every method runs under the single held topology write guard, so it is atomic
+    // w.r.t. other writers.
+    //
+    // A memory node carries these memory-value fields in its property blob:
+    //   * `importance`     (f64) — retrieval-priority weight; decays over time and is
+    //                              boosted on access.
+    //   * `access_count`   (u64) — how many times it has been reinforced (retrieved).
+    //   * `last_access_ms` (u64) — wall-clock of the last reinforcement (recency).
+    //   * `last_decay_ms`  (u64) — decay's OWN clock, so a maintenance sweep never
+    //                              masquerades as an access.
+    //   * `forgotten`      (bool)— set true when evicted via the mark path (provenance
+    //                              preserved; the node + its edges + bitemporal history
+    //                              stay intact).
+    // A node WITHOUT these fields is treated as carrying the default importance and is
+    // otherwise left untouched — fully backward-compatible with pre-EG-222 nodes.
+
+    /// CONCEPT:EG-222 — default `importance` for a memory node that carries no explicit
+    /// `importance` field yet. Retrieval-priority weight starts here and is bumped by
+    /// [`GraphTxn::reinforce`] / reduced by [`GraphTxn::decay_node`]. A node that has
+    /// never been given an importance reads as this value, so untouched pre-EG-222
+    /// nodes survive any eviction `threshold <= DEFAULT_IMPORTANCE`.
+    pub const DEFAULT_IMPORTANCE: f64 = 1.0;
+
+    /// Read a node object's current `importance`, falling back to
+    /// [`GraphTxn::DEFAULT_IMPORTANCE`] when the field is absent (CONCEPT:EG-222 —
+    /// pre-EG-222 nodes read as the default).
+    fn memory_importance(obj: &serde_json::Map<String, serde_json::Value>) -> f64 {
+        obj.get("importance")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(Self::DEFAULT_IMPORTANCE)
+    }
+
+    /// CONCEPT:EG-222 — REINFORCE a memory on retrieval: bump `access_count`, refresh
+    /// `last_access_ms` to `now_ms` (recency), and raise `importance` by `weight`
+    /// (retrieval strengthens a memory). A node that carries no memory-value fields yet
+    /// is seeded from [`GraphTxn::DEFAULT_IMPORTANCE`] / a zero access count, so its
+    /// first retrieval lifts it to `DEFAULT_IMPORTANCE + weight` with `access_count =
+    /// 1`. A memory previously marked `forgotten` is REVIVED (`forgotten = false`) — a
+    /// re-accessed memory is live again.
+    ///
+    /// Deterministic (no clock/RNG — `now_ms`/`weight` are caller-supplied). This is an
+    /// accumulator, so it is intentionally NOT idempotent: each call models a distinct
+    /// retrieval event. A missing/undecodable node is a no-op returning `false`. Runs
+    /// under the held write guard.
+    pub fn reinforce(&mut self, id: &str, now_ms: u64, weight: f64) -> bool {
+        let Some(obj) = self.node_object(id) else {
+            return false;
+        };
+        let importance = Self::memory_importance(&obj) + weight;
+        let access_count = obj
+            .get("access_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            + 1;
+        let mut updates = serde_json::Map::new();
+        updates.insert("importance".to_string(), serde_json::json!(importance));
+        updates.insert("access_count".to_string(), serde_json::json!(access_count));
+        updates.insert("last_access_ms".to_string(), serde_json::json!(now_ms));
+        if obj.get("forgotten").and_then(|v| v.as_bool()) == Some(true) {
+            updates.insert("forgotten".to_string(), serde_json::json!(false));
+        }
+        self.merge_fields(id, &updates)
+    }
+
+    /// CONCEPT:EG-222 — apply time-based EXPONENTIAL decay to a memory's `importance`
+    /// from the time elapsed since it was last touched: `importance *= 0.5 ^ (elapsed /
+    /// half_life_ms)`, i.e. importance halves every `half_life_ms` of inactivity. The
+    /// elapsed clock is measured from `last_decay_ms` if present, else `last_access_ms`
+    /// (recency); the method advances `last_decay_ms` — NOT `last_access_ms` — so a
+    /// maintenance sweep never masquerades as an access.
+    ///
+    /// Backward-compatible + localized: a node carrying no `importance` field is left
+    /// UNTOUCHED (returns `false`) — pre-EG-222 nodes are never rewritten. A node with
+    /// importance but no decay reference just stamps `last_decay_ms = now_ms` (a
+    /// baseline; no decay this pass). Deterministic (no clock/RNG) and IDEMPOTENT at a
+    /// fixed `now_ms`: because it advances `last_decay_ms` to `now_ms`, a second call
+    /// with the same `now_ms` sees zero elapsed and leaves importance unchanged; and
+    /// successive passes compose exactly (`0.5^(Δ₁/h)·0.5^(Δ₂/h) = 0.5^((Δ₁+Δ₂)/h)`).
+    /// `half_life_ms == 0` is treated as no-decay (only the baseline stamp). Runs under
+    /// the held write guard.
+    pub fn decay_node(&mut self, id: &str, now_ms: u64, half_life_ms: u64) -> bool {
+        let Some(obj) = self.node_object(id) else {
+            return false;
+        };
+        // Untouched: no memory-value `importance` ⇒ not a decayable memory node.
+        let Some(importance) = obj.get("importance").and_then(|v| v.as_f64()) else {
+            return false;
+        };
+        let reference = obj
+            .get("last_decay_ms")
+            .and_then(|v| v.as_u64())
+            .or_else(|| obj.get("last_access_ms").and_then(|v| v.as_u64()));
+        let mut updates = serde_json::Map::new();
+        if let Some(ref_ms) = reference {
+            let elapsed = now_ms.saturating_sub(ref_ms);
+            if elapsed > 0 && half_life_ms > 0 {
+                let factor = 0.5_f64.powf(elapsed as f64 / half_life_ms as f64);
+                updates.insert("importance".to_string(), serde_json::json!(importance * factor));
+            }
+        }
+        // Advance decay's own clock — makes the pass idempotent + composable.
+        updates.insert("last_decay_ms".to_string(), serde_json::json!(now_ms));
+        self.merge_fields(id, &updates)
+    }
+
+    /// CONCEPT:EG-222 — batch [`GraphTxn::decay_node`] over a caller-supplied working
+    /// set `ids` (LOCALIZED — the caller picks the set; the engine never scans the
+    /// whole store). Returns the number of nodes actually decayed/stamped. The effect
+    /// is order-independent (each node is decayed against its own clock). Runs under
+    /// the held write guard.
+    pub fn decay_memories(&mut self, now_ms: u64, half_life_ms: u64, ids: &[String]) -> usize {
+        let mut n = 0;
+        for id in ids {
+            if self.decay_node(id, now_ms, half_life_ms) {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// CONCEPT:EG-222 — FORGET a single memory `id` locally. With `delete == false`
+    /// (the default, provenance-preserving path) the node is MARKED `forgotten = true`
+    /// — its bitemporal history + edges stay intact for audit / recall-on-reinforce.
+    /// With `delete == true` the node (and its edges) are hard-removed. A missing node
+    /// is a no-op returning `false`. Deterministic; marking is idempotent. Runs under
+    /// the held write guard.
+    pub fn forget(&mut self, id: &str, delete: bool) -> bool {
+        if delete {
+            if !self.topo.node_map.contains_key(id) {
+                return false;
+            }
+            self.remove_node(id.to_string());
+            true
+        } else {
+            let mut updates = serde_json::Map::new();
+            updates.insert("forgotten".to_string(), serde_json::json!(true));
+            self.merge_fields(id, &updates)
+        }
+    }
+
+    /// CONCEPT:EG-222 — EVICT every memory in the working set `ids` whose (already-
+    /// decayed) `importance` has fallen strictly BELOW `threshold`, pruning it via
+    /// [`GraphTxn::forget`] (mark when `delete == false`, hard-remove when `true`). A
+    /// node carrying no `importance` reads as [`GraphTxn::DEFAULT_IMPORTANCE`], so
+    /// untouched pre-EG-222 nodes survive any `threshold <= DEFAULT_IMPORTANCE`. A node
+    /// already marked `forgotten = true` is skipped (not re-pruned). LOCALIZED (only
+    /// `ids` are considered — no full scan) and deterministic; returns the pruned ids,
+    /// sorted + deduped. Callers typically [`GraphTxn::decay_memories`] first. Runs
+    /// under the held write guard.
+    pub fn evict_below(&mut self, ids: &[String], threshold: f64, delete: bool) -> Vec<String> {
+        let mut pruned: Vec<String> = Vec::new();
+        for id in ids {
+            let Some(obj) = self.node_object(id) else {
+                continue; // absent/undecodable — nothing to evict.
+            };
+            if obj.get("forgotten").and_then(|v| v.as_bool()) == Some(true) {
+                continue; // already forgotten — idempotent skip.
+            }
+            if Self::memory_importance(&obj) < threshold && self.forget(id, delete) {
+                pruned.push(id.clone());
+            }
+        }
+        pruned.sort();
+        pruned.dedup();
+        pruned
+    }
+
+    /// CONCEPT:EG-222 — the combined maintenance primitive the AU maintenance loop
+    /// schedules over a working set: DECAY every node in `ids` (against its own clock),
+    /// then EVICT those that fell below `evict_threshold`. LOCALIZED (only `ids`),
+    /// atomic (one held write guard), deterministic + idempotent at a fixed `now_ms`.
+    /// `delete` selects mark (`false`, the default, provenance-preserving) vs
+    /// hard-remove (`true`) for eviction. Returns `(decayed_count, pruned_ids)`. Runs
+    /// under the held write guard.
+    pub fn maintain(
+        &mut self,
+        ids: &[String],
+        now_ms: u64,
+        half_life_ms: u64,
+        evict_threshold: f64,
+        delete: bool,
+    ) -> (usize, Vec<String>) {
+        let decayed = self.decay_memories(now_ms, half_life_ms, ids);
+        let pruned = self.evict_below(ids, evict_threshold, delete);
+        (decayed, pruned)
+    }
+
     // ── Scene-graph / 3D world model (CONCEPT:EG-087) ─────────────────────────
     //
     // A `:SceneObject` node carries a local `pose` (translation + rotation quaternion
@@ -3241,6 +3437,81 @@ impl GraphCore {
         out
     }
 
+    // ── Memory maintenance — one-shot wrappers (CONCEPT:EG-222) ────────────────
+    //     (decay + reinforcement; the AU maintenance loop schedules these)
+
+    /// One-shot [`GraphTxn::reinforce`] (CONCEPT:EG-222): bump access/recency +
+    /// importance under ONE topology write guard, then invalidate the lazy secondary
+    /// indexes. Returns whether the node existed.
+    pub fn reinforce(&self, id: &str, now_ms: u64, weight: f64) -> bool {
+        let ok = self.txn().reinforce(id, now_ms, weight);
+        if ok {
+            self.mark_dirty();
+        }
+        ok
+    }
+
+    /// One-shot [`GraphTxn::decay_node`] (CONCEPT:EG-222). Returns whether it
+    /// decayed/stamped the node.
+    pub fn decay_node(&self, id: &str, now_ms: u64, half_life_ms: u64) -> bool {
+        let ok = self.txn().decay_node(id, now_ms, half_life_ms);
+        if ok {
+            self.mark_dirty();
+        }
+        ok
+    }
+
+    /// One-shot [`GraphTxn::decay_memories`] (CONCEPT:EG-222): the whole working-set
+    /// decay runs under ONE topology write guard (localized — no global scan). Returns
+    /// the number of nodes decayed.
+    pub fn decay_memories(&self, now_ms: u64, half_life_ms: u64, ids: &[String]) -> usize {
+        let n = self.txn().decay_memories(now_ms, half_life_ms, ids);
+        if n > 0 {
+            self.mark_dirty();
+        }
+        n
+    }
+
+    /// One-shot [`GraphTxn::forget`] (CONCEPT:EG-222). `delete == false` marks
+    /// `forgotten` (provenance-preserving default); `true` hard-removes. Returns
+    /// whether it acted.
+    pub fn forget(&self, id: &str, delete: bool) -> bool {
+        let ok = self.txn().forget(id, delete);
+        if ok {
+            self.mark_dirty();
+        }
+        ok
+    }
+
+    /// One-shot [`GraphTxn::evict_below`] (CONCEPT:EG-222): prune the sub-threshold
+    /// members of the working set under ONE topology write guard. Returns the pruned
+    /// ids (sorted).
+    pub fn evict_below(&self, ids: &[String], threshold: f64, delete: bool) -> Vec<String> {
+        let pruned = self.txn().evict_below(ids, threshold, delete);
+        if !pruned.is_empty() {
+            self.mark_dirty();
+        }
+        pruned
+    }
+
+    /// One-shot [`GraphTxn::maintain`] (CONCEPT:EG-222): decay-then-evict the working
+    /// set under ONE topology write guard (atomic + localized — no global reindex) —
+    /// the primitive the AU maintenance loop schedules. Returns `(decayed, pruned_ids)`.
+    pub fn maintain(
+        &self,
+        ids: &[String],
+        now_ms: u64,
+        half_life_ms: u64,
+        evict_threshold: f64,
+        delete: bool,
+    ) -> (usize, Vec<String>) {
+        let out = self
+            .txn()
+            .maintain(ids, now_ms, half_life_ms, evict_threshold, delete);
+        self.mark_dirty();
+        out
+    }
+
     // ── Scene-graph / 3D world model — one-shot wrappers + queries ────────────
     //     (CONCEPT:EG-087)
 
@@ -5005,6 +5276,236 @@ mod tests {
         let b = g.consolidate(&["d1".into(), "d2".into()], serde_json::Map::new());
         assert_eq!(a, b, "deterministic id independent of input order");
         assert_eq!(g.edge_count(), mid, "idempotent re-run stacks no edges");
+    }
+
+    // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-222) ────────────
+
+    /// Decode a node's `importance` as f64 (test helper).
+    fn imp_of(g: &GraphCore, id: &str) -> f64 {
+        obj_of(g, id)
+            .get("importance")
+            .and_then(|v| v.as_f64())
+            .expect("importance present")
+    }
+
+    #[test]
+    fn eg222_reinforce_bumps_importance_access_and_recency() {
+        let g = GraphCore::new();
+        g.add_node(
+            "m".into(),
+            props(serde_json::json!({"importance": 2.0, "access_count": 3, "last_access_ms": 100})),
+        );
+        assert!(g.reinforce("m", 500, 1.5));
+        let o = obj_of(&g, "m");
+        assert!((imp_of(&g, "m") - 3.5).abs() < 1e-9, "importance += weight");
+        assert_eq!(o.get("access_count"), Some(&serde_json::json!(4)));
+        assert_eq!(o.get("last_access_ms"), Some(&serde_json::json!(500)));
+    }
+
+    #[test]
+    fn eg222_reinforce_initializes_bare_node_from_default() {
+        let g = GraphCore::new();
+        g.add_node("m".into(), props(serde_json::json!({"type": "Episodic"})));
+        assert!(g.reinforce("m", 42, 0.25));
+        let o = obj_of(&g, "m");
+        // DEFAULT_IMPORTANCE (1.0) + weight; access_count 0 -> 1.
+        assert!((imp_of(&g, "m") - 1.25).abs() < 1e-9);
+        assert_eq!(o.get("access_count"), Some(&serde_json::json!(1)));
+        assert_eq!(o.get("last_access_ms"), Some(&serde_json::json!(42)));
+    }
+
+    #[test]
+    fn eg222_reinforce_missing_node_is_noop() {
+        let g = GraphCore::new();
+        assert!(!g.reinforce("ghost", 1, 1.0));
+    }
+
+    #[test]
+    fn eg222_reinforce_revives_forgotten_memory() {
+        let g = GraphCore::new();
+        g.add_node(
+            "m".into(),
+            props(serde_json::json!({"importance": 0.1, "forgotten": true})),
+        );
+        assert!(g.reinforce("m", 10, 5.0));
+        let o = obj_of(&g, "m");
+        assert_eq!(o.get("forgotten"), Some(&serde_json::json!(false)));
+        assert!((imp_of(&g, "m") - 5.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn eg222_decay_halves_importance_over_one_half_life() {
+        let g = GraphCore::new();
+        g.add_node(
+            "m".into(),
+            props(serde_json::json!({"importance": 4.0, "last_access_ms": 1000})),
+        );
+        let hl = 10_000u64;
+        assert!(g.decay_node("m", 1000 + hl, hl));
+        assert!((imp_of(&g, "m") - 2.0).abs() < 1e-9, "one half-life halves");
+        let o = obj_of(&g, "m");
+        // Decay is not an access: last_access untouched, last_decay stamped.
+        assert_eq!(o.get("last_access_ms"), Some(&serde_json::json!(1000)));
+        assert_eq!(o.get("last_decay_ms"), Some(&serde_json::json!(1000 + hl)));
+    }
+
+    #[test]
+    fn eg222_decay_is_idempotent_at_fixed_now() {
+        let g = GraphCore::new();
+        g.add_node(
+            "m".into(),
+            props(serde_json::json!({"importance": 8.0, "last_access_ms": 0})),
+        );
+        let hl = 100u64;
+        g.decay_node("m", 100, hl); // one half-life ⇒ 4.0
+        assert!((imp_of(&g, "m") - 4.0).abs() < 1e-9);
+        g.decay_node("m", 100, hl); // same now ⇒ no further decay
+        assert!(
+            (imp_of(&g, "m") - 4.0).abs() < 1e-9,
+            "idempotent at fixed now"
+        );
+    }
+
+    #[test]
+    fn eg222_decay_composes_over_two_steps() {
+        let g = GraphCore::new();
+        g.add_node(
+            "m".into(),
+            props(serde_json::json!({"importance": 8.0, "last_access_ms": 0})),
+        );
+        let hl = 100u64;
+        g.decay_node("m", 100, hl); // -> 4.0
+        g.decay_node("m", 200, hl); // another half-life -> 2.0
+        assert!(
+            (imp_of(&g, "m") - 2.0).abs() < 1e-9,
+            "two half-lives compose to a quarter"
+        );
+    }
+
+    #[test]
+    fn eg222_decay_leaves_node_without_importance_untouched() {
+        let g = GraphCore::new();
+        g.add_node(
+            "plain".into(),
+            props(serde_json::json!({"type": "Note", "text": "hi"})),
+        );
+        assert!(!g.decay_node("plain", 5000, 100), "no importance ⇒ untouched");
+        let o = obj_of(&g, "plain");
+        assert!(o.get("importance").is_none());
+        assert!(o.get("last_decay_ms").is_none());
+        assert_eq!(o.get("text"), Some(&serde_json::json!("hi")));
+    }
+
+    #[test]
+    fn eg222_evict_below_marks_only_subthreshold_in_working_set() {
+        let g = GraphCore::new();
+        g.add_node("low".into(), props(serde_json::json!({"importance": 0.2})));
+        g.add_node("high".into(), props(serde_json::json!({"importance": 0.9})));
+        g.add_node("outside".into(), props(serde_json::json!({"importance": 0.1})));
+        // Working set excludes "outside" — localized.
+        let pruned = g.evict_below(&["low".into(), "high".into()], 0.5, false);
+        assert_eq!(pruned, vec!["low"]);
+        assert_eq!(
+            obj_of(&g, "low").get("forgotten"),
+            Some(&serde_json::json!(true))
+        );
+        assert!(
+            obj_of(&g, "high").get("forgotten").is_none(),
+            "above threshold survives"
+        );
+        assert!(
+            obj_of(&g, "outside").get("forgotten").is_none(),
+            "localized: node outside the working set is untouched"
+        );
+        // Marked, not deleted — provenance preserved.
+        assert!(g.get_node_properties("low").is_some());
+    }
+
+    #[test]
+    fn eg222_evict_below_delete_removes_node() {
+        let g = GraphCore::new();
+        g.add_node("low".into(), props(serde_json::json!({"importance": 0.1})));
+        let pruned = g.evict_below(&["low".into()], 0.5, true);
+        assert_eq!(pruned, vec!["low"]);
+        assert!(g.get_node_properties("low").is_none(), "hard-deleted");
+    }
+
+    #[test]
+    fn eg222_evict_below_treats_missing_importance_as_default() {
+        let g = GraphCore::new();
+        g.add_node("bare".into(), props(serde_json::json!({"type": "Note"})));
+        // DEFAULT_IMPORTANCE is 1.0 -> survives a threshold below it.
+        assert!(g.evict_below(&["bare".into()], 0.9, false).is_empty());
+        assert!(obj_of(&g, "bare").get("forgotten").is_none());
+        // A threshold above the default prunes it.
+        assert_eq!(g.evict_below(&["bare".into()], 2.0, false), vec!["bare"]);
+    }
+
+    #[test]
+    fn eg222_forget_marks_by_default_and_deletes_when_asked() {
+        let g = GraphCore::new();
+        g.add_node("a".into(), props(serde_json::json!({"importance": 3.0})));
+        g.add_node("b".into(), props(serde_json::json!({"importance": 3.0})));
+        assert!(g.forget("a", false));
+        assert_eq!(
+            obj_of(&g, "a").get("forgotten"),
+            Some(&serde_json::json!(true))
+        );
+        assert!(
+            g.get_node_properties("a").is_some(),
+            "mark preserves the node"
+        );
+        assert!(g.forget("b", true));
+        assert!(
+            g.get_node_properties("b").is_none(),
+            "delete removes the node"
+        );
+        assert!(!g.forget("ghost", false), "missing node is a no-op");
+    }
+
+    #[test]
+    fn eg222_maintain_decays_then_evicts_working_set() {
+        let g = GraphCore::new();
+        // "fades": importance 1.0 decays to 0.25 over two half-lives -> below 0.5.
+        g.add_node(
+            "fades".into(),
+            props(serde_json::json!({"importance": 1.0, "last_access_ms": 0})),
+        );
+        // "sticks": high importance survives the same decay.
+        g.add_node(
+            "sticks".into(),
+            props(serde_json::json!({"importance": 100.0, "last_access_ms": 0})),
+        );
+        let hl = 100u64;
+        let ids = vec!["fades".to_string(), "sticks".to_string()];
+        let (decayed, pruned) = g.maintain(&ids, 200, hl, 0.5, false);
+        assert_eq!(decayed, 2, "both decayed");
+        assert_eq!(pruned, vec!["fades"]);
+        assert_eq!(
+            obj_of(&g, "fades").get("forgotten"),
+            Some(&serde_json::json!(true))
+        );
+        assert!(obj_of(&g, "sticks").get("forgotten").is_none());
+        assert!((imp_of(&g, "sticks") - 25.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn eg222_decay_memories_is_localized_to_working_set() {
+        let g = GraphCore::new();
+        for id in ["in1", "in2", "untouched"] {
+            g.add_node(
+                id.into(),
+                props(serde_json::json!({"importance": 4.0, "last_access_ms": 0})),
+            );
+        }
+        let hl = 100u64;
+        let n = g.decay_memories(100, hl, &["in1".into(), "in2".into()]);
+        assert_eq!(n, 2);
+        assert!((imp_of(&g, "in1") - 2.0).abs() < 1e-9);
+        assert!((imp_of(&g, "in2") - 2.0).abs() < 1e-9);
+        // Not in the working set ⇒ never scanned/decayed.
+        assert!((imp_of(&g, "untouched") - 4.0).abs() < 1e-9);
+        assert!(obj_of(&g, "untouched").get("last_decay_ms").is_none());
     }
 
     // ── Scene-graph / 3D world model (CONCEPT:EG-087) ─────────────────────────
