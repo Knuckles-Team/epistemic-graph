@@ -75,6 +75,13 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_SPARQL_ADDR")]
     sparql_addr: Option<String>,
 
+    /// GraphQL subscription SSE carrier listener address (e.g. 127.0.0.1:7879), feature
+    /// `graphql` (CONCEPT:EG-064). Disabled when unset. Streams a `subscription { … }`
+    /// as a live query — a `text/event-stream` frame per graph change. Separate from the
+    /// RPC transports and the read/write GraphQL RPC surface (`Method::GraphQl`).
+    #[arg(long, env = "EPISTEMIC_GRAPH_GRAPHQL_ADDR")]
+    graphql_addr: Option<String>,
+
     /// Self-terminate after N seconds with ZERO active connections (reference-
     /// counted idle shutdown). 0 or absent ⇒ NEVER self-terminate on idle: the
     /// engine is long-living/persistent and runs forever like a normal server.
@@ -699,6 +706,30 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "sparql-http"))]
     if sparql_addr.is_some() {
         tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
+    }
+
+    // ── GraphQL subscription SSE carrier (CONCEPT:EG-064) ────────────────
+    // Opt-in AND feature-gated: the listener starts ONLY when built `--features graphql`
+    // AND --graphql-addr / EPISTEMIC_GRAPH_GRAPHQL_ADDR is set. With the feature off, or
+    // unset, this is a no-op. Streams a GraphQL `subscription { … }` as a live query
+    // (re-resolve-on-change) over `text/event-stream`. Deploy-configurable (EG-022): a
+    // bare enable token binds the safe localhost default `127.0.0.1:7879`.
+    let graphql_addr = resolve_listener_addr(args.graphql_addr.as_deref(), "127.0.0.1:7879");
+    #[cfg(feature = "graphql")]
+    if let Some(ref graphql_addr) = graphql_addr {
+        let listener = tokio::net::TcpListener::bind(graphql_addr).await?;
+        info!(
+            "GraphQL: serving subscription SSE carrier on http://{}/graphql/subscribe",
+            graphql_addr
+        );
+        let gql_state = state.clone();
+        tokio::spawn(async move {
+            epistemic_graph::server::graphql_sub::serve(listener, gql_state).await;
+        });
+    }
+    #[cfg(not(feature = "graphql"))]
+    if graphql_addr.is_some() {
+        tracing::warn!("--graphql-addr ignored: binary built without the `graphql` feature");
     }
 
     // ── Postgres wire-protocol shim (CONCEPT:KG-2.189) ───────────────────
