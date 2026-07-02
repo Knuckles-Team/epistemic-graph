@@ -20,16 +20,29 @@ use crate::protocol::{Method, Request, Response, ResultPayload};
 /// Dispatch a single request to the appropriate handler, recording
 /// per-operation request counters and latency (CONCEPT:KG-2.51).
 pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
+    // CONCEPT:EG-091 — slow-query descriptor, captured BEFORE the method is moved
+    // into `dispatch_inner`. `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS
+    // enabled it AND this is a query method.
+    let slow = crate::slow_query::describe(&req.method);
     #[cfg(feature = "metrics")]
-    {
-        let op: &'static str = (&req.method).into();
-        let start = std::time::Instant::now();
-        let resp = dispatch_inner(state, req).await;
-        crate::metrics::record_request(op, start.elapsed().as_secs_f64());
-        resp
+    let op: &'static str = (&req.method).into();
+
+    // Time the request when EITHER Prometheus metrics OR slow-query logging needs
+    // it. When both are off (metrics feature disabled AND the threshold unset) we
+    // skip the clock entirely — byte-for-byte the prior `not(metrics)` path.
+    let start = (cfg!(feature = "metrics") || slow.is_some()).then(std::time::Instant::now);
+
+    let resp = dispatch_inner(state, req).await;
+
+    if let Some(start) = start {
+        let elapsed = start.elapsed();
+        #[cfg(feature = "metrics")]
+        crate::metrics::record_request(op, elapsed.as_secs_f64());
+        if let Some(slow) = slow {
+            slow.log_if_slow(elapsed);
+        }
     }
-    #[cfg(not(feature = "metrics"))]
-    dispatch_inner(state, req).await
+    resp
 }
 
 async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
