@@ -378,11 +378,7 @@ async fn run_query(
         }
         Ok(Ok(QueryOutcome::Graph(triples))) => {
             let ct = choose_ct(&accept, fmt_override, GRAPH_FORMS);
-            let ser = if ct == "text/turtle" {
-                eg_rdf::mapping::to_turtle(&triples)
-            } else {
-                eg_rdf::mapping::to_ntriples(&triples)
-            };
+            let ser = serialize_graph(ct, &triples);
             match ser {
                 Ok(body) => ("200 OK", ct, body),
                 Err(e) => ("500 Internal Server Error", "text/plain", e),
@@ -705,11 +701,7 @@ async fn handle_graph_store(
             let g = graph.clone();
             let out = tokio::task::spawn_blocking(move || {
                 let triples = export_graph(&core, &g)?;
-                if ct == "text/turtle" {
-                    eg_rdf::mapping::to_turtle(&triples)
-                } else {
-                    eg_rdf::mapping::to_ntriples(&triples)
-                }
+                serialize_graph(ct, &triples)
             })
             .await;
             match out {
@@ -920,7 +912,43 @@ const SELECT_FORMS: &[&str] = &[
     "text/tab-separated-values",
 ];
 /// Candidate CONSTRUCT/DESCRIBE output media types, DEFAULT (N-Triples) first.
-const GRAPH_FORMS: &[&str] = &["application/n-triples", "text/turtle"];
+/// Beyond N-Triples/Turtle (EG-050), the RDF 1.1 concrete-syntax matrix (CONCEPT:EG-136/
+/// EG-137) adds N-Quads + TriG (quad forms, always available under `rdf`) and the
+/// dependency-light hand-rolled JSON-LD (`application/ld+json`, via `eg_rdf::jsonld`,
+/// needs no extra feature). RDF/XML rides the out-of-pi `rdf-xml` feature so it is only
+/// offered when that is compiled in.
+#[cfg(feature = "rdf-xml")]
+const GRAPH_FORMS: &[&str] = &[
+    "application/n-triples",
+    "text/turtle",
+    "application/n-quads",
+    "application/trig",
+    "application/ld+json",
+    "application/rdf+xml",
+];
+#[cfg(not(feature = "rdf-xml"))]
+const GRAPH_FORMS: &[&str] = &[
+    "application/n-triples",
+    "text/turtle",
+    "application/n-quads",
+    "application/trig",
+    "application/ld+json",
+];
+
+/// Serialize a CONSTRUCT/DESCRIBE / Graph-Store-Protocol result to the negotiated graph
+/// media type (CONCEPT:EG-050/EG-136/EG-137). N-Quads/TriG place the triples in the
+/// default graph (`None`); JSON-LD emits the expanded form; RDF/XML rides `rdf-xml`.
+fn serialize_graph(ct: &str, triples: &[eg_rdf::oxrdf::Triple]) -> Result<String, String> {
+    match ct {
+        "text/turtle" => eg_rdf::mapping::to_turtle(triples),
+        "application/n-quads" => eg_rdf::mapping::to_nquads(triples, None),
+        "application/trig" => eg_rdf::mapping::to_trig(triples, None),
+        "application/ld+json" => eg_rdf::jsonld::to_jsonld(triples, None, None),
+        #[cfg(feature = "rdf-xml")]
+        "application/rdf+xml" => eg_rdf::mapping::to_rdfxml(triples),
+        _ => eg_rdf::mapping::to_ntriples(triples),
+    }
+}
 
 /// Resolve the response media type (CONCEPT:EG-050): an `output=`/`format=` override
 /// (constrained to this form's candidates) wins; otherwise negotiate the `Accept` header.
@@ -944,6 +972,11 @@ fn override_ct(token: &str, forms: &[&'static str]) -> Option<&'static str> {
         "tsv" => "text/tab-separated-values",
         "nt" | "ntriples" | "n-triples" => "application/n-triples",
         "ttl" | "turtle" => "text/turtle",
+        // EG-136/EG-137 concrete-syntax matrix short tokens.
+        "nq" | "nquads" | "n-quads" => "application/n-quads",
+        "trig" => "application/trig",
+        "jsonld" | "json-ld" | "ld+json" => "application/ld+json",
+        "rdfxml" | "rdf+xml" | "rdf/xml" => "application/rdf+xml",
         s => s,
     };
     forms.iter().copied().find(|&f| f == want)
@@ -1243,6 +1276,36 @@ mod tests {
             negotiate("text/csv;q=0.5, application/sparql-results+xml;q=0.9", SELECT_FORMS),
             "application/sparql-results+xml"
         );
+    }
+
+    /// CONCEPT:EG-136/EG-137 — the concrete-syntax matrix is content-negotiable on the
+    /// graph forms: N-Quads/TriG/JSON-LD (always) and RDF/XML (under `rdf-xml`), by both
+    /// Accept header and the `output=`/`format=` short token, and each serializes.
+    #[test]
+    fn eg136_137_graph_matrix_is_negotiable_and_serializes() {
+        assert_eq!(negotiate("application/n-quads", GRAPH_FORMS), "application/n-quads");
+        assert_eq!(negotiate("application/trig", GRAPH_FORMS), "application/trig");
+        assert_eq!(negotiate("application/ld+json", GRAPH_FORMS), "application/ld+json");
+        assert_eq!(choose_ct("", Some("nq"), GRAPH_FORMS), "application/n-quads");
+        assert_eq!(choose_ct("", Some("trig"), GRAPH_FORMS), "application/trig");
+        assert_eq!(choose_ct("", Some("jsonld"), GRAPH_FORMS), "application/ld+json");
+        // Default is still N-Triples (forms[0]) — matrix additions do not shift it.
+        assert_eq!(negotiate("", GRAPH_FORMS), "application/n-triples");
+
+        let triples = eg_rdf::mapping::parse_turtle(
+            "@prefix ex: <http://example.org/> . ex:a ex:p ex:b .",
+        )
+        .unwrap();
+        assert!(serialize_graph("application/n-quads", &triples).unwrap().contains("ex")
+            || serialize_graph("application/n-quads", &triples).unwrap().contains("http://example.org/"));
+        assert!(serialize_graph("application/trig", &triples).is_ok());
+        assert!(serialize_graph("application/ld+json", &triples).unwrap().contains("@id"));
+        #[cfg(feature = "rdf-xml")]
+        {
+            assert_eq!(negotiate("application/rdf+xml", GRAPH_FORMS), "application/rdf+xml");
+            assert_eq!(choose_ct("", Some("rdfxml"), GRAPH_FORMS), "application/rdf+xml");
+            assert!(serialize_graph("application/rdf+xml", &triples).unwrap().contains("RDF"));
+        }
     }
 
     #[test]
