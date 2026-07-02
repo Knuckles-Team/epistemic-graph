@@ -284,7 +284,7 @@ fn read_squote(s: &str, start: usize) -> Option<(String, usize)> {
 /// `start` (which must be `$`). Returns the body and the byte index just past the
 /// closing tag. This mirrors Postgres dollar-quoting, so the Cypher body may contain
 /// parens, commas, and single quotes freely.
-fn read_dollar_quoted(s: &str, start: usize) -> Option<(String, usize)> {
+pub(super) fn read_dollar_quoted(s: &str, start: usize) -> Option<(String, usize)> {
     let bytes = s.as_bytes();
     if *bytes.get(start)? != b'$' {
         return None;
