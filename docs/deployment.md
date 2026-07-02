@@ -21,7 +21,7 @@ connection configuration, the configuration surface, and the database architectu
 > [Tiers & binaries](architecture/tiers.md).
 
 The server binary is built for one tier; pick the smallest that fits. Build with
-`--build-arg EG_FEATURES=...` (see [`docker/Dockerfile`](../docker/Dockerfile)).
+`--build-arg EG_FEATURES=...` (see [`docker/Dockerfile`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/Dockerfile)).
 
 | Tier | `EG_FEATURES` | Includes | Use when |
 |------|---------------|----------|----------|
@@ -98,7 +98,7 @@ export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
 docker compose -f docker/compose.yml up -d server
 ```
 
-The bundled [`docker/compose.yml`](../docker/compose.yml) builds the image, binds RPC `9100`
+The bundled [`docker/compose.yml`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/compose.yml) builds the image, binds RPC `9100`
 and metrics `9101` to `127.0.0.1`, and persists to the named volume `eg-data`.
 
 ### Plain `docker run`

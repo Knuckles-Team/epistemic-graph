@@ -48,7 +48,7 @@ flowchart LR
 The foundation: make one box a durable source of truth that saturates its cores for
 writes without serializing on a single lock or a single fsync. The canonical detailed
 description is the **"Durability model" section of
-[`AGENTS.md`](../../AGENTS.md)**; this is the spine.
+[`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md)**; this is the spine.
 
 ### Authoritative durability (the floor)
 
@@ -234,7 +234,7 @@ arm of R6 (cold tenants colder than redb spilled to `cold-tier-s3`/`blob-s3`).
 ## Tiers — what scales where
 
 The same code is a feature bundle per tier (full map: **[tiers.md](tiers.md)**; feature
-flags in [`AGENTS.md`](../../AGENTS.md)). The scaling capabilities partition as:
+flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md)). The scaling capabilities partition as:
 
 | Capability | `pi` / `pi-max` | `node` | `full` | `cluster` |
 |------------|:---------------:|:------:|:------:|:---------:|
@@ -304,7 +304,7 @@ flags in [`AGENTS.md`](../../AGENTS.md)). The scaling capabilities partition as:
 
 ## Related references
 
-- [`AGENTS.md`](../../AGENTS.md) — canonical "Durability model" section (the source of
+- [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md) — canonical "Durability model" section (the source of
   truth for M1/M2 mechanics + the Environment Variables table).
 - [engine.md](engine.md) — the master-of-all engine deep reference (C4 views, all modalities).
 - [write-coalescer.md](write-coalescer.md) — `CONCEPT:KG-2.182` in depth.

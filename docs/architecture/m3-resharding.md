@@ -1,7 +1,7 @@
 # M3 — Catalog-driven resharding (handoff: DONE vs REMAINING)
 
 > **Scope.** M3 is the "horizontal scale spine" wave from
-> [`reports/epistemic-graph-master-engine-gaps-2026-06-23.md`](../../../../reports/epistemic-graph-master-engine-gaps-2026-06-23.md)
+> `reports/epistemic-graph-master-engine-gaps-2026-06-23.md` (see workspace/reports/)
 > — the two **P0** gaps "Elastic sharding / resharding-rebalancing with live data
 > migration" and "Scalable tenant catalog". This document is a DONE-vs-REMAINING handoff:
 > the two building blocks that landed on `feat/m3-catalog-migration`, then every remaining
