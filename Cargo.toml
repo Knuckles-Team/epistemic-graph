@@ -247,6 +247,16 @@ obs = [
 # merge time to avoid a tier-line conflict with the concurrent wave-18 work.
 # EG-172: fold promql into obs/node/full
 promql = ["obs", "eg-tsdb/promql"]
+# CONCEPT:EG-163 — distributed traces: OTLP-JSON span ingest + a Jaeger/OpenObserve
+# trace-search / assembly / service-dependency-graph HTTP API served on the obs
+# listener, over the pure-Rust `eg-tsdb/traces` span store + the facade glue in
+# `src/server/traces`. Completes the observability trilogy (logs + metrics + traces).
+# NO new heavy dep (the Pi contract holds). Implies `obs` (needs the listener +
+# ObsState). DEFINED here but deliberately NOT auto-included by `obs`, and NOT folded
+# into node/full/cluster/pi — the orchestrator folds it at merge time to avoid a
+# tier-line conflict with the concurrent wave-18 work.
+# EG-163: fold traces into obs/node/full
+traces = ["obs", "eg-tsdb/traces"]
 # Streaming / CDC / continuous queries / subscriptions / triggers (CONCEPT:KG-2.229/
 # 230, Lane L). Reactivity layered over the existing per-graph durable change record
 # (the ledger): every durable mutation the dispatch shell records also emits an
