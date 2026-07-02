@@ -55,6 +55,12 @@ pub struct TextHit {
     pub score: f32,
 }
 
+/// Classic BM25 relevance scoring + highlighted snippets over a single `(query, doc)`
+/// pair (CONCEPT:EG-311) — dep-free, ships in EVERY build. The REAL ranking behind the
+/// eg-query `bm25_score`/`bm25_snippet` UDFs, replacing their EG-119 placeholders.
+mod bm25;
+pub use bm25::{bm25_score, bm25_snippet, Bm25, Corpus};
+
 #[cfg(feature = "tantivy")]
 mod index;
 #[cfg(feature = "tantivy")]
