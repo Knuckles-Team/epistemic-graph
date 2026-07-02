@@ -40,7 +40,7 @@ use redb::{
 };
 use serde_json::Value;
 
-use super::schema::{Cell, Column, TableSchema};
+use super::schema::{Cell, Column, StoredFunction, TableSchema};
 
 /// Catalog system table: `table_name -> MessagePack(TableSchema)`.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_catalog__");
@@ -56,6 +56,10 @@ const VIEWS: TableDefinition<&str, &str> = TableDefinition::new("__sql_views__")
 /// setup script's enablement is durable across a restart. The value is unused today (a
 /// per-extension version/schema is a follow-up); the KEY presence is the enablement.
 const EXTENSIONS: TableDefinition<&str, &str> = TableDefinition::new("__sql_extensions__");
+/// Function catalog (CONCEPT:EG-118): `function_name -> MessagePack(StoredFunction)`. A
+/// SQL-language stored function (`CREATE FUNCTION … LANGUAGE sql`) mirrored beside the
+/// view/extension catalogs; expanded into a query at plan time (no separate evaluator).
+const FUNCTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_functions__");
 
 /// The action an `ON CONFLICT` clause takes for a user-table insert (CONCEPT:EG-048).
 /// The store-level mirror of `classify::OnConflictAction` (kept here so the store has
@@ -469,6 +473,95 @@ impl TableStore {
             .collect::<Result<_, _>>()
             .map_err(map_err)?;
         out.sort();
+        Ok(out)
+    }
+
+    // ── function catalog (CONCEPT:EG-118) ──────────────────────────────────────
+
+    /// `CREATE [OR REPLACE] FUNCTION name(...) RETURNS … AS $$ … $$ LANGUAGE sql`:
+    /// record `func` in the durable function catalog. Errors if the name already exists
+    /// and `or_replace` is false, or if a user table already claims the name (a function
+    /// and a table cannot share a name — a call `name(args)` would be ambiguous).
+    pub fn create_function(&self, func: &StoredFunction, or_replace: bool) -> Result<(), String> {
+        if self.get_schema(&func.name)?.is_some() {
+            return Err(format!(
+                "`{}` is a table; cannot create a function with that name",
+                func.name
+            ));
+        }
+        let bytes = rmp_serde::to_vec_named(func).map_err(|e| format!("encode function: {e}"))?;
+        let wtx = self.begin()?;
+        {
+            let mut funcs = wtx.open_table(FUNCTIONS).map_err(map_err)?;
+            if !or_replace && funcs.get(func.name.as_str()).map_err(map_err)?.is_some() {
+                return Err(format!("function `{}` already exists", func.name));
+            }
+            funcs
+                .insert(func.name.as_str(), bytes.as_slice())
+                .map_err(map_err)?;
+        }
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// `DROP FUNCTION [IF EXISTS] name`: remove the function catalog entry. `Ok(true)`
+    /// when a function was removed, `Ok(false)` when absent and `if_exists` was set.
+    pub fn drop_function(&self, name: &str, if_exists: bool) -> Result<bool, String> {
+        let wtx = self.begin()?;
+        let existed = {
+            let mut funcs = wtx.open_table(FUNCTIONS).map_err(map_err)?;
+            let existed = funcs.get(name).map_err(map_err)?.is_some();
+            if !existed {
+                if if_exists {
+                    drop(funcs);
+                    wtx.commit().map_err(map_err)?;
+                    return Ok(false);
+                }
+                return Err(format!("function `{name}` does not exist"));
+            }
+            funcs.remove(name).map_err(map_err)?;
+            existed
+        };
+        wtx.commit().map_err(map_err)?;
+        Ok(existed)
+    }
+
+    /// The stored definition of function `name`, or `None` if no such function exists.
+    pub fn get_function(&self, name: &str) -> Result<Option<StoredFunction>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let funcs = match rtx.open_table(FUNCTIONS) {
+            Ok(t) => t,
+            Err(_) => return Ok(None),
+        };
+        match funcs.get(name).map_err(map_err)? {
+            Some(v) => {
+                let f: StoredFunction =
+                    rmp_serde::from_slice(v.value()).map_err(|e| format!("decode function: {e}"))?;
+                Ok(Some(f))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Every stored function (sorted by name for determinism) — the set the SQL exec
+    /// path expands into a query at plan time (CONCEPT:EG-118).
+    pub fn list_functions(&self) -> Result<Vec<StoredFunction>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let funcs = match rtx.open_table(FUNCTIONS) {
+            Ok(t) => t,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let mut out: Vec<StoredFunction> = funcs
+            .iter()
+            .map_err(map_err)?
+            .map(|r| {
+                r.map_err(map_err).and_then(|(_, v)| {
+                    rmp_serde::from_slice::<StoredFunction>(v.value())
+                        .map_err(|e| format!("decode function: {e}"))
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
 
@@ -1508,5 +1601,52 @@ mod tests {
             store2.get_view("v").unwrap().as_deref(),
             Some("SELECT id FROM nodes")
         );
+    }
+
+    // ── function catalog (CONCEPT:EG-118) ──────────────────────────────────────
+
+    fn sample_add_fn() -> StoredFunction {
+        use super::super::schema::{FunctionArg, FunctionReturns};
+        StoredFunction {
+            name: "add".to_string(),
+            args: vec![
+                FunctionArg {
+                    name: "a".to_string(),
+                    type_name: "int".to_string(),
+                },
+                FunctionArg {
+                    name: "b".to_string(),
+                    type_name: "int".to_string(),
+                },
+            ],
+            returns: FunctionReturns::Scalar("int".to_string()),
+            body: "SELECT a + b".to_string(),
+        }
+    }
+
+    #[test]
+    fn function_catalog_create_get_drop_eg118() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        let f = sample_add_fn();
+        store.create_function(&f, false).unwrap();
+        assert_eq!(store.get_function("add").unwrap().as_ref(), Some(&f));
+        // Duplicate without OR REPLACE errors; with OR REPLACE it overwrites.
+        assert!(store.create_function(&f, false).is_err());
+        store.create_function(&f, true).unwrap();
+        assert_eq!(store.list_functions().unwrap().len(), 1);
+        assert!(store.drop_function("add", false).unwrap());
+        assert!(store.get_function("add").unwrap().is_none());
+        assert!(store.drop_function("add", false).is_err());
+        assert!(!store.drop_function("add", true).unwrap());
+    }
+
+    #[test]
+    fn function_persists_across_reopen_eg118() {
+        let (store, path) = TableStore::open_temp().unwrap();
+        let f = sample_add_fn();
+        store.create_function(&f, false).unwrap();
+        drop(store);
+        let store2 = TableStore::open(&path).unwrap();
+        assert_eq!(store2.get_function("add").unwrap().as_ref(), Some(&f));
     }
 }
