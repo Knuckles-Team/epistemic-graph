@@ -21,12 +21,22 @@
 //!
 //! Pi contract: pure Rust, no C/native dep. `sh:sparql` constraints are parsed to a
 //! deferred marker but NOT evaluated (a documented follow-up — see [`shapes::Constraint`]).
+//!
+//! The [`icv`] module layers **Integrity Constraint Validation** (CONCEPT:EG-146) on
+//! top: the same shapes read as Stardog-style **closed-world** DB integrity constraints
+//! ([`validate_icv`]), with a SPARQL **explain witness** per violation and a
+//! [`check_write`] guard for constraint-enforced transactions.
 
+pub mod icv;
 pub mod report;
 pub mod shapes;
 pub mod validate;
 pub mod vocab;
 
+pub use icv::{
+    check_write, validate_icv, validate_icv_turtle, validate_icv_with_inferences, IcvReport,
+    IcvViolation, WriteCheck,
+};
 pub use report::{Severity, ValidationReport, ValidationResult};
 pub use validate::{graph_from_turtle, validate, validate_turtle};
 
