@@ -507,6 +507,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             role,
             teams,
             signature,
+            roles,
         } => {
             info!(
                 "RegisterIdentity: agent_id={}, role={:?}, signature={}",
@@ -517,8 +518,50 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                 agent_id: agent_id.clone(),
                 role,
                 teams,
+                roles,
             });
             Response::ok(req.id, ResultPayload::String("registered".to_string()))
+        }
+
+        // ── RBAC policy administration (CONCEPT:EG-092) ──────────────────
+        // Gated at the handler; a non-security build has no arm and falls to the
+        // dispatch "not available in this build" catch-all (mirrors EG-090).
+        #[cfg(feature = "security")]
+        Method::RbacAdmin { op } => {
+            use crate::acl::RbacAdminOp;
+            let mut s = state.write().await;
+            match op {
+                RbacAdminOp::AddRole(role) => {
+                    s.isolation.add_role(role);
+                    Response::ok(req.id, ResultPayload::String("role_added".to_string()))
+                }
+                RbacAdminOp::RemoveRole(name) => {
+                    s.isolation.remove_role(&name);
+                    Response::ok(req.id, ResultPayload::String("role_removed".to_string()))
+                }
+                RbacAdminOp::AddGrant(grant) => {
+                    s.isolation.add_grant(grant);
+                    Response::ok(req.id, ResultPayload::String("grant_added".to_string()))
+                }
+                RbacAdminOp::RemoveGrant(grant) => {
+                    let removed = s.isolation.remove_grant(&grant);
+                    Response::ok(
+                        req.id,
+                        ResultPayload::Json(serde_json::json!({ "removed": removed })),
+                    )
+                }
+                RbacAdminOp::List => {
+                    let policy = s.isolation.rbac();
+                    let roles: Vec<_> = policy.roles().cloned().collect();
+                    Response::ok(
+                        req.id,
+                        ResultPayload::Json(serde_json::json!({
+                            "roles": roles,
+                            "grants": policy.grants(),
+                        })),
+                    )
+                }
+            }
         }
 
         Method::ApplyMultisigMutation {
