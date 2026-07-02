@@ -135,6 +135,19 @@ impl AnnIndex {
 
     /// kNN cosine search. Returns `(node_id, cosine_similarity)` descending.
     pub fn search(&self, query: &[f32], n_results: usize) -> Vec<(String, f32)> {
+        self.search_filtered(query, n_results, |_| true)
+    }
+
+    /// kNN cosine search with a node-id metadata pre-filter (CONCEPT:EG-070). `allow`
+    /// is pushed INTO the eg-ann scan (translated node-id → external row id), so the
+    /// returned top-k already satisfies the predicate rather than being over-fetched
+    /// and post-filtered. Returns `(node_id, cosine_similarity)` descending.
+    pub fn search_filtered(
+        &self,
+        query: &[f32],
+        n_results: usize,
+        allow: impl Fn(&str) -> bool,
+    ) -> Vec<(String, f32)> {
         if query.len() != self.dim {
             return Vec::new();
         }
@@ -144,8 +157,16 @@ impl AnnIndex {
             refine: true,
             refine_factor: 16,
         };
+        // eg-ann is integer-keyed; the external id equals the `row_to_id` index (ids are
+        // assigned densely and re-densified on compaction), so map id → node-id → test.
+        let pred = |ext_id: u64| -> bool {
+            self.row_to_id
+                .get(ext_id as usize)
+                .map(|id| allow(id.as_str()))
+                .unwrap_or(false)
+        };
         self.index
-            .search(&q, n_results, sp)
+            .search_filtered(&q, n_results, sp, Some(&pred))
             .into_iter()
             .filter_map(|r| {
                 self.row_to_id
