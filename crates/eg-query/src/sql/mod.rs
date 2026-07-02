@@ -23,7 +23,7 @@ pub use classify::{
     StatementKind, TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 pub use exec::{
-    exec_sql, exec_sql_cached, exec_sql_typed, exec_sql_typed_with_tables, PgColType, QueryResult,
-    TypedColumn, TypedQueryResult,
+    exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed, exec_sql_typed_with_tables,
+    PgColType, QueryResult, TypedColumn, TypedQueryResult,
 };
 pub use providers::SqlCache;
