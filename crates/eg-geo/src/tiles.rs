@@ -557,43 +557,41 @@ fn clip_polygon(ring: &[Point], b: &Bbox) -> Vec<Point> {
     if poly.first() == poly.last() && poly.len() > 1 {
         poly.pop();
     }
-    // Clip successively against each half-plane: x>=minx, x<=maxx, y>=miny, y<=maxy.
-    let edges: [(&dyn Fn(&Point) -> bool, &dyn Fn(&Point, &Point) -> Point); 4] = [
-        (&|p: &Point| p.x >= b.minx, &|a: &Point, c: &Point| {
-            intersect_x(a, c, b.minx)
-        }),
-        (&|p: &Point| p.x <= b.maxx, &|a: &Point, c: &Point| {
-            intersect_x(a, c, b.maxx)
-        }),
-        (&|p: &Point| p.y >= b.miny, &|a: &Point, c: &Point| {
-            intersect_y(a, c, b.miny)
-        }),
-        (&|p: &Point| p.y <= b.maxy, &|a: &Point, c: &Point| {
-            intersect_y(a, c, b.maxy)
-        }),
-    ];
-    for (inside, isect) in edges {
-        if poly.is_empty() {
-            break;
-        }
-        let input = std::mem::take(&mut poly);
-        let n = input.len();
-        for i in 0..n {
-            let cur = input[i];
-            let prev = input[(i + n - 1) % n];
-            let cur_in = inside(&cur);
-            let prev_in = inside(&prev);
-            if cur_in {
-                if !prev_in {
-                    poly.push(isect(&prev, &cur));
-                }
-                poly.push(cur);
-            } else if prev_in {
-                poly.push(isect(&prev, &cur));
+    // Clip successively against each of the four tile half-planes.
+    poly = clip_halfplane(poly, |p| p.x >= b.minx, |a, c| intersect_x(a, c, b.minx));
+    poly = clip_halfplane(poly, |p| p.x <= b.maxx, |a, c| intersect_x(a, c, b.maxx));
+    poly = clip_halfplane(poly, |p| p.y >= b.miny, |a, c| intersect_y(a, c, b.miny));
+    poly = clip_halfplane(poly, |p| p.y <= b.maxy, |a, c| intersect_y(a, c, b.maxy));
+    poly
+}
+
+/// One Sutherland–Hodgman pass: clip ring `input` against a single half-plane defined by
+/// `inside` (membership) and `isect` (edge intersection of a crossing segment).
+fn clip_halfplane(
+    input: Vec<Point>,
+    inside: impl Fn(&Point) -> bool,
+    isect: impl Fn(&Point, &Point) -> Point,
+) -> Vec<Point> {
+    if input.is_empty() {
+        return input;
+    }
+    let n = input.len();
+    let mut out = Vec::with_capacity(n + 1);
+    for i in 0..n {
+        let cur = input[i];
+        let prev = input[(i + n - 1) % n];
+        let cur_in = inside(&cur);
+        let prev_in = inside(&prev);
+        if cur_in {
+            if !prev_in {
+                out.push(isect(&prev, &cur));
             }
+            out.push(cur);
+        } else if prev_in {
+            out.push(isect(&prev, &cur));
         }
     }
-    poly
+    out
 }
 
 /// Intersection of segment `a→b` with the vertical line `x = xc`.
