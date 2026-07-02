@@ -34,6 +34,9 @@
 //! * **Web-map tiling** ([`tiles`], CONCEPT:EG-265): XYZ/TMS [`Tile`] addressing over
 //!   Web-Mercator (bounds ⇄ index, y-flip) + a hand-rolled Mapbox Vector Tile
 //!   ([`encode_mvt`]/[`decode_mvt`]) codec — no protobuf codegen.
+//! * **Weighted-network routing** ([`routing`], CONCEPT:EG-266): a [`Network`] of located
+//!   nodes + weighted edges with Dijkstra / A\* shortest path, [`Network::isochrone`]
+//!   reachability, and a nearest-neighbour + 2-opt TSP tour ([`solve_tsp`]).
 //!
 //! The wire algebra (`Op::SpatialScan`/`SpatialOp`, `Pred::Spatial*`) lives in
 //! `eg-types::wire` (pure-serde, Pi-safe); the executor that drives THIS crate lives in
@@ -56,6 +59,7 @@ pub mod geometry;
 pub mod gpx;
 pub mod predicates;
 pub mod registry;
+pub mod routing;
 pub mod rtree;
 pub mod strtree;
 pub mod tiles;
@@ -71,6 +75,9 @@ pub use predicates::{
     contains, covers, crosses, disjoint, distance, equals, intersects, overlaps, touches, within,
 };
 pub use registry::{st_transform, Affine, CrsDef, CrsRegistry};
+pub use routing::{
+    distance_matrix, nearest_neighbour_tour, solve_tsp, tour_length, two_opt, Edge, Network, Path,
+};
 pub use rtree::RTree;
 pub use strtree::StrTree;
 pub use tiles::{
