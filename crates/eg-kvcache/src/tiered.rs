@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use crate::cold::{ColdStore, MemoryColdStore};
-use crate::compress::StoredBlock;
+use crate::compress::{Codec, StoredBlock};
 use crate::value::CacheValue;
 
 /// A HOT-tier resident: the raw value plus its score / recency / size.
@@ -45,7 +45,9 @@ struct WarmEntry {
 
 /// COLD-tier per-key metadata (the bytes live in the [`ColdStore`]).
 struct ColdMeta {
-    compressed: bool,
+    /// The codec the spilled bytes were produced with (CONCEPT:EG-315) — the tag a
+    /// promote reconstructs the block by.
+    codec: Codec,
     orig_len: usize,
     stored_len: usize,
     score: f64,
@@ -115,6 +117,11 @@ where
     warm_cap: usize,
     cold_cap: usize,
 
+    /// The codec used to compress blocks on HOT→WARM demotion (CONCEPT:EG-315). Defaults
+    /// to the dependency-free [`Codec::Rle`]; set a real codec via
+    /// [`TieredCache::with_warm_codec`].
+    warm_codec: Codec,
+
     hot_bytes: usize,
     warm_bytes: usize,
     cold_bytes: usize,
@@ -166,6 +173,7 @@ where
             hot_cap,
             warm_cap,
             cold_cap,
+            warm_codec: Codec::default(),
             hot_bytes: 0,
             warm_bytes: 0,
             cold_bytes: 0,
@@ -177,6 +185,23 @@ where
             demotions_to_cold: 0,
             drops: 0,
         }
+    }
+
+    /// Select the WARM-tier compression codec (CONCEPT:EG-315), builder-style.
+    ///
+    /// The default is [`Codec::Rle`] (dependency-free). Pass [`Codec::Zstd`] (feature
+    /// `compression`) or [`Codec::Lz4`] (feature `lz4`) for a real codec, or
+    /// [`Codec::Raw`] to disable WARM compression entirely. Only affects blocks demoted
+    /// AFTER the call; the raw fallback still applies per-block, so incompressible pages
+    /// are never expanded whatever the choice.
+    pub fn with_warm_codec(mut self, codec: Codec) -> Self {
+        self.warm_codec = codec;
+        self
+    }
+
+    /// The WARM-tier compression codec this cache demotes with (CONCEPT:EG-315).
+    pub fn warm_codec(&self) -> Codec {
+        self.warm_codec
     }
 
     /// Monotonic logical clock tick (recency tiebreak for eviction).
@@ -233,7 +258,7 @@ where
             if let Some(raw) = blob {
                 let sb = StoredBlock {
                     data: raw,
-                    compressed: m.compressed,
+                    codec: m.codec,
                     orig_len: m.orig_len,
                 };
                 let value = V::from_bytes(&sb.decode());
@@ -284,7 +309,7 @@ where
                     let _ = self.cold_store.remove(key);
                     let sb = StoredBlock {
                         data: raw,
-                        compressed: m.compressed,
+                        codec: m.codec,
                         orig_len: m.orig_len,
                     };
                     let value = V::from_bytes(&sb.decode());
@@ -424,9 +449,10 @@ where
             let Some(k) = self.lowest_hot() else { break };
             let e = self.hot.remove(&k).expect("lowest_hot key present");
             self.hot_bytes -= e.bytes;
-            // Demote HOT → WARM: compress the raw block.
+            // Demote HOT → WARM: compress the raw block with the configured codec
+            // (CONCEPT:EG-315).
             let bytes = e.value.as_bytes();
-            let sb = StoredBlock::encode(&bytes);
+            let sb = StoredBlock::encode_with(self.warm_codec, &bytes);
             self.warm_bytes += sb.stored_len();
             self.warm.insert(
                 k,
@@ -455,7 +481,7 @@ where
                     self.cold_meta.insert(
                         k,
                         ColdMeta {
-                            compressed: w.block.compressed,
+                            codec: w.block.codec,
                             orig_len: w.block.orig_len,
                             stored_len,
                             score: w.score,
@@ -679,5 +705,104 @@ mod tests {
         let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
         assert_eq!(c.get(&42), None);
         assert_eq!(c.stats().misses, 1);
+    }
+
+    /// A compressible KV-page-like block that a real codec shrinks well (a long
+    /// low-entropy region), UNLIKE [`page`] which is engineered to defeat the RLE codec.
+    fn compressible_page(len: usize, seed: u8) -> Block {
+        let mut b = vec![seed; len];
+        for (i, x) in b.iter_mut().enumerate().take(len / 8) {
+            *x = (i % 4) as u8;
+        }
+        b
+    }
+
+    /// CONCEPT:EG-315 — the default cache still uses the dependency-free RLE codec.
+    #[test]
+    fn eg315_default_warm_codec_is_rle() {
+        let c: TieredCache<u64, Block> = TieredCache::new(100, 100, 100);
+        assert_eq!(c.warm_codec(), Codec::Rle);
+    }
+
+    /// CONCEPT:EG-315 — with the `zstd` codec selected, a HOT→WARM demote compresses the
+    /// block to a WARM copy far smaller than raw, and a later hit PROMOTES it back to HOT
+    /// with the exact value intact (demote/promote round-trip through a real codec).
+    #[cfg(feature = "compression")]
+    #[test]
+    fn eg315_zstd_codec_warm_demote_promote_roundtrip() {
+        // HOT holds two 512-byte pages (raw); a third forces one demote to WARM. WARM/COLD
+        // generous so the demoted page stays WARM (mirrors the EG-185 promotion sizing).
+        let mut c: TieredCache<u64, Block> =
+            TieredCache::new(1024, 1_000_000, 1_000_000).with_warm_codec(Codec::Zstd);
+        assert_eq!(c.warm_codec(), Codec::Zstd);
+        for k in 0..3u64 {
+            c.put(k, compressible_page(512, k as u8));
+        }
+        let demoted = [0u64, 1, 2]
+            .into_iter()
+            .find(|k| c.tier_of(k) == Some(Tier::Warm))
+            .expect("some page demoted to WARM");
+        let s = c.stats();
+        assert!(
+            s.warm_bytes < 512,
+            "zstd shrank the WARM copy below the raw 512 bytes (got {})",
+            s.warm_bytes
+        );
+        // A hit reconstructs the block byte-exact and promotes it back to HOT.
+        assert_eq!(
+            c.get(&demoted),
+            Some(compressible_page(512, demoted as u8)),
+            "zstd WARM promote reconstructs the block"
+        );
+        assert_eq!(c.tier_of(&demoted), Some(Tier::Hot));
+        assert!(c.stats().promotions >= 1);
+    }
+
+    /// CONCEPT:EG-315 — the `zstd` codec survives a full HOT→WARM→COLD cascade and back:
+    /// every block is still recoverable byte-exact after being spilled to COLD compressed.
+    #[cfg(feature = "compression")]
+    #[test]
+    fn eg315_zstd_codec_cascade_to_cold_recoverable() {
+        // HOT holds ~1 page; WARM is smaller than even a zstd-compressed page, so blocks
+        // must cascade all the way to COLD. Huge COLD ⇒ nothing dropped.
+        let mut c: TieredCache<u64, Block> =
+            TieredCache::new(600, 20, 10_000_000).with_warm_codec(Codec::Zstd);
+        let pages: Vec<Block> = (0..10u64).map(|k| compressible_page(512, k as u8)).collect();
+        for (k, p) in pages.iter().enumerate() {
+            c.put(k as u64, p.clone());
+        }
+        let s = c.stats();
+        assert_eq!(s.drops, 0, "nothing dropped while COLD has room");
+        assert!(s.cold_entries > 0, "pressure pushed compressed bytes to COLD");
+        for (k, p) in pages.iter().enumerate() {
+            assert_eq!(
+                c.get(&(k as u64)),
+                Some(p.clone()),
+                "block {k} recoverable byte-exact after a zstd cold spill"
+            );
+        }
+    }
+
+    /// CONCEPT:EG-315 — incompressible pages under the `zstd` codec fall back to raw, so
+    /// the tier machinery still cascades on their true (unshrunk) size and every block
+    /// round-trips.
+    #[cfg(feature = "compression")]
+    #[test]
+    fn eg315_zstd_codec_incompressible_pages_fall_back_and_cascade() {
+        let mut c: TieredCache<u64, Block> =
+            TieredCache::new(50, 30, 1_000_000).with_warm_codec(Codec::Zstd);
+        for k in 0..10u64 {
+            c.put(k, page(40, k as u8)); // high-entropy ⇒ raw fallback even under zstd
+        }
+        let s = c.stats();
+        assert_eq!(s.drops, 0, "nothing dropped while COLD has room");
+        assert_eq!(
+            s.hot_entries + s.warm_entries + s.cold_entries,
+            10,
+            "all blocks retained despite raw fallback"
+        );
+        for k in 0..10u64 {
+            assert_eq!(c.get(&k), Some(page(40, k as u8)), "block {k} recoverable");
+        }
     }
 }
