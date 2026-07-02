@@ -134,6 +134,12 @@ mod federation_sql_tests;
 #[cfg(all(test, feature = "geo"))]
 mod geo_tests;
 
+// The document/JSON `Pred::JsonPath` executor proofs (CONCEPT:EG-084): deep JSONPath
+// existence / `->>`-equality / `@>`-containment filters apply per-row against the stored
+// JSON and compose with the graph/vector legs in ONE plan.
+#[cfg(all(test, feature = "query"))]
+mod docjson_tests;
+
 // The array/tensor `TensorScan` + `TensorOp` executor proofs (CONCEPT:EG-085): a
 // layer scan seeds tensor-bearing nodes, then slice/reduce/elementwise ops apply
 // per-row and compose with the graph/vector legs in ONE plan.
