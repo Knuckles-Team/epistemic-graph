@@ -22,11 +22,18 @@ license = "MIT"
 name = "eg_graphql"
 
 [features]
-# The whole crate is gated by the facade `graphql` feature; this crate has no inner
-# optionality (it always builds dep-free over eg-core). A default (no-feature) build of
-# the crate IS the surface — the facade simply doesn't depend on it unless `graphql` is
-# on, which is what keeps it out of the Pi tree.
-default = []
+# The whole crate is gated by the facade `graphql` feature; the READ/WRITE/subscription
+# surface has no inner optionality (it always builds dep-free over eg-core). A default
+# build of the crate IS that surface — the facade simply doesn't depend on it unless
+# `graphql` is on, which is what keeps it out of the Pi tree.
+#
+# EG-295: fold federation into graphql/node/full — the Apollo Federation v2 subgraph
+# support (CONCEPT:EG-295) is behind the `federation` sub-feature, default-ON here so it
+# rides into the facade's `graphql`/`node`/`full` tiers automatically (the facade pulls
+# `eg-graphql` with its default features; no tier-aggregate-list edit needed). Build a
+# federation-free GraphQL surface with `--no-default-features`.
+default = ["federation"]
+federation = []
 
 [dependencies]
 eg-core = { path = "../eg-core" }
