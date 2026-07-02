@@ -52,6 +52,12 @@ pub mod sparql;
 #[cfg(feature = "sparql")]
 pub mod update;
 
+/// OGC GeoSPARQL baseline (CONCEPT:EG-261): the `geo:`/`geof:` vocabulary, `geo:wktLiteral`
+/// parsing, and the core `geof:` spatial FILTER functions lowered onto the pure-Rust
+/// `eg-geo` crate. Behind `geosparql` (implies `sparql` + pulls `eg-geo`); OUT of `pi`.
+#[cfg(feature = "geosparql")]
+pub mod geosparql;
+
 /// W3 — the native OWL 2 (EL⁺ + RL) reasoner (CONCEPT:KG-2.219). Classification,
 /// consistency checking, incremental materialization + justifications over the
 /// oxttl-parsed ontology. Pure Rust; behind `owl` (implies `rdf`).

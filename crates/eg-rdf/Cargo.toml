@@ -70,9 +70,21 @@ rdf-xml = ["rdf", "dep:oxrdfxml"]
 # W6c — JSON-LD 1.1 reader+writer (CONCEPT:EG-131) via pure-Rust `oxjsonld`. Implies
 # `rdf`. OUT of `pi`. Expansion/compaction only; framing is a documented follow-up.
 json-ld = ["rdf", "dep:oxjsonld"]
+# EG-261 — OGC GeoSPARQL baseline: the `geo:`/`geof:` vocabulary, `geo:wktLiteral`
+# parsing, and the core `geof:` spatial FILTER functions (sfWithin/sfIntersects/
+# sfContains/sfEquals/distance/buffer) lowered onto the pure-Rust `eg-geo` leaf crate
+# (geometry + WKT + planar/geodesic predicates — NO GEOS/PROJ/C dep, the Pi contract).
+# Implies `sparql` and pulls `eg-geo` (REUSE — adds NO external dep). OUT of `pi` (spatial
+# is not a Pi requirement); folded into node/full at the aggregate-feature layer.
+geosparql = ["sparql", "dep:eg-geo"]
 
 [dependencies]
 eg-core = { path = "../eg-core" }
+# GeoSPARQL geometry kernel (feature `geosparql`, CONCEPT:EG-261). The pure-Rust eg-geo
+# leaf crate (geometry model + WKT codec + planar/geodesic predicates + algebra) — REUSED,
+# adds NO external dep (only serde, already workspace-wide). Optional so a non-geosparql
+# build (incl. `pi`) links NONE of it.
+eg-geo = { path = "../eg-geo", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rmp-serde = "1.3"
