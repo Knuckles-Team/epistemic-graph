@@ -67,6 +67,15 @@ pub mod cold_offload;
 #[cfg(feature = "redb")]
 pub mod rebalance;
 
+// EG-090 — online consistent backup/restore + PITR foundation. Redb-only:
+//   * `backup` — per-shard `begin_read()` MVCC snapshot (EG-027) streamed verbatim
+//     (reusing EG-030's raw-row copy) into a portable bundle + manifest, ONLINE (no
+//     quiesce), preserving at-rest ciphertext + the KG-2.231 audit chain byte-for-byte.
+//   * `restore_bundle` — rebuilds a persist-dir from a bundle (verbatim import via the
+//     EG-030 migration engine; supports re-shard-on-restore). Backing the DR / PITR story.
+#[cfg(feature = "redb")]
+pub mod backup;
+
 /// A durable persistence tier for the graph registry.
 ///
 /// `load_all`/`checkpoint_all` are async to match the existing `persist.rs`

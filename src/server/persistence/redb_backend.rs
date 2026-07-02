@@ -983,6 +983,62 @@ impl RedbBackend {
         self.shards.len()
     }
 
+    /// The persist dir this store lives in (CONCEPT:EG-090) — derived from shard 0's
+    /// file path parent. Used by the live restore RPC to stage a rebuilt copy beside the
+    /// running store (an in-place restore needs the engine stopped — the file lock).
+    pub fn persist_dir(&self) -> Option<std::path::PathBuf> {
+        std::path::Path::new(&self.shard0().db_path)
+            .parent()
+            .map(|p| p.to_path_buf())
+    }
+
+    /// Take an ONLINE consistent backup of the whole durable store into `dst_dir`
+    /// (CONCEPT:EG-090), while the engine keeps serving. Per shard, opens a
+    /// `Database::begin_read()` MVCC snapshot (CONCEPT:EG-027) on the LIVE writer's
+    /// shared handle and streams every table verbatim into a bundle shard file named by
+    /// the EG-026 [`shard_filename`] scheme, then writes a `MANIFEST.json`
+    /// ([`super::backup::BackupManifest`]). No quiesce: MVCC lets the snapshot read the
+    /// shard's latest committed state concurrently with the writer, and commit-before-ack
+    /// (CONCEPT:KG-2.187) makes each per-shard snapshot a self-consistent committed prefix.
+    ///
+    /// `engine_version` / `timestamp_secs` / `label` are CALLER-SUPPLIED — this library
+    /// never reads the wall clock. `dst_dir` is created if absent and must not already
+    /// hold bundle shard files (it refuses to overwrite).
+    pub fn backup(
+        &self,
+        dst_dir: &std::path::Path,
+        engine_version: &str,
+        timestamp_secs: u64,
+        label: &str,
+    ) -> Result<super::backup::BackupReport, String> {
+        use super::backup;
+        std::fs::create_dir_all(dst_dir).map_err(|e| e.to_string())?;
+        let k = self.shards.len();
+        let mut report = backup::BackupReport {
+            shards: k,
+            ..Default::default()
+        };
+        for (i, shard) in self.shards.iter().enumerate() {
+            // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-027).
+            // `None` only after shutdown dropped the writer's strong Arc.
+            let db = shard
+                .db
+                .upgrade()
+                .ok_or_else(|| "redb writer thread is gone".to_string())?;
+            let dst_path = dst_dir.join(shard_filename(k, i));
+            let counts = backup::write_bundle_shard(&db, &dst_path, i == 0)?;
+            report.add_shard(counts);
+        }
+        backup::write_manifest(dst_dir, &report, engine_version, timestamp_secs, label)?;
+        tracing::info!(
+            "online backup complete: {} shards, {} graphs -> {}",
+            report.shards,
+            report.graphs,
+            dst_dir.display()
+        );
+        Ok(report)
+    }
+
     /// Total mutations dropped due to channel saturation, summed across shards.
     pub fn dropped(&self) -> u64 {
         self.shards
