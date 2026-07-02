@@ -268,6 +268,11 @@ sparql-service = ["sparql-http", "federation", "dep:ureq"]
 # links NO C/native crate (no horned-owl/whelk-rs) — so it folds into pi/node/full
 # beside rdf/sparql with NO Pi-contract breach (no DataFusion). IMPLIES `sparql`.
 owl = ["sparql", "eg-rdf/owl", "eg-types/owl"]
+# OWL-DL tableau reasoner (CONCEPT:EG-059) — the complete-but-worst-case-harder DL
+# path (full cardinality/negation/nominals/reasoning-by-cases) that the tractable `owl`
+# EL⁺/RL path cannot decide. Pure Rust, no new dep. IMPLIES `owl`. Pi contract: OUT of
+# `pi` (a Pi node runs only the tractable fast path); folded into node/full.
+owl-dl = ["owl", "eg-rdf/owl-dl"]
 # The OWL/SPARQL cross-modal plan SOURCE ops `Op::Reason` / `Op::SparqlBgp`
 # (CONCEPT:KG-2.220) inside a UnifiedQuery plan. The unified-plan executor needs
 # DataFusion, so this IMPLIES `query` (it is NOT Pi-safe) — kept OUT of `pi`, folded
@@ -293,7 +298,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -313,7 +318,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation", "federation-sql"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
