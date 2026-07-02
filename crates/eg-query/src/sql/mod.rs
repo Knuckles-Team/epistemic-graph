@@ -7,6 +7,17 @@
 //! `epistemic_decay` salience-weights facts in-query, and `pagerank()`/
 //! `betweenness()` table functions plus `var`/`cvar` aggregates (feature `finance`)
 //! bring graph + finance kernels into SQL.
+//!
+//! ## SQL window functions (CONCEPT:EG-089)
+//! `<fn>() OVER (PARTITION BY … ORDER BY … <ROWS|RANGE frame>)` is DataFusion-backed:
+//! DataFusion 43 provides the window operator + the full function set natively
+//! (ranking `ROW_NUMBER`/`RANK`/`DENSE_RANK`/`NTILE`/`PERCENT_RANK`/`CUME_DIST`;
+//! offset `LAG`/`LEAD`/`FIRST_VALUE`/`LAST_VALUE`/`NTH_VALUE`; aggregate
+//! `SUM`/`AVG`/`MIN`/`MAX`/`COUNT OVER`; `ROWS`/`RANGE` frame specs with the standard
+//! default frame). A window `SELECT` classifies as [`StatementKind::Read`] and runs
+//! through the SAME `exec_sql` → `SessionContext::sql` path as any other query — no
+//! separate planner/evaluator, no classify change needed. See
+//! `tests/window_functions.rs` for the partition → order → frame coverage.
 
 mod catalog;
 mod classify;
