@@ -17,6 +17,11 @@ name = "eg_tensor"
 # `tensor` serving tiers (node/full), kept OUT of `pi`.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+# CONCEPT:EG-098 — the fusion module's time-alignment half (multi-rate resample onto a
+# common grid + EG-067 tumbling windows) lives in eg-tsdb. Pulled with default-features
+# (NO redb/Arrow), so it stays pure-Rust/Pi-lean; eg-tensor supplies the tensor-frame
+# half. eg-tsdb does NOT depend on eg-tensor, so there is no cycle.
+eg-tsdb = { path = "../eg-tsdb", default-features = false }
 
 [dev-dependencies]
 # The serde round-trip test proves a `Tensor` survives the typed-property codec (the
