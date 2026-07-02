@@ -41,6 +41,24 @@ owl = ["rdf"]
 # stack. Pi contract: deliberately OUT of `pi` (a Pi node runs the tractable EL⁺/RL
 # fast path only); folded into node/full via the facade.
 owl-dl = ["owl"]
+# W6c — SPARQL 1.1 hash builtins (CONCEPT:EG-127): MD5/SHA1/SHA256/SHA384/SHA512 via
+# pure-Rust RustCrypto (`md-5`/`sha1`/`sha2`). Implies `sparql`. Pi contract: OUT of
+# `pi` — a minimal Pi node ships the dep-free builtins (constructors/date-time/numeric/
+# string, all under `sparql`); the crypto crates fold into node/full via the facade.
+# Gated separately so `cargo tree --features pi` links NONE of md-5/sha1 (all pure Rust).
+sparql-hash = ["sparql", "dep:md-5", "dep:sha1", "dep:sha2"]
+# W6c — RDF-star / SPARQL-star, RDF 1.2 (CONCEPT:EG-130): quoted-triple terms
+# `<< s p o >>` in the value model + star parse/eval. Flips on the oxrdf-family
+# `rdf-12` / spargebra `sparql-12` feature (pure Rust — NO new crate). Widens the
+# `oxrdf::Term` enum with `Triple(Box<Triple>)`; the mapping/eval match arms cfg-in
+# first-class handling only when this is on. OUT of `pi` (a Pi node stays RDF-1.1).
+sparql-star = ["sparql", "oxrdf/rdf-12", "oxttl/rdf-12", "spargebra/sparql-12"]
+# W6c — RDF/XML reader+writer (CONCEPT:EG-131) via pure-Rust `oxrdfxml`. Implies `rdf`.
+# OUT of `pi` (RDF/XML is a heavier serialization; N-Quads/TriG ride the in-`rdf` oxttl).
+rdf-xml = ["rdf", "dep:oxrdfxml"]
+# W6c — JSON-LD 1.1 reader+writer (CONCEPT:EG-131) via pure-Rust `oxjsonld`. Implies
+# `rdf`. OUT of `pi`. Expansion/compaction only; framing is a documented follow-up.
+json-ld = ["rdf", "dep:oxjsonld"]
 
 [dependencies]
 eg-core = { path = "../eg-core" }
@@ -58,6 +76,15 @@ spargebra = { version = "0.4", optional = true }
 regex = { version = "1", optional = true }
 # Durable lossless quad table (feature `rdf-redb`). Same pin as the engine.
 redb = { version = "4.1", optional = true }
+# SPARQL 1.1 hash builtins (feature `sparql-hash`, CONCEPT:EG-127). Pure-Rust RustCrypto,
+# no native deps. Kept OUT of `pi` via the dedicated feature (see [features]).
+md-5 = { version = "0.10", optional = true }
+sha1 = { version = "0.10", optional = true }
+sha2 = { version = "0.10", optional = true }
+# RDF/XML + JSON-LD 1.1 serializations (features `rdf-xml` / `json-ld`, CONCEPT:EG-131).
+# Pure-Rust oxrdf-family crates pinned to the same oxrdf 0.3.3; OUT of `pi`.
+oxrdfxml = { version = "0.2", optional = true }
+oxjsonld = { version = "0.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
