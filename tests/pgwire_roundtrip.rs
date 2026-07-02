@@ -702,11 +702,13 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         agent_id: "worker".to_string(),
         role: AgentRole::Agent,
         teams: vec![],
+        roles: vec![],
     });
     isolation.register_agent(AgentIdentity {
         agent_id: "peer".to_string(),
         role: AgentRole::Agent,
         teams: vec![],
+        roles: vec![],
     });
 
     Arc::new(RwLock::new(ServerState {
