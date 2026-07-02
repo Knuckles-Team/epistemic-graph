@@ -45,6 +45,14 @@ pub struct PlanCtx<'a> {
     /// Gated behind `wasm-udf`, so a non-wasm build's `PlanCtx` is unchanged.
     #[cfg(feature = "wasm-udf")]
     pub udf: Option<&'a eg_wasm::UdfRegistry>,
+    /// The federation foreign-source registry backing `Op::Foreign` (the UQL
+    /// `FOREIGN "<name>"` marker) and a `Named` `Op::ForeignScan` (CONCEPT:EG-073).
+    /// `None` when no foreign sources are registered — the name-resolving ops then keep
+    /// their prior behavior (`Op::Foreign` passes its input through unchanged), so a
+    /// default ctx is byte-for-byte the old one. Gated behind `federation`, so a
+    /// non-federation build's `PlanCtx` is unchanged.
+    #[cfg(feature = "federation")]
+    pub foreign: Option<&'a crate::federation::ForeignSourceRegistry>,
 }
 
 impl<'a> PlanCtx<'a> {
@@ -59,6 +67,8 @@ impl<'a> PlanCtx<'a> {
             text: None,
             #[cfg(feature = "wasm-udf")]
             udf: None,
+            #[cfg(feature = "federation")]
+            foreign: None,
         }
     }
 
@@ -73,6 +83,19 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "wasm-udf")]
     pub fn with_udf(mut self, udf: &'a eg_wasm::UdfRegistry) -> Self {
         self.udf = Some(udf);
+        self
+    }
+
+    /// Attach a foreign-source registry so `Op::Foreign` / a `Named` `Op::ForeignScan`
+    /// resolve their name → rows through it (CONCEPT:EG-073). A server/facade builds the
+    /// registry once at setup and threads it in here — the library seam that keeps the
+    /// name→source binding out of the wire DTO.
+    #[cfg(feature = "federation")]
+    pub fn with_foreign(
+        mut self,
+        registry: &'a crate::federation::ForeignSourceRegistry,
+    ) -> Self {
+        self.foreign = Some(registry);
         self
     }
 }
@@ -154,7 +177,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         Op::Udf { id } => udf_transform(ctx, &input, id),
 
         #[cfg(feature = "federation")]
-        Op::ForeignScan { source, join } => foreign_scan(input, source, *join),
+        Op::ForeignScan { source, join } => foreign_scan(input, source, *join, ctx),
 
         // TIME — `AS OF [TX] @<ts>` is a real RowSet-narrowing temporal filter
         // (CONCEPT:KG-2.250): drop rows whose fact is not live at `ts` on the chosen
@@ -172,11 +195,13 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(not(feature = "timeseries"))]
         Op::Window { .. } => Ok(input),
 
-        // FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235) — the RowSet-preserving
-        // name MARKER the UQL clause lowers to; the resolved cross-source pull is the
-        // `federation`-gated `ForeignScan` above (the foreign-execution track is
-        // separate). Passes the rows through, exactly as today.
-        Op::Foreign { .. } => Ok(input),
+        // FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235 / EG-073) — the name MARKER
+        // the UQL clause lowers to. With a `ForeignSourceRegistry` attached to the ctx
+        // (`federation` build) it now RESOLVES the name → rows through the registry (a
+        // source op: the foreign rows replace the input); an unbound name is a clean
+        // error. With NO registry attached — or a non-federation build — it passes the
+        // rows through unchanged, exactly as before (existing behavior preserved).
+        Op::Foreign { name } => foreign_named(name, input, ctx),
 
         // SOURCE (spatial, CONCEPT:EG-083) — an eg-geo packed-Hilbert-R-tree bbox scan
         // over the layer's geometries. Gated behind `geo`; the variant only exists when
@@ -245,9 +270,44 @@ fn foreign_scan(
     input: RowSet,
     source: &eg_types::wire::ForeignSourceSpec,
     join: bool,
+    ctx: &PlanCtx,
 ) -> Result<RowSet, String> {
-    let foreign = crate::federation::source_for(source).fetch()?;
+    // CONCEPT:EG-073 — a `Named` source resolves by name through the registry on the
+    // ctx; every self-describing spec kind (remote-engine / HTTP-JSON / SQL) still
+    // fetches via `source_for` exactly as before.
+    let foreign = match source {
+        eg_types::wire::ForeignSourceSpec::Named { name } => {
+            let registry = ctx.foreign.ok_or_else(|| {
+                format!(
+                    "federation: Op::ForeignScan names foreign source '{name}' but no \
+                     ForeignSourceRegistry is attached to the PlanCtx (CONCEPT:EG-073)"
+                )
+            })?;
+            registry.resolve(name)?
+        }
+        other => crate::federation::source_for(other).fetch()?,
+    };
     Ok(fuse_foreign(input, foreign, join))
+}
+
+/// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-073) — resolve the named foreign source
+/// through the registry on the ctx. With a registry attached the named source's rows
+/// REPLACE the input (a source op) and an unbound name is a clean typed error; with NO
+/// registry attached the op passes its input through unchanged (the prior behavior — so
+/// existing plans are untouched).
+#[cfg(feature = "federation")]
+fn foreign_named(name: &str, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match ctx.foreign {
+        Some(registry) => registry.resolve(name),
+        None => Ok(input),
+    }
+}
+
+/// Without `federation` there is no registry and no foreign machinery, so the
+/// `FOREIGN "<name>"` marker keeps its pass-through behavior (CONCEPT:EG-073).
+#[cfg(not(feature = "federation"))]
+fn foreign_named(_name: &str, input: RowSet, _ctx: &PlanCtx) -> Result<RowSet, String> {
+    Ok(input)
 }
 
 /// Fuse a foreign RowSet with the local candidate set the SAME way for EVERY foreign
