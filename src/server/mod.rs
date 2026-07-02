@@ -108,6 +108,13 @@ pub mod stomp_wire;
 // Default/pi builds compile NONE of it.
 #[cfg(feature = "s3-api")]
 pub mod s3;
+/// Remote KV-cache HTTP surface (CONCEPT:EG-187, feature `kvcache-server`): a
+/// hand-rolled HTTP listener exposing the `eg-kvcache` shared, content-addressed
+/// backend (EG-186) so parallel vLLM/LMCache instances SHARE KV blocks by token-hash
+/// over GET/PUT/HEAD /kv/<hash> + /kv/stats, with a bearer-token guard. Default/pi
+/// builds compile NONE of it (no eg-kvcache/ureq in pi).
+#[cfg(feature = "kvcache-server")]
+pub mod kvcache_http;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
