@@ -1040,6 +1040,70 @@ impl GraphCore {
         }
     }
 
+    /// Atomically append one published message to EACH of `queues` under ONE
+    /// topology write guard (CONCEPT:EG-275 — message-broker enqueue on top of the
+    /// KG-2.303 work-queue). For every queue: read+bump its durable monotonic
+    /// `next_seq` counter node (`broker:seq:<queue>`) and append a pending message
+    /// node labeled `qmsg:<queue>` (the label
+    /// [`claim_next_fields`](Self::claim_next_fields) scans) carrying the hex-encoded
+    /// payload, so consume/ack reuse the existing claim/CAS path unchanged. Returns
+    /// how many queues were enqueued.
+    ///
+    /// Deterministic: the seq comes purely from the counter node's current state and
+    /// no server clock is written, so replaying the same `Method::Publish` over the
+    /// same pre-image (WAL / Raft state machine) reproduces byte-identical message
+    /// nodes — the same discipline `claim_next_fields` follows. The whole fan-out
+    /// runs under ONE `txn()` guard, so a publisher never observes a partial delivery.
+    #[cfg(feature = "broker")]
+    pub fn broker_enqueue(
+        &self,
+        queues: &[String],
+        exchange: &str,
+        routing_key: &str,
+        payload_hex: &str,
+    ) -> usize {
+        let mut txn = self.txn();
+        let mut delivered = 0usize;
+        for q in queues {
+            let seq_id = crate::broker::queue_seq_node_id(q);
+            // Current counter (missing ⇒ start at 0), then persist the bump.
+            let next = txn
+                .node_row_map(&seq_id)
+                .and_then(|m| m.get("next_seq").and_then(|s| s.as_i64()))
+                .unwrap_or(0);
+            let seq_props = serde_json::json!({
+                "type": "BrokerQueueSeq",
+                "queue": q,
+                "next_seq": next + 1,
+            });
+            if let Ok(blob) = rmp_serde::to_vec_named(&seq_props) {
+                txn.add_node(seq_id, blob);
+            }
+            // The pending message node — labeled so `claim_next_fields` delivers it.
+            let msg_props = serde_json::json!({
+                "type": crate::broker::queue_msg_label(q),
+                "status": "pending",
+                "seq": next,
+                "exchange": exchange,
+                "routing_key": routing_key,
+                "payload": payload_hex,
+            });
+            if let Ok(blob) = rmp_serde::to_vec_named(&msg_props) {
+                txn.add_node(crate::broker::message_node_id(q, next), blob);
+                delivered += 1;
+            }
+        }
+        // Release the write guard, then invalidate the lazy label index (CONCEPT:
+        // KG-2.176) so the new `qmsg:<queue>` message nodes are visible to the very
+        // next `claim_next_fields` — a raw `txn().add_node` does NOT bump it, unlike
+        // the dispatch shell's post-write `mark_dirty`.
+        drop(txn);
+        if delivered > 0 {
+            self.mark_dirty();
+        }
+        delivered
+    }
+
     /// One-shot non-destructive edge invalidation (CONCEPT:KG-2.251). See
     /// [`GraphTxn::invalidate_edge`]; runs under one topology write guard.
     pub fn invalidate_edge(
