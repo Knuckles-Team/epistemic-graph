@@ -33,9 +33,9 @@
 use serde_json::Value;
 
 use super::plan::{
-    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr, NodePat,
-    OrderKey, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement,
-    Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
+    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr,
+    NodePat, OrderKey, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem,
+    Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -855,7 +855,9 @@ impl Parser {
                 Ok(ListExpr::Param(name))
             }
             Some(Tok::Ident(_)) => Ok(ListExpr::Ref(self.ident()?)),
-            other => Err(format!("expected a list expression for UNWIND, found {other:?}")),
+            other => Err(format!(
+                "expected a list expression for UNWIND, found {other:?}"
+            )),
         }
     }
 
@@ -1226,10 +1228,9 @@ mod tests {
 
     #[test]
     fn parses_where_or_in_starts_with() {
-        let q = parse(
-            "MATCH (a:Person) WHERE a.name STARTS WITH 'A' OR a.id IN [1, 2, 3] RETURN a",
-        )
-        .unwrap();
+        let q =
+            parse("MATCH (a:Person) WHERE a.name STARTS WITH 'A' OR a.id IN [1, 2, 3] RETURN a")
+                .unwrap();
         let (_, where_c) = first_match(&q);
         match where_c.as_ref().unwrap() {
             WhereExpr::Or(alts) => assert_eq!(alts.len(), 2),
@@ -1250,7 +1251,8 @@ mod tests {
 
     #[test]
     fn parses_order_by_skip_limit() {
-        let q = parse("MATCH (a:Person) RETURN a.name ORDER BY a.name DESC SKIP 1 LIMIT 2").unwrap();
+        let q =
+            parse("MATCH (a:Person) RETURN a.name ORDER BY a.name DESC SKIP 1 LIMIT 2").unwrap();
         assert_eq!(q.ret.order_by.len(), 1);
         assert!(q.ret.order_by[0].desc);
         assert_eq!(q.ret.skip, Some(1));
@@ -1304,7 +1306,9 @@ mod tests {
     fn parses_unwind_param_then_match_with_inline_prop_ref() {
         // CONCEPT:EG-141 — $param list + read-side inline prop referencing a var.
         let q = parse("UNWIND $ids AS x MATCH (n {id: x}) RETURN n").unwrap();
-        assert!(matches!(&q.stages[0], ReadStage::Unwind { list: ListExpr::Param(p), .. } if p == "ids"));
+        assert!(
+            matches!(&q.stages[0], ReadStage::Unwind { list: ListExpr::Param(p), .. } if p == "ids")
+        );
         match &q.stages[1] {
             ReadStage::Match { pattern, .. } => {
                 let props = pattern.start.props.as_ref().unwrap();

@@ -75,7 +75,8 @@ fn next_req_id() -> u64 {
 /// Serve the MQTT wire protocol on `addr` until the listener errors (CONCEPT:EG-281).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let graph = std::env::var(MQTT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
-    let exchange = std::env::var(MQTT_EXCHANGE_ENV).unwrap_or_else(|_| DEFAULT_EXCHANGE.to_string());
+    let exchange =
+        std::env::var(MQTT_EXCHANGE_ENV).unwrap_or_else(|_| DEFAULT_EXCHANGE.to_string());
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
         "mqtt-wire: serving MQTT 3.1.1 on {} (broker graph '{}', topic exchange '{}')",
@@ -109,7 +110,11 @@ async fn accept_loop(
 
 // ── Engine bridge (identical shape to amqp-wire) ──────────────────────────
 
-async fn engine_call(state: &Arc<RwLock<ServerState>>, graph: &str, method: Method) -> ResultPayload {
+async fn engine_call(
+    state: &Arc<RwLock<ServerState>>,
+    graph: &str,
+    method: Method,
+) -> ResultPayload {
     let id = next_req_id();
     let secret = { state.read().await.auth_secret.clone() };
     let req = Request {
@@ -846,14 +851,12 @@ mod tests {
         assert_eq!(&ap[0..2], &0x0009u16.to_be_bytes());
 
         // ── Subscriber receives the routed PUBLISH (QoS 0). ──
-        let (ptype, flags, dp) = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            read_packet(&mut sub),
-        )
-        .await
-        .expect("delivery within timeout")
-        .unwrap()
-        .unwrap();
+        let (ptype, flags, dp) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), read_packet(&mut sub))
+                .await
+                .expect("delivery within timeout")
+                .unwrap()
+                .unwrap();
         assert_eq!(ptype, PKT_PUBLISH);
         assert_eq!((flags >> 1) & 0x03, 0, "delivered at QoS 0");
         let mut c = Cursor::new(&dp);

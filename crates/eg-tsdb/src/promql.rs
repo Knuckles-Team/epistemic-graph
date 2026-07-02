@@ -94,14 +94,23 @@ pub struct LabelMatcher {
 
 impl LabelMatcher {
     /// Build a matcher, compiling the regex up-front for `=~`/`!~`.
-    pub fn new(name: impl Into<String>, op: MatchOp, value: impl Into<String>) -> Result<Self, PromqlError> {
+    pub fn new(
+        name: impl Into<String>,
+        op: MatchOp,
+        value: impl Into<String>,
+    ) -> Result<Self, PromqlError> {
         let name = name.into();
         let value = value.into();
         let regex = match op {
             MatchOp::Re | MatchOp::Nre => Some(Regex::compile(&value)?),
             _ => None,
         };
-        Ok(Self { name, op, value, regex })
+        Ok(Self {
+            name,
+            op,
+            value,
+            regex,
+        })
     }
 
     /// Whether `labels` satisfies this matcher. A missing label is treated as the
@@ -112,8 +121,16 @@ impl LabelMatcher {
         match self.op {
             MatchOp::Eq => v == self.value,
             MatchOp::Ne => v != self.value,
-            MatchOp::Re => self.regex.as_ref().map(|r| r.is_full_match(v)).unwrap_or(false),
-            MatchOp::Nre => !self.regex.as_ref().map(|r| r.is_full_match(v)).unwrap_or(false),
+            MatchOp::Re => self
+                .regex
+                .as_ref()
+                .map(|r| r.is_full_match(v))
+                .unwrap_or(false),
+            MatchOp::Nre => !self
+                .regex
+                .as_ref()
+                .map(|r| r.is_full_match(v))
+                .unwrap_or(false),
         }
     }
 }
@@ -237,7 +254,10 @@ pub enum BinOp {
 
 impl BinOp {
     fn is_comparison(self) -> bool {
-        matches!(self, BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le)
+        matches!(
+            self,
+            BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le
+        )
     }
     fn is_setop(self) -> bool {
         matches!(self, BinOp::And | BinOp::Or | BinOp::Unless)
@@ -270,15 +290,33 @@ pub enum Expr {
     /// A string literal (only valid as certain function args; carried for completeness).
     Str(String),
     /// An instant-vector selector: matchers + optional `offset`.
-    Selector { matchers: Vec<LabelMatcher>, offset_ns: i64 },
+    Selector {
+        matchers: Vec<LabelMatcher>,
+        offset_ns: i64,
+    },
     /// A range-vector selector: `inner[range]` (+ offset on the inner selector).
-    Matrix { matchers: Vec<LabelMatcher>, range_ns: i64, offset_ns: i64 },
+    Matrix {
+        matchers: Vec<LabelMatcher>,
+        range_ns: i64,
+        offset_ns: i64,
+    },
     /// A function call.
     Call { func: String, args: Vec<Expr> },
     /// An aggregation with an optional by/without grouping.
-    Aggregate { op: AggOp, expr: Box<Expr>, by: bool, labels: Vec<String> },
+    Aggregate {
+        op: AggOp,
+        expr: Box<Expr>,
+        by: bool,
+        labels: Vec<String>,
+    },
     /// A binary operation (with optional `bool` modifier + vector matching).
-    Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>, bool_modifier: bool, matching: Option<VectorMatching> },
+    Binary {
+        op: BinOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        bool_modifier: bool,
+        matching: Option<VectorMatching>,
+    },
     /// Unary negation.
     Neg(Box<Expr>),
 }
@@ -324,7 +362,10 @@ struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
-        Self { src: src.as_bytes(), pos: 0 }
+        Self {
+            src: src.as_bytes(),
+            pos: 0,
+        }
     }
 
     fn tokenize(mut self) -> Result<Vec<Tok>, PromqlError> {
@@ -347,9 +388,12 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        let Some(c) = self.peek() else { return Ok(None) };
+        let Some(c) = self.peek() else {
+            return Ok(None);
+        };
         // punctuation / operators
-        let two = |a: u8, b: u8, s: &[u8], p: usize| s.get(p) == Some(&a) && s.get(p + 1) == Some(&b);
+        let two =
+            |a: u8, b: u8, s: &[u8], p: usize| s.get(p) == Some(&a) && s.get(p + 1) == Some(&b);
         if two(b'=', b'~', self.src, self.pos) {
             self.pos += 2;
             return Ok(Some(Tok::Re));
@@ -402,14 +446,23 @@ impl<'a> Lexer<'a> {
             return Ok(Some(self.lex_string(c)?));
         }
         // number or duration
-        if c.is_ascii_digit() || (c == b'.' && self.src.get(self.pos + 1).is_some_and(|d| d.is_ascii_digit())) {
+        if c.is_ascii_digit()
+            || (c == b'.'
+                && self
+                    .src
+                    .get(self.pos + 1)
+                    .is_some_and(|d| d.is_ascii_digit()))
+        {
             return Ok(Some(self.lex_number_or_duration()?));
         }
         // identifier
         if c == b'_' || c == b':' || c.is_ascii_alphabetic() {
             return Ok(Some(self.lex_ident()));
         }
-        err(format!("unexpected character '{}' at offset {}", c as char, self.pos))
+        err(format!(
+            "unexpected character '{}' at offset {}",
+            c as char, self.pos
+        ))
     }
 
     fn lex_string(&mut self, quote: u8) -> Result<Tok, PromqlError> {
@@ -462,7 +515,10 @@ impl<'a> Lexer<'a> {
                 has_dot = true;
                 j += 1;
             } else if (c == b'e' || c == b'E')
-                && self.src.get(j + 1).is_some_and(|n| n.is_ascii_digit() || *n == b'+' || *n == b'-')
+                && self
+                    .src
+                    .get(j + 1)
+                    .is_some_and(|n| n.is_ascii_digit() || *n == b'+' || *n == b'-')
             {
                 has_exp = true;
                 j += 2;
@@ -474,7 +530,10 @@ impl<'a> Lexer<'a> {
         let next = self.src.get(j).copied();
         let looks_duration = !has_dot
             && !has_exp
-            && matches!(next, Some(b's') | Some(b'm') | Some(b'h') | Some(b'd') | Some(b'w') | Some(b'y'));
+            && matches!(
+                next,
+                Some(b's') | Some(b'm') | Some(b'h') | Some(b'd') | Some(b'w') | Some(b'y')
+            );
         if looks_duration {
             return self.lex_duration();
         }
@@ -501,22 +560,28 @@ impl<'a> Lexer<'a> {
                 .parse()
                 .map_err(|_| PromqlError("invalid duration magnitude".into()))?;
             // unit: check `ms` before `m`
-            let unit_ns: i64 = if self.peek() == Some(b'm') && self.src.get(self.pos + 1) == Some(&b's') {
-                self.pos += 2;
-                1_000_000
-            } else {
-                let u = self.peek();
-                self.pos += 1;
-                match u {
-                    Some(b's') => 1_000_000_000,
-                    Some(b'm') => 60 * 1_000_000_000,
-                    Some(b'h') => 3_600 * 1_000_000_000,
-                    Some(b'd') => 86_400 * 1_000_000_000,
-                    Some(b'w') => 7 * 86_400 * 1_000_000_000,
-                    Some(b'y') => 365 * 86_400 * 1_000_000_000,
-                    other => return err(format!("invalid duration unit '{:?}'", other.map(|b| b as char))),
-                }
-            };
+            let unit_ns: i64 =
+                if self.peek() == Some(b'm') && self.src.get(self.pos + 1) == Some(&b's') {
+                    self.pos += 2;
+                    1_000_000
+                } else {
+                    let u = self.peek();
+                    self.pos += 1;
+                    match u {
+                        Some(b's') => 1_000_000_000,
+                        Some(b'm') => 60 * 1_000_000_000,
+                        Some(b'h') => 3_600 * 1_000_000_000,
+                        Some(b'd') => 86_400 * 1_000_000_000,
+                        Some(b'w') => 7 * 86_400 * 1_000_000_000,
+                        Some(b'y') => 365 * 86_400 * 1_000_000_000,
+                        other => {
+                            return err(format!(
+                                "invalid duration unit '{:?}'",
+                                other.map(|b| b as char)
+                            ))
+                        }
+                    }
+                };
             total += n * unit_ns;
             any = true;
         }
@@ -540,7 +605,10 @@ pub fn parse(input: &str) -> Result<Expr, PromqlError> {
     let mut p = Parser { toks, pos: 0 };
     let e = p.parse_expr()?;
     if p.pos != p.toks.len() {
-        return err(format!("trailing tokens after expression (at token {})", p.pos));
+        return err(format!(
+            "trailing tokens after expression (at token {})",
+            p.pos
+        ));
     }
     Ok(e)
 }
@@ -589,7 +657,13 @@ impl Parser {
             self.pos += 1;
             let matching = self.parse_matching()?;
             let rhs = self.parse_and()?;
-            lhs = Expr::Binary { op: BinOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs), bool_modifier: false, matching };
+            lhs = Expr::Binary {
+                op: BinOp::Or,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                bool_modifier: false,
+                matching,
+            };
         }
         Ok(lhs)
     }
@@ -605,7 +679,13 @@ impl Parser {
             self.pos += 1;
             let matching = self.parse_matching()?;
             let rhs = self.parse_cmp()?;
-            lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), bool_modifier: false, matching };
+            lhs = Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                bool_modifier: false,
+                matching,
+            };
         }
         Ok(lhs)
     }
@@ -629,7 +709,13 @@ impl Parser {
             }
             let matching = self.parse_matching()?;
             let rhs = self.parse_add()?;
-            lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), bool_modifier, matching };
+            lhs = Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                bool_modifier,
+                matching,
+            };
         }
         Ok(lhs)
     }
@@ -645,7 +731,13 @@ impl Parser {
             self.pos += 1;
             let matching = self.parse_matching()?;
             let rhs = self.parse_mul()?;
-            lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), bool_modifier: false, matching };
+            lhs = Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                bool_modifier: false,
+                matching,
+            };
         }
         Ok(lhs)
     }
@@ -662,7 +754,13 @@ impl Parser {
             self.pos += 1;
             let matching = self.parse_matching()?;
             let rhs = self.parse_pow()?;
-            lhs = Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), bool_modifier: false, matching };
+            lhs = Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                bool_modifier: false,
+                matching,
+            };
         }
         Ok(lhs)
     }
@@ -673,7 +771,13 @@ impl Parser {
         if self.eat(&Tok::Caret) {
             let matching = self.parse_matching()?;
             let rhs = self.parse_pow()?; // right-assoc
-            Ok(Expr::Binary { op: BinOp::Pow, lhs: Box::new(lhs), rhs: Box::new(rhs), bool_modifier: false, matching })
+            Ok(Expr::Binary {
+                op: BinOp::Pow,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                bool_modifier: false,
+                matching,
+            })
         } else {
             Ok(lhs)
         }
@@ -703,7 +807,9 @@ impl Parser {
         self.expect(&Tok::RParen)?;
         // group_left/group_right are parsed-and-rejected (documented follow-up).
         if matches!(self.peek_ident(), Some("group_left") | Some("group_right")) {
-            return err("group_left/group_right (many-to-one) not yet supported (EG-172 follow-up)");
+            return err(
+                "group_left/group_right (many-to-one) not yet supported (EG-172 follow-up)",
+            );
         }
         Ok(Some(VectorMatching { on, labels }))
     }
@@ -785,7 +891,12 @@ impl Parser {
             grouping = self.parse_grouping()?;
         }
         let (by, labels) = grouping.unwrap_or((true, Vec::new()));
-        Ok(Expr::Aggregate { op, expr: Box::new(expr), by, labels })
+        Ok(Expr::Aggregate {
+            op,
+            expr: Box::new(expr),
+            by,
+            labels,
+        })
     }
 
     fn parse_grouping(&mut self) -> Result<Option<(bool, Vec<String>)>, PromqlError> {
@@ -812,7 +923,9 @@ impl Parser {
                 loop {
                     let lname = match self.bump() {
                         Some(Tok::Ident(s)) => s,
-                        other => return err(format!("expected label name in matcher, got {other:?}")),
+                        other => {
+                            return err(format!("expected label name in matcher, got {other:?}"))
+                        }
                     };
                     let op = match self.bump() {
                         Some(Tok::Eq) => MatchOp::Eq,
@@ -845,7 +958,11 @@ impl Parser {
         if self.eat(&Tok::LBracket) {
             match self.bump() {
                 Some(Tok::Duration(d)) => range_ns = Some(d),
-                other => return err(format!("expected duration in range selector, got {other:?}")),
+                other => {
+                    return err(format!(
+                        "expected duration in range selector, got {other:?}"
+                    ))
+                }
             }
             self.expect(&Tok::RBracket)?;
         }
@@ -858,8 +975,15 @@ impl Parser {
             }
         }
         match range_ns {
-            Some(range_ns) => Ok(Expr::Matrix { matchers, range_ns, offset_ns }),
-            None => Ok(Expr::Selector { matchers, offset_ns }),
+            Some(range_ns) => Ok(Expr::Matrix {
+                matchers,
+                range_ns,
+                offset_ns,
+            }),
+            None => Ok(Expr::Selector {
+                matchers,
+                offset_ns,
+            }),
         }
     }
 }
@@ -920,11 +1044,17 @@ pub struct Evaluator<'a> {
 
 impl<'a> Evaluator<'a> {
     pub fn new(source: &'a dyn SeriesSource) -> Self {
-        Self { source, lookback_ns: DEFAULT_LOOKBACK_NS }
+        Self {
+            source,
+            lookback_ns: DEFAULT_LOOKBACK_NS,
+        }
     }
 
     pub fn with_lookback(source: &'a dyn SeriesSource, lookback_ns: i64) -> Self {
-        Self { source, lookback_ns }
+        Self {
+            source,
+            lookback_ns,
+        }
     }
 
     /// Evaluate `expr` at instant `t` (epoch-ns).
@@ -937,7 +1067,10 @@ impl<'a> Evaluator<'a> {
                 Value::Instant(v) => Ok(Value::Instant(map_values(v, |x| -x))),
                 Value::Range(_) => err("unary '-' not defined on a range vector"),
             },
-            Expr::Selector { matchers, offset_ns } => {
+            Expr::Selector {
+                matchers,
+                offset_ns,
+            } => {
                 let at = t - offset_ns;
                 let series = self.source.select(matchers, at - self.lookback_ns, at);
                 let mut out = Vec::new();
@@ -945,12 +1078,19 @@ impl<'a> Evaluator<'a> {
                     // The instant value = the most recent point at-or-before `at`
                     // within the lookback window.
                     if let Some(&(_, v)) = s.points.iter().rev().find(|(ts, _)| *ts <= at) {
-                        out.push(InstantSample { labels: s.labels, value: v });
+                        out.push(InstantSample {
+                            labels: s.labels,
+                            value: v,
+                        });
                     }
                 }
                 Ok(Value::Instant(out))
             }
-            Expr::Matrix { matchers, range_ns, offset_ns } => {
+            Expr::Matrix {
+                matchers,
+                range_ns,
+                offset_ns,
+            } => {
                 let at = t - offset_ns;
                 let lo = at - range_ns;
                 let series = self.source.select(matchers, lo, at);
@@ -959,19 +1099,34 @@ impl<'a> Evaluator<'a> {
                     .map(|s| RangeSeries {
                         labels: s.labels,
                         // Prometheus range window is (lo, at].
-                        points: s.points.into_iter().filter(|(ts, _)| *ts > lo && *ts <= at).collect(),
+                        points: s
+                            .points
+                            .into_iter()
+                            .filter(|(ts, _)| *ts > lo && *ts <= at)
+                            .collect(),
                     })
                     .filter(|s| !s.points.is_empty())
                     .collect();
                 Ok(Value::Range(out))
             }
             Expr::Call { func, args } => self.eval_call(func, args, t),
-            Expr::Aggregate { op, expr, by, labels } => {
+            Expr::Aggregate {
+                op,
+                expr,
+                by,
+                labels,
+            } => {
                 let v = self.eval_instant(expr, t)?;
                 let samples = as_instant(v, "aggregation operand")?;
                 Ok(Value::Instant(aggregate(*op, samples, *by, labels)))
             }
-            Expr::Binary { op, lhs, rhs, bool_modifier, matching } => {
+            Expr::Binary {
+                op,
+                lhs,
+                rhs,
+                bool_modifier,
+                matching,
+            } => {
                 let l = self.eval_instant(lhs, t)?;
                 let r = self.eval_instant(rhs, t)?;
                 eval_binary(*op, l, r, *bool_modifier, matching.as_ref())
@@ -1015,7 +1170,11 @@ impl<'a> Evaluator<'a> {
                 let arg = one_arg(func, args)?;
                 let iv = self.eval_instant(arg, t)?;
                 let samples = as_instant(iv, "scalar")?;
-                Ok(Value::Scalar(if samples.len() == 1 { samples[0].value } else { f64::NAN }))
+                Ok(Value::Scalar(if samples.len() == 1 {
+                    samples[0].value
+                } else {
+                    f64::NAN
+                }))
             }
             other => err(format!("unsupported function '{other}' (EG-172 follow-up)")),
         }
@@ -1024,7 +1183,13 @@ impl<'a> Evaluator<'a> {
     /// Evaluate `expr` over `[start, end]` at `step` (all ns) — the range query. Returns
     /// a matrix: one series per distinct label set, with a point at each step where the
     /// instant evaluation produced a value.
-    pub fn eval_range(&self, expr: &Expr, start: Ts, end: Ts, step: Ts) -> Result<Vec<RangeSeries>, PromqlError> {
+    pub fn eval_range(
+        &self,
+        expr: &Expr,
+        start: Ts,
+        end: Ts,
+        step: Ts,
+    ) -> Result<Vec<RangeSeries>, PromqlError> {
         if step <= 0 {
             return err("step must be positive");
         }
@@ -1089,14 +1254,18 @@ fn as_instant(v: Value, ctx: &str) -> Result<Vec<InstantSample>, PromqlError> {
     match v {
         Value::Instant(s) => Ok(s),
         Value::Scalar(_) => err(format!("{ctx}: expected an instant vector, got a scalar")),
-        Value::Range(_) => err(format!("{ctx}: expected an instant vector, got a range vector")),
+        Value::Range(_) => err(format!(
+            "{ctx}: expected an instant vector, got a range vector"
+        )),
     }
 }
 
 fn as_range(v: Value, ctx: &str) -> Result<Vec<RangeSeries>, PromqlError> {
     match v {
         Value::Range(s) => Ok(s),
-        _ => err(format!("{ctx}: expected a range vector (use metric[<dur>])")),
+        _ => err(format!(
+            "{ctx}: expected a range vector (use metric[<dur>])"
+        )),
     }
 }
 
@@ -1156,7 +1325,8 @@ fn rate_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> {
         let value = match func {
             "increase" => counter_increase(&s.points),
             "rate" => {
-                let span_s = (s.points.last().unwrap().0 - s.points.first().unwrap().0) as f64 / NS_PER_SEC;
+                let span_s =
+                    (s.points.last().unwrap().0 - s.points.first().unwrap().0) as f64 / NS_PER_SEC;
                 if span_s <= 0.0 {
                     continue;
                 }
@@ -1182,7 +1352,12 @@ fn rate_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> {
 
 // ───────────────────────────── aggregation ─────────────────────────────
 
-fn aggregate(op: AggOp, samples: Vec<InstantSample>, by: bool, labels: &[String]) -> Vec<InstantSample> {
+fn aggregate(
+    op: AggOp,
+    samples: Vec<InstantSample>,
+    by: bool,
+    labels: &[String],
+) -> Vec<InstantSample> {
     // Group key: the retained labels (drop __name__ always).
     let mut order: Vec<Labels> = Vec::new();
     let mut groups: BTreeMap<String, (usize, Vec<f64>)> = BTreeMap::new();
@@ -1309,15 +1484,27 @@ fn quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
     }
     if b == buckets.len() - 1 && buckets[b].0.is_infinite() {
         // rank falls in the +Inf bucket → return the highest finite bound.
-        return if buckets.len() >= 2 { buckets[buckets.len() - 2].0 } else { f64::INFINITY };
+        return if buckets.len() >= 2 {
+            buckets[buckets.len() - 2].0
+        } else {
+            f64::INFINITY
+        };
     }
     let bucket_end = buckets[b].0;
-    let (bucket_start, count_before) = if b == 0 { (0.0, 0.0) } else { (buckets[b - 1].0, buckets[b - 1].1) };
+    let (bucket_start, count_before) = if b == 0 {
+        (0.0, 0.0)
+    } else {
+        (buckets[b - 1].0, buckets[b - 1].1)
+    };
     let count_in_bucket = buckets[b].1 - count_before;
     if count_in_bucket <= 0.0 {
         return bucket_end;
     }
-    let start = if bucket_start.is_infinite() { 0.0 } else { bucket_start };
+    let start = if bucket_start.is_infinite() {
+        0.0
+    } else {
+        bucket_start
+    };
     start + (bucket_end - start) * ((rank - count_before) / count_in_bucket)
 }
 
@@ -1375,10 +1562,20 @@ fn eval_binary(
 }
 
 /// vector `op` scalar (or scalar `op` vector when `scalar_lhs`).
-fn vector_scalar(op: BinOp, samples: Vec<InstantSample>, s: f64, bool_modifier: bool, scalar_lhs: bool) -> Vec<InstantSample> {
+fn vector_scalar(
+    op: BinOp,
+    samples: Vec<InstantSample>,
+    s: f64,
+    bool_modifier: bool,
+    scalar_lhs: bool,
+) -> Vec<InstantSample> {
     let mut out = Vec::new();
     for mut sample in samples {
-        let (l, r) = if scalar_lhs { (s, sample.value) } else { (sample.value, s) };
+        let (l, r) = if scalar_lhs {
+            (s, sample.value)
+        } else {
+            (sample.value, s)
+        };
         if op.is_comparison() {
             let keep = apply_cmp(op, l, r);
             if bool_modifier {
@@ -1440,22 +1637,32 @@ fn vector_vector(
     // Set operators.
     match op {
         BinOp::And => {
-            let keys: std::collections::HashSet<String> =
-                rhs.iter().map(|s| label_key(&match_labels(&s.labels, matching))).collect();
+            let keys: std::collections::HashSet<String> = rhs
+                .iter()
+                .map(|s| label_key(&match_labels(&s.labels, matching)))
+                .collect();
             return Ok(Value::Instant(
-                lhs.into_iter().filter(|s| keys.contains(&label_key(&match_labels(&s.labels, matching)))).collect(),
+                lhs.into_iter()
+                    .filter(|s| keys.contains(&label_key(&match_labels(&s.labels, matching))))
+                    .collect(),
             ));
         }
         BinOp::Unless => {
-            let keys: std::collections::HashSet<String> =
-                rhs.iter().map(|s| label_key(&match_labels(&s.labels, matching))).collect();
+            let keys: std::collections::HashSet<String> = rhs
+                .iter()
+                .map(|s| label_key(&match_labels(&s.labels, matching)))
+                .collect();
             return Ok(Value::Instant(
-                lhs.into_iter().filter(|s| !keys.contains(&label_key(&match_labels(&s.labels, matching)))).collect(),
+                lhs.into_iter()
+                    .filter(|s| !keys.contains(&label_key(&match_labels(&s.labels, matching))))
+                    .collect(),
             ));
         }
         BinOp::Or => {
-            let lkeys: std::collections::HashSet<String> =
-                lhs.iter().map(|s| label_key(&match_labels(&s.labels, matching))).collect();
+            let lkeys: std::collections::HashSet<String> = lhs
+                .iter()
+                .map(|s| label_key(&match_labels(&s.labels, matching)))
+                .collect();
             let mut out = lhs.clone();
             for s in rhs {
                 if !lkeys.contains(&label_key(&match_labels(&s.labels, matching))) {
@@ -1475,7 +1682,9 @@ fn vector_vector(
     let mut out = Vec::new();
     for lsample in &lhs {
         let key = label_key(&match_labels(&lsample.labels, matching));
-        let Some(rsample) = rhs_by.get(&key) else { continue };
+        let Some(rsample) = rhs_by.get(&key) else {
+            continue;
+        };
         let (l, r) = (lsample.value, rsample.value);
         // The result label set is the match key (Prometheus drops __name__ and, under
         // ignoring, only the shared/kept labels survive).
@@ -1483,12 +1692,21 @@ fn vector_vector(
         if op.is_comparison() {
             let keep = apply_cmp(op, l, r);
             if bool_modifier {
-                out.push(InstantSample { labels: result_labels, value: if keep { 1.0 } else { 0.0 } });
+                out.push(InstantSample {
+                    labels: result_labels,
+                    value: if keep { 1.0 } else { 0.0 },
+                });
             } else if keep {
-                out.push(InstantSample { labels: result_labels, value: l });
+                out.push(InstantSample {
+                    labels: result_labels,
+                    value: l,
+                });
             }
         } else {
-            out.push(InstantSample { labels: result_labels, value: apply_arith(op, l, r) });
+            out.push(InstantSample {
+                labels: result_labels,
+                value: apply_arith(op, l, r),
+            });
         }
     }
     Ok(Value::Instant(out))
@@ -1510,7 +1728,10 @@ enum ReNode {
     Empty,
     Char(char),
     AnyChar,
-    Class { neg: bool, ranges: Vec<(char, char)> },
+    Class {
+        neg: bool,
+        ranges: Vec<(char, char)>,
+    },
     Concat(Vec<ReNode>),
     Alt(Vec<ReNode>),
     Star(Box<ReNode>),
@@ -1521,10 +1742,16 @@ enum ReNode {
 impl Regex {
     fn compile(pat: &str) -> Result<Regex, PromqlError> {
         let chars: Vec<char> = pat.chars().collect();
-        let mut rp = ReParser { chars: &chars, pos: 0 };
+        let mut rp = ReParser {
+            chars: &chars,
+            pos: 0,
+        };
         let root = rp.parse_alt()?;
         if rp.pos != rp.chars.len() {
-            return err(format!("invalid regex '{pat}': unexpected char at {}", rp.pos));
+            return err(format!(
+                "invalid regex '{pat}': unexpected char at {}",
+                rp.pos
+            ));
         }
         Ok(Regex { root })
     }
@@ -1614,7 +1841,9 @@ impl<'a> ReParser<'a> {
             }
             Some('\\') => {
                 self.pos += 1;
-                let c = self.peek().ok_or_else(|| PromqlError("dangling escape in regex".into()))?;
+                let c = self
+                    .peek()
+                    .ok_or_else(|| PromqlError("dangling escape in regex".into()))?;
                 self.pos += 1;
                 Ok(escape_node(c))
             }
@@ -1641,7 +1870,9 @@ impl<'a> ReParser<'a> {
             }
             let start = if c == '\\' {
                 self.pos += 1;
-                let e = self.peek().ok_or_else(|| PromqlError("dangling escape in class".into()))?;
+                let e = self
+                    .peek()
+                    .ok_or_else(|| PromqlError("dangling escape in class".into()))?;
                 self.pos += 1;
                 if let Some((lo, hi)) = escape_class(e) {
                     ranges.push((lo, hi));
@@ -1655,7 +1886,9 @@ impl<'a> ReParser<'a> {
             // range?
             if self.peek() == Some('-') && self.chars.get(self.pos + 1) != Some(&']') {
                 self.pos += 1; // '-'
-                let end = self.peek().ok_or_else(|| PromqlError("unterminated class range".into()))?;
+                let end = self
+                    .peek()
+                    .ok_or_else(|| PromqlError("unterminated class range".into()))?;
                 self.pos += 1;
                 ranges.push((start, end));
             } else {
@@ -1668,12 +1901,30 @@ impl<'a> ReParser<'a> {
 
 fn escape_node(c: char) -> ReNode {
     match c {
-        'd' => ReNode::Class { neg: false, ranges: vec![('0', '9')] },
-        'D' => ReNode::Class { neg: true, ranges: vec![('0', '9')] },
-        'w' => ReNode::Class { neg: false, ranges: vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')] },
-        'W' => ReNode::Class { neg: true, ranges: vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')] },
-        's' => ReNode::Class { neg: false, ranges: vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')] },
-        'S' => ReNode::Class { neg: true, ranges: vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')] },
+        'd' => ReNode::Class {
+            neg: false,
+            ranges: vec![('0', '9')],
+        },
+        'D' => ReNode::Class {
+            neg: true,
+            ranges: vec![('0', '9')],
+        },
+        'w' => ReNode::Class {
+            neg: false,
+            ranges: vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')],
+        },
+        'W' => ReNode::Class {
+            neg: true,
+            ranges: vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')],
+        },
+        's' => ReNode::Class {
+            neg: false,
+            ranges: vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')],
+        },
+        'S' => ReNode::Class {
+            neg: true,
+            ranges: vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')],
+        },
         'n' => ReNode::Char('\n'),
         't' => ReNode::Char('\t'),
         other => ReNode::Char(other),
@@ -1698,7 +1949,9 @@ fn re_match(node: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool
         ReNode::Empty => k(pos),
         ReNode::Char(c) => pos < input.len() && input[pos] == *c && k(pos + 1),
         ReNode::AnyChar => pos < input.len() && k(pos + 1),
-        ReNode::Class { neg, ranges } => pos < input.len() && class_match(*neg, ranges, input[pos]) && k(pos + 1),
+        ReNode::Class { neg, ranges } => {
+            pos < input.len() && class_match(*neg, ranges, input[pos]) && k(pos + 1)
+        }
         ReNode::Concat(parts) => re_concat(parts, 0, input, pos, k),
         ReNode::Alt(branches) => branches.iter().any(|b| re_match(b, input, pos, k)),
         ReNode::Star(inner) => re_star(inner, input, pos, k),
@@ -1707,22 +1960,36 @@ fn re_match(node: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool
     }
 }
 
-fn re_concat(parts: &[ReNode], i: usize, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
+fn re_concat(
+    parts: &[ReNode],
+    i: usize,
+    input: &[char],
+    pos: usize,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
     if i == parts.len() {
         return k(pos);
     }
-    re_match(&parts[i], input, pos, &|p| re_concat(parts, i + 1, input, p, k))
+    re_match(&parts[i], input, pos, &|p| {
+        re_concat(parts, i + 1, input, p, k)
+    })
 }
 
 fn re_star(inner: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
     // Greedy: consume as many as possible (guarding against empty matches), then k.
-    re_match(inner, input, pos, &|p| p > pos && re_star(inner, input, p, k)) || k(pos)
+    re_match(inner, input, pos, &|p| {
+        p > pos && re_star(inner, input, p, k)
+    }) || k(pos)
 }
 
 // ───────────────────────────── convenience ─────────────────────────────
 
 /// Parse + evaluate `expr_str` at instant `t` against `source`.
-pub fn query_instant(source: &dyn SeriesSource, expr_str: &str, t: Ts) -> Result<Value, PromqlError> {
+pub fn query_instant(
+    source: &dyn SeriesSource,
+    expr_str: &str,
+    t: Ts,
+) -> Result<Value, PromqlError> {
     let ast = parse(expr_str)?;
     Evaluator::new(source).eval_instant(&ast, t)
 }
@@ -1752,15 +2019,30 @@ mod tests {
         // http_requests_total{job="api",method="get"} counter
         s.push(
             MemSeriesSource::labels("http_requests_total", &[("job", "api"), ("method", "get")]),
-            vec![(0, 0.0), (15 * S, 10.0), (30 * S, 20.0), (45 * S, 30.0), (60 * S, 40.0)],
+            vec![
+                (0, 0.0),
+                (15 * S, 10.0),
+                (30 * S, 20.0),
+                (45 * S, 30.0),
+                (60 * S, 40.0),
+            ],
         );
         // http_requests_total{job="api",method="post"} counter
         s.push(
             MemSeriesSource::labels("http_requests_total", &[("job", "api"), ("method", "post")]),
-            vec![(0, 0.0), (15 * S, 5.0), (30 * S, 10.0), (45 * S, 15.0), (60 * S, 20.0)],
+            vec![
+                (0, 0.0),
+                (15 * S, 5.0),
+                (30 * S, 10.0),
+                (45 * S, 15.0),
+                (60 * S, 20.0),
+            ],
         );
         // node_cpu{instance="a"} gauge
-        s.push(MemSeriesSource::labels("node_cpu", &[("instance", "a")]), vec![(60 * S, 3.5)]);
+        s.push(
+            MemSeriesSource::labels("node_cpu", &[("instance", "a")]),
+            vec![(60 * S, 3.5)],
+        );
         s
     }
 
@@ -1778,11 +2060,20 @@ mod tests {
 
         // regex match on job=~"a.*" → both http_requests_total series
         let v = query_instant(&s, r#"http_requests_total{job=~"a.*"}"#, 60 * S).unwrap();
-        assert_eq!(match v { Value::Instant(iv) => iv.len(), _ => 0 }, 2);
+        assert_eq!(
+            match v {
+                Value::Instant(iv) => iv.len(),
+                _ => 0,
+            },
+            2
+        );
 
         // negative regex method!~"g.*" → only the post series
         let v = query_instant(&s, r#"http_requests_total{method!~"g.*"}"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].labels.get("method").unwrap(), "post");
     }
@@ -1792,10 +2083,22 @@ mod tests {
         let s = src();
         // rate over the full minute for the get series. Window (0,60s]: points at
         // 15,30,45,60 (=10,20,30,40); increase=30 over span 45s → 30/45.
-        let v = query_instant(&s, r#"rate(http_requests_total{method="get"}[60s])"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let v = query_instant(
+            &s,
+            r#"rate(http_requests_total{method="get"}[60s])"#,
+            60 * S,
+        )
+        .unwrap();
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 1);
-        assert!((iv[0].value - (30.0 / 45.0)).abs() < 1e-9, "got {}", iv[0].value);
+        assert!(
+            (iv[0].value - (30.0 / 45.0)).abs() < 1e-9,
+            "got {}",
+            iv[0].value
+        );
         // rate() drops the metric name.
         assert!(iv[0].labels.get(METRIC_NAME).is_none());
     }
@@ -1803,13 +2106,33 @@ mod tests {
     #[test]
     fn eg172_increase_and_irate() {
         let s = src();
-        let v = query_instant(&s, r#"increase(http_requests_total{method="get"}[60s])"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let v = query_instant(
+            &s,
+            r#"increase(http_requests_total{method="get"}[60s])"#,
+            60 * S,
+        )
+        .unwrap();
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv[0].value, 30.0); // (0,60s] → 40-10
 
-        let v = query_instant(&s, r#"irate(http_requests_total{method="get"}[60s])"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
-        assert!((iv[0].value - (10.0 / 15.0)).abs() < 1e-9, "got {}", iv[0].value);
+        let v = query_instant(
+            &s,
+            r#"irate(http_requests_total{method="get"}[60s])"#,
+            60 * S,
+        )
+        .unwrap();
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
+        assert!(
+            (iv[0].value - (10.0 / 15.0)).abs() < 1e-9,
+            "got {}",
+            iv[0].value
+        );
     }
 
     #[test]
@@ -1817,7 +2140,10 @@ mod tests {
         let s = src();
         // sum by (job) of the two api series' instant values (40 + 20 = 60).
         let v = query_instant(&s, r#"sum by (job) (http_requests_total)"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].value, 60.0);
         assert_eq!(iv[0].labels.get("job").unwrap(), "api");
@@ -1829,8 +2155,16 @@ mod tests {
     fn eg172_aggregation_without_and_count_avg_min_max() {
         let s = src();
         // count without(method) → groups by remaining {job} → 2 series counted.
-        let v = query_instant(&s, r#"count without (method) (http_requests_total)"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let v = query_instant(
+            &s,
+            r#"count without (method) (http_requests_total)"#,
+            60 * S,
+        )
+        .unwrap();
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].value, 2.0);
 
@@ -1855,18 +2189,37 @@ mod tests {
         let mut s = MemSeriesSource::new();
         // A classic histogram: le buckets 0.1,0.5,1,+Inf with cumulative counts.
         for (le, c) in [("0.1", 1.0), ("0.5", 2.0), ("1", 6.0), ("+Inf", 10.0)] {
-            s.push(MemSeriesSource::labels("http_latency_bucket", &[("le", le)]), vec![(60 * S, c)]);
+            s.push(
+                MemSeriesSource::labels("http_latency_bucket", &[("le", le)]),
+                vec![(60 * S, c)],
+            );
         }
         // p90 → rank 9 falls in the (1, +Inf] bucket; algorithm returns the highest
         // finite bound (1.0) since the top bucket is +Inf.
-        let v = query_instant(&s, r#"histogram_quantile(0.9, http_latency_bucket)"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let v = query_instant(
+            &s,
+            r#"histogram_quantile(0.9, http_latency_bucket)"#,
+            60 * S,
+        )
+        .unwrap();
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].value, 1.0);
 
         // p50 → rank 5 in the (0.5, 1] bucket: 0.5 + (1-0.5)*((5-2)/(6-2)) = 0.875.
-        let v = query_instant(&s, r#"histogram_quantile(0.5, http_latency_bucket)"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let v = query_instant(
+            &s,
+            r#"histogram_quantile(0.5, http_latency_bucket)"#,
+            60 * S,
+        )
+        .unwrap();
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert!((iv[0].value - 0.875).abs() < 1e-9, "got {}", iv[0].value);
     }
 
@@ -1875,7 +2228,10 @@ mod tests {
         let s = src();
         // vector * scalar
         let v = query_instant(&s, r#"http_requests_total{method="get"} * 2"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv[0].value, 80.0);
         assert!(iv[0].labels.get(METRIC_NAME).is_none()); // arith drops name
 
@@ -1886,19 +2242,28 @@ mod tests {
             60 * S,
         )
         .unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].value, 0.0);
 
         // comparison filter: keep samples > 25 → only the get series (40).
         let v = query_instant(&s, r#"http_requests_total > 25"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].value, 40.0);
 
         // comparison with bool → 0/1 for every sample.
         let v = query_instant(&s, r#"http_requests_total > bool 25"#, 60 * S).unwrap();
-        let iv = match v { Value::Instant(iv) => iv, _ => panic!() };
+        let iv = match v {
+            Value::Instant(iv) => iv,
+            _ => panic!(),
+        };
         assert_eq!(iv.len(), 2);
         assert_eq!(iv.iter().map(|x| x.value).sum::<f64>(), 1.0); // one true (get), one false (post)
     }
@@ -1925,7 +2290,14 @@ mod tests {
     fn eg172_range_query_produces_matrix() {
         let s = src();
         // instant selector over a range → a point at each step per series.
-        let m = query_range(&s, r#"http_requests_total{method="get"}"#, 0, 60 * S, 15 * S).unwrap();
+        let m = query_range(
+            &s,
+            r#"http_requests_total{method="get"}"#,
+            0,
+            60 * S,
+            15 * S,
+        )
+        .unwrap();
         assert_eq!(m.len(), 1);
         // steps 0,15,30,45,60 → 5 points (each within the 5m lookback).
         assert_eq!(m[0].points.len(), 5);
@@ -1965,7 +2337,11 @@ mod tests {
             Expr::Call { func, args } => {
                 assert_eq!(func, "rate");
                 match &args[0] {
-                    Expr::Matrix { range_ns, offset_ns, .. } => {
+                    Expr::Matrix {
+                        range_ns,
+                        offset_ns,
+                        ..
+                    } => {
                         assert_eq!(*range_ns, (90 * 60) as i64 * S);
                         assert_eq!(*offset_ns, (5 * 60) as i64 * S);
                     }
@@ -1986,7 +2362,13 @@ mod tests {
             60 * S,
         )
         .unwrap();
-        assert_eq!(match v { Value::Instant(iv) => iv.len(), _ => 99 }, 0);
+        assert_eq!(
+            match v {
+                Value::Instant(iv) => iv.len(),
+                _ => 99,
+            },
+            0
+        );
         // or: union of both → 2.
         let v = query_instant(
             &s,
@@ -1994,7 +2376,13 @@ mod tests {
             60 * S,
         )
         .unwrap();
-        assert_eq!(match v { Value::Instant(iv) => iv.len(), _ => 0 }, 2);
+        assert_eq!(
+            match v {
+                Value::Instant(iv) => iv.len(),
+                _ => 0,
+            },
+            2
+        );
     }
 
     #[test]

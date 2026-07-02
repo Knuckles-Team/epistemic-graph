@@ -43,7 +43,10 @@ ex:PersonShape a sh:NodeShape ;
     sh:property [ sh:path ex:name ; sh:minCount 1 ] .
 "#;
     let report = run(shapes, r#"ex:bob a ex:Person ."#);
-    assert!(!report.conforms, "missing required property must violate ICV");
+    assert!(
+        !report.conforms,
+        "missing required property must violate ICV"
+    );
     assert!(has_component(&report, "MinCount"));
 
     let v = &report.violations[0];
@@ -64,7 +67,11 @@ ex:PersonShape a sh:NodeShape ;
     ] .
 "#;
     let report = run(shapes, r#"ex:alice a ex:Person ; ex:name "Alice" ."#);
-    assert!(report.conforms, "valid graph must conform; got {:?}", report.violations);
+    assert!(
+        report.conforms,
+        "valid graph must conform; got {:?}",
+        report.violations
+    );
     assert!(report.violations.is_empty());
 }
 
@@ -82,7 +89,11 @@ ex:PersonShape a sh:NodeShape ;
     let v = &report.violations[0];
     assert_eq!(v.result.focus_node, "<http://example.org/dan>");
     assert!(v.result.value.is_some(), "offending value reported");
-    assert!(v.witness.contains("datatype(?value)"), "witness: {}", v.witness);
+    assert!(
+        v.witness.contains("datatype(?value)"),
+        "witness: {}",
+        v.witness
+    );
 }
 
 #[test]
@@ -99,10 +110,21 @@ ex:OwnerShape a sh:NodeShape ;
     assert!(!bad.conforms);
     assert!(has_component(&bad, "Class"));
     // The witness closes the world: NOT EXISTS an asserted rdf:type edge to the class.
-    let v = bad.violations.iter().find(|v| v.result.constraint_component.contains("Class")).unwrap();
-    assert!(v.witness.contains("FILTER NOT EXISTS"), "witness: {}", v.witness);
+    let v = bad
+        .violations
+        .iter()
+        .find(|v| v.result.constraint_component.contains("Class"))
+        .unwrap();
+    assert!(
+        v.witness.contains("FILTER NOT EXISTS"),
+        "witness: {}",
+        v.witness
+    );
 
-    let good = run(shapes, r#"ex:o a ex:Owner ; ex:pet ex:rex . ex:rex a ex:Dog ."#);
+    let good = run(
+        shapes,
+        r#"ex:o a ex:Owner ; ex:pet ex:rex . ex:rex a ex:Dog ."#,
+    );
     assert!(good.conforms, "dog conforms; got {:?}", good.violations);
 }
 
@@ -114,17 +136,39 @@ ex:CodeShape a sh:NodeShape ;
     sh:property [ sh:path ex:code ; sh:pattern "^[A-Z]{3}$" ] ;
     sh:property [ sh:path ex:color ; sh:in ( "red" "green" "blue" ) ] .
 "#;
-    let bad = run(shapes, r#"ex:i a ex:Item ; ex:code "abcd" ; ex:color "purple" ."#);
+    let bad = run(
+        shapes,
+        r#"ex:i a ex:Item ; ex:code "abcd" ; ex:color "purple" ."#,
+    );
     assert!(!bad.conforms);
     assert!(has_component(&bad, "Pattern"));
     assert!(has_component(&bad, "In"));
 
-    let pat = bad.violations.iter().find(|v| v.result.constraint_component.contains("Pattern")).unwrap();
-    assert!(pat.witness.contains("REGEX"), "pattern witness: {}", pat.witness);
-    let inv = bad.violations.iter().find(|v| v.result.constraint_component.contains("In")).unwrap();
-    assert!(inv.witness.contains("NOT IN"), "in witness: {}", inv.witness);
+    let pat = bad
+        .violations
+        .iter()
+        .find(|v| v.result.constraint_component.contains("Pattern"))
+        .unwrap();
+    assert!(
+        pat.witness.contains("REGEX"),
+        "pattern witness: {}",
+        pat.witness
+    );
+    let inv = bad
+        .violations
+        .iter()
+        .find(|v| v.result.constraint_component.contains("In"))
+        .unwrap();
+    assert!(
+        inv.witness.contains("NOT IN"),
+        "in witness: {}",
+        inv.witness
+    );
 
-    let good = run(shapes, r#"ex:i a ex:Item ; ex:code "XYZ" ; ex:color "green" ."#);
+    let good = run(
+        shapes,
+        r#"ex:i a ex:Item ; ex:code "XYZ" ; ex:color "green" ."#,
+    );
     assert!(good.conforms, "conforming item; got {:?}", good.violations);
 }
 
@@ -142,7 +186,11 @@ ex:PersonShape a sh:NodeShape ;
     assert!(!report.violations.is_empty());
     for v in &report.violations {
         assert!(!v.witness.trim().is_empty(), "witness must be non-empty");
-        assert!(v.witness.contains("CONCEPT:EG-146"), "witness cites EG-146: {}", v.witness);
+        assert!(
+            v.witness.contains("CONCEPT:EG-146"),
+            "witness cites EG-146: {}",
+            v.witness
+        );
         // The witness references the focus node so a user can run it as-is.
         assert!(
             v.witness.contains("<http://example.org/bob>"),
@@ -151,8 +199,16 @@ ex:PersonShape a sh:NodeShape ;
         );
     }
     // The minCount witness is a COUNT query showing the closed-world shortfall.
-    let mc = report.violations.iter().find(|v| v.result.constraint_component.contains("MinCount")).unwrap();
-    assert!(mc.witness.contains("COUNT(?value)"), "minCount witness: {}", mc.witness);
+    let mc = report
+        .violations
+        .iter()
+        .find(|v| v.result.constraint_component.contains("MinCount"))
+        .unwrap();
+    assert!(
+        mc.witness.contains("COUNT(?value)"),
+        "minCount witness: {}",
+        mc.witness
+    );
 }
 
 // ── EG-146: check_write guard — reject a change that introduces a violation ─
@@ -185,7 +241,10 @@ ex:PersonShape a sh:NodeShape ;
 
     let check = check_write(&shapes, &base, &additions, &[]);
     assert!(!check.accepted, "guard must REJECT a maxCount-breaking add");
-    assert!(!check.introduced.is_empty(), "introduced violation reported");
+    assert!(
+        !check.introduced.is_empty(),
+        "introduced violation reported"
+    );
     assert!(check
         .introduced
         .iter()
@@ -213,15 +272,16 @@ ex:PersonShape a sh:NodeShape ;
     .unwrap();
 
     // Add an unrelated fact — no constraint touched.
-    let additions = graph_from_turtle(&format!(
-        "{PREFIXES}{}",
-        r#"ex:alice ex:nickname "Al" ."#
-    ))
-    .unwrap();
+    let additions =
+        graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:alice ex:nickname "Al" ."#)).unwrap();
     let additions: Vec<_> = additions.iter().map(|t| t.into_owned()).collect();
 
     let check = check_write(&shapes, &base, &additions, &[]);
-    assert!(check.accepted, "guard must ACCEPT a clean add; {:?}", check.introduced);
+    assert!(
+        check.accepted,
+        "guard must ACCEPT a clean add; {:?}",
+        check.introduced
+    );
     assert!(check.introduced.is_empty());
 }
 
@@ -244,15 +304,15 @@ ex:PersonShape a sh:NodeShape ;
     .unwrap();
 
     // Remove the only ex:name → closed-world minCount breach.
-    let removals = graph_from_turtle(&format!(
-        "{PREFIXES}{}",
-        r#"ex:alice ex:name "Alice" ."#
-    ))
-    .unwrap();
+    let removals =
+        graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:alice ex:name "Alice" ."#)).unwrap();
     let removals: Vec<_> = removals.iter().map(|t| t.into_owned()).collect();
 
     let check = check_write(&shapes, &base, &[], &removals);
-    assert!(!check.accepted, "removing a required value must be rejected");
+    assert!(
+        !check.accepted,
+        "removing a required value must be rejected"
+    );
     assert!(check
         .introduced
         .iter()
@@ -284,7 +344,8 @@ ex:OwnerShape a sh:NodeShape ;
 
     // Reasoned view: OWL would infer `ex:fluffy a ex:Animal` (Cat ⊑ Animal). Supply that
     // inference and ICV now conforms — constraints checked against the ENTAILED model.
-    let inferred = graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:fluffy a ex:Animal ."#)).unwrap();
+    let inferred =
+        graph_from_turtle(&format!("{PREFIXES}{}", r#"ex:fluffy a ex:Animal ."#)).unwrap();
     let inferred: Vec<_> = inferred.iter().map(|t| t.into_owned()).collect();
     let reasoned = validate_icv_with_inferences(&shapes, &data, &inferred);
     assert!(

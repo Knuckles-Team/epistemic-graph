@@ -275,9 +275,9 @@ impl FederatedSchema {
 /// Does this document select a federation meta-field (`_service` / `_entities`)? The
 /// resolver dispatches such queries here instead of the node-label root path.
 pub(crate) fn is_federation_query(doc: &RawDocument) -> bool {
-    doc.selections.iter().any(|s| {
-        matches!(s, RawSelection::Field(rf) if rf.name == "_service" || rf.name == "_entities")
-    })
+    doc.selections.iter().any(
+        |s| matches!(s, RawSelection::Field(rf) if rf.name == "_service" || rf.name == "_entities"),
+    )
 }
 
 /// Resolve a federation query (CONCEPT:EG-295) over `view`, returning the GraphQL-shaped
@@ -793,7 +793,9 @@ mod tests {
         assert!(is_federation_query(
             &parse_raw(r#"{ _entities(representations: []) { __typename } }"#).unwrap()
         ));
-        assert!(!is_federation_query(&parse_raw("{ Person { name } }").unwrap()));
+        assert!(!is_federation_query(
+            &parse_raw("{ Person { name } }").unwrap()
+        ));
     }
 
     /// CONCEPT:EG-295 — an ordinary node query still resolves correctly even when routed

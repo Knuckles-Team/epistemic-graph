@@ -906,7 +906,10 @@ mod tests {
 
         // Reconstructed lengths: full strides then a short final chunk.
         let lens = m.chunk_lengths();
-        assert_eq!(lens.iter().map(|&l| l as u64).sum::<u64>(), data.len() as u64);
+        assert_eq!(
+            lens.iter().map(|&l| l as u64).sum::<u64>(),
+            data.len() as u64
+        );
         assert_eq!(*lens.first().unwrap(), chunk_size as u32);
         assert!(*lens.last().unwrap() <= chunk_size as u32);
         // Offsets are the running prefix sum.

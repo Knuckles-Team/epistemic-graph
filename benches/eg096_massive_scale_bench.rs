@@ -155,7 +155,9 @@ fn synth_vecs(n: usize, dim: usize, nclusters: usize, seed: u64) -> Vec<Vec<f32>
     (0..n)
         .map(|_| {
             let c = &centers[rng.range(nclusters)];
-            (0..dim).map(|j| c[j] + (rng.next_f32() - 0.5) * 0.30).collect()
+            (0..dim)
+                .map(|j| c[j] + (rng.next_f32() - 0.5) * 0.30)
+                .collect()
         })
         .collect()
 }

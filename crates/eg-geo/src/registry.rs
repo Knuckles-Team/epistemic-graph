@@ -17,9 +17,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::crs::{
-    utm_to_wgs84, web_mercator_to_wgs84, wgs84_to_utm, wgs84_to_web_mercator, Crs,
-};
+use crate::crs::{utm_to_wgs84, web_mercator_to_wgs84, wgs84_to_utm, wgs84_to_web_mercator, Crs};
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 
 /// A 2-D affine transform mapping `(x, y) → (x', y')` (CONCEPT:EG-262):
@@ -311,7 +309,10 @@ fn map_coords(
     let poly = |pg: &Polygon| -> Result<Polygon, String> {
         Ok(Polygon::with_interiors(
             line(&pg.exterior)?,
-            pg.interiors.iter().map(line).collect::<Result<Vec<_>, _>>()?,
+            pg.interiors
+                .iter()
+                .map(line)
+                .collect::<Result<Vec<_>, _>>()?,
         ))
     };
     Ok(match g {

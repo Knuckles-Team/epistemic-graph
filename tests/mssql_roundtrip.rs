@@ -27,9 +27,9 @@ use epistemic_graph::server::txn::TxnIdGen;
 use epistemic_graph::server::ServerState;
 
 use protocol::{
-    frame_message, parse_header, utf16le_bytes, utf16le_to_string, TdsType, HEADER_LEN,
-    PKT_LOGIN7, PKT_PRELOGIN, PKT_SQLBATCH, TOKEN_COLMETADATA, TOKEN_DONE, TOKEN_ROW,
-    TYPE_BITN, TYPE_FLTN, TYPE_INTN, TYPE_NVARCHAR,
+    frame_message, parse_header, utf16le_bytes, utf16le_to_string, TdsType, HEADER_LEN, PKT_LOGIN7,
+    PKT_PRELOGIN, PKT_SQLBATCH, TOKEN_COLMETADATA, TOKEN_DONE, TOKEN_ROW, TYPE_BITN, TYPE_FLTN,
+    TYPE_INTN, TYPE_NVARCHAR,
 };
 
 /// Build a minimal TRUST-mode `ServerState` (empty auth secret) seeded with three

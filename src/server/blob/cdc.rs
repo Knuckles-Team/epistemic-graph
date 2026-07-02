@@ -218,9 +218,17 @@ mod tests {
         let chunker = Chunker::from_avg(4096);
         let data = pseudo_random(2_000_000, 0xABCD);
         let lens = chunk_lengths(&chunker, &data);
-        assert!(lens.len() > 50, "expected many variable chunks, got {}", lens.len());
+        assert!(
+            lens.len() > 50,
+            "expected many variable chunks, got {}",
+            lens.len()
+        );
         let total: usize = lens.iter().sum();
-        assert_eq!(total, data.len(), "lengths must cover the whole blob exactly");
+        assert_eq!(
+            total,
+            data.len(),
+            "lengths must cover the whole blob exactly"
+        );
         for (i, &l) in lens.iter().enumerate() {
             assert!(
                 l <= chunker.max_size(),
@@ -309,6 +317,9 @@ mod tests {
     fn boundaries_are_deterministic() {
         let chunker = Chunker::from_avg(4096);
         let data = pseudo_random(500_000, 0x9);
-        assert_eq!(chunk_lengths(&chunker, &data), chunk_lengths(&chunker, &data));
+        assert_eq!(
+            chunk_lengths(&chunker, &data),
+            chunk_lengths(&chunker, &data)
+        );
     }
 }

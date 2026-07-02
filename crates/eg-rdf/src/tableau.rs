@@ -82,10 +82,8 @@ const OWL_HAS_VALUE: &str = "http://www.w3.org/2002/07/owl#hasValue";
 const OWL_MIN_CARDINALITY: &str = "http://www.w3.org/2002/07/owl#minCardinality";
 const OWL_MAX_CARDINALITY: &str = "http://www.w3.org/2002/07/owl#maxCardinality";
 const OWL_CARDINALITY: &str = "http://www.w3.org/2002/07/owl#cardinality";
-const OWL_MIN_QUALIFIED_CARDINALITY: &str =
-    "http://www.w3.org/2002/07/owl#minQualifiedCardinality";
-const OWL_MAX_QUALIFIED_CARDINALITY: &str =
-    "http://www.w3.org/2002/07/owl#maxQualifiedCardinality";
+const OWL_MIN_QUALIFIED_CARDINALITY: &str = "http://www.w3.org/2002/07/owl#minQualifiedCardinality";
+const OWL_MAX_QUALIFIED_CARDINALITY: &str = "http://www.w3.org/2002/07/owl#maxQualifiedCardinality";
 const OWL_QUALIFIED_CARDINALITY: &str = "http://www.w3.org/2002/07/owl#qualifiedCardinality";
 const OWL_ON_CLASS: &str = "http://www.w3.org/2002/07/owl#onClass";
 const OWL_TRANSITIVE_PROPERTY: &str = "http://www.w3.org/2002/07/owl#TransitiveProperty";
@@ -331,10 +329,8 @@ pub fn parse_dl_ontology(triples: &[Triple]) -> DlOntology {
                         }
                         OWL_FUNCTIONAL_PROPERTY => {
                             // A functional role is the global axiom ⊤ ⊑ ≤1 r.⊤.
-                            ont.gcis.push((
-                                Dl::Top,
-                                Dl::Max(1, s.clone(), Box::new(Dl::Top)),
-                            ));
+                            ont.gcis
+                                .push((Dl::Top, Dl::Max(1, s.clone(), Box::new(Dl::Top))));
                         }
                         // Vocabulary declarations carry no ABox content.
                         "http://www.w3.org/2002/07/owl#Class"
@@ -473,7 +469,10 @@ fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
         {
             return Some(Dl::Max(n, role, Box::new(Dl::Top)));
         }
-        if let Some(n) = idx.first_object(id, OWL_CARDINALITY).and_then(literal_usize) {
+        if let Some(n) = idx
+            .first_object(id, OWL_CARDINALITY)
+            .and_then(literal_usize)
+        {
             return Some(Dl::And(vec![
                 Dl::Min(n, role.clone(), Box::new(Dl::Top)),
                 Dl::Max(n, role, Box::new(Dl::Top)),
@@ -642,7 +641,9 @@ impl Completion {
     }
 
     fn reps(&self) -> Vec<usize> {
-        (0..self.nodes.len()).filter(|&i| self.find(i) == i).collect()
+        (0..self.nodes.len())
+            .filter(|&i| self.find(i) == i)
+            .collect()
     }
 
     fn union(&mut self, a: usize, b: usize) {
@@ -740,9 +741,9 @@ impl Completion {
 
     fn distinct(&self, a: usize, b: usize) -> bool {
         let (a, b) = (self.find(a), self.find(b));
-        self.neq
-            .iter()
-            .any(|(x, y)| (self.find(*x) == a && self.find(*y) == b) || (self.find(*x) == b && self.find(*y) == a))
+        self.neq.iter().any(|(x, y)| {
+            (self.find(*x) == a && self.find(*y) == b) || (self.find(*x) == b && self.find(*y) == a)
+        })
     }
 
     fn all_pairwise_distinct(&self, ns: &[usize]) -> bool {
@@ -920,9 +921,7 @@ impl Completion {
                 .label
                 .iter()
                 .filter_map(|c| match c {
-                    Dl::Min(n, r, f) => {
-                        std::option::Option::Some((*n, r.clone(), (**f).clone()))
-                    }
+                    Dl::Min(n, r, f) => std::option::Option::Some((*n, r.clone(), (**f).clone())),
                     _ => std::option::Option::None,
                 })
                 .collect();
@@ -965,7 +964,11 @@ impl Completion {
             for c in &self.nodes[i].label {
                 if let Dl::Or(ds) = c {
                     if !ds.iter().any(|d| self.nodes[i].label.contains(d)) {
-                        return Some(ds.iter().map(|d| Branch::AddConcept(i, d.clone())).collect());
+                        return Some(
+                            ds.iter()
+                                .map(|d| Branch::AddConcept(i, d.clone()))
+                                .collect(),
+                        );
                     }
                 }
             }
@@ -1329,7 +1332,10 @@ mod tests {
 ex:A rdfs:subClassOf [ owl:intersectionOf ( ex:B [ owl:complementOf ex:B ] ) ] .
 ex:a rdf:type ex:A .
 "#);
-        assert!(!is_consistent(&o), "A ⊑ B ⊓ ¬B with a:A must be inconsistent");
+        assert!(
+            !is_consistent(&o),
+            "A ⊑ B ⊓ ¬B with a:A must be inconsistent"
+        );
     }
 
     /// A plainly-satisfiable ontology is consistent.
@@ -1434,7 +1440,10 @@ ex:x owl:differentFrom ex:tue .
 ex:Italian owl:equivalentClass [ owl:onProperty ex:nation ; owl:hasValue ex:italy ] .
 ex:mario rdf:type ex:Italian .
 "#);
-        assert!(is_consistent(&o), "hasValue nominal ontology is satisfiable");
+        assert!(
+            is_consistent(&o),
+            "hasValue nominal ontology is satisfiable"
+        );
         // mario is an instance of Italian by construction.
         assert!(is_instance(&o, &ex("mario"), &ex("Italian")));
     }
@@ -1496,4 +1505,3 @@ ex:B rdfs:subClassOf ex:D .
         assert!(res.subsumers[&ex("A")].contains(&ex("E")));
     }
 }
-

@@ -180,7 +180,7 @@ pub fn build_handshake(
     // auth-plugin-data-part-1: first 8 bytes of the scramble.
     p.extend_from_slice(&seed[..8]);
     p.push(0); // filler
-    // capability flags — lower 2 bytes.
+               // capability flags — lower 2 bytes.
     p.extend_from_slice(&(server_caps as u16).to_le_bytes());
     p.push(COLLATION_UTF8MB4);
     // status flags (autocommit at connect).
@@ -190,7 +190,7 @@ pub fn build_handshake(
     // length of the whole auth-plugin-data (21 = 20 scramble bytes + a NUL).
     p.push(21);
     p.extend_from_slice(&[0u8; 10]); // reserved
-    // auth-plugin-data-part-2: the remaining 12 scramble bytes + a NUL terminator.
+                                     // auth-plugin-data-part-2: the remaining 12 scramble bytes + a NUL terminator.
     p.extend_from_slice(&seed[8..20]);
     p.push(0);
     // auth plugin name.
@@ -222,7 +222,7 @@ pub fn build_err(code: u16, sqlstate: &str, message: &str) -> Vec<u8> {
     p.push(0xff); // ERR header
     p.extend_from_slice(&code.to_le_bytes());
     p.push(b'#'); // SQLSTATE marker
-    // Exactly 5 SQLSTATE chars (right-pad / truncate defensively).
+                  // Exactly 5 SQLSTATE chars (right-pad / truncate defensively).
     let mut ss = [b'0'; 5];
     for (i, b) in sqlstate.bytes().take(5).enumerate() {
         ss[i] = b;
@@ -394,7 +394,20 @@ mod tests {
 
     #[test]
     fn lenenc_int_roundtrip_across_widths() {
-        for v in [0u64, 1, 250, 251, 0xff, 0x1234, 0xffff, 0x1_0000, 0xff_ffff, 0x100_0000, u32::MAX as u64, u64::MAX] {
+        for v in [
+            0u64,
+            1,
+            250,
+            251,
+            0xff,
+            0x1234,
+            0xffff,
+            0x1_0000,
+            0xff_ffff,
+            0x100_0000,
+            u32::MAX as u64,
+            u64::MAX,
+        ] {
             let mut buf = Vec::new();
             put_lenenc_int(&mut buf, v);
             let mut pos = 0;
@@ -468,7 +481,10 @@ mod tests {
     #[test]
     fn bool_and_vector_cells_render() {
         assert_eq!(cell_to_text(PgColType::Bool, &serde_json::json!(true)), "1");
-        assert_eq!(cell_to_text(PgColType::Bool, &serde_json::json!(false)), "0");
+        assert_eq!(
+            cell_to_text(PgColType::Bool, &serde_json::json!(false)),
+            "0"
+        );
         assert_eq!(
             cell_to_text(PgColType::Vector, &serde_json::json!([1, 2, 3])),
             "[1,2,3]"

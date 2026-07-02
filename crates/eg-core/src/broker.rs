@@ -281,7 +281,10 @@ pub fn bind_queue(core: &GraphCore, exchange: &str, queue: &str, routing_key: &s
         "queue": queue,
         "routing_key": routing_key,
     });
-    core.add_node(binding_node_id(exchange, queue, routing_key), to_msgpack(&props));
+    core.add_node(
+        binding_node_id(exchange, queue, routing_key),
+        to_msgpack(&props),
+    );
 }
 
 /// Remove a specific `exchange`/`queue`/`routing_key` binding (CONCEPT:EG-275).
@@ -388,7 +391,10 @@ pub struct QueuePolicy {
 pub fn declare_queue(core: &GraphCore, queue: &str, policy: &QueuePolicy) {
     ensure_queue_seq(core, queue);
     let mut props = serde_json::Map::new();
-    props.insert("type".into(), serde_json::Value::String(QUEUE_POLICY_TYPE.into()));
+    props.insert(
+        "type".into(),
+        serde_json::Value::String(QUEUE_POLICY_TYPE.into()),
+    );
     props.insert("queue".into(), serde_json::Value::String(queue.into()));
     if let Ok(v) = serde_json::to_value(policy) {
         if let Some(o) = v.as_object() {
@@ -610,7 +616,11 @@ pub fn broker_consume(
                 priority: f_i64(obj, "priority", 0),
                 seq: f_i64(obj, "seq", i64::MAX),
                 delivery_count: f_i64(obj, "delivery_count", 0),
-                status: if reclaimable { "claimed".into() } else { "pending".into() },
+                status: if reclaimable {
+                    "claimed".into()
+                } else {
+                    "pending".into()
+                },
                 lease_until,
             };
             best = prefer(best, cand);
@@ -636,7 +646,10 @@ pub fn broker_consume(
         // Atomic claim: condition on the scanned status (+ the exact expired lease for a
         // reclaim, so a concurrent re-lease loses the race) then stamp ownership/lease.
         let mut conditions = serde_json::Map::new();
-        conditions.insert("status".into(), serde_json::Value::String(cand.status.clone()));
+        conditions.insert(
+            "status".into(),
+            serde_json::Value::String(cand.status.clone()),
+        );
         if cand.status == "claimed" {
             conditions.insert(
                 "lease_until".into(),
@@ -648,7 +661,10 @@ pub fn broker_consume(
         }
         let mut updates = serde_json::Map::new();
         updates.insert("status".into(), serde_json::Value::String("claimed".into()));
-        updates.insert("owner_group".into(), serde_json::Value::String(group.into()));
+        updates.insert(
+            "owner_group".into(),
+            serde_json::Value::String(group.into()),
+        );
         updates.insert(
             "owner_consumer".into(),
             serde_json::Value::String(consumer.into()),
@@ -864,7 +880,9 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
                 continue;
             }
             let lease_expired = status == "claimed"
-                && f_u64(obj, "lease_until").map(|l| l <= now_ms).unwrap_or(true);
+                && f_u64(obj, "lease_until")
+                    .map(|l| l <= now_ms)
+                    .unwrap_or(true);
             // EG-277: TTL expiry (a live-lease claimed message is left to its holder).
             if let Some(ea) = f_u64(obj, "expires_at") {
                 if ea <= now_ms && (status == "pending" || lease_expired) {
@@ -1042,7 +1060,10 @@ pub fn ensure_stream_offset(core: &GraphCore, stream: &str) {
 pub fn declare_stream(core: &GraphCore, stream: &str, retention: &StreamRetention) {
     ensure_stream_offset(core, stream);
     let mut props = serde_json::Map::new();
-    props.insert("type".into(), serde_json::Value::String(STREAM_CONFIG_TYPE.into()));
+    props.insert(
+        "type".into(),
+        serde_json::Value::String(STREAM_CONFIG_TYPE.into()),
+    );
     props.insert("stream".into(), serde_json::Value::String(stream.into()));
     if let Ok(v) = serde_json::to_value(retention) {
         if let Some(o) = v.as_object() {
@@ -1215,7 +1236,16 @@ pub fn publish_confirmed(
 ) -> ConfirmToken {
     let delivery_tag = core.broker_next_counter(&confirm_seq_node_id(), BROKER_COUNTER_TYPE);
     let confirmed = if load_exchange_kind(core, exchange).is_some() {
-        let _ = publish_ex(core, exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms);
+        let _ = publish_ex(
+            core,
+            exchange,
+            routing_key,
+            payload,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        );
         true
     } else {
         false
@@ -1230,7 +1260,10 @@ pub fn publish_confirmed(
 /// node (CONCEPT:EG-284). `None` if the tag was never issued / already acked.
 fn resolve_delivery_tag(core: &GraphCore, tag: i64) -> Option<(String, String)> {
     let o = node_object(core, &dtag_lookup_node_id(tag))?;
-    Some((f_str(&o, "node_id").to_string(), f_str(&o, "queue").to_string()))
+    Some((
+        f_str(&o, "node_id").to_string(),
+        f_str(&o, "queue").to_string(),
+    ))
 }
 
 /// Acknowledge (remove) a claimed message by its consumer `delivery_tag` (CONCEPT:
@@ -1329,7 +1362,10 @@ mod tests {
             route(ExchangeKind::Direct, &bindings, "info"),
             vec!["q1".to_string(), "q3".to_string()]
         );
-        assert_eq!(route(ExchangeKind::Direct, &bindings, "warn"), Vec::<String>::new());
+        assert_eq!(
+            route(ExchangeKind::Direct, &bindings, "warn"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
@@ -1343,7 +1379,11 @@ mod tests {
 
     #[test]
     fn eg275_route_topic_uses_wildcards() {
-        let bindings = vec![b("all", "stock.#"), b("usd", "stock.usd.*"), b("err", "log.error")];
+        let bindings = vec![
+            b("all", "stock.#"),
+            b("usd", "stock.usd.*"),
+            b("err", "log.error"),
+        ];
         assert_eq!(
             route(ExchangeKind::Topic, &bindings, "stock.usd.nyse"),
             vec!["all".to_string(), "usd".to_string()]
@@ -1357,7 +1397,10 @@ mod tests {
     #[test]
     fn eg275_route_dedups_queue_bound_twice() {
         let bindings = vec![b("q1", "a"), b("q1", "b")];
-        assert_eq!(route(ExchangeKind::Fanout, &bindings, "x"), vec!["q1".to_string()]);
+        assert_eq!(
+            route(ExchangeKind::Fanout, &bindings, "x"),
+            vec!["q1".to_string()]
+        );
     }
 
     // ── CONCEPT:EG-275 hex payload round-trip ─────────────────────────────
@@ -1412,11 +1455,17 @@ mod tests {
         let hexed = props.get("payload").and_then(|v| v.as_str()).unwrap();
         assert_eq!(hex_decode(hexed), Some(b"boom".to_vec()));
         // no more pending on errs
-        assert!(core.claim_next_fields(&queue_msg_label("errs"), &claim).is_none());
+        assert!(core
+            .claim_next_fields(&queue_msg_label("errs"), &claim)
+            .is_none());
 
         // `all` has two messages, delivered in publish order (seq monotonic)
-        let (_, p1) = core.claim_next_fields(&queue_msg_label("all"), &claim).unwrap();
-        let (_, p2) = core.claim_next_fields(&queue_msg_label("all"), &claim).unwrap();
+        let (_, p1) = core
+            .claim_next_fields(&queue_msg_label("all"), &claim)
+            .unwrap();
+        let (_, p2) = core
+            .claim_next_fields(&queue_msg_label("all"), &claim)
+            .unwrap();
         assert_eq!(p1.get("seq").and_then(|s| s.as_i64()), Some(0));
         assert_eq!(p2.get("seq").and_then(|s| s.as_i64()), Some(1));
     }
@@ -1501,7 +1550,10 @@ mod tests {
         let xd = dl.get("x-death").and_then(|v| v.as_array()).unwrap();
         assert_eq!(xd.len(), 1);
         assert_eq!(xd[0].get("queue").and_then(|v| v.as_str()), Some("q"));
-        assert_eq!(xd[0].get("reason").and_then(|v| v.as_str()), Some("rejected"));
+        assert_eq!(
+            xd[0].get("reason").and_then(|v| v.as_str()),
+            Some("rejected")
+        );
     }
 
     #[test]
@@ -1553,7 +1605,10 @@ mod tests {
         let core = rig();
         with_dlq(&core, QueuePolicy::default());
         // TTL 100ms published at t=1000 → expires_at=1100.
-        assert_eq!(publish_ex(&core, "ex", "k", b"stale", 0, None, Some(100), Some(1000)), 1);
+        assert_eq!(
+            publish_ex(&core, "ex", "k", b"stale", 0, None, Some(100), Some(1000)),
+            1
+        );
         // Claiming at t=2000 finds it expired → lazily dead-letters it, delivers nothing.
         assert!(broker_consume(&core, "q", "g", "c", 2000, 0, 0).is_none());
         let (_, dl) = consume_dlq(&core, 2001).expect("expired message on DLQ");
@@ -1569,7 +1624,10 @@ mod tests {
     #[test]
     fn eg277_unexpired_message_still_delivers() {
         let core = rig();
-        assert_eq!(publish_ex(&core, "ex", "k", b"fresh", 0, None, Some(1000), Some(1000)), 1);
+        assert_eq!(
+            publish_ex(&core, "ex", "k", b"fresh", 0, None, Some(1000), Some(1000)),
+            1
+        );
         // At t=1500 (< expires_at 2000) it is deliverable.
         let (_, p) = broker_consume(&core, "q", "g", "c", 1500, 0, 0).unwrap();
         assert_eq!(payload_of(&p), b"fresh".to_vec());
@@ -1580,7 +1638,10 @@ mod tests {
         let core = rig();
         with_dlq(&core, QueuePolicy::default());
         // One TTL'd message (expires 1100) + one durable message.
-        assert_eq!(publish_ex(&core, "ex", "k", b"ttl", 0, None, Some(100), Some(1000)), 1);
+        assert_eq!(
+            publish_ex(&core, "ex", "k", b"ttl", 0, None, Some(100), Some(1000)),
+            1
+        );
         assert_eq!(publish(&core, "ex", "k", b"keep"), 1);
         // Sweep at t=5000 acts on exactly the expired one.
         assert_eq!(sweep_expired(&core, 5000), 1);
@@ -1666,7 +1727,10 @@ mod tests {
     fn eg279_delayed_message_held_until_eta() {
         let core = rig();
         // delay 500ms at t=1000 → deliver_at=1500.
-        assert_eq!(publish_ex(&core, "ex", "k", b"later", 0, Some(500), None, Some(1000)), 1);
+        assert_eq!(
+            publish_ex(&core, "ex", "k", b"later", 0, Some(500), None, Some(1000)),
+            1
+        );
         // Before the eta: not claimable.
         assert!(broker_consume(&core, "q", "g", "c", 1200, 0, 0).is_none());
         // At/after the eta: delivered.
@@ -1677,9 +1741,12 @@ mod tests {
     #[test]
     fn eg279_due_message_delivers_before_a_delayed_one() {
         let core = rig();
-        assert_eq!(publish_ex(&core, "ex", "k", b"soon", 0, Some(1000), None, Some(0)), 1); // due at 1000
+        assert_eq!(
+            publish_ex(&core, "ex", "k", b"soon", 0, Some(1000), None, Some(0)),
+            1
+        ); // due at 1000
         assert_eq!(publish(&core, "ex", "k", b"now"), 1); // due immediately
-        // At t=1: only the immediate one is due.
+                                                          // At t=1: only the immediate one is due.
         let (id, p) = broker_consume(&core, "q", "g", "c", 1, 0, 0).unwrap();
         assert_eq!(payload_of(&p), b"now".to_vec());
         broker_ack(&core, "q", &id);
@@ -1723,7 +1790,10 @@ mod tests {
         let (id2, p2) = broker_consume(&core, "q", "g", "c2", 1200, 100, 0).unwrap();
         assert_eq!(id2, id);
         assert_eq!(p2.get("delivery_count").and_then(|v| v.as_i64()), Some(2));
-        assert_eq!(p2.get("owner_consumer").and_then(|v| v.as_str()), Some("c2"));
+        assert_eq!(
+            p2.get("owner_consumer").and_then(|v| v.as_str()),
+            Some("c2")
+        );
     }
 
     #[test]
@@ -1841,7 +1911,7 @@ mod tests {
         stream_publish(&core, "s", b"old", 100); // ts=100
         stream_publish(&core, "s", b"mid", 180); // ts=180
         stream_publish(&core, "s", b"new", 195); // ts=195
-        // At now=200 with max_age 50: horizon 150 → only ts=100 is too old.
+                                                 // At now=200 with max_age 50: horizon 150 → only ts=100 is too old.
         assert_eq!(stream_trim(&core, "s", 200), 1);
         assert_eq!(
             stream_read(&core, "s", ReadFrom::Earliest, 0),

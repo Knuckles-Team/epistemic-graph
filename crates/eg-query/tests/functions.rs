@@ -11,9 +11,7 @@
 #![cfg(feature = "sql")]
 
 use eg_core::graph::{GraphCore, GraphView};
-use eg_query::{
-    classify, exec_sql_typed_with_tables, StatementKind, TableStore, TypedQueryResult,
-};
+use eg_query::{classify, exec_sql_typed_with_tables, StatementKind, TableStore, TypedQueryResult};
 use serde_json::{json, Value};
 
 /// Drive ONE statement through the same classify → route path the server uses. A
@@ -110,12 +108,7 @@ fn table_function_expands_in_from_eg118() {
          SELECT id FROM nodes WHERE score > min_score $$ LANGUAGE sql",
     );
     // `FROM high_scorers(40)` expands to the body SELECT with the arg substituted.
-    let res = run(
-        &store,
-        &view,
-        "SELECT id FROM high_scorers(40) ORDER BY id",
-    )
-    .unwrap();
+    let res = run(&store, &view, "SELECT id FROM high_scorers(40) ORDER BY id").unwrap();
     let ids: Vec<&Value> = res.rows.iter().map(|r| &r[0]).collect();
     assert_eq!(ids, vec![&json!("a2"), &json!("a3")]);
 }
@@ -144,7 +137,10 @@ fn create_or_replace_function_eg118() {
         &view,
         "CREATE FUNCTION f(a int) RETURNS int AS $$ SELECT a + 1 $$ LANGUAGE sql",
     );
-    assert_eq!(run(&store, &view, "SELECT f(10) AS v").unwrap().rows[0][0], json!(11));
+    assert_eq!(
+        run(&store, &view, "SELECT f(10) AS v").unwrap().rows[0][0],
+        json!(11)
+    );
     // Re-defining without OR REPLACE errors at the catalog; WITH it overwrites.
     assert!(store
         .create_function(
@@ -162,7 +158,10 @@ fn create_or_replace_function_eg118() {
         &view,
         "CREATE OR REPLACE FUNCTION f(a int) RETURNS int AS $$ SELECT a * 100 $$ LANGUAGE sql",
     );
-    assert_eq!(run(&store, &view, "SELECT f(10) AS v").unwrap().rows[0][0], json!(1000));
+    assert_eq!(
+        run(&store, &view, "SELECT f(10) AS v").unwrap().rows[0][0],
+        json!(1000)
+    );
 }
 
 #[test]
@@ -204,20 +203,17 @@ fn function_persists_in_catalog_across_reopen_eg118() {
 fn classify_rejects_non_sql_language_eg118() {
     // A procedural PL/pgSQL body is a documented follow-up — rejected with a precise
     // error, never silently accepted (CONCEPT:EG-118).
-    let err = classify(
-        "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql",
-    )
-    .unwrap_err();
+    let err =
+        classify("CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql")
+            .unwrap_err();
     assert!(err.contains("LANGUAGE"), "unexpected error: {err}");
 }
 
 #[test]
 fn classify_language_before_as_order_eg118() {
     // `LANGUAGE sql` may precede the `AS <body>` clause (CONCEPT:EG-118).
-    let k = classify(
-        "CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql AS $$ SELECT a $$",
-    )
-    .unwrap();
+    let k =
+        classify("CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql AS $$ SELECT a $$").unwrap();
     match k {
         StatementKind::CreateFunction(p) => {
             assert_eq!(p.func.name, "f");

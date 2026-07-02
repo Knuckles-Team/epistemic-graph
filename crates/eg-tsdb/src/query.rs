@@ -463,7 +463,13 @@ mod sensor_fuse_tests {
         // Clock = {0,2,4}. C only has a sample@0, so at ts=2 (2s stale) and ts=4 it is a
         // GAP under a 1s tolerance; A is always fresh (exact hit each instant).
         assert_eq!(fused.len(), 3);
-        assert_eq!(fused[0].channels, vec![Some(Cell::Scalar(10.0)), Some(Cell::Blob("blob://frame0".into()))]);
+        assert_eq!(
+            fused[0].channels,
+            vec![
+                Some(Cell::Scalar(10.0)),
+                Some(Cell::Blob("blob://frame0".into()))
+            ]
+        );
         assert_eq!(fused[1].channels, vec![Some(Cell::Scalar(20.0)), None]);
         assert_eq!(fused[2].channels, vec![Some(Cell::Scalar(40.0)), None]);
     }

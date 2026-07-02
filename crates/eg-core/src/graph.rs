@@ -1201,7 +1201,10 @@ impl<'a> GraphTxn<'a> {
             let elapsed = now_ms.saturating_sub(ref_ms);
             if elapsed > 0 && half_life_ms > 0 {
                 let factor = 0.5_f64.powf(elapsed as f64 / half_life_ms as f64);
-                updates.insert("importance".to_string(), serde_json::json!(importance * factor));
+                updates.insert(
+                    "importance".to_string(),
+                    serde_json::json!(importance * factor),
+                );
             }
         }
         // Advance decay's own clock — makes the pass idempotent + composable.
@@ -1324,12 +1327,14 @@ impl<'a> GraphTxn<'a> {
             return;
         }
         if !self.has_relationship_edge(child, parent, "CHILD_OF") {
-            if let Ok(e) = rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CHILD_OF"})) {
+            if let Ok(e) = rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CHILD_OF"}))
+            {
                 let _ = self.add_edge(child.to_string(), parent.to_string(), e);
             }
         }
         if !self.has_relationship_edge(parent, child, "HAS_CHILD") {
-            if let Ok(e) = rmp_serde::to_vec_named(&serde_json::json!({"relationship": "HAS_CHILD"}))
+            if let Ok(e) =
+                rmp_serde::to_vec_named(&serde_json::json!({"relationship": "HAS_CHILD"}))
             {
                 let _ = self.add_edge(parent.to_string(), child.to_string(), e);
             }
@@ -1355,11 +1360,7 @@ impl<'a> GraphTxn<'a> {
     /// parented under `parent` via reciprocal `CHILD_OF`/`HAS_CHILD` edges (an absent
     /// parent is skipped — no dangling edge). Returns the new object's deterministic
     /// id. Runs under the held write guard.
-    pub fn add_scene_object(
-        &mut self,
-        pose: &crate::scene::Pose,
-        parent: Option<&str>,
-    ) -> String {
+    pub fn add_scene_object(&mut self, pose: &crate::scene::Pose, parent: Option<&str>) -> String {
         let id = Self::derive_scene_id(self.topo.node_map.len(), parent, pose);
         let obj = serde_json::json!({ "type": "SceneObject", "pose": pose.to_json() });
         if let Ok(blob) = rmp_serde::to_vec_named(&obj) {
@@ -1482,7 +1483,10 @@ impl<'a> GraphTxn<'a> {
     /// `props` carries an `id` string it is honoured (and stripped from the stored
     /// blob); otherwise a deterministic id over `(live node count, props)` is used.
     /// Runs under the held write guard.
-    pub fn start_trajectory(&mut self, props: serde_json::Map<String, serde_json::Value>) -> String {
+    pub fn start_trajectory(
+        &mut self,
+        props: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
         let id = match props.get("id").and_then(|v| v.as_str()) {
             Some(s) => s.to_string(),
             None => Self::derive_trajectory_id(self.topo.node_map.len(), &props),
@@ -1531,10 +1535,7 @@ impl<'a> GraphTxn<'a> {
         t: u64,
     ) -> Option<String> {
         let traj = self.node_object(traj_id)?;
-        let step_index = traj
-            .get("step_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+        let step_index = traj.get("step_count").and_then(|v| v.as_u64()).unwrap_or(0);
         let tail = traj
             .get("tail_step")
             .and_then(|v| v.as_str())
@@ -1568,7 +1569,8 @@ impl<'a> GraphTxn<'a> {
 
         // NEXT_STEP (previous tail → new step) — the temporal chain link.
         if let Some(prev) = &tail {
-            if let Ok(e) = rmp_serde::to_vec_named(&serde_json::json!({"relationship": "NEXT_STEP"}))
+            if let Ok(e) =
+                rmp_serde::to_vec_named(&serde_json::json!({"relationship": "NEXT_STEP"}))
             {
                 let _ = self.add_edge(prev.clone(), step_id.clone(), e);
             }
@@ -1756,11 +1758,7 @@ impl GraphCore {
     /// Read a distribution-valued property `key` off `node_id` (CONCEPT:EG-086).
     /// Returns `None` if the node is absent, its blob is undecodable, the key is
     /// missing, or the stored JSON is not a valid `Distribution`.
-    pub fn get_distribution(
-        &self,
-        node_id: &str,
-        key: &str,
-    ) -> Option<eg_types::Distribution> {
+    pub fn get_distribution(&self, node_id: &str, key: &str) -> Option<eg_types::Distribution> {
         let bytes = self.get_node_properties(node_id)?;
         let val = rmp_serde::from_slice::<serde_json::Value>(&bytes).ok()?;
         let field = val.as_object()?.get(key)?.clone();
@@ -1954,12 +1952,18 @@ impl GraphCore {
             );
             msg_props.insert("status".into(), serde_json::Value::String("pending".into()));
             msg_props.insert("seq".into(), serde_json::Value::from(next));
-            msg_props.insert("exchange".into(), serde_json::Value::String(exchange.into()));
+            msg_props.insert(
+                "exchange".into(),
+                serde_json::Value::String(exchange.into()),
+            );
             msg_props.insert(
                 "routing_key".into(),
                 serde_json::Value::String(routing_key.into()),
             );
-            msg_props.insert("payload".into(), serde_json::Value::String(payload_hex.into()));
+            msg_props.insert(
+                "payload".into(),
+                serde_json::Value::String(payload_hex.into()),
+            );
             // Merge caller-resolved policy fields (priority/deliver_at/expires_at/…).
             for (k, v) in extra {
                 msg_props.insert(k.clone(), v.clone());
@@ -2447,10 +2451,7 @@ impl GraphCore {
     /// Scan the node store once and build, for one JSONPath, both the `value → ids`
     /// equality map (over the canonical scalar form of each matched leaf) and the
     /// existence `ids` set (CONCEPT:EG-084). A malformed path yields empty maps.
-    fn build_json_path_maps(
-        &self,
-        path: &str,
-    ) -> (HashMap<String, Vec<String>>, Vec<String>) {
+    fn build_json_path_maps(&self, path: &str) -> (HashMap<String, Vec<String>>, Vec<String>) {
         let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
         let mut present: Vec<String> = Vec::new();
         let Some(segs) = crate::jsonpath::parse_path(path) else {
@@ -3928,9 +3929,7 @@ impl GraphCore {
                             .ok()
                             .and_then(|v| {
                                 v.as_object()
-                                    .and_then(|o| {
-                                        o.get("relationship").or_else(|| o.get("type"))
-                                    })
+                                    .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
                                     .and_then(|r| r.as_str())
                                     .map(|s| s == rel)
                             })
@@ -4411,7 +4410,10 @@ mod tests {
     #[test]
     fn distribution_property_roundtrips() {
         let core = GraphCore::new();
-        core.add_node("m1".into(), props(serde_json::json!({"type": "Measurement"})));
+        core.add_node(
+            "m1".into(),
+            props(serde_json::json!({"type": "Measurement"})),
+        );
         let dist = eg_types::Distribution::Gaussian {
             mean: 3.5,
             std: 0.75,
@@ -4694,7 +4696,10 @@ mod tests {
         let mut rust = core.nodes_by_json_path("$.meta.lang", "rust").unwrap();
         rust.sort();
         assert_eq!(rust, vec!["n1", "n3"]);
-        assert_eq!(core.nodes_by_json_path("$.meta.lang", "go").unwrap(), vec!["n2"]);
+        assert_eq!(
+            core.nodes_by_json_path("$.meta.lang", "go").unwrap(),
+            vec!["n2"]
+        );
         // Numeric leaf indexes under its canonical string form.
         let mut y24 = core.nodes_by_json_path("$.meta.year", "2024").unwrap();
         y24.sort();
@@ -4715,7 +4720,10 @@ mod tests {
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph();
-        assert_eq!(core.nodes_by_json_path("$.meta.lang", "go").unwrap(), vec!["n2"]);
+        assert_eq!(
+            core.nodes_by_json_path("$.meta.lang", "go").unwrap(),
+            vec!["n2"]
+        );
 
         // ADD: a fresh node lands in the rebuilt index.
         let v0 = core.version();
@@ -4769,7 +4777,11 @@ mod tests {
             .filter(|id| {
                 let blob = core.get_node_properties(id).unwrap();
                 let v: serde_json::Value = rmp_serde::from_slice(&blob).unwrap();
-                crate::jsonpath::path_contains(&v, "$", &serde_json::json!({"meta": {"lang": "rust"}}))
+                crate::jsonpath::path_contains(
+                    &v,
+                    "$",
+                    &serde_json::json!({"meta": {"lang": "rust"}}),
+                )
             })
             .collect();
         kept.sort();
@@ -5564,12 +5576,12 @@ mod tests {
     #[test]
     fn eg220_create_summary_node_skips_absent_children() {
         let g = GraphCore::new();
-        g.add_node("real".into(), props(serde_json::json!({"type": "Episodic"})));
-        let sid = g.create_summary_node(
-            1,
-            &["real".into(), "ghost".into()],
-            serde_json::Map::new(),
+        g.add_node(
+            "real".into(),
+            props(serde_json::json!({"type": "Episodic"})),
         );
+        let sid =
+            g.create_summary_node(1, &["real".into(), "ghost".into()], serde_json::Map::new());
         // Only the existing child is linked — no dangling edge to "ghost".
         assert_eq!(g.summary_children(&sid), vec!["real"]);
     }
@@ -5606,7 +5618,10 @@ mod tests {
             &["ep1".into(), "ep2".into()],
             [
                 ("type".to_string(), serde_json::json!("SemanticMemory")),
-                ("summary".to_string(), serde_json::json!("actor discussed topic")),
+                (
+                    "summary".to_string(),
+                    serde_json::json!("actor discussed topic"),
+                ),
             ]
             .into_iter()
             .collect(),
@@ -5614,8 +5629,14 @@ mod tests {
 
         // Merged props + bitemporal span over children (min tx_from, max tx_to).
         let o = obj_of(&g, &sem);
-        assert_eq!(o.get("summary"), Some(&serde_json::json!("actor discussed topic")));
-        assert_eq!(o.get("consolidated_from_count"), Some(&serde_json::json!(2)));
+        assert_eq!(
+            o.get("summary"),
+            Some(&serde_json::json!("actor discussed topic"))
+        );
+        assert_eq!(
+            o.get("consolidated_from_count"),
+            Some(&serde_json::json!(2))
+        );
         assert_eq!(o.get("tx_from"), Some(&serde_json::json!(100)));
         assert_eq!(o.get("tx_to"), Some(&serde_json::json!(300)));
 
@@ -5632,7 +5653,11 @@ mod tests {
         let e1 = obj_of(&g, "ep1");
         assert_eq!(e1.get("consolidated"), Some(&serde_json::json!(true)));
         assert_eq!(e1.get("consolidated_into"), Some(&serde_json::json!(sem)));
-        assert_eq!(e1.get("tx_from"), Some(&serde_json::json!(100)), "child bitemporal preserved");
+        assert_eq!(
+            e1.get("tx_from"),
+            Some(&serde_json::json!(100)),
+            "child bitemporal preserved"
+        );
     }
 
     #[test]
@@ -5669,7 +5694,11 @@ mod tests {
         let sem = g.consolidate(&["c1".into(), "c2".into()], serde_json::Map::new());
 
         // Bystander untouched (no reindex/rewrite reached it).
-        assert_eq!(obj_of(&g, "bystander"), before, "unrelated node must be untouched");
+        assert_eq!(
+            obj_of(&g, "bystander"),
+            before,
+            "unrelated node must be untouched"
+        );
         assert!(g.summary_children("bystander").is_empty());
         // Only the two CONSOLIDATES provenance edges were added (no external edges).
         assert_eq!(g.edge_count(), before_edges + 2);
@@ -5800,7 +5829,10 @@ mod tests {
             "plain".into(),
             props(serde_json::json!({"type": "Note", "text": "hi"})),
         );
-        assert!(!g.decay_node("plain", 5000, 100), "no importance ⇒ untouched");
+        assert!(
+            !g.decay_node("plain", 5000, 100),
+            "no importance ⇒ untouched"
+        );
         let o = obj_of(&g, "plain");
         assert!(o.get("importance").is_none());
         assert!(o.get("last_decay_ms").is_none());
@@ -5812,7 +5844,10 @@ mod tests {
         let g = GraphCore::new();
         g.add_node("low".into(), props(serde_json::json!({"importance": 0.2})));
         g.add_node("high".into(), props(serde_json::json!({"importance": 0.9})));
-        g.add_node("outside".into(), props(serde_json::json!({"importance": 0.1})));
+        g.add_node(
+            "outside".into(),
+            props(serde_json::json!({"importance": 0.1})),
+        );
         // Working set excludes "outside" — localized.
         let pruned = g.evict_below(&["low".into(), "high".into()], 0.5, false);
         assert_eq!(pruned, vec!["low"]);
@@ -6080,7 +6115,14 @@ mod tests {
         let tid = g.start_trajectory(serde_json::Map::new());
         for (i, r) in rewards.iter().enumerate() {
             let s = g
-                .append_step(&tid, serde_json::json!(format!("a{i}")), *r, None, None, i as u64)
+                .append_step(
+                    &tid,
+                    serde_json::json!(format!("a{i}")),
+                    *r,
+                    None,
+                    None,
+                    i as u64,
+                )
                 .expect("trajectory exists");
             assert!(s.starts_with(&tid), "step id namespaced under trajectory");
         }
@@ -6102,12 +6144,35 @@ mod tests {
         assert_eq!(to.get("policy"), Some(&serde_json::json!("greedy")));
         assert_eq!(to.get("step_count"), Some(&serde_json::json!(0)));
 
-        let s0 = g.append_step(&tid, serde_json::json!("up"), 1.0, Some("st0"), Some("st1"), 0).unwrap();
-        let s1 = g.append_step(&tid, serde_json::json!("down"), 2.0, Some("st1"), Some("st2"), 1).unwrap();
-        let s2 = g.append_step(&tid, serde_json::json!("left"), 3.0, None, None, 2).unwrap();
+        let s0 = g
+            .append_step(
+                &tid,
+                serde_json::json!("up"),
+                1.0,
+                Some("st0"),
+                Some("st1"),
+                0,
+            )
+            .unwrap();
+        let s1 = g
+            .append_step(
+                &tid,
+                serde_json::json!("down"),
+                2.0,
+                Some("st1"),
+                Some("st2"),
+                1,
+            )
+            .unwrap();
+        let s2 = g
+            .append_step(&tid, serde_json::json!("left"), 3.0, None, None, 2)
+            .unwrap();
 
         // Ordered chain (append order).
-        assert_eq!(g.trajectory_steps(&tid), vec![s0.clone(), s1.clone(), s2.clone()]);
+        assert_eq!(
+            g.trajectory_steps(&tid),
+            vec![s0.clone(), s1.clone(), s2.clone()]
+        );
 
         // Step fields stored verbatim + structural markers.
         let o1 = obj_of(&g, &s1);
@@ -6139,7 +6204,9 @@ mod tests {
     #[test]
     fn eg099_append_step_on_absent_trajectory_is_none() {
         let g = GraphCore::new();
-        assert!(g.append_step("ghost", serde_json::json!("x"), 1.0, None, None, 0).is_none());
+        assert!(g
+            .append_step("ghost", serde_json::json!("x"), 1.0, None, None, 0)
+            .is_none());
         assert!(g.trajectory_steps("ghost").is_empty());
     }
 
@@ -6192,10 +6259,20 @@ mod tests {
     fn eg099_best_worst_break_ties_deterministically_by_id() {
         let g = GraphCore::new();
         // Two trajectories with the SAME return — selection must pick the smaller id.
-        let a = g.start_trajectory([("k".to_string(), serde_json::json!("a"))].into_iter().collect());
-        let b = g.start_trajectory([("k".to_string(), serde_json::json!("b"))].into_iter().collect());
-        g.append_step(&a, serde_json::json!("x"), 3.0, None, None, 0).unwrap();
-        g.append_step(&b, serde_json::json!("x"), 3.0, None, None, 0).unwrap();
+        let a = g.start_trajectory(
+            [("k".to_string(), serde_json::json!("a"))]
+                .into_iter()
+                .collect(),
+        );
+        let b = g.start_trajectory(
+            [("k".to_string(), serde_json::json!("b"))]
+                .into_iter()
+                .collect(),
+        );
+        g.append_step(&a, serde_json::json!("x"), 3.0, None, None, 0)
+            .unwrap();
+        g.append_step(&b, serde_json::json!("x"), 3.0, None, None, 0)
+            .unwrap();
         let mut ids = vec![a.clone(), b.clone()];
         ids.sort();
         let smallest = ids[0].clone();
@@ -6209,22 +6286,36 @@ mod tests {
         let g1 = GraphCore::new();
         let g2 = GraphCore::new();
         let p: serde_json::Map<String, serde_json::Value> =
-            [("task".to_string(), serde_json::json!("nav"))].into_iter().collect();
+            [("task".to_string(), serde_json::json!("nav"))]
+                .into_iter()
+                .collect();
         let a = g1.start_trajectory(p.clone());
         let b = g2.start_trajectory(p.clone());
         assert_eq!(a, b, "deterministic id over (state, props)");
         // Append a step, then re-run start_trajectory with the same props (upsert):
         // step_count must NOT reset, and the honoured `id` prop routes to the same node.
-        g1.append_step(&a, serde_json::json!("go"), 1.0, None, None, 0).unwrap();
+        g1.append_step(&a, serde_json::json!("go"), 1.0, None, None, 0)
+            .unwrap();
         let again = g1.start_trajectory(
-            [("id".to_string(), serde_json::json!(a.clone())), ("task".to_string(), serde_json::json!("nav2"))]
-                .into_iter()
-                .collect(),
+            [
+                ("id".to_string(), serde_json::json!(a.clone())),
+                ("task".to_string(), serde_json::json!("nav2")),
+            ]
+            .into_iter()
+            .collect(),
         );
         assert_eq!(again, a, "explicit id prop honoured");
         let o = obj_of(&g1, &a);
-        assert_eq!(o.get("step_count"), Some(&serde_json::json!(1)), "upsert preserves in-progress count");
-        assert_eq!(o.get("task"), Some(&serde_json::json!("nav2")), "props merged on upsert");
+        assert_eq!(
+            o.get("step_count"),
+            Some(&serde_json::json!(1)),
+            "upsert preserves in-progress count"
+        );
+        assert_eq!(
+            o.get("task"),
+            Some(&serde_json::json!("nav2")),
+            "props merged on upsert"
+        );
     }
 }
 

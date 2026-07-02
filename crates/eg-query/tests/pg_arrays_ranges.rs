@@ -111,7 +111,11 @@ fn eg104_extract_desugars_to_date_part() {
 #[test]
 fn eg104_generate_series_ascending() {
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT value FROM generate_series(1, 3) ORDER BY value").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT value FROM generate_series(1, 3) ORDER BY value",
+    )
+    .unwrap();
     let v = rows(&r);
     assert_eq!(v, vec![vec![json!(1)], vec![json!(2)], vec![json!(3)]]);
 }
@@ -144,7 +148,9 @@ fn eg104_unnest_expands_array() {
 #[test]
 fn eg104_array_length_native() {
     assert_eq!(
-        one("SELECT array_length(array[1,2,3], 1) AS x").as_i64().unwrap(),
+        one("SELECT array_length(array[1,2,3], 1) AS x")
+            .as_i64()
+            .unwrap(),
         3
     );
 }
@@ -195,8 +201,14 @@ fn eg104_int4range_canonical_text() {
 #[test]
 fn eg104_range_contains_point() {
     // Half-open [1,5): contains 1..4, excludes 5.
-    assert_eq!(one("SELECT range_contains(int4range(1,5), 3) AS x"), json!(true));
-    assert_eq!(one("SELECT range_contains(int4range(1,5), 5) AS x"), json!(false));
+    assert_eq!(
+        one("SELECT range_contains(int4range(1,5), 3) AS x"),
+        json!(true)
+    );
+    assert_eq!(
+        one("SELECT range_contains(int4range(1,5), 5) AS x"),
+        json!(false)
+    );
     // Inclusive upper bound text form `[1,5]` includes 5.
     assert_eq!(one("SELECT range_contains('[1,5]', 5) AS x"), json!(true));
 }

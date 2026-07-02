@@ -193,10 +193,8 @@ mod tests {
     fn eg261_wkt_literal_parse_with_and_without_crs() {
         let bare = geom_from_lexical("POINT(1 2)").expect("bare WKT parses");
         assert!(matches!(bare, Geometry::Point(_)));
-        let crs = geom_from_lexical(
-            "<http://www.opengis.net/def/crs/OGC/1.3/CRS84> POINT(1 2)",
-        )
-        .expect("CRS-prefixed WKT parses");
+        let crs = geom_from_lexical("<http://www.opengis.net/def/crs/OGC/1.3/CRS84> POINT(1 2)")
+            .expect("CRS-prefixed WKT parses");
         assert!(matches!(crs, Geometry::Point(_)));
         // A polygon lexical parses too (the eg-geo codec covers every variant).
         assert!(geom_from_lexical("POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))").is_some());
@@ -218,10 +216,19 @@ mod tests {
     #[test]
     fn eg261_relations_intersects_contains_equals() {
         let poly = "POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))";
-        assert_eq!(eval_relation("sfIntersects", "POINT(2 2)", poly), Some(true));
+        assert_eq!(
+            eval_relation("sfIntersects", "POINT(2 2)", poly),
+            Some(true)
+        );
         assert_eq!(eval_relation("sfContains", poly, "POINT(2 2)"), Some(true));
-        assert_eq!(eval_relation("sfEquals", "POINT(1 1)", "POINT(1 1)"), Some(true));
-        assert_eq!(eval_relation("sfEquals", "POINT(1 1)", "POINT(2 2)"), Some(false));
+        assert_eq!(
+            eval_relation("sfEquals", "POINT(1 1)", "POINT(1 1)"),
+            Some(true)
+        );
+        assert_eq!(
+            eval_relation("sfEquals", "POINT(1 1)", "POINT(2 2)"),
+            Some(false)
+        );
         // Unknown geof: local name → None (unsupported, fails SAFE).
         assert_eq!(eval_relation("sfNope", "POINT(1 1)", poly), None);
     }
@@ -249,7 +256,10 @@ mod tests {
     #[test]
     fn eg261_buffer_returns_reparseable_wkt() {
         let wkt = eval_buffer("POINT(0 0)", 1.0, "").expect("buffer produces WKT");
-        assert!(geom_from_lexical(&wkt).is_some(), "buffer WKT re-parses: {wkt}");
+        assert!(
+            geom_from_lexical(&wkt).is_some(),
+            "buffer WKT re-parses: {wkt}"
+        );
     }
 
     // ── RCC8 / Egenhofer fixtures (CONCEPT:EG-155) ─────────────────────────────────

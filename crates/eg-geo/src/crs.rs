@@ -85,7 +85,10 @@ impl SridGeometry {
         let from = self
             .crs()
             .ok_or_else(|| "SridGeometry has no source SRID to reproject from".to_string())?;
-        Ok(SridGeometry::new(to.epsg, reproject(&self.geometry, from, to)?))
+        Ok(SridGeometry::new(
+            to.epsg,
+            reproject(&self.geometry, from, to)?,
+        ))
     }
 }
 
@@ -124,7 +127,10 @@ fn map_coords(
     let poly = |pg: &Polygon| -> Result<Polygon, String> {
         Ok(Polygon::with_interiors(
             line(&pg.exterior)?,
-            pg.interiors.iter().map(line).collect::<Result<Vec<_>, _>>()?,
+            pg.interiors
+                .iter()
+                .map(line)
+                .collect::<Result<Vec<_>, _>>()?,
         ))
     };
     Ok(match g {
@@ -298,7 +304,8 @@ pub fn utm_to_wgs84(p: &Point, zone: u32, north: bool) -> Point {
 
     let lon = lon0
         + (d - (1.0 + 2.0 * t1 + c1) * d.powi(3) / 6.0
-            + (5.0 - 2.0 * c1 + 28.0 * t1 - 3.0 * c1 * c1 + 8.0 * ep2 + 24.0 * t1 * t1) * d.powi(5)
+            + (5.0 - 2.0 * c1 + 28.0 * t1 - 3.0 * c1 * c1 + 8.0 * ep2 + 24.0 * t1 * t1)
+                * d.powi(5)
                 / 120.0)
             / cos_lat1;
 
@@ -375,7 +382,11 @@ mod tests {
         let g = Geometry::Point(Point::new(151.2093, -33.8688));
         let utm = reproject(&g, Crs::WGS84, s).unwrap();
         if let Geometry::Point(p) = &utm {
-            assert!(p.y > 5_000_000.0, "southern false-northing applied: {}", p.y);
+            assert!(
+                p.y > 5_000_000.0,
+                "southern false-northing applied: {}",
+                p.y
+            );
         }
         let back = reproject(&utm, s, Crs::WGS84).unwrap();
         if let (Geometry::Point(a), Geometry::Point(b)) = (&g, &back) {

@@ -174,14 +174,23 @@ mod tests {
         let password = derive_mysql_password(secret, user);
         let seed: Vec<u8> = (1u8..=20).collect();
         let scramble = native_password_scramble(&password, &seed);
-        assert!(verify_login(secret, user, &scramble, &seed), "correct proof accepts");
+        assert!(
+            verify_login(secret, user, &scramble, &seed),
+            "correct proof accepts"
+        );
         // A wrong password (different secret) must fail.
         let wrong = native_password_scramble(&derive_mysql_password("other", user), &seed);
-        assert!(!verify_login(secret, user, &wrong, &seed), "wrong proof rejects");
+        assert!(
+            !verify_login(secret, user, &wrong, &seed),
+            "wrong proof rejects"
+        );
         // A tampered byte must fail.
         let mut bad = scramble;
         bad[0] ^= 0xff;
-        assert!(!verify_login(secret, user, &bad, &seed), "tampered proof rejects");
+        assert!(
+            !verify_login(secret, user, &bad, &seed),
+            "tampered proof rejects"
+        );
     }
 
     #[test]

@@ -793,7 +793,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let obs_addr = resolve_listener_addr(args.obs_addr.as_deref(), "127.0.0.1:5080");
     #[cfg(feature = "obs")]
     if let Some(ref obs_addr) = obs_addr {
-        use epistemic_graph::server::obs::{ObsState, DEFAULT_FLUSH_RECORDS, OBS_FLUSH_RECORDS_ENV};
+        use epistemic_graph::server::obs::{
+            ObsState, DEFAULT_FLUSH_RECORDS, OBS_FLUSH_RECORDS_ENV,
+        };
         let flush = std::env::var(OBS_FLUSH_RECORDS_ENV)
             .ok()
             .and_then(|v| v.parse().ok())
@@ -811,7 +813,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     epistemic_graph::server::obs::serve(listener, obs_state).await;
                 });
             }
-            Err(e) => tracing::error!("--obs-addr {}: failed to open ingest state: {}", obs_addr, e),
+            Err(e) => tracing::error!(
+                "--obs-addr {}: failed to open ingest state: {}",
+                obs_addr,
+                e
+            ),
         }
     }
     #[cfg(not(feature = "obs"))]
@@ -860,7 +866,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     ) {
         match tokio::net::TcpListener::bind(&addr).await {
             Ok(listener) => {
-                info!("sqlite-wire: serving SQLite-dialect SQL (NDJSON) on {}", addr);
+                info!(
+                    "sqlite-wire: serving SQLite-dialect SQL (NDJSON) on {}",
+                    addr
+                );
                 let sq_state = state.clone();
                 tokio::spawn(async move {
                     epistemic_graph::server::sqlite_wire::serve(listener, sq_state).await;
@@ -886,7 +895,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         "127.0.0.1:3306",
     ) {
         let my_state = state.clone();
-        info!("mysql-wire: serving MySQL/MariaDB wire protocol on {}", addr);
+        info!(
+            "mysql-wire: serving MySQL/MariaDB wire protocol on {}",
+            addr
+        );
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::mysql_wire::serve(&addr, my_state).await {
                 tracing::error!("mysql-wire server error: {}", e);
@@ -1078,7 +1090,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:9130",
     ) {
-        info!("kvcache-server: serving shared KV-cache HTTP surface on {}", addr);
+        info!(
+            "kvcache-server: serving shared KV-cache HTTP surface on {}",
+            addr
+        );
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::kvcache_http::serve(&addr).await {
                 tracing::error!("kvcache-server error: {}", e);

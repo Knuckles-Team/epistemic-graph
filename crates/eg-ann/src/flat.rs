@@ -296,7 +296,10 @@ mod tests {
         // Squared-L2 from the origin: 10→0, 20→1, 30→4, 40→25.
         let f = idx();
         let res = f.search(&[0.0, 0.0], 3, Metric::L2);
-        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20, 30]);
+        assert_eq!(
+            res.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![10, 20, 30]
+        );
         assert_eq!(res[0].distance, 0.0);
         assert_eq!(res[1].distance, 1.0);
         assert_eq!(res[2].distance, 4.0);
@@ -312,9 +315,17 @@ mod tests {
         let f = idx();
         let res = f.search(&[1.0, 0.0], 2, Metric::Cosine);
         assert_eq!(res[0].id, 20);
-        assert!((res[0].distance - 0.0).abs() < 1e-6, "d={}", res[0].distance);
+        assert!(
+            (res[0].distance - 0.0).abs() < 1e-6,
+            "d={}",
+            res[0].distance
+        );
         assert_eq!(res[1].id, 40);
-        assert!((res[1].distance - 0.4).abs() < 1e-6, "d={}", res[1].distance);
+        assert!(
+            (res[1].distance - 0.4).abs() < 1e-6,
+            "d={}",
+            res[1].distance
+        );
     }
 
     #[test]
@@ -349,8 +360,14 @@ mod tests {
         let f = idx();
         let shuffled_overfetch = vec![40u64, 30, 20, 10, 99_999];
         let res = f.rerank(&[0.0, 0.0], &shuffled_overfetch, 3);
-        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20, 30]);
-        assert!(!res.iter().any(|r| r.id == 99_999), "absent id must be skipped");
+        assert_eq!(
+            res.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![10, 20, 30]
+        );
+        assert!(
+            !res.iter().any(|r| r.id == 99_999),
+            "absent id must be skipped"
+        );
         // Distances are the true (recomputed) ones, not any ANN estimate.
         assert_eq!(res[0].distance, 0.0);
         assert_eq!(res[1].distance, 1.0);
@@ -360,7 +377,10 @@ mod tests {
     fn eg297_rerank_dedups_repeated_candidates() {
         let f = idx();
         let res = f.rerank(&[0.0, 0.0], &[20, 20, 10, 10, 30], 5);
-        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20, 30]);
+        assert_eq!(
+            res.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![10, 20, 30]
+        );
     }
 
     #[test]
@@ -369,10 +389,22 @@ mod tests {
         // refine_ann discards them and re-scores exactly.
         let f = idx();
         let ann = vec![
-            SearchResult { id: 40, distance: 0.01 },
-            SearchResult { id: 30, distance: 0.02 },
-            SearchResult { id: 10, distance: 0.03 },
-            SearchResult { id: 20, distance: 0.04 },
+            SearchResult {
+                id: 40,
+                distance: 0.01,
+            },
+            SearchResult {
+                id: 30,
+                distance: 0.02,
+            },
+            SearchResult {
+                id: 10,
+                distance: 0.03,
+            },
+            SearchResult {
+                id: 20,
+                distance: 0.04,
+            },
         ];
         let res = f.refine_ann(&[0.0, 0.0], &ann, 2, Metric::L2);
         assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20]);
@@ -384,7 +416,10 @@ mod tests {
         assert_eq!(f.delete(10), 1);
         assert_eq!(f.live_len(), 3);
         let res = f.search(&[0.0, 0.0], 4, Metric::L2);
-        assert!(!res.iter().any(|r| r.id == 10), "tombstoned id must not appear");
+        assert!(
+            !res.iter().any(|r| r.id == 10),
+            "tombstoned id must not appear"
+        );
         let rr = f.rerank(&[0.0, 0.0], &[10, 20, 30], 4);
         assert!(!rr.iter().any(|r| r.id == 10));
         assert!(f.vector_of(10).is_none());
@@ -426,7 +461,10 @@ mod tests {
         assert_eq!(back.vectors, f.vectors);
         assert_eq!(back.deleted, f.deleted);
         let after = back.search(&[0.5, 0.5], 4, Metric::L2);
-        assert_eq!(before, after, "search must be identical after a serde round-trip");
+        assert_eq!(
+            before, after,
+            "search must be identical after a serde round-trip"
+        );
     }
 
     #[test]

@@ -202,12 +202,7 @@ impl CepEngine {
     /// Register a standing query for `pattern` over `window` and return a
     /// [`CepSubscription`] on its match stream, buffering up to `buffer` matches for a
     /// lagging subscriber (see [`DEFAULT_MATCH_BUFFER`]). `buffer` is clamped to `>= 1`.
-    pub fn register(
-        &self,
-        pattern: &CepPattern,
-        window: Window,
-        buffer: usize,
-    ) -> CepSubscription {
+    pub fn register(&self, pattern: &CepPattern, window: Window, buffer: usize) -> CepSubscription {
         let (tx, rx) = broadcast::channel(buffer.max(1));
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let sq = StandingQuery {
@@ -363,7 +358,11 @@ mod tests {
         // Tumbling buckets of 100: (10,20) same bucket → match; (90,110) straddles → none.
         let pattern = CepPattern::Sequence(vec![login(), purchase()]);
         let engine = CepEngine::new();
-        let mut sub = engine.register(&pattern, Window::Tumbling { size: 100 }, DEFAULT_MATCH_BUFFER);
+        let mut sub = engine.register(
+            &pattern,
+            Window::Tumbling { size: 100 },
+            DEFAULT_MATCH_BUFFER,
+        );
         for e in [
             Event::new(10, "login"),
             Event::new(20, "purchase"),
@@ -374,7 +373,10 @@ mod tests {
         ] {
             engine.ingest(&e);
         }
-        let spans: Vec<(u64, u64)> = drain(&mut sub).iter().map(|m| (m.start_ts, m.end_ts)).collect();
+        let spans: Vec<(u64, u64)> = drain(&mut sub)
+            .iter()
+            .map(|m| (m.start_ts, m.end_ts))
+            .collect();
         assert!(spans.contains(&(10, 20)));
         assert!(spans.contains(&(150, 160)));
         assert!(!spans.iter().any(|&(_, e)| e == 110));
@@ -399,7 +401,10 @@ mod tests {
 
         // s2: login@100 with no logout within 10 → still pending until the clock passes.
         engine.ingest(&Event::new(100, "login"));
-        assert!(drain(&mut sub).is_empty(), "must not fire before horizon lapses");
+        assert!(
+            drain(&mut sub).is_empty(),
+            "must not fire before horizon lapses"
+        );
 
         // An event past 100+10 finalizes the absence → exactly one match at ts=100.
         engine.ingest(&Event::new(200, "logout"));
@@ -499,11 +504,11 @@ mod tests {
         };
         let events = vec![
             Event::new(10, "login"),
-            Event::new(15, "logout"), // follows → suppressed
-            Event::new(100, "login"), // unfollowed within 10 → match
-            Event::new(130, "login"), // unfollowed → match
+            Event::new(15, "logout"),  // follows → suppressed
+            Event::new(100, "login"),  // unfollowed within 10 → match
+            Event::new(130, "login"),  // unfollowed → match
             Event::new(133, "logout"), // follows the 130 login → suppresses it
-            Event::new(200, "login"), // trailing, unfollowed → flush emits
+            Event::new(200, "login"),  // trailing, unfollowed → flush emits
         ];
         let window = Window::Sliding { size: 0 };
         assert_eq!(
@@ -529,8 +534,8 @@ mod tests {
         for e in [
             Event::new(1, "login"),
             Event::new(2, "purchase"),
-            Event::new(3, "logout"),   // follows login@1 within 5 → suppresses its absence
-            Event::new(100, "login"),  // no logout within 5 → absence match on flush
+            Event::new(3, "logout"), // follows login@1 within 5 → suppresses its absence
+            Event::new(100, "login"), // no logout within 5 → absence match on flush
         ] {
             engine.ingest(&e);
         }
@@ -538,8 +543,16 @@ mod tests {
 
         let seq_hits = drain(&mut s_seq);
         let abs_hits = drain(&mut s_abs);
-        assert_eq!(seq_hits.len(), 1, "sequence query saw the login→purchase pair");
-        assert_eq!(abs_hits.len(), 1, "absence query saw the unfollowed login@100");
+        assert_eq!(
+            seq_hits.len(),
+            1,
+            "sequence query saw the login→purchase pair"
+        );
+        assert_eq!(
+            abs_hits.len(),
+            1,
+            "absence query saw the unfollowed login@100"
+        );
         assert_eq!(abs_hits[0].start_ts, 100);
     }
 
@@ -566,7 +579,11 @@ mod tests {
         // ingests them, the standing query emits the match.
         let engine = std::sync::Arc::new(CepEngine::new());
         let pattern = CepPattern::Sequence(vec![login(), purchase()]);
-        let mut sub = engine.register(&pattern, Window::Sliding { size: 100 }, DEFAULT_MATCH_BUFFER);
+        let mut sub = engine.register(
+            &pattern,
+            Window::Sliding { size: 100 },
+            DEFAULT_MATCH_BUFFER,
+        );
 
         let (bus_tx, bus_rx) = broadcast::channel::<Event>(16);
         let handle = engine.clone().spawn_source(bus_rx);

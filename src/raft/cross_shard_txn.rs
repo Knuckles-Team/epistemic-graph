@@ -728,14 +728,16 @@ impl CrossShardCoordinator {
                 Some(true) => {
                     tracing::info!("xshard-nb recovery: {txn_id} → COMMIT (re-applying)");
                     self.apply_commit(redb, &txn_id, &participants).await?;
-                    self.clear_replicated_decision(decision_gid, &txn_id).await?;
+                    self.clear_replicated_decision(decision_gid, &txn_id)
+                        .await?;
                 }
                 // ABORT replicated → clear prepares, then GC the replicated decision.
                 Some(false) => {
                     tracing::info!("xshard-nb recovery: {txn_id} → ABORT (clearing prepares)");
                     let gids: Vec<GroupId> = participants.keys().copied().collect();
                     self.apply_abort(redb, &txn_id, &gids).await?;
-                    self.clear_replicated_decision(decision_gid, &txn_id).await?;
+                    self.clear_replicated_decision(decision_gid, &txn_id)
+                        .await?;
                 }
                 // NO replicated decision at all → presumed-abort (a crash before the
                 // decision was replicated). Correct: apply only ever runs after the

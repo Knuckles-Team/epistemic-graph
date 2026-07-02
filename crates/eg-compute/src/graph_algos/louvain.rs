@@ -228,10 +228,7 @@ fn aggregate(adj: &[Vec<(usize, f64)>], comm: &[usize], n_comms: usize) -> Vec<V
 
 /// Modularity `Q = Σ_c [ in_c/2m − γ (Σtot_c/2m)² ]`.
 fn modularity_of(adj: &[Vec<(usize, f64)>], membership: &[usize], resolution: f64) -> f64 {
-    let m2: f64 = adj
-        .iter()
-        .flat_map(|row| row.iter().map(|(_, w)| *w))
-        .sum();
+    let m2: f64 = adj.iter().flat_map(|row| row.iter().map(|(_, w)| *w)).sum();
     if m2 <= 0.0 {
         return 0.0;
     }
@@ -304,18 +301,20 @@ mod tests {
             res.communities
         );
         // Each clique lands wholly in one community.
-        assert!(res.communities.iter().any(|c| c == &vec!["a", "b", "c", "d"]));
-        assert!(res.communities.iter().any(|c| c == &vec!["w", "x", "y", "z"]));
+        assert!(res
+            .communities
+            .iter()
+            .any(|c| c == &vec!["a", "b", "c", "d"]));
+        assert!(res
+            .communities
+            .iter()
+            .any(|c| c == &vec!["w", "x", "y", "z"]));
         assert!(res.modularity > 0.3, "Q={}", res.modularity);
     }
 
     #[test]
     fn eg144_louvain_single_clique_is_one_community() {
-        let g = AdjacencyGraph::from_edges([
-            ("a", "b", 1.0),
-            ("b", "c", 1.0),
-            ("a", "c", 1.0),
-        ]);
+        let g = AdjacencyGraph::from_edges([("a", "b", 1.0), ("b", "c", 1.0), ("a", "c", 1.0)]);
         let res = louvain(&g, &LouvainConfig::default());
         assert_eq!(res.communities.len(), 1);
         assert_eq!(res.communities[0], vec!["a", "b", "c"]);

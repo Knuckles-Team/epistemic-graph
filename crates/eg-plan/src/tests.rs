@@ -574,10 +574,22 @@ mod timeseries_tests {
     #[test]
     fn window_produces_bucketed_aggregates_not_passthrough() {
         let core = GraphCore::new();
-        core.add_node("m1".into(), blob(json!({"type":"Memory","valid_from":0,"value":10.0})));
-        core.add_node("m2".into(), blob(json!({"type":"Memory","valid_from":5,"value":20.0})));
-        core.add_node("m3".into(), blob(json!({"type":"Memory","valid_from":12,"value":30.0})));
-        core.add_node("m4".into(), blob(json!({"type":"Memory","valid_from":18,"value":40.0})));
+        core.add_node(
+            "m1".into(),
+            blob(json!({"type":"Memory","valid_from":0,"value":10.0})),
+        );
+        core.add_node(
+            "m2".into(),
+            blob(json!({"type":"Memory","valid_from":5,"value":20.0})),
+        );
+        core.add_node(
+            "m3".into(),
+            blob(json!({"type":"Memory","valid_from":12,"value":30.0})),
+        );
+        core.add_node(
+            "m4".into(),
+            blob(json!({"type":"Memory","valid_from":18,"value":40.0})),
+        );
         let view = core.analysis_snapshot();
         let sem = SemanticStore::new();
         let ctx = PlanCtx::new(&view, &sem);
@@ -599,6 +611,10 @@ mod timeseries_tests {
             "WINDOW collapses the 4 points into 2 time buckets (not pass-through)"
         );
         let scores: Vec<f32> = out.rows().iter().map(|r| r.score.unwrap()).collect();
-        assert_eq!(scores, vec![15.0, 35.0], "each bucket carries its mean value");
+        assert_eq!(
+            scores,
+            vec![15.0, 35.0],
+            "each bucket carries its mean value"
+        );
     }
 }

@@ -271,11 +271,7 @@ mod tests {
     #[test]
     fn eg144_graph_builds_dense_sorted_indices() {
         // Nodes given out of order; indices must follow sorted id order.
-        let g = AdjacencyGraph::from_edges([
-            ("c", "a", 1.0),
-            ("a", "b", 2.0),
-            ("b", "c", 3.0),
-        ]);
+        let g = AdjacencyGraph::from_edges([("c", "a", 1.0), ("a", "b", 2.0), ("b", "c", 3.0)]);
         assert_eq!(g.node_count(), 3);
         assert_eq!(g.nodes(), &["a", "b", "c"]);
         assert_eq!(g.index_of(&"a"), Some(0));

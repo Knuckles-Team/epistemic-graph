@@ -519,10 +519,7 @@ impl WireSession {
 
     /// Clone the target graph's `Arc<GraphCore>` out of the registry (read lock),
     /// or a clean error if it doesn't exist.
-    pub(crate) async fn graph_core(
-        &self,
-        graph: &str,
-    ) -> WireResult<Arc<crate::graph::GraphCore>> {
+    pub(crate) async fn graph_core(&self, graph: &str) -> WireResult<Arc<crate::graph::GraphCore>> {
         let s = self.state.read().await;
         match s.registry.get(graph) {
             Some(e) => Ok(e.core.clone()),
@@ -744,11 +741,15 @@ impl WireSession {
             StatementKind::UpdateNodesJoin(upd) if in_txn => {
                 self.buffer_update_nodes_join(graph, sql, upd).await
             }
-            StatementKind::UpdateNodesJoin(upd) => self.run_update_nodes_join(graph, sql, upd).await,
+            StatementKind::UpdateNodesJoin(upd) => {
+                self.run_update_nodes_join(graph, sql, upd).await
+            }
             StatementKind::DeleteNodesJoin(del) if in_txn => {
                 self.buffer_delete_nodes_join(graph, sql, del).await
             }
-            StatementKind::DeleteNodesJoin(del) => self.run_delete_nodes_join(graph, sql, del).await,
+            StatementKind::DeleteNodesJoin(del) => {
+                self.run_delete_nodes_join(graph, sql, del).await
+            }
             // CONCEPT:EG-072 — CREATE/DROP VIEW over the durable view catalog.
             StatementKind::CreateView(plan) => self.run_create_view(plan).await,
             StatementKind::DropView(plan) => self.run_drop_view(plan).await,
@@ -846,9 +847,9 @@ impl WireSession {
                                     &serde_json::Value::Object(conditions.clone()),
                                 )
                                 .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
-                                let upd_blob = rmp_serde::to_vec_named(
-                                    &serde_json::Value::Object(updates.clone()),
-                                )
+                                let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(
+                                    updates.clone(),
+                                ))
                                 .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
                                 methods.push(crate::protocol::Method::CompareAndSetNodeFields {
                                     node_id: id.clone(),
@@ -1022,11 +1023,7 @@ impl WireSession {
     /// CONCEPT:EG-114 — `SELECT … FROM cypher('graph', $$ … $$) AS (cols…)`: run the
     /// inner Cypher on the named graph over its off-lock snapshot, then project the
     /// agtype (JSON) result onto the typed `AS` columns. Behind the `cypher` feature.
-    async fn run_cypher_call(
-        &self,
-        graph: &str,
-        plan: CypherCallPlan,
-    ) -> WireResult<WireOutcome> {
+    async fn run_cypher_call(&self, graph: &str, plan: CypherCallPlan) -> WireResult<WireOutcome> {
         #[cfg(feature = "cypher")]
         {
             // AGE always names a graph; fall back to the session graph if blank.
@@ -1042,12 +1039,9 @@ impl WireSession {
                 .await
                 .map_err(|e| user_err(format!("cypher task failed: {e}")))?
                 .map_err(|msg| user_err(format!("cypher error: {msg}")))?;
-            let projected = eg_query::project_cypher_rows(
-                &result,
-                &plan.columns,
-                plan.projection.as_deref(),
-            )
-            .map_err(user_err)?;
+            let projected =
+                eg_query::project_cypher_rows(&result, &plan.columns, plan.projection.as_deref())
+                    .map_err(user_err)?;
             Ok(WireOutcome::Rows(projected))
         }
         #[cfg(not(feature = "cypher"))]
@@ -1074,7 +1068,10 @@ impl WireSession {
     /// migration proceeds. Durable partition-metadata + chunk management is a follow-up.
     async fn run_create_hypertable(&self, plan: HypertablePlan) -> WireResult<WireOutcome> {
         let text = format!("public.{}", plan.table);
-        Ok(WireOutcome::Rows(single_text_result("create_hypertable", &text)))
+        Ok(WireOutcome::Rows(single_text_result(
+            "create_hypertable",
+            &text,
+        )))
     }
 
     /// CONCEPT:EG-117 — `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS
@@ -1086,12 +1083,10 @@ impl WireSession {
         plan: ContinuousAggPlan,
     ) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || {
-            store.create_view(&plan.name, &plan.select_sql, true)
-        })
-        .await
-        .map_err(|e| user_err(format!("continuous aggregate task failed: {e}")))?
-        .map_err(user_err)?;
+        tokio::task::spawn_blocking(move || store.create_view(&plan.name, &plan.select_sql, true))
+            .await
+            .map_err(|e| user_err(format!("continuous aggregate task failed: {e}")))?
+            .map_err(user_err)?;
         Ok(WireOutcome::command("CREATE MATERIALIZED VIEW"))
     }
 
@@ -1182,7 +1177,9 @@ impl WireSession {
         core.mark_dirty();
         if ins.returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("INSERT", n))
         }
@@ -1238,7 +1235,9 @@ impl WireSession {
         let n = affected.len();
         if upd.returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("UPDATE", n))
         }
@@ -1276,7 +1275,9 @@ impl WireSession {
         core.mark_dirty();
         if del.returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("DELETE", n))
         }
@@ -1466,7 +1467,9 @@ impl WireSession {
         }
         if ins.returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("INSERT", n))
         }
@@ -1499,7 +1502,9 @@ impl WireSession {
                 affected.push((id.clone(), view.node_row_object(id).unwrap_or_default()));
             }
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("UPDATE", n))
         }
@@ -1530,9 +1535,9 @@ impl WireSession {
         }
         let n = ids.len();
         match returning {
-            Some((affected, (cols, types))) => {
-                Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
-            }
+            Some((affected, (cols, types))) => Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            ))),
             None => Ok(WireOutcome::command_rows("DELETE", n)),
         }
     }
@@ -1607,7 +1612,9 @@ impl WireSession {
         }
         if ins.returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("INSERT", n))
         }
@@ -1651,7 +1658,9 @@ impl WireSession {
         let n = affected.len();
         if upd.returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("UPDATE", n))
         }
@@ -1689,9 +1698,9 @@ impl WireSession {
         }
         let n = ids.len();
         match returning {
-            Some((affected, (cols, types))) => {
-                Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
-            }
+            Some((affected, (cols, types))) => Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            ))),
             None => Ok(WireOutcome::command_rows("DELETE", n)),
         }
     }
@@ -1723,7 +1732,9 @@ impl WireSession {
         core.mark_dirty();
         if ins.returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("INSERT", n))
         }
@@ -1781,7 +1792,9 @@ impl WireSession {
                 affected.push((id, props));
             }
             let (cols, types) = self.returning_cols(graph, sql).await?;
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("UPDATE", n))
         }
@@ -1842,7 +1855,9 @@ impl WireSession {
             // Keep only the snapshots of rows actually removed (a gated predicate may
             // have skipped some candidates).
             affected.retain(|(id, _)| removed_ids.contains(id));
-            Ok(WireOutcome::Rows(returning_result(&affected, &cols, &types)))
+            Ok(WireOutcome::Rows(returning_result(
+                &affected, &cols, &types,
+            )))
         } else {
             Ok(WireOutcome::command_rows("DELETE", n))
         }

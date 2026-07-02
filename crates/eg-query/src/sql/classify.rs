@@ -35,18 +35,19 @@
 
 use datafusion::sql::sqlparser::ast::{
     AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator, ColumnDef as SqlColumnDef,
-    ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption, CopySource, CopyTarget, CreateTable,
-    Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr, FunctionArguments, Insert,
-    ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction, OnInsert, SelectItem, SetExpr,
-    Statement, TableFactor, TableWithJoins, UnaryOperator, Value as SqlValue, Values,
+    ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption, CopySource, CopyTarget,
+    CreateTable, Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr,
+    FunctionArguments, Insert, ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction,
+    OnInsert, SelectItem, SetExpr, Statement, TableFactor, TableWithJoins, UnaryOperator,
+    Value as SqlValue, Values,
 };
 // CONCEPT:EG-114/116/117 — the Postgres-family extension plan shapes classify routes to.
 use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};
 // CONCEPT:EG-084 — the wire predicate the JSON operators lower onto. Surfaced by
 // `eg-types/query`, which the `sql` feature (this module's gate) always enables.
-use eg_types::wire::{JsonPathOp, Pred};
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
+use eg_types::wire::{JsonPathOp, Pred};
 use serde_json::{Map, Value};
 
 use crate::tables::schema::{
@@ -125,15 +126,9 @@ pub enum StatementKind {
     /// durable extension catalog so a client's setup script proceeds. The concrete
     /// surface each extension unlocks (pgvector types/ops, AGE, TimescaleDB, pg_search)
     /// lands in its own later item; this accepts + records the enablement.
-    CreateExtension {
-        name: String,
-        if_not_exists: bool,
-    },
+    CreateExtension { name: String, if_not_exists: bool },
     /// `DROP EXTENSION [IF EXISTS] name [CASCADE|RESTRICT]` — remove a catalog entry.
-    DropExtension {
-        name: String,
-        if_exists: bool,
-    },
+    DropExtension { name: String, if_exists: bool },
 
     // ── Postgres-family extension parity (wave 19) ─────────────────────────────
     /// `SELECT <proj> FROM cypher('graph', $$ <cypher> $$) AS (cols…)` (CONCEPT:EG-114)
@@ -1141,8 +1136,9 @@ fn decode_on_conflict(on: Option<&OnInsert>) -> Result<Option<OnConflict>, Strin
                 let col = match &a.target {
                     AssignmentTarget::ColumnName(name) => last_ident(name),
                     AssignmentTarget::Tuple(_) => {
-                        return Err("ON CONFLICT DO UPDATE tuple assignment is not supported"
-                            .to_string())
+                        return Err(
+                            "ON CONFLICT DO UPDATE tuple assignment is not supported".to_string()
+                        )
                     }
                 };
                 if col.eq_ignore_ascii_case("id") {
@@ -1755,7 +1751,10 @@ fn parse_drop_extension(sql: &str) -> Option<(String, bool)> {
 /// route to the textual [`parse_create_function`] before the parser (CONCEPT:EG-118).
 fn is_create_function(sql: &str) -> bool {
     let mut toks = sql.split_whitespace();
-    if !toks.next().is_some_and(|t| t.eq_ignore_ascii_case("CREATE")) {
+    if !toks
+        .next()
+        .is_some_and(|t| t.eq_ignore_ascii_case("CREATE"))
+    {
         return false;
     }
     let mut next = match toks.next() {
@@ -1763,7 +1762,10 @@ fn is_create_function(sql: &str) -> bool {
         None => return false,
     };
     if next.eq_ignore_ascii_case("OR") {
-        if !toks.next().is_some_and(|t| t.eq_ignore_ascii_case("REPLACE")) {
+        if !toks
+            .next()
+            .is_some_and(|t| t.eq_ignore_ascii_case("REPLACE"))
+        {
             return false;
         }
         next = match toks.next() {
@@ -1780,7 +1782,9 @@ fn is_create_function(sql: &str) -> bool {
 fn is_drop_function(sql: &str) -> bool {
     let mut toks = sql.split_whitespace();
     toks.next().is_some_and(|t| t.eq_ignore_ascii_case("DROP"))
-        && toks.next().is_some_and(|t| t.eq_ignore_ascii_case("FUNCTION"))
+        && toks
+            .next()
+            .is_some_and(|t| t.eq_ignore_ascii_case("FUNCTION"))
 }
 
 /// Parse `CREATE [OR REPLACE] FUNCTION name(arg type, …) RETURNS <ret> AS $$ body $$
@@ -1812,13 +1816,13 @@ fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
     }
 
     // Argument list (matching paren; types may themselves carry parens like `numeric(10,2)`).
-    let (args_inner, after_args) = read_balanced_parens(rest, paren)
-        .ok_or("CREATE FUNCTION argument list is not balanced")?;
+    let (args_inner, after_args) =
+        read_balanced_parens(rest, paren).ok_or("CREATE FUNCTION argument list is not balanced")?;
     let args = parse_arg_defs(args_inner, "argument")?;
 
     let after = rest[after_args..].trim_start();
-    let after = strip_leading_kw(after, "RETURNS")
-        .ok_or("CREATE FUNCTION requires a `RETURNS` clause")?;
+    let after =
+        strip_leading_kw(after, "RETURNS").ok_or("CREATE FUNCTION requires a `RETURNS` clause")?;
     let (returns, after_ret) = parse_returns(after)?;
 
     let (body, language) = parse_body_and_language(after_ret)?;
@@ -2040,7 +2044,10 @@ fn parse_returns(after: &str) -> Result<(FunctionReturns, &str), String> {
     if ty.is_empty() {
         return Err("RETURNS requires a return type".to_string());
     }
-    Ok((FunctionReturns::Scalar(ty.to_string()), after[end..].trim_start()))
+    Ok((
+        FunctionReturns::Scalar(ty.to_string()),
+        after[end..].trim_start(),
+    ))
 }
 
 /// Read a single whitespace-delimited return-type word (e.g. after `SETOF`) and return it
@@ -2161,13 +2168,10 @@ fn find_top_level_kw(s: &str, kw: &str) -> Option<usize> {
             }
             _ => {}
         }
-        if depth == 0
-            && i + kb.len() <= bytes.len()
-            && s[i..i + kb.len()].eq_ignore_ascii_case(kw)
+        if depth == 0 && i + kb.len() <= bytes.len() && s[i..i + kb.len()].eq_ignore_ascii_case(kw)
         {
             let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
-            let after_ok =
-                i + kb.len() == bytes.len() || !is_ident_byte(bytes[i + kb.len()]);
+            let after_ok = i + kb.len() == bytes.len() || !is_ident_byte(bytes[i + kb.len()]);
             if before_ok && after_ok {
                 return Some(i);
             }
@@ -3360,8 +3364,9 @@ mod tests {
 
     #[test]
     fn insert_nodes_on_conflict_do_nothing() {
-        let k = classify("INSERT INTO nodes (id, rank) VALUES ('n1', 3) ON CONFLICT (id) DO NOTHING")
-            .unwrap();
+        let k =
+            classify("INSERT INTO nodes (id, rank) VALUES ('n1', 3) ON CONFLICT (id) DO NOTHING")
+                .unwrap();
         let StatementKind::InsertNodes(ins) = k else {
             panic!("expected InsertNodes");
         };
@@ -3415,17 +3420,19 @@ mod tests {
 
     #[test]
     fn update_nodes_from_classifies_join() {
-        let k = classify(
-            "UPDATE nodes SET rank = p.px FROM prices p WHERE nodes.symbol = p.sku",
-        )
-        .unwrap();
+        let k = classify("UPDATE nodes SET rank = p.px FROM prices p WHERE nodes.symbol = p.sku")
+            .unwrap();
         let StatementKind::UpdateNodesJoin(u) = k else {
             panic!("expected UpdateNodesJoin, got {k:?}");
         };
         assert_eq!(u.set_targets, vec!["rank".to_string()]);
         let up = u.resolve_sql.to_ascii_uppercase();
         assert!(up.contains("NODES.ID AS ID"), "{}", u.resolve_sql);
-        assert!(up.contains("FROM NODES") && up.contains("PRICES"), "{}", u.resolve_sql);
+        assert!(
+            up.contains("FROM NODES") && up.contains("PRICES"),
+            "{}",
+            u.resolve_sql
+        );
         assert!(up.contains("WHERE"), "{}", u.resolve_sql);
         assert!(u.resolve_sql.contains("\"rank\""), "{}", u.resolve_sql);
     }
@@ -3438,14 +3445,21 @@ mod tests {
 
     #[test]
     fn delete_nodes_using_classifies_join() {
-        let k =
-            classify("DELETE FROM nodes USING prices p WHERE nodes.symbol = p.sku").unwrap();
+        let k = classify("DELETE FROM nodes USING prices p WHERE nodes.symbol = p.sku").unwrap();
         let StatementKind::DeleteNodesJoin(d) = k else {
             panic!("expected DeleteNodesJoin, got {k:?}");
         };
         let up = d.resolve_sql.to_ascii_uppercase();
-        assert!(up.contains("SELECT NODES.ID AS ID FROM NODES"), "{}", d.resolve_sql);
-        assert!(up.contains("PRICES") && up.contains("WHERE"), "{}", d.resolve_sql);
+        assert!(
+            up.contains("SELECT NODES.ID AS ID FROM NODES"),
+            "{}",
+            d.resolve_sql
+        );
+        assert!(
+            up.contains("PRICES") && up.contains("WHERE"),
+            "{}",
+            d.resolve_sql
+        );
     }
 
     #[test]
@@ -3465,13 +3479,17 @@ mod tests {
 
     #[test]
     fn create_and_drop_view_classify() {
-        let k = classify("CREATE VIEW agents AS SELECT id FROM nodes WHERE type = 'Agent'").unwrap();
+        let k =
+            classify("CREATE VIEW agents AS SELECT id FROM nodes WHERE type = 'Agent'").unwrap();
         let StatementKind::CreateView(v) = k else {
             panic!("expected CreateView, got {k:?}");
         };
         assert_eq!(v.name, "agents");
         assert!(!v.or_replace);
-        assert!(v.select_sql.to_ascii_uppercase().contains("SELECT ID FROM NODES"));
+        assert!(v
+            .select_sql
+            .to_ascii_uppercase()
+            .contains("SELECT ID FROM NODES"));
 
         let StatementKind::CreateView(v2) =
             classify("CREATE OR REPLACE VIEW agents AS SELECT id FROM nodes").unwrap()
@@ -3497,14 +3515,22 @@ mod tests {
     #[test]
     fn create_extension_classify() {
         let k = classify("CREATE EXTENSION vector").unwrap();
-        let StatementKind::CreateExtension { name, if_not_exists } = k else {
+        let StatementKind::CreateExtension {
+            name,
+            if_not_exists,
+        } = k
+        else {
             panic!("expected CreateExtension, got {k:?}");
         };
         assert_eq!(name, "vector");
         assert!(!if_not_exists);
 
         let k = classify("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public").unwrap();
-        let StatementKind::CreateExtension { name, if_not_exists } = k else {
+        let StatementKind::CreateExtension {
+            name,
+            if_not_exists,
+        } = k
+        else {
             panic!("expected CreateExtension");
         };
         assert_eq!(name, "vector");
@@ -3550,10 +3576,8 @@ mod tests {
 
     #[test]
     fn eg114_classify_routes_cypher_call() {
-        let k = classify(
-            "SELECT * FROM cypher('g', $$ MATCH (n) RETURN n.id $$) AS (id agtype)",
-        )
-        .unwrap();
+        let k = classify("SELECT * FROM cypher('g', $$ MATCH (n) RETURN n.id $$) AS (id agtype)")
+            .unwrap();
         let StatementKind::CypherCall(p) = k else {
             panic!("expected CypherCall, got {k:?}");
         };
@@ -3604,7 +3628,10 @@ mod tests {
         );
         let lower = out.to_ascii_lowercase();
         assert!(lower.contains("bm25_score"), "score not desugared: {out}");
-        assert!(lower.contains("bm25_snippet"), "snippet not desugared: {out}");
+        assert!(
+            lower.contains("bm25_snippet"),
+            "snippet not desugared: {out}"
+        );
         assert!(!lower.contains("paradedb."), "paradedb.* left in: {out}");
     }
 

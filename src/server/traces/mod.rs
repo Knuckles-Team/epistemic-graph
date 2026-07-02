@@ -40,7 +40,11 @@ pub async fn handle(
     // ── OTLP-JSON ingest ─────────────────────────────────────────────────────
     if path == "/v1/traces" {
         if method != "POST" {
-            return ("405 Method Not Allowed", "text/plain", "POST only".to_string());
+            return (
+                "405 Method Not Allowed",
+                "text/plain",
+                "POST only".to_string(),
+            );
         }
         let spans = match parse_otlp_traces(body) {
             Ok(s) => s,
@@ -69,7 +73,11 @@ pub async fn handle(
     // ── single-trace assembly: /api/traces/<trace_id> ────────────────────────
     if let Some(trace_id) = path.strip_prefix("/api/traces/") {
         if trace_id.is_empty() {
-            return ("404 Not Found", "text/plain", "missing trace id".to_string());
+            return (
+                "404 Not Found",
+                "text/plain",
+                "missing trace id".to_string(),
+            );
         }
         let trace_id = trace_id.to_string();
         let store = state.trace_store();
@@ -107,7 +115,11 @@ pub async fn handle(
         return ("200 OK", "application/json", search_response(&hits));
     }
 
-    ("404 Not Found", "text/plain", "unknown trace path".to_string())
+    (
+        "404 Not Found",
+        "text/plain",
+        "unknown trace path".to_string(),
+    )
 }
 
 // ── OTLP-JSON trace parsing ─────────────────────────────────────────────────────
@@ -281,7 +293,12 @@ fn otlp_anyvalue(v: &serde_json::Value) -> String {
 
 /// Build a [`TraceQuery`] from a JSON search body (POST `/api/traces`).
 fn trace_query_from_json(v: &serde_json::Value) -> TraceQuery {
-    let str_of = |k: &str| v.get(k).and_then(|x| x.as_str()).filter(|s| !s.is_empty()).map(str::to_string);
+    let str_of = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
     let i64_of = |k: &str| v.get(k).and_then(|x| x.as_i64());
     let dur_of = |k: &str| {
         v.get(k).and_then(|x| {
@@ -304,7 +321,9 @@ fn trace_query_from_json(v: &serde_json::Value) -> TraceQuery {
         operation: str_of("operation"),
         min_duration: dur_of("minDuration").or_else(|| dur_of("min_duration")),
         max_duration: dur_of("maxDuration").or_else(|| dur_of("max_duration")),
-        from: i64_of("start").or_else(|| i64_of("from")).unwrap_or(i64::MIN),
+        from: i64_of("start")
+            .or_else(|| i64_of("from"))
+            .unwrap_or(i64::MIN),
         to: i64_of("end").or_else(|| i64_of("to")).unwrap_or(i64::MAX),
         tags,
         limit: v.get("limit").and_then(|x| x.as_u64()).unwrap_or(0) as usize,
@@ -374,7 +393,10 @@ fn parse_duration_ns(s: &str) -> Option<i64> {
     } else {
         (s, 1)
     };
-    num.trim().parse::<f64>().ok().map(|f| (f * mult as f64) as i64)
+    num.trim()
+        .parse::<f64>()
+        .ok()
+        .map(|f| (f * mult as f64) as i64)
 }
 
 /// Split a query string into decoded `(key,value)` pairs (`+` → space, `%XX` bytes).
@@ -466,9 +488,11 @@ fn single_trace_response(t: &AssembledTrace) -> String {
 fn dependencies_response(edges: &[ServiceEdge]) -> String {
     let items: Vec<serde_json::Value> = edges
         .iter()
-        .map(|e| serde_json::json!({
-            "parent": e.parent, "child": e.child, "callCount": e.call_count,
-        }))
+        .map(|e| {
+            serde_json::json!({
+                "parent": e.parent, "child": e.child, "callCount": e.call_count,
+            })
+        })
         .collect();
     serde_json::json!({ "data": items, "total": items.len() }).to_string()
 }
@@ -526,7 +550,10 @@ mod tests {
         let q = trace_query_from_query_string("service=checkout&minDuration=500ms&tag=http.status_code:500&limit=5&operation=POST+%2Fcharge");
         assert_eq!(q.service.as_deref(), Some("checkout"));
         assert_eq!(q.min_duration, Some(500_000_000));
-        assert_eq!(q.tags, vec![("http.status_code".to_string(), "500".to_string())]);
+        assert_eq!(
+            q.tags,
+            vec![("http.status_code".to_string(), "500".to_string())]
+        );
         assert_eq!(q.limit, 5);
         assert_eq!(q.operation.as_deref(), Some("POST /charge"));
     }

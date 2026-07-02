@@ -201,20 +201,13 @@ fn rewrite_table_factor(tf: &mut TableFactor, tables: &[&StoredFunction], change
             alias,
             ..
         } => {
-            let leaf = name
-                .0
-                .last()
-                .map(|i| i.value.clone())
-                .unwrap_or_default();
+            let leaf = name.0.last().map(|i| i.value.clone()).unwrap_or_default();
             let Some(f) = tables.iter().find(|f| f.name.eq_ignore_ascii_case(&leaf)) else {
                 return;
             };
             // Serialize each call argument to text and substitute into the body.
-            let arg_texts: Vec<String> = fn_args
-                .args
-                .iter()
-                .filter_map(function_arg_text)
-                .collect();
+            let arg_texts: Vec<String> =
+                fn_args.args.iter().filter_map(function_arg_text).collect();
             if arg_texts.len() != fn_args.args.len() {
                 return; // a `*`/named-arg shape we don't handle — leave it for DataFusion.
             }

@@ -224,8 +224,7 @@ pub(crate) async fn try_handle(
             queue,
             routing_key,
         } => {
-            let existed =
-                crate::broker::unbind_queue(&core, &exchange, &queue, &routing_key);
+            let existed = crate::broker::unbind_queue(&core, &exchange, &queue, &routing_key);
             Response::ok(req_id, ResultPayload::Bool(existed))
         }
         #[cfg(feature = "broker")]
@@ -276,7 +275,14 @@ pub(crate) async fn try_handle(
             now_ms,
         } => {
             let delivered = crate::broker::publish_ex(
-                &core, &exchange, &routing_key, &payload, priority, delay_ms, ttl_ms, now_ms,
+                &core,
+                &exchange,
+                &routing_key,
+                &payload,
+                priority,
+                delay_ms,
+                ttl_ms,
+                now_ms,
             );
             Response::ok(req_id, ResultPayload::Count(delivered as u64))
         }
@@ -381,7 +387,14 @@ pub(crate) async fn try_handle(
             now_ms,
         } => {
             let token = crate::broker::publish_confirmed(
-                &core, &exchange, &routing_key, &payload, priority, delay_ms, ttl_ms, now_ms,
+                &core,
+                &exchange,
+                &routing_key,
+                &payload,
+                priority,
+                delay_ms,
+                ttl_ms,
+                now_ms,
             );
             Response::ok(req_id, ResultPayload::raw(&token))
         }

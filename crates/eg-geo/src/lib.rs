@@ -56,10 +56,10 @@
 pub mod algebra;
 pub mod crs;
 pub mod geodesic;
-pub mod geotask;
 #[cfg(feature = "geo-io")]
 pub mod geojson;
 pub mod geometry;
+pub mod geotask;
 pub mod gpx;
 pub mod predicates;
 pub mod registry;
@@ -92,6 +92,4 @@ pub use wkb::{from_wkb, from_wkb_srid, to_ewkb, to_wkb};
 pub use wkt::{parse as parse_wkt, parse_with_srid, to_wkt};
 
 #[cfg(feature = "geo-io")]
-pub use geojson::{
-    read_feature_collection, write_feature_collection, Feature, FeatureCollection,
-};
+pub use geojson::{read_feature_collection, write_feature_collection, Feature, FeatureCollection};

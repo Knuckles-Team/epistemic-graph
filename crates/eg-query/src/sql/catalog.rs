@@ -1114,10 +1114,7 @@ pub(crate) async fn register_system_catalogs(
     ctx.register_udf(ScalarUDF::from(PgTableIsVisibleUdf::default()));
     ctx.register_udf(ScalarUDF::from(FormatTypeUdf::default()));
     ctx.register_udf(ScalarUDF::from(ConstTextUdf::new("obj_description", None)));
-    ctx.register_udf(ScalarUDF::from(ConstTextUdf::new(
-        "col_description",
-        None,
-    )));
+    ctx.register_udf(ScalarUDF::from(ConstTextUdf::new("col_description", None)));
     ctx.register_udf(ScalarUDF::from(ConstTextUdf::new(
         "shobj_description",
         None,

@@ -175,7 +175,10 @@ impl SharedKvBackend for SharedKvIndex {
         } else {
             self.blocks.insert(
                 hash.to_string(),
-                SharedEntry { data: Arc::new(block), refcount: 1 },
+                SharedEntry {
+                    data: Arc::new(block),
+                    refcount: 1,
+                },
             );
             true
         }
@@ -204,7 +207,11 @@ mod tests {
         assert_eq!(s.resident_bytes, 512, "only one physical copy resident");
         assert_eq!(idx.refcount(&h1), 2, "both holders ref-counted");
         assert_eq!(s.dedup_hits, 1);
-        assert_eq!(s.dedup_savings(), 512, "one full block's worth of bytes saved");
+        assert_eq!(
+            s.dedup_savings(),
+            512,
+            "one full block's worth of bytes saved"
+        );
     }
 
     /// CONCEPT:EG-186 — ref-counting frees a block only when the LAST holder releases.
@@ -218,7 +225,11 @@ mod tests {
         assert!(idx.contains(&h), "still resident while referenced");
         assert_eq!(idx.release(&h), Some(0), "last release frees it");
         assert!(!idx.contains(&h), "block gone after final release");
-        assert_eq!(idx.release(&h), None, "releasing an unknown block reports None");
+        assert_eq!(
+            idx.release(&h),
+            None,
+            "releasing an unknown block reports None"
+        );
     }
 
     /// CONCEPT:EG-186 — get_block returns stored bytes and misses on an unknown hash.
@@ -238,8 +249,14 @@ mod tests {
     #[test]
     fn eg186_put_block_reports_new_vs_deduped() {
         let mut idx = SharedKvIndex::new();
-        assert!(idx.put_block("h", vec![0u8; 8]), "first put creates the entry");
-        assert!(!idx.put_block("h", vec![0u8; 8]), "second put is a dedup, not new");
+        assert!(
+            idx.put_block("h", vec![0u8; 8]),
+            "first put creates the entry"
+        );
+        assert!(
+            !idx.put_block("h", vec![0u8; 8]),
+            "second put is a dedup, not new"
+        );
     }
 
     /// CONCEPT:EG-186 — different content lands under different addresses (no false dedup).

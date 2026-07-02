@@ -43,9 +43,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use crate::server::blob::store::{ChunkStore, RedbChunkStore};
+use eg_text::TextIndex;
 use eg_tsdb::point::Point;
 use eg_tsdb::store::SeriesStore;
-use eg_text::TextIndex;
 
 pub use search::{LogQuery, DEFAULT_SEARCH_SIZE};
 pub use segment::SegmentManifest;
@@ -717,10 +717,7 @@ pub async fn serve(listener: TcpListener, state: Arc<ObsState>) {
 }
 
 /// Route + execute an ingest request → `(status, content_type, body)`.
-async fn handle(
-    state: &Arc<ObsState>,
-    req: HttpRequest,
-) -> (&'static str, &'static str, String) {
+async fn handle(state: &Arc<ObsState>, req: HttpRequest) -> (&'static str, &'static str, String) {
     let (path, query) = match req.target.split_once('?') {
         Some((p, q)) => (p, q),
         None => (req.target.as_str(), ""),
@@ -737,7 +734,10 @@ async fn handle(
     // POST-only ingest guard (instant queries are typically GET). Gated on `promql`,
     // which implies `obs`; absent that feature these paths fall through to 404.
     #[cfg(feature = "promql")]
-    if path.starts_with("/api/v1/query") || path == "/api/v1/labels" || path.starts_with("/api/v1/label/") {
+    if path.starts_with("/api/v1/query")
+        || path == "/api/v1/labels"
+        || path.starts_with("/api/v1/label/")
+    {
         return crate::server::promql::handle(state, &req.method, path, query, &req.body).await;
     }
 
@@ -758,7 +758,11 @@ async fn handle(
     }
 
     if req.method != "POST" {
-        return ("405 Method Not Allowed", "text/plain", "POST only".to_string());
+        return (
+            "405 Method Not Allowed",
+            "text/plain",
+            "POST only".to_string(),
+        );
     }
 
     // EG-162 search surface: O2/Elasticsearch `_search`-shaped query API. Routed
@@ -785,14 +789,18 @@ async fn handle(
         // `/<stream>/_doc` — a single ES document.
         let doc: Result<serde_json::Value, String> =
             serde_json::from_str(&req.body).map_err(|e| format!("parse _doc JSON: {e}"));
-        (
-            doc.map(|d| vec![doc_to_record(&d, &stream)]),
-            Shape::EsDoc,
-        )
+        (doc.map(|d| vec![doc_to_record(&d, &stream)]), Shape::EsDoc)
     } else if path == "/" || path == "/api/logs" || path == "/logs" {
-        (Ok(parse_json_lines(&req.body, &default_stream)), Shape::Lines)
+        (
+            Ok(parse_json_lines(&req.body, &default_stream)),
+            Shape::Lines,
+        )
     } else {
-        return ("404 Not Found", "text/plain", "unknown ingest path".to_string());
+        return (
+            "404 Not Found",
+            "text/plain",
+            "unknown ingest path".to_string(),
+        );
     };
 
     let records = match records {
@@ -875,10 +883,11 @@ async fn handle_search(
     };
 
     // SQL mode: top-level `sql`, or the O2 `{"query":{"sql":…}}` nesting.
-    let sql = val
-        .get("sql")
-        .and_then(|v| v.as_str())
-        .or_else(|| val.get("query").and_then(|q| q.get("sql")).and_then(|v| v.as_str()));
+    let sql = val.get("sql").and_then(|v| v.as_str()).or_else(|| {
+        val.get("query")
+            .and_then(|q| q.get("sql"))
+            .and_then(|v| v.as_str())
+    });
     if let Some(sql) = sql {
         let sql = sql.to_string();
         let st = state.clone();
@@ -901,7 +910,11 @@ async fn handle_search(
     let stream = search_stream_from_path(path)
         .or_else(|| {
             for key in ["stream", "_stream", "index", "_index"] {
-                if let Some(s) = val.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                if let Some(s) = val
+                    .get(key)
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
                     return Some(s.to_string());
                 }
             }
@@ -1082,9 +1095,7 @@ fn sql_search_response(res: &eg_query::TypedQueryResult) -> String {
 /// An ES `_bulk` response: `errors:false` with one `index`/`created` item per doc.
 fn es_bulk_response(n: usize) -> String {
     let items: Vec<serde_json::Value> = (0..n)
-        .map(|_| {
-            serde_json::json!({"index":{"status":201,"result":"created"}})
-        })
+        .map(|_| serde_json::json!({"index":{"status":201,"result":"created"}}))
         .collect();
     serde_json::json!({ "took": 0, "errors": false, "items": items }).to_string()
 }
@@ -1267,7 +1278,10 @@ mod tests {
         assert!(obs.segments_for("tiny").is_empty());
         let m = obs.flush_stream("tiny").unwrap().expect("forced segment");
         assert_eq!(m.row_count, 1);
-        assert!(obs.flush_stream("tiny").unwrap().is_none(), "buffer drained");
+        assert!(
+            obs.flush_stream("tiny").unwrap().is_none(),
+            "buffer drained"
+        );
     }
 
     #[tokio::test]
@@ -1395,7 +1409,12 @@ mod tests {
         assert_eq!(v["hits"]["total"]["value"], 3, "both tiers: {json_body}");
 
         // Full-text term via the `query` string → only the two "search_marker" records.
-        let text = post(addr, "/api/_search", r#"{"stream":"web","query":"search_marker"}"#).await;
+        let text = post(
+            addr,
+            "/api/_search",
+            r#"{"stream":"web","query":"search_marker"}"#,
+        )
+        .await;
         let v: serde_json::Value =
             serde_json::from_str(text.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(v["hits"]["total"]["value"], 2);

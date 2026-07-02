@@ -528,24 +528,42 @@ mod tests {
     /// `poly` fixture helper defined later in this test module.)
     #[test]
     fn eg155_boundaries_intersect_tangential_vs_interior() {
-        let big = poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]);
+        let big = poly(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 0.0),
+        ]);
         // Corner square shares two edges with `big`'s boundary.
         let corner = poly(&[(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0), (0.0, 0.0)]);
         assert!(boundaries_intersect(&big, &corner));
         // Edge-abutting neighbour touches along x=10.
-        let abut = poly(&[(10.0, 0.0), (12.0, 0.0), (12.0, 10.0), (10.0, 10.0), (10.0, 0.0)]);
+        let abut = poly(&[
+            (10.0, 0.0),
+            (12.0, 0.0),
+            (12.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 0.0),
+        ]);
         assert!(boundaries_intersect(&big, &abut));
         // Strictly-interior square: rings never meet.
         let inner = poly(&[(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0), (2.0, 2.0)]);
         assert!(!boundaries_intersect(&big, &inner));
         // A point has an empty boundary ⇒ never boundary-intersects.
-        assert!(!boundaries_intersect(&big, &Geometry::Point(Point::new(5.0, 5.0))));
+        assert!(!boundaries_intersect(
+            &big,
+            &Geometry::Point(Point::new(5.0, 5.0))
+        ));
     }
 
     #[test]
     fn intersects_point_polygon_and_segments() {
         // point inside
-        assert!(intersects(&Geometry::Point(Point::new(1.0, 1.0)), &square()));
+        assert!(intersects(
+            &Geometry::Point(Point::new(1.0, 1.0)),
+            &square()
+        ));
         // point far away
         assert!(!intersects(
             &Geometry::Point(Point::new(50.0, 50.0)),
@@ -568,7 +586,10 @@ mod tests {
     #[test]
     fn distance_zero_when_contained_else_gap() {
         // point inside → 0
-        assert_eq!(distance(&Geometry::Point(Point::new(2.0, 2.0)), &square()), 0.0);
+        assert_eq!(
+            distance(&Geometry::Point(Point::new(2.0, 2.0)), &square()),
+            0.0
+        );
         // point 6 to the right of the square's right edge (x=4) at y=2 → x=10 ⇒ 6
         let d = distance(&Geometry::Point(Point::new(10.0, 2.0)), &square());
         assert!((d - 6.0).abs() < 1e-9, "expected 6.0 got {d}");
@@ -607,7 +628,10 @@ mod tests {
         assert!(!within(&in_hole, &holed));
         assert!(!intersects(&in_hole, &holed));
         let d = distance(&in_hole, &holed);
-        assert!(d > 0.0 && (d - 2.0).abs() < 1e-9, "hole-center distance {d}");
+        assert!(
+            d > 0.0 && (d - 2.0).abs() < 1e-9,
+            "hole-center distance {d}"
+        );
     }
 
     #[test]
@@ -660,7 +684,13 @@ mod tests {
     #[test]
     fn disjoint_and_equals() {
         let a = square();
-        let far = poly(&[(20.0, 20.0), (24.0, 20.0), (24.0, 24.0), (20.0, 24.0), (20.0, 20.0)]);
+        let far = poly(&[
+            (20.0, 20.0),
+            (24.0, 20.0),
+            (24.0, 24.0),
+            (20.0, 24.0),
+            (20.0, 20.0),
+        ]);
         assert!(disjoint(&a, &far));
         assert!(!disjoint(&a, &a));
         assert!(equals(&a, &square()));

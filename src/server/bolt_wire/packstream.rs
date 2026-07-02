@@ -53,7 +53,10 @@ pub enum PackValue {
     List(Vec<PackValue>),
     Map(Vec<(String, PackValue)>),
     /// A structure: a tag byte + up to 15 ordered fields (every Bolt message + graph type).
-    Structure { tag: u8, fields: Vec<PackValue> },
+    Structure {
+        tag: u8,
+        fields: Vec<PackValue>,
+    },
 }
 
 impl PackValue {
@@ -350,7 +353,9 @@ fn decode_value(c: &mut Cursor) -> Result<PackValue, DecodeError> {
                     if marker <= 0x7F || marker >= 0xF0 {
                         Ok(PackValue::Int(marker as i8 as i64))
                     } else {
-                        Err(DecodeError(format!("unknown PackStream marker {marker:#04x}")))
+                        Err(DecodeError(format!(
+                            "unknown PackStream marker {marker:#04x}"
+                        )))
                     }
                 }
             }
@@ -471,8 +476,25 @@ mod tests {
     fn bolt_packstream_roundtrips_int_all_widths() {
         // TINY range, INT8, INT16, INT32, INT64 boundaries.
         for i in [
-            0i64, 1, -1, -16, 127, 128, -17, -128, -129, 200, 32767, 32768, -32769, 2_000_000,
-            2_147_483_647, 2_147_483_648, -2_147_483_649, i64::MAX, i64::MIN,
+            0i64,
+            1,
+            -1,
+            -16,
+            127,
+            128,
+            -17,
+            -128,
+            -129,
+            200,
+            32767,
+            32768,
+            -32769,
+            2_000_000,
+            2_147_483_647,
+            2_147_483_648,
+            -2_147_483_649,
+            i64::MAX,
+            i64::MIN,
         ] {
             roundtrip(PackValue::Int(i));
         }

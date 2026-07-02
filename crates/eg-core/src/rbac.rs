@@ -107,10 +107,7 @@ impl RbacPolicy {
         // Track the best (most-specific) match; ties broken by deny-over-allow.
         let mut best: Option<(u8, GrantEffect)> = None;
         for g in &self.grants {
-            if g.action != action
-                || !expanded.contains(&g.role)
-                || !g.resource.matches(resource)
-            {
+            if g.action != action || !expanded.contains(&g.role) || !g.resource.matches(resource) {
                 continue;
             }
             let spec = g.resource.specificity();

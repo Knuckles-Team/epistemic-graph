@@ -59,8 +59,14 @@ pub fn jaccard_similarity<N>(graph: &AdjacencyGraph<N>, a: usize, b: usize, dir:
 where
     N: Clone + Eq + Hash + Ord,
 {
-    let na: Vec<usize> = neighbor_vec(graph, a, dir).into_iter().map(|(k, _)| k).collect();
-    let nb: Vec<usize> = neighbor_vec(graph, b, dir).into_iter().map(|(k, _)| k).collect();
+    let na: Vec<usize> = neighbor_vec(graph, a, dir)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    let nb: Vec<usize> = neighbor_vec(graph, b, dir)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
     let (inter, union) = set_overlap(&na, &nb);
     if union == 0 {
         0.0

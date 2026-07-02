@@ -136,14 +136,8 @@ pub fn mixture(components: &[(f64, Distribution)]) -> Distribution {
 pub fn combine(a: &Distribution, b: &Distribution) -> Result<Distribution, String> {
     match (a, b) {
         (
-            Distribution::Gaussian {
-                mean: m1,
-                std: s1,
-            },
-            Distribution::Gaussian {
-                mean: m2,
-                std: s2,
-            },
+            Distribution::Gaussian { mean: m1, std: s1 },
+            Distribution::Gaussian { mean: m2, std: s2 },
         ) => {
             if *s1 <= 0.0 || *s2 <= 0.0 {
                 return Err("Gaussian std must be positive to fuse".into());

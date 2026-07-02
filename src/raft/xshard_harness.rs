@@ -648,7 +648,11 @@ async fn read_only_participant_skips_prepare_and_phase2() {
 
     // The writer landed; the read-only participant applied NOTHING.
     assert_eq!(node_count(&state, GRAPH_A).await, 1, "writer committed");
-    assert_eq!(node_count(&state, GRAPH_B).await, 0, "read-only applied nothing");
+    assert_eq!(
+        node_count(&state, GRAPH_B).await,
+        0,
+        "read-only applied nothing"
+    );
 
     // OBSERVABLE: exactly one group took the read-only fast path.
     assert_eq!(
@@ -734,7 +738,11 @@ async fn parallel_prepare_multi_writer_commits_atomically() {
     assert_eq!(node_count(&state, GRAPH_A).await, 1, "A committed");
     assert_eq!(node_count(&state, GRAPH_B).await, 1, "B committed");
     assert_eq!(node_count(&state, GRAPH_C).await, 1, "C committed");
-    assert_eq!(coord.readonly_skipped(), 0, "no read-only participants here");
+    assert_eq!(
+        coord.readonly_skipped(),
+        0,
+        "no read-only participants here"
+    );
 
     // Durable records cleared after a resolved commit — same end-state as sequential.
     let redb = backend.as_redb().unwrap();
@@ -785,9 +793,21 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     // RECOVERY resolves the in-doubt multi-writer txn from its COMMIT decision.
     let resolved = coord2.recover_in_doubt().await.expect("recover");
     assert_eq!(resolved, 1, "one in-doubt txn resolved");
-    assert_eq!(node_count(&state2, GRAPH_A).await, 1, "recovery committed A");
-    assert_eq!(node_count(&state2, GRAPH_B).await, 1, "recovery committed B");
-    assert_eq!(node_count(&state2, GRAPH_C).await, 1, "recovery committed C");
+    assert_eq!(
+        node_count(&state2, GRAPH_A).await,
+        1,
+        "recovery committed A"
+    );
+    assert_eq!(
+        node_count(&state2, GRAPH_B).await,
+        1,
+        "recovery committed B"
+    );
+    assert_eq!(
+        node_count(&state2, GRAPH_C).await,
+        1,
+        "recovery committed C"
+    );
 
     let redb = backend2.as_redb().unwrap();
     assert!(redb.xshard_scan_prepares().unwrap().is_empty());
@@ -920,7 +940,10 @@ async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block
         .recover_in_doubt_nonblocking(GROUP_D)
         .await
         .expect("recover");
-    assert_eq!(resolved, 1, "the in-doubt txn is resolved by a fresh resolver");
+    assert_eq!(
+        resolved, 1,
+        "the in-doubt txn is resolved by a fresh resolver"
+    );
     assert_eq!(
         node_count(&state, GRAPH_A).await,
         1,
@@ -967,7 +990,11 @@ async fn nonblocking_aborts_like_2pc_on_killed_participant() {
     );
 
     // NO PARTIAL COMMIT: the live participant A must NOT have applied.
-    assert_eq!(node_count(&state, GRAPH_A).await, 0, "no partial commit on A");
+    assert_eq!(
+        node_count(&state, GRAPH_A).await,
+        0,
+        "no partial commit on A"
+    );
     assert_eq!(node_count(&state, GRAPH_B).await, 0, "B never applied");
 
     let redb = backend.as_redb().unwrap();
@@ -1012,7 +1039,10 @@ async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
         .recover_in_doubt_nonblocking(GROUP_D)
         .await
         .expect("recover");
-    assert_eq!(resolved, 1, "the in-doubt txn is resolved (as presumed-abort)");
+    assert_eq!(
+        resolved, 1,
+        "the in-doubt txn is resolved (as presumed-abort)"
+    );
     assert_eq!(node_count(&state, GRAPH_A).await, 0, "no apply on A");
     assert_eq!(node_count(&state, GRAPH_B).await, 0, "no apply on B");
 

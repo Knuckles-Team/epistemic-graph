@@ -43,7 +43,11 @@ fn eg073_named_foreign_scan_materializes_registered_rows() {
     let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_foreign(&registry);
     let out = execute(&plan, &ctx).unwrap();
 
-    assert_eq!(out.ids(), vec!["d2", "d4"], "named source rows materialized");
+    assert_eq!(
+        out.ids(),
+        vec!["d2", "d4"],
+        "named source rows materialized"
+    );
     assert_eq!(out.rows()[0].score, Some(0.7), "scores are projected");
 }
 
@@ -97,7 +101,11 @@ fn eg073_named_foreign_scan_composes_with_a_local_join() {
         .filter(|id| joined.contains(id))
         .collect();
 
-    assert_eq!(fused.ids(), manual, "named foreign∩local == the manual join");
+    assert_eq!(
+        fused.ids(),
+        manual,
+        "named foreign∩local == the manual join"
+    );
     assert_eq!(fused.ids(), vec!["d2", "d4"], "ranked d2 then d4");
 }
 
@@ -107,7 +115,9 @@ fn eg073_named_foreign_scan_composes_with_a_local_join() {
 fn eg073_op_foreign_marker_resolves_through_registry() {
     let fx = crate::fixture::build();
     let mut registry = ForeignSourceRegistry::new();
-    registry.register_closure("peer-west", || Ok(RowSet::from_ids(["d3".into(), "d4".into()])));
+    registry.register_closure("peer-west", || {
+        Ok(RowSet::from_ids(["d3".into(), "d4".into()]))
+    });
 
     // Scan would seed all Docs; the resolved FOREIGN marker replaces it with {d3,d4}.
     let plan = Plan::new(vec![
@@ -122,7 +132,11 @@ fn eg073_op_foreign_marker_resolves_through_registry() {
     let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_foreign(&registry);
     let mut ids = execute(&plan, &ctx).unwrap().ids();
     ids.sort();
-    assert_eq!(ids, vec!["d3", "d4"], "closure source replaced the local scan");
+    assert_eq!(
+        ids,
+        vec!["d3", "d4"],
+        "closure source replaced the local scan"
+    );
 }
 
 /// CONCEPT:EG-073 — an unbound name is a CLEAN typed error (naming the source + what IS

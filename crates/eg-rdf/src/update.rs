@@ -1023,16 +1023,29 @@ mod tests {
             &Projection::raw(),
         )
         .unwrap();
-        execute_str("ADD <http://g/1> TO <http://g/2>", &store, &Projection::raw()).unwrap();
+        execute_str(
+            "ADD <http://g/1> TO <http://g/2>",
+            &store,
+            &Projection::raw(),
+        )
+        .unwrap();
         // dst keeps its own triple AND gains src's edge + literal (merge, no clear).
         assert_eq!(
-            count(&store, Some("http://g/2"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            count(
+                &store,
+                Some("http://g/2"),
+                "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+            ),
             3,
             "g2 has its own + both of g1's triples"
         );
         // Source unchanged.
         assert_eq!(
-            count(&store, Some("http://g/1"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            count(
+                &store,
+                Some("http://g/1"),
+                "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+            ),
             2,
             "g1 source left intact by ADD"
         );
@@ -1053,10 +1066,19 @@ mod tests {
             &Projection::raw(),
         )
         .unwrap();
-        execute_str("COPY <http://g/1> TO <http://g/2>", &store, &Projection::raw()).unwrap();
+        execute_str(
+            "COPY <http://g/1> TO <http://g/2>",
+            &store,
+            &Projection::raw(),
+        )
+        .unwrap();
         // dst == src exactly (its two prior triples are gone).
         assert_eq!(
-            count(&store, Some("http://g/2"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            count(
+                &store,
+                Some("http://g/2"),
+                "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+            ),
             1,
             "g2 replaced by g1's single triple"
         );
@@ -1070,7 +1092,11 @@ mod tests {
             "g2 now holds g1's triple"
         );
         assert_eq!(
-            count(&store, Some("http://g/1"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            count(
+                &store,
+                Some("http://g/1"),
+                "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+            ),
             1,
             "g1 source unchanged by COPY"
         );
@@ -1090,14 +1116,27 @@ mod tests {
             &Projection::raw(),
         )
         .unwrap();
-        execute_str("MOVE <http://g/1> TO <http://g/2>", &store, &Projection::raw()).unwrap();
+        execute_str(
+            "MOVE <http://g/1> TO <http://g/2>",
+            &store,
+            &Projection::raw(),
+        )
+        .unwrap();
         assert_eq!(
-            count(&store, Some("http://g/2"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            count(
+                &store,
+                Some("http://g/2"),
+                "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+            ),
             2,
             "g2 replaced by g1's two triples"
         );
         assert_eq!(
-            count(&store, Some("http://g/1"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            count(
+                &store,
+                Some("http://g/1"),
+                "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+            ),
             0,
             "g1 source emptied by MOVE"
         );
@@ -1115,7 +1154,11 @@ mod tests {
         );
         assert!(r.is_ok(), "SILENT missing-source move does not error");
         assert_eq!(
-            count(&store, Some("http://g/dst"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            count(
+                &store,
+                Some("http://g/dst"),
+                "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
+            ),
             0,
             "destination stays empty"
         );

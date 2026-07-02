@@ -258,7 +258,11 @@ impl SpanStore {
 
         // Newest-started first, then apply the limit.
         matched.sort_by_key(|t| std::cmp::Reverse(t.start_time));
-        let limit = if q.limit == 0 { DEFAULT_TRACE_LIMIT } else { q.limit };
+        let limit = if q.limit == 0 {
+            DEFAULT_TRACE_LIMIT
+        } else {
+            q.limit
+        };
         matched.truncate(limit);
         matched
     }
@@ -304,7 +308,11 @@ impl SpanStore {
 fn assemble_spans(trace_id: &str, spans: Vec<Span>) -> AssembledTrace {
     let span_count = spans.len();
     let start_time = spans.iter().map(|s| s.start_time).min().unwrap_or(0);
-    let max_end = spans.iter().map(|s| s.end_time()).max().unwrap_or(start_time);
+    let max_end = spans
+        .iter()
+        .map(|s| s.end_time())
+        .max()
+        .unwrap_or(start_time);
     let duration = max_end.saturating_sub(start_time);
     let services: Vec<String> = {
         let mut set: BTreeSet<String> = BTreeSet::new();
@@ -376,8 +384,14 @@ fn trace_matches(t: &AssembledTrace, q: &TraceQuery, store: &SpanStore) -> bool 
     if q.operation.is_some() || !q.tags.is_empty() {
         let spans = store.spans_of(&t.trace_id);
         let ok = spans.iter().any(|s| {
-            q.operation.as_ref().map(|o| &s.operation == o).unwrap_or(true)
-                && q.service.as_ref().map(|sv| &s.service == sv).unwrap_or(true)
+            q.operation
+                .as_ref()
+                .map(|o| &s.operation == o)
+                .unwrap_or(true)
+                && q.service
+                    .as_ref()
+                    .map(|sv| &s.service == sv)
+                    .unwrap_or(true)
                 && s.matches_tags(&q.tags)
         });
         if !ok {
@@ -391,7 +405,15 @@ fn trace_matches(t: &AssembledTrace, q: &TraceQuery, store: &SpanStore) -> bool 
 mod tests {
     use super::*;
 
-    fn span(trace: &str, id: &str, parent: &str, svc: &str, op: &str, start: i64, dur: i64) -> Span {
+    fn span(
+        trace: &str,
+        id: &str,
+        parent: &str,
+        svc: &str,
+        op: &str,
+        start: i64,
+        dur: i64,
+    ) -> Span {
         Span {
             trace_id: trace.into(),
             span_id: id.into(),
@@ -521,11 +543,19 @@ mod tests {
         assert_eq!(edges.len(), 2, "gateway→api and api→db only");
         assert_eq!(
             edges[0],
-            ServiceEdge { parent: "api".into(), child: "db".into(), call_count: 2 }
+            ServiceEdge {
+                parent: "api".into(),
+                child: "db".into(),
+                call_count: 2
+            }
         );
         assert_eq!(
             edges[1],
-            ServiceEdge { parent: "gateway".into(), child: "api".into(), call_count: 2 }
+            ServiceEdge {
+                parent: "gateway".into(),
+                child: "api".into(),
+                call_count: 2
+            }
         );
     }
 }

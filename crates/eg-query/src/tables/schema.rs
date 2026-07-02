@@ -354,14 +354,20 @@ fn parse_vector_value(value: &Value) -> Result<Vec<f32>, String> {
             })
             .collect(),
         Value::String(s) => parse_vector_text(s),
-        other => Err(format!("expected a vector (array or '[...]' text), got `{other}`")),
+        other => Err(format!(
+            "expected a vector (array or '[...]' text), got `{other}`"
+        )),
     }
 }
 
 /// Parse a pgvector text literal `[1,2,3]` (brackets optional, comma/whitespace
 /// separated) into a `Vec<f32>` (CONCEPT:EG-115).
 pub(crate) fn parse_vector_text(s: &str) -> Result<Vec<f32>, String> {
-    let inner = s.trim().trim_start_matches('[').trim_end_matches(']').trim();
+    let inner = s
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
     if inner.is_empty() {
         return Ok(Vec::new());
     }

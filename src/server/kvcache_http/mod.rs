@@ -41,8 +41,8 @@
 //! `Authorization: Bearer <token>` or it is refused `401`.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -74,7 +74,9 @@ impl Default for KvCacheStore {
 impl KvCacheStore {
     /// A fresh, empty in-process shared KV-cache store.
     pub fn new() -> Self {
-        Self { index: Mutex::new(SharedKvIndex::new()) }
+        Self {
+            index: Mutex::new(SharedKvIndex::new()),
+        }
     }
 
     fn get(&self, hash: &str) -> Option<Vec<u8>> {
@@ -153,13 +155,28 @@ struct KvResponse {
 
 impl KvResponse {
     fn bytes(status: &'static str, body: Vec<u8>) -> Self {
-        KvResponse { status, content_type: "application/octet-stream", body, head_only: false }
+        KvResponse {
+            status,
+            content_type: "application/octet-stream",
+            body,
+            head_only: false,
+        }
     }
     fn json(status: &'static str, body: String) -> Self {
-        KvResponse { status, content_type: "application/json", body: body.into_bytes(), head_only: false }
+        KvResponse {
+            status,
+            content_type: "application/json",
+            body: body.into_bytes(),
+            head_only: false,
+        }
     }
     fn empty(status: &'static str) -> Self {
-        KvResponse { status, content_type: "application/octet-stream", body: Vec::new(), head_only: false }
+        KvResponse {
+            status,
+            content_type: "application/octet-stream",
+            body: Vec::new(),
+            head_only: false,
+        }
     }
     fn error(status: &'static str, code: &str, message: &str) -> Self {
         let body = serde_json::json!({ "error": code, "message": message }).to_string();
@@ -171,7 +188,11 @@ impl KvResponse {
 /// unit-testable without a socket (CONCEPT:EG-187).
 fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvResponse {
     if !authorized(auth, &req.headers) {
-        return KvResponse::error("401 Unauthorized", "Unauthorized", "missing or invalid bearer token");
+        return KvResponse::error(
+            "401 Unauthorized",
+            "Unauthorized",
+            "missing or invalid bearer token",
+        );
     }
 
     // Everything lives under `/kv/…`.
@@ -217,7 +238,8 @@ fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvRes
                 r.head_only = true;
                 r
             } else {
-                let mut r = KvResponse::error("404 Not Found", "NoSuchBlock", "no block under that hash");
+                let mut r =
+                    KvResponse::error("404 Not Found", "NoSuchBlock", "no block under that hash");
                 r.head_only = true;
                 r
             }
@@ -287,7 +309,12 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<KvRequest> {
     if content_length > 0 && body.len() > content_length {
         body.truncate(content_length);
     }
-    Some(KvRequest { method, path, headers, body })
+    Some(KvRequest {
+        method,
+        path,
+        headers,
+        body,
+    })
 }
 
 /// Serve the KV-cache HTTP surface on `addr` until the process exits. Spawned by
@@ -393,7 +420,10 @@ mod tests {
         assert_eq!(head.status, "200 OK");
         assert!(head.head_only);
         // HEAD absent → 404.
-        assert_eq!(handle(&s, &none, &req("HEAD", "/kv/nope", b"", &[])).status, "404 Not Found");
+        assert_eq!(
+            handle(&s, &none, &req("HEAD", "/kv/nope", b"", &[])).status,
+            "404 Not Found"
+        );
         // GET /kv/<hash>/exists → JSON true/false.
         let ex = handle(&s, &none, &req("GET", "/kv/h1/exists", b"", &[]));
         assert_eq!(ex.status, "200 OK");
@@ -406,7 +436,10 @@ mod tests {
     fn eg187_get_missing_block_is_404() {
         let s = store();
         let none = None;
-        assert_eq!(handle(&s, &none, &req("GET", "/kv/missing", b"", &[])).status, "404 Not Found");
+        assert_eq!(
+            handle(&s, &none, &req("GET", "/kv/missing", b"", &[])).status,
+            "404 Not Found"
+        );
     }
 
     #[test]
@@ -414,8 +447,14 @@ mod tests {
         let s = store();
         let none = None;
         // Two PUTs of the SAME hash ⇒ one resident block, a dedup hit on the second.
-        assert_eq!(handle(&s, &none, &req("PUT", "/kv/dup", &vec![1u8; 100], &[])).status, "201 Created");
-        assert_eq!(handle(&s, &none, &req("PUT", "/kv/dup", &vec![1u8; 100], &[])).status, "200 OK");
+        assert_eq!(
+            handle(&s, &none, &req("PUT", "/kv/dup", &vec![1u8; 100], &[])).status,
+            "201 Created"
+        );
+        assert_eq!(
+            handle(&s, &none, &req("PUT", "/kv/dup", &vec![1u8; 100], &[])).status,
+            "200 OK"
+        );
         let stats = handle(&s, &none, &req("GET", "/kv/stats", b"", &[]));
         assert_eq!(stats.status, "200 OK");
         assert_eq!(stats.content_type, "application/json");
@@ -424,21 +463,43 @@ mod tests {
         assert_eq!(v["total_refs"], 2, "both holders ref-counted");
         assert_eq!(v["resident_bytes"], 100);
         assert_eq!(v["dedup_hits"], 1);
-        assert_eq!(v["dedup_savings_bytes"], 100, "one block's worth of bytes saved by dedup");
+        assert_eq!(
+            v["dedup_savings_bytes"], 100,
+            "one block's worth of bytes saved by dedup"
+        );
     }
 
     #[test]
     fn eg187_bearer_token_guard_accept_reject() {
         let s = store();
-        let auth = Some(KvAuth { token: "sekret".into() });
+        let auth = Some(KvAuth {
+            token: "sekret".into(),
+        });
         // No Authorization → 401.
-        assert_eq!(handle(&s, &auth, &req("GET", "/kv/stats", b"", &[])).status, "401 Unauthorized");
+        assert_eq!(
+            handle(&s, &auth, &req("GET", "/kv/stats", b"", &[])).status,
+            "401 Unauthorized"
+        );
         // Correct bearer → accepted.
-        let ok = handle(&s, &auth, &req("GET", "/kv/stats", b"", &[("authorization", "Bearer sekret")]));
+        let ok = handle(
+            &s,
+            &auth,
+            &req(
+                "GET",
+                "/kv/stats",
+                b"",
+                &[("authorization", "Bearer sekret")],
+            ),
+        );
         assert_eq!(ok.status, "200 OK");
         // Wrong token → 401.
         assert_eq!(
-            handle(&s, &auth, &req("GET", "/kv/stats", b"", &[("authorization", "Bearer nope")])).status,
+            handle(
+                &s,
+                &auth,
+                &req("GET", "/kv/stats", b"", &[("authorization", "Bearer nope")])
+            )
+            .status,
             "401 Unauthorized"
         );
         // Unconfigured guard ⇒ anonymous allowed.
@@ -488,15 +549,25 @@ mod tests {
         c.write_all(block).await.unwrap();
         let mut buf = Vec::new();
         c.read_to_end(&mut buf).await.unwrap();
-        assert!(String::from_utf8_lossy(&buf).starts_with("HTTP/1.1 201 Created"), "{:?}", String::from_utf8_lossy(&buf));
+        assert!(
+            String::from_utf8_lossy(&buf).starts_with("HTTP/1.1 201 Created"),
+            "{:?}",
+            String::from_utf8_lossy(&buf)
+        );
 
         // GET it back over a fresh socket; body bytes must match exactly.
         let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
-        c.write_all(b"GET /kv/tok987 HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n").await.unwrap();
+        c.write_all(b"GET /kv/tok987 HTTP/1.1\r\nhost: x\r\nconnection: close\r\n\r\n")
+            .await
+            .unwrap();
         let mut buf = Vec::new();
         c.read_to_end(&mut buf).await.unwrap();
         let sep = find_subslice(&buf, b"\r\n\r\n").unwrap();
         assert!(String::from_utf8_lossy(&buf[..sep]).starts_with("HTTP/1.1 200 OK"));
-        assert_eq!(&buf[sep + 4..], block, "binary block round-trips byte-for-byte over TCP");
+        assert_eq!(
+            &buf[sep + 4..],
+            block,
+            "binary block round-trips byte-for-byte over TCP"
+        );
     }
 }

@@ -75,10 +75,7 @@ pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
 
 /// Read the request line, route, and (for a valid subscribe) stream frames until the
 /// client disconnects.
-async fn handle_conn(
-    mut stream: TcpStream,
-    state: Arc<RwLock<ServerState>>,
-) -> Result<(), String> {
+async fn handle_conn(mut stream: TcpStream, state: Arc<RwLock<ServerState>>) -> Result<(), String> {
     let (method, target) = read_request_line(&mut stream)
         .await
         .ok_or("malformed HTTP request")?;
@@ -92,7 +89,13 @@ async fn handle_conn(
         return write_simple(&mut stream, "204 No Content", "text/plain", "").await;
     }
     if method != "GET" {
-        return write_simple(&mut stream, "405 Method Not Allowed", "text/plain", "method").await;
+        return write_simple(
+            &mut stream,
+            "405 Method Not Allowed",
+            "text/plain",
+            "method",
+        )
+        .await;
     }
     if path != "/graphql/subscribe" {
         return write_simple(&mut stream, "404 Not Found", "text/plain", "not found").await;
@@ -187,7 +190,10 @@ async fn push_frame(
     core: &GraphCore,
 ) -> Result<(), String> {
     let (data, _version) = live.resolve(core)?;
-    let frame = format!("data: {}\n\n", serde_json::to_string(&data).unwrap_or_default());
+    let frame = format!(
+        "data: {}\n\n",
+        serde_json::to_string(&data).unwrap_or_default()
+    );
     stream
         .write_all(frame.as_bytes())
         .await
@@ -237,9 +243,7 @@ async fn read_request_line(stream: &mut TcpStream) -> Option<(String, String)> {
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Parse an `a=b&c=d` form/query string with percent-decoding (matches the SPARQL

@@ -116,11 +116,7 @@ mod tests {
     #[test]
     fn eg144_degree_centrality_normalised() {
         // Undirected-style star: center 'c' out to 3 leaves.
-        let g = AdjacencyGraph::from_edges([
-            ("c", "l1", 1.0),
-            ("c", "l2", 1.0),
-            ("c", "l3", 1.0),
-        ]);
+        let g = AdjacencyGraph::from_edges([("c", "l1", 1.0), ("c", "l2", 1.0), ("c", "l3", 1.0)]);
         let out = degree_centrality(&g, DegreeKind::Out);
         let m: std::collections::HashMap<&str, f64> = out.iter().map(|(k, v)| (*k, *v)).collect();
         // n=4 ⇒ denom 3; center has out-degree 3 ⇒ 1.0.
@@ -135,12 +131,8 @@ mod tests {
     #[test]
     fn eg144_betweenness_star_center_is_high_leaves_zero() {
         // Undirected star: center on every shortest path between leaf pairs.
-        let g = AdjacencyGraph::from_unweighted_edges([
-            ("c", "a"),
-            ("c", "b"),
-            ("c", "d"),
-            ("c", "e"),
-        ]);
+        let g =
+            AdjacencyGraph::from_unweighted_edges([("c", "a"), ("c", "b"), ("c", "d"), ("c", "e")]);
         let bc = betweenness_centrality(&g, false);
         let m: std::collections::HashMap<&str, f64> = bc.iter().map(|(k, v)| (*k, *v)).collect();
         // 4 leaves ⇒ C(4,2)=6 unordered pairs all routed through center.
@@ -153,12 +145,8 @@ mod tests {
     #[test]
     fn eg144_betweenness_path_middle_is_highest() {
         // Undirected path a-b-c-d-e. Middle c should score highest.
-        let g = AdjacencyGraph::from_unweighted_edges([
-            ("a", "b"),
-            ("b", "c"),
-            ("c", "d"),
-            ("d", "e"),
-        ]);
+        let g =
+            AdjacencyGraph::from_unweighted_edges([("a", "b"), ("b", "c"), ("c", "d"), ("d", "e")]);
         let bc = betweenness_centrality(&g, false);
         let m: std::collections::HashMap<&str, f64> = bc.iter().map(|(k, v)| (*k, *v)).collect();
         // Analytic betweenness of an internal node at position i (1-based) in a

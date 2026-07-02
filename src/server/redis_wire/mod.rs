@@ -114,8 +114,7 @@ type CommandParse = Result<Option<(Vec<Vec<u8>>, usize)>, String>;
 
 /// The WRONGTYPE error text (verbatim Redis wording, so clients that match on it
 /// still work).
-const WRONGTYPE: &str =
-    "WRONGTYPE Operation against a key holding the wrong kind of value";
+const WRONGTYPE: &str = "WRONGTYPE Operation against a key holding the wrong kind of value";
 const NOT_INT: &str = "ERR value is not an integer or out of range";
 
 // ── the store (CONCEPT:EG-174) — Redis types over the engine KV surface ──────────
@@ -557,7 +556,11 @@ impl RedisStore {
                 }
             }
         }
-        z.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+        z.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
         self.store(
             key,
             &Entry {
@@ -883,7 +886,12 @@ fn upper(b: &[u8]) -> String {
 
 /// Execute ONE parsed command against the store, returning the reply. Handshake /
 /// session commands (`HELLO`/`AUTH`/`QUIT`/`SELECT`) mutate `conn`.
-fn execute(store: &RedisStore, args: &[Vec<u8>], conn: &mut ConnState, password: Option<&str>) -> Resp {
+fn execute(
+    store: &RedisStore,
+    args: &[Vec<u8>],
+    conn: &mut ConnState,
+    password: Option<&str>,
+) -> Resp {
     if args.is_empty() {
         return Resp::Error("ERR empty command".into());
     }
@@ -915,9 +923,7 @@ fn execute(store: &RedisStore, args: &[Vec<u8>], conn: &mut ConnState, password:
                     conn.authed = true;
                     Resp::Simple("OK".into())
                 }
-                (None, _) => {
-                    Resp::Error("ERR Client sent AUTH, but no password is set".into())
-                }
+                (None, _) => Resp::Error("ERR Client sent AUTH, but no password is set".into()),
                 _ => Resp::Error("WRONGPASS invalid username-password pair".into()),
             };
         }
@@ -978,16 +984,29 @@ fn hello(args: &[Vec<u8>], conn: &mut ConnState, password: Option<&str>) -> Resp
 }
 
 /// Execute a data command (auth already checked). `Err(msg)` becomes a RESP error.
-fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> Result<Resp, String> {
+fn execute_data(
+    store: &RedisStore,
+    cmd: &str,
+    args: &[Vec<u8>],
+    proto: u8,
+) -> Result<Resp, String> {
     let key = |n: usize| -> Result<String, String> {
         args.get(n)
             .map(|b| String::from_utf8_lossy(b).into_owned())
-            .ok_or_else(|| format!("ERR wrong number of arguments for '{}'", cmd.to_ascii_lowercase()))
+            .ok_or_else(|| {
+                format!(
+                    "ERR wrong number of arguments for '{}'",
+                    cmd.to_ascii_lowercase()
+                )
+            })
     };
     match cmd {
         "SET" => {
             let k = key(1)?;
-            let v = args.get(2).cloned().ok_or_else(|| "ERR wrong number of arguments for 'set'".to_string())?;
+            let v = args
+                .get(2)
+                .cloned()
+                .ok_or_else(|| "ERR wrong number of arguments for 'set'".to_string())?;
             let (mut expire, mut nx, mut xx) = (None, false, false);
             let mut i = 3;
             while i < args.len() {
@@ -1021,12 +1040,18 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
         }
         "GET" => Ok(Resp::Bulk(store.get(&key(1)?)?)),
         "DEL" => {
-            let keys: Vec<String> = args[1..].iter().map(|b| String::from_utf8_lossy(b).into_owned()).collect();
+            let keys: Vec<String> = args[1..]
+                .iter()
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .collect();
             let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
             Ok(Resp::Int(store.del(&refs)?))
         }
         "EXISTS" => {
-            let keys: Vec<String> = args[1..].iter().map(|b| String::from_utf8_lossy(b).into_owned()).collect();
+            let keys: Vec<String> = args[1..]
+                .iter()
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .collect();
             let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
             Ok(Resp::Int(store.exists(&refs)?))
         }
@@ -1073,7 +1098,9 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
         }
         "HGET" => {
             let k = key(1)?;
-            let field = args.get(2).ok_or_else(|| "ERR wrong number of arguments for 'hget'".to_string())?;
+            let field = args
+                .get(2)
+                .ok_or_else(|| "ERR wrong number of arguments for 'hget'".to_string())?;
             Ok(Resp::Bulk(store.hget(&k, field)?))
         }
         "HGETALL" => {
@@ -1093,7 +1120,10 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
             let k = key(1)?;
             let vals: Vec<Vec<u8>> = args[2..].to_vec();
             if vals.is_empty() {
-                return Err(format!("ERR wrong number of arguments for '{}'", cmd.to_ascii_lowercase()));
+                return Err(format!(
+                    "ERR wrong number of arguments for '{}'",
+                    cmd.to_ascii_lowercase()
+                ));
             }
             Ok(Resp::Int(store.push(&k, &vals, cmd == "LPUSH")?))
         }
@@ -1101,7 +1131,11 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
             let k = key(1)?;
             let start: i64 = parse_num(args.get(2))?;
             let stop: i64 = parse_num(args.get(3))?;
-            let items = store.lrange(&k, start, stop)?.into_iter().map(|v| Resp::Bulk(Some(v))).collect();
+            let items = store
+                .lrange(&k, start, stop)?
+                .into_iter()
+                .map(|v| Resp::Bulk(Some(v)))
+                .collect();
             Ok(Resp::Array(Some(items)))
         }
         "LLEN" => Ok(Resp::Int(store.llen(&key(1)?)?)),
@@ -1114,7 +1148,11 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
             Ok(Resp::Int(store.sadd(&k, &members)?))
         }
         "SMEMBERS" => {
-            let items = store.smembers(&key(1)?)?.into_iter().map(|v| Resp::Bulk(Some(v))).collect();
+            let items = store
+                .smembers(&key(1)?)?
+                .into_iter()
+                .map(|v| Resp::Bulk(Some(v)))
+                .collect();
             Ok(Resp::Set(items))
         }
         "SREM" => {
@@ -1143,20 +1181,29 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
             let k = key(1)?;
             let start: i64 = parse_num(args.get(2))?;
             let stop: i64 = parse_num(args.get(3))?;
-            let withscores = args.get(4).map(|b| upper(b) == "WITHSCORES").unwrap_or(false);
+            let withscores = args
+                .get(4)
+                .map(|b| upper(b) == "WITHSCORES")
+                .unwrap_or(false);
             let z = store.zrange(&k, start, stop)?;
             let mut out = Vec::new();
             for (m, s) in z {
                 out.push(Resp::Bulk(Some(m)));
                 if withscores {
-                    out.push(if proto >= 3 { Resp::Double(s) } else { Resp::bulk_str(fmt_double(s)) });
+                    out.push(if proto >= 3 {
+                        Resp::Double(s)
+                    } else {
+                        Resp::bulk_str(fmt_double(s))
+                    });
                 }
             }
             Ok(Resp::Array(Some(out)))
         }
         "ZSCORE" => {
             let k = key(1)?;
-            let member = args.get(2).ok_or_else(|| "ERR wrong number of arguments for 'zscore'".to_string())?;
+            let member = args
+                .get(2)
+                .ok_or_else(|| "ERR wrong number of arguments for 'zscore'".to_string())?;
             match store.zscore(&k, member)? {
                 Some(s) => Ok(Resp::bulk_str(fmt_double(s))),
                 None => Ok(Resp::Null),
@@ -1169,7 +1216,9 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
             while i < args.len() {
                 match upper(&args[i]).as_str() {
                     "MATCH" => {
-                        pattern = args.get(i + 1).map(|b| String::from_utf8_lossy(b).into_owned());
+                        pattern = args
+                            .get(i + 1)
+                            .map(|b| String::from_utf8_lossy(b).into_owned());
                         i += 2;
                     }
                     "COUNT" | "TYPE" => i += 2, // accepted, ignored (one-shot scan)
@@ -1178,10 +1227,16 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
             }
             let keys = store.scan(pattern.as_deref())?;
             let items = keys.into_iter().map(Resp::bulk_str).collect();
-            Ok(Resp::Array(Some(vec![Resp::bulk_str("0"), Resp::Array(Some(items))])))
+            Ok(Resp::Array(Some(vec![
+                Resp::bulk_str("0"),
+                Resp::Array(Some(items)),
+            ])))
         }
         "TYPE" => Ok(Resp::Simple(store.type_of(&key(1)?)?.into())),
-        other => Err(format!("ERR unknown command '{}'", other.to_ascii_lowercase())),
+        other => Err(format!(
+            "ERR unknown command '{}'",
+            other.to_ascii_lowercase()
+        )),
     }
 }
 
@@ -1196,7 +1251,11 @@ fn parse_num<T: std::str::FromStr>(arg: Option<&Vec<u8>>) -> Result<T, String> {
 /// Drive ONE Redis connection: parse commands from the socket, execute, reply,
 /// until the client quits or the socket closes. Generic over the byte stream so an
 /// in-process test can drive it over any duplex transport (CONCEPT:EG-174).
-async fn handle_connection<S>(s: &mut S, store: Arc<RedisStore>, password: Option<String>) -> std::io::Result<()>
+async fn handle_connection<S>(
+    s: &mut S,
+    store: Arc<RedisStore>,
+    password: Option<String>,
+) -> std::io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -1254,11 +1313,10 @@ where
 /// configured on [`ServerState`], else in-memory scratch.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let persist_dir = { state.read().await.persist_dir.clone() };
-    let store = Arc::new(
-        RedisStore::open(persist_dir.as_deref())
-            .map_err(std::io::Error::other)?,
-    );
-    let password = std::env::var(REDIS_PASSWORD_ENV).ok().filter(|s| !s.is_empty());
+    let store = Arc::new(RedisStore::open(persist_dir.as_deref()).map_err(std::io::Error::other)?);
+    let password = std::env::var(REDIS_PASSWORD_ENV)
+        .ok()
+        .filter(|s| !s.is_empty());
     serve_with_store(addr, store, password).await
 }
 
@@ -1330,7 +1388,10 @@ mod tests {
         assert_eq!(enc(&Resp::Bulk(None), 2), b"$-1\r\n");
         assert_eq!(enc(&Resp::Null, 2), b"$-1\r\n");
         assert_eq!(
-            enc(&Resp::Array(Some(vec![Resp::Int(1), Resp::bulk_str("a")])), 2),
+            enc(
+                &Resp::Array(Some(vec![Resp::Int(1), Resp::bulk_str("a")])),
+                2
+            ),
             b"*2\r\n:1\r\n$1\r\na\r\n"
         );
     }
@@ -1387,22 +1448,57 @@ mod tests {
     fn eg174_set_get_del_incr_expire() {
         let store = mem_store();
         let mut c = conn3();
-        assert_eq!(execute(&store, &a(&["SET", "k", "v"]), &mut c, None), Resp::Simple("OK".into()));
-        assert_eq!(execute(&store, &a(&["GET", "k"]), &mut c, None), Resp::Bulk(Some(b"v".to_vec())));
-        assert_eq!(execute(&store, &a(&["TYPE", "k"]), &mut c, None), Resp::Simple("string".into()));
-        assert_eq!(execute(&store, &a(&["EXISTS", "k", "nope"]), &mut c, None), Resp::Int(1));
+        assert_eq!(
+            execute(&store, &a(&["SET", "k", "v"]), &mut c, None),
+            Resp::Simple("OK".into())
+        );
+        assert_eq!(
+            execute(&store, &a(&["GET", "k"]), &mut c, None),
+            Resp::Bulk(Some(b"v".to_vec()))
+        );
+        assert_eq!(
+            execute(&store, &a(&["TYPE", "k"]), &mut c, None),
+            Resp::Simple("string".into())
+        );
+        assert_eq!(
+            execute(&store, &a(&["EXISTS", "k", "nope"]), &mut c, None),
+            Resp::Int(1)
+        );
         // NX on an existing key → null.
-        assert_eq!(execute(&store, &a(&["SET", "k", "v2", "NX"]), &mut c, None), Resp::Null);
+        assert_eq!(
+            execute(&store, &a(&["SET", "k", "v2", "NX"]), &mut c, None),
+            Resp::Null
+        );
         // INCR path.
-        assert_eq!(execute(&store, &a(&["SET", "n", "10"]), &mut c, None), Resp::Simple("OK".into()));
-        assert_eq!(execute(&store, &a(&["INCR", "n"]), &mut c, None), Resp::Int(11));
-        assert_eq!(execute(&store, &a(&["DECR", "n"]), &mut c, None), Resp::Int(10));
+        assert_eq!(
+            execute(&store, &a(&["SET", "n", "10"]), &mut c, None),
+            Resp::Simple("OK".into())
+        );
+        assert_eq!(
+            execute(&store, &a(&["INCR", "n"]), &mut c, None),
+            Resp::Int(11)
+        );
+        assert_eq!(
+            execute(&store, &a(&["DECR", "n"]), &mut c, None),
+            Resp::Int(10)
+        );
         // EXPIRE/TTL.
-        assert_eq!(execute(&store, &a(&["EXPIRE", "k", "100"]), &mut c, None), Resp::Int(1));
-        assert!(matches!(execute(&store, &a(&["TTL", "k"]), &mut c, None), Resp::Int(t) if t > 0 && t <= 100));
+        assert_eq!(
+            execute(&store, &a(&["EXPIRE", "k", "100"]), &mut c, None),
+            Resp::Int(1)
+        );
+        assert!(
+            matches!(execute(&store, &a(&["TTL", "k"]), &mut c, None), Resp::Int(t) if t > 0 && t <= 100)
+        );
         // DEL.
-        assert_eq!(execute(&store, &a(&["DEL", "k", "n"]), &mut c, None), Resp::Int(2));
-        assert_eq!(execute(&store, &a(&["GET", "k"]), &mut c, None), Resp::Bulk(None));
+        assert_eq!(
+            execute(&store, &a(&["DEL", "k", "n"]), &mut c, None),
+            Resp::Int(2)
+        );
+        assert_eq!(
+            execute(&store, &a(&["GET", "k"]), &mut c, None),
+            Resp::Bulk(None)
+        );
     }
 
     #[test]
@@ -1410,8 +1506,19 @@ mod tests {
         let store = mem_store();
         let mut c = conn3();
         // HSET / HGET / HGETALL.
-        assert_eq!(execute(&store, &a(&["HSET", "h", "f1", "v1", "f2", "v2"]), &mut c, None), Resp::Int(2));
-        assert_eq!(execute(&store, &a(&["HGET", "h", "f1"]), &mut c, None), Resp::Bulk(Some(b"v1".to_vec())));
+        assert_eq!(
+            execute(
+                &store,
+                &a(&["HSET", "h", "f1", "v1", "f2", "v2"]),
+                &mut c,
+                None
+            ),
+            Resp::Int(2)
+        );
+        assert_eq!(
+            execute(&store, &a(&["HGET", "h", "f1"]), &mut c, None),
+            Resp::Bulk(Some(b"v1".to_vec()))
+        );
         assert_eq!(
             execute(&store, &a(&["HGETALL", "h"]), &mut c, None),
             Resp::Map(vec![
@@ -1420,24 +1527,52 @@ mod tests {
             ])
         );
         // LPUSH / RPUSH / LRANGE / LLEN. LPUSH a b c → head order c b a.
-        assert_eq!(execute(&store, &a(&["RPUSH", "l", "a", "b"]), &mut c, None), Resp::Int(2));
-        assert_eq!(execute(&store, &a(&["LPUSH", "l", "z"]), &mut c, None), Resp::Int(3));
-        assert_eq!(execute(&store, &a(&["LLEN", "l"]), &mut c, None), Resp::Int(3));
+        assert_eq!(
+            execute(&store, &a(&["RPUSH", "l", "a", "b"]), &mut c, None),
+            Resp::Int(2)
+        );
+        assert_eq!(
+            execute(&store, &a(&["LPUSH", "l", "z"]), &mut c, None),
+            Resp::Int(3)
+        );
+        assert_eq!(
+            execute(&store, &a(&["LLEN", "l"]), &mut c, None),
+            Resp::Int(3)
+        );
         assert_eq!(
             execute(&store, &a(&["LRANGE", "l", "0", "-1"]), &mut c, None),
-            Resp::Array(Some(vec![Resp::bulk_str("z"), Resp::bulk_str("a"), Resp::bulk_str("b")]))
+            Resp::Array(Some(vec![
+                Resp::bulk_str("z"),
+                Resp::bulk_str("a"),
+                Resp::bulk_str("b")
+            ]))
         );
         // SADD / SMEMBERS / SREM (dedup).
-        assert_eq!(execute(&store, &a(&["SADD", "s", "x", "y", "x"]), &mut c, None), Resp::Int(2));
-        assert_eq!(execute(&store, &a(&["SREM", "s", "x"]), &mut c, None), Resp::Int(1));
-        assert_eq!(execute(&store, &a(&["SMEMBERS", "s"]), &mut c, None), Resp::Set(vec![Resp::bulk_str("y")]));
+        assert_eq!(
+            execute(&store, &a(&["SADD", "s", "x", "y", "x"]), &mut c, None),
+            Resp::Int(2)
+        );
+        assert_eq!(
+            execute(&store, &a(&["SREM", "s", "x"]), &mut c, None),
+            Resp::Int(1)
+        );
+        assert_eq!(
+            execute(&store, &a(&["SMEMBERS", "s"]), &mut c, None),
+            Resp::Set(vec![Resp::bulk_str("y")])
+        );
         // ZADD / ZRANGE / ZSCORE (sorted by score).
-        assert_eq!(execute(&store, &a(&["ZADD", "z", "2", "b", "1", "a"]), &mut c, None), Resp::Int(2));
+        assert_eq!(
+            execute(&store, &a(&["ZADD", "z", "2", "b", "1", "a"]), &mut c, None),
+            Resp::Int(2)
+        );
         assert_eq!(
             execute(&store, &a(&["ZRANGE", "z", "0", "-1"]), &mut c, None),
             Resp::Array(Some(vec![Resp::bulk_str("a"), Resp::bulk_str("b")]))
         );
-        assert_eq!(execute(&store, &a(&["ZSCORE", "z", "b"]), &mut c, None), Resp::bulk_str("2"));
+        assert_eq!(
+            execute(&store, &a(&["ZSCORE", "z", "b"]), &mut c, None),
+            Resp::bulk_str("2")
+        );
     }
 
     #[test]
@@ -1466,12 +1601,24 @@ mod tests {
             other => panic!("expected NOAUTH, got {other:?}"),
         }
         // Wrong password rejected.
-        assert!(matches!(execute(&store, &a(&["AUTH", "nope"]), &mut c, Some("secret")), Resp::Error(_)));
+        assert!(matches!(
+            execute(&store, &a(&["AUTH", "nope"]), &mut c, Some("secret")),
+            Resp::Error(_)
+        ));
         // Correct password accepted → subsequent command allowed.
-        assert_eq!(execute(&store, &a(&["AUTH", "secret"]), &mut c, Some("secret")), Resp::Simple("OK".into()));
-        assert_eq!(execute(&store, &a(&["GET", "k"]), &mut c, Some("secret")), Resp::Bulk(None));
+        assert_eq!(
+            execute(&store, &a(&["AUTH", "secret"]), &mut c, Some("secret")),
+            Resp::Simple("OK".into())
+        );
+        assert_eq!(
+            execute(&store, &a(&["GET", "k"]), &mut c, Some("secret")),
+            Resp::Bulk(None)
+        );
         // HELLO 3 upgrades the protocol.
-        assert!(matches!(execute(&store, &a(&["HELLO", "3"]), &mut c, None), Resp::Map(_)));
+        assert!(matches!(
+            execute(&store, &a(&["HELLO", "3"]), &mut c, None),
+            Resp::Map(_)
+        ));
         assert_eq!(c.proto, 3);
     }
 
@@ -1500,9 +1647,13 @@ mod tests {
         s.write_all(b"PING\r\n").await.unwrap();
         assert_eq!(read_reply(&mut s).await, b"+PONG\r\n");
         // SET then GET (array form).
-        s.write_all(b"*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$5\r\nhello\r\n").await.unwrap();
+        s.write_all(b"*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$5\r\nhello\r\n")
+            .await
+            .unwrap();
         assert_eq!(read_reply(&mut s).await, b"+OK\r\n");
-        s.write_all(b"*2\r\n$3\r\nGET\r\n$1\r\nk\r\n").await.unwrap();
+        s.write_all(b"*2\r\n$3\r\nGET\r\n$1\r\nk\r\n")
+            .await
+            .unwrap();
         assert_eq!(read_reply(&mut s).await, b"$5\r\nhello\r\n");
     }
 }

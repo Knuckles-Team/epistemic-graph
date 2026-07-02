@@ -73,7 +73,11 @@ pub fn validate(schema: &Schema, data: &Graph, shape_map: &ShapeMap) -> ShexRepo
     let v = Validator { schema, data };
     let mut results = Vec::with_capacity(shape_map.entries.len());
     for entry in &shape_map.entries {
-        let label = if entry.shape == START { START } else { &entry.shape };
+        let label = if entry.shape == START {
+            START
+        } else {
+            &entry.shape
+        };
         let outcome = v.conforms_to_label(&entry.node, &entry.shape, 0);
         results.push(NodeResult {
             node: entry.node.to_string(),
@@ -192,7 +196,9 @@ impl Validator<'_> {
             return Ok(());
         }
         let Some(s) = lexical(node) else {
-            return Err(format!("node {node} has no lexical form for a string facet"));
+            return Err(format!(
+                "node {node} has no lexical form for a string facet"
+            ));
         };
         let len = s.chars().count();
         if let Some(n) = f.length {
@@ -348,7 +354,10 @@ impl Validator<'_> {
                 // Alternation: commit the first branch that matches on a trial partition.
                 for branch in list {
                     let mut trial = consumed.to_vec();
-                    if self.match_triple_expr(branch, arcs, &mut trial, depth).is_ok() {
+                    if self
+                        .match_triple_expr(branch, arcs, &mut trial, depth)
+                        .is_ok()
+                    {
                         consumed.copy_from_slice(&trial);
                         return Ok(());
                     }

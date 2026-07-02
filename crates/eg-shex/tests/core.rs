@@ -40,7 +40,11 @@ fn conforming_node() {
         r#"ex:alice ex:name "Alice" ."#,
         &[("http://example.org/alice", "http://example.org/PersonShape")],
     );
-    assert!(report.conforms, "expected conforms; got {:?}", report.results);
+    assert!(
+        report.conforms,
+        "expected conforms; got {:?}",
+        report.results
+    );
     assert_eq!(report.results.len(), 1);
     assert!(report.results[0].conforms);
     assert!(report.results[0].reason.is_none());
@@ -104,7 +108,11 @@ fn datatype_violation() {
         r#"ex:dan ex:age "42"^^xsd:integer ."#,
         &[("http://example.org/dan", "http://example.org/AgeShape")],
     );
-    assert!(good.conforms, "integer age conforms; got {:?}", good.results);
+    assert!(
+        good.conforms,
+        "integer age conforms; got {:?}",
+        good.results
+    );
 }
 
 // ── 3b. nodeKind violation (value must be an IRI) ───────────────────────
@@ -207,7 +215,11 @@ fn each_of_requires_all() {
         r#"ex:p ex:name "P" ; ex:age "3" ."#,
         &[("http://example.org/p", "http://example.org/S")],
     );
-    assert!(both.conforms, "both present conforms; got {:?}", both.results);
+    assert!(
+        both.conforms,
+        "both present conforms; got {:?}",
+        both.results
+    );
 }
 
 #[test]
@@ -232,7 +244,11 @@ fn one_of_requires_exactly_one_branch() {
         r#"ex:c ex:email "a@b.c" ."#,
         &[("http://example.org/c", "http://example.org/Contact")],
     );
-    assert!(email_only.conforms, "email satisfies OneOf; got {:?}", email_only.results);
+    assert!(
+        email_only.conforms,
+        "email satisfies OneOf; got {:?}",
+        email_only.results
+    );
 
     let neither = run(
         schema,
@@ -276,7 +292,10 @@ ex:addr1 ex:city "Springfield" .
 "#,
         &[("http://example.org/p", "http://example.org/PersonShape")],
     );
-    assert!(!no_zip.conforms, "address without zip fails the referenced shape");
+    assert!(
+        !no_zip.conforms,
+        "address without zip fails the referenced shape"
+    );
 
     let with_zip = run(
         schema,
@@ -286,7 +305,11 @@ ex:addr1 ex:zip "12345" .
 "#,
         &[("http://example.org/p", "http://example.org/PersonShape")],
     );
-    assert!(with_zip.conforms, "address with zip conforms; got {:?}", with_zip.results);
+    assert!(
+        with_zip.conforms,
+        "address with zip conforms; got {:?}",
+        with_zip.results
+    );
 }
 
 // ── 7. CLOSED shape rejects extra triples ───────────────────────────────
@@ -311,14 +334,22 @@ fn closed_shape_rejects_extra() {
         &[("http://example.org/p", "http://example.org/ClosedPerson")],
     );
     assert!(!extra.conforms, "closed shape must reject ex:nickname");
-    assert!(extra.results[0].reason.as_deref().unwrap().contains("extra"));
+    assert!(extra.results[0]
+        .reason
+        .as_deref()
+        .unwrap()
+        .contains("extra"));
 
     let clean = run(
         schema,
         r#"ex:p ex:name "P" ."#,
         &[("http://example.org/p", "http://example.org/ClosedPerson")],
     );
-    assert!(clean.conforms, "only the mentioned arc ⇒ conforms; got {:?}", clean.results);
+    assert!(
+        clean.conforms,
+        "only the mentioned arc ⇒ conforms; got {:?}",
+        clean.results
+    );
 }
 
 // ── 7b. EXTRA lets a closed shape carry an extra predicate ──────────────
@@ -343,7 +374,11 @@ fn closed_shape_with_extra_predicate() {
         r#"ex:p ex:name "P" ; ex:nickname "PP" ."#,
         &[("http://example.org/p", "http://example.org/ClosedPerson")],
     );
-    assert!(report.conforms, "extra predicate allowed; got {:?}", report.results);
+    assert!(
+        report.conforms,
+        "extra predicate allowed; got {:?}",
+        report.results
+    );
 }
 
 // ── Report is serde-serializable and round-trips ────────────────────────

@@ -42,6 +42,9 @@ mod tests {
     /// CONCEPT:EG-186 — the empty block still yields the stable FNV-1a offset basis.
     #[test]
     fn eg186_content_hash_empty_is_offset_basis() {
-        assert_eq!(content_hash(b""), format!("{:032x}", 0x6c62_272e_07bb_0142_62b8_2175_6295_c58du128));
+        assert_eq!(
+            content_hash(b""),
+            format!("{:032x}", 0x6c62_272e_07bb_0142_62b8_2175_6295_c58du128)
+        );
     }
 }

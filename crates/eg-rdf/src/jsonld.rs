@@ -203,7 +203,9 @@ impl Context {
         let mut best_pfx: Option<(&str, &str)> = None;
         for (pfx, ns) in &self.prefixes {
             if iri.starts_with(ns.as_str())
-                && best_pfx.map(|(_, bns)| ns.len() > bns.len()).unwrap_or(true)
+                && best_pfx
+                    .map(|(_, bns)| ns.len() > bns.len())
+                    .unwrap_or(true)
             {
                 best_pfx = Some((pfx, ns));
             }
@@ -468,7 +470,9 @@ fn walk_node(
     if let Some(g) = m.get("@graph") {
         let inner = match m.get("@id").and_then(|x| x.as_str()) {
             Some(id) => {
-                let e = ctx.map(|c| expand_id(id, c)).unwrap_or_else(|| id.to_string());
+                let e = ctx
+                    .map(|c| expand_id(id, c))
+                    .unwrap_or_else(|| id.to_string());
                 graph_name(&e)?
             }
             None => graph.clone(),
@@ -480,7 +484,9 @@ fn walk_node(
     }
 
     let subj_id = match m.get("@id").and_then(|x| x.as_str()) {
-        Some(id) => ctx.map(|c| expand_id(id, c)).unwrap_or_else(|| id.to_string()),
+        Some(id) => ctx
+            .map(|c| expand_id(id, c))
+            .unwrap_or_else(|| id.to_string()),
         None => {
             // Anonymous node → a fresh blank node.
             format!("_:b{}", out.len())
@@ -506,7 +512,9 @@ fn walk_node(
                 }
             }
             key => {
-                let pred_iri = ctx.map(|c| expand_id(key, c)).unwrap_or_else(|| key.to_string());
+                let pred_iri = ctx
+                    .map(|c| expand_id(key, c))
+                    .unwrap_or_else(|| key.to_string());
                 let coerce_id = ctx
                     .map(|c| c.id_terms.contains(key) || c.id_terms.contains(&pred_iri))
                     .unwrap_or(false);
@@ -539,7 +547,10 @@ fn make_subject(id: &str) -> Result<Subject, String> {
 fn type_values(v: &Value) -> Vec<String> {
     match v {
         Value::String(s) => vec![s.clone()],
-        Value::Array(a) => a.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+        Value::Array(a) => a
+            .iter()
+            .filter_map(|x| x.as_str().map(String::from))
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -558,7 +569,9 @@ fn make_object(item: &Value, ctx: Option<&Context>, coerce_id: bool) -> Result<T
     match item {
         Value::Object(m) => {
             if let Some(id) = m.get("@id").and_then(|x| x.as_str()) {
-                let e = ctx.map(|c| expand_id(id, c)).unwrap_or_else(|| id.to_string());
+                let e = ctx
+                    .map(|c| expand_id(id, c))
+                    .unwrap_or_else(|| id.to_string());
                 return make_resource(&e);
             }
             if let Some(val) = m.get("@value") {
@@ -569,9 +582,10 @@ fn make_object(item: &Value, ctx: Option<&Context>, coerce_id: bool) -> Result<T
                         .map_err(|e| format!("bad @language {lang}: {e}"));
                 }
                 if let Some(dt) = m.get("@type").and_then(|x| x.as_str()) {
-                    let e = ctx.map(|c| expand_id(dt, c)).unwrap_or_else(|| dt.to_string());
-                    let dtn =
-                        NamedNode::new(&e).map_err(|err| format!("bad @type {e}: {err}"))?;
+                    let e = ctx
+                        .map(|c| expand_id(dt, c))
+                        .unwrap_or_else(|| dt.to_string());
+                    let dtn = NamedNode::new(&e).map_err(|err| format!("bad @type {e}: {err}"))?;
                     return Ok(Term::Literal(Literal::new_typed_literal(lex, dtn)));
                 }
                 return Ok(Term::Literal(Literal::new_simple_literal(lex)));
@@ -655,7 +669,10 @@ ex:bob  a ex:Person ;
         let triples = parse_turtle(TTL).unwrap();
         let jld = to_jsonld(&triples, None, None).unwrap();
         // Expanded form is a bare array of node objects.
-        assert!(jld.trim_start().starts_with('['), "expanded form is an array");
+        assert!(
+            jld.trim_start().starts_with('['),
+            "expanded form is an array"
+        );
         let quads = from_jsonld(&jld).unwrap();
         assert_eq!(
             triple_set_key(&triples),
@@ -663,7 +680,9 @@ ex:bob  a ex:Person ;
             "expanded JSON-LD must round-trip the triple set"
         );
         assert!(
-            quads.iter().all(|q| matches!(q.graph_name, GraphName::DefaultGraph)),
+            quads
+                .iter()
+                .all(|q| matches!(q.graph_name, GraphName::DefaultGraph)),
             "no @graph ⇒ default graph"
         );
     }

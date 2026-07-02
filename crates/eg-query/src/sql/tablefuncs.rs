@@ -162,8 +162,11 @@ impl TableFunctionImpl for GenerateSeriesFunc {
                 None => break,
             }
         }
-        let schema: SchemaRef =
-            Arc::new(Schema::new(vec![Field::new("value", DataType::Int64, false)]));
+        let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            false,
+        )]));
         let col: Int64Array = values.into_iter().map(Some).collect();
         let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(col)])
             .map_err(|e| DataFusionError::Execution(format!("generate_series batch: {e}")))?;

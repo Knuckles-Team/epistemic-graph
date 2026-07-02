@@ -431,7 +431,8 @@ fn evaluate_outcome_svc(
                 Some(names) => names
                     .iter()
                     .filter_map(|g| {
-                        ds.named_view(g.as_str()).map(|v| (g.as_str().to_string(), v))
+                        ds.named_view(g.as_str())
+                            .map(|v| (g.as_str().to_string(), v))
                     })
                     .collect(),
                 None => ds.named.clone(),
@@ -1177,8 +1178,10 @@ fn compute_aggregate(ctx: &Ctx, agg: &AggregateExpression, members: &[Solution])
             distinct,
         } => {
             // The per-row values of the aggregated expression (skipping unbound rows).
-            let mut vals: Vec<String> =
-                members.iter().filter_map(|s| expr_str(ctx, expr, s)).collect();
+            let mut vals: Vec<String> = members
+                .iter()
+                .filter_map(|s| expr_str(ctx, expr, s))
+                .collect();
             if *distinct {
                 let mut seen = std::collections::HashSet::new();
                 vals.retain(|v| seen.insert(v.clone()));
@@ -1719,13 +1722,15 @@ fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
         Expression::Variable(v) => sol.get(v.as_str()).cloned(),
         Expression::Literal(l) => Some(Binding::Literal(l.value().to_string())),
         Expression::NamedNode(n) => Some(Binding::Node(format!("<{}>", n.as_str()))),
-        Expression::Add(a, b) => Some(Binding::Literal(fmt_num(num(ctx, a, sol)? + num(ctx, b, sol)?))),
-        Expression::Subtract(a, b) => {
-            Some(Binding::Literal(fmt_num(num(ctx, a, sol)? - num(ctx, b, sol)?)))
-        }
-        Expression::Multiply(a, b) => {
-            Some(Binding::Literal(fmt_num(num(ctx, a, sol)? * num(ctx, b, sol)?)))
-        }
+        Expression::Add(a, b) => Some(Binding::Literal(fmt_num(
+            num(ctx, a, sol)? + num(ctx, b, sol)?,
+        ))),
+        Expression::Subtract(a, b) => Some(Binding::Literal(fmt_num(
+            num(ctx, a, sol)? - num(ctx, b, sol)?,
+        ))),
+        Expression::Multiply(a, b) => Some(Binding::Literal(fmt_num(
+            num(ctx, a, sol)? * num(ctx, b, sol)?,
+        ))),
         Expression::Divide(a, b) => {
             let d = num(ctx, b, sol)?;
             if d == 0.0 {
@@ -1758,21 +1763,35 @@ fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
         | Expression::Not(..)
         | Expression::In(..)
         | Expression::Exists(_) => Some(Binding::Literal(
-            if eval_expr_bool(ctx, e, sol)? { "true" } else { "false" }.to_string(),
+            if eval_expr_bool(ctx, e, sol)? {
+                "true"
+            } else {
+                "false"
+            }
+            .to_string(),
         )),
     }
 }
 
 /// Boolean SPARQL built-ins (CONCEPT:EG-053): `REGEX`, `CONTAINS`/`STRSTARTS`/`STRENDS`,
 /// `LANGMATCHES`, and the `isIRI`/`isBlank`/`isLiteral`/`isNumeric` type tests.
-fn eval_bool_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solution) -> Option<bool> {
+fn eval_bool_function(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<bool> {
     use spargebra::algebra::Function as F;
     match f {
-        F::Contains => Some(expr_str(ctx, args.first()?, sol)?.contains(&expr_str(ctx, args.get(1)?, sol)?)),
+        F::Contains => {
+            Some(expr_str(ctx, args.first()?, sol)?.contains(&expr_str(ctx, args.get(1)?, sol)?))
+        }
         F::StrStarts => {
             Some(expr_str(ctx, args.first()?, sol)?.starts_with(&expr_str(ctx, args.get(1)?, sol)?))
         }
-        F::StrEnds => Some(expr_str(ctx, args.first()?, sol)?.ends_with(&expr_str(ctx, args.get(1)?, sol)?)),
+        F::StrEnds => {
+            Some(expr_str(ctx, args.first()?, sol)?.ends_with(&expr_str(ctx, args.get(1)?, sol)?))
+        }
         F::LangMatches => {
             let tag = expr_str(ctx, args.first()?, sol)?.to_lowercase();
             let range = expr_str(ctx, args.get(1)?, sol)?.to_lowercase();
@@ -1785,13 +1804,18 @@ fn eval_bool_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Soluti
         F::Regex => {
             let text = expr_str(ctx, args.first()?, sol)?;
             let pat = expr_str(ctx, args.get(1)?, sol)?;
-            let flags = args.get(2).and_then(|f| expr_str(ctx, f, sol)).unwrap_or_default();
+            let flags = args
+                .get(2)
+                .and_then(|f| expr_str(ctx, f, sol))
+                .unwrap_or_default();
             let pattern = if flags.contains('i') {
                 format!("(?i){pat}")
             } else {
                 pat
             };
-            regex::Regex::new(&pattern).ok().map(|re| re.is_match(&text))
+            regex::Regex::new(&pattern)
+                .ok()
+                .map(|re| re.is_match(&text))
         }
         F::IsNumeric => Some(
             eval_term(ctx, args.first()?, sol)
@@ -1837,10 +1861,19 @@ fn eval_bool_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Soluti
 /// String/term-valued SPARQL built-ins (CONCEPT:EG-053): `STR`/`IRI`/`LANG`/`DATATYPE`,
 /// `UCASE`/`LCASE`/`STRLEN`/`CONCAT`/`SUBSTR`, plus the boolean built-ins rendered as an
 /// xsd:boolean lexical so they compose inside other string expressions.
-fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solution) -> Option<Binding> {
+fn eval_str_function(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
     use spargebra::algebra::Function as F;
     match f {
-        F::Str => Some(Binding::Literal(term_lexical(&eval_term(ctx, args.first()?, sol)?))),
+        F::Str => Some(Binding::Literal(term_lexical(&eval_term(
+            ctx,
+            args.first()?,
+            sol,
+        )?))),
         F::Iri => {
             let iri = expr_str(ctx, args.first()?, sol)?
                 .trim_start_matches('<')
@@ -1855,8 +1888,12 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
             "<{}>",
             best_effort_datatype(&eval_term(ctx, args.first()?, sol)?)
         ))),
-        F::UCase => Some(Binding::Literal(expr_str(ctx, args.first()?, sol)?.to_uppercase())),
-        F::LCase => Some(Binding::Literal(expr_str(ctx, args.first()?, sol)?.to_lowercase())),
+        F::UCase => Some(Binding::Literal(
+            expr_str(ctx, args.first()?, sol)?.to_uppercase(),
+        )),
+        F::LCase => Some(Binding::Literal(
+            expr_str(ctx, args.first()?, sol)?.to_lowercase(),
+        )),
         F::StrLen => Some(Binding::Literal(fmt_num(
             expr_str(ctx, args.first()?, sol)?.chars().count() as f64,
         ))),
@@ -1903,35 +1940,77 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
         // Pure-Rust RustCrypto, gated behind `sparql-hash` (OUT of pi). When the
         // feature is off they fall through to `_ => None` (unsupported, fails SAFE).
         #[cfg(feature = "sparql-hash")]
-        F::Md5 => Some(Binding::Literal(hash_hex::<md5::Md5>(&expr_str(ctx, args.first()?, sol)?))),
+        F::Md5 => Some(Binding::Literal(hash_hex::<md5::Md5>(&expr_str(
+            ctx,
+            args.first()?,
+            sol,
+        )?))),
         #[cfg(feature = "sparql-hash")]
-        F::Sha1 => Some(Binding::Literal(hash_hex::<sha1::Sha1>(&expr_str(ctx, args.first()?, sol)?))),
+        F::Sha1 => Some(Binding::Literal(hash_hex::<sha1::Sha1>(&expr_str(
+            ctx,
+            args.first()?,
+            sol,
+        )?))),
         #[cfg(feature = "sparql-hash")]
-        F::Sha256 => Some(Binding::Literal(hash_hex::<sha2::Sha256>(&expr_str(ctx, args.first()?, sol)?))),
+        F::Sha256 => Some(Binding::Literal(hash_hex::<sha2::Sha256>(&expr_str(
+            ctx,
+            args.first()?,
+            sol,
+        )?))),
         #[cfg(feature = "sparql-hash")]
-        F::Sha384 => Some(Binding::Literal(hash_hex::<sha2::Sha384>(&expr_str(ctx, args.first()?, sol)?))),
+        F::Sha384 => Some(Binding::Literal(hash_hex::<sha2::Sha384>(&expr_str(
+            ctx,
+            args.first()?,
+            sol,
+        )?))),
         #[cfg(feature = "sparql-hash")]
-        F::Sha512 => Some(Binding::Literal(hash_hex::<sha2::Sha512>(&expr_str(ctx, args.first()?, sol)?))),
+        F::Sha512 => Some(Binding::Literal(hash_hex::<sha2::Sha512>(&expr_str(
+            ctx,
+            args.first()?,
+            sol,
+        )?))),
 
         // ── Numeric built-ins (CONCEPT:EG-127) ───────────────────────────────
-        F::Abs => Some(Binding::Literal(fmt_num(num(ctx, args.first()?, sol)?.abs()))),
-        F::Ceil => Some(Binding::Literal(fmt_num(num(ctx, args.first()?, sol)?.ceil()))),
-        F::Floor => Some(Binding::Literal(fmt_num(num(ctx, args.first()?, sol)?.floor()))),
+        F::Abs => Some(Binding::Literal(fmt_num(
+            num(ctx, args.first()?, sol)?.abs(),
+        ))),
+        F::Ceil => Some(Binding::Literal(fmt_num(
+            num(ctx, args.first()?, sol)?.ceil(),
+        ))),
+        F::Floor => Some(Binding::Literal(fmt_num(
+            num(ctx, args.first()?, sol)?.floor(),
+        ))),
         // SPARQL ROUND is half-towards-positive-infinity (ROUND(-2.5)=-2, ROUND(2.5)=3).
-        F::Round => Some(Binding::Literal(fmt_num((num(ctx, args.first()?, sol)? + 0.5).floor()))),
+        F::Round => Some(Binding::Literal(fmt_num(
+            (num(ctx, args.first()?, sol)? + 0.5).floor(),
+        ))),
         // RAND() → xsd:double in [0,1). NON-DETERMINISTIC.
         F::Rand => Some(Binding::Literal(fmt_num(rand_f64()))),
 
         // ── Date-time built-ins (CONCEPT:EG-127) ─────────────────────────────
         // NOW() → the current xsd:dateTime (UTC). NON-DETERMINISTIC.
         F::Now => Some(Binding::Literal(now_xsd_datetime())),
-        F::Year => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.year as f64))),
-        F::Month => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.month as f64))),
-        F::Day => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.day as f64))),
-        F::Hours => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.hour as f64))),
-        F::Minutes => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.minute as f64))),
-        F::Seconds => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.second))),
-        F::Tz => Some(Binding::Literal(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.tz)),
+        F::Year => Some(Binding::Literal(fmt_num(
+            parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.year as f64,
+        ))),
+        F::Month => Some(Binding::Literal(fmt_num(
+            parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.month as f64,
+        ))),
+        F::Day => Some(Binding::Literal(fmt_num(
+            parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.day as f64,
+        ))),
+        F::Hours => Some(Binding::Literal(fmt_num(
+            parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.hour as f64,
+        ))),
+        F::Minutes => Some(Binding::Literal(fmt_num(
+            parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.minute as f64,
+        ))),
+        F::Seconds => Some(Binding::Literal(fmt_num(
+            parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.second,
+        ))),
+        F::Tz => Some(Binding::Literal(
+            parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.tz,
+        )),
         F::Timezone => Some(Binding::Literal(tz_to_duration(
             &parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.tz,
         ))),
@@ -1959,12 +2038,25 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
             let s = expr_str(ctx, args.first()?, sol)?;
             let pat = expr_str(ctx, args.get(1)?, sol)?;
             let rep = expr_str(ctx, args.get(2)?, sol)?;
-            let flags = args.get(3).and_then(|fl| expr_str(ctx, fl, sol)).unwrap_or_default();
-            let pattern = if flags.contains('i') { format!("(?i){pat}") } else { pat };
+            let flags = args
+                .get(3)
+                .and_then(|fl| expr_str(ctx, fl, sol))
+                .unwrap_or_default();
+            let pattern = if flags.contains('i') {
+                format!("(?i){pat}")
+            } else {
+                pat
+            };
             let re = regex::Regex::new(&pattern).ok()?;
-            Some(Binding::Literal(re.replace_all(&s, rep.as_str()).into_owned()))
+            Some(Binding::Literal(
+                re.replace_all(&s, rep.as_str()).into_owned(),
+            ))
         }
-        F::EncodeForUri => Some(Binding::Literal(encode_for_uri(&expr_str(ctx, args.first()?, sol)?))),
+        F::EncodeForUri => Some(Binding::Literal(encode_for_uri(&expr_str(
+            ctx,
+            args.first()?,
+            sol,
+        )?))),
 
         // ── RDF-star / SPARQL-star term accessors (CONCEPT:EG-130) ────────────
         // A quoted triple is a first-class term encoded as the canonical `<< s p o >>`
@@ -1985,13 +2077,30 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
         F::Object => quoted_component(&eval_term(ctx, args.first()?, sol)?, 2),
         #[cfg(feature = "sparql-star")]
         F::IsTriple => Some(Binding::Literal(
-            if eval_bool_function(ctx, f, args, sol)? { "true" } else { "false" }.to_string(),
+            if eval_bool_function(ctx, f, args, sol)? {
+                "true"
+            } else {
+                "false"
+            }
+            .to_string(),
         )),
 
         // Boolean built-ins composed in a string context → "true"/"false".
-        F::Contains | F::StrStarts | F::StrEnds | F::Regex | F::LangMatches | F::IsIri
-        | F::IsBlank | F::IsLiteral | F::IsNumeric => Some(Binding::Literal(
-            if eval_bool_function(ctx, f, args, sol)? { "true" } else { "false" }.to_string(),
+        F::Contains
+        | F::StrStarts
+        | F::StrEnds
+        | F::Regex
+        | F::LangMatches
+        | F::IsIri
+        | F::IsBlank
+        | F::IsLiteral
+        | F::IsNumeric => Some(Binding::Literal(
+            if eval_bool_function(ctx, f, args, sol)? {
+                "true"
+            } else {
+                "false"
+            }
+            .to_string(),
         )),
         // GeoSPARQL value functions (CONCEPT:EG-261): `geof:distance(a,b,units)` → a
         // numeric literal; `geof:buffer(g,radius,units)` → a WKT lexical (a wktLiteral).
@@ -2003,17 +2112,32 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
                 "distance" => {
                     let a = expr_str(ctx, args.first()?, sol)?;
                     let b = expr_str(ctx, args.get(1)?, sol)?;
-                    let units = args.get(2).and_then(|u| expr_str(ctx, u, sol)).unwrap_or_default();
-                    Some(Binding::Literal(fmt_num(crate::geosparql::eval_distance(&a, &b, &units)?)))
+                    let units = args
+                        .get(2)
+                        .and_then(|u| expr_str(ctx, u, sol))
+                        .unwrap_or_default();
+                    Some(Binding::Literal(fmt_num(crate::geosparql::eval_distance(
+                        &a, &b, &units,
+                    )?)))
                 }
                 "buffer" => {
                     let g = expr_str(ctx, args.first()?, sol)?;
                     let radius = num(ctx, args.get(1)?, sol)?;
-                    let units = args.get(2).and_then(|u| expr_str(ctx, u, sol)).unwrap_or_default();
-                    Some(Binding::Literal(crate::geosparql::eval_buffer(&g, radius, &units)?))
+                    let units = args
+                        .get(2)
+                        .and_then(|u| expr_str(ctx, u, sol))
+                        .unwrap_or_default();
+                    Some(Binding::Literal(crate::geosparql::eval_buffer(
+                        &g, radius, &units,
+                    )?))
                 }
                 _ => Some(Binding::Literal(
-                    if eval_bool_function(ctx, f, args, sol)? { "true" } else { "false" }.to_string(),
+                    if eval_bool_function(ctx, f, args, sol)? {
+                        "true"
+                    } else {
+                        "false"
+                    }
+                    .to_string(),
                 )),
             }
         }
@@ -2109,9 +2233,8 @@ fn next_rand_u64() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
-    let mut x = RNG_STATE
-        .fetch_add(0x9E37_79B9_7F4A_7C15, std::sync::atomic::Ordering::Relaxed)
-        ^ t;
+    let mut x =
+        RNG_STATE.fetch_add(0x9E37_79B9_7F4A_7C15, std::sync::atomic::Ordering::Relaxed) ^ t;
     x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     x ^ (x >> 31)
@@ -2131,7 +2254,13 @@ fn fresh_id() -> u64 {
 fn sanitize_bnode_label(s: &str) -> String {
     let cleaned: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if cleaned.is_empty() {
         format!("b{:x}", fresh_id())
@@ -3057,7 +3186,11 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         )
         .unwrap();
         assert_eq!(res.solutions.len(), 1, "one aggregate row");
-        assert_eq!(res.solutions[0].get("n").unwrap().as_str(), "3", "got {res:?}");
+        assert_eq!(
+            res.solutions[0].get("n").unwrap().as_str(),
+            "3",
+            "got {res:?}"
+        );
     }
 
     /// EG-051 regression: a plain top-level SELECT is byte-for-byte unchanged.
@@ -3105,7 +3238,10 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn filter_regex() {
         let view = loaded_view();
-        assert_eq!(filtered_names(&view, r#"REGEX(?name, "^a", "i")"#), vec!["Alice"]);
+        assert_eq!(
+            filtered_names(&view, r#"REGEX(?name, "^a", "i")"#),
+            vec!["Alice"]
+        );
     }
 
     /// EG-053: arithmetic inside a comparison (`?age + 5 > 40`).
@@ -3129,15 +3265,24 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn filter_not_in() {
         let view = loaded_view();
-        assert_eq!(filtered_names(&view, r#"?name NOT IN ("Alice", "Bob")"#), vec!["Carol"]);
+        assert_eq!(
+            filtered_names(&view, r#"?name NOT IN ("Alice", "Bob")"#),
+            vec!["Carol"]
+        );
     }
 
     /// EG-053: string built-ins — CONTAINS and UCASE.
     #[test]
     fn filter_string_functions() {
         let view = loaded_view();
-        assert_eq!(filtered_names(&view, r#"CONTAINS(?name, "li")"#), vec!["Alice"]);
-        assert_eq!(filtered_names(&view, r#"UCASE(?name) = "BOB""#), vec!["Bob"]);
+        assert_eq!(
+            filtered_names(&view, r#"CONTAINS(?name, "li")"#),
+            vec!["Alice"]
+        );
+        assert_eq!(
+            filtered_names(&view, r#"UCASE(?name) = "BOB""#),
+            vec!["Bob"]
+        );
         assert_eq!(filtered_names(&view, "STRLEN(?name) = 3"), vec!["Bob"]);
     }
 
@@ -3342,7 +3487,11 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
             .unwrap()
             .solutions
             .iter()
-            .map(|s| s.get(col).map(|b| b.as_str().to_string()).unwrap_or_default())
+            .map(|s| {
+                s.get(col)
+                    .map(|b| b.as_str().to_string())
+                    .unwrap_or_default()
+            })
             .collect()
     }
 
@@ -3543,7 +3692,11 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
                 .map(|s| s.get("s").unwrap().as_str().to_string())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(from_a.len(), 1, "FROM <g/a> restricts to one edge: {from_a:?}");
+        assert_eq!(
+            from_a.len(),
+            1,
+            "FROM <g/a> restricts to one edge: {from_a:?}"
+        );
         assert!(from_a[0].contains("<http://ex/a>"), "got {from_a:?}");
     }
 
@@ -3606,7 +3759,12 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         else {
             panic!()
         };
-        assert_eq!(r.solutions.len(), 3, "SILENT pass-through: {:?}", r.solutions);
+        assert_eq!(
+            r.solutions.len(),
+            3,
+            "SILENT pass-through: {:?}",
+            r.solutions
+        );
     }
 
     /// (c) A non-SILENT remote error propagates; a `None` client (fail-closed) errors too.
@@ -3685,7 +3843,10 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
     #[test]
     fn eg127_hash_builtins_known_vectors() {
         let v = loaded_view();
-        assert_eq!(scalar(&v, r#"MD5("abc")"#), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(
+            scalar(&v, r#"MD5("abc")"#),
+            "900150983cd24fb0d6963f7d28e17f72"
+        );
         assert_eq!(
             scalar(&v, r#"SHA1("abc")"#),
             "a9993e364706816aba3e25717850c26c9cd0d89d"
@@ -3717,7 +3878,10 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         );
         // STRDT keeps the lexical value; BNODE(str) yields a labelled blank node.
         assert_eq!(
-            scalar(&v, r#"STRDT("42", <http://www.w3.org/2001/XMLSchema#integer>)"#),
+            scalar(
+                &v,
+                r#"STRDT("42", <http://www.w3.org/2001/XMLSchema#integer>)"#
+            ),
             "42"
         );
         assert_eq!(scalar(&v, r#"STR(BNODE("tag1"))"#), "_:tag1");
@@ -3785,9 +3949,18 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         );
         assert_eq!(scalar(&v, &format!("isTRIPLE({t})")), "true");
         assert_eq!(scalar(&v, "isTRIPLE(<http://example.org/a>)"), "false");
-        assert_eq!(scalar(&v, &format!("STR(SUBJECT({t}))")), "http://example.org/a");
-        assert_eq!(scalar(&v, &format!("STR(PREDICATE({t}))")), "http://example.org/b");
-        assert_eq!(scalar(&v, &format!("STR(OBJECT({t}))")), "http://example.org/c");
+        assert_eq!(
+            scalar(&v, &format!("STR(SUBJECT({t}))")),
+            "http://example.org/a"
+        );
+        assert_eq!(
+            scalar(&v, &format!("STR(PREDICATE({t}))")),
+            "http://example.org/b"
+        );
+        assert_eq!(
+            scalar(&v, &format!("STR(OBJECT({t}))")),
+            "http://example.org/c"
+        );
     }
 
     // ── EG-261: GeoSPARQL baseline over a full SPARQL query ─────────────────────

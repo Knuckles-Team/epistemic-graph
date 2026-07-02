@@ -424,6 +424,7 @@ mod tests {
         let a = Point::new(0.0, 0.0);
         let b = Point::new(10.0, 0.0);
         assert_eq!(point_segment_distance(&Point::new(5.0, 3.0), &a, &b), 3.0);
-        assert_eq!(point_segment_distance(&Point::new(-4.0, 0.0), &a, &b), 4.0); // clamps to a
+        assert_eq!(point_segment_distance(&Point::new(-4.0, 0.0), &a, &b), 4.0);
+        // clamps to a
     }
 }

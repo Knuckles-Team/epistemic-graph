@@ -11,9 +11,7 @@
 
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::{GraphCore, GraphView};
-use eg_types::wire::{
-    CepAttrPredSpec, CepMatcherSpec, CepNodeSpec, CepPatternSpec, CepWindowSpec,
-};
+use eg_types::wire::{CepAttrPredSpec, CepMatcherSpec, CepNodeSpec, CepPatternSpec, CepWindowSpec};
 use serde_json::json;
 
 use crate::algebra::{Op, Plan};
@@ -30,10 +28,22 @@ fn blob(v: serde_json::Value) -> Vec<u8> {
 ///   D0 is a Doc with no `ts` (not an event; must never appear in a CEP result).
 fn events() -> GraphView {
     let core = GraphCore::new();
-    core.add_node("E1".into(), blob(json!({ "type": "Event", "ts": 10, "key": "login" })));
-    core.add_node("E2".into(), blob(json!({ "type": "Event", "ts": 15, "key": "logout" })));
-    core.add_node("E3".into(), blob(json!({ "type": "Event", "ts": 100, "key": "login" })));
-    core.add_node("E4".into(), blob(json!({ "type": "Event", "ts": 200, "key": "logout" })));
+    core.add_node(
+        "E1".into(),
+        blob(json!({ "type": "Event", "ts": 10, "key": "login" })),
+    );
+    core.add_node(
+        "E2".into(),
+        blob(json!({ "type": "Event", "ts": 15, "key": "logout" })),
+    );
+    core.add_node(
+        "E3".into(),
+        blob(json!({ "type": "Event", "ts": 100, "key": "login" })),
+    );
+    core.add_node(
+        "E4".into(),
+        blob(json!({ "type": "Event", "ts": 200, "key": "logout" })),
+    );
     core.add_node("D0".into(), blob(json!({ "type": "Doc", "year": 2025 })));
     core.analysis_snapshot()
 }

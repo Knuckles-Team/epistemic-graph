@@ -364,11 +364,7 @@ mod tests {
 
     fn t_2x3_f32() -> Tensor {
         // [[1,2,3],[4,5,6]]
-        Tensor::new(
-            vec![2, 3],
-            Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
-        )
-        .unwrap()
+        Tensor::new(vec![2, 3], Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])).unwrap()
     }
 
     #[test]
@@ -404,7 +400,7 @@ mod tests {
     #[test]
     fn reduce_over_axis() {
         let t = t_2x3_f32(); // [[1,2,3],[4,5,6]]
-        // sum over axis 0 (rows) → [5,7,9]
+                             // sum over axis 0 (rows) → [5,7,9]
         let s0 = t.reduce(0, ReduceKind::Sum).unwrap();
         assert_eq!(s0.shape, vec![3]);
         assert_eq!(s0.data, Buffer::F32(vec![5.0, 7.0, 9.0]));
@@ -430,11 +426,7 @@ mod tests {
     #[test]
     fn reduce_3d_middle_axis() {
         // shape [2,2,2], values 0..8 row-major
-        let t = Tensor::new(
-            vec![2, 2, 2],
-            Buffer::I64((0..8).collect::<Vec<i64>>()),
-        )
-        .unwrap();
+        let t = Tensor::new(vec![2, 2, 2], Buffer::I64((0..8).collect::<Vec<i64>>())).unwrap();
         // sum over axis 1: out shape [2,2].
         // element (i,k) = src(i,0,k)+src(i,1,k)
         // src flat = i*4 + j*2 + k
@@ -451,7 +443,10 @@ mod tests {
         assert_eq!(d.data, Buffer::F32(vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0]));
         assert_eq!(d.shape, vec![2, 3]);
         let a = t.elementwise(ElementwiseOp::Add, 10.0);
-        assert_eq!(a.data, Buffer::F32(vec![11.0, 12.0, 13.0, 14.0, 15.0, 16.0]));
+        assert_eq!(
+            a.data,
+            Buffer::F32(vec![11.0, 12.0, 13.0, 14.0, 15.0, 16.0])
+        );
     }
 
     #[test]
