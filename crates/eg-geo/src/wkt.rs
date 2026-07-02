@@ -21,19 +21,37 @@
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 
 /// Parse a WKT/EWKT string into a [`Geometry`]. Returns `Err(msg)` on malformed input.
+/// A leading EWKT `SRID=<n>;` prefix is tolerated and ignored — use [`parse_with_srid`]
+/// to also recover the SRID/CRS tag (CONCEPT:EG-255).
 pub fn parse(input: &str) -> Result<Geometry, String> {
     let s = strip_srid(input.trim());
     parse_geometry(s.trim())
 }
 
+/// Parse a WKT/EWKT string into a `(Option<srid>, Geometry)` pair (CONCEPT:EG-255): the
+/// EWKT `SRID=<n>;` prefix EG-257 already tolerated is captured here as the geometry's
+/// CRS tag (`None` when absent). The geometry value itself is identical to [`parse`]'s.
+pub fn parse_with_srid(input: &str) -> Result<(Option<u32>, Geometry), String> {
+    let trimmed = input.trim();
+    let (srid, rest) = split_srid(trimmed);
+    Ok((srid, parse_geometry(rest.trim())?))
+}
+
 /// Drop a leading EWKT `SRID=<n>;` prefix (case-insensitive), returning the remainder.
 fn strip_srid(s: &str) -> &str {
+    split_srid(s).1
+}
+
+/// Split a leading EWKT `SRID=<n>;` prefix (case-insensitive) into the parsed SRID (when
+/// the digits parse) and the remaining geometry text.
+fn split_srid(s: &str) -> (Option<u32>, &str) {
     if s.len() >= 5 && s[..5].eq_ignore_ascii_case("SRID=") {
         if let Some(semi) = s.find(';') {
-            return s[semi + 1..].trim_start();
+            let srid = s[5..semi].trim().parse::<u32>().ok();
+            return (srid, s[semi + 1..].trim_start());
         }
     }
-    s
+    (None, s)
 }
 
 /// Parse one geometry (the recursive entry point used by `GEOMETRYCOLLECTION`).
@@ -365,6 +383,20 @@ mod tests {
         // whitespace + lowercase srid
         let g2 = parse("srid=4326; POLYGON ((0 0, 1 0, 1 1, 0 0))").unwrap();
         assert!(matches!(g2, Geometry::Polygon(_)));
+    }
+
+    #[test]
+    fn parse_with_srid_recovers_tag() {
+        let (srid, g) = parse_with_srid("SRID=4326;POINT (30 10)").unwrap();
+        assert_eq!(srid, Some(4326));
+        assert_eq!(g, Geometry::Point(Point::new(30.0, 10.0)));
+        // No prefix ⇒ no tag; geometry still parses.
+        let (srid2, g2) = parse_with_srid("POINT (1 2)").unwrap();
+        assert_eq!(srid2, None);
+        assert_eq!(g2, Geometry::Point(Point::new(1.0, 2.0)));
+        // Web-Mercator EWKT.
+        let (srid3, _) = parse_with_srid("srid=3857; POINT (0 0)").unwrap();
+        assert_eq!(srid3, Some(3857));
     }
 
     #[test]
