@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm", "crates/eg-graphql"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm", "crates/eg-graphql"]
 
 [package]
 name = "epistemic-graph"
