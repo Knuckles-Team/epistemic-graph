@@ -80,6 +80,20 @@ pub mod amqp_wire;
 // `wire`/`WireSession` core (Bolt speaks Cypher). Default/pi builds compile NONE of it.
 #[cfg(feature = "bolt-wire")]
 pub mod bolt_wire;
+// Redis RESP wire-protocol listener (CONCEPT:EG-174). A native, hand-rolled Redis
+// server — a RESP2 + RESP3 codec + the core command set (string/list/hash/set/zset,
+// GET/SET/EXPIRE/SCAN/…) over the engine's durable KV surface (CONCEPT:EG-022).
+// Behind the `redis-wire` cargo feature (pulls `kv`); links NO redis crate (Pi
+// contract). Default/pi builds compile NONE of it.
+#[cfg(feature = "redis-wire")]
+pub mod redis_wire;
+// S3-compatible object-storage REST surface (CONCEPT:EG-176). A hand-rolled HTTP/1.1
+// listener exposing PutObject/GetObject/ListObjectsV2/CreateBucket/… over the
+// content-addressed BLOB CAS (bytes) + the durable KV index (listing), with a
+// SigV4-lite auth guard. Behind the `s3-api` cargo feature (pulls `blob` + `kv`).
+// Default/pi builds compile NONE of it.
+#[cfg(feature = "s3-api")]
+pub mod s3;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
