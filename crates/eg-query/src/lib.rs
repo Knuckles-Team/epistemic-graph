@@ -19,14 +19,16 @@ pub mod tables;
 
 #[cfg(feature = "sql")]
 pub use sql::{
-    classify, exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed,
-    exec_sql_typed_with_tables, infer_param_sites, returning_columns, schema_probe_sql,
-    AlterTablePlan, ColumnDef, CopyFormat,
-    CopyPlan, CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable,
-    DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
+    classify, cypher_output_columns, exec_sql, exec_sql_cached, exec_sql_over_tables,
+    exec_sql_typed, exec_sql_typed_with_tables, infer_param_sites, parse_create_ann_index,
+    parse_cypher_call, plan_ann_search, plan_bm25_search, project_cypher_rows, returning_columns,
+    schema_probe_sql, AlterTablePlan, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan,
+    ColumnDef, ContinuousAggPlan, CopyFormat, CopyPlan, CreateTablePlan, CreateViewPlan,
+    CypherCallPlan, CypherColumn, DeleteNodes, DeleteNodesJoin, DeleteTable, DropTablePlan,
+    DropViewPlan, HypertablePlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
     InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite, PgColType, QueryResult,
     SqlCache, StatementKind, TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes,
-    UpdateNodesJoin, UpdateTable, WhereEq,
+    UpdateNodesJoin, UpdateTable, VectorMetric, WhereEq,
 };
 
 #[cfg(feature = "sql")]

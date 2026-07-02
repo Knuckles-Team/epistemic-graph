@@ -46,11 +46,11 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use eg_query::{
-    AlterTablePlan, Column, ColumnType, CopyFormat, CopyPlan, CreateTablePlan, CreateViewPlan,
-    DeleteNodes, DeleteNodesJoin, DeleteTable, DropTablePlan, DropViewPlan, InsertNodes,
-    InsertNodesSelect, InsertSelect, InsertTable, OnConflictAction, PgColType, StatementKind,
-    TableSchema, TableStore, TableTxn, TxnOp, TypedColumn, TypedQueryResult, UpdateNodes,
-    UpdateNodesJoin, UpdateTable, WhereEq,
+    AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan, CopyFormat, CopyPlan,
+    CreateTablePlan, CreateViewPlan, CypherCallPlan, DeleteNodes, DeleteNodesJoin, DeleteTable,
+    DropTablePlan, DropViewPlan, HypertablePlan, InsertNodes, InsertNodesSelect, InsertSelect,
+    InsertTable, OnConflictAction, PgColType, StatementKind, TableSchema, TableStore, TableTxn,
+    TxnOp, TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 
 use crate::isolation::AccessLevel;
@@ -271,6 +271,18 @@ pub(crate) fn returning_result(
         rows.push(row);
     }
     TypedQueryResult { columns, rows }
+}
+
+/// A single-column, single-row text result (CONCEPT:EG-117) — the shape a scalar
+/// set-returning function like `create_hypertable(...)` returns to a client.
+pub(crate) fn single_text_result(col: &str, val: &str) -> TypedQueryResult {
+    TypedQueryResult {
+        columns: vec![TypedColumn {
+            name: col.to_string(),
+            ty: PgColType::Text,
+        }],
+        rows: vec![vec![serde_json::Value::String(val.to_string())]],
+    }
 }
 
 // ── per-connection copy + transaction state ───────────────────────────────────
@@ -747,6 +759,16 @@ impl WireSession {
             StatementKind::DropExtension { name, if_exists } => {
                 self.run_drop_extension(name, if_exists).await
             }
+            // ── Postgres-family extension parity (wave 19) ──────────────────────────
+            // CONCEPT:EG-114 — Apache AGE cypher() set-returning function.
+            StatementKind::CypherCall(plan) => self.run_cypher_call(graph, plan).await,
+            // CONCEPT:EG-116 — pgvector ANN index registration.
+            StatementKind::CreateAnnIndex(plan) => self.run_create_ann_index(plan).await,
+            // CONCEPT:EG-117 — TimescaleDB hypertable + continuous aggregate.
+            StatementKind::CreateHypertable(plan) => self.run_create_hypertable(plan).await,
+            StatementKind::CreateContinuousAggregate(plan) => {
+                self.run_create_continuous_aggregate(plan).await
+            }
             // `COPY … FROM STDIN` (CONCEPT:EG-020): switch into copy-in mode; the
             // streamed rows are ingested by the wire's copy-done hook.
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
@@ -969,6 +991,82 @@ impl WireSession {
             .map_err(|e| user_err(format!("drop extension task failed: {e}")))?
             .map_err(user_err)?;
         Ok(WireOutcome::command("DROP EXTENSION"))
+    }
+
+    /// CONCEPT:EG-114 — `SELECT … FROM cypher('graph', $$ … $$) AS (cols…)`: run the
+    /// inner Cypher on the named graph over its off-lock snapshot, then project the
+    /// agtype (JSON) result onto the typed `AS` columns. Behind the `cypher` feature.
+    async fn run_cypher_call(
+        &self,
+        graph: &str,
+        plan: CypherCallPlan,
+    ) -> WireResult<WireOutcome> {
+        #[cfg(feature = "cypher")]
+        {
+            // AGE always names a graph; fall back to the session graph if blank.
+            let target = if plan.graph.is_empty() {
+                graph.to_string()
+            } else {
+                plan.graph.clone()
+            };
+            let core = self.graph_core(&target).await?;
+            let snap = core.analysis_snapshot();
+            let cypher = plan.cypher.clone();
+            let result = tokio::task::spawn_blocking(move || eg_query::exec_cypher(&snap, &cypher))
+                .await
+                .map_err(|e| user_err(format!("cypher task failed: {e}")))?
+                .map_err(|msg| user_err(format!("cypher error: {msg}")))?;
+            let projected = eg_query::project_cypher_rows(
+                &result,
+                &plan.columns,
+                plan.projection.as_deref(),
+            )
+            .map_err(user_err)?;
+            Ok(WireOutcome::Rows(projected))
+        }
+        #[cfg(not(feature = "cypher"))]
+        {
+            let _ = (graph, plan);
+            Err(user_err(
+                "cypher() (Apache AGE) requires the engine's `cypher` feature",
+            ))
+        }
+    }
+
+    /// CONCEPT:EG-116 — `CREATE INDEX … USING hnsw|ivfflat (col opclass)`: acknowledge
+    /// the pgvector ANN index so a client's setup script proceeds. A matching
+    /// `ORDER BY col <-> $1 LIMIT k` query still returns correct results via the
+    /// EG-115 brute-force `vector_l2()` scan; a durable ANN-index catalog + the eg-ann
+    /// top-k pushdown execution (`plan_ann_search` → `eg-ann::search`) is a follow-up.
+    async fn run_create_ann_index(&self, plan: AnnIndexPlan) -> WireResult<WireOutcome> {
+        let _ = plan;
+        Ok(WireOutcome::command("CREATE INDEX"))
+    }
+
+    /// CONCEPT:EG-117 — `SELECT create_hypertable('t','ts')`: accept the time-partition
+    /// declaration and return the TimescaleDB-shaped single-cell result so a client's
+    /// migration proceeds. Durable partition-metadata + chunk management is a follow-up.
+    async fn run_create_hypertable(&self, plan: HypertablePlan) -> WireResult<WireOutcome> {
+        let text = format!("public.{}", plan.table);
+        Ok(WireOutcome::Rows(single_text_result("create_hypertable", &text)))
+    }
+
+    /// CONCEPT:EG-117 — `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS
+    /// SELECT …`: lower the continuous aggregate onto the durable view catalog, so
+    /// `SELECT * FROM <name>` recomputes the `time_bucket` aggregate live. Incremental
+    /// materialized refresh (`refresh_continuous_aggregate`) is a documented follow-up.
+    async fn run_create_continuous_aggregate(
+        &self,
+        plan: ContinuousAggPlan,
+    ) -> WireResult<WireOutcome> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || {
+            store.create_view(&plan.name, &plan.select_sql, true)
+        })
+        .await
+        .map_err(|e| user_err(format!("continuous aggregate task failed: {e}")))?
+        .map_err(user_err)?;
+        Ok(WireOutcome::command("CREATE MATERIALIZED VIEW"))
     }
 
     /// A scalar cell coerced to the string node-id form the engine stores.
@@ -1964,7 +2062,8 @@ impl WireProtocol for WireSession {
         // (CONCEPT:KG-2.202) BEFORE touching the graph: a read needs Read access, any
         // DML needs Write. A no-rules deployment is a no-op (back-compat).
         let access = match kind {
-            StatementKind::Read => AccessLevel::Read,
+            // CONCEPT:EG-114 — an AGE cypher() call is a read.
+            StatementKind::Read | StatementKind::CypherCall(_) => AccessLevel::Read,
             _ => AccessLevel::Write,
         };
         self.check_access(&graph, access).await?;

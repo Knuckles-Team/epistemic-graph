@@ -23,8 +23,9 @@ use super::catalog::register_pg_catalog;
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, PagerankFunc};
 use super::udfs::{
-    epistemic_decay_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf, vector_cosine_udf,
-    vector_ip_udf, vector_l2_udf,
+    bm25_match_udf, bm25_score_udf, bm25_snippet_udf, epistemic_decay_udf, json_get_f64_udf,
+    json_get_i64_udf, json_get_udf, time_bucket_udf, vector_cosine_udf, vector_ip_udf,
+    vector_l2_udf,
 };
 use crate::tables::TableStore;
 
@@ -78,6 +79,12 @@ pub fn exec_sql_over_tables(
         ctx.register_udf(json_get_udf());
         ctx.register_udf(json_get_f64_udf());
         ctx.register_udf(json_get_i64_udf());
+        // CONCEPT:EG-117/EG-119 — time_bucket + BM25 UDFs so the obs log-search SQL leg
+        // can time-bucket and lexically filter too.
+        ctx.register_udf(time_bucket_udf());
+        ctx.register_udf(bm25_match_udf());
+        ctx.register_udf(bm25_score_udf());
+        ctx.register_udf(bm25_snippet_udf());
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
@@ -235,6 +242,12 @@ fn build_ctx(
     ctx.register_udf(vector_l2_udf());
     ctx.register_udf(vector_cosine_udf());
     ctx.register_udf(vector_ip_udf());
+    // CONCEPT:EG-117 — TimescaleDB `time_bucket`. CONCEPT:EG-119 — ParadeDB BM25
+    // `col @@@ 'q'` / `paradedb.score()`/`snippet()` desugar targets.
+    ctx.register_udf(time_bucket_udf());
+    ctx.register_udf(bm25_match_udf());
+    ctx.register_udf(bm25_score_udf());
+    ctx.register_udf(bm25_snippet_udf());
     ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
     ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
     #[cfg(feature = "finance")]
