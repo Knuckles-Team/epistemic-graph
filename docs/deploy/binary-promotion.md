@@ -1,7 +1,7 @@
 # Engine binary promotion (homelab)
 
 How to ship a new `epistemic-graph-server` binary into the live homelab fleet, and
-why each step is what it is. Automated by [`scripts/promote_engine.sh`](../../scripts/promote_engine.sh).
+why each step is what it is. Automated by [`scripts/promote_engine.sh`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/scripts/promote_engine.sh).
 
 > TL;DR: `scripts/promote_engine.sh --build --restart-consumers`
 
