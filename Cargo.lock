@@ -1997,6 +1997,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-shex"
+version = "0.1.0"
+dependencies = [
+ "eg-rdf",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-stream"
 version = "0.1.0"
 dependencies = [
@@ -2133,6 +2143,7 @@ dependencies = [
  "eg-query",
  "eg-rdf",
  "eg-shacl",
+ "eg-shex",
  "eg-text",
  "eg-tsdb",
  "eg-types",
@@ -2160,6 +2171,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "tokio",
