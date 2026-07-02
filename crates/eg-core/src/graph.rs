@@ -110,6 +110,95 @@ const CAPABILITY_NODE_TYPES: &[&str] = &[
     "Resource",
 ];
 
+/// A change notification (CONCEPT:EG-064 — GraphQL real subscriptions via CDC).
+/// Emitted by [`GraphCore::mark_dirty`] (and the remote-change path) AFTER a
+/// committed write, carrying the graph's post-write OCC `version`. A subscriber
+/// re-resolves its live query when it observes a bump — the foundation for a push
+/// GraphQL subscription (server-layer carrier) instead of poll-only.
+#[derive(Debug, Clone)]
+pub struct ChangeEvent {
+    /// The graph this change belongs to (set on the notifier via
+    /// [`ChangeNotifier::set_graph`]; empty when the core is unnamed, e.g. a fork).
+    pub graph: String,
+    /// The post-write OCC version ([`GraphCore::version`]), monotonic per core.
+    pub version: u64,
+}
+
+/// A sink the change stream pushes [`ChangeEvent`]s to. The server implements this
+/// over a Tokio channel (watch/mpsc); eg-core itself stays runtime-free — NO tokio
+/// dep is pulled here, so the default/Pi build is unaffected (Pi contract). An
+/// implementation MUST NOT block (it runs inline on the write path): do only a
+/// non-blocking notify (e.g. `watch::Sender::send`).
+pub trait ChangeSink: Send + Sync {
+    fn on_change(&self, event: &ChangeEvent);
+}
+
+/// Dependency-light change-notification fan-out (CONCEPT:EG-064). A
+/// `parking_lot`-guarded list of `Weak` sinks — NO new dependency (`parking_lot` is
+/// already an eg-core dep) and NO async runtime, so eg-core's default build links
+/// nothing extra and the tokio carrier lives in the server layer. The no-subscriber
+/// path is a single relaxed atomic load, so `emit` stays OFF the write hot path
+/// until something actually subscribes. Dropping the subscriber's `Arc`
+/// unsubscribes (the notifier holds only a `Weak`, pruned on the next `emit`).
+#[derive(Default)]
+pub struct ChangeNotifier {
+    graph: RwLock<String>,
+    sinks: Mutex<Vec<std::sync::Weak<dyn ChangeSink>>>,
+    active: std::sync::atomic::AtomicBool,
+}
+
+impl std::fmt::Debug for ChangeNotifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChangeNotifier")
+            .field("subscribers", &self.sinks.lock().len())
+            .finish()
+    }
+}
+
+impl ChangeNotifier {
+    /// Name the graph these events belong to (set once when the core is registered).
+    pub fn set_graph(&self, name: impl Into<String>) {
+        *self.graph.write() = name.into();
+    }
+
+    /// Register a sink. The notifier keeps only a `Weak`, so the CALLER must retain
+    /// the `Arc` for as long as it wants notifications — dropping it unsubscribes.
+    pub fn subscribe(&self, sink: &std::sync::Arc<dyn ChangeSink>) {
+        self.sinks.lock().push(std::sync::Arc::downgrade(sink));
+        self.active
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Are there any live subscribers? (Cheap relaxed load.)
+    pub fn has_subscribers(&self) -> bool {
+        self.active.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Emit a change at `version` to every live sink, pruning dead `Weak`s. A no-op
+    /// (single atomic load) when nothing has subscribed.
+    pub fn emit(&self, version: u64) {
+        if !self.active.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+        let mut sinks = self.sinks.lock();
+        let event = ChangeEvent {
+            graph: self.graph.read().clone(),
+            version,
+        };
+        sinks.retain(|w| match w.upgrade() {
+            Some(s) => {
+                s.on_change(&event);
+                true
+            }
+            None => false,
+        });
+        if sinks.is_empty() {
+            self.active
+                .store(false, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct GraphCore {
     pub topo: RwLock<Topology>,
@@ -130,6 +219,12 @@ pub struct GraphCore {
     /// inline/coalesced write that bumped it forces the txn to re-validate. Read
     /// cheaply via `version()`; never gates a read path.
     pub version: std::sync::atomic::AtomicU64,
+    /// Change-notification fan-out (CONCEPT:EG-064). `mark_dirty` (and the
+    /// remote-change path) emit a [`ChangeEvent`] carrying the bumped `version`; a
+    /// server-layer GraphQL subscription carrier subscribes to turn a poll-only
+    /// subscription into a real push (re-resolve-on-change). Dep-light + off the hot
+    /// path when there are no subscribers, so the default/Pi build is unaffected.
+    changes: ChangeNotifier,
     /// Cached aho-corasick index of capability-node terms for the lexical
     /// classification gate (CONCEPT:EG-010). Built lazily and reused while the
     /// node count is unchanged, so `match_ontology_terms` is ~µs per query
@@ -577,6 +672,7 @@ impl GraphCore {
             semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
             dirty: std::sync::atomic::AtomicBool::new(true),
             version: std::sync::atomic::AtomicU64::new(0),
+            changes: ChangeNotifier::default(),
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             property_index: RwLock::new(None),
@@ -606,6 +702,15 @@ impl GraphCore {
         &self.index_manager
     }
 
+    /// The change-notification fan-out (CONCEPT:EG-064). A server-layer GraphQL
+    /// subscription carrier calls `core.changes().subscribe(&sink)` to receive a
+    /// [`ChangeEvent`] on every committed write, turning a poll-only subscription
+    /// into a real push (live query). The default build never subscribes, so the
+    /// write path pays nothing.
+    pub fn changes(&self) -> &ChangeNotifier {
+        &self.changes
+    }
+
     /// Attach a durable read-through (CONCEPT:KG-2.191). Called once at startup
     /// (only under redb-authoritative mode) so a node evicted from RAM is still
     /// served from redb on a RAM miss. A `GraphCore` with no read-through behaves
@@ -624,8 +729,10 @@ impl GraphCore {
         // step observes any concurrent write that landed since it began. AcqRel so
         // the bump is visible to a commit that reads `version()` under the topo
         // write lock.
-        self.version
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let new_version = self
+            .version
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            + 1;
         // Invalidate the lazy label index (CONCEPT:KG-2.176): a write may have
         // added/removed a node or rewritten a node's label, so the cached
         // `label → ids` map is stale and is rebuilt on the next label lookup.
@@ -635,6 +742,10 @@ impl GraphCore {
         // `value → ids` maps are stale and are rebuilt (over the same demanded keys)
         // on the next `nodes_by_property` lookup.
         *self.property_index.write() = None;
+        // CONCEPT:EG-064 — fan out a change notification (post-write version) to any
+        // live subscribers (the GraphQL subscription carrier). A single relaxed
+        // atomic load when there are none, so this is off the write hot path.
+        self.changes.emit(new_version);
     }
 
     /// Invalidate cached query results for a CHANGE that landed elsewhere
@@ -647,13 +758,18 @@ impl GraphCore {
     /// advanced explicitly to retire stale cached reads.
     #[cfg(feature = "result-cache")]
     pub fn invalidate_for_remote_change(&self) {
-        self.version
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let new_version = self
+            .version
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            + 1;
         self.result_cache.invalidate_all();
         // The label/property indexes are also derived state; retire them too so a
         // subsequent local read after a remote-applied change rebuilds them.
         *self.label_index.write() = None;
         *self.property_index.write() = None;
+        // CONCEPT:EG-064 — a replicated write must also wake local live-query
+        // subscribers, so a subscription reflects remote writes, not just local ones.
+        self.changes.emit(new_version);
     }
 
     /// Current OCC write-version (CONCEPT:KG-2.180). A staged transaction snapshots
@@ -1702,6 +1818,9 @@ impl GraphCore {
             // Fork starts a fresh OCC version line (CONCEPT:KG-2.180) — it is a new
             // independent graph; any txn against the fork baselines from 0.
             version: std::sync::atomic::AtomicU64::new(0),
+            // A fork is a fresh, detached graph with its own (empty) subscriber set
+            // (CONCEPT:EG-064) — subscriptions attach to the live registered core.
+            changes: ChangeNotifier::default(),
             // Fork starts with cold lazy indexes; rebuilt lazily on first use.
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
@@ -2530,6 +2649,65 @@ mod tests {
         assert_eq!(
             core.nodes_by_property("team", "blue").unwrap(),
             vec!["n3", "n4"]
+        );
+    }
+
+    /// CONCEPT:EG-064 — a committed write emits a `ChangeEvent` carrying the bumped
+    /// version to a registered [`ChangeSink`]; with no subscriber the write path is a
+    /// no-op fan-out (single atomic load), and dropping the subscriber's `Arc`
+    /// unsubscribes.
+    #[test]
+    fn change_notifier_emits_on_write() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let core = GraphCore::new();
+        core.changes().set_graph("g1");
+        // No subscribers yet: emit is a no-op, and the write path stays quiet.
+        assert!(!core.changes().has_subscribers());
+        core.add_node("n0".into(), props(serde_json::json!({"type": "T"})));
+        core.mark_dirty();
+
+        // Register a sink that records the (graph, version) of each event.
+        struct Rec {
+            last_version: AtomicU64,
+            hits: AtomicU64,
+            graph: parking_lot::Mutex<String>,
+        }
+        impl ChangeSink for Rec {
+            fn on_change(&self, event: &ChangeEvent) {
+                self.last_version.store(event.version, Ordering::SeqCst);
+                self.hits.fetch_add(1, Ordering::SeqCst);
+                *self.graph.lock() = event.graph.clone();
+            }
+        }
+        let rec = Arc::new(Rec {
+            last_version: AtomicU64::new(0),
+            hits: AtomicU64::new(0),
+            graph: parking_lot::Mutex::new(String::new()),
+        });
+        let sink: Arc<dyn ChangeSink> = rec.clone();
+        core.changes().subscribe(&sink);
+        assert!(core.changes().has_subscribers());
+
+        core.add_node("n1".into(), props(serde_json::json!({"type": "T"})));
+        core.mark_dirty();
+        assert_eq!(rec.hits.load(Ordering::SeqCst), 1, "one write, one event");
+        assert_eq!(
+            rec.last_version.load(Ordering::SeqCst),
+            core.version(),
+            "the event carries the post-write OCC version"
+        );
+        assert_eq!(*rec.graph.lock(), "g1", "the event names the graph");
+
+        // Dropping the subscriber's Arc unsubscribes: the next emit prunes the dead
+        // Weak and the write path returns to the no-subscriber (no-op) state.
+        drop(sink);
+        drop(rec);
+        core.mark_dirty();
+        assert!(
+            !core.changes().has_subscribers(),
+            "dropping the sink Arc unsubscribes"
         );
     }
 
