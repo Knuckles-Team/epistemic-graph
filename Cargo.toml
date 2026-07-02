@@ -364,6 +364,16 @@ mysql-wire = ["dep:sha1", "query", "server", "wire"]
 # `node`/`full`/`pi`/`cluster` — the orchestrator folds it into a tier. The listener
 # only starts when ALSO configured via EPISTEMIC_GRAPH_MSSQL_ADDR.
 mssql-wire = ["query", "server", "wire"]
+# Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) — a native Bolt v4.4 server so
+# Neo4j drivers/tools connect DIRECTLY to the engine's Cypher surface. HAND-ROLLED,
+# pure-Rust: a PackStream v2 codec + Bolt chunked framing + the message state machine
+# framed over `tokio::net` — links NO third-party bolt/packstream crate (the Pi-contract
+# idiom pgwire/mysql-wire follow). Routes RUN's Cypher straight to the eg-query cypher
+# engine (so it IMPLIES `cypher`) over the Tokio server (`server`); it does NOT use the
+# SQL `wire`/`WireSession` core (Bolt speaks Cypher, not SQL). Kept OUT of pi (no listener
+# there). The listener only starts when ALSO configured via EPISTEMIC_GRAPH_BOLT_ADDR.
+# EG-159: fold bolt-wire into node/full/cluster
+bolt-wire = ["cypher", "server"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
