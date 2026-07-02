@@ -87,6 +87,20 @@ pub mod bolt_wire;
 // contract). Default/pi builds compile NONE of it.
 #[cfg(feature = "redis-wire")]
 pub mod redis_wire;
+// MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:EG-281). A hand-rolled MQTT
+// broker front-end mapping CONNECT/PUBLISH/SUBSCRIBE/… onto the `broker` topic exchange
+// + per-session queues via the engine dispatch. Behind the `mqtt-wire` cargo feature
+// (pulls `broker` + `server`); links NO MQTT crate (Pi contract). Default/pi builds
+// compile NONE of it.
+#[cfg(feature = "mqtt-wire")]
+pub mod mqtt_wire;
+// STOMP 1.2 wire-protocol listener (CONCEPT:EG-282). A hand-rolled STOMP text-frame
+// server mapping CONNECT/SEND/SUBSCRIBE/ACK/… onto the `broker` primitives (destinations
+// → exchange + per-subscription queues) via the engine dispatch. Behind the `stomp-wire`
+// cargo feature (pulls `broker` + `server`); links NO STOMP crate (Pi contract).
+// Default/pi builds compile NONE of it.
+#[cfg(feature = "stomp-wire")]
+pub mod stomp_wire;
 // S3-compatible object-storage REST surface (CONCEPT:EG-176). A hand-rolled HTTP/1.1
 // listener exposing PutObject/GetObject/ListObjectsV2/CreateBucket/… over the
 // content-addressed BLOB CAS (bytes) + the durable KV index (listing), with a
