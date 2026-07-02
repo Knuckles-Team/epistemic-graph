@@ -2137,6 +2137,37 @@ impl GraphCore {
         issued
     }
 
+    /// Idempotent-producer dedup check + high-water-mark bump under ONE topology write
+    /// guard (CONCEPT:EG-314 — effectively-once publish). `node_id` is the producer's
+    /// durable dedup node (`broker:producer:<producer_id>`) holding a monotonic
+    /// `last_seq`. Returns `true` when `seq` is NEW (strictly above the current mark) —
+    /// recording it as the new mark — and `false` when `seq` is a DUPLICATE (at/under
+    /// the mark), writing nothing. The mark starts at `-1`, so the first valid `seq`
+    /// (0) is accepted. Deterministic: the decision derives purely from the node's
+    /// current state, so replaying the originating Method reproduces the identical
+    /// mark and duplicate-verdict.
+    #[cfg(feature = "broker")]
+    pub fn broker_producer_check_and_record(&self, node_id: &str, seq: i64) -> bool {
+        let mut txn = self.txn();
+        let last = txn
+            .node_row_map(node_id)
+            .and_then(|m| m.get("last_seq").and_then(|s| s.as_i64()))
+            .unwrap_or(-1);
+        if seq <= last {
+            return false; // duplicate — drop the (unwritten) txn, no state change
+        }
+        let props = serde_json::json!({
+            "type": crate::broker::PRODUCER_SEQ_TYPE,
+            "last_seq": seq,
+        });
+        if let Ok(blob) = rmp_serde::to_vec_named(&props) {
+            txn.add_node(node_id.to_string(), blob);
+        }
+        drop(txn);
+        self.mark_dirty();
+        true
+    }
+
     /// One-shot non-destructive edge invalidation (CONCEPT:KG-2.251). See
     /// [`GraphTxn::invalidate_edge`]; runs under one topology write guard.
     pub fn invalidate_edge(

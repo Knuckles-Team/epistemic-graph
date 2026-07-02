@@ -1296,6 +1296,119 @@ pub fn broker_nack_tag(core: &GraphCore, delivery_tag: i64, requeue: bool, now_m
     broker_reject(core, &queue, &node_id, requeue, now_ms)
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// CONCEPT:EG-314 idempotent producer (effectively-once publish) — ADDITIVE over
+// EG-275/276..284. A publish MAY carry a `(producer_id, seq)` idempotency stamp;
+// the broker keeps a durable per-producer monotonic high-water mark on the SAME
+// control graph and DROPS a re-published `(producer_id, seq)` it has already seen
+// (seq at/under the mark), so a publisher that retries after an ambiguous
+// publisher-confirm gets effectively-once delivery instead of a duplicate. A
+// publish WITHOUT a producer-id behaves EXACTLY as today (at-least-once) — no
+// producer node is touched, no message shape changes.
+//
+// Determinism/atomicity: the dedup decision + high-water-mark bump run under ONE
+// GraphCore write guard and derive purely from the producer node's current state
+// (the caller supplies `producer_id`/`seq`; no server clock / RNG), so a WAL/Raft
+// replay of `Method::PublishIdempotent` reproduces byte-identical state — the same
+// discipline EG-275..284 follow.
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Type carried by a producer's durable dedup high-water-mark node (CONCEPT:EG-314).
+pub const PRODUCER_SEQ_TYPE: &str = "BrokerProducerSeq";
+
+/// Node id for a producer's durable dedup state (CONCEPT:EG-314) — the per-producer
+/// monotonic `last_seq` high-water mark the broker dedups against. The `producer_id`
+/// is caller-chosen (a stable publisher identity), so the id is deterministic.
+pub fn producer_seq_node_id(producer_id: &str) -> String {
+    format!("broker:producer:{producer_id}")
+}
+
+/// Outcome of an idempotent publish (CONCEPT:EG-314). `confirmed` mirrors the EG-284
+/// publisher-confirm (the exchange existed / the broker accepted it); `duplicate` is
+/// `true` when a `(producer_id, seq)` stamp was recognised as already-seen and the
+/// message was DROPPED (effectively-once — a duplicate still confirms so the retrying
+/// publisher stops); `delivered` is the number of queues the message was routed to
+/// (`0` for a duplicate or an unroutable/nacked publish).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdempotentPublish {
+    pub confirmed: bool,
+    pub duplicate: bool,
+    pub delivered: usize,
+}
+
+/// Publish `payload` with an OPTIONAL `(producer_id, seq)` idempotency stamp
+/// (CONCEPT:EG-314) — the effectively-once sibling of [`publish_confirmed`].
+///
+/// * `producer_id == None` (or empty) ⇒ the plain at-least-once path: routes+enqueues
+///   exactly like [`publish_ex`], never touching any producer node — byte-identical to
+///   EG-275/EG-284 behavior (the ADDITIVE guarantee).
+/// * `producer_id == Some(pid)` ⇒ the broker consults `pid`'s durable monotonic
+///   high-water mark: a `seq` at/under the mark is a DUPLICATE (dropped, `duplicate =
+///   true`, still `confirmed`); a `seq` above the mark advances it and the message is
+///   routed+enqueued via [`publish_ex`]. An unknown exchange nacks (`confirmed = false`)
+///   WITHOUT consuming the seq, so a retry after the exchange is declared still lands.
+///
+/// Deterministic: the dedup check + mark bump run under one write guard over durable
+/// graph state and the caller supplies `producer_id`/`seq`, so replay of
+/// `Method::PublishIdempotent` reproduces identical state.
+#[allow(clippy::too_many_arguments)]
+pub fn publish_idempotent(
+    core: &GraphCore,
+    exchange: &str,
+    routing_key: &str,
+    payload: &[u8],
+    producer_id: Option<&str>,
+    seq: i64,
+    priority: i64,
+    delay_ms: Option<u64>,
+    ttl_ms: Option<u64>,
+    now_ms: Option<u64>,
+) -> IdempotentPublish {
+    let confirmed = load_exchange_kind(core, exchange).is_some();
+    // No producer-id ⇒ the unchanged at-least-once path (no dedup, no producer node).
+    let Some(pid) = producer_id.filter(|p| !p.is_empty()) else {
+        let delivered = if confirmed {
+            publish_ex(
+                core, exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms,
+            )
+        } else {
+            0
+        };
+        return IdempotentPublish {
+            confirmed,
+            duplicate: false,
+            delivered,
+        };
+    };
+    // Unknown exchange ⇒ nack WITHOUT recording the seq (nothing was accepted, so a
+    // retry once the exchange exists must still be delivered).
+    if !confirmed {
+        return IdempotentPublish {
+            confirmed: false,
+            duplicate: false,
+            delivered: 0,
+        };
+    }
+    // Dedup: a `(producer_id, seq)` already at/under the high-water mark is a duplicate.
+    let is_new = core.broker_producer_check_and_record(&producer_seq_node_id(pid), seq);
+    if !is_new {
+        // Effectively-once: confirm the duplicate but DO NOT re-enqueue it.
+        return IdempotentPublish {
+            confirmed: true,
+            duplicate: true,
+            delivered: 0,
+        };
+    }
+    let delivered = publish_ex(
+        core, exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms,
+    );
+    IdempotentPublish {
+        confirmed: true,
+        duplicate: false,
+        delivered,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2030,5 +2143,132 @@ mod tests {
         assert!(broker_consume(&core, "q", "g", "c", 6, 0, 0).is_none());
         let (_, dl) = consume_dlq(&core, 7).expect("nacked message dead-lettered");
         assert_eq!(payload_of(&dl), b"bye".to_vec());
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // CONCEPT:EG-314 idempotent producer (effectively-once publish)
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn eg314_duplicate_producer_seq_is_dropped_distinct_delivered_once() {
+        let core = rig();
+        // First publish of (P, 0): NEW → routed+enqueued.
+        let r0 = publish_idempotent(&core, "ex", "k", b"m0", Some("P"), 0, 0, None, None, None);
+        assert!(r0.confirmed && !r0.duplicate);
+        assert_eq!(r0.delivered, 1);
+        // Re-publish of (P, 0): DUPLICATE → confirmed but dropped (not re-enqueued).
+        let dup = publish_idempotent(&core, "ex", "k", b"m0", Some("P"), 0, 0, None, None, None);
+        assert!(dup.confirmed && dup.duplicate);
+        assert_eq!(dup.delivered, 0);
+        // A distinct seq (P, 1): NEW → delivered.
+        let r1 = publish_idempotent(&core, "ex", "k", b"m1", Some("P"), 1, 0, None, None, None);
+        assert!(r1.confirmed && !r1.duplicate);
+        assert_eq!(r1.delivered, 1);
+        // An older seq (P, 0) again is still a duplicate (at/under the high-water mark).
+        let dup2 = publish_idempotent(&core, "ex", "k", b"x", Some("P"), 0, 0, None, None, None);
+        assert!(dup2.duplicate && dup2.delivered == 0);
+        // Exactly the two DISTINCT messages are on the queue, in publish order.
+        let mut got = Vec::new();
+        while let Some((id, p)) = broker_consume(&core, "q", "g", "c", 10, 0, 0) {
+            got.push(payload_of(&p));
+            broker_ack(&core, "q", &id);
+        }
+        assert_eq!(got, vec![b"m0".to_vec(), b"m1".to_vec()]);
+    }
+
+    #[test]
+    fn eg314_distinct_producers_have_independent_dedup_spaces() {
+        let core = rig();
+        // Producer A seq 0 and producer B seq 0 are UNRELATED — both delivered.
+        assert_eq!(
+            publish_idempotent(&core, "ex", "k", b"a", Some("A"), 0, 0, None, None, None).delivered,
+            1
+        );
+        assert_eq!(
+            publish_idempotent(&core, "ex", "k", b"b", Some("B"), 0, 0, None, None, None).delivered,
+            1
+        );
+        // But A's seq 0 re-published is a duplicate.
+        assert!(
+            publish_idempotent(&core, "ex", "k", b"a", Some("A"), 0, 0, None, None, None).duplicate
+        );
+    }
+
+    #[test]
+    fn eg314_no_producer_id_is_at_least_once_unchanged() {
+        // Without a producer-id every publish is delivered (no dedup) — byte-identical
+        // to a plain EG-275 publish, incl. the message-node shape.
+        let core = rig();
+        for _ in 0..3 {
+            let r = publish_idempotent(&core, "ex", "k", b"z", None, 0, 0, None, None, None);
+            assert!(r.confirmed && !r.duplicate && r.delivered == 1);
+        }
+        let mut n = 0;
+        while let Some((id, _)) = broker_consume(&core, "q", "g", "c", 1, 0, 0) {
+            n += 1;
+            broker_ack(&core, "q", &id);
+        }
+        assert_eq!(n, 3, "no-producer-id path is at-least-once (all delivered)");
+        // Node shape matches a plain publish (no producer/idempotency fields leaked).
+        let plain = rig();
+        assert_eq!(publish(&plain, "ex", "k", b"z"), 1);
+        let ec = rig();
+        publish_idempotent(&ec, "ex", "k", b"z", None, 0, 0, None, None, None);
+        let a = plain.get_node_properties(&message_node_id("q", 0)).unwrap();
+        let b = ec.get_node_properties(&message_node_id("q", 0)).unwrap();
+        let av: serde_json::Value = rmp_serde::from_slice(&a).unwrap();
+        let bv: serde_json::Value = rmp_serde::from_slice(&b).unwrap();
+        assert_eq!(av, bv);
+    }
+
+    #[test]
+    fn eg314_unknown_exchange_nacks_without_consuming_seq() {
+        let core = rig();
+        // Unknown exchange → nack; the producer's seq is NOT consumed …
+        let nack =
+            publish_idempotent(&core, "nope", "k", b"x", Some("P"), 0, 0, None, None, None);
+        assert!(!nack.confirmed && !nack.duplicate && nack.delivered == 0);
+        // … so publishing (P, 0) to a REAL exchange afterwards still lands (not a dup).
+        let ok = publish_idempotent(&core, "ex", "k", b"x", Some("P"), 0, 0, None, None, None);
+        assert!(ok.confirmed && !ok.duplicate && ok.delivered == 1);
+    }
+
+    #[test]
+    fn eg314_honors_priority_and_ttl_like_publish_ex() {
+        let core = rig();
+        // A stamped publish still threads EG-278 priority through to the message node.
+        assert_eq!(
+            publish_idempotent(&core, "ex", "k", b"lo", Some("P"), 0, 0, None, None, None)
+                .delivered,
+            1
+        );
+        assert_eq!(
+            publish_idempotent(&core, "ex", "k", b"hi", Some("P"), 1, 5, None, None, None)
+                .delivered,
+            1
+        );
+        // Priority 5 is delivered first (matches publish_ex semantics).
+        let (_, p) = broker_consume(&core, "q", "g", "c", 0, 0, 0).unwrap();
+        assert_eq!(payload_of(&p), b"hi".to_vec());
+    }
+
+    #[test]
+    fn eg314_dedup_survives_replay_of_the_producer_node() {
+        // The dedup mark is durable graph state: re-running the SAME idempotent publish
+        // over a graph that already recorded the seq (a WAL replay) is a no-op duplicate,
+        // never a second enqueue — the determinism contract.
+        let core = rig();
+        assert_eq!(
+            publish_idempotent(&core, "ex", "k", b"once", Some("P"), 7, 0, None, None, None)
+                .delivered,
+            1
+        );
+        // Replay: identical call, identical pre-image → recognised duplicate.
+        let replay =
+            publish_idempotent(&core, "ex", "k", b"once", Some("P"), 7, 0, None, None, None);
+        assert!(replay.duplicate && replay.delivered == 0);
+        // Exactly one message exists.
+        assert!(broker_consume(&core, "q", "g", "c", 1, 0, 0).is_some());
+        assert!(broker_consume(&core, "q", "g", "c", 1, 0, 0).is_none());
     }
 }

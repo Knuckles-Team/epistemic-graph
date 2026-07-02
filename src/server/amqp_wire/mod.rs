@@ -21,9 +21,28 @@
 //! `queue.declare`/`bind`/`unbind`, `basic.publish` (+ content header/body frames),
 //! `basic.consume`/`deliver` (a poll-driven push pump), `basic.get`/`get-ok`/
 //! `get-empty`, and `basic.ack`. Auth is a localhost TRUST surface (PLAIN accepted
-//! unconditionally, like the SQL wires' trust mode); TLS, publisher confirms, QoS
-//! prefetch, transactions, and heartbeats are DEFERRED — a client negotiating them
-//! degrades gracefully to this text path.
+//! unconditionally, like the SQL wires' trust mode); TLS, QoS prefetch, transactions,
+//! and heartbeats are DEFERRED — a client negotiating them degrades gracefully.
+//!
+//! ## Publisher confirms + idempotent publish (CONCEPT:EG-314 / EG-284)
+//! `confirm.select` puts a channel into publisher-confirm mode: every subsequent
+//! `basic.publish` is answered with a `basic.ack` (delivery-tag = the per-channel
+//! 1-based publish sequence) once the broker durably accepts it, or a `basic.nack`
+//! when the target exchange is unknown — mapping the EG-284 confirm surface onto the
+//! AMQP wire. A publish that carries the idempotency application-headers
+//! `x-producer-id` (string) + `x-producer-seq` (int) is routed through
+//! `Method::PublishIdempotent` (CONCEPT:EG-314): the broker dedups a re-published
+//! `(producer_id, seq)` against that producer's durable high-water mark, so a client
+//! that retries after an ambiguous confirm gets effectively-once delivery (the
+//! duplicate is dropped but STILL `basic.ack`-ed). A publish with no producer header
+//! behaves exactly as before (at-least-once). The AMQP `priority` property is threaded
+//! through to EG-278 priority queues on this path.
+//!
+//! ## Stream reads (CONCEPT:EG-283) mapping
+//! AMQP 0.9.1 has no request/response frame for reading a RETAINED log by offset, so
+//! EG-283 stream reads are NOT exposed over this wire — they are reached through the
+//! RPC surface (`Method::StreamRead`) or a future STOMP/native frame. A `basic.consume`
+//! here maps to the DESTRUCTIVE queue-claim path (EG-275/280), not a stream replay.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -57,6 +76,8 @@ const C_CHANNEL: u16 = 20;
 const C_EXCHANGE: u16 = 40;
 const C_QUEUE: u16 = 50;
 const C_BASIC: u16 = 60;
+/// AMQP `confirm` class (CONCEPT:EG-314 publisher confirms).
+const C_CONFIRM: u16 = 85;
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -212,6 +233,10 @@ async fn handle_connection(
     let mut delivery_tag: u64 = 0;
     // delivery-tag → (queue graph node id) for ack finalization.
     let mut unacked: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+    // CONCEPT:EG-314 publisher confirms: channels switched into confirm mode + their
+    // per-channel 1-based publish sequence (the delivery-tag returned in basic.ack/nack).
+    let mut confirm_channels: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut publish_seq: std::collections::HashMap<u16, u64> = std::collections::HashMap::new();
 
     loop {
         // When consumers are active, bound the read so the poll pump can run; else
@@ -369,23 +394,55 @@ async fn handle_connection(
                 .await;
                 write_frame(socket, FRAME_METHOD, ch, &method_header(C_QUEUE, 51)).await?;
             }
-            // basic.publish → read content header + body, then Publish
+            // confirm.select → confirm.select-ok (CONCEPT:EG-314): enter confirm mode.
+            (C_CONFIRM, 10) => {
+                let nowait = mc.args.first().map(|b| b & 0x01 != 0).unwrap_or(false);
+                confirm_channels.insert(ch);
+                publish_seq.entry(ch).or_insert(0);
+                if !nowait {
+                    write_frame(socket, FRAME_METHOD, ch, &method_header(C_CONFIRM, 11)).await?;
+                }
+            }
+            // basic.publish → read content header (+ idempotency headers) + body, then
+            // publish; in confirm mode answer basic.ack / basic.nack (CONCEPT:EG-314).
             (C_BASIC, 40) => {
                 let mut c = Cursor::new(&mc.args);
                 c.u16(); // reserved-1
                 let exchange = c.shortstr();
                 let routing_key = c.shortstr();
-                let body = read_content_body(socket).await?;
-                let _ = engine_call(
+                let (props, body) = read_content(socket).await?;
+                // Route EVERY publish through the idempotent path — with no producer-id
+                // it is byte-identical to a plain publish; with one it dedups (EG-314).
+                let result = engine_call(
                     &state,
                     &graph,
-                    Method::Publish {
+                    Method::PublishIdempotent {
                         exchange,
                         routing_key,
                         payload: body,
+                        producer_id: props.producer_id,
+                        seq: props.producer_seq.unwrap_or(0),
+                        priority: props.priority,
+                        delay_ms: None,
+                        ttl_ms: None,
+                        now_ms: None,
                     },
                 )
                 .await;
+                if confirm_channels.contains(&ch) {
+                    let confirmed = decode_confirmed(&result);
+                    let tag = {
+                        let e = publish_seq.entry(ch).or_insert(0);
+                        *e += 1;
+                        *e
+                    };
+                    let frame = if confirmed {
+                        build_basic_ack(tag, false)
+                    } else {
+                        build_basic_nack(tag, false, false)
+                    };
+                    write_frame(socket, FRAME_METHOD, ch, &frame).await?;
+                }
             }
             // basic.consume → consume-ok, register subscription
             (C_BASIC, 20) => {
@@ -475,16 +532,30 @@ async fn pump_consumers(
     Ok(())
 }
 
-/// Read the content-header frame (for the body size) then accumulate body frames.
-async fn read_content_body(socket: &mut TcpStream) -> std::io::Result<Vec<u8>> {
+/// Idempotency / priority fields lifted from a `basic.publish` content header
+/// (CONCEPT:EG-314). All optional — an absent header leaves the default (no producer
+/// stamp, priority 0), so a publish with no properties behaves exactly as before.
+#[derive(Default)]
+struct ContentProps {
+    /// `x-producer-id` application header (the idempotent-publish producer identity).
+    producer_id: Option<String>,
+    /// `x-producer-seq` application header (the per-producer monotonic sequence).
+    producer_seq: Option<i64>,
+    /// AMQP basic `priority` property → EG-278 priority band.
+    priority: i64,
+}
+
+/// Read the content-header frame (body size + basic-properties) then accumulate body
+/// frames. Parses the idempotency application-headers + priority (CONCEPT:EG-314).
+async fn read_content(socket: &mut TcpStream) -> std::io::Result<(ContentProps, Vec<u8>)> {
     // Content header frame.
     let header = match read_frame(socket).await? {
         Some(f) if f.kind == FRAME_HEADER => f,
-        _ => return Ok(Vec::new()),
+        _ => return Ok((ContentProps::default(), Vec::new())),
     };
-    // header payload: class(2) weight(2) body-size(8) property-flags(2)…
+    // header payload: class(2) weight(2) body-size(8) property-flags(2) properties…
     if header.payload.len() < 12 {
-        return Ok(Vec::new());
+        return Ok((ContentProps::default(), Vec::new()));
     }
     let body_size = u64::from_be_bytes([
         header.payload[4],
@@ -496,6 +567,7 @@ async fn read_content_body(socket: &mut TcpStream) -> std::io::Result<Vec<u8>> {
         header.payload[10],
         header.payload[11],
     ]) as usize;
+    let props = parse_content_props(&header.payload);
     let mut body = Vec::with_capacity(body_size);
     while body.len() < body_size {
         match read_frame(socket).await? {
@@ -503,7 +575,110 @@ async fn read_content_body(socket: &mut TcpStream) -> std::io::Result<Vec<u8>> {
             _ => break,
         }
     }
-    Ok(body)
+    Ok((props, body))
+}
+
+/// Parse a `basic.publish` content-header payload for the idempotency headers +
+/// priority (CONCEPT:EG-314). Walks the AMQP basic-properties in flag order to reach
+/// the application-`headers` table (bit `0x2000`) and the `priority` octet (`0x0800`).
+/// A multi-word property-flags preamble (continuation bit `0x0001`, vanishingly rare
+/// for a publish) is not decoded — extraction is skipped and the publish still lands.
+fn parse_content_props(payload: &[u8]) -> ContentProps {
+    let mut props = ContentProps::default();
+    if payload.len() < 14 {
+        return props;
+    }
+    let flags = u16::from_be_bytes([payload[12], payload[13]]);
+    if flags & 0x0001 != 0 {
+        return props; // multi-word flags — skip extraction (safe: publish unaffected)
+    }
+    let mut c = Cursor::new(&payload[14..]);
+    if flags & 0x8000 != 0 {
+        let _content_type = c.shortstr();
+    }
+    if flags & 0x4000 != 0 {
+        let _content_encoding = c.shortstr();
+    }
+    if flags & 0x2000 != 0 {
+        let table = c.longstr_bytes();
+        parse_headers_table(&table, &mut props);
+    }
+    if flags & 0x1000 != 0 {
+        let _delivery_mode = c.u8();
+    }
+    if flags & 0x0800 != 0 {
+        props.priority = c.u8() as i64;
+    }
+    props
+}
+
+/// Scan an AMQP field-table for the idempotency headers (CONCEPT:EG-314): `x-producer-id`
+/// (a string value) and `x-producer-seq` (an int, or a numeric string). Unknown value
+/// types whose width can't be determined end the scan (the already-found keys stand).
+fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) {
+    let mut c = Cursor::new(bytes);
+    while c.remaining() > 0 {
+        let name = c.shortstr();
+        let Some(val) = c.field_value() else { break };
+        match name.as_str() {
+            "x-producer-id" => {
+                if let FieldVal::Str(s) = val {
+                    props.producer_id = Some(s);
+                }
+            }
+            "x-producer-seq" => match val {
+                FieldVal::Int(n) => props.producer_seq = Some(n),
+                FieldVal::Str(s) => props.producer_seq = s.parse().ok(),
+                FieldVal::Skip => {}
+            },
+            _ => {}
+        }
+    }
+}
+
+/// A decoded AMQP field-table value we care about (CONCEPT:EG-314) — a string, an
+/// integer, or a correctly-sized value we skip over.
+enum FieldVal {
+    Str(String),
+    Int(i64),
+    Skip,
+}
+
+/// True when an engine publish result confirms the message was durably accepted
+/// (CONCEPT:EG-314 / EG-284). Decodes the `IdempotentPublish.confirmed` flag; a
+/// non-`Raw` / undecodable result is treated optimistically as confirmed.
+fn decode_confirmed(result: &ResultPayload) -> bool {
+    if let ResultPayload::Raw(bytes) = result {
+        if let Ok(ip) = rmp_serde::from_slice::<crate::broker::IdempotentPublish>(bytes) {
+            return ip.confirmed;
+        }
+    }
+    true
+}
+
+/// Build a server `basic.ack` (class 60 / method 80): delivery-tag + `multiple` bit
+/// (CONCEPT:EG-314 publisher confirms).
+fn build_basic_ack(delivery_tag: u64, multiple: bool) -> Vec<u8> {
+    let mut p = method_header(C_BASIC, 80);
+    put_u64(&mut p, delivery_tag);
+    p.push(u8::from(multiple));
+    p
+}
+
+/// Build a server `basic.nack` (class 60 / method 120): delivery-tag + `multiple`/
+/// `requeue` bits (CONCEPT:EG-314 — a publish the broker could not accept).
+fn build_basic_nack(delivery_tag: u64, multiple: bool, requeue: bool) -> Vec<u8> {
+    let mut p = method_header(C_BASIC, 120);
+    put_u64(&mut p, delivery_tag);
+    let mut bits = 0u8;
+    if multiple {
+        bits |= 0x01;
+    }
+    if requeue {
+        bits |= 0x02;
+    }
+    p.push(bits);
+    p
 }
 
 /// Emit a content header + single body frame for `body` on `channel`.
@@ -643,6 +818,14 @@ impl<'a> Cursor<'a> {
     fn new(b: &'a [u8]) -> Self {
         Self { b, i: 0 }
     }
+    fn u8(&mut self) -> u8 {
+        if self.i >= self.b.len() {
+            return 0;
+        }
+        let x = self.b[self.i];
+        self.i += 1;
+        x
+    }
     fn u16(&mut self) -> u16 {
         if self.i + 2 > self.b.len() {
             return 0;
@@ -650,6 +833,15 @@ impl<'a> Cursor<'a> {
         let x = u16::from_be_bytes([self.b[self.i], self.b[self.i + 1]]);
         self.i += 2;
         x
+    }
+    fn u32(&mut self) -> u32 {
+        if self.i + 4 > self.b.len() {
+            return 0;
+        }
+        let mut a = [0u8; 4];
+        a.copy_from_slice(&self.b[self.i..self.i + 4]);
+        self.i += 4;
+        u32::from_be_bytes(a)
     }
     fn u64(&mut self) -> u64 {
         if self.i + 8 > self.b.len() {
@@ -670,6 +862,71 @@ impl<'a> Cursor<'a> {
         let s = String::from_utf8_lossy(&self.b[self.i..end]).into_owned();
         self.i = end;
         s
+    }
+    /// Bytes remaining in the buffer.
+    fn remaining(&self) -> usize {
+        self.b.len().saturating_sub(self.i)
+    }
+    /// Read `n` bytes (clamped to the buffer), advancing the cursor.
+    fn take(&mut self, n: usize) -> &'a [u8] {
+        let end = (self.i + n).min(self.b.len());
+        let out = &self.b[self.i.min(self.b.len())..end];
+        self.i = end;
+        out
+    }
+    /// A `u32`-length-prefixed byte block (AMQP `longstr` / field-table framing).
+    fn longstr_bytes(&mut self) -> Vec<u8> {
+        let len = self.u32() as usize;
+        self.take(len).to_vec()
+    }
+    /// Decode one AMQP field-table value by its 1-byte type tag (CONCEPT:EG-314). Returns
+    /// `None` when the tag is unknown (its width is undeterminable → the caller stops).
+    fn field_value(&mut self) -> Option<FieldVal> {
+        if self.remaining() == 0 {
+            return None;
+        }
+        let tag = self.u8();
+        let v = match tag {
+            b't' => {
+                self.u8();
+                FieldVal::Skip // boolean
+            }
+            b'b' => FieldVal::Int(self.u8() as i8 as i64),
+            b'B' => FieldVal::Int(self.u8() as i64),
+            b'U' | b's' => {
+                let n = self.u16() as i16;
+                FieldVal::Int(n as i64)
+            }
+            b'u' => FieldVal::Int(self.u16() as i64),
+            b'I' => FieldVal::Int(self.u32() as i32 as i64),
+            b'i' => FieldVal::Int(self.u32() as i64),
+            b'L' | b'l' => FieldVal::Int(self.u64() as i64),
+            b'T' => FieldVal::Int(self.u64() as i64), // timestamp
+            b'f' => {
+                self.u32();
+                FieldVal::Skip // float
+            }
+            b'd' => {
+                self.u64();
+                FieldVal::Skip // double
+            }
+            b'D' => {
+                self.u8(); // decimal scale
+                self.u32(); // decimal value
+                FieldVal::Skip
+            }
+            b'S' => {
+                let bytes = self.longstr_bytes();
+                FieldVal::Str(String::from_utf8_lossy(&bytes).into_owned())
+            }
+            b'x' | b'F' | b'A' => {
+                let _ = self.longstr_bytes(); // byte-array / nested table / array
+                FieldVal::Skip
+            }
+            b'V' => FieldVal::Skip, // void
+            _ => return None,       // unknown type — width unknown, stop the scan
+        };
+        Some(v)
     }
 }
 
@@ -714,5 +971,110 @@ mod tests {
         assert_eq!(&p[0..4], &[0x00, 10, 0x00, 10]);
         assert_eq!(p[4], 0); // major
         assert_eq!(p[5], 9); // minor
+    }
+
+    // ── CONCEPT:EG-314 publisher confirms + idempotent-publish headers ────
+
+    /// Assemble a content-header payload carrying an application-`headers` table
+    /// (bit 0x2000) + a `priority` octet (bit 0x0800), the layout `parse_content_props`
+    /// walks.
+    fn content_header_with(producer_id: &str, seq: i32, priority: u8) -> Vec<u8> {
+        // The field-table body: two entries.
+        let mut table = Vec::new();
+        put_shortstr(&mut table, b"x-producer-id");
+        table.push(b'S');
+        put_longstr(&mut table, producer_id.as_bytes());
+        put_shortstr(&mut table, b"x-producer-seq");
+        table.push(b'I');
+        put_u32(&mut table, seq as u32);
+
+        let mut p = Vec::new();
+        put_u16(&mut p, C_BASIC); // class-id
+        put_u16(&mut p, 0); // weight
+        put_u64(&mut p, 4); // body-size
+        put_u16(&mut p, 0x2000 | 0x0800); // flags: headers + priority
+        put_longstr(&mut p, &table); // headers table (u32 len + body)
+        p.push(priority); // priority octet
+        p
+    }
+
+    #[test]
+    fn eg314_parse_content_props_extracts_producer_id_seq_and_priority() {
+        let payload = content_header_with("prod-7", 42, 5);
+        let props = parse_content_props(&payload);
+        assert_eq!(props.producer_id.as_deref(), Some("prod-7"));
+        assert_eq!(props.producer_seq, Some(42));
+        assert_eq!(props.priority, 5);
+    }
+
+    #[test]
+    fn eg314_parse_content_props_absent_headers_is_default() {
+        // Minimal header: class/weight/body-size + zero property flags → no producer
+        // stamp, priority 0 (the at-least-once, unchanged path).
+        let mut p = Vec::new();
+        put_u16(&mut p, C_BASIC);
+        put_u16(&mut p, 0);
+        put_u64(&mut p, 0);
+        put_u16(&mut p, 0x0000);
+        let props = parse_content_props(&p);
+        assert!(props.producer_id.is_none());
+        assert!(props.producer_seq.is_none());
+        assert_eq!(props.priority, 0);
+    }
+
+    #[test]
+    fn eg314_field_value_decodes_string_and_int_tags() {
+        // 'S' longstr string then 'l' 64-bit int.
+        let mut buf = Vec::new();
+        buf.push(b'S');
+        put_longstr(&mut buf, b"hello");
+        buf.push(b'l');
+        put_u64(&mut buf, 9);
+        let mut c = Cursor::new(&buf);
+        match c.field_value() {
+            Some(FieldVal::Str(s)) => assert_eq!(s, "hello"),
+            _ => panic!("expected string"),
+        }
+        match c.field_value() {
+            Some(FieldVal::Int(n)) => assert_eq!(n, 9),
+            _ => panic!("expected int"),
+        }
+        // An unknown tag ends the scan.
+        let bad = vec![b'?'];
+        assert!(Cursor::new(&bad).field_value().is_none());
+    }
+
+    #[test]
+    fn eg314_basic_ack_frame_carries_delivery_tag() {
+        let f = build_basic_ack(3, false);
+        // class 60, method 80.
+        assert_eq!(&f[0..4], &[0x00, 60, 0x00, 80]);
+        assert_eq!(u64::from_be_bytes(f[4..12].try_into().unwrap()), 3);
+        assert_eq!(f[12], 0x00); // multiple = false
+    }
+
+    #[test]
+    fn eg314_basic_nack_frame_sets_requeue_bit() {
+        let f = build_basic_nack(9, false, true);
+        // class 60, method 120.
+        assert_eq!(&f[0..4], &[0x00, 60, 0x00, 120]);
+        assert_eq!(u64::from_be_bytes(f[4..12].try_into().unwrap()), 9);
+        assert_eq!(f[12], 0x02); // multiple=0, requeue=1
+    }
+
+    #[test]
+    fn eg314_decode_confirmed_reads_idempotent_publish_flag() {
+        let confirmed = ResultPayload::raw(&crate::broker::IdempotentPublish {
+            confirmed: true,
+            duplicate: false,
+            delivered: 1,
+        });
+        assert!(decode_confirmed(&confirmed));
+        let nacked = ResultPayload::raw(&crate::broker::IdempotentPublish {
+            confirmed: false,
+            duplicate: false,
+            delivered: 0,
+        });
+        assert!(!decode_confirmed(&nacked));
     }
 }
