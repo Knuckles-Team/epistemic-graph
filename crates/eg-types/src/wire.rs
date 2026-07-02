@@ -162,6 +162,54 @@ pub enum TensorOpKind {
     Elementwise { op: TensorElementwiseOp, scalar: f64 },
 }
 
+/// PROBABILISTIC — the evidence for a conjugate Bayesian update carried by
+/// [`ProbQuery::Conditional`] (CONCEPT:EG-086). Mirrors `eg_compute::probabilistic::Evidence`,
+/// but defined HERE (pure serde, no eg-compute dep) so the wire stays Pi-safe; the executor
+/// maps it to eg-compute's enum behind eg-plan's `probabilistic` gate. `Bernoulli` counts
+/// are the sufficient statistic for a Beta prior; `Gaussian` observations (with a KNOWN
+/// likelihood variance) for a Gaussian prior over the unknown mean.
+#[cfg(feature = "probabilistic")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProbEvidenceSpec {
+    Bernoulli { successes: f64, failures: f64 },
+    Gaussian {
+        observations: Vec<f64>,
+        known_variance: f64,
+    },
+}
+
+/// PROBABILISTIC — the probabilistic query carried by `Op::Probabilistic` (CONCEPT:EG-086):
+/// one closed-form question asked of each row's stored `Distribution` VALUE.
+/// * `Expectation` — the mean `E[X]`.
+/// * `Marginal { at, label }` — the marginal probability: the density `pdf(at)` for the
+///   continuous variants, or the mass `pmf(label)` when `label` is set (a `Categorical`).
+/// * `Conditional { evidence }` — the posterior MEAN after a conjugate Bayesian update
+///   with `evidence` (the "conditional" query).
+/// * `Sample { seed }` — one DETERMINISTIC seeded draw (same seed ⇒ same value; no
+///   RNG-from-clock, so a plan is reproducible).
+///
+/// PURE serde — the distribution math lives in eg-types (`Distribution`) + eg-compute
+/// (`bayesian_update`) behind eg-plan's `probabilistic` gate; this is the wire variant.
+#[cfg(feature = "probabilistic")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProbQuery {
+    Expectation,
+    Marginal {
+        #[serde(default)]
+        at: f64,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    Conditional {
+        evidence: ProbEvidenceSpec,
+    },
+    Sample {
+        seed: u64,
+    },
+}
+
 /// STREAM — a per-event attribute predicate for a CEP matcher (CONCEPT:EG-088). Mirrors
 /// eg-stream's `AttrPredicate`, but defined HERE (pure serde, no eg-stream dep) so the
 /// wire stays Pi-safe; the executor maps it to eg-stream's enum behind eg-plan's
@@ -554,6 +602,20 @@ pub enum Op {
         streams: Vec<String>,
         tolerance_ns: u64,
     },
+    /// TRANSFORM (probabilistic, CONCEPT:EG-086) — run the probabilistic query `query`
+    /// against each row's stored `Distribution` VALUE (the conventional `distribution`
+    /// node property, the tagged serde form of `eg_types::Distribution`) and SCORE the
+    /// row with the closed-form result — expectation / marginal probability / conditional
+    /// posterior mean / deterministic seeded sample — re-ordering the RowSet by that score
+    /// DESCENDING, exactly as `Rank` produces a scored order a downstream `Limit` respects.
+    /// Rows whose `distribution` is missing/invalid, or where the query does not apply
+    /// (e.g. a `Conditional` with an unsupported conjugate pair), are DROPPED — mirroring
+    /// how the tensor/spatial legs narrow their input. Gated by `probabilistic` (the
+    /// distribution + Bayesian math lives in eg-types/eg-compute behind eg-plan's own
+    /// `probabilistic` gate; this is the pure-serde wire variant — no RNG-from-clock, so a
+    /// seeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.
+    #[cfg(feature = "probabilistic")]
+    Probabilistic { query: ProbQuery },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
@@ -958,6 +1020,62 @@ mod tensor_tests {
                     op: TensorElementwiseOp::Mul,
                     scalar: 2.0,
                 },
+            },
+            Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+}
+
+// ── probabilistic wire-variant round-trip (CONCEPT:EG-086) ───────────────────
+#[cfg(all(test, feature = "probabilistic"))]
+mod probabilistic_tests {
+    use super::*;
+
+    /// The `Op::Probabilistic` variant + its `ProbQuery` / `ProbEvidenceSpec` DTOs are
+    /// pure-serde and round-trip through MessagePack (the wire format) unchanged — the
+    /// proof `Method::UnifiedQuery { plan }` can carry a probabilistic plan (CONCEPT:EG-086).
+    #[test]
+    fn probabilistic_variants_round_trip() {
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Belief".into(),
+            },
+            Op::Probabilistic {
+                query: ProbQuery::Expectation,
+            },
+            Op::Probabilistic {
+                query: ProbQuery::Marginal {
+                    at: 0.5,
+                    label: None,
+                },
+            },
+            Op::Probabilistic {
+                query: ProbQuery::Marginal {
+                    at: 0.0,
+                    label: Some("b".into()),
+                },
+            },
+            Op::Probabilistic {
+                query: ProbQuery::Conditional {
+                    evidence: ProbEvidenceSpec::Bernoulli {
+                        successes: 3.0,
+                        failures: 1.0,
+                    },
+                },
+            },
+            Op::Probabilistic {
+                query: ProbQuery::Conditional {
+                    evidence: ProbEvidenceSpec::Gaussian {
+                        observations: vec![1.0, 3.0],
+                        known_variance: 1.0,
+                    },
+                },
+            },
+            Op::Probabilistic {
+                query: ProbQuery::Sample { seed: 42 },
             },
             Op::Limit { k: 5 },
         ]);

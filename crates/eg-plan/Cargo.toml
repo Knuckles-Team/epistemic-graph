@@ -110,6 +110,23 @@ tensor = ["query", "dep:eg-tensor", "eg-types/tensor"]
 # primitive; wiring the EG-064 CDC bus + a subscription surface into the server is the
 # documented follow-up.
 stream = ["query", "eg-stream/stream", "eg-types/stream"]
+# Probabilistic / uncertainty query op (CONCEPT:EG-086): the `Op::Probabilistic { query }`
+# TRANSFORM op — score each row by a closed-form probabilistic query over its stored
+# `Distribution` value (expectation / marginal / conditional posterior mean / seeded
+# sample) and re-order by that score. Pulls eg-compute's `reasoning` domain for the
+# conjugate `bayesian_update`; the `Distribution` VALUE + its moment/pdf/quantile/sample
+# methods live in eg-types (always compiled). Turns on the `probabilistic` wire variant in
+# eg-types. IMPLIES `query` (the op lives inside the `query`-gated `Op` enum, beside the
+# DataFusion FILTER leg). eg-compute depends only on eg-core/eg-types — no dependency
+# cycle. OFF by default; a default/Pi build links no eg-compute reasoning here and drops
+# the arm.
+# FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi).
+probabilistic = [
+    "query",
+    "eg-types/probabilistic",
+    "dep:eg-compute",
+    "eg-compute/reasoning",
+]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
 # only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete
@@ -152,6 +169,12 @@ eg-geo = { path = "../eg-geo", optional = true }
 # `tensor`, CONCEPT:EG-085). Optional + only referenced under #[cfg(feature = "tensor")];
 # only-serde leaf crate (NO BLAS/LAPACK/C dep), so a default/Pi build links none of it.
 eg-tensor = { path = "../eg-tensor", optional = true }
+# The conjugate Bayesian-update / marginal / fusion helpers (eg-compute's pure-Rust
+# `reasoning` domain) backing the `Op::Probabilistic` op (feature `probabilistic`,
+# CONCEPT:EG-086). Optional + only referenced under #[cfg(feature = "probabilistic")];
+# eg-compute depends only on eg-core/eg-types (no heavy dep, no eg-plan back-edge → no
+# cycle), so a default/Pi build links none of it.
+eg-compute = { path = "../eg-compute", optional = true }
 # The pure-Rust event-stream + CEP modality (bounded NFA over sliding/tumbling windows —
 # Sequence/Within/Absence + per-event attribute predicates) backing the `Cep` op (feature
 # `stream`, CONCEPT:EG-088). Optional + only referenced under #[cfg(feature = "stream")];
