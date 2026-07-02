@@ -70,6 +70,29 @@ fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
     }
 }
 
+/// Decode a MessagePack-encoded JSON object blob (the `props_msgpack` /
+/// `semantic_props_msgpack` wire fields) into a `serde_json` object map
+/// (CONCEPT:EG-318). A missing/undecodable/non-object blob yields an empty map, so
+/// a caller may omit props entirely — the eg-core primitive injects the structural
+/// markers regardless. Mirrors the `CompareAndSetNodeFields` blob-decode discipline.
+fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
+    match rmp_serde::from_slice::<serde_json::Value>(blob) {
+        Ok(serde_json::Value::Object(o)) => o,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// Decode a MessagePack-encoded `{translation,rotation,scale}` JSON blob into an
+/// eg-core [`eg_core::scene::Pose`] (CONCEPT:EG-318/EG-087). `None` only if the blob
+/// is not a decodable JSON object or a present sub-object is malformed (a bare `{}`
+/// reads back as the identity pose, since translation/rotation default to identity
+/// and scale to unit). Keeps the `eg-types` wire crate free of the eg-core scene
+/// dependency — the Pose lives only handler-side.
+fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
+    let val = rmp_serde::from_slice::<serde_json::Value>(blob).ok()?;
+    eg_core::scene::Pose::from_json(&val)
+}
+
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
 /// chain (it owns the catch-all), so it returns a `Response` directly.
 pub(crate) async fn try_handle(
@@ -438,6 +461,154 @@ pub(crate) async fn try_handle(
         } => {
             let outcome = crate::broker::broker_nack_tag(&core, delivery_tag, requeue, now_ms);
             Response::ok(req_id, ResultPayload::String(outcome))
+        }
+        // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-318) ────
+        // Route each Method to its eg-core `GraphCore` primitive. The mutating arms
+        // share the SAME durable/deterministic contract as the broker precedent: the
+        // dispatch shell records them (via `is_durable_mutation`) and `wal::apply`
+        // re-runs the SAME primitive over the same pre-image, and every generated id
+        // derives deterministically from sorted inputs / node-count / step ordinals,
+        // so a replayed WAL record reproduces byte-identical state. Reads are pure.
+        Method::CreateSummaryNode {
+            level,
+            child_ids,
+            props_msgpack,
+        } => {
+            let props = decode_json_object(&props_msgpack);
+            let id = core.create_summary_node(level, &child_ids, props);
+            Response::ok(req_id, ResultPayload::String(id))
+        }
+        Method::Consolidate {
+            episodic_ids,
+            semantic_props_msgpack,
+        } => {
+            let props = decode_json_object(&semantic_props_msgpack);
+            let id = core.consolidate(&episodic_ids, props);
+            Response::ok(req_id, ResultPayload::String(id))
+        }
+        Method::Reinforce {
+            node_id,
+            now_ms,
+            weight,
+        } => {
+            let existed = core.reinforce(&node_id, now_ms, weight);
+            Response::ok(req_id, ResultPayload::Bool(existed))
+        }
+        Method::DecayNode {
+            node_id,
+            now_ms,
+            half_life_ms,
+        } => {
+            let acted = core.decay_node(&node_id, now_ms, half_life_ms);
+            Response::ok(req_id, ResultPayload::Bool(acted))
+        }
+        Method::DecayMemories {
+            now_ms,
+            half_life_ms,
+            ids,
+        } => {
+            let n = core.decay_memories(now_ms, half_life_ms, &ids);
+            Response::ok(req_id, ResultPayload::Count(n as u64))
+        }
+        Method::EvictBelow {
+            ids,
+            threshold,
+            delete,
+        } => {
+            let pruned = core.evict_below(&ids, threshold, delete);
+            Response::ok(req_id, ResultPayload::Ids(pruned))
+        }
+        Method::Maintain {
+            ids,
+            now_ms,
+            half_life_ms,
+            evict_threshold,
+            delete,
+        } => {
+            let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
+            // (decayed_count, pruned_ids) — compact msgpack tuple.
+            Response::ok(req_id, ResultPayload::raw(&out))
+        }
+        Method::SummaryChildren { node_id } => {
+            Response::ok(req_id, ResultPayload::Ids(core.summary_children(&node_id)))
+        }
+        Method::SummariesAtLevel { level } => {
+            Response::ok(req_id, ResultPayload::Ids(core.summaries_at_level(level)))
+        }
+        Method::AddSceneObject {
+            pose_msgpack,
+            parent,
+        } => {
+            let Some(pose) = decode_pose(&pose_msgpack) else {
+                return Response::err(req_id, "AddSceneObject: undecodable pose_msgpack");
+            };
+            let id = core.add_scene_object(&pose, parent.as_deref());
+            Response::ok(req_id, ResultPayload::String(id))
+        }
+        Method::SetPose {
+            node_id,
+            pose_msgpack,
+        } => {
+            let Some(pose) = decode_pose(&pose_msgpack) else {
+                return Response::err(req_id, "SetPose: undecodable pose_msgpack");
+            };
+            let ok = core.set_pose(&node_id, &pose);
+            Response::ok(req_id, ResultPayload::Bool(ok))
+        }
+        Method::Reparent {
+            node_id,
+            new_parent,
+        } => {
+            let ok = core.reparent(&node_id, new_parent.as_deref());
+            Response::ok(req_id, ResultPayload::Bool(ok))
+        }
+        Method::WorldTransform { node_id } => {
+            let payload = match core.world_transform(&node_id) {
+                Some(pose) => ResultPayload::Json(pose.to_json()),
+                None => ResultPayload::Json(serde_json::Value::Null),
+            };
+            Response::ok(req_id, payload)
+        }
+        Method::SceneChildren { node_id } => {
+            Response::ok(req_id, ResultPayload::Ids(core.scene_children(&node_id)))
+        }
+        Method::StartTrajectory { props_msgpack } => {
+            let props = decode_json_object(&props_msgpack);
+            let id = core.start_trajectory(props);
+            Response::ok(req_id, ResultPayload::String(id))
+        }
+        Method::AppendStep {
+            traj_id,
+            action_msgpack,
+            reward,
+            state_ref,
+            next_state_ref,
+            t,
+        } => {
+            let action = rmp_serde::from_slice::<serde_json::Value>(&action_msgpack)
+                .unwrap_or(serde_json::Value::Null);
+            let step_id = core.append_step(
+                &traj_id,
+                action,
+                reward,
+                state_ref.as_deref(),
+                next_state_ref.as_deref(),
+                t,
+            );
+            // Option<String> — nil ⇒ the trajectory was absent (no partial write).
+            Response::ok(req_id, ResultPayload::raw(&step_id))
+        }
+        Method::DiscountedReturn { traj_id, gamma } => {
+            Response::ok(
+                req_id,
+                ResultPayload::Float(core.discounted_return(&traj_id, gamma)),
+            )
+        }
+        Method::BestTrajectory { traj_ids, gamma } => {
+            Response::ok(
+                req_id,
+                ResultPayload::raw(&core.best_trajectory(&traj_ids, gamma)),
+            )
         }
         Method::GetNodePropertiesBatch { node_ids } => {
             if node_ids.len() > MAX_BATCH_IDS {

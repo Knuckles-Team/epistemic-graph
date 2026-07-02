@@ -392,6 +392,174 @@ pub enum Method {
         requeue: bool,
         now_ms: u64,
     },
+    // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-318) ──
+    // Expose the eg-core LIBRARY primitives for hierarchical summaries (EG-220),
+    // episodic→semantic consolidation (EG-221), decay/reinforce/evict maintenance
+    // (EG-222), the 3D scene-graph (EG-087), and action/policy trajectory memory
+    // (EG-099) over the wire. These are ADDITIVE + UNGATED (the eg-core `graph` /
+    // `scene` modules are always compiled — unlike the feature-gated broker), so
+    // every serving tier (`server`/`full`/`pi`) carries them. The mutating variants
+    // mirror the EG-276..284 broker precedent EXACTLY: every generated id is
+    // deterministic (SipHash zero-key over sorted inputs, or a monotonic
+    // node-count / step-ordinal), and any clock is the EXPLICIT caller-supplied
+    // `now_ms` — never a server clock — so a replayed WAL record / committed Raft
+    // entry reproduces byte-identical state (`wal::apply`). Non-security /
+    // non-broker builds are unaffected: a build that never issues these sees no
+    // behavioral change.
+
+    /// CONCEPT:EG-318/EG-220 — create (or UPSERT) a hierarchical summary node at
+    /// abstraction `level`, linked to each of `child_ids` via a `SUMMARIZES`
+    /// provenance edge. `props_msgpack` is a MessagePack-encoded JSON object (the
+    /// LLM summary text + any caller fields; an `id` string is honoured). Durable +
+    /// deterministic (the id derives from `(level, sorted children)` with no clock),
+    /// so WAL replay upserts the identical node. Returns the summary node id
+    /// (`String`).
+    CreateSummaryNode {
+        level: u32,
+        child_ids: Vec<String>,
+        #[serde(with = "serde_bytes")]
+        props_msgpack: Vec<u8>,
+    },
+    /// CONCEPT:EG-318/EG-221 — consolidate a cluster of `episodic_ids` into ONE
+    /// semantic node (LOCALIZED maintenance — nothing outside the cluster is
+    /// touched). `semantic_props_msgpack` is a MessagePack-encoded JSON object. The
+    /// semantic id derives deterministically from the sorted cluster, so WAL replay
+    /// reproduces it. Returns the semantic node id (`String`).
+    Consolidate {
+        episodic_ids: Vec<String>,
+        #[serde(with = "serde_bytes")]
+        semantic_props_msgpack: Vec<u8>,
+    },
+    /// CONCEPT:EG-318/EG-222 — reinforce a memory node: bump access/recency +
+    /// importance as of the EXPLICIT `now_ms` (no server clock ⇒ deterministic
+    /// replay). Returns `Bool` (whether the node existed).
+    Reinforce {
+        node_id: String,
+        now_ms: u64,
+        weight: f64,
+    },
+    /// CONCEPT:EG-318/EG-222 — Ebbinghaus-decay a single memory node's importance to
+    /// the EXPLICIT `now_ms` given `half_life_ms`. Deterministic (caller clock).
+    /// Returns `Bool` (whether it decayed/stamped the node).
+    DecayNode {
+        node_id: String,
+        now_ms: u64,
+        half_life_ms: u64,
+    },
+    /// CONCEPT:EG-318/EG-222 — batch-decay a caller-supplied working set of memory
+    /// `ids` to the EXPLICIT `now_ms` (localized — no global scan). Returns `Count`
+    /// (nodes decayed).
+    DecayMemories {
+        now_ms: u64,
+        half_life_ms: u64,
+        ids: Vec<String>,
+    },
+    /// CONCEPT:EG-318/EG-222 — prune the sub-`threshold`-importance members of the
+    /// working set `ids`. `delete == false` marks `forgotten` (provenance-preserving);
+    /// `true` hard-removes. Deterministic (no clock). Returns the pruned ids (`Ids`,
+    /// sorted).
+    EvictBelow {
+        ids: Vec<String>,
+        threshold: f64,
+        delete: bool,
+    },
+    /// CONCEPT:EG-318/EG-222 — decay-THEN-evict the working set `ids` in ONE atomic
+    /// pass as of the EXPLICIT `now_ms` (the primitive the AU maintenance loop
+    /// schedules). Deterministic (caller clock). Returns `Raw((decayed_count,
+    /// pruned_ids))`.
+    Maintain {
+        ids: Vec<String>,
+        now_ms: u64,
+        half_life_ms: u64,
+        evict_threshold: f64,
+        delete: bool,
+    },
+    /// CONCEPT:EG-318/EG-220 — the direct children of summary node `node_id` (targets
+    /// of its `SUMMARIZES` edges), sorted + deduped. Read-only. Returns `Ids`.
+    SummaryChildren {
+        node_id: String,
+    },
+    /// CONCEPT:EG-318/EG-220 — all summary node ids at abstraction `level`, sorted +
+    /// deduped. Read-only. Returns `Ids`.
+    SummariesAtLevel {
+        level: u32,
+    },
+    /// CONCEPT:EG-318/EG-087 — create a `:SceneObject` with LOCAL `pose_msgpack` (a
+    /// MessagePack-encoded `{translation,rotation,scale}` JSON), optionally parented
+    /// under `parent` via a `CHILD_OF`/`HAS_CHILD` link. The id derives
+    /// deterministically from `(live node count, parent, pose)`, so WAL replay
+    /// reproduces it. Returns the new object's id (`String`).
+    AddSceneObject {
+        #[serde(with = "serde_bytes")]
+        pose_msgpack: Vec<u8>,
+        parent: Option<String>,
+    },
+    /// CONCEPT:EG-318/EG-087 — overwrite scene object `node_id`'s LOCAL pose with
+    /// `pose_msgpack`. Deterministic. Returns `Bool` (whether the node existed).
+    SetPose {
+        node_id: String,
+        #[serde(with = "serde_bytes")]
+        pose_msgpack: Vec<u8>,
+    },
+    /// CONCEPT:EG-318/EG-087 — re-parent scene object `node_id` under `new_parent`
+    /// (`None` ⇒ detach to a root). Deterministic. Returns `Bool` (whether it acted).
+    Reparent {
+        node_id: String,
+        new_parent: Option<String>,
+    },
+    /// CONCEPT:EG-318/EG-087 — the WORLD pose of scene object `node_id` (its local
+    /// pose composed up the `CHILD_OF` chain). Read-only. Returns `Json` — the
+    /// `{translation,rotation,scale}` object, or `null` if the node is absent / has
+    /// no pose.
+    WorldTransform {
+        node_id: String,
+    },
+    /// CONCEPT:EG-318/EG-087 — the direct transform children of scene object
+    /// `node_id` (targets of its `HAS_CHILD` edges), sorted + deduped. Read-only.
+    /// Returns `Ids`.
+    SceneChildren {
+        node_id: String,
+    },
+    /// CONCEPT:EG-318/EG-099 — START (or UPSERT) a `:Trajectory` (episode).
+    /// `props_msgpack` is a MessagePack-encoded JSON object (an `id` string is
+    /// honoured). The id derives deterministically from `(live node count, props)`,
+    /// monotonic under replay, so WAL replay reproduces it. Returns the trajectory id
+    /// (`String`).
+    StartTrajectory {
+        #[serde(with = "serde_bytes")]
+        props_msgpack: Vec<u8>,
+    },
+    /// CONCEPT:EG-318/EG-099 — APPEND a `:Step{action,reward,t,…}` to trajectory
+    /// `traj_id`. `action_msgpack` is a MessagePack-encoded JSON action (a string or
+    /// structured object); `reward`/`t` are caller-supplied (no clock/RNG ⇒
+    /// deterministic). The step id derives from `(traj_id, step ordinal)`, so WAL
+    /// replay reproduces the identical chain. Returns `Raw(Option<String>)` — the new
+    /// step id, or nil if the trajectory is absent.
+    AppendStep {
+        traj_id: String,
+        #[serde(with = "serde_bytes")]
+        action_msgpack: Vec<u8>,
+        reward: f64,
+        #[serde(default)]
+        state_ref: Option<String>,
+        #[serde(default)]
+        next_state_ref: Option<String>,
+        t: u64,
+    },
+    /// CONCEPT:EG-318/EG-099 — the DISCOUNTED return `Σ gamma^t · reward` over
+    /// trajectory `traj_id`'s ordered steps. Read-only, deterministic (`gamma`
+    /// caller-supplied). Returns `Float` (`0.0` for an absent/empty trajectory).
+    DiscountedReturn {
+        traj_id: String,
+        gamma: f64,
+    },
+    /// CONCEPT:EG-318/EG-099 — the trajectory in `traj_ids` with the HIGHEST
+    /// discounted return (prioritized replay / policy selection); ties broken by the
+    /// smaller id. Read-only. Returns `Raw(Option<String>)` — nil for empty input.
+    BestTrajectory {
+        traj_ids: Vec<String>,
+        gamma: f64,
+    },
     /// Batch property read: fetch properties for many nodes in ONE round-trip
     /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
     /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the
@@ -2483,6 +2651,63 @@ mod tests {
             assert_eq!(query, "INSERT DATA { <A> <B> <C> }");
         } else {
             panic!("Wrong method");
+        }
+    }
+
+    /// CONCEPT:EG-318 — the memory/scene/trajectory mutation + read variants
+    /// round-trip through MessagePack (the on-wire + WAL framing) byte-for-byte,
+    /// preserving every field.
+    #[test]
+    fn eg318_memory_scene_trajectory_methods_roundtrip() {
+        let methods = vec![
+            Method::CreateSummaryNode {
+                level: 2,
+                child_ids: vec!["e1".into(), "e2".into()],
+                props_msgpack: vec![0x80],
+            },
+            Method::Consolidate {
+                episodic_ids: vec!["a".into(), "b".into()],
+                semantic_props_msgpack: vec![0x80],
+            },
+            Method::Maintain {
+                ids: vec!["m1".into()],
+                now_ms: 123,
+                half_life_ms: 604_800_000,
+                evict_threshold: 0.5,
+                delete: false,
+            },
+            Method::AddSceneObject {
+                pose_msgpack: vec![0x80],
+                parent: Some("root".into()),
+            },
+            Method::StartTrajectory {
+                props_msgpack: vec![0x80],
+            },
+            Method::AppendStep {
+                traj_id: "trajectory:dead".into(),
+                action_msgpack: vec![0xa4, b'l', b'e', b'f', b't'],
+                reward: 1.5,
+                state_ref: None,
+                next_state_ref: None,
+                t: 0,
+            },
+            Method::SummaryChildren {
+                node_id: "s".into(),
+            },
+            Method::WorldTransform {
+                node_id: "o".into(),
+            },
+            Method::DiscountedReturn {
+                traj_id: "t".into(),
+                gamma: 0.9,
+            },
+        ];
+        for m in methods {
+            let wire = rmp_serde::to_vec_named(&m).unwrap();
+            let back: Method = rmp_serde::from_slice(&wire).unwrap();
+            // The tag+content framing survives; spot-check a representative field.
+            let re = rmp_serde::to_vec_named(&back).unwrap();
+            assert_eq!(wire, re, "EG-318 method must msgpack-roundtrip identically");
         }
     }
 }
