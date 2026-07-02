@@ -18,7 +18,7 @@ openraft, no Tantivy, no wasmtime, no native/C dep** (asserted by `cargo tree`).
 | `pi-max` | `pi` + `tsdb` + `blob` + `security` — every pure-Rust, no-DataFusion feature that still fits a Pi | maximal edge node without a C toolchain |
 | `node` | `pi` + SQL/DataFusion, GraphQL, compute domains, TSDB, blob, KV, full-text, GeoSPARQL, federation, spatial/tensor/stream, WASM UDF, security, obs | single workstation / server, "one binary, most features" |
 | `full` (= `all`) | Every **single-node** feature, size-optimized. Deliberately **no** raft/pgwire | one binary, every feature, no clustering |
-| `cluster` | `node` + in-engine Raft replication (EG/KG-2.188) + `pgwire` + distributed compute + cross-shard 2PC + the SQLite/MySQL/MSSQL wires | multi-node HA, SQL clients |
+| `cluster` | `node` + in-engine Raft replication (EG/KG-2.188) + `pgwire` + distributed compute + cross-shard 2PC + the SQLite/MySQL/MSSQL/**Bolt/Redis/AMQP/MQTT/STOMP** wires | multi-node HA, SQL/graph/broker clients |
 
 ```bash
 cargo build --release --features full        # or: pi / pi-max / node / cluster
@@ -26,9 +26,14 @@ cargo build --release --features full        # or: pi / pi-max / node / cluster
 cargo build --release --features "pgwire bolt-wire promql traces security"
 ```
 
-Individual wire/broker features (`mysql-wire`, `mssql-wire`, `sqlite-wire`, `bolt-wire`,
-`amqp-wire`, `promql`, `traces`) are folded per-tier by the orchestrator; you can always add
-them explicitly. See [tiers](../architecture/tiers.md) for the prebuilt-binary mapping.
+**Tier folds (2.2.0).** The single-node value-add features are folded into `node` (and therefore
+`full`) by the orchestrator: `broker`, `promql`, `traces`, `s3-api`, `nl-query`, `geosparql`,
+`federation-search`, `kvcache-server` (plus `obs`, `otel`, `shacl`, `shex`). The remote **wire
+protocols** — `bolt-wire`, `redis-wire`, `amqp-wire`, `mqtt-wire`, `stomp-wire` (alongside the
+existing `sqlite-wire`/`mysql-wire`/`mssql-wire` and `pgwire`) — fold into `cluster`. You can
+always add any of them explicitly to a leaner tier. Note the broker *primitives* (`broker`) ship
+in `node`/`full`; the AMQP/MQTT/STOMP *listeners* that front them are `cluster`. See
+[tiers](../architecture/tiers.md) for the prebuilt-binary mapping.
 
 ## 2. Core process configuration
 
@@ -58,11 +63,17 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 | MySQL wire | `mysql-wire` | `EPISTEMIC_GRAPH_MYSQL_ADDR` | `127.0.0.1:3306` | `EPISTEMIC_GRAPH_MYSQL_AUTH`, `…_MYSQL_GRAPH` |
 | MSSQL wire | `mssql-wire` | `EPISTEMIC_GRAPH_MSSQL_ADDR` | `127.0.0.1:1433` | `EPISTEMIC_GRAPH_MSSQL_GRAPH` |
 | SQLite NDJSON | `sqlite-wire` | `EPISTEMIC_GRAPH_SQLITE_ADDR` | (your port) | `EPISTEMIC_GRAPH_SQLITE_GRAPH` |
-| Bolt wire (Neo4j) | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` | `127.0.0.1:7687` | `EPISTEMIC_GRAPH_BOLT_GRAPH` |
-| AMQP broker | `amqp-wire` | `EPISTEMIC_GRAPH_AMQP_ADDR` | `127.0.0.1:5672` | `EPISTEMIC_GRAPH_AMQP_GRAPH` |
-| SPARQL HTTP + `/nl` | `sparql-http` | `EPISTEMIC_GRAPH_SPARQL_ADDR` (`--sparql-addr`) | `127.0.0.1:7878` | `EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH`, `…_SPARQL_SERVICE_ALLOW` |
+| Bolt wire (Neo4j) `EG-159` | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` | `127.0.0.1:7687` | `EPISTEMIC_GRAPH_BOLT_GRAPH` |
+| Redis RESP wire `EG-174` | `redis-wire` | `EPISTEMIC_GRAPH_REDIS_ADDR` | `127.0.0.1:6379` | `EPISTEMIC_GRAPH_REDIS_PASSWORD` |
+| AMQP broker `EG-275` | `amqp-wire` | `EPISTEMIC_GRAPH_AMQP_ADDR` | `127.0.0.1:5672` | `EPISTEMIC_GRAPH_AMQP_GRAPH` |
+| MQTT broker `EG-281` | `mqtt-wire` | `EPISTEMIC_GRAPH_MQTT_ADDR` | `127.0.0.1:1883` | `EPISTEMIC_GRAPH_MQTT_GRAPH`, `…_MQTT_EXCHANGE` |
+| STOMP broker `EG-282` | `stomp-wire` | `EPISTEMIC_GRAPH_STOMP_ADDR` | `127.0.0.1:61613` | `EPISTEMIC_GRAPH_STOMP_GRAPH`, `…_STOMP_EXCHANGE` |
+| S3 REST (object store) `EG-176` | `s3-api` | `EPISTEMIC_GRAPH_S3_ADDR` | `127.0.0.1:9000` | `EPISTEMIC_GRAPH_S3_ACCESS_KEY`, `…_S3_SECRET_KEY` |
+| Shared KV-cache HTTP `EG-187` | `kvcache-server` | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | `127.0.0.1:9130` | `EPISTEMIC_GRAPH_KVCACHE_TOKEN` |
+| SPARQL HTTP + `/nl` | `sparql-http` (+ `nl-query`) | `EPISTEMIC_GRAPH_SPARQL_ADDR` (`--sparql-addr`) | `127.0.0.1:7878` | `EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH`, `…_SPARQL_SERVICE_ALLOW`; NL: `…_NL_ENDPOINT`, `…_NL_MODEL`, `…_NL_API_KEY_ENV` |
 | GraphQL SSE | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR` (`--graphql-addr`) | `127.0.0.1:7879` | — |
-| Obs: logs + PromQL + traces | `obs`/`promql`/`traces` | `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`) | `127.0.0.1:5080` | `EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS` |
+| Obs: logs + PromQL + traces + VRL | `obs`/`promql`/`traces` | `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`) | `127.0.0.1:5080` | `EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS` |
+| Federated search `EG-243` | `federation-search` | `EPISTEMIC_GRAPH_FEDERATED_ADDR` (`--federated-addr`) | `127.0.0.1:7900` | `EPISTEMIC_GRAPH_FEDERATION_PEERS`, `…_FEDERATION_ALLOW` |
 | Prometheus `/metrics` | `metrics` (default) | `GRAPH_SERVICE_METRICS_ADDR` (`--metrics-addr`) | `127.0.0.1:9101` | — |
 | OTLP span **export** | `otel` | `EPISTEMIC_GRAPH_OTLP_ENDPOINT` | (off) | — |
 
@@ -149,22 +160,30 @@ tier by default.
 | Want | Build with | Then set |
 |------|-----------|----------|
 | SQL (in-engine) | `query` | — (native `Method::Sql`) |
-| Postgres clients | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR` |
-| MySQL / MSSQL / SQLite / Bolt clients | `mysql-wire` / `mssql-wire` / `sqlite-wire` / `bolt-wire` | the matching `*_ADDR` |
+| Postgres clients (+ pg_catalog / AGE / pgvector / Timescale / ParadeDB `EG-103`/`114`/`116`/`117`/`119`) | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR` |
+| MySQL / MSSQL / SQLite clients | `mysql-wire` / `mssql-wire` / `sqlite-wire` | the matching `*_ADDR` |
+| Bolt (Neo4j drivers) `EG-159` | `bolt-wire` (impl `cypher`) | `EPISTEMIC_GRAPH_BOLT_ADDR` |
+| Redis clients (RESP2/3) `EG-174` | `redis-wire` (impl `kv`) | `EPISTEMIC_GRAPH_REDIS_ADDR` |
 | Cypher | `cypher` (in `pi`) | — / Bolt for remote drivers |
-| GraphQL | `graphql` | — / `EPISTEMIC_GRAPH_GRAPHQL_ADDR` for SSE |
-| SPARQL / RDF / OWL | `sparql` (in `pi`) / `owl` | `EPISTEMIC_GRAPH_SPARQL_ADDR` for HTTP |
-| GeoSPARQL / spatial | `geosparql` / `geo` | — |
-| Vector ANN | `ann` (in `pi`) | — |
+| GraphQL (+ Apollo Federation / hardening `EG-295`/`296`) | `graphql` | — / `EPISTEMIC_GRAPH_GRAPHQL_ADDR` for SSE |
+| SPARQL / RDF / OWL (+ JSON-LD/TriG/RDF-XML/ShEx/ICV/GSP `EG-133`..`137`/`146`) | `sparql` (in `pi`) / `owl` / `shex` | `EPISTEMIC_GRAPH_SPARQL_ADDR` for HTTP |
+| GeoSPARQL / spatial (+ RCC8/Egenhofer `EG-155`/`261`) | `geosparql` / `geo` | — |
+| GIS / logistics (CRS/R-tree/tiles/routing/map-tasks `EG-255`..`267`) | `geo` | — |
+| Vector ANN (+ exact/flat recall harness `EG-297`) | `ann` (in `pi`) | — |
 | Time-series | `tsdb` | — |
 | Blob / CAS | `blob` (+ `blob-s3` for S3/MinIO) | `EPISTEMIC_GRAPH_BLOB_*` |
+| S3-compatible object store (serve) `EG-176` | `s3-api` (impl `blob`+`kv`) | `EPISTEMIC_GRAPH_S3_ADDR` |
 | Key-value | `kv` | — |
-| Full-text | `text` | — |
-| Message broker (AMQP) | `amqp-wire` (impl `broker`) | `EPISTEMIC_GRAPH_AMQP_ADDR` |
-| Observability (logs/PromQL/traces) | `obs` / `promql` / `traces` | `EPISTEMIC_GRAPH_OBS_ADDR` |
-| Natural-language query | `nl-query` | `EPISTEMIC_GRAPH_NL_ENDPOINT` / `…_NL_MODEL` / `…_NL_API_KEY_ENV` |
+| Full-text (+ ParadeDB BM25 `EG-119`) | `text` | — |
+| Message broker (queues/exchanges/streams/DLQ/TTL `EG-275`..`284`) | `broker` | `Method::*` broker ops |
+| Message broker wires (AMQP / MQTT / STOMP) `EG-275`/`281`/`282` | `amqp-wire` / `mqtt-wire` / `stomp-wire` (impl `broker`) | `EPISTEMIC_GRAPH_{AMQP,MQTT,STOMP}_ADDR` |
+| Observability (logs / PromQL / traces / VRL `EG-163`/`165`/`172`) | `obs` / `promql` / `traces` | `EPISTEMIC_GRAPH_OBS_ADDR` |
+| Natural-language query `EG-078`/`080` | `nl-query` | `EPISTEMIC_GRAPH_NL_ENDPOINT` / `…_NL_MODEL` / `…_NL_API_KEY_ENV` (served on `/nl`) |
+| Agent memory (summary tier / consolidation / LeanRAG `EG-195`/`220`..`222`) | (core / `ann`) | `Method::*` memory ops |
+| LLM KV-cache server (vLLM/LMCache share) `EG-185`..`187` | `kvcache-server` | `EPISTEMIC_GRAPH_KVCACHE_ADDR` (+ `…_KVCACHE_TOKEN`) |
 | WASM UDF | `wasm-udf` | — (`RegisterUdf`/`RunUdf`) |
 | Federation (remote / HTTP / external SQL) | `federation` / `federation-sql` | per-source spec |
+| Super-cluster federated search `EG-243` | `federation-search` | `EPISTEMIC_GRAPH_FEDERATED_ADDR` (+ `…_FEDERATION_PEERS` / `…_FEDERATION_ALLOW`) |
 | Clustering / HA | `raft` (in `cluster`) | `EPISTEMIC_GRAPH_RAFT_NODE_ID` + `…_RAFT_PEERS` (+ `…_RAFT_BIND_ADDR`) |
 
 ## 8. Observability of the engine itself

@@ -8,6 +8,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-02
+
+> **Minor, additive, backward-compatible.** The "Universal-DB parity" session (waves 18–22,
+> ~115 shipped concepts). Every feature below is behind its own Cargo feature and its own
+> opt-in listener/env — a default/`pi`/`node`/`full` build that sets no new address is
+> byte-for-byte the 2.1.0 engine. All pre-commit gates green. New surfaces fold into the
+> deployment tiers per [`docs/operations/runbook.md`](docs/operations/runbook.md) (broker /
+> PromQL / traces / S3 / NL-query / GeoSPARQL / federated-search / kvcache-server → `node`+`full`;
+> the AMQP/MQTT/STOMP/Bolt/Redis wires → `cluster`).
+
+### Added
+
+- **Multi-wire keystone + the new protocol wires (`CONCEPT:EG-074`..`077`/`159`/`174`/`176`/`275`/`281`/`282`)** —
+  the wire-agnostic `WireProtocol` trait (`EG-074`, parse→classify→`eg_query` exec→encode) that Postgres
+  refactored behind with no behavior change now backs a family of hand-rolled listeners, each reusing the
+  ONE exec path: **SQLite** NDJSON served surface (`EG-075`), **MySQL/MariaDB** handshake-v10 protocol
+  (`EG-076`), **MSSQL** TDS (`EG-077`), **Neo4j Bolt** v4.4 / PackStream v2 routing RUN's Cypher to eg-query
+  (`EG-159`), **Redis** RESP2/RESP3 over the durable KV surface (`EG-174`), an **S3-compatible** REST object
+  surface over the BLOB CAS with SigV4-lite auth (`EG-176`), and the **AMQP 0.9.1** broker wire (`EG-275`).
+- **Message broker + streams (`CONCEPT:EG-275`..`284`)** — the `KG-2.303` claim/ack work-queue is extended
+  into a RabbitMQ-class broker: durable direct/topic/fanout exchanges + bindings/routing-keys + queues as
+  `__control__` nodes (`EG-275`), **DLQs** (`EG-276`), **message TTL + queue expiry** (`EG-277`), **priority
+  queues** (`EG-278`), **delayed/scheduled delivery** (`EG-279`), Kafka-style **replayable append-log streams**
+  (`EG-283`), and **publisher confirms + consumer QoS acks** (`EG-284`). Reached over AMQP (`EG-275`), **MQTT
+  3.1.1** (`EG-281`), and **STOMP 1.2** (`EG-282`) wires that map pub/sub onto the same primitives.
+- **Observability suite (`CONCEPT:EG-163`/`165`/`172`/`243`)** — a **PromQL** evaluator + Prometheus HTTP query
+  API over the eg-tsdb metric series (`EG-172`); **distributed traces** — OTLP/OTLP-JSON span ingest on
+  `/v1/traces` into a span store + trace search (`EG-163`); **VRL-style ingest pipelines** (parse/filter/set/
+  rename transforms at log/event ingest) (`EG-165`); and **super-cluster federated search** — a `/federated`
+  entry that fans a read across a peer registry, unions/de-dups + RRF-re-ranks, tolerating slow/dead peers
+  (`EG-243`). These build on the `EG-160`/`161` OpenObserve-style log ingestion + Parquet segments.
+- **Postgres parity (`CONCEPT:EG-089`/`103`/`104`/`114`/`116`/`117`/`118`/`119`)** — `pg_catalog` +
+  `information_schema` system views (`EG-103`), array/range types + common functions (`EG-104`), Apache-AGE
+  `cypher()` over pgwire (`EG-114`), pgvector index pushdown (`EG-116`), TimescaleDB hypertables + continuous
+  aggregates (`EG-117`), SQL stored functions via `CREATE FUNCTION` (`EG-118`), ParadeDB `@@@` BM25 full-text
+  (`EG-119`), and columnar storage + SQL window frames (`EG-089`) — the drop-in surface for unmodified
+  Postgres clients/ORMs and the pg-extension ecosystem (gated by the `EG-102` `CREATE EXTENSION` catalog).
+- **RDF / SPARQL / OWL completeness (`CONCEPT:EG-101`/`133`..`137`/`146`/`155`/`261`)** — OGC **GeoSPARQL**
+  baseline (`geo:`/`geof:` vocab, WKT/GML literals, `sfWithin`/`sfIntersects`/`distance`) (`EG-261`); **RCC8 +
+  Egenhofer** topological relation families (`EG-155`); **JSON-LD** serialize/parse (`EG-136`); **TriG +
+  N-Quads + RDF/XML** serialization (`EG-137`); SPARQL algebra completeness — ORDER BY/VALUES/MINUS/EXISTS
+  (`EG-135`); **Integrity Constraint Validation** (ICV) (`EG-146`); **OBDA virtual graphs** (R2RML) (`EG-101`);
+  **ShEx** shape-expression validation (`EG-133`); and the SPARQL 1.1 **Graph Store Protocol** + `COPY`/`MOVE`/
+  `ADD` (`EG-134`).
+- **Graph / Cypher / GraphQL (`CONCEPT:EG-144`/`159`/`295`/`296`)** — graph-data-science algorithms
+  (centrality/community/pathfinding, reusing eg-compute) (`EG-144`); Neo4j **Bolt** wire (`EG-159`); GraphQL
+  **Apollo Federation v2** subgraph support — `_service{sdl}` + `_entities` + `@key`/`@shareable`/`@external`
+  (`EG-295`); and GraphQL **enterprise hardening** — APQ, query depth/complexity limits (`EG-296`).
+- **New modalities (`CONCEPT:EG-084`..`089`)** — document/JSON deep indexing (`EG-084`), array/tensor store
+  (`EG-085`), probabilistic / uncertainty distribution-valued properties (`EG-086`), scene-graph / 3D world
+  model (`EG-087`), event-stream + complex-event-processing (`EG-088`), and columnar storage + SQL window
+  frames (`EG-089`).
+- **GIS / logistics (`CONCEPT:EG-255`..`267`)** — coordinate-reference-systems + reprojection (`EG-255`, CRS
+  registry `EG-262`), geodesic ops (`EG-256`), full geometry model incl. multi-geometries + holes (`EG-257`),
+  DE-9IM topological relations (`EG-258`), constructive geometry algebra (`EG-259`), durable **R-tree** spatial
+  index (`EG-263`), geospatial format I/O — GeoJSON/WKB/GPX (`EG-264`), **map tiling** XYZ/TMS + Mapbox Vector
+  Tiles (`EG-265`), **weighted routing + isochrones + TSP** (`EG-266`), and geo-anchored **map-based task
+  tracking** (`EG-267`). Pure-Rust, no PROJ/C dep.
+- **Agent-native memory + retrieval (`CONCEPT:EG-078`/`080`/`195`/`220`/`221`/`222`)** — the hierarchical
+  summary-node memory tier (`EG-220`), episodic→semantic consolidation primitive (`EG-221`), memory decay +
+  reinforcement maintenance (`EG-222`), **LeanRAG** hierarchical retrieval that drills summary→supporting
+  through provenance edges (`EG-195`), and the **NL→query** seam: an injected `NlPlanner` (`EG-078`) plus the
+  standalone `Method::NlQuery` + `/nl` HTTP route + `nl_query('…')` SQL UDF (`EG-080`).
+- **LLM KV-cache tier (`CONCEPT:EG-185`/`186`/`187`)** — a new `eg-kvcache` crate: a tiered hot/warm/cold
+  key→block cache with promotion/demotion (`EG-185`), a content-addressed `SharedKvBackend` so parallel
+  instances dedup + share KV blocks by token-hash (`EG-186`), and a gated HTTP endpoint + vLLM/LMCache
+  connector (`EG-187`).
+- **Robotics, OBDA, vector, RBAC, backup/PITR, docs & benchmarks** — multimodal sensor fusion (`EG-098`),
+  action/policy/trajectory episodic memory (`EG-099`), OBDA virtual graphs (`EG-101`), an exact/flat vector
+  index + recall harness alongside IVF-PQ ANN (`EG-297`), RBAC-at-scale — durable roles + hierarchy + grants
+  on the `security` tier (`EG-092`), online backup / restore + **PITR** (`EG-090`), the massive-scale benchmark
+  harness (`EG-096`), and the comprehensive interface + operations documentation pass (`EG-095`).
+
 ## [2.1.0] - 2026-06-29
 
 ### Documentation
