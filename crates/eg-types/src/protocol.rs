@@ -1194,6 +1194,26 @@ pub enum Method {
         reorder_filter_selectivity: Option<f64>,
     },
 
+    // ── Natural-language query (CONCEPT:EG-078/EG-080) ─────────────────────
+    /// Natural-language → executable query → rows. `text` is the NL request, `graph`
+    /// the target graph (the `/nl` HTTP facade path has no request envelope, so the
+    /// graph rides the method; over the wire an empty `graph` falls back to the request
+    /// envelope's graph). The handler resolves a configured/injected `NlPlanner`, turns
+    /// the NL into a UQL query string, and runs it through the IDENTICAL deterministic
+    /// `UnifiedQueryText` pipeline (`eg_plan::uql::parse` → the fused executor) — NO new
+    /// execution path, and no LLM in the engine core. Result via `ResultPayload::raw` —
+    /// the SAME `[id, score|nil]` rows as `UnifiedQuery`.
+    ///
+    /// UNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the
+    /// facade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch "not
+    /// available in this build" catch-all — so the wire stays compatible while the NL
+    /// surface is a build-tier choice.
+    NlQuery {
+        text: String,
+        #[serde(default)]
+        graph: String,
+    },
+
     // ── Query federation / foreign sources (CONCEPT:KG-2.232, Lane P) ───────
     // Register a named EXTERNAL source so a UnifiedQuery `Op::ForeignScan` can read it
     // as a RowSet and compose it with the local graph/vector/SQL ops in ONE plan. The

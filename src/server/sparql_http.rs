@@ -156,9 +156,18 @@ async fn handle(
         Some((p, q)) => (p, q),
         None => (req.target.as_str(), ""),
     };
-    if req.method == "OPTIONS" && (path.starts_with("/sparql") || path.starts_with("/rdf-graphs"))
+    if req.method == "OPTIONS"
+        && (path.starts_with("/sparql") || path.starts_with("/rdf-graphs") || path == "/nl")
     {
         return ("204 No Content", "text/plain", String::new());
+    }
+    // Natural-language query facade route (CONCEPT:EG-080, feature `nl-query`): POST
+    // `{text, graph}` → the NL planner → UQL → executed rows as JSON. Served on the SAME
+    // hand-rolled HTTP facade listener as `/sparql` (no new HTTP dep). A build without
+    // `nl-query` has no `/nl` route (it 404s below like any other unknown path).
+    #[cfg(feature = "nl-query")]
+    if path == "/nl" {
+        return handle_nl(state, &req).await;
     }
     // W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-134) — direct graph management.
     if path.starts_with("/rdf-graphs") {
@@ -226,6 +235,91 @@ async fn handle(
             .map(|s| s.as_str());
         run_query(state, &text, &default_graph, &req.accept, fmt_override).await
     }
+}
+
+/// Natural-language query facade route (CONCEPT:EG-080). Accepts a JSON body
+/// `{"text": "...", "graph": "..."}` (graph optional — defaults to the SPARQL default
+/// graph), builds an AUTHENTICATED in-process `Method::NlQuery` request, and runs it
+/// through the FULL dispatch path (the planner + RLS + the deterministic
+/// `UnifiedQueryText` pipeline) — so the HTTP route and the wire method share ONE code
+/// path. The executed `[id, score]` rows are returned as JSON.
+#[cfg(feature = "nl-query")]
+async fn handle_nl(
+    state: &Arc<RwLock<ServerState>>,
+    req: &HttpRequest,
+) -> (&'static str, &'static str, String) {
+    if req.method != "POST" {
+        return (
+            "405 Method Not Allowed",
+            "application/json",
+            r#"{"error":"POST a JSON body {\"text\":\"…\",\"graph\":\"…\"} to /nl"}"#.to_string(),
+        );
+    }
+    let body: serde_json::Value = match serde_json::from_str(&req.body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                "400 Bad Request",
+                "application/json",
+                serde_json::json!({ "error": format!("invalid JSON body: {e}") }).to_string(),
+            )
+        }
+    };
+    let text = body
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if text.trim().is_empty() {
+        return (
+            "400 Bad Request",
+            "application/json",
+            r#"{"error":"missing non-empty 'text'"}"#.to_string(),
+        );
+    }
+    let graph = body
+        .get("graph")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| std::env::var(DEFAULT_GRAPH_ENV).ok())
+        .unwrap_or_else(|| "__commons__".to_string());
+
+    // Authenticated in-process dispatch — the `/nl` facade is a trusted local surface
+    // (like `/sparql`), so it mints a valid token for the engine's own secret rather than
+    // bypassing auth.
+    let secret = { state.read().await.auth_secret.clone() };
+    let id = 1u64;
+    let request = crate::protocol::Request {
+        id,
+        graph: graph.clone(),
+        auth_token: crate::server::compute_auth_token(&secret, id),
+        agent_id: None,
+        method: crate::protocol::Method::NlQuery { text, graph },
+    };
+    let resp = crate::server::dispatch(state, request).await;
+    if let Some(err) = resp.error {
+        return (
+            "400 Bad Request",
+            "application/json",
+            serde_json::json!({ "error": err }).to_string(),
+        );
+    }
+    let rows = match resp.result {
+        Some(crate::protocol::ResultPayload::Raw(bytes)) => {
+            rmp_serde::from_slice::<Vec<(String, Option<f32>)>>(&bytes).unwrap_or_default()
+        }
+        _ => Vec::new(),
+    };
+    let rows_json: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(id, score)| serde_json::json!({ "id": id, "score": score }))
+        .collect();
+    (
+        "200 OK",
+        "application/json",
+        serde_json::json!({ "rows": rows_json }).to_string(),
+    )
 }
 
 /// Execute a query over an off-lock dataset snapshot of every registry graph.
