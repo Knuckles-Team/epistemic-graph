@@ -2154,6 +2154,7 @@ dependencies = [
  "eg-compute",
  "eg-core",
  "eg-graphql",
+ "eg-kvcache",
  "eg-plan",
  "eg-query",
  "eg-rdf",
