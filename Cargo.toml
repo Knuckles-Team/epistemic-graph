@@ -392,6 +392,14 @@ sparql-hash = ["sparql", "eg-rdf/sparql-hash"]     # MD5/SHA1/SHA2 SPARQL hash b
 rdf-xml = ["rdf", "eg-rdf/rdf-xml"]                 # RDF/XML reader+writer
 json-ld = ["rdf", "eg-rdf/json-ld"]                 # JSON-LD 1.1 (expansion form)
 sparql-star = ["sparql", "eg-rdf/sparql-star"]      # RDF-star / SPARQL-star quoted triples
+# OGC GeoSPARQL baseline (CONCEPT:EG-261): the `geo:`/`geof:` vocabulary, `geo:wktLiteral`
+# parsing, and the core `geof:` spatial FILTER functions (sfWithin/sfIntersects/sfContains/
+# sfEquals/distance/buffer) over the SPARQL surface, forwarded from eg-rdf's `geosparql`.
+# Composes the RDF/SPARQL surface with the existing spatial modality: IMPLIES both `sparql`
+# and `geo` (CONCEPT:EG-083 — the eg-geo executor/leaf crate), reusing eg-geo for ALL
+# geometry math (NO new external dep — the Pi contract holds). OUT of `pi`.
+# EG-261: fold geosparql into node/full
+geosparql = ["sparql", "geo", "eg-rdf/geosparql"]
 # W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017): a minimal hand-rolled
 # HTTP/1.1 listener (the SAME dep-free idiom as the Prometheus `--metrics-addr`
 # exposition — NO axum/hyper/warp) so existing Stardog/Jena/rdflib SPARQL clients can
