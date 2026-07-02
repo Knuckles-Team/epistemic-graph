@@ -98,14 +98,18 @@ tensor = ["query", "dep:eg-tensor", "eg-types/tensor"]
 # `Op::Cep { pattern }` TRANSFORM op — interpret the input RowSet's rows as a
 # time-ordered event stream (each row's node blob carries `ts`/`key`/`attrs`), run the
 # eg-stream bounded NFA (Sequence/Within/Absence over sliding/tumbling windows), and keep
-# the rows that participate in a match. Pulls the pure-Rust eg-stream leaf crate (only
-# serde + serde_json — NO tokio/async/C dep) and turns on the `stream` wire variant in
-# eg-types. IMPLIES `query` (the op lives inside the `query`-gated `Op` enum, beside the
-# DataFusion FILTER leg). OFF by default; the facade folds it into node/full but NEVER
-# `pi`. A default/Pi build (neither feature) links no eg-stream and drops the CEP arm.
-# EG-067 `Op::Window` is the plan-side windowing primitive; the live standing-query loop
-# fed by the EG-064 CDC bus is a documented follow-up.
-stream = ["query", "dep:eg-stream", "eg-types/stream"]
+# the rows that participate in a match. Pulls the eg-stream leaf crate with its OWN
+# `stream` feature ON — which additionally builds the LIVE standing-query engine
+# (`eg_stream::live`, tokio broadcast fan-out) so node/full serve push CEP subscriptions,
+# not just the batch op. The batch executor here uses only eg-stream's always-on batch API;
+# tokio arrives solely via `eg-stream/stream`, and node/full already link tokio (server).
+# Turns on the `stream` wire variant in eg-types. IMPLIES `query` (the op lives inside the
+# `query`-gated `Op` enum, beside the DataFusion FILTER leg). OFF by default; the facade
+# folds it into node/full but NEVER `pi` — a default/Pi build (neither feature) links no
+# eg-stream and drops the CEP arm. EG-067 `Op::Window` is the plan-side windowing
+# primitive; wiring the EG-064 CDC bus + a subscription surface into the server is the
+# documented follow-up.
+stream = ["query", "eg-stream/stream", "eg-types/stream"]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
 # only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete

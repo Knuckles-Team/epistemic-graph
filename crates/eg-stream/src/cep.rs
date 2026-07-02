@@ -36,8 +36,10 @@ pub enum Window {
 impl Window {
     /// Can a match spanning `[start, end]` (inclusive timestamps) live inside this
     /// window? Also serves as the NFA prune test: a partial run whose start can no
-    /// longer reach `end` in-window is dead.
-    fn admits(&self, start: u64, end: u64) -> bool {
+    /// longer reach `end` in-window is dead. `pub(crate)` so the live standing-query
+    /// engine ([`crate::live`], CONCEPT:EG-088) shares the exact same admission test as
+    /// the batch NFA — live and batch must agree bit-for-bit.
+    pub(crate) fn admits(&self, start: u64, end: u64) -> bool {
         match *self {
             Window::Sliding { size } => size == 0 || end.saturating_sub(start) <= size,
             Window::Tumbling { size } => size == 0 || start / size == end / size,
@@ -102,28 +104,52 @@ struct Partial {
     events: Vec<Event>,
 }
 
-/// The NFA over a `Sequence` (see module docs). `events` is assumed ts-sorted.
-fn run_sequence(matchers: &[EventMatcher], events: &[Event], window: Window) -> Vec<Match> {
-    let mut matches = Vec::new();
-    if matchers.is_empty() {
-        return matches;
-    }
-    let mut runs: Vec<Partial> = Vec::new();
+/// The incremental, event-at-a-time NFA over a `Sequence` (CONCEPT:EG-088). It holds the
+/// set of live partial runs across calls, so it drives BOTH the batch [`run_sequence`]
+/// (fed every event of a pre-sorted slice) AND the live standing-query loop
+/// ([`crate::live`], fed each event as the CDC bus emits it). Because a single
+/// [`SequenceNfa::step`] is the one and only per-event transition, live-vs-batch
+/// equivalence on the same ts-ordered event sequence is true BY CONSTRUCTION — there is
+/// no second NFA to keep in sync.
+pub(crate) struct SequenceNfa {
+    matchers: Vec<EventMatcher>,
+    window: Window,
+    runs: Vec<Partial>,
+}
 
-    for e in events {
+impl SequenceNfa {
+    /// A fresh NFA for `matchers` over `window`. An empty matcher list can never match.
+    pub(crate) fn new(matchers: Vec<EventMatcher>, window: Window) -> SequenceNfa {
+        SequenceNfa {
+            matchers,
+            window,
+            runs: Vec::new(),
+        }
+    }
+
+    /// Advance the NFA by ONE event (assumed to arrive in ts order) and return every
+    /// [`Match`] that COMPLETES at this event. This is the exact transition the batch
+    /// engine's inner loop used to inline; lifting it verbatim is what guarantees the
+    /// live path equals the batch path.
+    pub(crate) fn step(&mut self, e: &Event) -> Vec<Match> {
+        let mut matches = Vec::new();
+        if self.matchers.is_empty() {
+            return matches;
+        }
+
         // Prune runs that can no longer complete in-window (dead NFA branches).
-        runs.retain(|p| window.admits(p.start_ts, e.ts));
+        self.runs.retain(|p| self.window.admits(p.start_ts, e.ts));
 
         // Advance any live run whose NEXT matcher this event satisfies (in-window). This
         // BRANCHES: the advanced (longer) run is a new run; the original stays live so a
         // later event can also satisfy the same step ("followed-by", not "immediately").
         let mut advanced: Vec<Partial> = Vec::new();
-        for p in &runs {
+        for p in &self.runs {
             let idx = p.events.len();
-            if window.admits(p.start_ts, e.ts) && matchers[idx].matches(e) {
+            if self.window.admits(p.start_ts, e.ts) && self.matchers[idx].matches(e) {
                 let mut evs = p.events.clone();
                 evs.push(e.clone());
-                if evs.len() == matchers.len() {
+                if evs.len() == self.matchers.len() {
                     matches.push(Match {
                         start_ts: p.start_ts,
                         end_ts: e.ts,
@@ -139,8 +165,8 @@ fn run_sequence(matchers: &[EventMatcher], events: &[Event], window: Window) -> 
         }
 
         // A fresh run may start at this event if it matches the first step.
-        if matchers[0].matches(e) {
-            if matchers.len() == 1 {
+        if self.matchers[0].matches(e) {
+            if self.matchers.len() == 1 {
                 matches.push(Match {
                     start_ts: e.ts,
                     end_ts: e.ts,
@@ -154,15 +180,29 @@ fn run_sequence(matchers: &[EventMatcher], events: &[Event], window: Window) -> 
             }
         }
 
-        runs.extend(advanced);
+        self.runs.extend(advanced);
 
         // Bound the live-run set: drop the OLDEST (front) runs past the cap.
-        if runs.len() > MAX_ACTIVE_RUNS {
-            let excess = runs.len() - MAX_ACTIVE_RUNS;
-            runs.drain(0..excess);
+        if self.runs.len() > MAX_ACTIVE_RUNS {
+            let excess = self.runs.len() - MAX_ACTIVE_RUNS;
+            self.runs.drain(0..excess);
         }
-    }
 
+        matches
+    }
+}
+
+/// The NFA over a `Sequence` (see module docs). `events` is assumed ts-sorted. Now a thin
+/// batch driver over [`SequenceNfa`] — the SAME stepper the live engine uses.
+fn run_sequence(matchers: &[EventMatcher], events: &[Event], window: Window) -> Vec<Match> {
+    let mut matches = Vec::new();
+    if matchers.is_empty() {
+        return matches;
+    }
+    let mut nfa = SequenceNfa::new(matchers.to_vec(), window);
+    for e in events {
+        matches.append(&mut nfa.step(e));
+    }
     matches
 }
 
@@ -200,6 +240,81 @@ fn run_absence(
         }
     }
     matches
+}
+
+/// Incremental `a`-NOT-followed-by-`b` stepper (CONCEPT:EG-088) for the live standing
+/// query. Unlike [`run_sequence`], `Absence` cannot decide a match the instant an `a`
+/// arrives — it must wait until either a `b` follows within the horizon (⇒ suppressed) or
+/// the horizon lapses with no follower (⇒ emit). So the live path needs an explicit
+/// notion of the clock advancing: [`AbsenceState::step`] fires expirations reachable at
+/// the new event's `ts`, and [`AbsenceState::expire`] drains everything up to a wall
+/// clock (used for `within`-timeout ticks + end-of-stream flush). Producing exactly the
+/// [`run_absence`] batch result on the same ts-ordered stream: an `a` follower is valid at
+/// `dt <= within` (and in-window), and an `a` is final-unfollowed once `now - a.ts >
+/// within` — the same `dt > within` cut-off `run_absence`'s forward scan breaks on.
+pub(crate) struct AbsenceState {
+    a: EventMatcher,
+    b: EventMatcher,
+    within: u64,
+    window: Window,
+    /// `a`-events seen but neither followed by a `b` nor yet past their horizon.
+    pending: Vec<Event>,
+}
+
+impl AbsenceState {
+    pub(crate) fn new(a: EventMatcher, b: EventMatcher, within: u64, window: Window) -> AbsenceState {
+        AbsenceState {
+            a,
+            b,
+            within,
+            window,
+            pending: Vec::new(),
+        }
+    }
+
+    /// Advance by ONE event and return matches finalized because of it. Order of ops
+    /// mirrors [`run_absence`]: (1) expire pendings whose horizon lapsed strictly before
+    /// this event, (2) let this event SUPPRESS any pending `a` it validly follows, then
+    /// (3) let this event itself become a new pending `a`. Steps 2/3 are disjoint on the
+    /// `dt > within` vs `dt <= within` boundary, so no event is double-counted.
+    pub(crate) fn step(&mut self, e: &Event) -> Vec<Match> {
+        // (1) horizon lapsed for any pending a with e.ts - a.ts > within.
+        let out = self.expire(e.ts);
+        // (2) a valid follower suppresses every pending a it follows (in-horizon + in-window).
+        let (b, within, window) = (&self.b, self.within, self.window);
+        let follows = b.matches(e);
+        self.pending.retain(|a| {
+            let dt = e.ts.saturating_sub(a.ts);
+            !(follows && dt <= within && window.admits(a.ts, e.ts))
+        });
+        // (3) this event may open a new pending a (checked AFTER suppression so it can
+        // never suppress itself — matching run_absence's forward-only scan from i+1).
+        if self.a.matches(e) {
+            self.pending.push(e.clone());
+        }
+        out
+    }
+
+    /// Emit (and drop) every pending `a` whose horizon has lapsed by `now`
+    /// (`now - a.ts > within`). `expire(u64::MAX)` is the end-of-stream / idle flush that
+    /// drains all trailing unfollowed `a`s, reproducing the batch tail.
+    pub(crate) fn expire(&mut self, now: u64) -> Vec<Match> {
+        let mut out = Vec::new();
+        let within = self.within;
+        self.pending.retain(|a| {
+            if now.saturating_sub(a.ts) > within {
+                out.push(Match {
+                    start_ts: a.ts,
+                    end_ts: a.ts,
+                    events: vec![a.clone()],
+                });
+                false
+            } else {
+                true
+            }
+        });
+        out
+    }
 }
 
 #[cfg(test)]
