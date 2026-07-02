@@ -36,7 +36,15 @@ rmp-serde = "1.3"
 
 # Heavy SQL deps — optional, gated behind `sql`. DataFusion re-exports its SQL
 # parser (datafusion::sql), so NO standalone sqlparser-rs dep.
-datafusion = { version = "43", default-features = false, optional = true }
+# CONCEPT:EG-104 — `nested_expressions` turns on DataFusion's native array/`List`
+# function package (`datafusion-functions-nested`): `make_array`/`array[...]` literals,
+# `unnest`, `array_length`, `array_has`/`array_has_all`/`array_has_any`, `array_append`,
+# the `||` array concat, and `= ANY`/`ALL (array)`. Without it a `default-features =
+# false` DataFusion links NONE of these (the crate is off), so ORMs/BI array SQL fails to
+# plan. Additive: only affects builds that already compile DataFusion (the `sql` feature).
+datafusion = { version = "43", default-features = false, optional = true, features = [
+    "nested_expressions",
+] }
 arrow = { version = "53", optional = true }
 arrow-schema = { version = "53", optional = true }
 # Durable embedded KV for the user-defined table store (CONCEPT:EG-018). Same pin as

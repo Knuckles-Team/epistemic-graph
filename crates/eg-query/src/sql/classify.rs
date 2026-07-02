@@ -892,6 +892,7 @@ pub fn returning_columns(sql: &str) -> Option<Vec<String>> {
 ///   * `a <#> b` (negative inner product)   → `vector_ip(a, b)`
 ///   * `col @@@ 'q'` (BM25 match, EG-119)   → `bm25_match(col, 'q')`
 ///   * `paradedb.score(x)` / `.snippet(x)`  → `bm25_score(x)` / `bm25_snippet(x)`
+///   * `EXTRACT(field FROM src)` (EG-104)   → `date_part('field', src)`
 ///
 /// Pure text→AST→text: parse with the SAME Postgres dialect, walk the query's
 /// projection / WHERE / HAVING / ORDER BY expressions replacing the operators, then
@@ -965,6 +966,23 @@ fn rewrite_setexpr_vector_ops(body: &mut SetExpr, changed: &mut bool) {
 /// by re-parsing `fname(left, right)` (both operands already serialize to valid SQL),
 /// avoiding a version-fragile hand-construction of `sqlparser`'s `Function` AST.
 fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
+    // CONCEPT:EG-104 — `EXTRACT(field FROM src)` → `date_part('field', src)`. DataFusion
+    // 43 here has no ExprPlanner that lowers the `EXTRACT` AST node (it errors "Extract not
+    // supported by ExprPlanner"), but the equivalent `date_part` scalar function IS
+    // registered, so rewrite to it. Recurse into `src` first so a nested vector op inside
+    // the extracted expression still desugars.
+    if let Expr::Extract {
+        field, expr: src, ..
+    } = expr
+    {
+        rewrite_expr_vector_ops(src, changed);
+        let text = format!("date_part('{}', {})", field.to_string().to_lowercase(), src);
+        if let Some(parsed) = reparse_expr(&text) {
+            *expr = parsed;
+            *changed = true;
+        }
+        return;
+    }
     match expr {
         Expr::BinaryOp { left, op, right } => {
             rewrite_expr_vector_ops(left, changed);
@@ -1039,9 +1057,15 @@ fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
 /// operands already serialize to valid SQL). `None` if the (internally-generated) text
 /// fails to parse — the caller then leaves the operator in place.
 fn vector_udf_call(fname: &str, left: &Expr, right: &Expr) -> Option<Expr> {
-    let text = format!("{fname}({left}, {right})");
+    reparse_expr(&format!("{fname}({left}, {right})"))
+}
+
+/// Parse a single (internally-generated) expression text back into an `Expr` with the
+/// same Postgres dialect the rest of the SQL surface uses. `None` if it fails to parse —
+/// callers then leave the original node untouched (CONCEPT:EG-104/EG-115/EG-119).
+fn reparse_expr(text: &str) -> Option<Expr> {
     Parser::new(&PostgreSqlDialect {})
-        .try_with_sql(&text)
+        .try_with_sql(text)
         .ok()?
         .parse_expr()
         .ok()
