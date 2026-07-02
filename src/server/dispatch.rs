@@ -358,7 +358,13 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
         | Method::CatalogRemove { .. }
         | Method::CatalogList
         | Method::RebalancePlan { .. }
-        | Method::RebalanceExecute { .. } => {
+        | Method::RebalanceExecute { .. }
+        // ── Online backup / restore + PITR (CONCEPT:EG-090) ──────────
+        // Routed through the SAME admin handler: self-routing service-level DR ops that
+        // reach the concrete redb backend via `as_redb`. Non-redb builds return a clean
+        // "not available" error from the handler.
+        | Method::Backup { .. }
+        | Method::Restore { .. } => {
             match handlers::admin::try_handle(state, req.id, req.method).await {
                 Ok(resp) => resp,
                 // Unreachable: every variant matched above is an admin method.
