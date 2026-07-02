@@ -174,7 +174,11 @@ fn store_evict_before_trims_straddling_bucket() {
     let meta = store.meta("e").unwrap().unwrap();
     assert_eq!(meta.count, 45, "points 55..100 survive");
     assert_eq!(meta.min_ts, 55 * NS);
-    assert_eq!(meta.max_ts, 99 * NS, "max unchanged — only old points dropped");
+    assert_eq!(
+        meta.max_ts,
+        99 * NS,
+        "max unchanged — only old points dropped"
+    );
 }
 
 #[test]

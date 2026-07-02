@@ -540,11 +540,7 @@ mod tests {
     #[test]
     fn categorical_index_moments_and_pmf() {
         let d = Distribution::Categorical {
-            probs: vec![
-                ("a".into(), 0.2),
-                ("b".into(), 0.3),
-                ("c".into(), 0.5),
-            ],
+            probs: vec![("a".into(), 0.2), ("b".into(), 0.3), ("c".into(), 0.5)],
         };
         // mean index = 0·0.2 + 1·0.3 + 2·0.5 = 1.3.
         assert!((d.mean() - 1.3).abs() < EPS);

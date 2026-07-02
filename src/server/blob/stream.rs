@@ -177,9 +177,16 @@ mod tests {
         // Variable content-defined boundaries were recorded.
         assert_eq!(blob.manifest.chunk_size, 0, "content-defined manifest");
         assert_eq!(blob.manifest.chunk_lens.len(), blob.manifest.chunks.len());
-        assert!(blob.manifest.chunks.len() > 50, "expected many variable chunks");
+        assert!(
+            blob.manifest.chunks.len() > 50,
+            "expected many variable chunks"
+        );
         assert_eq!(
-            blob.manifest.chunk_lens.iter().map(|&l| l as u64).sum::<u64>(),
+            blob.manifest
+                .chunk_lens
+                .iter()
+                .map(|&l| l as u64)
+                .sum::<u64>(),
             data.len() as u64,
         );
 

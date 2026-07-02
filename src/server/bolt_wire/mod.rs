@@ -188,14 +188,18 @@ fn json_to_pack(v: &serde_json::Value) -> PackValue {
         }
         J::String(s) => PackValue::String(s.clone()),
         J::Array(items) => PackValue::List(items.iter().map(json_to_pack).collect()),
-        J::Object(map) => {
-            PackValue::Map(map.iter().map(|(k, val)| (k.clone(), json_to_pack(val))).collect())
-        }
+        J::Object(map) => PackValue::Map(
+            map.iter()
+                .map(|(k, val)| (k.clone(), json_to_pack(val)))
+                .collect(),
+        ),
     }
 }
 
 /// Convert a Bolt params map into the cypher engine's `Params` (`serde_json::Map`).
-fn params_to_cypher(params: &HashMap<String, PackValue>) -> serde_json::Map<String, serde_json::Value> {
+fn params_to_cypher(
+    params: &HashMap<String, PackValue>,
+) -> serde_json::Map<String, serde_json::Value> {
     params
         .iter()
         .map(|(k, v)| (k.clone(), pack_to_json(v)))
@@ -445,7 +449,10 @@ where
                 session.in_txn = false;
                 write_msg(
                     s,
-                    &success(vec![("bookmark", PackValue::String("eg:bookmark:0".to_string()))]),
+                    &success(vec![(
+                        "bookmark",
+                        PackValue::String("eg:bookmark:0".to_string()),
+                    )]),
                 )
                 .await?;
             }
@@ -575,8 +582,7 @@ async fn write_msg<S: AsyncWrite + Unpin>(s: &mut S, msg: &PackValue) -> std::io
 /// `EPISTEMIC_GRAPH_BOLT_ADDR` is set. Each connection gets a fresh [`BoltSession`] so its
 /// graph selection / actor / txn stay isolated (mirrors the SQL wires' per-connection state).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
-    let default_graph =
-        std::env::var(BOLT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
+    let default_graph = std::env::var(BOLT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
         "bolt-wire: serving Neo4j Bolt v4.4 wire protocol on {} (default graph '{}')",
@@ -757,9 +763,7 @@ mod tests {
         c.send(&hello()).await;
         let hello_ok = c.recv().await;
         assert_eq!(TestClient::tag_of(&hello_ok), MSG_SUCCESS);
-        assert!(hello_ok
-            .get("metadata")
-            .is_none() /* metadata is the map itself */);
+        assert!(hello_ok.get("metadata").is_none() /* metadata is the map itself */);
 
         // RUN a read Cypher → SUCCESS carrying the `fields` (column names).
         c.send(&run("MATCH (n) RETURN n.id AS id")).await;

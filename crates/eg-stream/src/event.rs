@@ -60,12 +60,14 @@ impl AttrPredicate {
     pub fn eval(&self, attrs: &Map<String, Value>) -> bool {
         match self {
             AttrPredicate::Eq { field, value } => attrs.get(field) == Some(value),
-            AttrPredicate::Gt { field, value } => {
-                attrs.get(field).and_then(Value::as_f64).is_some_and(|x| x > *value)
-            }
-            AttrPredicate::Lt { field, value } => {
-                attrs.get(field).and_then(Value::as_f64).is_some_and(|x| x < *value)
-            }
+            AttrPredicate::Gt { field, value } => attrs
+                .get(field)
+                .and_then(Value::as_f64)
+                .is_some_and(|x| x > *value),
+            AttrPredicate::Lt { field, value } => attrs
+                .get(field)
+                .and_then(Value::as_f64)
+                .is_some_and(|x| x < *value),
             AttrPredicate::Exists { field } => attrs.contains_key(field),
         }
     }
@@ -140,8 +142,14 @@ mod tests {
             value: 100.0
         }
         .eval(&e.attrs));
-        assert!(AttrPredicate::Exists { field: "sym".into() }.eval(&e.attrs));
-        assert!(!AttrPredicate::Exists { field: "nope".into() }.eval(&e.attrs));
+        assert!(AttrPredicate::Exists {
+            field: "sym".into()
+        }
+        .eval(&e.attrs));
+        assert!(!AttrPredicate::Exists {
+            field: "nope".into()
+        }
+        .eval(&e.attrs));
         // Gt on a non-numeric attribute never matches.
         assert!(!AttrPredicate::Gt {
             field: "sym".into(),
@@ -169,7 +177,9 @@ mod tests {
 
     #[test]
     fn event_serde_round_trip() {
-        let e = Event::new(42, "trade").with_attr("sym", "ACME").with_attr("qty", 3);
+        let e = Event::new(42, "trade")
+            .with_attr("sym", "ACME")
+            .with_attr("qty", 3);
         let json = serde_json::to_string(&e).unwrap();
         let back: Event = serde_json::from_str(&json).unwrap();
         assert_eq!(e, back);

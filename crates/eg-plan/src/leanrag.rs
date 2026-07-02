@@ -55,8 +55,7 @@ pub struct Scored {
 pub trait AnnIndex {
     /// Top-`k` `(id, score)` nearest the `query` embedding, score DESC (higher =
     /// nearer). When `allow` is `Some`, only ids satisfying it are returned.
-    fn search(&self, query: &[f32], k: usize, allow: Option<&dyn Fn(&str) -> bool>)
-        -> Vec<Scored>;
+    fn search(&self, query: &[f32], k: usize, allow: Option<&dyn Fn(&str) -> bool>) -> Vec<Scored>;
 }
 
 /// The read-only graph accessor (CONCEPT:EG-195): labels, provenance children, and
@@ -193,7 +192,11 @@ impl<'a> HierarchicalRetriever<'a> {
                 }
             }
         }
-        best.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        best.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         best.truncate(params.leaf_budget);
         let leaves = best;
 

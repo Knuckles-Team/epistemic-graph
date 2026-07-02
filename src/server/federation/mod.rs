@@ -363,7 +363,10 @@ pub fn merge_partials(outcomes: Vec<PeerOutcome>) -> FederatedResponse {
         });
         keyed
     } else {
-        order.into_iter().filter_map(|k| merged.remove(&k)).collect()
+        order
+            .into_iter()
+            .filter_map(|k| merged.remove(&k))
+            .collect()
     };
 
     // Stamp the fused RRF score onto ranked rows so the caller sees the merged ranking.
@@ -806,9 +809,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 #[cfg(test)]
@@ -896,7 +897,10 @@ mod tests {
             rows: Ok(vec![row("b", Some(5.0)), row("c", Some(4.0))]),
         };
         let merged = merge_partials(vec![local, peer]);
-        assert_eq!(merged.rows[0].key, "b", "b appears in both lists ⇒ top by RRF");
+        assert_eq!(
+            merged.rows[0].key, "b",
+            "b appears in both lists ⇒ top by RRF"
+        );
         // Fused score is stamped onto the rows.
         assert!(merged.rows[0].score.unwrap() > merged.rows[1].score.unwrap());
         assert!(!merged.metadata.partial);

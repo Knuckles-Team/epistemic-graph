@@ -182,7 +182,10 @@ fn parcels() -> GraphView {
         ("P2", "POLYGON ((2 2, 6 2, 6 6, 2 6, 2 2))"),
         ("P3", "POLYGON ((10 10, 12 10, 12 12, 10 12, 10 10))"),
     ] {
-        core.add_node(id.into(), blob(json!({ "type": "Parcel", "geometry": wkt })));
+        core.add_node(
+            id.into(),
+            blob(json!({ "type": "Parcel", "geometry": wkt })),
+        );
     }
     core.analysis_snapshot()
 }

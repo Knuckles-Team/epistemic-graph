@@ -169,7 +169,10 @@ mod tests {
     fn haversine_known_city_pairs() {
         // London (lon -0.1278, lat 51.5074) → Paris (lon 2.3522, lat 48.8566) ≈ 343 km.
         let d = haversine_distance(&pt(-0.1278, 51.5074), &pt(2.3522, 48.8566));
-        assert!((d - 343_500.0).abs() < 3_000.0, "London-Paris haversine {d}");
+        assert!(
+            (d - 343_500.0).abs() < 3_000.0,
+            "London-Paris haversine {d}"
+        );
 
         // New York → Los Angeles ≈ 3936 km.
         let d2 = haversine_distance(&pt(-74.0060, 40.7128), &pt(-118.2437, 34.0522));
@@ -209,12 +212,7 @@ mod tests {
         // sphere). The Chamberlain–Duquette formula must agree to well under 1 %.
         // (A pole-touching polygon is intentionally avoided — longitude is degenerate at
         // the pole, where this formula, like PostGIS's, breaks down.)
-        let ring = vec![
-            pt(0.0, 45.0),
-            pt(1.0, 45.0),
-            pt(1.0, 46.0),
-            pt(0.0, 46.0),
-        ];
+        let ring = vec![pt(0.0, 45.0), pt(1.0, 45.0), pt(1.0, 46.0), pt(0.0, 46.0)];
         let area = geodesic_ring_area(&ring).abs();
         let one_deg = std::f64::consts::PI / 180.0;
         let height = one_deg * EARTH_MEAN_RADIUS;
@@ -250,7 +248,10 @@ mod tests {
         let a_solid = geodesic_area(&solid);
         let a_holed = geodesic_area(&holed);
         assert!(a_holed > 0.0);
-        assert!(a_holed < a_solid, "holed {a_holed} should be < solid {a_solid}");
+        assert!(
+            a_holed < a_solid,
+            "holed {a_holed} should be < solid {a_solid}"
+        );
         // The 2°×2° hole is ~4/100 of the 10°×10° box.
         let frac = (a_solid - a_holed) / a_solid;
         assert!((0.02..0.06).contains(&frac), "hole fraction {frac}");

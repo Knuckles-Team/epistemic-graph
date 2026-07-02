@@ -1885,11 +1885,10 @@ ex:hasPet rdfs:range ex:Animal .
         );
         // The derived subsumption carries a justification (the range-lifted axiom).
         assert!(
-            cls.justifications
-                .contains_key(&(
-                    "<http://example.org/Dog>".into(),
-                    "<http://example.org/Animal>".into(),
-                )),
+            cls.justifications.contains_key(&(
+                "<http://example.org/Dog>".into(),
+                "<http://example.org/Animal>".into(),
+            )),
             "the range-derived subsumption must carry a justification"
         );
     }

@@ -94,11 +94,10 @@ pub use algebra::{Op, Plan, Pred};
 // The hierarchical-retrieval surface (CONCEPT:EG-195): the retriever + its accessor
 // traits + the structured result + the flat-top-k baseline, so a caller names them
 // through eg-plan.
-pub use leanrag::{
-    flat_top_k, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever, RetrievalParams,
-    Scored,
-};
 pub use cost::{CostModel, Order, Stats};
+pub use leanrag::{
+    flat_top_k, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever, RetrievalParams, Scored,
+};
 pub use rowset::RowSet;
 
 pub mod rowset;

@@ -535,11 +535,7 @@ impl ForeignSourceRegistry {
     /// name — the kind that "resolves the name to another graph/dataset": a
     /// `RemoteEngine` spec pointed at another graph is exactly that, reached over the
     /// engine's own transport. CONCEPT:EG-073.
-    pub fn register_spec(
-        &mut self,
-        name: impl Into<String>,
-        spec: ForeignSourceSpec,
-    ) -> &mut Self {
+    pub fn register_spec(&mut self, name: impl Into<String>, spec: ForeignSourceSpec) -> &mut Self {
         self.register(name, Arc::new(SpecSource { spec }))
     }
 

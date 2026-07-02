@@ -44,7 +44,11 @@ ex:alice a ex:Person ;
     ex:name "Alice" .
 "#;
     let report = run(shapes, data);
-    assert!(report.conforms, "expected conforms; got {:?}", report.results);
+    assert!(
+        report.conforms,
+        "expected conforms; got {:?}",
+        report.results
+    );
     assert!(report.results.is_empty());
 }
 
@@ -142,7 +146,11 @@ ex:l2 a ex:Light ; ex:color "green" .
 ex:x  a ex:Other ; ex:color "purple" .
 "#,
     );
-    assert!(good.conforms, "green light + untargeted node; got {:?}", good.results);
+    assert!(
+        good.conforms,
+        "green light + untargeted node; got {:?}",
+        good.results
+    );
 }
 
 // sh:class constraint (value node must be an instance of a class).
@@ -186,7 +194,11 @@ ex:LiteralShape a sh:NodeShape ;
 "#;
     // ex:focus is an IRI ⇒ NOT a literal ⇒ conforms.
     let good = run(shapes, r#"ex:focus ex:p ex:o ."#);
-    assert!(good.conforms, "iri passes sh:not-literal; got {:?}", good.results);
+    assert!(
+        good.conforms,
+        "iri passes sh:not-literal; got {:?}",
+        good.results
+    );
 }
 
 #[test]
@@ -201,7 +213,11 @@ ex:S a sh:NodeShape ;
     ] .
 "#;
     let good = run(shapes, r#"ex:t a ex:Thing ; ex:val "42"^^xsd:integer ."#);
-    assert!(good.conforms, "integer satisfies the sh:or; got {:?}", good.results);
+    assert!(
+        good.conforms,
+        "integer satisfies the sh:or; got {:?}",
+        good.results
+    );
 
     let bad = run(shapes, r#"ex:t a ex:Thing ; ex:val "1.5"^^xsd:double ."#);
     assert!(!bad.conforms);
@@ -246,7 +262,11 @@ ex:p a ex:Person ; ex:address ex:addr1 .
 ex:addr1 ex:zip "12345" .
 "#,
     );
-    assert!(good.conforms, "address with zip conforms; got {:?}", good.results);
+    assert!(
+        good.conforms,
+        "address with zip conforms; got {:?}",
+        good.results
+    );
 }
 
 // ── nodeKind + minInclusive range + report serde ───────────────────────
@@ -285,5 +305,9 @@ ex:S a sh:NodeShape ;
     assert!(has_component(&bad, "MinLength"));
 
     let good = run(shapes, r#"ex:a ex:knows ex:b ; ex:name "Alice" ."#);
-    assert!(good.conforms, "Alice is long enough; got {:?}", good.results);
+    assert!(
+        good.conforms,
+        "Alice is long enough; got {:?}",
+        good.results
+    );
 }

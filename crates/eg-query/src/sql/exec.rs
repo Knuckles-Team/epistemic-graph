@@ -478,9 +478,7 @@ fn pg_col_type(dt: &arrow::datatypes::DataType) -> PgColType {
         Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => PgColType::Int8,
         Float16 | Float32 | Float64 => PgColType::Float8,
         // CONCEPT:EG-115 — a `List<Float32>` result column is a pgvector `vector`.
-        List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => {
-            PgColType::Vector
-        }
+        List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => PgColType::Vector,
         _ => PgColType::Text,
     }
 }

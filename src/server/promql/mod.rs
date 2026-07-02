@@ -43,7 +43,12 @@ struct StoreSource {
 }
 
 impl SeriesSource for StoreSource {
-    fn select(&self, matchers: &[LabelMatcher], start: i64, end: i64) -> Vec<eg_tsdb::promql::LabeledSeries> {
+    fn select(
+        &self,
+        matchers: &[LabelMatcher],
+        start: i64,
+        end: i64,
+    ) -> Vec<eg_tsdb::promql::LabeledSeries> {
         let ids = self.store.list_series().unwrap_or_default();
         let mut out = Vec::new();
         for id in ids {
@@ -167,17 +172,29 @@ pub async fn handle(
         params.extend(parse_form(body));
     }
     let store = state.series_store();
-    let get = |k: &str| params.iter().find(|(pk, _)| pk == k).map(|(_, v)| v.clone());
+    let get = |k: &str| {
+        params
+            .iter()
+            .find(|(pk, _)| pk == k)
+            .map(|(_, v)| v.clone())
+    };
 
     if path == "/api/v1/labels" {
         let src = StoreSource { store };
-        let names = tokio::task::spawn_blocking(move || src.label_names()).await.unwrap_or_default();
+        let names = tokio::task::spawn_blocking(move || src.label_names())
+            .await
+            .unwrap_or_default();
         return ok_json(&json_string_array("data", &names));
     }
-    if let Some(name) = path.strip_prefix("/api/v1/label/").and_then(|r| r.strip_suffix("/values")) {
+    if let Some(name) = path
+        .strip_prefix("/api/v1/label/")
+        .and_then(|r| r.strip_suffix("/values"))
+    {
         let name = name.to_string();
         let src = StoreSource { store };
-        let vals = tokio::task::spawn_blocking(move || src.label_values(&name)).await.unwrap_or_default();
+        let vals = tokio::task::spawn_blocking(move || src.label_values(&name))
+            .await
+            .unwrap_or_default();
         return ok_json(&json_string_array("data", &vals));
     }
     if path == "/api/v1/query" {
@@ -201,17 +218,29 @@ pub async fn handle(
             (Some(s), Some(e), Some(st)) => {
                 match (parse_time_ns(&s), parse_time_ns(&e), parse_step_ns(&st)) {
                     (Ok(s), Ok(e), Ok(st)) => (s, e, st),
-                    _ => return error_json("400 Bad Request", "bad_data", "invalid start/end/step"),
+                    _ => {
+                        return error_json("400 Bad Request", "bad_data", "invalid start/end/step")
+                    }
                 }
             }
-            _ => return error_json("400 Bad Request", "bad_data", "query_range requires start, end, step"),
+            _ => {
+                return error_json(
+                    "400 Bad Request",
+                    "bad_data",
+                    "query_range requires start, end, step",
+                )
+            }
         };
         return run_range(store, &q, start, end, step).await;
     }
     error_json("404 Not Found", "not_found", "unknown PromQL endpoint")
 }
 
-async fn run_instant(store: Arc<SeriesStore>, q: &str, t: i64) -> (&'static str, &'static str, String) {
+async fn run_instant(
+    store: Arc<SeriesStore>,
+    q: &str,
+    t: i64,
+) -> (&'static str, &'static str, String) {
     let q = q.to_string();
     let res = tokio::task::spawn_blocking(move || {
         let ast = parse(&q)?;
@@ -222,7 +251,11 @@ async fn run_instant(store: Arc<SeriesStore>, q: &str, t: i64) -> (&'static str,
     match res {
         Ok(Ok(v)) => ok_json(&instant_data(&v, t)),
         Ok(Err(e)) => error_json("400 Bad Request", "bad_data", &e.to_string()),
-        Err(e) => error_json("500 Internal Server Error", "internal", &format!("eval task failed: {e}")),
+        Err(e) => error_json(
+            "500 Internal Server Error",
+            "internal",
+            &format!("eval task failed: {e}"),
+        ),
     }
 }
 
@@ -243,7 +276,11 @@ async fn run_range(
     match res {
         Ok(Ok(series)) => ok_json(&matrix_data(&series)),
         Ok(Err(e)) => error_json("400 Bad Request", "bad_data", &e.to_string()),
-        Err(e) => error_json("500 Internal Server Error", "internal", &format!("eval task failed: {e}")),
+        Err(e) => error_json(
+            "500 Internal Server Error",
+            "internal",
+            &format!("eval task failed: {e}"),
+        ),
     }
 }
 
@@ -254,13 +291,22 @@ fn ok_json(data: &serde_json::Value) -> (&'static str, &'static str, String) {
     ("200 OK", "application/json", env.to_string())
 }
 
-fn error_json(status: &'static str, error_type: &str, msg: &str) -> (&'static str, &'static str, String) {
+fn error_json(
+    status: &'static str,
+    error_type: &str,
+    msg: &str,
+) -> (&'static str, &'static str, String) {
     let env = serde_json::json!({ "status": "error", "errorType": error_type, "error": msg });
     (status, "application/json", env.to_string())
 }
 
 fn json_string_array(_key: &str, items: &[String]) -> serde_json::Value {
-    serde_json::Value::Array(items.iter().map(|s| serde_json::Value::String(s.clone())).collect())
+    serde_json::Value::Array(
+        items
+            .iter()
+            .map(|s| serde_json::Value::String(s.clone()))
+            .collect(),
+    )
 }
 
 /// Prometheus formats a sample value as a decimal string, with NaN/Inf spelled out.
@@ -268,7 +314,11 @@ fn fmt_value(v: f64) -> String {
     if v.is_nan() {
         "NaN".to_string()
     } else if v.is_infinite() {
-        if v > 0.0 { "+Inf".to_string() } else { "-Inf".to_string() }
+        if v > 0.0 {
+            "+Inf".to_string()
+        } else {
+            "-Inf".to_string()
+        }
     } else {
         format!("{v}")
     }
@@ -318,7 +368,7 @@ fn matrix_data(series: &[RangeSeries]) -> serde_json::Value {
             let values: Vec<serde_json::Value> = s
                 .points
                 .iter()
-                .map(|(ts, v)| serde_json::json!([ ts_secs(*ts), fmt_value(*v) ]))
+                .map(|(ts, v)| serde_json::json!([ts_secs(*ts), fmt_value(*v)]))
                 .collect();
             serde_json::json!({ "metric": labels_to_json(&s.labels), "values": values })
         })
@@ -401,7 +451,11 @@ fn parse_step_ns(s: &str) -> Result<i64, String> {
     let s = s.trim();
     if let Ok(secs) = s.parse::<f64>() {
         let ns = (secs * NS_PER_SEC) as i64;
-        return if ns > 0 { Ok(ns) } else { Err("step must be positive".into()) };
+        return if ns > 0 {
+            Ok(ns)
+        } else {
+            Err("step must be positive".into())
+        };
     }
     // Duration form: reuse the engine parser via a synthetic range selector.
     match parse(&format!("x[{s}]")) {
@@ -446,8 +500,14 @@ mod tests {
         // "sum(rate(m[5m]))" URL-encoded.
         let enc = "query=sum%28rate%28m%5B5m%5D%29%29&time=100";
         let params = parse_form(enc);
-        assert_eq!(params.iter().find(|(k, _)| k == "query").unwrap().1, "sum(rate(m[5m]))");
-        assert_eq!(parse_time_ns(&params.iter().find(|(k, _)| k == "time").unwrap().1).unwrap(), 100 * 1_000_000_000);
+        assert_eq!(
+            params.iter().find(|(k, _)| k == "query").unwrap().1,
+            "sum(rate(m[5m]))"
+        );
+        assert_eq!(
+            parse_time_ns(&params.iter().find(|(k, _)| k == "time").unwrap().1).unwrap(),
+            100 * 1_000_000_000
+        );
     }
 
     #[test]

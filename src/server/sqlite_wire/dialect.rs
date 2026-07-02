@@ -41,7 +41,10 @@ pub enum Translated {
 pub fn translate_sqlite_sql(sql: &str) -> Translated {
     let trimmed = sql.trim();
     // `PRAGMA …` (with or without a trailing `;`) → a no-op the surface acks directly.
-    let lower_start = trimmed.trim_start_matches('(').trim_start().to_ascii_lowercase();
+    let lower_start = trimmed
+        .trim_start_matches('(')
+        .trim_start()
+        .to_ascii_lowercase();
     if lower_start.starts_with("pragma ") || lower_start == "pragma" {
         return Translated::Noop { tag: "PRAGMA" };
     }
@@ -155,7 +158,11 @@ mod tests {
     #[test]
     fn replace_ci_preserves_string_literal_casing_outside_needle() {
         // The needle is only the DDL phrase; a string literal elsewhere is preserved.
-        let out = replace_ci("x INTEGER PRIMARY KEY, y 'IntEger PrImary KeY'", "integer primary key", "Z");
+        let out = replace_ci(
+            "x INTEGER PRIMARY KEY, y 'IntEger PrImary KeY'",
+            "integer primary key",
+            "Z",
+        );
         assert_eq!(out, "x Z, y 'Z'");
     }
 }

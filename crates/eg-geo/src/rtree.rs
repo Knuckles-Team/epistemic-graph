@@ -228,7 +228,9 @@ mod tests {
             vec![40]
         );
         // Query hitting nothing.
-        assert!(rt.query_bbox(&Bbox::new(100.0, 100.0, 101.0, 101.0)).is_empty());
+        assert!(rt
+            .query_bbox(&Bbox::new(100.0, 100.0, 101.0, 101.0))
+            .is_empty());
     }
 
     #[test]
@@ -236,7 +238,9 @@ mod tests {
         // Deterministic LCG (no rand dep) generates pseudo-random boxes.
         let mut seed: u64 = 0x1234_5678_9abc_def0;
         let mut next = || {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((seed >> 33) as f64) / (u32::MAX as f64) // in [0, ~1)
         };
         let mut items = Vec::new();

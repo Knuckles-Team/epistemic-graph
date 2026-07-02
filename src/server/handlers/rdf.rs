@@ -173,10 +173,10 @@ pub(crate) async fn try_handle(
             schema,
             data_graph,
             shape_map,
-        } => Ok(
-            handle_shex_validate(state, req_id, graph_name, &core, schema, data_graph, shape_map)
-                .await,
-        ),
+        } => Ok(handle_shex_validate(
+            state, req_id, graph_name, &core, schema, data_graph, shape_map,
+        )
+        .await),
         other => Err(other),
     }
 }

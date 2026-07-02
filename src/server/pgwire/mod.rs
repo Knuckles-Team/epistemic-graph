@@ -699,7 +699,9 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
         ColumnType::Json => serde_json::from_str(s).unwrap_or(Value::String(s.to_string())),
         // CONCEPT:EG-115 — a vector arrives as pgvector text `[1,2,3]`; pass it through
         // as a string so the store's `Cell::coerce` parses + dimension-checks it.
-        ColumnType::Text | ColumnType::Bytes | ColumnType::Vector(_) => Value::String(s.to_string()),
+        ColumnType::Text | ColumnType::Bytes | ColumnType::Vector(_) => {
+            Value::String(s.to_string())
+        }
     };
     Ok(v)
 }
@@ -807,9 +809,11 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
         // CONCEPT:EG-115 — the pgvector BINARY wire format is a distinct later item;
         // for now a vector must be sent via TEXT/CSV COPY (or INSERT).
         ColumnType::Vector(_) => {
-            return Err("binary COPY of a vector column is not supported (use TEXT COPY or \
+            return Err(
+                "binary COPY of a vector column is not supported (use TEXT COPY or \
                         INSERT)"
-                .to_string())
+                    .to_string(),
+            )
         }
     };
     Ok(v)

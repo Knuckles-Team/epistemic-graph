@@ -70,7 +70,11 @@ fn parse_geometry(s: &str) -> Result<Geometry, String> {
         let body = outer_body(after(s, rest))?;
         let lines = split_top_level(&body)
             .into_iter()
-            .map(|l| Ok(LineString::new(parse_coord_list(&strip_outer_parens(l.trim())?)?)))
+            .map(|l| {
+                Ok(LineString::new(parse_coord_list(&strip_outer_parens(
+                    l.trim(),
+                )?)?))
+            })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(Geometry::MultiLineString(lines))
     } else if let Some(rest) = upper.strip_prefix("MULTIPOINT") {

@@ -215,7 +215,10 @@ fn row_to_vector(array: &dyn Array, row: usize) -> Option<Vec<f32>> {
         )
         .ok(),
         DataType::LargeUtf8 => crate::tables::schema::parse_vector_text(
-            array.as_any().downcast_ref::<LargeStringArray>()?.value(row),
+            array
+                .as_any()
+                .downcast_ref::<LargeStringArray>()?
+                .value(row),
         )
         .ok(),
         DataType::Utf8View => crate::tables::schema::parse_vector_text(
@@ -270,7 +273,12 @@ fn dist_neg_ip(a: &[f32], b: &[f32]) -> Option<f64> {
     if a.len() != b.len() {
         return None;
     }
-    Some(-a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum::<f64>())
+    Some(
+        -a.iter()
+            .zip(b)
+            .map(|(x, y)| *x as f64 * *y as f64)
+            .sum::<f64>(),
+    )
 }
 
 /// A pgvector distance scalar UDF (CONCEPT:EG-115): `fn(vector, vector) -> Float64`.
@@ -320,10 +328,7 @@ impl datafusion::logical_expr::ScalarUDFImpl for VectorDistanceUdf {
     }
 }
 
-fn vector_distance_udf(
-    name: &'static str,
-    kernel: fn(&[f32], &[f32]) -> Option<f64>,
-) -> ScalarUDF {
+fn vector_distance_udf(name: &'static str, kernel: fn(&[f32], &[f32]) -> Option<f64>) -> ScalarUDF {
     use datafusion::logical_expr::Signature;
     ScalarUDF::new_from_impl(VectorDistanceUdf {
         name,
@@ -515,8 +520,8 @@ pub(crate) fn time_bucket_udf() -> ScalarUDF {
 /// the full BM25-ranked pushdown onto eg-text's Tantivy index is the server-side
 /// lowering (see `plan_bm25_search`). NULL/absent operands ⇒ false.
 pub(crate) fn bm25_match_udf() -> ScalarUDF {
-    use datafusion::logical_expr::{ScalarUDFImpl, Signature};
     use arrow::array::BooleanArray;
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature};
     #[derive(Debug)]
     struct Bm25MatchUdf {
         signature: Signature,
@@ -724,7 +729,10 @@ fn minmax_udf(name: &'static str, is_greatest: bool) -> ScalarUDF {
                 .map(|a| arrow::compute::cast(a, &target))
                 .collect::<Result<_, _>>()
                 .map_err(|e| {
-                    datafusion::error::DataFusionError::Execution(format!("{}: cast: {e}", self.name))
+                    datafusion::error::DataFusionError::Execution(format!(
+                        "{}: cast: {e}",
+                        self.name
+                    ))
                 })?;
             let n = casted.iter().map(|a| a.len()).max().unwrap_or(0);
             let gt = self.is_greatest;
@@ -974,10 +982,7 @@ fn range_ctor_udf(name: &'static str) -> ScalarUDF {
                     let b = bounds.as_bytes();
                     let lo_s = lo.map(|v| v.to_string()).unwrap_or_default();
                     let hi_s = hi.map(|v| v.to_string()).unwrap_or_default();
-                    Some(format!(
-                        "{}{lo_s},{hi_s}{}",
-                        b[0] as char, b[1] as char
-                    ))
+                    Some(format!("{}{lo_s},{hi_s}{}", b[0] as char, b[1] as char))
                 })
                 .collect();
             Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))

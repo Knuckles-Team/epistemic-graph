@@ -309,10 +309,7 @@ pub struct TriplesMap {
 
 impl TriplesMap {
     /// Builder: a triples map over `source` with subject template `subject_template`.
-    pub fn new(
-        source: impl Into<ForeignSourceName>,
-        subject_template: impl Into<String>,
-    ) -> Self {
+    pub fn new(source: impl Into<ForeignSourceName>, subject_template: impl Into<String>) -> Self {
         Self {
             logical_source: source.into(),
             subject_template: subject_template.into(),
@@ -328,11 +325,7 @@ impl TriplesMap {
     }
 
     /// Add a predicate→literal-column map (builder).
-    pub fn add_column(
-        mut self,
-        predicate: impl Into<String>,
-        column: impl Into<String>,
-    ) -> Self {
+    pub fn add_column(mut self, predicate: impl Into<String>, column: impl Into<String>) -> Self {
         self.predicate_object_maps
             .push((predicate.into(), ObjectMap::Column(column.into())));
         self
@@ -344,8 +337,10 @@ impl TriplesMap {
         predicate: impl Into<String>,
         object_template: impl Into<String>,
     ) -> Self {
-        self.predicate_object_maps
-            .push((predicate.into(), ObjectMap::Template(object_template.into())));
+        self.predicate_object_maps.push((
+            predicate.into(),
+            ObjectMap::Template(object_template.into()),
+        ));
         self
     }
 
@@ -592,9 +587,7 @@ fn collect_predicates(
         // A property path can traverse arbitrary predicates (closures, alternatives) —
         // conservatively materialize everything.
         G::Path { .. } => *unrestricted = true,
-        G::Join { left, right }
-        | G::Union { left, right }
-        | G::Minus { left, right } => {
+        G::Join { left, right } | G::Union { left, right } | G::Minus { left, right } => {
             collect_predicates(left, preds, unrestricted);
             collect_predicates(right, preds, unrestricted);
         }
@@ -818,7 +811,10 @@ mod tests {
                 .with_class("http://example.org/Person")
                 .add_column("http://example.org/name", "name")
                 .add_column("http://example.org/age", "age")
-                .add_ref("http://example.org/knows", "http://example.org/person/{friend_id}"),
+                .add_ref(
+                    "http://example.org/knows",
+                    "http://example.org/person/{friend_id}",
+                ),
         )
     }
 
@@ -944,7 +940,11 @@ mod tests {
         let wanted = wanted_predicates(&query);
         assert_eq!(
             wanted,
-            Some(["http://example.org/name".to_string()].into_iter().collect())
+            Some(
+                ["http://example.org/name".to_string()]
+                    .into_iter()
+                    .collect()
+            )
         );
 
         let reg = people_registry();
@@ -1023,9 +1023,6 @@ mod tests {
         // Missing column → None.
         assert_eq!(expand_template("http://ex/p/{missing}", &row), None);
         // Escaped braces.
-        assert_eq!(
-            expand_template("a{{b}}c", &row),
-            Some("a{b}c".to_string())
-        );
+        assert_eq!(expand_template("a{{b}}c", &row), Some("a{b}c".to_string()));
     }
 }

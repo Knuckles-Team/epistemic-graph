@@ -55,12 +55,7 @@ impl SlowQuery {
     /// Build a descriptor for a query surface. `plan_ops` / `cost` are `None` when
     /// unavailable at the call site (they are logged as `None`). The query text is
     /// truncated to [`MAX_QUERY_CHARS`] with an ellipsis marker.
-    pub fn new(
-        kind: &'static str,
-        text: &str,
-        plan_ops: Option<usize>,
-        cost: Option<f64>,
-    ) -> Self {
+    pub fn new(kind: &'static str, text: &str, plan_ops: Option<usize>, cost: Option<f64>) -> Self {
         let mut t: String = text.chars().take(MAX_QUERY_CHARS).collect();
         if text.chars().nth(MAX_QUERY_CHARS).is_some() {
             t.push('…');

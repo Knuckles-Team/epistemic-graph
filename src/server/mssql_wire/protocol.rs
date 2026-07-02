@@ -283,10 +283,7 @@ pub fn parse_login7(payload: &[u8]) -> Login7 {
 /// `swap_nibbles(plain) XOR 0xA5`, so decode is `swap_nibbles(byte) XOR 0xA5`, then
 /// interpret the result as UTF-16LE.
 fn decode_password(enc: &[u8]) -> String {
-    let decoded: Vec<u8> = enc
-        .iter()
-        .map(|&c| c.rotate_left(4) ^ 0xA5)
-        .collect();
+    let decoded: Vec<u8> = enc.iter().map(|&c| c.rotate_left(4) ^ 0xA5).collect();
     utf16le_to_string(&decoded)
 }
 
@@ -476,7 +473,11 @@ mod tests {
             packets += 1;
             if hdr.is_eom() {
                 saw_eom = true;
-                assert_eq!(i + HEADER_LEN + blen, framed.len(), "EOM is the last packet");
+                assert_eq!(
+                    i + HEADER_LEN + blen,
+                    framed.len(),
+                    "EOM is the last packet"
+                );
             }
             i += HEADER_LEN + blen;
         }
@@ -519,21 +520,20 @@ mod tests {
         let pw_plain = utf16le_bytes(password);
         let pw_enc: Vec<u8> = pw_plain
             .iter()
-            .map(|&b| {
-                (b ^ 0xA5).rotate_left(4)
-            })
+            .map(|&b| (b ^ 0xA5).rotate_left(4))
             .collect();
         let db_b = utf16le_bytes(database);
 
         let mut rec = vec![0u8; LOGIN7_FIXED_LEN];
         let mut data = Vec::new();
-        let mut put = |rec: &mut Vec<u8>, data: &mut Vec<u8>, ib_off: usize, cch_off: usize, bytes: &[u8]| {
-            let ib = (LOGIN7_FIXED_LEN + data.len()) as u16;
-            let cch = (bytes.len() / 2) as u16;
-            rec[ib_off..ib_off + 2].copy_from_slice(&ib.to_le_bytes());
-            rec[cch_off..cch_off + 2].copy_from_slice(&cch.to_le_bytes());
-            data.extend_from_slice(bytes);
-        };
+        let mut put =
+            |rec: &mut Vec<u8>, data: &mut Vec<u8>, ib_off: usize, cch_off: usize, bytes: &[u8]| {
+                let ib = (LOGIN7_FIXED_LEN + data.len()) as u16;
+                let cch = (bytes.len() / 2) as u16;
+                rec[ib_off..ib_off + 2].copy_from_slice(&ib.to_le_bytes());
+                rec[cch_off..cch_off + 2].copy_from_slice(&cch.to_le_bytes());
+                data.extend_from_slice(bytes);
+            };
         put(&mut rec, &mut data, 40, 42, &user_b);
         put(&mut rec, &mut data, 44, 46, &pw_enc);
         put(&mut rec, &mut data, 68, 70, &db_b);
@@ -582,9 +582,7 @@ mod tests {
     /// A minimal token-stream walker for tests: returns (columns, rows, done_status,
     /// done_rowcount) parsed back out of an encoded COLMETADATA + ROW* + DONE stream.
     #[allow(clippy::type_complexity)]
-    fn walk_result(
-        stream: &[u8],
-    ) -> (Vec<(String, TdsType)>, Vec<Vec<Value>>, u16, u64) {
+    fn walk_result(stream: &[u8]) -> (Vec<(String, TdsType)>, Vec<Vec<Value>>, u16, u64) {
         let mut i = 0usize;
         let mut cols: Vec<(String, TdsType)> = Vec::new();
         let mut rows: Vec<Vec<Value>> = Vec::new();
@@ -638,9 +636,8 @@ mod tests {
                                 if len == 0 {
                                     row.push(Value::Null);
                                 } else {
-                                    let v = i64::from_le_bytes(
-                                        stream[i..i + 8].try_into().unwrap(),
-                                    );
+                                    let v =
+                                        i64::from_le_bytes(stream[i..i + 8].try_into().unwrap());
                                     i += len;
                                     row.push(Value::from(v));
                                 }
@@ -651,9 +648,8 @@ mod tests {
                                 if len == 0 {
                                     row.push(Value::Null);
                                 } else {
-                                    let v = f64::from_le_bytes(
-                                        stream[i..i + 8].try_into().unwrap(),
-                                    );
+                                    let v =
+                                        f64::from_le_bytes(stream[i..i + 8].try_into().unwrap());
                                     i += len;
                                     row.push(Value::from(v));
                                 }
@@ -670,8 +666,7 @@ mod tests {
                                 }
                             }
                             TdsType::NVarchar => {
-                                let len =
-                                    u16::from_le_bytes([stream[i], stream[i + 1]]) as usize;
+                                let len = u16::from_le_bytes([stream[i], stream[i + 1]]) as usize;
                                 i += 2;
                                 if len == 0xFFFF {
                                     row.push(Value::Null);
@@ -714,7 +709,12 @@ mod tests {
             Value::from(1.5f64),
             Value::from(true),
         ];
-        let row2 = vec![Value::from("n2"), Value::Null, Value::Null, Value::from(false)];
+        let row2 = vec![
+            Value::from("n2"),
+            Value::Null,
+            Value::Null,
+            Value::from(false),
+        ];
         stream.extend(encode_row(&types, &row1));
         stream.extend(encode_row(&types, &row2));
         stream.extend(encode_done(DONE_FINAL | DONE_COUNT, 0, 2));

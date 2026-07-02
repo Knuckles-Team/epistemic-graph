@@ -195,7 +195,11 @@ impl S3Store {
     }
 
     /// List objects in `bucket` whose key starts with `prefix`, sorted, with meta.
-    fn list_objects(&self, bucket: &str, prefix: &str) -> Result<Vec<(String, ObjectMeta)>, String> {
+    fn list_objects(
+        &self,
+        bucket: &str,
+        prefix: &str,
+    ) -> Result<Vec<(String, ObjectMeta)>, String> {
         let scan_prefix = format!("{bucket}/{prefix}");
         let bucket_prefix = format!("{bucket}/");
         let mut out = Vec::new();
@@ -407,7 +411,9 @@ fn handle(store: &S3Store, auth: &Option<S3Auth>, req: &S3Request) -> S3Response
                 // ListObjects(V2) — `list-type=2` or the v1 default.
                 let prefix = query_param(&req.query, "prefix").unwrap_or_default();
                 match store.list_objects(&bucket, &prefix) {
-                    Ok(objs) => S3Response::xml("200 OK", list_objects_xml(&bucket, &prefix, &objs)),
+                    Ok(objs) => {
+                        S3Response::xml("200 OK", list_objects_xml(&bucket, &prefix, &objs))
+                    }
                     Err(e) => internal(&e),
                 }
             }
@@ -583,10 +589,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
 /// connection: close — the SAME idiom as the obs / SPARQL listeners.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let persist_dir = { state.read().await.persist_dir.clone() };
-    let store = Arc::new(
-        S3Store::open(persist_dir.as_deref())
-            .map_err(std::io::Error::other)?,
-    );
+    let store = Arc::new(S3Store::open(persist_dir.as_deref()).map_err(std::io::Error::other)?);
     let auth = resolve_auth();
     serve_with_store(addr, store, auth).await
 }
@@ -594,8 +597,12 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
 /// Resolve the SigV4-lite credentials from the env (both must be set to arm the
 /// guard; else anonymous).
 fn resolve_auth() -> Option<S3Auth> {
-    let access = std::env::var(S3_ACCESS_KEY_ENV).ok().filter(|s| !s.is_empty());
-    let secret = std::env::var(S3_SECRET_KEY_ENV).ok().filter(|s| !s.is_empty());
+    let access = std::env::var(S3_ACCESS_KEY_ENV)
+        .ok()
+        .filter(|s| !s.is_empty());
+    let secret = std::env::var(S3_SECRET_KEY_ENV)
+        .ok()
+        .filter(|s| !s.is_empty());
     match (access, secret) {
         (Some(access_key), Some(secret_key)) => Some(S3Auth {
             access_key,
@@ -680,7 +687,10 @@ mod tests {
         assert_eq!(split_bucket_key("/b/k/x"), ("b".into(), "k/x".into()));
         assert_eq!(split_bucket_key("/b"), ("b".into(), "".into()));
         assert_eq!(split_bucket_key("/"), ("".into(), "".into()));
-        assert_eq!(query_param("list-type=2&prefix=docs%2F", "prefix").as_deref(), Some("docs/"));
+        assert_eq!(
+            query_param("list-type=2&prefix=docs%2F", "prefix").as_deref(),
+            Some("docs/")
+        );
         assert_eq!(percent_decode("a%20b"), "a b");
         assert_eq!(iso8601(0), "1970-01-01T00:00:00.000Z");
     }
@@ -690,12 +700,20 @@ mod tests {
         let store = mem_store();
         let none = None;
         // CreateBucket.
-        assert_eq!(handle(&store, &none, &req("PUT", "/mybucket", b"", &[])).status, "200 OK");
+        assert_eq!(
+            handle(&store, &none, &req("PUT", "/mybucket", b"", &[])).status,
+            "200 OK"
+        );
         // PutObject.
         let put = handle(
             &store,
             &none,
-            &req("PUT", "/mybucket/hello.txt", b"hello world", &[("content-type", "text/plain")]),
+            &req(
+                "PUT",
+                "/mybucket/hello.txt",
+                b"hello world",
+                &[("content-type", "text/plain")],
+            ),
         );
         assert_eq!(put.status, "200 OK");
         assert!(put.headers.iter().any(|(k, _)| k == "ETag"));
@@ -709,14 +727,29 @@ mod tests {
         assert_eq!(head.status, "200 OK");
         assert!(head.head_only);
         // ListObjectsV2 → the key appears in the XML.
-        let list = handle(&store, &none, &req("GET", "/mybucket?list-type=2", b"", &[]));
+        let list = handle(
+            &store,
+            &none,
+            &req("GET", "/mybucket?list-type=2", b"", &[]),
+        );
         assert_eq!(list.status, "200 OK");
         let xml = String::from_utf8(list.body).unwrap();
         assert!(xml.contains("<Key>hello.txt</Key>"), "{xml}");
         assert!(xml.contains("<Size>11</Size>"), "{xml}");
         // DeleteObject → 204, then GET → 404.
-        assert_eq!(handle(&store, &none, &req("DELETE", "/mybucket/hello.txt", b"", &[])).status, "204 No Content");
-        assert_eq!(handle(&store, &none, &req("GET", "/mybucket/hello.txt", b"", &[])).status, "404 Not Found");
+        assert_eq!(
+            handle(
+                &store,
+                &none,
+                &req("DELETE", "/mybucket/hello.txt", b"", &[])
+            )
+            .status,
+            "204 No Content"
+        );
+        assert_eq!(
+            handle(&store, &none, &req("GET", "/mybucket/hello.txt", b"", &[])).status,
+            "404 Not Found"
+        );
     }
 
     #[test]
@@ -739,13 +772,23 @@ mod tests {
         let none = None;
         handle(&store, &none, &req("PUT", "/b1", b"", &[]));
         handle(&store, &none, &req("PUT", "/b2", b"", &[]));
-        let xml = String::from_utf8(handle(&store, &none, &req("GET", "/", b"", &[])).body).unwrap();
-        assert!(xml.contains("<Name>b1</Name>") && xml.contains("<Name>b2</Name>"), "{xml}");
+        let xml =
+            String::from_utf8(handle(&store, &none, &req("GET", "/", b"", &[])).body).unwrap();
+        assert!(
+            xml.contains("<Name>b1</Name>") && xml.contains("<Name>b2</Name>"),
+            "{xml}"
+        );
         // A non-empty bucket refuses deletion.
         handle(&store, &none, &req("PUT", "/b1/obj", b"x", &[]));
-        assert_eq!(handle(&store, &none, &req("DELETE", "/b1", b"", &[])).status, "409 Conflict");
+        assert_eq!(
+            handle(&store, &none, &req("DELETE", "/b1", b"", &[])).status,
+            "409 Conflict"
+        );
         // An empty bucket deletes.
-        assert_eq!(handle(&store, &none, &req("DELETE", "/b2", b"", &[])).status, "204 No Content");
+        assert_eq!(
+            handle(&store, &none, &req("DELETE", "/b2", b"", &[])).status,
+            "204 No Content"
+        );
     }
 
     #[test]
@@ -760,11 +803,20 @@ mod tests {
         assert_eq!(r.status, "403 Forbidden");
         // Correct access key + a Signature → accepted.
         let good = "AWS4-HMAC-SHA256 Credential=AKIA_TEST/20130524/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=abc123";
-        let r = handle(&store, &auth, &req("GET", "/", b"", &[("authorization", good)]));
+        let r = handle(
+            &store,
+            &auth,
+            &req("GET", "/", b"", &[("authorization", good)]),
+        );
         assert_eq!(r.status, "200 OK");
         // Wrong access key → 403.
-        let bad = "AWS4-HMAC-SHA256 Credential=WRONG/20130524/us-east-1/s3/aws4_request, Signature=abc";
-        let r = handle(&store, &auth, &req("GET", "/", b"", &[("authorization", bad)]));
+        let bad =
+            "AWS4-HMAC-SHA256 Credential=WRONG/20130524/us-east-1/s3/aws4_request, Signature=abc";
+        let r = handle(
+            &store,
+            &auth,
+            &req("GET", "/", b"", &[("authorization", bad)]),
+        );
         assert_eq!(r.status, "403 Forbidden");
     }
 
@@ -794,6 +846,9 @@ mod tests {
             .1;
         assert_eq!(e1, e2);
         // And a GET returns the stored bytes.
-        assert_eq!(handle(&store, &none, &req("GET", "/b/a", b"", &[])).body, b"same");
+        assert_eq!(
+            handle(&store, &none, &req("GET", "/b/a", b"", &[])).body,
+            b"same"
+        );
     }
 }

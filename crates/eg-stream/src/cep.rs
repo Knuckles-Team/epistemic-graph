@@ -262,7 +262,12 @@ pub(crate) struct AbsenceState {
 }
 
 impl AbsenceState {
-    pub(crate) fn new(a: EventMatcher, b: EventMatcher, within: u64, window: Window) -> AbsenceState {
+    pub(crate) fn new(
+        a: EventMatcher,
+        b: EventMatcher,
+        within: u64,
+        window: Window,
+    ) -> AbsenceState {
         AbsenceState {
             a,
             b,
@@ -357,7 +362,10 @@ mod tests {
         let pattern = CepPattern::Sequence(vec![login(), purchase()]);
         assert!(run(&pattern, &events, Window::Sliding { size: 10 }).is_empty());
         // A wide-enough window recovers the match.
-        assert_eq!(run(&pattern, &events, Window::Sliding { size: 25 }).len(), 1);
+        assert_eq!(
+            run(&pattern, &events, Window::Sliding { size: 25 }).len(),
+            1
+        );
     }
 
     #[test]
@@ -449,7 +457,10 @@ mod tests {
                 value: 10.0,
             }),
         ]);
-        assert_eq!(run(&pattern, &events, Window::Sliding { size: 10 }).len(), 1);
+        assert_eq!(
+            run(&pattern, &events, Window::Sliding { size: 10 }).len(),
+            1
+        );
         // Swap the qtys → neither ordering satisfies (Gt-then-Lt) → no match.
         let events2 = vec![
             Event::new(1, "trade").with_attr("qty", 5),
@@ -464,7 +475,10 @@ mod tests {
         assert!(run(&pattern, &[], Window::Sliding { size: 10 }).is_empty());
         // Unsorted input is sorted internally: purchase listed first but has the later ts.
         let events = vec![Event::new(15, "purchase"), Event::new(10, "login")];
-        assert_eq!(run(&pattern, &events, Window::Sliding { size: 10 }).len(), 1);
+        assert_eq!(
+            run(&pattern, &events, Window::Sliding { size: 10 }).len(),
+            1
+        );
     }
 
     #[test]

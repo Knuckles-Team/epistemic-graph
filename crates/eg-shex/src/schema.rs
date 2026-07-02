@@ -244,7 +244,9 @@ fn parse_shape(v: &Value) -> Result<Shape, String> {
 fn parse_triple_expr(v: &Value) -> Result<TripleExpr, String> {
     // Triple-expression *references* (a bare label string) are an EG-133 follow-up.
     if v.is_string() {
-        return Err("ShExJ: triple-expression references are not supported (EG-133 follow-up)".into());
+        return Err(
+            "ShExJ: triple-expression references are not supported (EG-133 follow-up)".into(),
+        );
     }
     match type_of(v) {
         Some("TripleConstraint") => {
@@ -299,7 +301,11 @@ fn parse_node_constraint(v: &Value) -> Result<NodeConstraint, String> {
         .map(str::to_string);
 
     let values = match v.get("values").and_then(Value::as_array) {
-        Some(arr) => Some(arr.iter().map(parse_value_set_value).collect::<Result<_, _>>()?),
+        Some(arr) => Some(
+            arr.iter()
+                .map(parse_value_set_value)
+                .collect::<Result<_, _>>()?,
+        ),
         None => None,
     };
 
@@ -340,7 +346,10 @@ fn parse_value_set_value(v: &Value) -> Result<ValueSetValue, String> {
             .ok_or_else(|| "ShExJ: value-set object literal missing `value`".to_string())?
             .to_string();
         let datatype = obj.get("type").and_then(Value::as_str).map(str::to_string);
-        let language = obj.get("language").and_then(Value::as_str).map(str::to_string);
+        let language = obj
+            .get("language")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         return Ok(ValueSetValue::Literal {
             value,
             datatype,

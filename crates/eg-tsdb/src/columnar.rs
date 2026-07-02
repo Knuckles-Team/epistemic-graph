@@ -351,10 +351,7 @@ impl ColumnarSegment {
     pub fn from_rows(schema: &[FieldDef], rows: &[Vec<CellValue>]) -> Result<Self, String> {
         let n_rows = rows.len();
         // One dense value vec + one bitmap (start all-valid, clear on NULL) per column.
-        let mut datas: Vec<ColumnData> = schema
-            .iter()
-            .map(|f| ColumnData::empty(f.ty))
-            .collect();
+        let mut datas: Vec<ColumnData> = schema.iter().map(|f| ColumnData::empty(f.ty)).collect();
         let mut bitmaps: Vec<NullBitmap> = schema
             .iter()
             .map(|_| NullBitmap::all_valid(n_rows))
@@ -393,10 +390,7 @@ impl ColumnarSegment {
     /// A column that is entirely NULL defaults to [`ColType::F64`] (the series field
     /// type). Convenience over [`from_rows`](Self::from_rows) when the caller has row
     /// data but no explicit schema (CONCEPT:EG-089).
-    pub fn from_rows_inferred(
-        names: &[String],
-        rows: &[Vec<CellValue>],
-    ) -> Result<Self, String> {
+    pub fn from_rows_inferred(names: &[String], rows: &[Vec<CellValue>]) -> Result<Self, String> {
         let mut types = vec![None; names.len()];
         for row in rows {
             if row.len() != names.len() {

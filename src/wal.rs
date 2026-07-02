@@ -392,7 +392,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
             now_ms,
         } => {
             let _ = crate::broker::publish_ex(
-                core, exchange, routing_key, payload, *priority, *delay_ms, *ttl_ms, *now_ms,
+                core,
+                exchange,
+                routing_key,
+                payload,
+                *priority,
+                *delay_ms,
+                *ttl_ms,
+                *now_ms,
             );
         }
         #[cfg(feature = "broker")]
@@ -472,7 +479,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
             now_ms,
         } => {
             let _ = crate::broker::publish_confirmed(
-                core, exchange, routing_key, payload, *priority, *delay_ms, *ttl_ms, *now_ms,
+                core,
+                exchange,
+                routing_key,
+                payload,
+                *priority,
+                *delay_ms,
+                *ttl_ms,
+                *now_ms,
             );
         }
         #[cfg(feature = "broker")]

@@ -146,11 +146,7 @@ mod tests {
     fn eg144_wcc_partitions_two_islands() {
         // {a,b,c} and {x,y} — two weakly connected islands + edge direction
         // irrelevant (c→b reversed still connects).
-        let g = AdjacencyGraph::from_edges([
-            ("a", "b", 1.0),
-            ("c", "b", 1.0),
-            ("x", "y", 1.0),
-        ]);
+        let g = AdjacencyGraph::from_edges([("a", "b", 1.0), ("c", "b", 1.0), ("x", "y", 1.0)]);
         let comps = weakly_connected_components(&g);
         assert_eq!(comps.len(), 2);
         assert_eq!(comps[0], vec!["a", "b", "c"]);
@@ -159,10 +155,7 @@ mod tests {
 
     #[test]
     fn eg144_wcc_isolated_node_is_singleton() {
-        let g = AdjacencyGraph::from_adjacency([
-            ("a", vec![("b", 1.0)]),
-            ("lonely", vec![]),
-        ]);
+        let g = AdjacencyGraph::from_adjacency([("a", vec![("b", 1.0)]), ("lonely", vec![])]);
         let comps = weakly_connected_components(&g);
         assert_eq!(comps.len(), 2);
         assert!(comps.iter().any(|c| c == &vec!["lonely"]));

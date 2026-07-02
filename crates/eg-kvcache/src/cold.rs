@@ -46,7 +46,9 @@ pub struct MemoryColdStore<K> {
 impl<K: std::hash::Hash + Eq + Clone> MemoryColdStore<K> {
     /// A fresh, empty in-RAM cold store.
     pub fn new() -> Self {
-        MemoryColdStore { blobs: std::collections::HashMap::new() }
+        MemoryColdStore {
+            blobs: std::collections::HashMap::new(),
+        }
     }
 }
 
@@ -115,8 +117,7 @@ const COLD: redb::TableDefinition<&[u8], &[u8]> = redb::TableDefinition::new("eg
 impl RedbColdStore {
     /// Open (creating if absent) a durable cold store at `path`.
     pub fn open<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
-        let db = redb::Database::create(path)
-            .map_err(|e| io::Error::other(e.to_string()))?;
+        let db = redb::Database::create(path).map_err(|e| io::Error::other(e.to_string()))?;
         // Ensure the table exists so a first `get` before any `put` succeeds.
         let wtxn = db
             .begin_write()
@@ -125,8 +126,7 @@ impl RedbColdStore {
             wtxn.open_table(COLD)
                 .map_err(|e| io::Error::other(e.to_string()))?;
         }
-        wtxn.commit()
-            .map_err(|e| io::Error::other(e.to_string()))?;
+        wtxn.commit().map_err(|e| io::Error::other(e.to_string()))?;
         Ok(RedbColdStore { db })
     }
 }
@@ -145,8 +145,7 @@ impl<K: ColdKey> ColdStore<K> for RedbColdStore {
             t.insert(key.cold_key().as_slice(), bytes)
                 .map_err(|e| io::Error::other(e.to_string()))?;
         }
-        wtxn.commit()
-            .map_err(|e| io::Error::other(e.to_string()))?;
+        wtxn.commit().map_err(|e| io::Error::other(e.to_string()))?;
         Ok(())
     }
 
@@ -178,8 +177,7 @@ impl<K: ColdKey> ColdStore<K> for RedbColdStore {
             t.remove(key.cold_key().as_slice())
                 .map_err(|e| io::Error::other(e.to_string()))?;
         }
-        wtxn.commit()
-            .map_err(|e| io::Error::other(e.to_string()))?;
+        wtxn.commit().map_err(|e| io::Error::other(e.to_string()))?;
         Ok(())
     }
 
@@ -197,7 +195,10 @@ mod tests {
     fn eg185_memory_cold_store_roundtrips() {
         let mut cs: MemoryColdStore<String> = MemoryColdStore::new();
         cs.put(&"k".to_string(), b"hello").unwrap();
-        assert_eq!(cs.get(&"k".to_string()).unwrap().as_deref(), Some(&b"hello"[..]));
+        assert_eq!(
+            cs.get(&"k".to_string()).unwrap().as_deref(),
+            Some(&b"hello"[..])
+        );
         cs.remove(&"k".to_string()).unwrap();
         assert_eq!(cs.get(&"k".to_string()).unwrap(), None);
     }
@@ -216,7 +217,9 @@ mod tests {
         // Reopen a fresh handle — the bytes must still be there.
         let cs = RedbColdStore::open(&path).unwrap();
         assert_eq!(
-            ColdStore::<String>::get(&cs, &"tok".to_string()).unwrap().as_deref(),
+            ColdStore::<String>::get(&cs, &"tok".to_string())
+                .unwrap()
+                .as_deref(),
             Some(&b"kvbytes"[..]),
             "durable cold tier must survive a reopen (OOM/restart offload)"
         );

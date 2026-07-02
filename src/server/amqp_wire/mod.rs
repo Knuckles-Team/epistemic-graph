@@ -90,7 +90,11 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
 
 /// Run one broker `Method` through the engine dispatch against the broker graph,
 /// authenticating exactly as an RPC client would (compute the per-request HMAC token).
-async fn engine_call(state: &Arc<RwLock<ServerState>>, graph: &str, method: Method) -> ResultPayload {
+async fn engine_call(
+    state: &Arc<RwLock<ServerState>>,
+    graph: &str,
+    method: Method,
+) -> ResultPayload {
     let id = next_req_id();
     let secret = { state.read().await.auth_secret.clone() };
     let req = Request {
@@ -285,13 +289,13 @@ async fn handle_connection(
                 c.u16(); // reserved-1
                 let exchange = c.shortstr();
                 let kind = c.shortstr();
-                let kind = if kind.is_empty() { "direct".into() } else { kind };
-                let _ = engine_call(
-                    &state,
-                    &graph,
-                    Method::DeclareExchange { exchange, kind },
-                )
-                .await;
+                let kind = if kind.is_empty() {
+                    "direct".into()
+                } else {
+                    kind
+                };
+                let _ =
+                    engine_call(&state, &graph, Method::DeclareExchange { exchange, kind }).await;
                 write_frame(socket, FRAME_METHOD, ch, &method_header(C_EXCHANGE, 11)).await?;
             }
             // exchange.delete

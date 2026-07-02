@@ -34,7 +34,9 @@ pub fn arrow_type(ty: ColumnType) -> DataType {
         ColumnType::Bytes => DataType::Binary,
         // CONCEPT:EG-115 — a pgvector column materializes as `List<Float32>`; the exec
         // path's `pg_col_type` maps a Float32-element list to the wire vector type.
-        ColumnType::Vector(_) => DataType::List(Arc::new(Field::new("item", DataType::Float32, true))),
+        ColumnType::Vector(_) => {
+            DataType::List(Arc::new(Field::new("item", DataType::Float32, true)))
+        }
     }
 }
 

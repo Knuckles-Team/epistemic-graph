@@ -31,7 +31,10 @@ fn beliefs() -> GraphView {
     let core = GraphCore::new();
     let put = |id: &str, d: &Distribution| {
         let dv = serde_json::to_value(d).unwrap();
-        core.add_node(id.into(), blob(json!({ "type": "Belief", "distribution": dv })));
+        core.add_node(
+            id.into(),
+            blob(json!({ "type": "Belief", "distribution": dv })),
+        );
     };
     put(
         "G_LO",

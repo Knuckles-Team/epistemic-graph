@@ -96,7 +96,11 @@ pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
         // A trust/interop surface: the connection is anonymous (no handshake identity),
         // so `auth_maps_actor = false` — the same back-compat single-tenant behavior the
         // SPARQL/native surfaces use when no identity is presented.
-        let session = Arc::new(WireSession::new(state.clone(), default_graph.clone(), false));
+        let session = Arc::new(WireSession::new(
+            state.clone(),
+            default_graph.clone(),
+            false,
+        ));
         tokio::spawn(async move {
             handle_conn(stream, session).await;
         });
@@ -147,7 +151,10 @@ pub async fn execute_request(session: &WireSession, line: &str) -> String {
         Err(e) => return error_json("22000", &format!("malformed JSON request: {e}")),
     };
     let Some(sql) = req.get("sql").and_then(|v| v.as_str()) else {
-        return error_json("22000", "request must be a JSON object with a string `sql` field");
+        return error_json(
+            "22000",
+            "request must be a JSON object with a string `sql` field",
+        );
     };
 
     match translate_sqlite_sql(sql) {
@@ -354,7 +361,11 @@ mod tests {
             .iter()
             .map(|c| c["name"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(cols, vec!["id".to_string(), "greeting".to_string()], "{sel}");
+        assert_eq!(
+            cols,
+            vec!["id".to_string(), "greeting".to_string()],
+            "{sel}"
+        );
         // id column reports the SQLite INTEGER storage class.
         assert_eq!(v["columns"][0]["type"], "INTEGER", "{sel}");
         let greetings: Vec<String> = v["rows"]
@@ -386,11 +397,17 @@ mod tests {
 
         let bad_json = execute_request(&session, "not json").await;
         let v: serde_json::Value = serde_json::from_str(&bad_json).unwrap();
-        assert!(v["error"]["code"].is_string(), "malformed JSON → error: {bad_json}");
+        assert!(
+            v["error"]["code"].is_string(),
+            "malformed JSON → error: {bad_json}"
+        );
 
         let no_sql = execute_request(&session, r#"{"query":"SELECT 1"}"#).await;
         let v: serde_json::Value = serde_json::from_str(&no_sql).unwrap();
-        assert!(v["error"].is_object(), "missing sql field → error: {no_sql}");
+        assert!(
+            v["error"].is_object(),
+            "missing sql field → error: {no_sql}"
+        );
 
         let engine_err = execute_request(&session, &req("SELECT * FROM no_such_table")).await;
         let v: serde_json::Value = serde_json::from_str(&engine_err).unwrap();

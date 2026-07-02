@@ -31,9 +31,9 @@ pub use eg_types::protocol::QueryResult;
 
 use super::parser;
 use super::plan::{
-    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr, NodePat,
-    Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement, Test,
-    WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
+    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr,
+    NodePat, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement,
+    Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 use super::proc::{registry, YieldValue};
 
@@ -89,8 +89,7 @@ fn run_stages(
             } => {
                 let mut out: Vec<Binding> = Vec::new();
                 for incoming in &bindings {
-                    let mut matched =
-                        resolve_match(view, pattern, where_clause, incoming, params)?;
+                    let mut matched = resolve_match(view, pattern, where_clause, incoming, params)?;
                     if let Some(pv) = path_var {
                         for b in matched.iter_mut() {
                             record_path(pattern, b, pv);
@@ -124,7 +123,10 @@ fn run_stages(
                 for b in &bindings {
                     for elem in eval_list(b, params, list)? {
                         let mut nb = b.clone();
-                        nb.insert(val_key(var), serde_json::to_string(&elem).unwrap_or_default());
+                        nb.insert(
+                            val_key(var),
+                            serde_json::to_string(&elem).unwrap_or_default(),
+                        );
                         out.push(nb);
                     }
                 }
@@ -142,11 +144,7 @@ fn run_stages(
                 }
                 bindings = out;
             }
-            ReadStage::CallProc {
-                name,
-                args,
-                yields,
-            } => {
+            ReadStage::CallProc { name, args, yields } => {
                 bindings = run_call_proc(view, &bindings, name, args, yields, params)?;
             }
         }
@@ -264,7 +262,10 @@ fn subquery_additions(
                         .get(v)
                         .and_then(|id| node_prop(view, id, p))
                         .unwrap_or(Value::Null);
-                    add.insert(val_key(&name), serde_json::to_string(&val).unwrap_or_default());
+                    add.insert(
+                        val_key(&name),
+                        serde_json::to_string(&val).unwrap_or_default(),
+                    );
                 }
                 _ => {}
             }
@@ -306,7 +307,10 @@ fn run_call_proc(
                         nb.insert(out_name, id.clone());
                     }
                     Some((_, YieldValue::Scalar(v))) => {
-                        nb.insert(val_key(&out_name), serde_json::to_string(v).unwrap_or_default());
+                        nb.insert(
+                            val_key(&out_name),
+                            serde_json::to_string(v).unwrap_or_default(),
+                        );
                     }
                     None => {
                         return Err(format!(
@@ -537,7 +541,10 @@ fn record_path(pattern: &Pattern, binding: &mut Binding, pv: &str) {
             }
         }
     }
-    binding.insert(path_key(pv), serde_json::to_string(&seq).unwrap_or_default());
+    binding.insert(
+        path_key(pv),
+        serde_json::to_string(&seq).unwrap_or_default(),
+    );
 }
 
 /// Project a binding through a `WITH` item list: keep only the listed variables,
@@ -594,7 +601,10 @@ fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
             ReadStage::Unwind { var, .. } => push(var, &mut scope),
             ReadStage::CallProc { yields, .. } => {
                 for y in yields {
-                    push(&y.alias.clone().unwrap_or_else(|| y.col.clone()), &mut scope);
+                    push(
+                        &y.alias.clone().unwrap_or_else(|| y.col.clone()),
+                        &mut scope,
+                    );
                 }
             }
             ReadStage::Call { subquery } => {
@@ -723,7 +733,10 @@ fn finalize(
         bindings
             .iter()
             .map(|b| {
-                let cells = items.iter().map(|i| eval_scalar(view, b, &i.expr)).collect();
+                let cells = items
+                    .iter()
+                    .map(|i| eval_scalar(view, b, &i.expr))
+                    .collect();
                 (cells, b.clone())
             })
             .collect()
@@ -873,11 +886,23 @@ fn compute_agg(view: &GraphView, expr: &Expr, group: &[&Binding]) -> Value {
                 }
                 AggFunc::Min => vals
                     .into_iter()
-                    .reduce(|a, b| if cmp_values(&a, &b) == Ordering::Greater { b } else { a })
+                    .reduce(|a, b| {
+                        if cmp_values(&a, &b) == Ordering::Greater {
+                            b
+                        } else {
+                            a
+                        }
+                    })
                     .unwrap_or(Value::Null),
                 AggFunc::Max => vals
                     .into_iter()
-                    .reduce(|a, b| if cmp_values(&a, &b) == Ordering::Less { b } else { a })
+                    .reduce(|a, b| {
+                        if cmp_values(&a, &b) == Ordering::Less {
+                            b
+                        } else {
+                            a
+                        }
+                    })
                     .unwrap_or(Value::Null),
             }
         }
@@ -898,7 +923,9 @@ fn arg_value(view: &GraphView, b: &Binding, arg: &AggArg) -> Option<Value> {
                 b.get(v).map(|id| Value::String(id.clone()))
             }
         }
-        AggArg::Prop(v, p) => b.get(v).map(|id| node_prop(view, id, p).unwrap_or(Value::Null)),
+        AggArg::Prop(v, p) => b
+            .get(v)
+            .map(|id| node_prop(view, id, p).unwrap_or(Value::Null)),
     }
 }
 
@@ -1654,11 +1681,7 @@ mod tests {
         .unwrap();
         assert_eq!(ids(&qr, 0), vec!["alice", "carol"]);
 
-        let qr2 = exec_cypher(
-            &v,
-            "MATCH (a:Person) WHERE a.name CONTAINS 'o' RETURN a",
-        )
-        .unwrap();
+        let qr2 = exec_cypher(&v, "MATCH (a:Person) WHERE a.name CONTAINS 'o' RETURN a").unwrap();
         // 'Bob' and 'Carol' contain 'o'.
         assert_eq!(ids(&qr2, 0), vec!["bob", "carol"]);
     }
@@ -1782,8 +1805,11 @@ mod tests {
     #[test]
     fn call_subquery_with_aggregate_scalar() {
         let v = fixture();
-        let qr =
-            exec_cypher(&v, "CALL { MATCH (a:Person) RETURN count(a) AS c } RETURN c").unwrap();
+        let qr = exec_cypher(
+            &v,
+            "CALL { MATCH (a:Person) RETURN count(a) AS c } RETURN c",
+        )
+        .unwrap();
         assert_eq!(qr.columns, vec!["c"]);
         assert_eq!(cells_of(&qr, 0)[0], Value::Number(3.into()));
     }
@@ -1857,8 +1883,11 @@ mod tests {
     #[test]
     fn call_apoc_coll_sum_and_meta_stats() {
         let v = fixture();
-        let qr = exec_cypher(&v, "CALL apoc.coll.sum([1, 2, 3, 4]) YIELD value RETURN value")
-            .unwrap();
+        let qr = exec_cypher(
+            &v,
+            "CALL apoc.coll.sum([1, 2, 3, 4]) YIELD value RETURN value",
+        )
+        .unwrap();
         assert_eq!(cells_of(&qr, 0)[0], Value::Number(10.into()));
 
         let stats = exec_cypher(
@@ -1876,8 +1905,11 @@ mod tests {
         // CONCEPT:EG-143 — a YIELD `node` binds an anchorable node id, so a downstream
         // labelled MATCH re-anchors on it and filters by label (keeps only the Doc).
         let v = fixture();
-        let qr = exec_cypher(&v, "CALL gds.degree() YIELD node MATCH (node:Doc) RETURN node")
-            .unwrap();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.degree() YIELD node MATCH (node:Doc) RETURN node",
+        )
+        .unwrap();
         assert_eq!(ids(&qr, 0), vec!["d1"]);
     }
 
@@ -2014,11 +2046,7 @@ mod tests {
     fn remove_label_drops_from_label_index() {
         let core = GraphCore::new();
         // A node that is both Person (type) and carries Admin in a labels array.
-        exec_cypher_write(
-            &core,
-            "CREATE (n:Person {id: 'al', name: 'Al'})",
-        )
-        .unwrap();
+        exec_cypher_write(&core, "CREATE (n:Person {id: 'al', name: 'Al'})").unwrap();
         // Give it a secondary label via SET (labels array), then REMOVE it.
         // (SET only takes literals; build the labels array through a fresh create.)
         let core2 = GraphCore::new();

@@ -181,8 +181,8 @@ impl NlPlanner for UreqNlPlanner {
                 { "role": "user", "content": user },
             ],
         });
-        let body = serde_json::to_string(&body)
-            .map_err(|e| format!("nl-query: encode request: {e}"))?;
+        let body =
+            serde_json::to_string(&body).map_err(|e| format!("nl-query: encode request: {e}"))?;
 
         let mut req = agent
             .post(&self.endpoint)
@@ -201,8 +201,8 @@ impl NlPlanner for UreqNlPlanner {
             .read_to_string(&mut buf)
             .map_err(|e| format!("nl-query: read LLM response: {e}"))?;
 
-        let json: serde_json::Value = serde_json::from_str(&buf)
-            .map_err(|e| format!("nl-query: parse LLM JSON: {e}"))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&buf).map_err(|e| format!("nl-query: parse LLM JSON: {e}"))?;
         let content = json
             .pointer("/choices/0/message/content")
             .and_then(|v| v.as_str())
@@ -223,7 +223,9 @@ fn strip_query(raw: &str) -> String {
     let t = t.strip_prefix("```").unwrap_or(t);
     // Drop a leading language tag line (e.g. "uql", "sql") that follows the opening fence.
     let t = match t.split_once('\n') {
-        Some((first, rest)) if !first.contains(' ') && first.len() <= 8 && !first.is_empty() => rest,
+        Some((first, rest)) if !first.contains(' ') && first.len() <= 8 && !first.is_empty() => {
+            rest
+        }
         _ => t,
     };
     let t = t.strip_suffix("```").unwrap_or(t);
@@ -304,8 +306,14 @@ mod tests {
     /// CONCEPT:EG-080 — the fence-stripper recovers a bare query from a fenced answer.
     #[test]
     fn eg080_strip_query_unwraps_code_fences() {
-        assert_eq!(strip_query("```uql\nMATCH (:Doc) |> LIMIT 1\n```"), "MATCH (:Doc) |> LIMIT 1");
-        assert_eq!(strip_query("  MATCH (:Doc) |> LIMIT 1  "), "MATCH (:Doc) |> LIMIT 1");
+        assert_eq!(
+            strip_query("```uql\nMATCH (:Doc) |> LIMIT 1\n```"),
+            "MATCH (:Doc) |> LIMIT 1"
+        );
+        assert_eq!(
+            strip_query("  MATCH (:Doc) |> LIMIT 1  "),
+            "MATCH (:Doc) |> LIMIT 1"
+        );
         assert_eq!(strip_query("```\nMATCH (:Doc)\n```"), "MATCH (:Doc)");
     }
 }

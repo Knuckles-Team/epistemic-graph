@@ -339,6 +339,8 @@ mod tests {
     #[test]
     fn empty_flush_is_none() {
         let store = RedbChunkStore::open_temp().unwrap();
-        assert!(flush_records_to_segment(&store, "x", &[]).unwrap().is_none());
+        assert!(flush_records_to_segment(&store, "x", &[])
+            .unwrap()
+            .is_none());
     }
 }

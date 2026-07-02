@@ -196,10 +196,7 @@ mod tests {
     #[test]
     fn eg144_dijkstra_unreachable_is_none() {
         // "island" is an isolated node with no edges.
-        let g = AdjacencyGraph::from_adjacency([
-            ("a", vec![("b", 1.0)]),
-            ("island", vec![]),
-        ]);
+        let g = AdjacencyGraph::from_adjacency([("a", vec![("b", 1.0)]), ("island", vec![])]);
         let a = g.index_of(&"a").unwrap();
         let island = g.index_of(&"island").unwrap();
         let res = dijkstra(&g, a);
@@ -209,10 +206,7 @@ mod tests {
 
     #[test]
     fn eg144_all_pairs_distance_matrix() {
-        let g = AdjacencyGraph::from_edges([
-            ("a", "b", 1.0),
-            ("b", "c", 1.0),
-        ]);
+        let g = AdjacencyGraph::from_edges([("a", "b", 1.0), ("b", "c", 1.0)]);
         let (a, b, c) = (
             g.index_of(&"a").unwrap(),
             g.index_of(&"b").unwrap(),

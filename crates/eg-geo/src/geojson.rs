@@ -80,19 +80,25 @@ pub fn geometry_from_value(v: &Value) -> Result<Geometry, String> {
         "LineString" => Ok(Geometry::LineString(parse_line(coords(v)?)?)),
         "Polygon" => Ok(Geometry::Polygon(parse_poly(coords(v)?)?)),
         "MultiPoint" => {
-            let arr = coords(v)?.as_array().ok_or("GeoJSON: coordinates not array")?;
+            let arr = coords(v)?
+                .as_array()
+                .ok_or("GeoJSON: coordinates not array")?;
             Ok(Geometry::MultiPoint(
                 arr.iter().map(parse_coord).collect::<Result<_, _>>()?,
             ))
         }
         "MultiLineString" => {
-            let arr = coords(v)?.as_array().ok_or("GeoJSON: coordinates not array")?;
+            let arr = coords(v)?
+                .as_array()
+                .ok_or("GeoJSON: coordinates not array")?;
             Ok(Geometry::MultiLineString(
                 arr.iter().map(parse_line).collect::<Result<_, _>>()?,
             ))
         }
         "MultiPolygon" => {
-            let arr = coords(v)?.as_array().ok_or("GeoJSON: coordinates not array")?;
+            let arr = coords(v)?
+                .as_array()
+                .ok_or("GeoJSON: coordinates not array")?;
             Ok(Geometry::MultiPolygon(
                 arr.iter().map(parse_poly).collect::<Result<_, _>>()?,
             ))
@@ -226,9 +232,7 @@ fn coords(v: &Value) -> Result<&Value, String> {
 }
 
 fn parse_coord(v: &Value) -> Result<Point, String> {
-    let arr = v
-        .as_array()
-        .ok_or("GeoJSON: coordinate is not an array")?;
+    let arr = v.as_array().ok_or("GeoJSON: coordinate is not an array")?;
     if arr.len() < 2 {
         return Err("GeoJSON: coordinate needs at least [x, y]".to_string());
     }

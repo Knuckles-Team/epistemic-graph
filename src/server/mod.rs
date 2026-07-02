@@ -106,8 +106,11 @@ pub mod stomp_wire;
 // content-addressed BLOB CAS (bytes) + the durable KV index (listing), with a
 // SigV4-lite auth guard. Behind the `s3-api` cargo feature (pulls `blob` + `kv`).
 // Default/pi builds compile NONE of it.
-#[cfg(feature = "s3-api")]
-pub mod s3;
+/// GraphQL real subscriptions over Server-Sent Events (CONCEPT:EG-064, feature
+/// `graphql`): a live query re-resolved on every eg-core change and pushed as
+/// `text/event-stream` frames over the same hand-rolled tokio HTTP idiom.
+#[cfg(feature = "graphql")]
+pub mod graphql_sub;
 /// Remote KV-cache HTTP surface (CONCEPT:EG-187, feature `kvcache-server`): a
 /// hand-rolled HTTP listener exposing the `eg-kvcache` shared, content-addressed
 /// backend (EG-186) so parallel vLLM/LMCache instances SHARE KV blocks by token-hash
@@ -115,14 +118,6 @@ pub mod s3;
 /// builds compile NONE of it (no eg-kvcache/ureq in pi).
 #[cfg(feature = "kvcache-server")]
 pub mod kvcache_http;
-/// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
-#[cfg(feature = "sparql-http")]
-pub mod sparql_http;
-/// GraphQL real subscriptions over Server-Sent Events (CONCEPT:EG-064, feature
-/// `graphql`): a live query re-resolved on every eg-core change and pushed as
-/// `text/event-stream` frames over the same hand-rolled tokio HTTP idiom.
-#[cfg(feature = "graphql")]
-pub mod graphql_sub;
 /// Observability log ingestion + Parquet segment substrate (CONCEPT:EG-160/161,
 /// feature `obs`): a hand-rolled HTTP listener accepting OTLP/HTTP, Elasticsearch
 /// `_bulk`/`_doc` and JSON-lines log records, landing them in eg-tsdb series +
@@ -131,6 +126,11 @@ pub mod graphql_sub;
 /// tied to the graph `ServerState`.
 #[cfg(feature = "obs")]
 pub mod obs;
+#[cfg(feature = "s3-api")]
+pub mod s3;
+/// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
+#[cfg(feature = "sparql-http")]
+pub mod sparql_http;
 
 /// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-172, feature
 /// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the

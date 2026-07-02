@@ -74,7 +74,9 @@ fn eg084_jsonpath_eq_numeric_text_coercion() {
     let plan = Plan::new(vec![Op::Filter {
         preds: vec![Pred::JsonPath {
             path: "$.meta.year".into(),
-            op: JsonPathOp::Eq { value: json!("2024") },
+            op: JsonPathOp::Eq {
+                value: json!("2024"),
+            },
         }],
     }]);
     assert_eq!(run(&plan, &view), vec!["d1", "d2"]);
@@ -115,7 +117,9 @@ fn eg084_jsonpath_array_contains_filter() {
     let plan = Plan::new(vec![Op::Filter {
         preds: vec![Pred::JsonPath {
             path: "$.tags".into(),
-            op: JsonPathOp::Contains { value: json!(["b"]) },
+            op: JsonPathOp::Contains {
+                value: json!(["b"]),
+            },
         }],
     }]);
     assert_eq!(run(&plan, &view), vec!["d1", "d2"]);

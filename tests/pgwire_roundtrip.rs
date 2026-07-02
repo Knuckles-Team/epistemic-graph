@@ -1015,9 +1015,7 @@ async fn wire_txn_mixed_node_and_table_commit() {
 
     // Clean up: the SQL table store is a process-global singleton, so drop the table
     // to avoid leaking it into other tests / future runs.
-    let _ = client
-        .simple_query(&format!("DROP TABLE {table}"))
-        .await;
+    let _ = client.simple_query(&format!("DROP TABLE {table}")).await;
 }
 
 /// An error inside an open transaction latches it into the aborted state: every
@@ -1058,7 +1056,11 @@ async fn wire_txn_error_blocks_until_rollback_25p02() {
             .await
             .expect("SELECT after recovery"),
     );
-    assert_eq!(ok, vec!["ok".to_string()], "connection usable after ROLLBACK");
+    assert_eq!(
+        ok,
+        vec!["ok".to_string()],
+        "connection usable after ROLLBACK"
+    );
     // The aborted statement never landed.
     let nope = simple_ids(
         client

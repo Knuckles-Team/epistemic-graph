@@ -217,8 +217,12 @@ impl Predicate {
                 Some(v) => v != &self.value,
             },
             CmpOp::Eq => present == Some(&self.value),
-            CmpOp::Gt => cmp_num_or_str(present, &self.value).map(|o| o.is_gt()).unwrap_or(false),
-            CmpOp::Lt => cmp_num_or_str(present, &self.value).map(|o| o.is_lt()).unwrap_or(false),
+            CmpOp::Gt => cmp_num_or_str(present, &self.value)
+                .map(|o| o.is_gt())
+                .unwrap_or(false),
+            CmpOp::Lt => cmp_num_or_str(present, &self.value)
+                .map(|o| o.is_lt())
+                .unwrap_or(false),
             CmpOp::Contains => match present {
                 Some(PipeValue::Str(s)) => self
                     .value
@@ -478,7 +482,10 @@ impl Pipeline {
                 }
             }
         }
-        Some(RoutedRecord { stream, fields: rec })
+        Some(RoutedRecord {
+            stream,
+            fields: rec,
+        })
     }
 
     /// Run the pipeline over a batch, returning the kept + transformed records GROUPED
@@ -694,14 +701,18 @@ fn parse_line(line: &str) -> Result<Stage, String> {
             }
             let field = toks[1];
             let value = toks[2];
-            let stream = toks.get(arrow + 1).ok_or("route needs a <stream> after '->'")?;
+            let stream = toks
+                .get(arrow + 1)
+                .ok_or("route needs a <stream> after '->'")?;
             Ok(Stage::Route {
                 field: field.to_string(),
                 value: parse_value_token(value),
                 stream: (*stream).to_string(),
             })
         }
-        "enrich" => Err("enrich is not expressible in the textual form; use Pipeline::enrich".into()),
+        "enrich" => {
+            Err("enrich is not expressible in the textual form; use Pipeline::enrich".into())
+        }
         other => Err(format!("unknown stage '{other}'")),
     }
 }
@@ -1049,7 +1060,8 @@ mod tests {
     /// CONCEPT:EG-165 — `filter` KEEPS records matching the predicate (drops the rest).
     #[test]
     fn eg_165_filter_keeps_matching() {
-        let pipe = Pipeline::new().filter(Predicate::new("level", CmpOp::Eq, PipeValue::str("error")));
+        let pipe =
+            Pipeline::new().filter(Predicate::new("level", CmpOp::Eq, PipeValue::str("error")));
         let kept = pipe.run(rec(&[("level", PipeValue::str("error"))]));
         let dropped = pipe.run(rec(&[("level", PipeValue::str("info"))]));
         assert!(kept.is_some());
@@ -1059,9 +1071,14 @@ mod tests {
     /// CONCEPT:EG-165 — `drop_if` REMOVES records matching the predicate.
     #[test]
     fn eg_165_drop_if_removes_matching() {
-        let pipe = Pipeline::new().drop_if(Predicate::new("level", CmpOp::Eq, PipeValue::str("debug")));
-        assert!(pipe.run(rec(&[("level", PipeValue::str("debug"))])).is_none());
-        assert!(pipe.run(rec(&[("level", PipeValue::str("warn"))])).is_some());
+        let pipe =
+            Pipeline::new().drop_if(Predicate::new("level", CmpOp::Eq, PipeValue::str("debug")));
+        assert!(pipe
+            .run(rec(&[("level", PipeValue::str("debug"))]))
+            .is_none());
+        assert!(pipe
+            .run(rec(&[("level", PipeValue::str("warn"))]))
+            .is_some());
     }
 
     /// CONCEPT:EG-165 — every comparison op (eq/ne/gt/lt/contains/exists), incl.
@@ -1131,7 +1148,9 @@ mod tests {
     #[test]
     fn eg_165_route_tags_stream() {
         let pipe = Pipeline::new().route("level", PipeValue::str("error"), "errors");
-        let hit = pipe.run(rec(&[("level", PipeValue::str("error"))])).unwrap();
+        let hit = pipe
+            .run(rec(&[("level", PipeValue::str("error"))]))
+            .unwrap();
         let miss = pipe.run(rec(&[("level", PipeValue::str("info"))])).unwrap();
         assert_eq!(hit.stream.as_deref(), Some("errors"));
         assert_eq!(miss.stream, None);
@@ -1143,8 +1162,7 @@ mod tests {
     #[test]
     fn eg_165_enrich_via_mock_lookup() {
         // Mock graph lookup: user_id -> display name.
-        let graph: BTreeMap<i64, &str> =
-            [(1, "alice"), (2, "bob")].into_iter().collect();
+        let graph: BTreeMap<i64, &str> = [(1, "alice"), (2, "bob")].into_iter().collect();
         let pipe = Pipeline::new().enrich("user_id", "user_name", move |v| match v {
             PipeValue::I64(id) => graph.get(id).map(|n| PipeValue::str(*n)),
             _ => None,
@@ -1192,13 +1210,17 @@ mod tests {
     /// byte-identical grouped output across runs (BTreeMap ordering + preserved order).
     #[test]
     fn eg_165_determinism() {
-        let pipe = Pipeline::new()
-            .parse_json("body")
-            .route("level", PipeValue::str("error"), "errors");
+        let pipe =
+            Pipeline::new()
+                .parse_json("body")
+                .route("level", PipeValue::str("error"), "errors");
         let batch: Vec<Record> = (0..50)
             .map(|i| {
                 let lvl = if i % 2 == 0 { "error" } else { "info" };
-                rec(&[("body", PipeValue::str(format!(r#"{{"level":"{lvl}","i":{i}}}"#)))])
+                rec(&[(
+                    "body",
+                    PipeValue::str(format!(r#"{{"level":"{lvl}","i":{i}}}"#)),
+                )])
             })
             .collect();
         let a = pipe.run_batch(batch.clone(), "_default");
@@ -1243,8 +1265,12 @@ mod tests {
     /// rejected in text (needs a closure).
     #[test]
     fn eg_165_textual_form_errors() {
-        assert!(Pipeline::parse("bogus_op x").unwrap_err().contains("unknown stage"));
-        assert!(Pipeline::parse("enrich a b").unwrap_err().contains("enrich"));
+        assert!(Pipeline::parse("bogus_op x")
+            .unwrap_err()
+            .contains("unknown stage"));
+        assert!(Pipeline::parse("enrich a b")
+            .unwrap_err()
+            .contains("enrich"));
         let e = Pipeline::parse("parse_json a\ncoerce f nope").unwrap_err();
         assert!(e.contains("line 2"), "got: {e}");
     }
