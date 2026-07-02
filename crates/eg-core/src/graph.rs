@@ -1514,6 +1514,7 @@ impl<'a> GraphTxn<'a> {
     ///   reciprocal `HAS_STEP` edge (trajectory → step) for O(matches) enumeration;
     /// * stitched onto the chain tail with a `NEXT_STEP` edge (previous tail → new
     ///   step); the first step also stamps the trajectory's `head_step`.
+    ///
     /// The trajectory's `tail_step` and `step_count` are advanced. Returns the new
     /// step id, or `None` if `traj_id` is absent/undecodable (no partial write).
     /// Deterministic (no clock/RNG — `reward`/`t` are caller-supplied) and atomic under
@@ -5978,6 +5979,161 @@ mod tests {
         // Absent parent is skipped — no dangling hierarchy edge, object is a root.
         let orphan = g1.add_scene_object(&Pose::identity(), Some("ghost"));
         assert!(g1.scene_parent(&orphan).is_none());
+    }
+
+    // ── Action / policy / trajectory memory (CONCEPT:EG-099) ──────────────────
+
+    /// Build a trajectory with `rewards[i]` at timestep `i` (action = "a{i}").
+    /// Returns the trajectory id.
+    fn traj_with_rewards(g: &GraphCore, rewards: &[f64]) -> String {
+        let tid = g.start_trajectory(serde_json::Map::new());
+        for (i, r) in rewards.iter().enumerate() {
+            let s = g
+                .append_step(&tid, serde_json::json!(format!("a{i}")), *r, None, None, i as u64)
+                .expect("trajectory exists");
+            assert!(s.starts_with(&tid), "step id namespaced under trajectory");
+        }
+        tid
+    }
+
+    #[test]
+    fn eg099_append_step_builds_ordered_chain_and_bookkeeping() {
+        let g = GraphCore::new();
+        let tid = g.start_trajectory(
+            [("policy".to_string(), serde_json::json!("greedy"))]
+                .into_iter()
+                .collect(),
+        );
+        assert!(tid.starts_with("trajectory:"));
+        // Trajectory markers + caller prop.
+        let to = obj_of(&g, &tid);
+        assert_eq!(to.get("type"), Some(&serde_json::json!("Trajectory")));
+        assert_eq!(to.get("policy"), Some(&serde_json::json!("greedy")));
+        assert_eq!(to.get("step_count"), Some(&serde_json::json!(0)));
+
+        let s0 = g.append_step(&tid, serde_json::json!("up"), 1.0, Some("st0"), Some("st1"), 0).unwrap();
+        let s1 = g.append_step(&tid, serde_json::json!("down"), 2.0, Some("st1"), Some("st2"), 1).unwrap();
+        let s2 = g.append_step(&tid, serde_json::json!("left"), 3.0, None, None, 2).unwrap();
+
+        // Ordered chain (append order).
+        assert_eq!(g.trajectory_steps(&tid), vec![s0.clone(), s1.clone(), s2.clone()]);
+
+        // Step fields stored verbatim + structural markers.
+        let o1 = obj_of(&g, &s1);
+        assert_eq!(o1.get("type"), Some(&serde_json::json!("Step")));
+        assert_eq!(o1.get("action"), Some(&serde_json::json!("down")));
+        assert_eq!(o1.get("reward"), Some(&serde_json::json!(2.0)));
+        assert_eq!(o1.get("t"), Some(&serde_json::json!(1)));
+        assert_eq!(o1.get("step_index"), Some(&serde_json::json!(1)));
+        assert_eq!(o1.get("state_ref"), Some(&serde_json::json!("st1")));
+        assert_eq!(o1.get("next_state_ref"), Some(&serde_json::json!("st2")));
+        // Omitted refs are simply absent (not null).
+        let o2 = obj_of(&g, &s2);
+        assert!(!o2.contains_key("state_ref"));
+
+        // Trajectory bookkeeping advanced.
+        let to = obj_of(&g, &tid);
+        assert_eq!(to.get("step_count"), Some(&serde_json::json!(3)));
+        assert_eq!(to.get("head_step"), Some(&serde_json::json!(s0)));
+        assert_eq!(to.get("tail_step"), Some(&serde_json::json!(s2)));
+
+        // Temporal chain: NEXT_STEP s0→s1→s2, BELONGS_TO step→trajectory.
+        assert!(g.edge_has_relationship(&s0, &s1, "NEXT_STEP"));
+        assert!(g.edge_has_relationship(&s1, &s2, "NEXT_STEP"));
+        assert!(!g.edge_has_relationship(&s0, &s2, "NEXT_STEP"));
+        assert!(g.edge_has_relationship(&s1, &tid, "BELONGS_TO"));
+        assert!(g.edge_has_relationship(&tid, &s1, "HAS_STEP"));
+    }
+
+    #[test]
+    fn eg099_append_step_on_absent_trajectory_is_none() {
+        let g = GraphCore::new();
+        assert!(g.append_step("ghost", serde_json::json!("x"), 1.0, None, None, 0).is_none());
+        assert!(g.trajectory_steps("ghost").is_empty());
+    }
+
+    #[test]
+    fn eg099_discounted_return_matches_hand_computed_value() {
+        let g = GraphCore::new();
+        // rewards 1, 2, 3 at t = 0, 1, 2 with gamma = 0.5.
+        let tid = traj_with_rewards(&g, &[1.0, 2.0, 3.0]);
+        // Σ gamma^t r_t = 0.5^0*1 + 0.5^1*2 + 0.5^2*3 = 1 + 1 + 0.75 = 2.75.
+        let got = g.discounted_return(&tid, 0.5);
+        assert!((got - 2.75).abs() < 1e-9, "discounted return {got} != 2.75");
+        // gamma = 1.0 ⇒ plain sum == total_reward.
+        assert!((g.discounted_return(&tid, 1.0) - 6.0).abs() < 1e-9);
+        assert!((g.total_reward(&tid) - 6.0).abs() < 1e-9);
+        // Absent / empty trajectories score 0.
+        assert_eq!(g.discounted_return("ghost", 0.9), 0.0);
+        let empty = g.start_trajectory(serde_json::Map::new());
+        assert_eq!(g.discounted_return(&empty, 0.9), 0.0);
+        assert_eq!(g.total_reward(&empty), 0.0);
+    }
+
+    #[test]
+    fn eg099_windowed_returns_slides_over_rewards() {
+        let g = GraphCore::new();
+        let tid = traj_with_rewards(&g, &[1.0, 2.0, 3.0, 4.0]);
+        // window 2 ⇒ [1+2, 2+3, 3+4] = [3, 5, 7].
+        assert_eq!(g.windowed_returns(&tid, 2), vec![3.0, 5.0, 7.0]);
+        // window == len ⇒ single full-sum element.
+        assert_eq!(g.windowed_returns(&tid, 4), vec![10.0]);
+        // Degenerate windows ⇒ empty.
+        assert!(g.windowed_returns(&tid, 0).is_empty());
+        assert!(g.windowed_returns(&tid, 5).is_empty());
+    }
+
+    #[test]
+    fn eg099_best_and_worst_trajectory_selection() {
+        let g = GraphCore::new();
+        let lo = traj_with_rewards(&g, &[0.0, 0.0, 1.0]); // return @gamma=1 => 1.0
+        let hi = traj_with_rewards(&g, &[5.0, 5.0]); // => 10.0
+        let mid = traj_with_rewards(&g, &[2.0, 2.0]); // => 4.0
+        let ids = vec![lo.clone(), hi.clone(), mid.clone()];
+        assert_eq!(g.best_trajectory(&ids, 1.0), Some(hi.clone()));
+        assert_eq!(g.worst_trajectory(&ids, 1.0), Some(lo.clone()));
+        // Empty input ⇒ None.
+        assert_eq!(g.best_trajectory(&[], 1.0), None);
+        assert_eq!(g.worst_trajectory(&[], 1.0), None);
+    }
+
+    #[test]
+    fn eg099_best_worst_break_ties_deterministically_by_id() {
+        let g = GraphCore::new();
+        // Two trajectories with the SAME return — selection must pick the smaller id.
+        let a = g.start_trajectory([("k".to_string(), serde_json::json!("a"))].into_iter().collect());
+        let b = g.start_trajectory([("k".to_string(), serde_json::json!("b"))].into_iter().collect());
+        g.append_step(&a, serde_json::json!("x"), 3.0, None, None, 0).unwrap();
+        g.append_step(&b, serde_json::json!("x"), 3.0, None, None, 0).unwrap();
+        let mut ids = vec![a.clone(), b.clone()];
+        ids.sort();
+        let smallest = ids[0].clone();
+        assert_eq!(g.best_trajectory(&ids, 0.9), Some(smallest.clone()));
+        assert_eq!(g.worst_trajectory(&ids, 0.9), Some(smallest));
+    }
+
+    #[test]
+    fn eg099_start_trajectory_is_deterministic_and_upserts_without_reset() {
+        // Same graph state + props ⇒ same derived id (no RNG/clock).
+        let g1 = GraphCore::new();
+        let g2 = GraphCore::new();
+        let p: serde_json::Map<String, serde_json::Value> =
+            [("task".to_string(), serde_json::json!("nav"))].into_iter().collect();
+        let a = g1.start_trajectory(p.clone());
+        let b = g2.start_trajectory(p.clone());
+        assert_eq!(a, b, "deterministic id over (state, props)");
+        // Append a step, then re-run start_trajectory with the same props (upsert):
+        // step_count must NOT reset, and the honoured `id` prop routes to the same node.
+        g1.append_step(&a, serde_json::json!("go"), 1.0, None, None, 0).unwrap();
+        let again = g1.start_trajectory(
+            [("id".to_string(), serde_json::json!(a.clone())), ("task".to_string(), serde_json::json!("nav2"))]
+                .into_iter()
+                .collect(),
+        );
+        assert_eq!(again, a, "explicit id prop honoured");
+        let o = obj_of(&g1, &a);
+        assert_eq!(o.get("step_count"), Some(&serde_json::json!(1)), "upsert preserves in-progress count");
+        assert_eq!(o.get("task"), Some(&serde_json::json!("nav2")), "props merged on upsert");
     }
 }
 
