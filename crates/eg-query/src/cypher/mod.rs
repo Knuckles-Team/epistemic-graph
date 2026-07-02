@@ -21,6 +21,7 @@
 //! identically.
 
 mod exec;
+mod gds;
 mod parser;
 mod plan;
 mod proc;
