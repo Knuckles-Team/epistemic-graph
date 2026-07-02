@@ -37,6 +37,9 @@
 //! * **Weighted-network routing** ([`routing`], CONCEPT:EG-266): a [`Network`] of located
 //!   nodes + weighted edges with Dijkstra / A\* shortest path, [`Network::isochrone`]
 //!   reachability, and a nearest-neighbour + 2-opt TSP tour ([`solve_tsp`]).
+//! * **Map task tracking** ([`geotask`], CONCEPT:EG-267): a [`GeoTask`] (location + status +
+//!   service area) with an R-tree-backed [`GeoTaskIndex`] for bbox/polygon/nearest queries
+//!   and nearest-resource ↔ task assignment.
 //!
 //! The wire algebra (`Op::SpatialScan`/`SpatialOp`, `Pred::Spatial*`) lives in
 //! `eg-types::wire` (pure-serde, Pi-safe); the executor that drives THIS crate lives in
@@ -53,6 +56,7 @@
 pub mod algebra;
 pub mod crs;
 pub mod geodesic;
+pub mod geotask;
 #[cfg(feature = "geo-io")]
 pub mod geojson;
 pub mod geometry;
@@ -70,6 +74,7 @@ pub use algebra::{buffer, centroid, convex_hull, difference, intersection, simpl
 pub use crs::{reproject, Crs, SridGeometry};
 pub use geodesic::{geodesic_area, geodesic_ring_area, haversine_distance, vincenty_distance};
 pub use geometry::{Bbox, Geometry, LineString, Point, Polygon};
+pub use geotask::{nearest_resource, Assignment, GeoTask, GeoTaskIndex, TaskStatus};
 pub use gpx::{read_gpx, Gpx};
 pub use predicates::{
     contains, covers, crosses, disjoint, distance, equals, intersects, overlaps, touches, within,
