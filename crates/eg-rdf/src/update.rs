@@ -228,6 +228,26 @@ fn exec_delete_insert(
     pattern: &spargebra::algebra::GraphPattern,
     report: &mut UpdateReport,
 ) -> Result<(), String> {
+    // CONCEPT:EG-134 — ADD / COPY / MOVE. spargebra performs the W3C rewriting at parse
+    // time: each desugars to a whole-graph `?s ?p ?o` copy (this `DeleteInsert`) plus a
+    // preceding DROP of the destination (COPY/MOVE) and a trailing DROP of the source
+    // (MOVE), which the `Clear`/`Drop` arms already execute via `GraphStore::clear`. So
+    // COPY/MOVE/ADD need no dedicated `execute` arm — we only recognize the canonical
+    // whole-graph-copy shape here and run it as a LOSSLESS graph→graph triple copy
+    // (reusing `export_triples` + `insert_triples`) instead of the lossy binding
+    // round-trip the generic WHERE path would use (which flattens literal datatypes).
+    if let Some((from, to)) = whole_graph_copy(delete, insert, pattern) {
+        let (Some(src), Some(dst)) = (store.core(from.as_deref()), store.core(to.as_deref()))
+        else {
+            // Missing source/destination ⇒ nothing to copy (SILENT-friendly: the DROPs
+            // that frame COPY/MOVE are `silent` and no error is raised here either).
+            return Ok(());
+        };
+        let triples = export_graph_triples(&src, from.as_deref().unwrap_or(""))?;
+        report.inserted += insert_triples(&dst, &triples)?;
+        return Ok(());
+    }
+
     // Snapshot the store's graphs and evaluate the WHERE over them (named-graph aware).
     let default_core = store
         .core(None)
@@ -268,6 +288,72 @@ fn exec_delete_insert(
         }
     }
     Ok(())
+}
+
+/// Recognize the canonical whole-graph copy `spargebra` emits for ADD/COPY/MOVE
+/// (CONCEPT:EG-134): an empty DELETE, a single INSERT quad-pattern of three variables
+/// `?s ?p ?o` into a constant destination graph, and a WHERE that is exactly the SAME
+/// three variables over one source graph (a bare BGP ⇒ the default graph, or a
+/// `GRAPH <src> { … }`). Returns `(from, to)` as bare-iri graph names (`None` = the
+/// default graph) when the shape matches, else `None` (fall back to the generic path).
+fn whole_graph_copy(
+    delete: &[GroundQuadPattern],
+    insert: &[QuadPattern],
+    pattern: &spargebra::algebra::GraphPattern,
+) -> Option<(Option<String>, Option<String>)> {
+    use spargebra::algebra::GraphPattern as GP;
+    if !delete.is_empty() || insert.len() != 1 {
+        return None;
+    }
+    let qp = &insert[0];
+    let (TermPattern::Variable(vs), TermPattern::Variable(vo)) = (&qp.subject, &qp.object) else {
+        return None;
+    };
+    let NamedNodePattern::Variable(vp) = &qp.predicate else {
+        return None;
+    };
+    let to = match &qp.graph_name {
+        GraphNamePattern::DefaultGraph => None,
+        GraphNamePattern::NamedNode(n) => Some(n.as_str().to_string()),
+        GraphNamePattern::Variable(_) => return None,
+    };
+    // WHERE = one bare BGP (source = default) or `GRAPH <src> { BGP }`.
+    let (from, bgp) = match pattern {
+        GP::Bgp { patterns } => (None, patterns),
+        GP::Graph { name, inner } => {
+            let NamedNodePattern::NamedNode(src) = name else {
+                return None;
+            };
+            match inner.as_ref() {
+                GP::Bgp { patterns } => (Some(src.as_str().to_string()), patterns),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    let [tp] = bgp.as_slice() else { return None };
+    // The WHERE triple must be the SAME three variables the INSERT reuses.
+    let same = matches!(&tp.subject, TermPattern::Variable(s) if s == vs)
+        && matches!(&tp.predicate, NamedNodePattern::Variable(p) if p == vp)
+        && matches!(&tp.object, TermPattern::Variable(o) if o == vo);
+    if !same {
+        return None;
+    }
+    Some((from, to))
+}
+
+/// Export a graph core back to RDF triples for a whole-graph copy — a thin cfg wrapper
+/// over [`crate::mapping::export_triples`] (the multi-valued-literal quad store, present
+/// only under `rdf-redb`, is not wired into a copy: extras are a documented edge case).
+fn export_graph_triples(core: &GraphCore, graph_name: &str) -> Result<Vec<oxrdf::Triple>, String> {
+    #[cfg(feature = "rdf-redb")]
+    {
+        crate::mapping::export_triples(core, graph_name, None)
+    }
+    #[cfg(not(feature = "rdf-redb"))]
+    {
+        crate::mapping::export_triples(core, graph_name)
+    }
 }
 
 // ── ground-data ops (INSERT DATA / DELETE DATA) ─────────────────────────────────
@@ -919,6 +1005,119 @@ mod tests {
             count(&store, Some("http://g/2"), "SELECT ?s WHERE { ?s ?p ?o }"),
             1,
             "g2 untouched by CLEAR g1"
+        );
+    }
+
+    /// ADD merges src into dst WITHOUT clearing dst (CONCEPT:EG-134). Both graphs' triples
+    /// survive in dst; the source is left intact.
+    #[test]
+    fn add_merges_into_destination() {
+        let store = MapStore::new();
+        execute_str(
+            "PREFIX ex: <http://ex/>
+             INSERT DATA {
+               GRAPH <http://g/1> { ex:a ex:p ex:b . ex:a ex:name \"A\" }
+               GRAPH <http://g/2> { ex:c ex:p ex:d }
+             }",
+            &store,
+            &Projection::raw(),
+        )
+        .unwrap();
+        execute_str("ADD <http://g/1> TO <http://g/2>", &store, &Projection::raw()).unwrap();
+        // dst keeps its own triple AND gains src's edge + literal (merge, no clear).
+        assert_eq!(
+            count(&store, Some("http://g/2"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            3,
+            "g2 has its own + both of g1's triples"
+        );
+        // Source unchanged.
+        assert_eq!(
+            count(&store, Some("http://g/1"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            2,
+            "g1 source left intact by ADD"
+        );
+    }
+
+    /// COPY replaces dst with src (CONCEPT:EG-134): dst's prior content is dropped first,
+    /// then src is copied in; src stays intact.
+    #[test]
+    fn copy_replaces_destination() {
+        let store = MapStore::new();
+        execute_str(
+            "PREFIX ex: <http://ex/>
+             INSERT DATA {
+               GRAPH <http://g/1> { ex:a ex:p ex:b }
+               GRAPH <http://g/2> { ex:c ex:p ex:d . ex:c ex:q ex:e }
+             }",
+            &store,
+            &Projection::raw(),
+        )
+        .unwrap();
+        execute_str("COPY <http://g/1> TO <http://g/2>", &store, &Projection::raw()).unwrap();
+        // dst == src exactly (its two prior triples are gone).
+        assert_eq!(
+            count(&store, Some("http://g/2"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            1,
+            "g2 replaced by g1's single triple"
+        );
+        assert_eq!(
+            count(
+                &store,
+                Some("http://g/2"),
+                "SELECT ?s WHERE { <http://ex/a> <http://ex/p> <http://ex/b> }"
+            ),
+            1,
+            "g2 now holds g1's triple"
+        );
+        assert_eq!(
+            count(&store, Some("http://g/1"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            1,
+            "g1 source unchanged by COPY"
+        );
+    }
+
+    /// MOVE replaces dst with src AND empties src (CONCEPT:EG-134).
+    #[test]
+    fn move_replaces_and_empties_source() {
+        let store = MapStore::new();
+        execute_str(
+            "PREFIX ex: <http://ex/>
+             INSERT DATA {
+               GRAPH <http://g/1> { ex:a ex:p ex:b . ex:a ex:name \"A\" }
+               GRAPH <http://g/2> { ex:c ex:p ex:d }
+             }",
+            &store,
+            &Projection::raw(),
+        )
+        .unwrap();
+        execute_str("MOVE <http://g/1> TO <http://g/2>", &store, &Projection::raw()).unwrap();
+        assert_eq!(
+            count(&store, Some("http://g/2"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            2,
+            "g2 replaced by g1's two triples"
+        );
+        assert_eq!(
+            count(&store, Some("http://g/1"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            0,
+            "g1 source emptied by MOVE"
+        );
+    }
+
+    /// SILENT swallows a missing-source: `MOVE SILENT` from a graph that was never written
+    /// is a no-op that returns Ok and leaves the destination empty.
+    #[test]
+    fn move_silent_missing_source_is_noop() {
+        let store = MapStore::new();
+        let r = execute_str(
+            "MOVE SILENT <http://g/missing> TO <http://g/dst>",
+            &store,
+            &Projection::raw(),
+        );
+        assert!(r.is_ok(), "SILENT missing-source move does not error");
+        assert_eq!(
+            count(&store, Some("http://g/dst"), "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"),
+            0,
+            "destination stays empty"
         );
     }
 
