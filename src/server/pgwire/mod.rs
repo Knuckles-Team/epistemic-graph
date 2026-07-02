@@ -390,6 +390,12 @@ fn pg_type(t: PgColType) -> Type {
         PgColType::Float8 => Type::FLOAT8,
         PgColType::Bool => Type::BOOL,
         PgColType::Text => Type::TEXT,
+        // CONCEPT:EG-115 — pgvector `vector`. pgvector's own OID is dynamically assigned
+        // by the extension, so we report the stable, always-present float4-array OID
+        // (`_float4` = 1021, "float-array-ish"): a client without the vector type
+        // registered still resolves a sane type, and the value is sent as the pgvector
+        // text form `[1,2,3]` (see `encode_cell`), which pgvector clients parse.
+        PgColType::Vector => Type::FLOAT4_ARRAY,
     }
 }
 
@@ -442,6 +448,23 @@ fn encode_cell(
             None => encoder.encode_field(&cell.to_string()),
         },
         PgColType::Text => match cell {
+            Value::String(s) => encoder.encode_field(&s.as_str()),
+            other => encoder.encode_field(&other.to_string()),
+        },
+        // CONCEPT:EG-115 — render a vector (a JSON array of numbers) as the pgvector
+        // text literal `[1,2,3]`; a non-array value falls back to its JSON text.
+        PgColType::Vector => match cell {
+            Value::Array(items) => {
+                let parts: Vec<String> = items
+                    .iter()
+                    .map(|v| match v {
+                        Value::Number(n) => n.to_string(),
+                        Value::Null => "0".to_string(),
+                        other => other.to_string(),
+                    })
+                    .collect();
+                encoder.encode_field(&format!("[{}]", parts.join(",")))
+            }
             Value::String(s) => encoder.encode_field(&s.as_str()),
             other => encoder.encode_field(&other.to_string()),
         },
@@ -2463,7 +2486,9 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
             other => return Err(format!("invalid boolean `{other}`")),
         },
         ColumnType::Json => serde_json::from_str(s).unwrap_or(Value::String(s.to_string())),
-        ColumnType::Text | ColumnType::Bytes => Value::String(s.to_string()),
+        // CONCEPT:EG-115 — a vector arrives as pgvector text `[1,2,3]`; pass it through
+        // as a string so the store's `Cell::coerce` parses + dimension-checks it.
+        ColumnType::Text | ColumnType::Bytes | ColumnType::Vector(_) => Value::String(s.to_string()),
     };
     Ok(v)
 }
@@ -2567,6 +2592,13 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
             } else {
                 Value::String(s.to_string())
             }
+        }
+        // CONCEPT:EG-115 — the pgvector BINARY wire format is a distinct later item;
+        // for now a vector must be sent via TEXT/CSV COPY (or INSERT).
+        ColumnType::Vector(_) => {
+            return Err("binary COPY of a vector column is not supported (use TEXT COPY or \
+                        INSERT)"
+                .to_string())
         }
     };
     Ok(v)
