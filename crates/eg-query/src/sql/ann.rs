@@ -34,7 +34,7 @@ use super::pgfamily::{AnnMethod, VectorMetric};
 
 /// Deterministic seed for every eg-ann index built for a pushdown (CONCEPT:EG-313) —
 /// fixed so repeated runs of the same query are bit-identical.
-const ANN_SEED: u64 = 0x_E6_0313;
+const ANN_SEED: u64 = 0x00E6_0313;
 /// Candidate over-fetch factor: pull `k * OVERFETCH` candidates from the ANN index
 /// before the exact rerank, so the true top-k is (almost surely) inside the pool.
 const OVERFETCH: usize = 16;
