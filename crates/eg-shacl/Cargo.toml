@@ -1,0 +1,33 @@
+# eg-shacl — pure-Rust SHACL Core validation engine (CONCEPT:EG-132).
+#
+# Validates an RDF **data graph** against an RDF **shapes graph**. Sits in the DAG
+# ABOVE eg-rdf (it reuses eg-rdf's re-exported oxrdf term/graph model — a shapes graph
+# and a data graph are both `oxrdf::Graph`), a NON-LEAF leaf-crate: its ONLY graph
+# dependency is eg-rdf (feature `rdf`, which links oxrdf/oxttl — all pure Rust). It is
+# NOT depended on by eg-rdf, so no DAG cycle.
+#
+# Pi contract: pure-Rust, no C/native dep. `regex` (for `sh:pattern`) is already in the
+# tree via eg-rdf's `sparql` feature (CONCEPT:EG-053), so eg-shacl adds NO new crate
+# download. Folded into the engine's `shacl` serving feature (which implies `rdf`).
+[package]
+name = "eg-shacl"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Pure-Rust SHACL Core validation engine for the epistemic-graph engine (CONCEPT:EG-132) — parses an RDF shapes graph (node/property shapes, targets, predicate paths, cardinality/datatype/class/nodeKind/range/string/in/hasValue/logical/node constraints) and validates an RDF data graph, producing a serde-serializable sh:ValidationReport. Reuses eg-rdf's oxrdf term/graph model; NO C/native deps."
+license = "MIT"
+
+[lib]
+name = "eg_shacl"
+
+[dependencies]
+# The RDF term/graph model (oxrdf) + Turtle/N-Triples parse, re-exported by eg-rdf.
+# A shapes graph and a data graph are both `eg_rdf::oxrdf::Graph`.
+eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
+serde = { version = "1", features = ["derive"] }
+# `sh:pattern` regex. Pure-Rust, already pulled by eg-rdf's `sparql` feature (EG-053),
+# so this pins the SAME crate — no new dependency in a `full` build.
+regex = "1"
+
+[dev-dependencies]
+serde_json = "1"

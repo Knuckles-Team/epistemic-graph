@@ -1986,6 +1986,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-shacl"
+version = "0.1.0"
+dependencies = [
+ "eg-rdf",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-tensor"
 version = "0.1.0"
 dependencies = [
