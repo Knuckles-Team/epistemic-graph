@@ -48,6 +48,20 @@ const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_catalo
 const ROWS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("__sql_rows__");
 /// Per-table rowid allocator (also the `SERIAL` sequence): `table_name -> next rowid`.
 const SEQ: TableDefinition<&str, u64> = TableDefinition::new("__sql_seq__");
+/// View catalog (CONCEPT:EG-072): `view_name -> SELECT text`. A read-only named query
+/// mirrored beside the user-table catalog; expanded during SQL context build.
+const VIEWS: TableDefinition<&str, &str> = TableDefinition::new("__sql_views__");
+
+/// The action an `ON CONFLICT` clause takes for a user-table insert (CONCEPT:EG-048).
+/// The store-level mirror of `classify::OnConflictAction` (kept here so the store has
+/// no dependency on the SQL classifier layer).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConflictAction {
+    /// `DO NOTHING` — skip a row that would violate a UNIQUE/PK constraint.
+    DoNothing,
+    /// `DO UPDATE SET …` — merge these assignments into the conflicting row.
+    DoUpdate(serde_json::Map<String, Value>),
+}
 
 /// One staged operation in a multi-statement transaction (CONCEPT:EG-020). Buffered
 /// by [`TableTxn`] and applied in order, in ONE redb `WriteTransaction`, by
@@ -233,10 +247,35 @@ impl TableStore {
         col_order: &[String],
         rows: &[Vec<Value>],
     ) -> Result<usize, String> {
+        Ok(self.insert_rows_returning(table, col_order, rows)?.len())
+    }
+
+    /// `INSERT …` returning the inserted rows' typed cells (CONCEPT:EG-048 RETURNING).
+    pub fn insert_rows_returning(
+        &self,
+        table: &str,
+        col_order: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<Vec<Vec<Cell>>, String> {
         let wtx = self.begin()?;
-        let n = insert_in(&wtx, table, col_order, rows)?;
+        let out = insert_in(&wtx, table, col_order, rows)?;
         wtx.commit().map_err(map_err)?;
-        Ok(n)
+        Ok(out)
+    }
+
+    /// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-048). Returns the
+    /// rows inserted-or-updated (for `RETURNING`).
+    pub fn insert_rows_on_conflict(
+        &self,
+        table: &str,
+        col_order: &[String],
+        rows: &[Vec<Value>],
+        action: &ConflictAction,
+    ) -> Result<Vec<Vec<Cell>>, String> {
+        let wtx = self.begin()?;
+        let out = insert_on_conflict_in(&wtx, table, col_order, rows, action)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(out)
     }
 
     /// `UPDATE table SET <set> WHERE <predicate>` with constraint re-validation
@@ -247,10 +286,20 @@ impl TableStore {
         set: &serde_json::Map<String, Value>,
         selector: &eg_types::RowPredicate,
     ) -> Result<usize, String> {
+        Ok(self.update_where_returning(table, set, selector)?.len())
+    }
+
+    /// `UPDATE … WHERE …` returning the post-update rows (CONCEPT:EG-048 RETURNING).
+    pub fn update_where_returning(
+        &self,
+        table: &str,
+        set: &serde_json::Map<String, Value>,
+        selector: &eg_types::RowPredicate,
+    ) -> Result<Vec<Vec<Cell>>, String> {
         let wtx = self.begin()?;
-        let n = update_in(&wtx, table, set, selector)?;
+        let out = update_in(&wtx, table, set, selector)?;
         wtx.commit().map_err(map_err)?;
-        Ok(n)
+        Ok(out)
     }
 
     /// `DELETE FROM table WHERE <predicate>` (CONCEPT:EG-045). Returns rows removed.
@@ -259,10 +308,93 @@ impl TableStore {
         table: &str,
         selector: &eg_types::RowPredicate,
     ) -> Result<usize, String> {
+        Ok(self.delete_where_returning(table, selector)?.len())
+    }
+
+    /// `DELETE … WHERE …` returning the removed rows as they were BEFORE removal
+    /// (CONCEPT:EG-048 RETURNING).
+    pub fn delete_where_returning(
+        &self,
+        table: &str,
+        selector: &eg_types::RowPredicate,
+    ) -> Result<Vec<Vec<Cell>>, String> {
         let wtx = self.begin()?;
-        let n = delete_in(&wtx, table, selector)?;
+        let out = delete_in(&wtx, table, selector)?;
         wtx.commit().map_err(map_err)?;
-        Ok(n)
+        Ok(out)
+    }
+
+    // ── view catalog (CONCEPT:EG-072) ─────────────────────────────────────────
+
+    /// `CREATE [OR REPLACE] VIEW name AS <select>`: record `select_sql` in the view
+    /// catalog. Errors if the name already exists and `or_replace` is false, or if a
+    /// user table already claims the name (a view and a table cannot share a name).
+    pub fn create_view(&self, name: &str, select_sql: &str, or_replace: bool) -> Result<(), String> {
+        if self.get_schema(name)?.is_some() {
+            return Err(format!("`{name}` is a table; cannot create a view with that name"));
+        }
+        let wtx = self.begin()?;
+        {
+            let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
+            if !or_replace && views.get(name).map_err(map_err)?.is_some() {
+                return Err(format!("view `{name}` already exists"));
+            }
+            views.insert(name, select_sql).map_err(map_err)?;
+        }
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// `DROP VIEW [IF EXISTS] name`: remove the view catalog entry. `Ok(true)` when a
+    /// view was removed, `Ok(false)` when absent and `if_exists` was set.
+    pub fn drop_view(&self, name: &str, if_exists: bool) -> Result<bool, String> {
+        let wtx = self.begin()?;
+        let existed = {
+            let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
+            let existed = views.get(name).map_err(map_err)?.is_some();
+            if !existed {
+                if if_exists {
+                    drop(views);
+                    wtx.commit().map_err(map_err)?;
+                    return Ok(false);
+                }
+                return Err(format!("view `{name}` does not exist"));
+            }
+            views.remove(name).map_err(map_err)?;
+            existed
+        };
+        wtx.commit().map_err(map_err)?;
+        Ok(existed)
+    }
+
+    /// The stored SELECT text of view `name`, or `None` if no such view exists.
+    pub fn get_view(&self, name: &str) -> Result<Option<String>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let views = match rtx.open_table(VIEWS) {
+            Ok(t) => t,
+            Err(_) => return Ok(None),
+        };
+        Ok(views
+            .get(name)
+            .map_err(map_err)?
+            .map(|v| v.value().to_string()))
+    }
+
+    /// Every view as `(name, select_sql)` (sorted by name for determinism).
+    pub fn list_views(&self) -> Result<Vec<(String, String)>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let views = match rtx.open_table(VIEWS) {
+            Ok(t) => t,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let mut out: Vec<(String, String)> = views
+            .iter()
+            .map_err(map_err)?
+            .map(|r| r.map(|(k, v)| (k.value().to_string(), v.value().to_string())))
+            .collect::<Result<_, _>>()
+            .map_err(map_err)?;
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
     }
 
     // ── multi-statement transaction (CONCEPT:EG-020) ──────────────────────────
@@ -296,17 +428,17 @@ impl TableStore {
                     col_order,
                     rows,
                 } => {
-                    affected += insert_in(&wtx, table, col_order, rows)?;
+                    affected += insert_in(&wtx, table, col_order, rows)?.len();
                 }
                 TxnOp::Update {
                     table,
                     set,
                     selector,
                 } => {
-                    affected += update_in(&wtx, table, set, selector)?;
+                    affected += update_in(&wtx, table, set, selector)?.len();
                 }
                 TxnOp::Delete { table, selector } => {
-                    affected += delete_in(&wtx, table, selector)?;
+                    affected += delete_in(&wtx, table, selector)?.len();
                 }
             }
         }
@@ -433,72 +565,28 @@ fn insert_in(
     table: &str,
     col_order: &[String],
     rows: &[Vec<Value>],
-) -> Result<usize, String> {
+) -> Result<Vec<Vec<Cell>>, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    let width = schema.columns.len();
 
     // Resolve each named insert column to a schema index.
-    let mut targets = Vec::with_capacity(col_order.len());
-    for name in col_order {
-        let idx = schema
-            .column_index(name)
-            .ok_or_else(|| format!("column `{name}` does not exist in table `{table}`"))?;
-        targets.push(idx);
-    }
+    let targets = resolve_targets(&schema, table, col_order)?;
 
     // Allocate the rowid block up front so SERIAL columns get stable, contiguous ids.
     let first_rowid = alloc_rowids(wtx, table, rows.len() as u64)?;
 
     // Build each row's typed cells BEFORE writing so a coercion/constraint error never
     // leaves a half-applied INSERT (the txn is dropped on Err).
+    let mut inserted: Vec<Vec<Cell>> = Vec::with_capacity(rows.len());
     let mut encoded: Vec<(u64, Vec<u8>)> = Vec::with_capacity(rows.len());
     for (ri, row) in rows.iter().enumerate() {
-        if row.len() != col_order.len() {
-            return Err(format!(
-                "INSERT column/value count mismatch: {} columns, {} values",
-                col_order.len(),
-                row.len()
-            ));
-        }
         let rowid = first_rowid + ri as u64;
-        let mut cells: Vec<Cell> = vec![Cell::Null; width];
-        // Place supplied values.
-        for (val, &idx) in row.iter().zip(targets.iter()) {
-            let col = &schema.columns[idx];
-            cells[idx] = Cell::coerce(val, col.ty, col.nullable)?;
-        }
-        // Fill omitted columns: SERIAL → sequence; else DEFAULT; else NULL/NOT NULL.
-        for (ci, col) in schema.columns.iter().enumerate() {
-            if targets.contains(&ci) {
-                continue;
-            }
-            if col.serial {
-                cells[ci] = Cell::coerce(&Value::Number((rowid as i64 + 1).into()), col.ty, false)?;
-            } else if let Some(def) = &col.default {
-                cells[ci] = Cell::coerce(def, col.ty, col.nullable)?;
-            } else if !col.nullable {
-                return Err(format!(
-                    "column `{}` is NOT NULL and was not supplied",
-                    col.name
-                ));
-            }
-        }
-        // CHECK constraints (per row, post-fill).
-        for (ci, col) in schema.columns.iter().enumerate() {
-            if let Some(check) = &col.check {
-                if !check.holds(&cells[ci].to_json()) {
-                    return Err(format!(
-                        "new row violates CHECK constraint on column `{}`",
-                        col.name
-                    ));
-                }
-            }
-        }
+        let cells = build_insert_cells(&schema, col_order, &targets, row, rowid)?;
         encoded.push((
             rowid,
             rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?,
         ));
+        inserted.push(cells);
     }
 
     {
@@ -511,7 +599,194 @@ fn insert_in(
     }
     // Uniqueness over the post-insert state (reads staged writes through `wtx`).
     validate_uniqueness_in(wtx, table, &schema)?;
-    Ok(encoded.len())
+    Ok(inserted)
+}
+
+/// Resolve a named insert column list to schema indices (shared by the plain and
+/// ON CONFLICT insert paths).
+fn resolve_targets(
+    schema: &TableSchema,
+    table: &str,
+    col_order: &[String],
+) -> Result<Vec<usize>, String> {
+    let mut targets = Vec::with_capacity(col_order.len());
+    for name in col_order {
+        let idx = schema
+            .column_index(name)
+            .ok_or_else(|| format!("column `{name}` does not exist in table `{table}`"))?;
+        targets.push(idx);
+    }
+    Ok(targets)
+}
+
+/// Build one row's typed, schema-aligned cells: place supplied values, fill omitted
+/// columns (SERIAL → the allocated `rowid+1`; else DEFAULT; else NULL / reject if NOT
+/// NULL), and enforce per-column CHECK constraints. Shared by the plain and ON CONFLICT
+/// insert paths (CONCEPT:EG-048).
+fn build_insert_cells(
+    schema: &TableSchema,
+    col_order: &[String],
+    targets: &[usize],
+    row: &[Value],
+    rowid: u64,
+) -> Result<Vec<Cell>, String> {
+    let width = schema.columns.len();
+    if row.len() != col_order.len() {
+        return Err(format!(
+            "INSERT column/value count mismatch: {} columns, {} values",
+            col_order.len(),
+            row.len()
+        ));
+    }
+    let mut cells: Vec<Cell> = vec![Cell::Null; width];
+    for (val, &idx) in row.iter().zip(targets.iter()) {
+        let col = &schema.columns[idx];
+        cells[idx] = Cell::coerce(val, col.ty, col.nullable)?;
+    }
+    for (ci, col) in schema.columns.iter().enumerate() {
+        if targets.contains(&ci) {
+            continue;
+        }
+        if col.serial {
+            cells[ci] = Cell::coerce(&Value::Number((rowid as i64 + 1).into()), col.ty, false)?;
+        } else if let Some(def) = &col.default {
+            cells[ci] = Cell::coerce(def, col.ty, col.nullable)?;
+        } else if !col.nullable {
+            return Err(format!(
+                "column `{}` is NOT NULL and was not supplied",
+                col.name
+            ));
+        }
+    }
+    for (ci, col) in schema.columns.iter().enumerate() {
+        if let Some(check) = &col.check {
+            if !check.holds(&cells[ci].to_json()) {
+                return Err(format!(
+                    "new row violates CHECK constraint on column `{}`",
+                    col.name
+                ));
+            }
+        }
+    }
+    Ok(cells)
+}
+
+/// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-048). For each row: if a
+/// UNIQUE/PK column value already exists (in the committed OR same-batch state), apply
+/// the conflict action — skip (DO NOTHING) or merge the SET assignments into the
+/// existing row (DO UPDATE); otherwise insert a fresh row. Returns the rows that were
+/// inserted-or-updated (for `RETURNING`). Reuses [`validate_uniqueness_in`] as the final
+/// integrity gate so a DO UPDATE that itself introduces a duplicate still aborts.
+fn insert_on_conflict_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    col_order: &[String],
+    rows: &[Vec<Value>],
+    action: &ConflictAction,
+) -> Result<Vec<Vec<Cell>>, String> {
+    let schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    let width = schema.columns.len();
+    let targets = resolve_targets(&schema, table, col_order)?;
+    let unique_cols: Vec<usize> = schema
+        .columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.is_unique())
+        .map(|(i, _)| i)
+        .collect();
+
+    // Current unique-value snapshot (committed + staged), rebuilt from the store. When
+    // the physical row table does not exist yet there are simply no existing rows.
+    let mut existing: Vec<(u64, Vec<Cell>)> = Vec::new();
+    if let Ok(rows_t) = wtx.open_table(ROWS) {
+        for r in rows_t
+            .range((table, 0u64)..=(table, u64::MAX))
+            .map_err(map_err)?
+        {
+            let (k, v) = r.map_err(map_err)?;
+            let mut cells: Vec<Cell> =
+                rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+            if cells.len() < width {
+                cells.resize(width, Cell::Null);
+            }
+            existing.push((k.value().1, cells));
+        }
+    }
+
+    let mut affected: Vec<Vec<Cell>> = Vec::new();
+    for row in rows {
+        // Coerce the supplied unique-column values to detect a conflict.
+        let mut conflict_rowid: Option<u64> = None;
+        'find: for &uci in &unique_cols {
+            // The value this row supplies for the unique column (if any).
+            let Some(pos) = targets.iter().position(|&t| t == uci) else {
+                continue;
+            };
+            let col = &schema.columns[uci];
+            let supplied = Cell::coerce(&row[pos], col.ty, col.nullable)?;
+            if supplied == Cell::Null {
+                continue;
+            }
+            for (rid, cells) in &existing {
+                if cells.get(uci) == Some(&supplied) {
+                    conflict_rowid = Some(*rid);
+                    break 'find;
+                }
+            }
+        }
+
+        match (conflict_rowid, action) {
+            (Some(_), ConflictAction::DoNothing) => { /* skip */ }
+            (Some(rid), ConflictAction::DoUpdate(set)) => {
+                // Merge the SET assignments into the conflicting row.
+                let slot = existing
+                    .iter_mut()
+                    .find(|(r, _)| *r == rid)
+                    .expect("conflict rowid present");
+                for (col, val) in set {
+                    let idx = schema
+                        .column_index(col)
+                        .ok_or_else(|| format!("column `{col}` does not exist in table `{table}`"))?;
+                    let c = &schema.columns[idx];
+                    slot.1[idx] = Cell::coerce(val, c.ty, c.nullable)?;
+                }
+                // Re-check CHECK constraints on the updated row.
+                for (ci, col) in schema.columns.iter().enumerate() {
+                    if let Some(check) = &col.check {
+                        if !check.holds(&slot.1[ci].to_json()) {
+                            return Err(format!(
+                                "updated row violates CHECK constraint on column `{}`",
+                                col.name
+                            ));
+                        }
+                    }
+                }
+                let blob =
+                    rmp_serde::to_vec_named(&slot.1).map_err(|e| format!("encode row: {e}"))?;
+                let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                rows_t.insert((table, rid), blob.as_slice()).map_err(map_err)?;
+                affected.push(slot.1.clone());
+            }
+            (None, _) => {
+                // A fresh insert: allocate one rowid, build + write the row.
+                let rowid = alloc_rowids(wtx, table, 1)?;
+                let cells = build_insert_cells(&schema, col_order, &targets, row, rowid)?;
+                let blob =
+                    rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
+                {
+                    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+                    rows_t
+                        .insert((table, rowid), blob.as_slice())
+                        .map_err(map_err)?;
+                }
+                existing.push((rowid, cells.clone()));
+                affected.push(cells);
+            }
+        }
+    }
+    validate_uniqueness_in(wtx, table, &schema)?;
+    Ok(affected)
 }
 
 /// Build a `col -> json` row map for predicate evaluation (CONCEPT:EG-045): one
@@ -531,7 +806,7 @@ fn update_in(
     table: &str,
     set: &serde_json::Map<String, Value>,
     selector: &eg_types::RowPredicate,
-) -> Result<usize, String> {
+) -> Result<Vec<Vec<Cell>>, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let mut assigns: Vec<(usize, Cell)> = Vec::with_capacity(set.len());
@@ -543,7 +818,7 @@ fn update_in(
         assigns.push((idx, Cell::coerce(val, c.ty, c.nullable)?));
     }
     let width = schema.columns.len();
-    let mut updated = 0usize;
+    let mut updated: Vec<Vec<Cell>> = Vec::new();
     {
         let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
         let mut hits: Vec<(u64, Vec<Cell>)> = Vec::new();
@@ -582,7 +857,7 @@ fn update_in(
             rows_t
                 .insert((table, rowid), blob.as_slice())
                 .map_err(map_err)?;
-            updated += 1;
+            updated.push(cells);
         }
     }
     validate_uniqueness_in(wtx, table, &schema)?;
@@ -593,13 +868,15 @@ fn delete_in(
     wtx: &WriteTransaction,
     table: &str,
     selector: &eg_types::RowPredicate,
-) -> Result<usize, String> {
+) -> Result<Vec<Vec<Cell>>, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let width = schema.columns.len();
-    let mut deleted = 0usize;
+    // Capture the pre-removal cells (CONCEPT:EG-048 — DELETE … RETURNING sees the row
+    // as it was before deletion).
+    let mut removed: Vec<Vec<Cell>> = Vec::new();
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-    let mut victims: Vec<u64> = Vec::new();
+    let mut victims: Vec<(u64, Vec<Cell>)> = Vec::new();
     for r in rows_t
         .range((table, 0u64)..=(table, u64::MAX))
         .map_err(map_err)?
@@ -612,14 +889,14 @@ fn delete_in(
         }
         // CONCEPT:EG-045 — serializable per-row predicate eval inside the write txn.
         if selector.eval(&row_map(&schema, &cells)) {
-            victims.push(k.value().1);
+            victims.push((k.value().1, cells));
         }
     }
-    for rowid in victims {
+    for (rowid, cells) in victims {
         rows_t.remove((table, rowid)).map_err(map_err)?;
-        deleted += 1;
+        removed.push(cells);
     }
-    Ok(deleted)
+    Ok(removed)
 }
 
 /// Enforce PK/UNIQUE uniqueness over the table's CURRENT state (reads staged writes
@@ -1029,5 +1306,132 @@ mod tests {
         });
         assert_eq!(store.commit_txn(&ok).unwrap(), 2);
         assert_eq!(store.scan("items").unwrap().len(), 2);
+    }
+
+    // ── ON CONFLICT + RETURNING (CONCEPT:EG-048) ──────────────────────────────
+
+    #[test]
+    fn on_conflict_do_nothing_skips_duplicate() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&constrained_schema(), false).unwrap();
+        store
+            .insert_rows("items", &["sku".into()], &[vec!["A".into()]])
+            .unwrap();
+        // A duplicate `sku` under DO NOTHING is skipped (not an error, no new row).
+        let affected = store
+            .insert_rows_on_conflict(
+                "items",
+                &["sku".into()],
+                &[vec!["A".into()], vec!["B".into()]],
+                &ConflictAction::DoNothing,
+            )
+            .unwrap();
+        assert_eq!(affected.len(), 1, "only the non-conflicting `B` inserted");
+        assert_eq!(store.scan("items").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn on_conflict_do_update_merges_existing() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&constrained_schema(), false).unwrap();
+        store
+            .insert_rows("items", &["sku".into(), "qty".into()], &[vec!["A".into(), 1.into()]])
+            .unwrap();
+        let mut set = serde_json::Map::new();
+        set.insert("qty".into(), 42.into());
+        let affected = store
+            .insert_rows_on_conflict(
+                "items",
+                &["sku".into(), "qty".into()],
+                &[vec!["A".into(), 9.into()]],
+                &ConflictAction::DoUpdate(set),
+            )
+            .unwrap();
+        assert_eq!(affected.len(), 1);
+        let rows = store.scan("items").unwrap();
+        assert_eq!(rows.len(), 1, "no new row — the existing one was updated");
+        assert_eq!(rows[0][2], Cell::Int(42), "DO UPDATE merged qty");
+    }
+
+    #[test]
+    fn insert_update_delete_returning_rows() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&metrics_schema(), false).unwrap();
+        let cols = vec!["ts".to_string(), "name".to_string(), "value".to_string()];
+        let ins = store
+            .insert_rows_returning(
+                "metrics",
+                &cols,
+                &[vec![1i64.into(), "cpu".into(), 0.5.into()]],
+            )
+            .unwrap();
+        assert_eq!(ins.len(), 1);
+        assert_eq!(ins[0][1], Cell::Text("cpu".into()));
+
+        let mut set = serde_json::Map::new();
+        set.insert("value".into(), 0.9.into());
+        let upd = store
+            .update_where_returning(
+                "metrics",
+                &set,
+                &eg_types::RowPredicate::Cmp {
+                    col: "name".into(),
+                    op: eg_types::CmpOp::Eq,
+                    value: "cpu".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(upd.len(), 1);
+        assert_eq!(upd[0][2], Cell::Float(0.9), "RETURNING sees post-update value");
+
+        let del = store
+            .delete_where_returning(
+                "metrics",
+                &eg_types::RowPredicate::Cmp {
+                    col: "name".into(),
+                    op: eg_types::CmpOp::Eq,
+                    value: "cpu".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(del.len(), 1);
+        assert_eq!(del[0][2], Cell::Float(0.9), "RETURNING sees pre-removal row");
+        assert_eq!(store.scan("metrics").unwrap().len(), 0);
+    }
+
+    // ── view catalog (CONCEPT:EG-072) ─────────────────────────────────────────
+
+    #[test]
+    fn view_catalog_create_get_drop() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store
+            .create_view("agents", "SELECT id FROM nodes WHERE type = 'Agent'", false)
+            .unwrap();
+        assert_eq!(
+            store.get_view("agents").unwrap().as_deref(),
+            Some("SELECT id FROM nodes WHERE type = 'Agent'")
+        );
+        // Duplicate without OR REPLACE errors; with OR REPLACE it overwrites.
+        assert!(store.create_view("agents", "SELECT 1", false).is_err());
+        store.create_view("agents", "SELECT id FROM nodes", true).unwrap();
+        assert_eq!(store.list_views().unwrap().len(), 1);
+        assert!(store.drop_view("agents", false).unwrap());
+        assert!(store.get_view("agents").unwrap().is_none());
+        assert!(store.drop_view("agents", false).is_err());
+        assert!(!store.drop_view("agents", true).unwrap());
+    }
+
+    #[test]
+    fn view_persists_across_reopen() {
+        let (store, path) = TableStore::open_temp().unwrap();
+        store
+            .create_view("v", "SELECT id FROM nodes", false)
+            .unwrap();
+        drop(store);
+        let store2 = TableStore::open(&path).unwrap();
+        assert_eq!(
+            store2.get_view("v").unwrap().as_deref(),
+            Some("SELECT id FROM nodes")
+        );
     }
 }
