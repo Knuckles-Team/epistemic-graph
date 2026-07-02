@@ -132,3 +132,10 @@ mod tensor_tests;
 // sliding/tumbling windows) narrows it — cross-modal graph→stream in ONE plan.
 #[cfg(all(test, feature = "stream"))]
 mod stream_tests;
+
+// The multimodal sensor-fusion `Op::SensorFuse` executor proofs (CONCEPT:EG-098): three
+// heterogeneous sensor layers (scalar + tensor-frame blob) at different rates are
+// resolved off the snapshot, time-aligned to a common clock via eg-tsdb's ASOF-backed
+// `sensor_fuse`, and emitted as fused rows that compose with the graph/vector legs.
+#[cfg(all(test, feature = "timeseries"))]
+mod sensor_fuse_tests;
