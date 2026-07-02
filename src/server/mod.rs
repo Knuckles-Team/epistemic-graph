@@ -33,8 +33,16 @@ mod compute;
 mod dispatch;
 pub(crate) mod handlers;
 pub mod persistence;
+// Wire-agnostic SQL execution core (CONCEPT:EG-074) — the multi-wire keystone. The
+// wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn
+// state that EVERY wire (Postgres today; SQLite/MySQL/MSSQL Phase J; AMQP Phase Y)
+// reuses. Behind the `wire` facade feature (pulled in by `pgwire`; a future wire's
+// feature pulls it in too). Kept OUT of `node`/`full` — the orchestrator folds it in.
+#[cfg(feature = "wire")]
+pub mod wire;
 // Postgres wire-protocol shim (CONCEPT:KG-2.189). Facade-only, behind the `pgwire`
-// cargo feature (cluster tier). Default/pi/node builds compile NONE of it.
+// cargo feature (cluster tier). The FIRST `wire::WireProtocol` adapter (CONCEPT:EG-074).
+// Default/pi/node builds compile NONE of it.
 #[cfg(feature = "pgwire")]
 pub mod pgwire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
