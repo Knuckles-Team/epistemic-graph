@@ -788,6 +788,312 @@ impl<'a> GraphTxn<'a> {
         );
         self.add_edge(new_source, new_target, new_properties_msgpack)
     }
+
+    // ── Agent-native memory primitives (CONCEPT:EG-220 / EG-221) ─────────────
+    //
+    // The DETERMINISTIC engine substrate for the agent-native memory tier from the
+    // "Are We Ready For An Agent-Native Memory System?" survey (arXiv 2606.24775).
+    // The memory LIFECYCLE — deciding *when* to summarize/consolidate, and the
+    // LLM-produced summary TEXT — lives in agent-utilities; the engine only stores
+    // + links what AU hands it. No clock/RNG is read internally: any node id is
+    // derived deterministically from the (sorted) inputs, and any timestamp is
+    // taken from the caller-supplied property blobs. Every method here runs under
+    // the single held topology write guard, so it is atomic w.r.t. other writers
+    // and replays identically from the WAL / on a Raft follower.
+
+    /// Decode a node's stored property blob into its raw property object (no
+    /// synthetic `id` injection, unlike [`GraphTxn::node_row_map`]). `None` if the
+    /// node is absent or its blob is not a decodable object. Read under the held
+    /// write guard so the read-modify-write stays atomic (CONCEPT:EG-221).
+    fn node_object(&self, node_id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let bytes = self.node_properties.get(node_id)?.value().clone();
+        match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+            Ok(serde_json::Value::Object(o)) => Some(o),
+            _ => None,
+        }
+    }
+
+    /// Unconditionally merge `updates` into a node's property object under the held
+    /// write guard (CONCEPT:EG-221). Like [`GraphTxn::compare_and_set_fields`] with
+    /// no conditions. A missing/undecodable node is a no-op returning `false`.
+    fn merge_fields(
+        &mut self,
+        node_id: &str,
+        updates: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        let empty = serde_json::Map::new();
+        self.compare_and_set_fields(node_id, &empty, updates)
+    }
+
+    /// Does a `source → target` edge carrying `relationship` already exist under
+    /// the held guard? Used to keep provenance-edge creation idempotent so a
+    /// re-run of `create_summary_node` / `consolidate` does not add parallel edges.
+    fn has_relationship_edge(&self, source_id: &str, target_id: &str, relationship: &str) -> bool {
+        self.edge_properties
+            .get(&(source_id.to_string(), target_id.to_string()))
+            .is_some_and(|blobs| {
+                blobs.iter().any(|b| {
+                    rmp_serde::from_slice::<serde_json::Value>(b)
+                        .ok()
+                        .and_then(|v| {
+                            v.as_object()
+                                .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
+                                .and_then(|r| r.as_str())
+                                .map(|s| s == relationship)
+                        })
+                        .unwrap_or(false)
+                })
+            })
+    }
+
+    /// Deterministic id for a summary node over `(level, sorted child ids)`
+    /// (CONCEPT:EG-220). Same inputs ⇒ same id, so re-summarizing a cluster at a
+    /// level UPSERTS the same node rather than spawning a duplicate. No RNG.
+    fn derive_summary_id(level: u32, sorted_children: &[String]) -> String {
+        use std::hash::{Hash, Hasher};
+        // `DefaultHasher::new()` is SipHash with FIXED (zero) keys — deterministic
+        // across processes (unlike `RandomState`), so the id replays identically.
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        level.hash(&mut h);
+        for c in sorted_children {
+            c.hash(&mut h);
+        }
+        format!("summary:L{}:{:016x}", level, h.finish())
+    }
+
+    /// Deterministic id for a consolidated semantic node over its `(sorted episodic
+    /// ids)` cluster (CONCEPT:EG-221). No RNG.
+    fn derive_semantic_id(sorted_cluster: &[String]) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for c in sorted_cluster {
+            c.hash(&mut h);
+        }
+        format!("semantic:{:016x}", h.finish())
+    }
+
+    /// CONCEPT:EG-220 — create (or UPSERT) a hierarchical summary node at abstraction
+    /// `level`, linked to each of `child_ids` via a `SUMMARIZES` provenance edge, so a
+    /// multi-level abstraction ladder can be built (a level-2 summary's children may
+    /// themselves be level-1 summary nodes). The LLM-produced summary TEXT is passed
+    /// in `props` by the caller (AU); the engine stores it verbatim and only injects
+    /// the structural markers `type = "SummaryNode"`, `summary_level`, and
+    /// `summary_child_count`. If `props` carries an `id` string it is honoured (and
+    /// stripped from the stored blob, since a node id is not a property); otherwise a
+    /// deterministic id over `(level, sorted children)` is used. Returns the id.
+    ///
+    /// Deterministic + idempotent: re-running with the same inputs upserts the same
+    /// node and does NOT duplicate the `SUMMARIZES` edges. Children that do not exist
+    /// are skipped (no dangling edges). Runs under the held write guard.
+    pub fn create_summary_node(
+        &mut self,
+        level: u32,
+        child_ids: &[String],
+        props: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
+        // Canonicalize children (sorted + deduped) for deterministic id + ledger.
+        let mut children: Vec<String> = child_ids.to_vec();
+        children.sort();
+        children.dedup();
+
+        let id = match props.get("id").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
+            None => Self::derive_summary_id(level, &children),
+        };
+
+        // Merge onto any existing node object (upsert) then apply caller props +
+        // structural markers.
+        let mut obj = self.node_object(&id).unwrap_or_default();
+        for (k, v) in props {
+            if k == "id" {
+                continue; // the node id, not a stored property
+            }
+            obj.insert(k, v);
+        }
+        obj.entry("type".to_string())
+            .or_insert_with(|| serde_json::json!("SummaryNode"));
+        obj.insert("summary_level".to_string(), serde_json::json!(level));
+        obj.insert(
+            "summary_child_count".to_string(),
+            serde_json::json!(children.len()),
+        );
+        if let Ok(blob) = rmp_serde::to_vec_named(&serde_json::Value::Object(obj)) {
+            self.add_node(id.clone(), blob);
+        }
+
+        // Link to existing children via idempotent `SUMMARIZES` provenance edges.
+        for child in &children {
+            if child == &id {
+                continue; // never summarize self
+            }
+            if !self.topo.node_map.contains_key(child) {
+                continue; // skip absent child — no dangling edge
+            }
+            if self.has_relationship_edge(&id, child, "SUMMARIZES") {
+                continue; // already linked (idempotent re-run)
+            }
+            if let Ok(eprops) =
+                rmp_serde::to_vec_named(&serde_json::json!({"relationship": "SUMMARIZES"}))
+            {
+                let _ = self.add_edge(id.clone(), child.clone(), eprops);
+            }
+        }
+        id
+    }
+
+    /// CONCEPT:EG-221 — consolidate a cluster of `episodic_ids` memory nodes into ONE
+    /// semantic node (episodic → semantic consolidation), the paper's key
+    /// LOCALIZED-maintenance finding: nothing outside the cluster + its immediate
+    /// neighbours is touched, and there is NO global reindex.
+    ///
+    /// What it does, all atomically under the held write guard:
+    /// * Create/UPDATE the semantic node with the caller-merged `semantic_props`
+    ///   (AU/LLM produce the merged content; the engine stores it). `type` defaults
+    ///   to `"SemanticMemory"`; `consolidated_from_count` is recorded. If
+    ///   `semantic_props` carries an `id` it is honoured, else a deterministic id
+    ///   over the sorted cluster is used.
+    /// * Preserve BITEMPORAL validity: the consolidated node's `tx_from` spans the
+    ///   MIN of the children's `tx_from`, and `tx_to` the MAX of the children's
+    ///   `tx_to` — UNLESS any child is still open (no `tx_to`), in which case the
+    ///   consolidated node is left open too. Caller-supplied `tx_from`/`tx_to`
+    ///   override the computed span.
+    /// * COPY each episodic's EXTERNAL edges (endpoint outside the cluster) onto the
+    ///   semantic node, re-pointed to it — so the semantic node inherits the
+    ///   cluster's connectivity. Intra-cluster edges are subsumed (skipped). The
+    ///   originals are preserved on the episodics (provenance/history intact).
+    /// * Add a `CONSOLIDATES` provenance edge semantic → each episodic.
+    /// * Mark each episodic `consolidated = true` + `consolidated_into = <id>`
+    ///   WITHOUT deleting it (bitemporal history preserved).
+    ///
+    /// Deterministic (inputs sorted; copied edges collected + sorted before apply)
+    /// and idempotent (provenance edges guarded). Returns the semantic node id.
+    pub fn consolidate(
+        &mut self,
+        episodic_ids: &[String],
+        semantic_props: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
+        // Canonical cluster (sorted + deduped) for a deterministic id + ledger.
+        let mut cluster: Vec<String> = episodic_ids.to_vec();
+        cluster.sort();
+        cluster.dedup();
+        let cluster_set: std::collections::HashSet<&str> =
+            cluster.iter().map(|s| s.as_str()).collect();
+
+        let semantic_id = match semantic_props.get("id").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
+            None => Self::derive_semantic_id(&cluster),
+        };
+
+        // Bitemporal span over the children (CONCEPT:KG-2.249/2.250 preserved).
+        let mut tx_from_min: Option<u64> = None;
+        let mut tx_to_max: Option<u64> = None;
+        let mut any_open = false;
+        for epi in &cluster {
+            if let Some(obj) = self.node_object(epi) {
+                if let Some(f) = obj.get("tx_from").and_then(|v| v.as_u64()) {
+                    tx_from_min = Some(tx_from_min.map_or(f, |m| m.min(f)));
+                }
+                match obj.get("tx_to").and_then(|v| v.as_u64()) {
+                    Some(t) => tx_to_max = Some(tx_to_max.map_or(t, |m| m.max(t))),
+                    None => any_open = true, // an open child ⇒ the span stays open
+                }
+            }
+        }
+
+        // Build the semantic node object: merge onto any existing node (upsert),
+        // then caller props, then computed markers (caller values win).
+        let mut obj = self.node_object(&semantic_id).unwrap_or_default();
+        for (k, v) in semantic_props {
+            if k == "id" {
+                continue;
+            }
+            obj.insert(k, v);
+        }
+        obj.entry("type".to_string())
+            .or_insert_with(|| serde_json::json!("SemanticMemory"));
+        obj.insert(
+            "consolidated_from_count".to_string(),
+            serde_json::json!(cluster.len()),
+        );
+        if !obj.contains_key("tx_from") {
+            if let Some(f) = tx_from_min {
+                obj.insert("tx_from".to_string(), serde_json::json!(f));
+            }
+        }
+        if !obj.contains_key("tx_to") && !any_open {
+            if let Some(t) = tx_to_max {
+                obj.insert("tx_to".to_string(), serde_json::json!(t));
+            }
+        }
+        if let Ok(blob) = rmp_serde::to_vec_named(&serde_json::Value::Object(obj)) {
+            self.add_node(semantic_id.clone(), blob);
+        }
+
+        // Collect EXTERNAL edges to copy onto the semantic node. Gather first (no
+        // mutation during the DashMap scan), then sort + dedup for a deterministic
+        // ledger, then apply after the iterator guard drops.
+        let mut to_add: Vec<(String, String, Vec<u8>)> = Vec::new();
+        for entry in self.edge_properties.iter() {
+            let (src, tgt) = entry.key();
+            let src_in = cluster_set.contains(src.as_str());
+            let tgt_in = cluster_set.contains(tgt.as_str());
+            if src_in == tgt_in {
+                // both in-cluster (subsumed) or both external (unrelated) — skip.
+                continue;
+            }
+            for blob in entry.value() {
+                if src_in {
+                    if tgt != &semantic_id {
+                        to_add.push((semantic_id.clone(), tgt.clone(), (**blob).clone()));
+                    }
+                } else if src != &semantic_id {
+                    to_add.push((src.clone(), semantic_id.clone(), (**blob).clone()));
+                }
+            }
+        }
+        to_add.sort();
+        to_add.dedup();
+        for (src, tgt, blob) in to_add {
+            // Skip if an identical-relationship edge already connects these (keeps a
+            // re-run from stacking duplicate redirected edges).
+            let rel = rmp_serde::from_slice::<serde_json::Value>(&blob)
+                .ok()
+                .and_then(|v| {
+                    v.as_object()
+                        .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
+                        .and_then(|r| r.as_str())
+                        .map(|s| s.to_string())
+                });
+            if let Some(r) = &rel {
+                if self.has_relationship_edge(&src, &tgt, r) {
+                    continue;
+                }
+            }
+            let _ = self.add_edge(src, tgt, blob);
+        }
+
+        // Provenance + mark episodics consolidated (localized — cluster only).
+        for epi in &cluster {
+            if epi == &semantic_id || !self.topo.node_map.contains_key(epi) {
+                continue;
+            }
+            if !self.has_relationship_edge(&semantic_id, epi, "CONSOLIDATES") {
+                if let Ok(eprops) =
+                    rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CONSOLIDATES"}))
+                {
+                    let _ = self.add_edge(semantic_id.clone(), epi.clone(), eprops);
+                }
+            }
+            let mut mark = serde_json::Map::new();
+            mark.insert("consolidated".to_string(), serde_json::json!(true));
+            mark.insert(
+                "consolidated_into".to_string(),
+                serde_json::json!(semantic_id),
+            );
+            self.merge_fields(epi, &mark);
+        }
+        semantic_id
+    }
 }
 
 impl GraphCore {
@@ -2701,6 +3007,101 @@ impl GraphCore {
         }
         touched
     }
+
+    // ── Agent-native memory primitives — one-shot wrappers + queries ──────────
+    //     (CONCEPT:EG-220 hierarchical summary tier / EG-221 consolidation)
+
+    /// One-shot [`GraphTxn::create_summary_node`] (CONCEPT:EG-220): the whole
+    /// create-node + link-children runs under ONE topology write guard, then the
+    /// lazy secondary indexes are invalidated via `mark_dirty` so a subsequent
+    /// `summaries_at_level` sees the new node. Returns the summary node id.
+    pub fn create_summary_node(
+        &self,
+        level: u32,
+        child_ids: &[String],
+        props: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
+        let id = self.txn().create_summary_node(level, child_ids, props);
+        self.mark_dirty();
+        id
+    }
+
+    /// One-shot [`GraphTxn::consolidate`] (CONCEPT:EG-221): the whole
+    /// create-semantic + redirect-edges + provenance + mark-episodics runs under ONE
+    /// topology write guard (atomic + localized — no global reindex), then the lazy
+    /// secondary indexes are invalidated. Returns the semantic node id.
+    pub fn consolidate(
+        &self,
+        episodic_ids: &[String],
+        semantic_props: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
+        let id = self.txn().consolidate(episodic_ids, semantic_props);
+        self.mark_dirty();
+        id
+    }
+
+    /// Does a `source → target` edge carrying `relationship` exist? (Read helper for
+    /// the summary/consolidation queries — CONCEPT:EG-220.) Matches on the edge
+    /// blob's `relationship` (or legacy `type`) field.
+    fn edge_has_relationship(&self, source_id: &str, target_id: &str, relationship: &str) -> bool {
+        self.edge_properties
+            .get(&(source_id.to_string(), target_id.to_string()))
+            .is_some_and(|blobs| {
+                blobs.iter().any(|b| {
+                    rmp_serde::from_slice::<serde_json::Value>(b)
+                        .ok()
+                        .and_then(|v| {
+                            v.as_object()
+                                .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
+                                .and_then(|r| r.as_str())
+                                .map(|s| s == relationship)
+                        })
+                        .unwrap_or(false)
+                })
+            })
+    }
+
+    /// CONCEPT:EG-220 — the direct children of summary node `id`: the targets of its
+    /// outgoing `SUMMARIZES` edges. Returns ids sorted + deduped. Empty if the node
+    /// is absent or has no summary children.
+    pub fn summary_children(&self, id: &str) -> Vec<String> {
+        let targets: Vec<String> = {
+            let topo = self.topo.read();
+            let Some(&idx) = topo.node_map.get(id) else {
+                return Vec::new();
+            };
+            topo.graph
+                .edges_directed(idx, petgraph::Direction::Outgoing)
+                .map(|e| topo.graph[e.target()].clone())
+                .collect()
+        };
+        let mut out: Vec<String> = targets
+            .into_iter()
+            .filter(|t| self.edge_has_relationship(id, t, "SUMMARIZES"))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// CONCEPT:EG-220 — all summary node ids at abstraction `level` (nodes typed
+    /// `SummaryNode` whose `summary_level` equals `level`). Returns ids sorted +
+    /// deduped. Uses the lazy label index (`get_nodes_by_label`) so the `SummaryNode`
+    /// scan is O(matches) once the index is warm.
+    pub fn summaries_at_level(&self, level: u32) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .get_nodes_by_label("SummaryNode", 0)
+            .into_iter()
+            .filter_map(|(id, blob)| {
+                let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+                let lvl = val.get("summary_level").and_then(|v| v.as_u64())?;
+                (lvl == level as u64).then_some(id)
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
 }
 
 // ── Free Functions (non-method helpers) ──────────────────────────────────
@@ -4086,6 +4487,201 @@ mod tests {
         );
         let rows = g.get_nodes_by_label("Task", 0);
         assert_eq!(ids_of(&rows), vec!["a"]);
+    }
+
+    // ── Agent-native memory primitives (CONCEPT:EG-220 / EG-221) ──────────────
+
+    /// Decode a node's stored property object (test helper).
+    fn obj_of(g: &GraphCore, id: &str) -> serde_json::Map<String, serde_json::Value> {
+        let blob = g.get_node_properties(id).expect("node present");
+        match rmp_serde::from_slice::<serde_json::Value>(&blob).unwrap() {
+            serde_json::Value::Object(o) => o,
+            _ => panic!("not an object"),
+        }
+    }
+
+    #[test]
+    fn eg220_create_summary_node_links_children_and_queries() {
+        let g = GraphCore::new();
+        g.add_node("e1".into(), props(serde_json::json!({"type": "Episodic"})));
+        g.add_node("e2".into(), props(serde_json::json!({"type": "Episodic"})));
+        let sid = g.create_summary_node(
+            1,
+            &["e2".into(), "e1".into()],
+            [("text".to_string(), serde_json::json!("day one"))]
+                .into_iter()
+                .collect(),
+        );
+        // Stored markers + caller text.
+        let o = obj_of(&g, &sid);
+        assert_eq!(o.get("type"), Some(&serde_json::json!("SummaryNode")));
+        assert_eq!(o.get("summary_level"), Some(&serde_json::json!(1)));
+        assert_eq!(o.get("summary_child_count"), Some(&serde_json::json!(2)));
+        assert_eq!(o.get("text"), Some(&serde_json::json!("day one")));
+        // Children query (sorted) + level query.
+        assert_eq!(g.summary_children(&sid), vec!["e1", "e2"]);
+        assert_eq!(g.summaries_at_level(1), vec![sid.clone()]);
+        assert!(g.summaries_at_level(2).is_empty());
+    }
+
+    #[test]
+    fn eg220_summary_ladder_multi_level() {
+        let g = GraphCore::new();
+        for e in ["a", "b", "c", "d"] {
+            g.add_node(e.into(), props(serde_json::json!({"type": "Episodic"})));
+        }
+        let l1a = g.create_summary_node(1, &["a".into(), "b".into()], serde_json::Map::new());
+        let l1b = g.create_summary_node(1, &["c".into(), "d".into()], serde_json::Map::new());
+        // A level-2 summary whose children are the level-1 summaries.
+        let l2 = g.create_summary_node(2, &[l1a.clone(), l1b.clone()], serde_json::Map::new());
+        let mut lvl1 = g.summaries_at_level(1);
+        lvl1.sort();
+        let mut expect = vec![l1a.clone(), l1b.clone()];
+        expect.sort();
+        assert_eq!(lvl1, expect);
+        assert_eq!(g.summaries_at_level(2), vec![l2.clone()]);
+        assert_eq!(g.summary_children(&l2), expect);
+    }
+
+    #[test]
+    fn eg220_create_summary_node_is_idempotent() {
+        let g = GraphCore::new();
+        g.add_node("x".into(), props(serde_json::json!({"type": "Episodic"})));
+        let a = g.create_summary_node(1, &["x".into()], serde_json::Map::new());
+        let before = g.edge_count();
+        // Same inputs ⇒ same id, no duplicate SUMMARIZES edge.
+        let b = g.create_summary_node(1, &["x".into()], serde_json::Map::new());
+        assert_eq!(a, b);
+        assert_eq!(g.edge_count(), before, "re-run must not stack edges");
+        assert_eq!(g.summary_children(&a), vec!["x"]);
+    }
+
+    #[test]
+    fn eg220_create_summary_node_skips_absent_children() {
+        let g = GraphCore::new();
+        g.add_node("real".into(), props(serde_json::json!({"type": "Episodic"})));
+        let sid = g.create_summary_node(
+            1,
+            &["real".into(), "ghost".into()],
+            serde_json::Map::new(),
+        );
+        // Only the existing child is linked — no dangling edge to "ghost".
+        assert_eq!(g.summary_children(&sid), vec!["real"]);
+    }
+
+    #[test]
+    fn eg221_consolidate_merges_props_redirects_edges_and_marks_episodics() {
+        let g = GraphCore::new();
+        // Two episodic memories, each with an EXTERNAL neighbour + bitemporal window.
+        g.add_node(
+            "ep1".into(),
+            props(serde_json::json!({"type": "Episodic", "tx_from": 100, "tx_to": 200})),
+        );
+        g.add_node(
+            "ep2".into(),
+            props(serde_json::json!({"type": "Episodic", "tx_from": 150, "tx_to": 300})),
+        );
+        g.add_node("actor".into(), props(serde_json::json!({"type": "Person"})));
+        g.add_node("topic".into(), props(serde_json::json!({"type": "Topic"})));
+        // actor -> ep1 (incoming to cluster), ep2 -> topic (outgoing from cluster).
+        g.add_edge(
+            "actor".into(),
+            "ep1".into(),
+            props(serde_json::json!({"relationship": "OBSERVED"})),
+        )
+        .unwrap();
+        g.add_edge(
+            "ep2".into(),
+            "topic".into(),
+            props(serde_json::json!({"relationship": "ABOUT"})),
+        )
+        .unwrap();
+
+        let sem = g.consolidate(
+            &["ep1".into(), "ep2".into()],
+            [
+                ("type".to_string(), serde_json::json!("SemanticMemory")),
+                ("summary".to_string(), serde_json::json!("actor discussed topic")),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        // Merged props + bitemporal span over children (min tx_from, max tx_to).
+        let o = obj_of(&g, &sem);
+        assert_eq!(o.get("summary"), Some(&serde_json::json!("actor discussed topic")));
+        assert_eq!(o.get("consolidated_from_count"), Some(&serde_json::json!(2)));
+        assert_eq!(o.get("tx_from"), Some(&serde_json::json!(100)));
+        assert_eq!(o.get("tx_to"), Some(&serde_json::json!(300)));
+
+        // External edges redirected onto the semantic node.
+        assert!(g.edge_has_relationship("actor", &sem, "OBSERVED"));
+        assert!(g.edge_has_relationship(&sem, "topic", "ABOUT"));
+
+        // Provenance CONSOLIDATES edges semantic -> each episodic.
+        assert!(g.edge_has_relationship(&sem, "ep1", "CONSOLIDATES"));
+        assert!(g.edge_has_relationship(&sem, "ep2", "CONSOLIDATES"));
+
+        // Episodics preserved + marked (NOT deleted — bitemporal history intact).
+        assert!(g.has_node("ep1") && g.has_node("ep2"));
+        let e1 = obj_of(&g, "ep1");
+        assert_eq!(e1.get("consolidated"), Some(&serde_json::json!(true)));
+        assert_eq!(e1.get("consolidated_into"), Some(&serde_json::json!(sem)));
+        assert_eq!(e1.get("tx_from"), Some(&serde_json::json!(100)), "child bitemporal preserved");
+    }
+
+    #[test]
+    fn eg221_consolidate_open_child_leaves_span_open() {
+        let g = GraphCore::new();
+        // One child has NO tx_to (still valid) ⇒ consolidated node stays open.
+        g.add_node(
+            "o1".into(),
+            props(serde_json::json!({"type": "Episodic", "tx_from": 10, "tx_to": 20})),
+        );
+        g.add_node(
+            "o2".into(),
+            props(serde_json::json!({"type": "Episodic", "tx_from": 15})),
+        );
+        let sem = g.consolidate(&["o1".into(), "o2".into()], serde_json::Map::new());
+        let o = obj_of(&g, &sem);
+        assert_eq!(o.get("tx_from"), Some(&serde_json::json!(10)));
+        assert!(o.get("tx_to").is_none(), "open child keeps the span open");
+    }
+
+    #[test]
+    fn eg221_consolidate_is_localized_other_nodes_untouched() {
+        let g = GraphCore::new();
+        g.add_node("c1".into(), props(serde_json::json!({"type": "Episodic"})));
+        g.add_node("c2".into(), props(serde_json::json!({"type": "Episodic"})));
+        // An unrelated node NOT connected to the cluster.
+        g.add_node(
+            "bystander".into(),
+            props(serde_json::json!({"type": "Note", "keep": "me"})),
+        );
+        let before = obj_of(&g, "bystander");
+        let before_edges = g.edge_count();
+
+        let sem = g.consolidate(&["c1".into(), "c2".into()], serde_json::Map::new());
+
+        // Bystander untouched (no reindex/rewrite reached it).
+        assert_eq!(obj_of(&g, "bystander"), before, "unrelated node must be untouched");
+        assert!(g.summary_children("bystander").is_empty());
+        // Only the two CONSOLIDATES provenance edges were added (no external edges).
+        assert_eq!(g.edge_count(), before_edges + 2);
+        assert!(g.has_node(&sem));
+    }
+
+    #[test]
+    fn eg221_consolidate_is_deterministic_and_idempotent() {
+        let g = GraphCore::new();
+        g.add_node("d1".into(), props(serde_json::json!({"type": "Episodic"})));
+        g.add_node("d2".into(), props(serde_json::json!({"type": "Episodic"})));
+        // Order-independent id (sorted cluster) + re-run adds no duplicate edges.
+        let a = g.consolidate(&["d2".into(), "d1".into()], serde_json::Map::new());
+        let mid = g.edge_count();
+        let b = g.consolidate(&["d1".into(), "d2".into()], serde_json::Map::new());
+        assert_eq!(a, b, "deterministic id independent of input order");
+        assert_eq!(g.edge_count(), mid, "idempotent re-run stacks no edges");
     }
 }
 
