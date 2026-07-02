@@ -122,6 +122,16 @@ federation = ["dep:eg-plan", "eg-plan/federation", "eg-types/federation", "query
 # node/cluster/full — NEVER `pi`. A default/pi build links NO sqlx/postgres/mysql/openssl
 # (asserted by `cargo tree`); the Pi contract holds.
 federation-sql = ["dep:eg-plan", "eg-plan/federation-sql", "federation"]
+# Spatial / geospatial modality (CONCEPT:EG-083): the `Op::SpatialScan { layer, bbox }`
+# SOURCE op + the `Pred::SpatialWithin`/`SpatialDWithin` FILTER predicates, so a spatial
+# filter composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
+# `geo` (the executor + the pure-Rust eg-geo leaf crate: geometry + WKT + planar
+# predicates + a packed Hilbert R-tree — only serde, NO GEOS/PROJ/C dep), which IMPLIES
+# `query` (the ops live inside the `query`-gated `Op`/`Pred` enums). PURE-RUST so it is
+# Pi-SAFE by construction, but spatial is NOT a Pi requirement, so it is OFF by default
+# and folded into node/full — kept OUT of `pi` (which stays the lean minimal tier). A
+# default/pi build links NO eg-geo (asserted by `cargo tree`).
+geo = ["query", "dep:eg-plan", "eg-plan/geo", "eg-types/geo"]
 # Dep-free Cypher query surface (CONCEPT:KG-2.179): `MATCH … RETURN …` compiled to
 # the engine's own primitives (label index / VF2 / BFS) — NO DataFusion, so it is a
 # HARD requirement of the lean Pi tier. A `cypher`-only build links no DataFusion
@@ -293,7 +303,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -313,7 +323,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation", "federation-sql"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
