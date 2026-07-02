@@ -24,13 +24,19 @@
 //! The whole module is gated behind `federation` (which implies `query`): a default /
 //! Pi build links no ureq/rustls/ring and carries no `ForeignScan` variant.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use crate::rowset::RowSet;
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
 /// The federation seam: turn an EXTERNAL source into the cross-modal [`RowSet`]
 /// currency, so a `ForeignScan` composes with every local op. One method, one shape —
 /// exactly what makes federation "just another RowSet source" rather than a bolted-on
-/// second engine.
+/// second engine. CONCEPT:EG-073 confirms this as the trait the
+/// [`ForeignSourceRegistry`] stores by name (`Arc<dyn ForeignSource + Send + Sync>`);
+/// `fetch(&self)` is the `scan`-shaped method — the per-source connection spec is
+/// captured in the concrete type rather than passed per call.
 pub trait ForeignSource {
     /// Pull the foreign rows as a `RowSet`. A network/parse failure is an `Err` (the
     /// plan errors with a clear message rather than silently yielding nothing — a
@@ -73,6 +79,12 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
             id_field,
             score_field,
         } => sql_source(dsn, query, id_field, score_field.as_deref()),
+        // CONCEPT:EG-073 — a `Named` spec is a REFERENCE, not a self-describing source:
+        // it resolves through the executor's `ForeignSourceRegistry`, which `source_for`
+        // (a pure spec→source builder with no registry) cannot reach. Hand-off is via
+        // the executor / `ForeignSourceRegistry::resolve`; calling `source_for` on a
+        // `Named` yields a clean error rather than a silent empty set.
+        ForeignSourceSpec::Named { name } => Box::new(NamedUnresolved { name }),
     }
 }
 
@@ -480,5 +492,165 @@ fn json_to_id(v: &serde_json::Value) -> String {
     match v {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+// ── CONCEPT:EG-073 — the foreign-source NAME REGISTRY + registerable source kinds ─
+
+/// A boxed, thread-safe [`ForeignSource`] stored by name in a [`ForeignSourceRegistry`]
+/// (CONCEPT:EG-073). It is `Send + Sync` (the registry is shared across the executor's
+/// blocking pool) and OWNS its data (`'static`) — unlike the borrow-based sources
+/// [`source_for`] builds per-op straight off a wire spec.
+pub type SharedForeignSource = Arc<dyn ForeignSource + Send + Sync>;
+
+/// CONCEPT:EG-073 — the federation SOURCE REGISTRY: maps a foreign-source NAME to a live
+/// [`ForeignSource`]. This is the resolution seam the UQL `FOREIGN "<name>"` clause
+/// (`Op::Foreign`) and a `Named` [`eg_types::wire::Op::ForeignScan`] resolve through —
+/// the piece the wire doc-comment flagged as "the server-side foreign_sources registry
+/// that eg-plan (below the server) cannot reach". It now lives IN eg-plan and threads
+/// into the executor via `PlanCtx::with_foreign`, so a name → rows resolution needs no
+/// per-op inline spec and no Python round-trip.
+///
+/// A default `PlanCtx` carries NO registry (`None`), so every existing plan is
+/// unchanged: an `Op::Foreign` with no registry attached still passes its input through,
+/// exactly as before this concept.
+#[derive(Default, Clone)]
+pub struct ForeignSourceRegistry {
+    sources: HashMap<String, SharedForeignSource>,
+}
+
+impl ForeignSourceRegistry {
+    /// A new, empty registry (no foreign sources bound). CONCEPT:EG-073.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register (or replace) a source under `name`. CONCEPT:EG-073.
+    pub fn register(&mut self, name: impl Into<String>, source: SharedForeignSource) -> &mut Self {
+        self.sources.insert(name.into(), source);
+        self
+    }
+
+    /// Register an owned [`ForeignSourceSpec`] (remote-engine / HTTP-JSON / SQL) under a
+    /// name — the kind that "resolves the name to another graph/dataset": a
+    /// `RemoteEngine` spec pointed at another graph is exactly that, reached over the
+    /// engine's own transport. CONCEPT:EG-073.
+    pub fn register_spec(
+        &mut self,
+        name: impl Into<String>,
+        spec: ForeignSourceSpec,
+    ) -> &mut Self {
+        self.register(name, Arc::new(SpecSource { spec }))
+    }
+
+    /// Register a FIXED table of rows (id + optional score) under a name — the
+    /// zero-dependency source kind for tests + pre-materialized datasets.
+    /// CONCEPT:EG-073.
+    pub fn register_table<I>(&mut self, name: impl Into<String>, rows: I) -> &mut Self
+    where
+        I: IntoIterator<Item = (String, Option<f32>)>,
+    {
+        self.register(
+            name,
+            Arc::new(TableSource {
+                rows: rows.into_iter().collect(),
+            }),
+        )
+    }
+
+    /// Register a CLOSURE that produces the rows on demand under a name. CONCEPT:EG-073.
+    pub fn register_closure<F>(&mut self, name: impl Into<String>, f: F) -> &mut Self
+    where
+        F: Fn() -> Result<RowSet, String> + Send + Sync + 'static,
+    {
+        self.register(name, Arc::new(ClosureSource { f: Box::new(f) }))
+    }
+
+    /// Look a source up by name (borrowing the shared handle). CONCEPT:EG-073.
+    pub fn get(&self, name: &str) -> Option<&SharedForeignSource> {
+        self.sources.get(name)
+    }
+
+    /// How many sources are registered.
+    pub fn len(&self) -> usize {
+        self.sources.len()
+    }
+
+    /// Whether NO sources are registered.
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty()
+    }
+
+    /// Resolve `name` to its foreign rows, or a CLEAN typed error naming the unbound
+    /// source (and listing what IS registered). This is what the executor calls for a
+    /// `Named` `Op::ForeignScan` / an `Op::Foreign` marker. CONCEPT:EG-073.
+    pub fn resolve(&self, name: &str) -> Result<RowSet, String> {
+        match self.sources.get(name) {
+            Some(src) => src.fetch(),
+            None => {
+                let mut known: Vec<&str> = self.sources.keys().map(String::as_str).collect();
+                known.sort_unstable();
+                Err(format!(
+                    "federation: no foreign source registered under name '{name}' \
+                     (registered: {known:?}) (CONCEPT:EG-073)"
+                ))
+            }
+        }
+    }
+}
+
+/// CONCEPT:EG-073 — a registerable source backed by an owned [`ForeignSourceSpec`]. It
+/// delegates to [`source_for`], so the SAME remote-engine / HTTP-JSON / external-SQL
+/// machinery becomes name-addressable. A `RemoteEngine` spec pointed at another graph is
+/// the "in-engine source that resolves a name to another graph/dataset" kind. (A `Named`
+/// spec here would recurse into `source_for`'s clean error rather than loop.)
+pub struct SpecSource {
+    spec: ForeignSourceSpec,
+}
+
+impl ForeignSource for SpecSource {
+    fn fetch(&self) -> Result<RowSet, String> {
+        source_for(&self.spec).fetch()
+    }
+}
+
+/// CONCEPT:EG-073 — a registerable source backed by a FIXED table of rows (id + optional
+/// score). The zero-dependency kind for tests and pre-materialized foreign datasets.
+pub struct TableSource {
+    rows: Vec<(String, Option<f32>)>,
+}
+
+impl ForeignSource for TableSource {
+    fn fetch(&self) -> Result<RowSet, String> {
+        Ok(RowSet::from_rows(self.rows.iter().cloned()))
+    }
+}
+
+/// CONCEPT:EG-073 — a registerable source backed by a CLOSURE producing rows on demand
+/// (e.g. an in-engine adapter that reads from another dataset the host holds).
+pub struct ClosureSource {
+    f: Box<dyn Fn() -> Result<RowSet, String> + Send + Sync>,
+}
+
+impl ForeignSource for ClosureSource {
+    fn fetch(&self) -> Result<RowSet, String> {
+        (self.f)()
+    }
+}
+
+/// CONCEPT:EG-073 — the placeholder [`ForeignSource`] a `Named` spec resolves to when it
+/// reaches [`source_for`] (which has no registry). It always errors, pointing the caller
+/// at the `ForeignSourceRegistry`, so a misrouted `Named` fails loudly, never silently.
+struct NamedUnresolved<'a> {
+    name: &'a str,
+}
+
+impl ForeignSource for NamedUnresolved<'_> {
+    fn fetch(&self) -> Result<RowSet, String> {
+        Err(format!(
+            "federation: the Named foreign source '{}' resolves through the \
+             ForeignSourceRegistry on the PlanCtx, not source_for (CONCEPT:EG-073)",
+            self.name
+        ))
     }
 }
