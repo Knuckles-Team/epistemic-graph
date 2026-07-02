@@ -91,6 +91,7 @@ nav:
       - Capabilities & Parity Matrix: capabilities.md
       - Universal-DB Parity Roadmap: roadmap.md
       - Master-of-all Engine: architecture/engine.md
+      - Subsystems (C4 Containers): architecture/subsystems.md
       - UQL & Unified Planner: uql.md
       - Tiers & Binaries: architecture/tiers.md
       - Engine Modes: engine-modes.md

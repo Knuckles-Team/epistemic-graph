@@ -7,7 +7,7 @@
 ## The contention point
 
 Every structural write to a graph (`add_node` / `add_edge` / `compare_and_set` /
-`remove_*`) opens a one-shot [`GraphTxn`](../../crates/eg-core/src/graph.rs), which
+`remove_*`) opens a one-shot [`GraphTxn`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/crates/eg-core/src/graph.rs), which
 holds that graph's single `topo.write()` lock for the op's duration
 (`GraphCore::topo`, `graph.rs`). DIFFERENT graphs already isolate — each has its own
 `GraphCore` with its own lock, so `__control__` vs `__commons__` never contend (proved
