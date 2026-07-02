@@ -285,6 +285,23 @@ raft = ["server", "redb", "dep:openraft", "dep:futures"]
 # folded only into `cluster`. The single-shard fast path is unchanged (always-on
 # `algorithms`); this adds the cross-shard superstep coordinator on top.
 compute-dist = ["raft", "eg-types/compute-dist"]
+# Non-blocking cross-shard commit (CONCEPT:EG-082) — Paxos-Commit-lite. ADDITIVE: the
+# default cross-shard path stays classic 2PC (`src/raft/cross_shard_txn.rs`), which
+# holds its sole durable COMMIT decision in the coordinator's private redb and so
+# inherits 2PC's ONE blocking window (a coordinator crash between decision and apply
+# leaves participants in-doubt until IT recovers). This feature adds a SECOND commit
+# path whose COMMIT/ABORT decision is instead replicated through a Raft group's log
+# (an `AddNode` into a `__xshard_decisions__` decision graph committed via that group's
+# `client_write`), so ANY surviving replica/participant can LEARN the outcome from the
+# replicated state machine — no dependency on the (possibly-crashed) coordinator's
+# private store. Prepare (durable, commit-before-vote), presumed-abort recovery, and
+# commit-before-ack are all preserved unchanged. It pulls `raft` and is deliberately
+# kept OUT of every deployment tier (pi/node/full/cluster/all) — the orchestrator folds
+# it where wanted; a tier build links NOTHING from it. The proof gauntlet compiles it
+# under `test`/`harness` too (the new code is `cfg(any(feature="nonblocking", test,
+# feature="harness"))`), so `cargo test --features harness` exercises it WITHOUT adding
+# it to `harness`'s (or any tier's) feature list.
+nonblocking = ["raft"]
 # WASM-sandboxed UDF/extension model (CONCEPT:KG-2.228): an agent pushes a safe custom
 # compute function (a WebAssembly module) the engine runs SANDBOXED over a RowSet —
 # wasmtime with fuel-metering + a hard memory limit + NO host capabilities (pure
