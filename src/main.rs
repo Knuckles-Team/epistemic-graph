@@ -807,6 +807,28 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── MSSQL TDS wire-protocol listener (CONCEPT:EG-077) ─────────────────
+    // Opt-in AND feature-gated, mirroring pgwire: the listener starts ONLY when the
+    // binary is built `--features mssql-wire` AND EPISTEMIC_GRAPH_MSSQL_ADDR is set.
+    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
+    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // `127.0.0.1:1433`, a bare port binds loopback:port, a full addr verbatim.
+    #[cfg(feature = "mssql-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::mssql_wire::MSSQL_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:1433",
+    ) {
+        let mssql_state = state.clone();
+        info!("mssql-wire: serving MSSQL TDS wire protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::mssql_wire::serve(&addr, mssql_state).await {
+                tracing::error!("mssql-wire server error: {}", e);
+            }
+        });
+    }
+
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
