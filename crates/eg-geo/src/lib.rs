@@ -31,6 +31,11 @@
 //! * **Format I/O** (CONCEPT:EG-264): [`geojson`] (Feature/FeatureCollection with properties;
 //!   behind the `geo-io` feature), [`wkb`] (Well-Known Binary + EWKB), and [`gpx`] (GPS track /
 //!   route / waypoint reader).
+//! * **More map formats** (CONCEPT:EG-306): [`shapefile`] (ESRI `.shp`+`.dbf`+`.shx` reader →
+//!   geometries + attribute maps), [`kml`] (Keyhole Markup Language reader+writer over a
+//!   hand-rolled XML DOM), and [`geoparquet`] (the GeoParquet `"geo"` metadata model + WKB
+//!   geometry-column encoding, behind `geo-io`; the Parquet byte container is a documented B4
+//!   seam that keeps `arrow`/`parquet` out of eg-geo).
 //! * **Web-map tiling** ([`tiles`], CONCEPT:EG-265): XYZ/TMS [`Tile`] addressing over
 //!   Web-Mercator (bounds ⇄ index, y-flip) + a hand-rolled Mapbox Vector Tile
 //!   ([`encode_mvt`]/[`decode_mvt`]) codec — no protobuf codegen.
@@ -50,21 +55,30 @@
 //! **Follow-up (EG-263 SpatialScan hook):** `Op::SpatialScan`'s executor in `eg-plan::exec`
 //! currently rebuilds an in-memory [`RTree`] per scan. A persisted [`strtree::StrTree`] could
 //! be consulted there for candidate pruning without a rebuild; that exec wiring is deferred
-//! (this crate exposes the index + serde surface it needs). Other deferred format readers:
-//! Shapefile, KML/KMZ and GeoParquet.
+//! (this crate exposes the index + serde surface it needs).
+//!
+//! **Format coverage (CONCEPT:EG-306):** Shapefile (reader) and KML (reader+writer) are now
+//! delivered in full ([`shapefile`], [`kml`]); a Shapefile *writer* and the GeoParquet Parquet
+//! byte container ([`geoparquet::ParquetGeometryTable`]) remain documented B4 follow-ups (the
+//! latter to keep the heavy `arrow`/`parquet` crates out of eg-geo's dep tree). KMZ (zipped KML)
+//! is a further follow-up (it needs a zip codec).
 
 pub mod algebra;
 pub mod crs;
 pub mod geodesic;
 #[cfg(feature = "geo-io")]
 pub mod geojson;
+#[cfg(feature = "geo-io")]
+pub mod geoparquet;
 pub mod geometry;
 pub mod geotask;
 pub mod gpx;
+pub mod kml;
 pub mod predicates;
 pub mod registry;
 pub mod routing;
 pub mod rtree;
+pub mod shapefile;
 pub mod strtree;
 pub mod tiles;
 pub mod wkb;
@@ -76,6 +90,7 @@ pub use geodesic::{geodesic_area, geodesic_ring_area, haversine_distance, vincen
 pub use geometry::{Bbox, Geometry, LineString, Point, Polygon};
 pub use geotask::{nearest_resource, Assignment, GeoTask, GeoTaskIndex, TaskStatus};
 pub use gpx::{read_gpx, Gpx};
+pub use kml::{read_kml, write_kml, Kml, Placemark};
 pub use predicates::{
     contains, covers, crosses, disjoint, distance, equals, intersects, overlaps, touches, within,
 };
@@ -84,6 +99,9 @@ pub use routing::{
     distance_matrix, nearest_neighbour_tour, solve_tsp, tour_length, two_opt, Edge, Network, Path,
 };
 pub use rtree::RTree;
+pub use shapefile::{
+    read_dbf, read_shapefile, read_shp, read_shx, DbfField, DbfValue, ShapeRecord, ShxIndex,
+};
 pub use strtree::StrTree;
 pub use tiles::{
     decode_mvt, encode_mvt, lonlat_to_tile, MvtFeature, MvtLayer, MvtValue, Tile, DEFAULT_EXTENT,
@@ -93,3 +111,9 @@ pub use wkt::{parse as parse_wkt, parse_with_srid, to_wkt};
 
 #[cfg(feature = "geo-io")]
 pub use geojson::{read_feature_collection, write_feature_collection, Feature, FeatureCollection};
+
+#[cfg(feature = "geo-io")]
+pub use geoparquet::{
+    decode_wkb_column, encode_wkb_column, geometry_types_of, GeoColumnMetadata, GeoParquetMetadata,
+    ParquetGeometryTable,
+};
