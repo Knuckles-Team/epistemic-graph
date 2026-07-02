@@ -72,10 +72,18 @@ fn sql_where(preds: &[Pred]) -> String {
             Pred::Eq { prop, value } => format!("{prop} = '{}'", value.replace('\'', "''")),
             Pred::GtNum { prop, n } => format!("{prop} > {n}"),
             Pred::LtNum { prop, n } => format!("{prop} < {n}"),
-            // Spatial preds (CONCEPT:EG-083) are not a SQL surface (see `exec::filter_op`);
-            // this defensive arm keeps the oracle's match exhaustive under `geo`.
+            // Spatial preds (CONCEPT:EG-083 / EG-258) are not a SQL surface (see
+            // `exec::filter_op`); this defensive arm keeps the match exhaustive under `geo`.
             #[cfg(feature = "geo")]
-            Pred::SpatialWithin { .. } | Pred::SpatialDWithin { .. } => "1=1".into(),
+            Pred::SpatialWithin { .. }
+            | Pred::SpatialDWithin { .. }
+            | Pred::SpatialContains { .. }
+            | Pred::SpatialCovers { .. }
+            | Pred::SpatialTouches { .. }
+            | Pred::SpatialCrosses { .. }
+            | Pred::SpatialOverlaps { .. }
+            | Pred::SpatialEquals { .. }
+            | Pred::SpatialDisjoint { .. } => "1=1".into(),
         })
         .collect::<Vec<_>>()
         .join(" AND ")
