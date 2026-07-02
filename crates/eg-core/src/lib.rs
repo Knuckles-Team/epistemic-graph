@@ -24,5 +24,9 @@ pub mod isolation;
 pub mod rbac;
 pub mod read_through;
 pub mod registry;
+/// CONCEPT:EG-087 — scene-graph / 3D world-model primitives (poses, transform
+/// composition, AABBs). Pure deterministic math; the `GraphCore` scene methods
+/// (`add_scene_object`, `world_transform`, spatial relations) live in `graph`.
+pub mod scene;
 #[cfg(feature = "result-cache")]
 pub mod result_cache;
