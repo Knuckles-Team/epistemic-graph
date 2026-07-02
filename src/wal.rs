@@ -40,6 +40,20 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     ) {
         return true;
     }
+    // Message-broker admin + publish (CONCEPT:EG-275): each mutates control-graph
+    // nodes and replays deterministically (routing + monotonic seq derive from graph
+    // state; `apply` below re-runs the SAME broker fn over the same pre-image).
+    #[cfg(feature = "broker")]
+    if matches!(
+        m,
+        Method::DeclareExchange { .. }
+            | Method::DeleteExchange { .. }
+            | Method::BindQueue { .. }
+            | Method::UnbindQueue { .. }
+            | Method::Publish { .. }
+    ) {
+        return true;
+    }
     matches!(
         m,
         Method::AddNode { .. }
@@ -286,6 +300,42 @@ pub fn apply(core: &GraphCore, m: &Method) {
         // needs to rebuild the empty in-graph state.
         #[cfg(feature = "rdf")]
         Method::DropNamedGraph => core.clear(),
+        // Message-broker replay (CONCEPT:EG-275): re-run the SAME broker fn. Routing
+        // reads the (already-replayed) bindings and the seq comes from the durable
+        // counter node, so message nodes are reproduced byte-identically; results are
+        // ignored on replay.
+        #[cfg(feature = "broker")]
+        Method::DeclareExchange { exchange, kind } => {
+            if let Some(k) = crate::broker::ExchangeKind::parse(kind) {
+                let _ = crate::broker::declare_exchange(core, exchange, k);
+            }
+        }
+        #[cfg(feature = "broker")]
+        Method::DeleteExchange { exchange } => {
+            let _ = crate::broker::delete_exchange(core, exchange);
+        }
+        #[cfg(feature = "broker")]
+        Method::BindQueue {
+            exchange,
+            queue,
+            routing_key,
+        } => crate::broker::bind_queue(core, exchange, queue, routing_key),
+        #[cfg(feature = "broker")]
+        Method::UnbindQueue {
+            exchange,
+            queue,
+            routing_key,
+        } => {
+            let _ = crate::broker::unbind_queue(core, exchange, queue, routing_key);
+        }
+        #[cfg(feature = "broker")]
+        Method::Publish {
+            exchange,
+            routing_key,
+            payload,
+        } => {
+            let _ = crate::broker::publish(core, exchange, routing_key, payload);
+        }
         _ => {}
     }
 }
