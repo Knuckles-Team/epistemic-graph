@@ -26,8 +26,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use eg_core::graph::GraphCore;
-use oxrdf::{BlankNode, Literal, NamedNode, Subject, Term, Triple};
-use oxttl::{NTriplesParser, NTriplesSerializer, TurtleParser, TurtleSerializer};
+use oxrdf::{BlankNode, GraphName, Literal, NamedNode, Quad, Subject, Term, Triple};
+use oxttl::{
+    NQuadsParser, NQuadsSerializer, NTriplesParser, NTriplesSerializer, TriGParser, TriGSerializer,
+    TurtleParser, TurtleSerializer,
+};
 
 /// The engine `type` of the marker node that records "this graph is an RDF named
 /// graph" (the `:NamedGraph` node shape linking the RDF surface to the registry).
@@ -172,6 +175,12 @@ pub fn load_triples(
                     entry.insert(pred, literal_to_cell(lit));
                 }
             }
+            // RDF-star (CONCEPT:EG-130): quoted-triple objects are NOT persisted through
+            // the LPG node/edge store in this increment (documented follow-up). They
+            // round-trip natively via the parse/serialize path; skip here rather than
+            // fabricate a node/edge that export could not reverse.
+            #[cfg(feature = "sparql-star")]
+            Term::Triple(_) => {}
             obj => {
                 let o_id = term_node_id(obj).expect("non-literal object");
                 iris.intern(&o_id);
@@ -384,6 +393,141 @@ pub fn to_turtle(triples: &[Triple]) -> Result<String, String> {
     String::from_utf8(buf).map_err(|e| format!("ttl utf8: {e}"))
 }
 
+// ── EG-131: the RDF serialization matrix ────────────────────────────────────────
+//
+// Coverage beyond N-Triples/Turtle. The QUAD formats (N-Quads/TriG) place every triple
+// in `graph` (a named-graph IRI) or the default graph; they ride the oxttl quad
+// serializers already in the `rdf` feature (pure Rust, in pi — not a heavy dep). RDF/XML
+// and JSON-LD 1.1 add the pure-Rust `oxrdfxml`/`oxjsonld` crates behind their own
+// features (`rdf-xml`/`json-ld`), kept OUT of pi. These are the graph-result forms wired
+// into the `/sparql` content-negotiation seam (CONCEPT:EG-050) for CONSTRUCT/DESCRIBE.
+
+/// Lift a triple into a quad in the named `graph` (or the default graph when `None`).
+fn triple_to_quad(t: &Triple, graph: Option<&str>) -> Result<Quad, String> {
+    let g = match graph {
+        Some(name) => GraphName::NamedNode(
+            NamedNode::new(name).map_err(|e| format!("bad graph iri {name}: {e}"))?,
+        ),
+        None => GraphName::DefaultGraph,
+    };
+    Ok(Quad::new(
+        t.subject.clone(),
+        t.predicate.clone(),
+        t.object.clone(),
+        g,
+    ))
+}
+
+/// Serialize triples to N-Quads, each placed in `graph` (or the default graph).
+pub fn to_nquads(triples: &[Triple], graph: Option<&str>) -> Result<String, String> {
+    let mut buf = Vec::new();
+    let mut ser = NQuadsSerializer::new().for_writer(&mut buf);
+    for t in triples {
+        ser.serialize_quad(triple_to_quad(t, graph)?.as_ref())
+            .map_err(|e| format!("nq serialize: {e}"))?;
+    }
+    ser.finish();
+    String::from_utf8(buf).map_err(|e| format!("nq utf8: {e}"))
+}
+
+/// Serialize triples to TriG (Turtle-with-named-graphs), placing each in `graph`.
+pub fn to_trig(triples: &[Triple], graph: Option<&str>) -> Result<String, String> {
+    let mut buf = Vec::new();
+    let mut ser = TriGSerializer::new().for_writer(&mut buf);
+    for t in triples {
+        ser.serialize_quad(triple_to_quad(t, graph)?.as_ref())
+            .map_err(|e| format!("trig serialize: {e}"))?;
+    }
+    ser.finish().map_err(|e| format!("trig finish: {e}"))?;
+    String::from_utf8(buf).map_err(|e| format!("trig utf8: {e}"))
+}
+
+/// Parse an N-Quads document into oxrdf quads (subject/predicate/object + graph name).
+pub fn parse_nquads(doc: &str) -> Result<Vec<Quad>, String> {
+    let mut out = Vec::new();
+    for r in NQuadsParser::new().for_reader(doc.as_bytes()) {
+        out.push(r.map_err(|e| format!("nquads parse: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// Parse a TriG document into oxrdf quads.
+pub fn parse_trig(doc: &str) -> Result<Vec<Quad>, String> {
+    let mut out = Vec::new();
+    for r in TriGParser::new().for_reader(doc.as_bytes()) {
+        out.push(r.map_err(|e| format!("trig parse: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// Serialize triples to RDF/XML (CONCEPT:EG-131, feature `rdf-xml`).
+#[cfg(feature = "rdf-xml")]
+pub fn to_rdfxml(triples: &[Triple]) -> Result<String, String> {
+    use oxrdfxml::RdfXmlSerializer;
+    let mut buf = Vec::new();
+    let mut ser = RdfXmlSerializer::new().for_writer(&mut buf);
+    for t in triples {
+        ser.serialize_triple(t.as_ref())
+            .map_err(|e| format!("rdfxml serialize: {e}"))?;
+    }
+    ser.finish().map_err(|e| format!("rdfxml finish: {e}"))?;
+    String::from_utf8(buf).map_err(|e| format!("rdfxml utf8: {e}"))
+}
+
+/// Parse an RDF/XML document into oxrdf triples (feature `rdf-xml`).
+#[cfg(feature = "rdf-xml")]
+pub fn parse_rdfxml(doc: &str) -> Result<Vec<Triple>, String> {
+    use oxrdfxml::RdfXmlParser;
+    let mut out = Vec::new();
+    for r in RdfXmlParser::new().for_reader(doc.as_bytes()) {
+        out.push(r.map_err(|e| format!("rdfxml parse: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// Serialize triples to JSON-LD 1.1 (CONCEPT:EG-131, feature `json-ld`). Expansion form;
+/// context compaction/framing are a documented follow-up.
+#[cfg(feature = "json-ld")]
+pub fn to_jsonld(triples: &[Triple], graph: Option<&str>) -> Result<String, String> {
+    use oxjsonld::JsonLdSerializer;
+    let mut buf = Vec::new();
+    let mut ser = JsonLdSerializer::new().for_writer(&mut buf);
+    for t in triples {
+        ser.serialize_quad(triple_to_quad(t, graph)?.as_ref())
+            .map_err(|e| format!("jsonld serialize: {e}"))?;
+    }
+    ser.finish().map_err(|e| format!("jsonld finish: {e}"))?;
+    String::from_utf8(buf).map_err(|e| format!("jsonld utf8: {e}"))
+}
+
+/// Parse a JSON-LD 1.1 document into oxrdf quads (feature `json-ld`).
+#[cfg(feature = "json-ld")]
+pub fn parse_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
+    use oxjsonld::JsonLdParser;
+    let mut out = Vec::new();
+    for r in JsonLdParser::new().for_slice(doc.as_bytes()) {
+        out.push(r.map_err(|e| format!("jsonld parse: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// A canonical, bnode/order-insensitive comparison key for a quad set (mirrors
+/// [`triple_set_key`], adding the graph name).
+pub fn quad_set_key(quads: &[Quad]) -> BTreeSet<String> {
+    quads
+        .iter()
+        .map(|q| {
+            let g = match &q.graph_name {
+                GraphName::NamedNode(n) => format!("<{}>", n.as_str()),
+                GraphName::BlankNode(_) => "_:g".to_string(),
+                GraphName::DefaultGraph => "default".to_string(),
+            };
+            let t = Triple::new(q.subject.clone(), q.predicate.clone(), q.object.clone());
+            format!("{g} {}", canonical_triple_str(&t))
+        })
+        .collect()
+}
+
 /// A canonical, bnode/order-insensitive comparison key for a triple set: literals
 /// keep datatype/lang; bnodes are normalized to a single placeholder so structural
 /// equality holds (these datasets have no bnode-distinguishing structure).
@@ -403,6 +547,17 @@ fn canonical_term(t: &Term) -> String {
                 parts.insert("l", lang.to_string());
             }
             format!("{parts:?}")
+        }
+        // RDF-star (CONCEPT:EG-130): a quoted-triple object contributes a canonical,
+        // recursively-normalized `<<s p o>>` key so the round-trip set comparison is
+        // meaningful (not collapsed to a placeholder).
+        #[cfg(feature = "sparql-star")]
+        Term::Triple(t) => {
+            let s = match &t.subject {
+                Subject::NamedNode(n) => format!("<{}>", n.as_str()),
+                Subject::BlankNode(_) => "_:b".to_string(),
+            };
+            format!("<<{s} <{}> {}>>", t.predicate.as_str(), canonical_term(&t.object))
         }
         #[allow(unreachable_patterns)]
         _ => "?".to_string(),
@@ -621,5 +776,122 @@ ex:x ex:tag "a" , "b" , "c" .
         )
         .unwrap();
         assert!(exported.is_empty(), "marker node must not export as RDF");
+    }
+
+    // ── EG-131: RDF serialization matrix round-trips ────────────────────────
+
+    /// Reproject parsed quads back to triples for set-equality against the input.
+    fn quads_as_triples(quads: &[Quad]) -> Vec<Triple> {
+        quads
+            .iter()
+            .map(|q| Triple::new(q.subject.clone(), q.predicate.clone(), q.object.clone()))
+            .collect()
+    }
+
+    /// EG-131: N-Quads serialize → parse round-trips the triple set AND the graph name.
+    #[test]
+    fn nquads_round_trips() {
+        let triples = parse_turtle(TTL).unwrap();
+        let g = "http://example.org/g";
+        let nq = to_nquads(&triples, Some(g)).unwrap();
+        let quads = parse_nquads(&nq).unwrap();
+        assert_eq!(
+            triple_set_key(&triples),
+            triple_set_key(&quads_as_triples(&quads)),
+            "N-Quads must round-trip the triple set"
+        );
+        assert!(
+            quads
+                .iter()
+                .all(|q| matches!(&q.graph_name, GraphName::NamedNode(n) if n.as_str() == g)),
+            "every quad must carry the named graph"
+        );
+    }
+
+    /// EG-131: TriG serialize → parse round-trips the triple set AND the graph name.
+    #[test]
+    fn trig_round_trips() {
+        let triples = parse_turtle(TTL).unwrap();
+        let g = "http://example.org/g";
+        let trig = to_trig(&triples, Some(g)).unwrap();
+        let quads = parse_trig(&trig).unwrap();
+        assert_eq!(
+            triple_set_key(&triples),
+            triple_set_key(&quads_as_triples(&quads)),
+            "TriG must round-trip the triple set"
+        );
+        assert!(
+            quads
+                .iter()
+                .all(|q| matches!(&q.graph_name, GraphName::NamedNode(n) if n.as_str() == g)),
+            "every quad must carry the named graph"
+        );
+    }
+
+    /// EG-131: RDF/XML serialize → parse round-trips the triple set (feature `rdf-xml`).
+    #[cfg(feature = "rdf-xml")]
+    #[test]
+    fn rdfxml_round_trips() {
+        let triples = parse_turtle(TTL).unwrap();
+        let xml = to_rdfxml(&triples).unwrap();
+        let reparsed = parse_rdfxml(&xml).unwrap();
+        assert_eq!(
+            triple_set_key(&triples),
+            triple_set_key(&reparsed),
+            "RDF/XML must round-trip the triple set"
+        );
+    }
+
+    /// EG-131: JSON-LD serialize → parse round-trips the triple set (feature `json-ld`).
+    #[cfg(feature = "json-ld")]
+    #[test]
+    fn jsonld_round_trips() {
+        let triples = parse_turtle(TTL).unwrap();
+        let jld = to_jsonld(&triples, None).unwrap();
+        let quads = parse_jsonld(&jld).unwrap();
+        assert_eq!(
+            triple_set_key(&triples),
+            triple_set_key(&quads_as_triples(&quads)),
+            "JSON-LD must round-trip the triple set"
+        );
+    }
+
+    // ── EG-130: RDF-star / SPARQL-star (RDF 1.2) ────────────────────────────
+
+    /// EG-130: a quoted triple `<< s p o >>` parses (RDF 1.2 reifying-triple-term form:
+    /// a base triple + an `rdf:reifies` triple whose OBJECT is a first-class
+    /// `Term::Triple`) and round-trips through N-Triples-star, set-equal.
+    #[cfg(feature = "sparql-star")]
+    #[test]
+    fn eg130_quoted_triple_round_trips() {
+        let ttl = "@prefix ex: <http://example.org/> .\nex:s ex:p << ex:a ex:b ex:c >> .";
+        let parsed = parse_turtle(ttl).expect("parse quoted-triple term");
+        assert!(
+            parsed.iter().any(|t| matches!(&t.object, Term::Triple(_))),
+            "a first-class quoted-triple term must be present"
+        );
+        let nt = to_ntriples(&parsed).unwrap();
+        let reparsed = parse_ntriples(&nt).unwrap();
+        assert_eq!(
+            triple_set_key(&parsed),
+            triple_set_key(&reparsed),
+            "the quoted triple must round-trip through N-Triples-star"
+        );
+    }
+
+    /// EG-130: the annotation syntax `{| p o |}` parses (RDF 1.2) and its quoted triple
+    /// term round-trips.
+    #[cfg(feature = "sparql-star")]
+    #[test]
+    fn eg130_annotation_syntax_round_trips() {
+        let ttl =
+            "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c {| ex:certainty 0.9 |} .";
+        let parsed = parse_turtle(ttl).expect("parse annotation syntax");
+        assert!(
+            parsed.iter().any(|t| matches!(&t.object, Term::Triple(_))),
+            "annotation desugars to a quoted-triple term"
+        );
+        let reparsed = parse_ntriples(&to_ntriples(&parsed).unwrap()).unwrap();
+        assert_eq!(triple_set_key(&parsed), triple_set_key(&reparsed));
     }
 }
