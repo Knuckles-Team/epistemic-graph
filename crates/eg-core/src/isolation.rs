@@ -103,6 +103,12 @@ pub struct IsolationLayer {
     /// ACL/RLS. An EMPTY policy leaves every existing decision unchanged.
     #[cfg(feature = "security")]
     rbac: crate::rbac::RbacPolicy,
+    /// Durable RBAC/identity persistence handle (CONCEPT:EG-303). `None` ⇒ fully
+    /// in-memory (today's default): every write-through is a no-op. `Some` ⇒ the
+    /// policy + identities were LOADED from redb at boot and are written through on
+    /// every RBAC/identity mutation. `Arc` keeps [`IsolationLayer`] `Clone`.
+    #[cfg(feature = "security")]
+    persist: Option<std::sync::Arc<crate::rbac_persist::RbacStore>>,
 }
 
 impl Default for IsolationLayer {
@@ -117,31 +123,82 @@ impl IsolationLayer {
             agents: HashMap::new(),
             #[cfg(feature = "security")]
             rbac: crate::rbac::RbacPolicy::new(),
+            #[cfg(feature = "security")]
+            persist: None,
         }
     }
 
-    /// Add/replace an RBAC role definition (CONCEPT:EG-092).
+    /// Open an [`IsolationLayer`] backed by a durable redb store at `dir`
+    /// (CONCEPT:EG-303). Any previously-persisted RBAC policy + registered agent
+    /// identities are LOADED at boot; every subsequent `add_role`/`remove_role`/
+    /// `add_grant`/`remove_grant`/`register_agent`/`unregister_agent` mutation is
+    /// written through to redb. An EMPTY/absent store yields the exact in-memory
+    /// default — identical to [`IsolationLayer::new`] — so this is fully
+    /// backward-compatible; the only difference is that state now survives a restart.
+    #[cfg(feature = "security")]
+    pub fn with_persist_dir<P: AsRef<std::path::Path>>(
+        dir: P,
+    ) -> Result<Self, crate::rbac_persist::RbacPersistError> {
+        let store = crate::rbac_persist::RbacStore::open(dir)?;
+        let (rbac, identities) = store.load()?;
+        let agents: HashMap<String, AgentIdentity> = identities.into_iter().collect();
+        Ok(IsolationLayer {
+            agents,
+            rbac,
+            persist: Some(std::sync::Arc::new(store)),
+        })
+    }
+
+    /// Best-effort write-through of the FULL RBAC state (policy + identities) to the
+    /// durable store (CONCEPT:EG-303). A NO-OP when no persist dir is configured
+    /// (in-memory default). Errors are swallowed: [`with_persist_dir`] already
+    /// validated the store is writable at boot, and the mutation entry points
+    /// (`RbacAdmin`, `register_identity`) are infallible by contract.
+    ///
+    /// [`with_persist_dir`]: IsolationLayer::with_persist_dir
+    #[cfg(feature = "security")]
+    fn persist_state(&self) {
+        if let Some(store) = &self.persist {
+            let identities: std::collections::BTreeMap<String, AgentIdentity> = self
+                .agents
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            let _ = store.save(&self.rbac, &identities);
+        }
+    }
+
+    /// Add/replace an RBAC role definition (CONCEPT:EG-092); written through to the
+    /// durable store when configured (CONCEPT:EG-303).
     #[cfg(feature = "security")]
     pub fn add_role(&mut self, role: crate::acl::Role) {
         self.rbac.add_role(role);
+        self.persist_state();
     }
 
-    /// Remove an RBAC role definition (CONCEPT:EG-092).
+    /// Remove an RBAC role definition (CONCEPT:EG-092); written through (EG-303).
     #[cfg(feature = "security")]
     pub fn remove_role(&mut self, name: &str) {
         self.rbac.remove_role(name);
+        self.persist_state();
     }
 
-    /// Add an RBAC grant (CONCEPT:EG-092).
+    /// Add an RBAC grant (CONCEPT:EG-092); written through (EG-303).
     #[cfg(feature = "security")]
     pub fn add_grant(&mut self, grant: crate::acl::Grant) {
         self.rbac.add_grant(grant);
+        self.persist_state();
     }
 
-    /// Remove an RBAC grant (CONCEPT:EG-092). Returns true when one was removed.
+    /// Remove an RBAC grant (CONCEPT:EG-092). Returns true when one was removed;
+    /// written through (EG-303).
     #[cfg(feature = "security")]
     pub fn remove_grant(&mut self, grant: &crate::acl::Grant) -> bool {
-        self.rbac.remove_grant(grant)
+        let removed = self.rbac.remove_grant(grant);
+        if removed {
+            self.persist_state();
+        }
+        removed
     }
 
     /// Read-only access to the RBAC policy (for admin `List` / persistence).
@@ -150,14 +207,23 @@ impl IsolationLayer {
         &self.rbac
     }
 
-    /// Register or update an agent identity.
+    /// Register or update an agent identity; written through to the durable store
+    /// when configured (CONCEPT:EG-303).
     pub fn register_agent(&mut self, identity: AgentIdentity) {
         self.agents.insert(identity.agent_id.clone(), identity);
+        #[cfg(feature = "security")]
+        self.persist_state();
     }
 
-    /// Remove an agent identity.
+    /// Remove an agent identity; written through (CONCEPT:EG-303).
     pub fn unregister_agent(&mut self, agent_id: &str) {
-        self.agents.remove(agent_id);
+        let removed = self.agents.remove(agent_id).is_some();
+        #[cfg(feature = "security")]
+        if removed {
+            self.persist_state();
+        }
+        #[cfg(not(feature = "security"))]
+        let _ = removed;
     }
 
     /// True once any identity has been registered. While no rules exist the
@@ -757,6 +823,130 @@ mod tests {
                 Some("someone"),
                 AccessLevel::Write
             ));
+        }
+    }
+
+    // ── Durable RBAC/identity persistence (CONCEPT:EG-303) ───────────────
+    #[cfg(feature = "security")]
+    mod eg303_persist {
+        use super::*;
+        use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, ResourceSelector, Role};
+
+        /// A unique temp dir per test invocation (no external dev-dep needed).
+        fn tmp_dir(tag: &str) -> std::path::PathBuf {
+            std::env::temp_dir().join(format!(
+                "eg303-iso-{}-{}-{}",
+                tag,
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)
+            ))
+        }
+
+        #[test]
+        fn eg303_roles_grants_and_identities_round_trip_through_redb_reopen() {
+            let dir = tmp_dir("round-trip");
+            {
+                let mut layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                layer.add_role(Role::new("reader"));
+                layer.add_role(Role::with_parents("editor", vec!["reader".into()]));
+                layer.add_grant(Grant {
+                    role: "editor".into(),
+                    resource: ResourceSelector::Label("Doc".into()),
+                    action: RbacAction::Write,
+                    effect: GrantEffect::Allow,
+                });
+                layer.register_agent(AgentIdentity {
+                    agent_id: "sam".into(),
+                    role: AgentRole::Agent,
+                    teams: vec!["alpha".into()],
+                    roles: vec!["editor".into()],
+                });
+            }
+            // Reopen the SAME dir — a fresh layer restores policy + identities from redb.
+            let layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+            // Identity survived (has_rules + accessible graphs reflect the registration).
+            assert!(layer.has_rules());
+            assert!(layer.accessible_graphs("sam").contains("agent:sam"));
+            assert!(layer.accessible_graphs("sam").contains("team:alpha"));
+            // Roles/grants survived — the inherited grant still evaluates.
+            assert_eq!(layer.rbac().grants().len(), 1);
+            assert!(layer.rbac().is_allowed(
+                &["editor"],
+                &ResourceContext {
+                    graph: "g".into(),
+                    label: Some("Doc".into())
+                },
+                RbacAction::Write
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn eg303_mutation_write_through_visible_on_reopen() {
+            let dir = tmp_dir("write-through");
+            // 1) Add a grant, then reopen: the grant is present.
+            {
+                let mut layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                layer.add_grant(Grant {
+                    role: "r".into(),
+                    resource: ResourceSelector::All,
+                    action: RbacAction::Read,
+                    effect: GrantEffect::Allow,
+                });
+            }
+            {
+                let layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                assert_eq!(layer.rbac().grants().len(), 1);
+            }
+            // 2) Remove that grant + register/unregister an identity, then reopen: the
+            //    removals are durable too (write-through fires on every mutation).
+            {
+                let mut layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                assert!(layer.remove_grant(&Grant {
+                    role: "r".into(),
+                    resource: ResourceSelector::All,
+                    action: RbacAction::Read,
+                    effect: GrantEffect::Allow,
+                }));
+                layer.register_agent(AgentIdentity {
+                    agent_id: "tmp".into(),
+                    role: AgentRole::Agent,
+                    teams: vec![],
+                    roles: vec![],
+                });
+                layer.unregister_agent("tmp");
+            }
+            let layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+            assert_eq!(layer.rbac().grants().len(), 0);
+            assert!(!layer.has_rules());
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn eg303_no_persist_dir_is_in_memory_no_op() {
+            // A default layer has NO store: mutations behave exactly as pre-EG-303
+            // (write-through is a no-op) and nothing is persisted anywhere.
+            let mut layer = IsolationLayer::new();
+            assert!(layer.persist.is_none());
+            layer.add_grant(Grant {
+                role: "r".into(),
+                resource: ResourceSelector::All,
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            layer.register_agent(AgentIdentity {
+                agent_id: "x".into(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                roles: vec!["r".into()],
+            });
+            // Still no store; in-memory state is exactly what was set.
+            assert!(layer.persist.is_none());
+            assert_eq!(layer.rbac().grants().len(), 1);
+            assert!(layer.has_rules());
         }
     }
 }

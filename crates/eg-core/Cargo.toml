@@ -30,10 +30,12 @@ ann = ["dep:eg-ann", "dep:tracing", "dep:rayon"]
 # (CONCEPT:KG-2.195) rather than only the mmap files.
 ann-redb = ["ann", "eg-ann/redb"]
 # Engine-level security (CONCEPT:KG-2.231): per-agent Row-Level Security view filter
-# in the read/plan path (`isolation::IsolationLayer::filter_view`). Pure-Rust — no
-# dep (the visibility convention is a node-property check). Gated so a non-security
-# build links nothing extra.
-security = []
+# in the read/plan path (`isolation::IsolationLayer::filter_view`) + RBAC-at-scale
+# (CONCEPT:EG-092) + durable RBAC/identity persistence (CONCEPT:EG-303). The RLS/RBAC
+# evaluators are pure-Rust; EG-303 links `redb` (same 4.1 as the durable tiers) to
+# persist the RbacPolicy + registered AgentIdentities across restarts. Gated so a
+# non-security build links neither. redb is Pi-safe; `pi` does NOT enable security.
+security = ["dep:redb"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233) on `GraphCore`. Pure-Rust
 # bounded LRU + 128-bit query hash — no new dep — so the facade folds it into the
 # lean Pi tier as well as node/cluster/full.
@@ -61,3 +63,8 @@ aho-corasick = "1.1"
 tracing = { version = "0.1", optional = true }
 # CONCEPT:EG-014 — all-core parallel brute-force fallback (only under `ann`).
 rayon = { version = "1.10", optional = true }
+# CONCEPT:EG-303 — durable RBAC/identity persistence: the `security` feature persists
+# the RbacPolicy + registered AgentIdentities to a redb table so roles/grants/
+# identities survive a restart. Same redb 4.1 the durable tiers link; only pulled in
+# under `security` (Pi builds do not enable eg-core/security).
+redb = { version = "4.1", optional = true }
