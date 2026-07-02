@@ -324,7 +324,25 @@ impl IvfPq {
 
     /// kNN search: probe `nprobe` cells, ADC-score the candidates, then (if
     /// `refine`) re-rank the top `refine_factor*k` with the SQ8 tier for recall.
+    /// A thin wrapper over [`Self::search_filtered`] with no candidate pre-filter.
     pub fn search(&self, query: &[f32], k: usize, sp: SearchParams) -> Vec<SearchResult> {
+        self.search_filtered(query, k, sp, None)
+    }
+
+    /// kNN search with an optional metadata pre-filter (CONCEPT:EG-070). `allow`, when
+    /// present, is tested against each candidate's EXTERNAL id (`self.ids[row]`) DURING
+    /// the ADC probe/scan, so disallowed rows never enter the candidate heap and the
+    /// returned top-k already satisfies the predicate — no over-fetch-then-post-filter.
+    /// `allow == None` is exactly the unfiltered `search`. The refine tier re-ranks only
+    /// the rows that already passed the filter, so recall is preserved over the allowed
+    /// subset.
+    pub fn search_filtered(
+        &self,
+        query: &[f32],
+        k: usize,
+        sp: SearchParams,
+        allow: Option<&dyn Fn(u64) -> bool>,
+    ) -> Vec<SearchResult> {
         let dim = self.dim;
         let dsub = self.dsub;
         let rq = rotate(&self.rotation, query, dim);
@@ -367,6 +385,14 @@ impl IvfPq {
                 let row = row as usize;
                 if self.deleted[row] == 1 {
                     continue;
+                }
+                // CONCEPT:EG-070 — metadata pre-filter DURING the scan: skip rows whose
+                // external id is not permitted, so the ADC/refine top-k is built only
+                // over the allowed subset.
+                if let Some(allow) = allow {
+                    if !allow(self.ids[row]) {
+                        continue;
+                    }
                 }
                 let cbase = row * self.m;
                 let mut dist = 0.0f32;
@@ -449,6 +475,68 @@ impl IvfPq {
         let dead = self.deleted.iter().filter(|&&d| d == 1).count();
         dead as f32 / self.ids.len() as f32
     }
+}
+
+/// Merge per-shard kNN result lists into ONE global top-k (CONCEPT:EG-069). This is
+/// the gather half of a cross-shard scatter-gather: each shard returns its LOCAL
+/// top-k [`SearchResult`]s (smaller `distance` = nearer) over a SHARED id space, and
+/// this reduces them to the globally-nearest `k`. A bounded binary-heap keeps only the
+/// `k` best seen so far — the heap root is the CURRENT worst kept hit (largest
+/// distance), so a new candidate nearer than the root evicts it. O(total · log k) time,
+/// O(k) memory: the full cross-shard candidate list is never materialized. The result
+/// is sorted nearest-first, identical to what a single combined index would return.
+pub fn merge_topk(shards: &[Vec<SearchResult>], k: usize) -> Vec<SearchResult> {
+    use std::cmp::Ordering;
+    use std::collections::BinaryHeap;
+
+    if k == 0 {
+        return Vec::new();
+    }
+
+    // Max-heap on distance: `Ord` puts the LARGEST distance at the root so it is the
+    // first evicted once the heap holds `k`. NaN distances sort as "worst" (evicted
+    // first), never poisoning the ordering.
+    struct Worst(SearchResult);
+    impl PartialEq for Worst {
+        fn eq(&self, o: &Self) -> bool {
+            self.0.distance == o.0.distance
+        }
+    }
+    impl Eq for Worst {}
+    impl PartialOrd for Worst {
+        fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+            Some(self.cmp(o))
+        }
+    }
+    impl Ord for Worst {
+        fn cmp(&self, o: &Self) -> Ordering {
+            self.0
+                .distance
+                .partial_cmp(&o.0.distance)
+                .unwrap_or(Ordering::Equal)
+        }
+    }
+
+    let mut heap: BinaryHeap<Worst> = BinaryHeap::with_capacity(k + 1);
+    for shard in shards {
+        for r in shard {
+            if heap.len() < k {
+                heap.push(Worst(r.clone()));
+            } else if let Some(top) = heap.peek() {
+                if r.distance < top.0.distance {
+                    heap.pop();
+                    heap.push(Worst(r.clone()));
+                }
+            }
+        }
+    }
+    let mut out: Vec<SearchResult> = heap.into_iter().map(|w| w.0).collect();
+    out.sort_by(|a, b| {
+        a.distance
+            .partial_cmp(&b.distance)
+            .unwrap_or(Ordering::Equal)
+    });
+    out
 }
 
 /// Train `m` PQ subspace codebooks (each 256 entries of `dsub`) over `vectors`.

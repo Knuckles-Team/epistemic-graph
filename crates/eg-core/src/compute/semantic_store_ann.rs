@@ -349,6 +349,32 @@ impl SemanticStore {
         self.brute_force_search(query_embedding, n_results)
     }
 
+    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-070). The predicate is
+    /// pushed INTO the ANN scan (or the exact brute-force fallback) so filtering happens
+    /// DURING the probe rather than as an over-fetch + post-filter in the planner. Same
+    /// backend-selection logic as [`Self::semantic_search`]: brute force below the build
+    /// threshold or while the index is cold/stale, the eg-ann index otherwise.
+    pub fn semantic_search_filtered(
+        &self,
+        query_embedding: &[f32],
+        n_results: usize,
+        allow: impl Fn(&str) -> bool + Sync,
+    ) -> Vec<(String, f32)> {
+        if self.arena.len() < BRUTE_FORCE_THRESHOLD.max(ANN_BUILD_THRESHOLD) {
+            return self.brute_force_search_filtered(query_embedding, n_results, allow);
+        }
+        if self.state.load(Ordering::Acquire) == STATE_READY {
+            if let Some(guard) = self.index.try_read() {
+                if let Some(ann) = guard.as_ref() {
+                    if *self.built_len.read() == self.arena.len() {
+                        return ann.search_filtered(query_embedding, n_results, allow);
+                    }
+                }
+            }
+        }
+        self.brute_force_search_filtered(query_embedding, n_results, allow)
+    }
+
     /// True once a fresh ANN index is resident (the "semantic index ready" signal).
     pub fn is_ready(&self) -> bool {
         self.state.load(Ordering::Acquire) == STATE_READY
@@ -417,6 +443,19 @@ impl SemanticStore {
     /// L2 norm rather than recomputing `√(emb·emb)`, so cosine is ONE dot product per
     /// candidate. String ids are cloned only for the surviving top-k.
     fn brute_force_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
+        self.brute_force_search_filtered(query_embedding, n_results, |_| true)
+    }
+
+    /// Brute-force cosine search restricted to ids that pass `allow` (CONCEPT:EG-070 —
+    /// the exact fallback for the pre-filtered path when the ANN index is cold/stale or
+    /// the store is below the build threshold). The predicate is applied INSIDE the
+    /// parallel scan so disallowed rows never reach the top-k.
+    fn brute_force_search_filtered(
+        &self,
+        query_embedding: &[f32],
+        n_results: usize,
+        allow: impl Fn(&str) -> bool + Sync,
+    ) -> Vec<(String, f32)> {
         let arena = &self.arena;
         if arena.is_empty() || n_results == 0 || arena.dim == 0 {
             return Vec::new();
@@ -439,7 +478,7 @@ impl SemanticStore {
             .enumerate()
             .filter_map(|(row, emb)| {
                 let emb_norm = norms[row]; // CONCEPT:EG-016 cached
-                if emb_norm == 0.0 {
+                if emb_norm == 0.0 || !allow(arena.ids[row].as_str()) {
                     None
                 } else {
                     let similarity = dot_product(query_embedding, emb) * inv_qnorm / emb_norm;
