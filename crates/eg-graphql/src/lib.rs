@@ -50,6 +50,13 @@
 /// features, so federation rides into graphql/node/full — see `Cargo.toml`).
 #[cfg(feature = "federation")]
 pub mod federation;
+/// CONCEPT:EG-296 — GraphQL enterprise hardening: query depth/complexity limits, a total
+/// field-count cap, Automatic Persisted Queries (APQ, sha256 registry), and an
+/// introspection toggle, bundled into a [`hardening::GraphQlPolicy`] applied by
+/// [`hardening::execute_with_policy`] BEFORE the existing resolver runs. Gated by the
+/// `hardening` sub-feature (default-on; rides into graphql/node/full — see `Cargo.toml`).
+#[cfg(feature = "hardening")]
+pub mod hardening;
 pub mod mutation;
 pub mod parser;
 pub mod resolver;
@@ -58,6 +65,11 @@ pub mod subscription;
 
 #[cfg(feature = "federation")]
 pub use federation::{EntityMeta, FederatedSchema, FieldFedMeta, KeyDirective};
+#[cfg(feature = "hardening")]
+pub use hardening::{
+    execute_with_policy, ApqRegistry, GraphQlPolicy, GraphQlRequest, QueryCost,
+    PERSISTED_QUERY_NOT_FOUND,
+};
 pub use mutation::execute as execute_mutation;
 pub use parser::{parse, parse_operation, GqlError, Mutation, Operation, Query, Subscription};
 pub use resolver::{execute, execute_query, execute_with_variables};
