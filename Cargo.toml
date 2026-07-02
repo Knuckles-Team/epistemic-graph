@@ -183,7 +183,7 @@ tensor = ["query", "dep:eg-plan", "eg-plan/tensor", "eg-types/tensor"]
 # tier). A default/pi build links NO eg-stream (asserted by `cargo tree`). EG-067
 # `Op::Window` is the windowing primitive; the live standing-query loop fed by the EG-064
 # CDC bus is a documented follow-up.
-stream = ["query", "dep:eg-plan", "eg-plan/stream", "eg-types/stream"]
+stream = ["query", "dep:eg-plan", "eg-plan/stream", "eg-types/stream", "dep:eg-stream", "eg-stream/stream"]
 # Natural-language query surface (CONCEPT:EG-078/EG-080): the NL→query planning SEAM
 # (`eg_plan::NlPlanner` + the LLM-optional `Option<&dyn NlPlanner>` entry point) and the
 # concrete standalone `UreqNlPlanner`, plus the facade wiring — the `Method::NlQuery`
@@ -638,6 +638,13 @@ eg-query = { path = "crates/eg-query", optional = true }
 # DataFusion FILTER leg is gated by eg-plan's own `query`; pulled only with the
 # facade `query`, so a default/Pi build links neither it nor DataFusion.
 eg-plan = { path = "crates/eg-plan", optional = true }
+# Optional live CEP standing-query engine (feature `stream`, CONCEPT:EG-088/EG-299). The
+# BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
+# DIRECT edge (with eg-stream's own `stream` feature, the ONLY thing that pulls tokio in
+# that leaf crate) makes `eg_stream::live::CepEngine` nameable so the server can own a live
+# standing-query surface (`src/server/cep.rs`) fed by the CDC hub. Pulled ONLY under
+# `stream`; a default/pi build links no eg-stream (and never its tokio bits).
+eg-stream = { path = "crates/eg-stream", optional = true }
 # Optional native time-series store + primitives (feature `tsdb`, CONCEPT:KG-2.210/
 # 211); pulls redb only (native primitives), and DataFusion only when `query` is ALSO
 # on (its `arrow-seg` feature, enabled transitively by the facade `query` feature).

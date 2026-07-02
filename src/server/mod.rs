@@ -20,6 +20,14 @@ pub mod kv;
 // dep, folds into pi/node/cluster/full). A build without it compiles none of it.
 #[cfg(feature = "streaming")]
 pub mod cdc;
+// Live CEP standing-query surface (CONCEPT:EG-299): the PUSH half of the event-stream +
+// CEP modality (CONCEPT:EG-088). Owns an `eg_stream::live::CepEngine` (feature `stream`)
+// adapted onto the CDC feed (feature `streaming`) — register a CEP pattern once, then
+// poll pushed matches. Needs BOTH: the CDC hub to feed it (`streaming`) AND the live NFA
+// engine (`stream`, the only thing that pulls eg-stream's tokio). A build with one but
+// not the other compiles none of it.
+#[cfg(all(feature = "streaming", feature = "stream"))]
+pub mod cep;
 // Distributed result-cache coherence over the CDC feed (CONCEPT:KG-2.233): a replica
 // tailing CDC invalidates its local version-keyed result cache on a remote write.
 // Needs BOTH the cache (`result-cache`) and the CDC feed (`streaming`).

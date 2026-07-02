@@ -2092,6 +2092,49 @@ pub enum Method {
         #[serde(default)]
         limit: u32,
     },
+
+    // ── Live CEP standing queries (CONCEPT:EG-299) ───────────────────────────
+    // The PUSH half of the event-stream + complex-event-processing modality
+    // (CONCEPT:EG-088): register a CEP pattern ONCE as a live standing query, then
+    // pull the matches it detects as CDC changes flow. The CDC hub (feature
+    // `streaming`) is adapted into an `eg_stream::Event` bus that feeds the live
+    // `eg_stream::live::CepEngine` (feature `stream`); each detected `Match` is fanned
+    // to the registering subscriber over a broadcast channel with drop-oldest + lag
+    // backpressure. Transport-compatible with everything else here: one Request → one
+    // Response, cursor-free — `CepPoll` LONG-POLLS (like `Watch`) for the next match.
+    // Gated `streaming` on the wire so the variants exist wherever the CDC surface
+    // does; the ENGINE (and thus a real handler) additionally needs `stream` — a build
+    // with `streaming` but not `stream` (e.g. `pi`) drops these to the dispatch
+    // "not available in this build" catch-all, exactly like any other feature-off op.
+    /// Register a live CEP standing query (CONCEPT:EG-299). `pattern_msgpack` is a
+    /// MessagePack `CepPatternSpec` (the same pattern algebra `Op::Cep` carries); `buffer`
+    /// (0 ⇒ a default) bounds how many unconsumed matches are retained for a lagging
+    /// poller before the oldest are dropped. Returns a `Count` — the subscription id to
+    /// pass to `CepPoll` / `CepUnsubscribe`.
+    #[cfg(feature = "streaming")]
+    CepSubscribe {
+        #[serde(with = "serde_bytes")]
+        pattern_msgpack: Vec<u8>,
+        #[serde(default)]
+        buffer: u32,
+    },
+    /// Poll a CEP subscription for the matches pushed since the last poll
+    /// (CONCEPT:EG-299), blocking up to `timeout_ms` for the FIRST one if none are ready
+    /// (then returns whatever arrived). Returns a `Raw` `Vec<eg_stream::Match>`; an empty
+    /// vec means "nothing yet" (re-poll to keep tailing). A dropped subscription (unknown
+    /// `sub_id`) is an error.
+    #[cfg(feature = "streaming")]
+    CepPoll {
+        sub_id: u64,
+        #[serde(default)]
+        timeout_ms: u64,
+    },
+    /// Drop a CEP standing query + its subscriber (CONCEPT:EG-299). Returns `Bool` (true
+    /// if it existed).
+    #[cfg(feature = "streaming")]
+    CepUnsubscribe {
+        sub_id: u64,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────

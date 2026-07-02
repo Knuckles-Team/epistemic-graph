@@ -715,6 +715,25 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Live CEP standing queries (CONCEPT:EG-299) ───────────────
+        // The PUSH half of the event-stream + CEP modality: register a CEP pattern once
+        // (CepSubscribe), then long-poll the matches it detects as CDC changes flow
+        // (CepPoll). The engine is fed by the CDC hub (the write side lives in the
+        // dispatch write-side-effect block via `CepSurface::feed_change`); this is the
+        // register + poll surface over it. NOT graph-mutating, so it self-routes here
+        // BEFORE the per-graph chain (like the streaming/tsdb/blob surfaces). Gated
+        // `all(streaming, stream)`: the CDC feed AND the live NFA engine. A build missing
+        // either (e.g. `pi` — streaming, no stream) omits this arm; the `Cep*` variants
+        // (gated `streaming`) then fall to the graph_ops not-available catch-all.
+        #[cfg(all(feature = "streaming", feature = "stream"))]
+        Method::CepSubscribe { .. } | Method::CepPoll { .. } | Method::CepUnsubscribe { .. } => {
+            match crate::server::cep::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: every variant matched above is a CEP method.
+                Err(_) => Response::err(req.id, "cep dispatch routing error"),
+            }
+        }
+
         // ── Distributed OWL reasoning (CONCEPT:KG-2.236) ─────────────
         // Cross-shard: reasons over the UNION of several graphs, so it self-routes
         // here (with `state` to gather each shard's snapshot) BEFORE the per-graph
