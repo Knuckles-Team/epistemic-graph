@@ -65,6 +65,13 @@ pub fn execute_with_variables(
         ));
     }
     let vars = bind_variables(&doc.var_defs, variables);
+    // CONCEPT:EG-295 — an Apollo Federation subgraph query (`_service`/`_entities`) is
+    // dispatched to the federation resolver before the normal node-label root path (those
+    // meta-fields are not node labels, so `execute_query` would reject them).
+    #[cfg(feature = "federation")]
+    if crate::federation::is_federation_query(&doc) {
+        return crate::federation::resolve(view, &doc, &vars);
+    }
     let roots = flatten_document(&doc, &vars)?;
     execute_query(view, &Query { roots })
 }
@@ -123,7 +130,7 @@ pub(crate) fn flatten_document(doc: &RawDocument, vars: &Variables) -> Result<Ve
 
 /// Recursively inline a raw selection set into resolved [`Field`]s. `active` guards
 /// against fragment-spread cycles.
-fn flatten_selections(
+pub(crate) fn flatten_selections(
     items: &[RawSelection],
     frags: &HashMap<&str, &Fragment>,
     vars: &Variables,
@@ -176,7 +183,7 @@ fn flatten_selections(
 
 /// Apply `@skip(if:)` / `@include(if:)` directives (CONCEPT:EG-065): returns whether the
 /// element survives. Unknown directives are ignored.
-fn should_include(directives: &[Directive], vars: &Variables) -> Result<bool, String> {
+pub(crate) fn should_include(directives: &[Directive], vars: &Variables) -> Result<bool, String> {
     let mut include = true;
     for d in directives {
         match d.name.as_str() {
@@ -205,7 +212,7 @@ fn directive_if(d: &Directive, vars: &Variables) -> Result<bool, String> {
 
 /// Substitute `$var` references inside an argument value (recursively into lists /
 /// objects). An unbound variable resolves to `null`.
-fn subst(v: &GqlValue, vars: &Variables) -> GqlValue {
+pub(crate) fn subst(v: &GqlValue, vars: &Variables) -> GqlValue {
     match v {
         GqlValue::Var(name) => vars.get(name).cloned().unwrap_or(GqlValue::Null),
         GqlValue::List(items) => GqlValue::List(items.iter().map(|x| subst(x, vars)).collect()),
@@ -218,7 +225,7 @@ fn subst(v: &GqlValue, vars: &Variables) -> GqlValue {
     }
 }
 
-fn subst_args(args: &[(String, GqlValue)], vars: &Variables) -> Vec<(String, GqlValue)> {
+pub(crate) fn subst_args(args: &[(String, GqlValue)], vars: &Variables) -> Vec<(String, GqlValue)> {
     args.iter()
         .map(|(k, v)| (k.clone(), subst(v, vars)))
         .collect()
@@ -247,7 +254,7 @@ fn json_to_gql(v: &Value) -> GqlValue {
 /// Resolve a root field. If its selection has a relay shape (an `edges` / `pageInfo`
 /// child), return a connection envelope (CONCEPT:EG-066); otherwise return the plain
 /// `[Type]` array (unchanged behavior).
-fn resolve_root(view: &GraphView, field: &Field) -> Result<Value, String> {
+pub(crate) fn resolve_root(view: &GraphView, field: &Field) -> Result<Value, String> {
     if is_relay_selection(&field.selection) {
         resolve_connection(view, field)
     } else {
@@ -407,7 +414,7 @@ fn resolve_connection(view: &GraphView, field: &Field) -> Result<Value, String> 
 
 /// The full, deterministically (id-)sorted set of nodes carrying `label` that pass the
 /// property-equality `filters` — the ordered basis relay cursors page over.
-fn ordered_matches(
+pub(crate) fn ordered_matches(
     view: &GraphView,
     label: &str,
     filters: &[(String, Value)],
@@ -561,6 +568,15 @@ pub(crate) fn resolve_selection(
         return Ok(Value::Object(obj));
     }
     for f in selection {
+        // The `__typename` meta-field resolves to the node's primary label — needed by
+        // GraphQL introspection and by Apollo Federation `_entities` selections
+        // (CONCEPT:EG-295), which typically select `__typename` alongside an inline
+        // fragment per entity type.
+        if f.name == "__typename" && f.selection.is_empty() {
+            let tn = node_labels(val).into_iter().next().unwrap_or_default();
+            obj.insert(f.alias.clone(), Value::String(tn));
+            continue;
+        }
         if f.selection.is_empty() && f.args.is_empty() {
             // scalar field: the node property (or `id`), `null` if absent.
             let cell = if f.name == "id" {
