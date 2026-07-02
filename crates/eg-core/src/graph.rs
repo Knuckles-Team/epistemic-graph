@@ -120,6 +120,56 @@ struct PathIndex {
     present: HashMap<String, Vec<String>>,
 }
 
+impl PathIndex {
+    /// Convert the live (HashMap) index into its durable, deterministic snapshot form
+    /// (CONCEPT:EG-308). `stamp` is the source graph's OCC `version()` at persist time.
+    /// The BTreeMap conversion normalizes key order so the persisted bytes are stable.
+    fn to_persisted(&self, stamp: u64) -> crate::path_persist::PersistedPathIndex {
+        let by_value = self
+            .by_value
+            .iter()
+            .map(|(path, vals)| {
+                (
+                    path.clone(),
+                    vals.iter().map(|(v, ids)| (v.clone(), ids.clone())).collect(),
+                )
+            })
+            .collect();
+        let present = self
+            .present
+            .iter()
+            .map(|(path, ids)| (path.clone(), ids.clone()))
+            .collect();
+        crate::path_persist::PersistedPathIndex {
+            by_value,
+            present,
+            stamp,
+        }
+    }
+
+    /// Rehydrate a live (HashMap) index from its durable snapshot form (CONCEPT:EG-308).
+    /// An empty snapshot yields the cold in-memory default, so a warm-start over an
+    /// empty store is byte-for-byte the pre-EG-308 boot state.
+    fn from_persisted(snap: &crate::path_persist::PersistedPathIndex) -> Self {
+        let by_value = snap
+            .by_value
+            .iter()
+            .map(|(path, vals)| {
+                (
+                    path.clone(),
+                    vals.iter().map(|(v, ids)| (v.clone(), ids.clone())).collect(),
+                )
+            })
+            .collect();
+        let present = snap
+            .present
+            .iter()
+            .map(|(path, ids)| (path.clone(), ids.clone()))
+            .collect();
+        PathIndex { by_value, present }
+    }
+}
+
 /// Default cap on the number of distinct JSONPaths ever indexed (CONCEPT:EG-084).
 const DEFAULT_MAX_INDEXED_JSON_PATHS: usize = 64;
 
@@ -289,6 +339,15 @@ pub struct GraphCore {
     /// validity must NOT key on node count. `None` until first use / after
     /// invalidation.
     path_index: RwLock<Option<PathIndex>>,
+    /// Durable persistence for the JSONPath path-index (CONCEPT:EG-308). When a store
+    /// is attached (a persist dir is configured), the demand-driven `path_index` is
+    /// written through on each (re)build and rehydrated at boot via
+    /// [`GraphCore::rehydrate_path_index`], so a restart skips the full node rescan the
+    /// EG-084 build would otherwise pay on the first JSON filter after a cold start.
+    /// The seam is a dep-free trait object (the redb impl is feature-gated), so the
+    /// default/Pi build links nothing extra. `None` (the default) ⇒ the path-index is
+    /// fully in-memory and every write-through is a no-op — the pre-EG-308 behavior.
+    path_index_store: RwLock<Option<Arc<dyn crate::path_persist::PathIndexPersistence>>>,
     /// The unified secondary-index registry/seam (CONCEPT:KG-2.213). Owns the
     /// `SecondaryIndex` descriptors (label, property, + discoverable vector /
     /// ontology) so a planner consults ONE registry — `index_for(predicate)` /
@@ -1604,6 +1663,8 @@ impl GraphCore {
             property_index: RwLock::new(None),
             // CONCEPT:EG-084 — cold JSONPath path-index; built lazily on first use.
             path_index: RwLock::new(None),
+            // CONCEPT:EG-308 — no durable path-index store until one is attached.
+            path_index_store: RwLock::new(None),
             index_manager: crate::index::IndexManager::with_default_indexes(),
             read_through: RwLock::new(None),
             #[cfg(feature = "result-cache")]
@@ -2426,6 +2487,10 @@ impl GraphCore {
     #[allow(clippy::map_entry)]
     fn ensure_json_path_indexed(&self, idx: &mut PathIndex, path: &str) -> Option<()> {
         let cap = Self::max_indexed_json_paths();
+        // Track whether we built anything, so a durable store (CONCEPT:EG-308) is
+        // written through exactly once per demand-driven (re)build — not on a pure
+        // cache hit where the path was already indexed.
+        let mut changed = false;
         if idx.by_value.is_empty() && idx.present.is_empty() {
             for seed in Self::seed_indexed_json_paths() {
                 if idx.by_value.len() >= cap || idx.by_value.contains_key(&seed) {
@@ -2434,18 +2499,107 @@ impl GraphCore {
                 let (by_value, present) = self.build_json_path_maps(&seed);
                 idx.by_value.insert(seed.clone(), by_value);
                 idx.present.insert(seed, present);
+                changed = true;
             }
         }
         if idx.by_value.contains_key(path) {
+            // CONCEPT:EG-308 — a rehydrated seed set (or an earlier same-guard build)
+            // already covers `path`; persist the seed build if it happened, then hit.
+            if changed {
+                self.persist_path_index(idx);
+            }
             return Some(());
         }
         if idx.by_value.len() >= cap {
+            if changed {
+                self.persist_path_index(idx);
+            }
             return None;
         }
         let (by_value, present) = self.build_json_path_maps(path);
         idx.by_value.insert(path.to_string(), by_value);
         idx.present.insert(path.to_string(), present);
+        // CONCEPT:EG-308 — write the freshly (re)built index through to the durable
+        // store so a restart rehydrates it instead of rescanning every node. A no-op
+        // when no store is attached (the default), so the in-memory path is unchanged.
+        self.persist_path_index(idx);
         Some(())
+    }
+
+    /// Attach a durable JSONPath-index store (CONCEPT:EG-308). Called once at startup
+    /// (only when a persist dir is configured): thereafter every demand-driven
+    /// (re)build of the path-index is written through, and [`rehydrate_path_index`]
+    /// can warm the index from the store at boot. A `GraphCore` with no store attached
+    /// behaves exactly as before — the path-index is fully in-memory.
+    ///
+    /// [`rehydrate_path_index`]: GraphCore::rehydrate_path_index
+    pub fn set_path_index_store(
+        &self,
+        store: Arc<dyn crate::path_persist::PathIndexPersistence>,
+    ) {
+        *self.path_index_store.write() = Some(store);
+    }
+
+    /// Rehydrate the persisted JSONPath index into memory at boot (CONCEPT:EG-308).
+    /// Loads the durable snapshot (if a store is attached and non-empty) and adopts it
+    /// as the live `path_index`, so the FIRST JSON filter after a restart hits the
+    /// warm index instead of paying a full node rescan. Returns the number of distinct
+    /// JSONPaths adopted (0 when no store is attached / the store is empty). A
+    /// subsequent write invalidates the index via `mark_dirty` as usual, and the next
+    /// query rebuilds-on-miss (and re-persists) — so rehydration never pins a stale
+    /// view across a mutation.
+    pub fn rehydrate_path_index(&self) -> usize {
+        let Some(store) = self.path_index_store.read().clone() else {
+            return 0;
+        };
+        let Some(snap) = store.load() else {
+            return 0;
+        };
+        if snap.is_empty() {
+            return 0;
+        }
+        let idx = PathIndex::from_persisted(&snap);
+        let adopted = idx.by_value.len();
+        *self.path_index.write() = Some(idx);
+        adopted
+    }
+
+    /// Write the current in-memory path-index through to the durable store, stamped
+    /// with the graph's OCC `version()` (CONCEPT:EG-308). A no-op when no store is
+    /// attached (the default), so the fully-in-memory path is byte-for-byte unchanged.
+    /// Best-effort: a persistence error is swallowed by the store impl (the index is
+    /// always rebuildable on demand), so it can never fail the query that triggered it.
+    fn persist_path_index(&self, idx: &PathIndex) {
+        let Some(store) = self.path_index_store.read().clone() else {
+            return;
+        };
+        let snap = idx.to_persisted(self.version());
+        store.save(&snap);
+    }
+
+    /// JSONPath filter selectivity for the planner cost `Stats` (CONCEPT:EG-308 —
+    /// hooking the EG-084 inverted-index id counts into the cross-modal cost model,
+    /// CONCEPT:KG-2.209). Returns the fraction of property-bearing nodes that pass the
+    /// filter, in `[0,1]` — exactly the `filter_selectivity` a planner feeds
+    /// `eg_plan::cost::Stats::estimate` to order a Filter/Rank pair:
+    ///   * `value = Some(v)` — an EQUALITY filter (`props->>'k' = 'v'`): the count from
+    ///     [`nodes_by_json_path`](GraphCore::nodes_by_json_path) over `|nodes|`;
+    ///   * `value = None` — an EXISTENCE/`@>` filter: the count from
+    ///     [`nodes_with_json_path`](GraphCore::nodes_with_json_path) over `|nodes|`.
+    ///
+    /// Returns `None` when `path` cannot be indexed under the bound (the planner then
+    /// falls back to its default estimate) — the SAME bound the two count methods use,
+    /// so the selectivity source never triggers a build the query itself wouldn't.
+    pub fn json_path_selectivity(&self, path: &str, value: Option<&str>) -> Option<f64> {
+        let total = self.node_properties.len();
+        if total == 0 {
+            return Some(0.0);
+        }
+        let matched = match value {
+            Some(v) => self.nodes_by_json_path(path, v)?.len(),
+            None => self.nodes_with_json_path(path)?.len(),
+        };
+        Some((matched as f64 / total as f64).clamp(0.0, 1.0))
     }
 
     /// Scan the node store once and build, for one JSONPath, both the `value → ids`
@@ -3198,6 +3352,10 @@ impl GraphCore {
             property_index: RwLock::new(None),
             // CONCEPT:EG-084 — fork starts with a cold JSONPath path-index too.
             path_index: RwLock::new(None),
+            // CONCEPT:EG-308 — a fork is a fresh, detached graph (not registered, not
+            // backed by a durable tier), so it carries no path-index store; its
+            // path-index stays fully in-memory.
+            path_index_store: RwLock::new(None),
             // A fork gets its own default index registry (the registry is fixed
             // metadata, not graph state) (CONCEPT:KG-2.213).
             index_manager: crate::index::IndexManager::with_default_indexes(),
@@ -4799,6 +4957,137 @@ mod tests {
         // Second distinct path exceeds the cap -> None (caller full-scans).
         assert!(core.nodes_by_json_path("$.meta.year", "2024").is_none());
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+    }
+
+    // ── durable JSONPath index persistence (CONCEPT:EG-308) ───────────────────
+
+    /// CONCEPT:EG-308 — a demand-driven build is written through to the store, and a
+    /// FRESH graph rehydrates it at boot and serves the JSON filter WITHOUT any node
+    /// data (proving the answer came from the persisted index, not a rescan). Sharing
+    /// one `InMemoryPathIndexStore` `Arc` across the two cores simulates a save→reopen.
+    #[test]
+    fn eg308_path_index_rehydrates_from_store_without_rescan() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let store: Arc<dyn crate::path_persist::PathIndexPersistence> =
+            Arc::new(crate::path_persist::InMemoryPathIndexStore::new());
+
+        // Core 1: build the index over real nodes -> write-through persists it.
+        let core1 = json_graph();
+        core1.set_path_index_store(store.clone());
+        let mut rust = core1.nodes_by_json_path("$.meta.lang", "rust").unwrap();
+        rust.sort();
+        assert_eq!(rust, vec!["n1", "n3"]);
+        let _ = core1.nodes_with_json_path("$.tags").unwrap();
+        // The store now holds the built snapshot.
+        let snap = store.load().expect("build wrote the index through");
+        assert!(snap.by_value.contains_key("$.meta.lang"));
+        assert!(snap.present.contains_key("$.tags"));
+
+        // Core 2: a FRESH, EMPTY graph (no nodes at all) attached to the SAME store.
+        let core2 = GraphCore::new();
+        core2.set_path_index_store(store.clone());
+        assert_eq!(core2.node_count(), 0, "core2 has no node data");
+        let adopted = core2.rehydrate_path_index();
+        assert!(adopted >= 1, "rehydrate adopts the persisted paths");
+        // Served purely from the rehydrated index — a rescan of core2's (empty) node
+        // store could NOT produce these ids.
+        let mut rust2 = core2.nodes_by_json_path("$.meta.lang", "rust").unwrap();
+        rust2.sort();
+        assert_eq!(rust2, vec!["n1", "n3"], "rehydrated index answers the filter");
+        let mut tags2 = core2.nodes_with_json_path("$.tags").unwrap();
+        tags2.sort();
+        assert_eq!(tags2, vec!["n1", "n2"]);
+    }
+
+    /// CONCEPT:EG-308 — after a mutation the in-memory index is invalidated and rebuilt
+    /// on the next query, and that rebuild RE-PERSISTS, so the durable snapshot tracks
+    /// the new graph state (never a stale view across a write).
+    #[test]
+    fn eg308_path_index_persist_stays_consistent_after_mutation() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let store: Arc<dyn crate::path_persist::PathIndexPersistence> =
+            Arc::new(crate::path_persist::InMemoryPathIndexStore::new());
+        let core = json_graph();
+        core.set_path_index_store(store.clone());
+
+        assert_eq!(
+            core.nodes_by_json_path("$.meta.lang", "rust").unwrap(),
+            vec!["n1", "n3"]
+        );
+        let v0 = core.version();
+        let snap0 = store.load().unwrap();
+        assert_eq!(snap0.stamp, v0, "snapshot is stamped with the build version");
+
+        // Mutate: add n5 as rust. mark_dirty drops the in-memory index (and the
+        // persisted copy is now stale until the next rebuild).
+        core.add_node(
+            "n5".into(),
+            props(serde_json::json!({"type": "Doc", "meta": {"lang": "rust"}})),
+        );
+        core.mark_dirty();
+        assert_ne!(core.version(), v0, "write bumps version");
+
+        // The next query rebuilds AND re-persists at the new version.
+        let mut rust = core.nodes_by_json_path("$.meta.lang", "rust").unwrap();
+        rust.sort();
+        assert_eq!(rust, vec!["n1", "n3", "n5"], "rebuilt index reflects the add");
+        let snap1 = store.load().unwrap();
+        assert_eq!(
+            snap1.by_value["$.meta.lang"]["rust"],
+            vec!["n1".to_string(), "n3".to_string(), "n5".to_string()],
+            "persisted snapshot tracks the mutation"
+        );
+        assert_eq!(snap1.stamp, core.version(), "re-persist restamps");
+    }
+
+    /// CONCEPT:EG-308 — the inverted-index id counts feed the planner cost `Stats`
+    /// selectivity: `json_path_selectivity` returns |matching ids| / |nodes| for an
+    /// equality (`Some`) or existence (`None`) filter, and `None` when unindexable.
+    #[test]
+    fn eg308_json_path_selectivity_from_index_counts() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let core = json_graph(); // 3 nodes: n1/n3 rust, n2 go; n1/n2 have tags
+        // Equality: 2 of 3 nodes match `$.meta.lang = rust`.
+        let sel_rust = core.json_path_selectivity("$.meta.lang", Some("rust")).unwrap();
+        assert!((sel_rust - 2.0 / 3.0).abs() < 1e-9, "got {sel_rust}");
+        // Equality: 1 of 3 match `go`.
+        let sel_go = core.json_path_selectivity("$.meta.lang", Some("go")).unwrap();
+        assert!((sel_go - 1.0 / 3.0).abs() < 1e-9, "got {sel_go}");
+        // Existence: 2 of 3 have `$.tags`.
+        let sel_tags = core.json_path_selectivity("$.tags", None).unwrap();
+        assert!((sel_tags - 2.0 / 3.0).abs() < 1e-9, "got {sel_tags}");
+        // A more selective filter yields a smaller fraction than a broad one — the
+        // exact signal the cost model's filter-first/vector-first choice keys on.
+        assert!(sel_go < sel_rust);
+
+        // Unindexable under a cap-of-1: the second distinct path returns None so the
+        // planner falls back to its default estimate (same bound as the count methods).
+        std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS", "1");
+        let capped = json_graph();
+        assert!(capped.json_path_selectivity("$.meta.lang", Some("rust")).is_some());
+        assert!(capped.json_path_selectivity("$.meta.year", None).is_none());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+    }
+
+    /// CONCEPT:EG-308 — with NO store attached (the default), the path-index stays
+    /// fully in-memory: `rehydrate_path_index` is a 0-op and queries behave exactly as
+    /// the pre-EG-308 EG-084 path.
+    #[test]
+    fn eg308_no_store_leaves_path_index_in_memory_unchanged() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let core = json_graph();
+        assert_eq!(core.rehydrate_path_index(), 0, "no store -> nothing to adopt");
+        let mut rust = core.nodes_by_json_path("$.meta.lang", "rust").unwrap();
+        rust.sort();
+        assert_eq!(rust, vec!["n1", "n3"], "unchanged EG-084 behavior");
     }
 
     /// CONCEPT:EG-064 — a committed write emits a `ChangeEvent` carrying the bumped
