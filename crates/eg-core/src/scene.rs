@@ -44,7 +44,7 @@ impl Vec3 {
         Vec3::new(self.x * o.x, self.y * o.y, self.z * o.z)
     }
 
-    pub fn add(self, o: Vec3) -> Vec3 {
+    pub fn add_vec(self, o: Vec3) -> Vec3 {
         Vec3::new(self.x + o.x, self.y + o.y, self.z + o.z)
     }
 
@@ -90,7 +90,7 @@ impl Quat {
     }
 
     /// Hamilton product `self * rhs` (apply `self`'s rotation after `rhs`'s).
-    pub fn mul(self, r: Quat) -> Quat {
+    pub fn mul_quat(self, r: Quat) -> Quat {
         Quat {
             w: self.w * r.w - self.x * r.x - self.y * r.y - self.z * r.z,
             x: self.w * r.x + self.x * r.w + self.y * r.z - self.z * r.y,
@@ -104,8 +104,8 @@ impl Quat {
         let u = Vec3::new(self.x, self.y, self.z);
         let t = u.cross(v);
         let t = Vec3::new(2.0 * t.x, 2.0 * t.y, 2.0 * t.z);
-        v.add(Vec3::new(self.w * t.x, self.w * t.y, self.w * t.z))
-            .add(u.cross(t))
+        v.add_vec(Vec3::new(self.w * t.x, self.w * t.y, self.w * t.z))
+            .add_vec(u.cross(t))
     }
 
     fn to_json(self) -> Value {
@@ -147,7 +147,7 @@ impl Pose {
     /// `translation + rotation · (scale ⊙ p)`.
     pub fn transform_point(&self, p: Vec3) -> Vec3 {
         self.translation
-            .add(self.rotation.rotate(self.scale.mul_comp(p)))
+            .add_vec(self.rotation.rotate(self.scale.mul_comp(p)))
     }
 
     /// Compose `self` (the PARENT world pose) with `child` (a child's LOCAL pose),
@@ -160,8 +160,8 @@ impl Pose {
         Pose {
             translation: self
                 .translation
-                .add(self.rotation.rotate(self.scale.mul_comp(child.translation))),
-            rotation: self.rotation.mul(child.rotation),
+                .add_vec(self.rotation.rotate(self.scale.mul_comp(child.translation))),
+            rotation: self.rotation.mul_quat(child.rotation),
             scale: self.scale.mul_comp(child.scale),
         }
     }
