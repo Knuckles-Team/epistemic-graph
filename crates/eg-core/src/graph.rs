@@ -650,6 +650,55 @@ impl GraphCore {
             .compare_and_set_fields(node_id, conditions, updates)
     }
 
+    /// Atomically claim the oldest pending node of `label` (CONCEPT:KG-2.303 —
+    /// native task queue). Scans `label`'s nodes (via the O(1) label index) for
+    /// the smallest `seq` whose `status == "pending"`, then CAS-merges `updates`
+    /// (condition `status == "pending"`) under one topology write guard. Returns
+    /// `(node_id, updated_properties)` or `None` if nothing was claimable.
+    ///
+    /// Deterministic: the pick is a total order on the unique `seq` (ties broken
+    /// by `node_id`) — a pure function of graph state — and `updates` carries no
+    /// clock, so WAL replay and the Raft state machine reproduce the identical
+    /// claim. This is the single-round-trip form of the client scan+CAS.
+    pub fn claim_next_fields(
+        &self,
+        label: &str,
+        updates: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<(String, serde_json::Value)> {
+        let rows = self.get_nodes_by_label(label, 0);
+        let mut best: Option<(String, i64)> = None;
+        for (id, blob) in &rows {
+            let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+                continue;
+            };
+            let Some(obj) = v.as_object() else { continue };
+            if obj.get("status").and_then(|s| s.as_str()) != Some("pending") {
+                continue;
+            }
+            let seq = obj.get("seq").and_then(|s| s.as_i64()).unwrap_or(i64::MAX);
+            let better = match &best {
+                None => true,
+                Some((bid, bseq)) => seq < *bseq || (seq == *bseq && id < bid),
+            };
+            if better {
+                best = Some((id.clone(), seq));
+            }
+        }
+        let (id, _) = best?;
+        let mut conditions = serde_json::Map::new();
+        conditions.insert(
+            "status".to_string(),
+            serde_json::Value::String("pending".to_string()),
+        );
+        if self.compare_and_set_fields(&id, &conditions, updates) {
+            let blob = self.node_properties.get(&id)?;
+            let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            Some((id, val))
+        } else {
+            None
+        }
+    }
+
     /// One-shot non-destructive edge invalidation (CONCEPT:KG-2.251). See
     /// [`GraphTxn::invalidate_edge`]; runs under one topology write guard.
     pub fn invalidate_edge(
