@@ -797,3 +797,232 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     backend2.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 9. EG-082 NON-BLOCKING commit (Paxos-Commit-lite) — the decision is
+//    REPLICATED through a Raft group, not held in the coordinator's private
+//    redb, so a coordinator crash between decision and apply does NOT block:
+//    a different resolver learns the decision from the replicated log and
+//    finishes the txn. Proves (a) atomicity, (b) the removed blocking window,
+//    (c) agreement with 2PC on commit/abort for the same inputs.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The dedicated cross-shard DECISION Raft group (CONCEPT:EG-082): the commit/abort
+/// record is Raft-replicated into a graph here instead of the coordinator's redb.
+const GROUP_D: u64 = 400;
+
+/// Add the decision group to a running node and wait for it to elect its leader.
+async fn add_decision_group(multi: &Arc<MultiRaft>) {
+    multi
+        .ensure_group(GROUP_D)
+        .await
+        .expect("ensure decision group D");
+    let g = multi.group(GROUP_D).await.expect("decision group D exists");
+    wait_until(Duration::from_secs(15), || {
+        let g = g.clone();
+        async move { g.current_leader().await == Some(1u64) }
+    })
+    .await
+    .expect("decision group D must elect a leader");
+}
+
+/// (a) ATOMICITY + the replicated-decision mechanic: a non-blocking cross-shard commit
+/// lands on BOTH participants, the decision is replicated (NOT in coordinator redb), and
+/// the replicated decision node is GC'd after resolution.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn nonblocking_commit_is_atomic_via_replicated_decision() {
+    let dir = fresh_dir("nbhappy");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+    add_decision_group(&multi).await;
+
+    let txn = two_shard_txn("t-nb-happy", "na1", "nb1");
+    let outcome = coord
+        .commit_cross_shard_nonblocking(&txn, GROUP_D)
+        .await
+        .expect("commit");
+    assert_eq!(outcome, TxnOutcome::Committed);
+
+    // BOTH graphs committed — all-or-nothing landed everywhere.
+    assert_eq!(node_count(&state, GRAPH_A).await, 1, "shardA committed");
+    assert_eq!(node_count(&state, GRAPH_B).await, 1, "shardB committed");
+
+    let redb = backend.as_redb().unwrap();
+    // THE DISTINGUISHING INVARIANT: the non-blocking path NEVER writes the
+    // coordinator-private redb decision record — the decision lived only in the
+    // replicated log.
+    assert_eq!(
+        redb.xshard_decision_get("t-nb-happy").unwrap(),
+        None,
+        "non-blocking commit never writes the coordinator-private redb decision"
+    );
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "prepares cleared"
+    );
+    // The replicated decision node is GC'd after the txn resolved.
+    assert_eq!(
+        coord.learn_decision("t-nb-happy").await.unwrap(),
+        None,
+        "replicated decision GC'd after commit"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// (b) THE NON-BLOCKING WIN: replicate a COMMIT decision, then DROP the coordinator that
+/// made it (a crash between decision and apply). A DIFFERENT resolver — a fresh
+/// coordinator over the SAME live groups, the in-process analog of a surviving replica /
+/// another node — learns the decision from the REPLICATED log and drives phase 2 to
+/// completion. Progress happens WITHOUT the original coordinator: no blocking window.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block() {
+    let dir = fresh_dir("nblive");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+    add_decision_group(&multi).await;
+
+    let txn_id = "t-nb-live";
+    let txn = two_shard_txn(txn_id, "la", "lb");
+    // PHASE 1 durable prepare, then REPLICATE the COMMIT decision — but do NOT apply.
+    assert!(coord.prepare_only(&txn).await.expect("prepare"));
+    coord
+        .decide_replicated_only(txn_id, GROUP_D, true)
+        .await
+        .expect("replicate decision");
+
+    // The decision is readable from the REPLICATED state, and is NOT in coordinator redb.
+    assert_eq!(
+        coord.learn_decision(txn_id).await.unwrap(),
+        Some(true),
+        "decision readable from the replicated log"
+    );
+    let redb = backend.as_redb().unwrap();
+    assert_eq!(
+        redb.xshard_decision_get(txn_id).unwrap(),
+        None,
+        "decision is only in the replicated log, not the coordinator-private redb"
+    );
+    // Nothing applied yet (crash is before phase 2).
+    assert_eq!(node_count(&state, GRAPH_A).await, 0);
+    assert_eq!(node_count(&state, GRAPH_B).await, 0);
+
+    // CRASH THE COORDINATOR: drop the instance that made the decision.
+    drop(coord);
+
+    // A DIFFERENT resolver finishes the in-doubt txn purely from the replicated decision.
+    let resolver = CrossShardCoordinator::new(multi.clone(), backend.clone());
+    let resolved = resolver
+        .recover_in_doubt_nonblocking(GROUP_D)
+        .await
+        .expect("recover");
+    assert_eq!(resolved, 1, "the in-doubt txn is resolved by a fresh resolver");
+    assert_eq!(
+        node_count(&state, GRAPH_A).await,
+        1,
+        "resolver committed A without the original coordinator"
+    );
+    assert_eq!(
+        node_count(&state, GRAPH_B).await,
+        1,
+        "resolver committed B without the original coordinator"
+    );
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "prepares cleared by the resolver"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// (c) AGREEMENT WITH 2PC — a killed participant makes the non-blocking path ABORT with
+/// NO partial commit, exactly as the 2PC path does for the same inputs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn nonblocking_aborts_like_2pc_on_killed_participant() {
+    let dir = fresh_dir("nbabort");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+    add_decision_group(&multi).await;
+
+    // KILL participant B (close group 200) — it cannot prepare.
+    multi.close_group(GROUP_B).await.unwrap();
+    assert!(multi.group(GROUP_B).await.is_none(), "B is killed");
+
+    let txn = two_shard_txn("t-nb-abort", "aa", "ab");
+    let outcome = coord
+        .commit_cross_shard_nonblocking(&txn, GROUP_D)
+        .await
+        .expect("commit returns");
+    assert_eq!(
+        outcome,
+        TxnOutcome::Aborted,
+        "agrees with 2PC: a killed participant aborts the txn"
+    );
+
+    // NO PARTIAL COMMIT: the live participant A must NOT have applied.
+    assert_eq!(node_count(&state, GRAPH_A).await, 0, "no partial commit on A");
+    assert_eq!(node_count(&state, GRAPH_B).await, 0, "B never applied");
+
+    let redb = backend.as_redb().unwrap();
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "no leaked prepares after abort"
+    );
+    assert_eq!(
+        coord.learn_decision("t-nb-abort").await.unwrap(),
+        None,
+        "replicated ABORT decision GC'd after resolution"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// (b'/presumed-abort) A crash BEFORE any decision is replicated resolves as ABORT and
+/// applies NOWHERE — the non-blocking analog of 2PC's presumed-abort (no partial commit
+/// from an undecided crash, learned from the ABSENCE of a replicated decision).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
+    let dir = fresh_dir("nbpresumed");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+    add_decision_group(&multi).await;
+
+    let txn_id = "t-nb-presumed";
+    let txn = two_shard_txn(txn_id, "pa", "pb");
+    // PHASE 1 only — prepares durable, but NO decision is ever replicated.
+    assert!(coord.prepare_only(&txn).await.expect("prepare"));
+    assert_eq!(
+        coord.learn_decision(txn_id).await.unwrap(),
+        None,
+        "no replicated decision exists"
+    );
+
+    // Recovery finds prepares with no replicated decision → presumed ABORT everywhere.
+    let resolved = coord
+        .recover_in_doubt_nonblocking(GROUP_D)
+        .await
+        .expect("recover");
+    assert_eq!(resolved, 1, "the in-doubt txn is resolved (as presumed-abort)");
+    assert_eq!(node_count(&state, GRAPH_A).await, 0, "no apply on A");
+    assert_eq!(node_count(&state, GRAPH_B).await, 0, "no apply on B");
+
+    let redb = backend.as_redb().unwrap();
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "prepares cleared on presumed-abort"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
