@@ -335,6 +335,17 @@ harness = ["raft"]
 # pulls it in too. DELIBERATELY kept OUT of `node`/`full` — the orchestrator folds it.
 wire = ["query", "server"]
 pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
+# SQLite-compatible served surface (CONCEPT:EG-075) — Phase J of the multi-wire program.
+# SQLite has NO client/server wire protocol (embedded library + file format), so this is
+# a lightweight dependency-free NDJSON-over-TCP endpoint (the same hand-rolled tokio idiom
+# as `sparql-http`/`metrics`) that accepts SQLite-dialect SQL, rewrites the SQLite-isms
+# (AUTOINCREMENT / INTEGER PRIMARY KEY / PRAGMA no-ops) and runs them through the shared
+# `WireProtocol`/`WireSession` core (CONCEPT:EG-074) — NO reimplemented SQL. PURE-RUST:
+# links NO C sqlite (no rusqlite/bundled), so it stays out of the Pi contract's forbidden
+# set. Needs `wire` (which implies `query` + `server`). DEFINED here but DELIBERATELY kept
+# OUT of node/full/cluster — the orchestrator folds it (`.db` file export/import is a
+# documented pure-Rust follow-up, NOT a C dep).
+sqlite-wire = ["wire"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
