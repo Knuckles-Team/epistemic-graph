@@ -5006,6 +5006,159 @@ mod tests {
         assert_eq!(a, b, "deterministic id independent of input order");
         assert_eq!(g.edge_count(), mid, "idempotent re-run stacks no edges");
     }
+
+    // ── Scene-graph / 3D world model (CONCEPT:EG-087) ─────────────────────────
+
+    use crate::scene::{Aabb, Pose, Quat, Vec3};
+
+    fn approx_vec(a: Vec3, b: Vec3) {
+        let e = 1e-9;
+        assert!(
+            (a.x - b.x).abs() < e && (a.y - b.y).abs() < e && (a.z - b.z).abs() < e,
+            "{a:?} != {b:?}"
+        );
+    }
+
+    /// A pose that is a pure translation.
+    fn t_pose(x: f64, y: f64, z: f64) -> Pose {
+        Pose {
+            translation: Vec3::new(x, y, z),
+            rotation: Quat::IDENTITY,
+            scale: Vec3::ONE,
+        }
+    }
+
+    #[test]
+    fn eg087_world_transform_composes_translation_over_three_levels() {
+        let g = GraphCore::new();
+        let root = g.add_scene_object(&t_pose(1.0, 0.0, 0.0), None);
+        let mid = g.add_scene_object(&t_pose(0.0, 2.0, 0.0), Some(&root));
+        let leaf = g.add_scene_object(&t_pose(0.0, 0.0, 3.0), Some(&mid));
+        // World translation is the sum of the chain (identity rotation, unit scale).
+        approx_vec(
+            g.world_transform(&leaf).unwrap().translation,
+            Vec3::new(1.0, 2.0, 3.0),
+        );
+        // Hierarchy queries.
+        assert_eq!(g.scene_children(&root), vec![mid.clone()]);
+        assert_eq!(g.scene_parent(&leaf).as_deref(), Some(mid.as_str()));
+        let mut desc = g.scene_descendants(&root);
+        desc.sort();
+        let mut expect = vec![mid.clone(), leaf.clone()];
+        expect.sort();
+        assert_eq!(desc, expect);
+    }
+
+    #[test]
+    fn eg087_world_transform_applies_parent_rotation_and_scale() {
+        let g = GraphCore::new();
+        // Parent: 90° about +Z, uniform scale 2, origin.
+        let s = std::f64::consts::FRAC_PI_4.sin();
+        let parent_pose = Pose {
+            translation: Vec3::ZERO,
+            rotation: Quat::new(0.0, 0.0, s, s),
+            scale: Vec3::new(2.0, 2.0, 2.0),
+        };
+        let parent = g.add_scene_object(&parent_pose, None);
+        // Child at local +X(1). Parent scales it to (2,0,0) then rotates +90°→(0,2,0).
+        let child = g.add_scene_object(&t_pose(1.0, 0.0, 0.0), Some(&parent));
+        let w = g.world_transform(&child).unwrap();
+        approx_vec(w.translation, Vec3::new(0.0, 2.0, 0.0));
+        // Composed scale multiplies; composed point of local origin == world t.
+        approx_vec(w.scale, Vec3::new(2.0, 2.0, 2.0));
+        approx_vec(w.transform_point(Vec3::ZERO), Vec3::new(0.0, 2.0, 0.0));
+    }
+
+    #[test]
+    fn eg087_reparent_updates_world_transform() {
+        let g = GraphCore::new();
+        let a = g.add_scene_object(&t_pose(10.0, 0.0, 0.0), None);
+        let b = g.add_scene_object(&t_pose(0.0, 20.0, 0.0), None);
+        let obj = g.add_scene_object(&t_pose(1.0, 1.0, 1.0), Some(&a));
+        approx_vec(
+            g.world_transform(&obj).unwrap().translation,
+            Vec3::new(11.0, 1.0, 1.0),
+        );
+        // Reparent under b: world recomposes down the new chain, old edge is gone.
+        assert!(g.reparent(&obj, Some(&b)));
+        approx_vec(
+            g.world_transform(&obj).unwrap().translation,
+            Vec3::new(1.0, 21.0, 1.0),
+        );
+        assert_eq!(g.scene_parent(&obj).as_deref(), Some(b.as_str()));
+        assert!(g.scene_children(&a).is_empty(), "old parent link dropped");
+        assert_eq!(g.scene_children(&b), vec![obj.clone()]);
+        // Detach to a root: world == local.
+        assert!(g.reparent(&obj, None));
+        assert!(g.scene_parent(&obj).is_none());
+        approx_vec(
+            g.world_transform(&obj).unwrap().translation,
+            Vec3::new(1.0, 1.0, 1.0),
+        );
+    }
+
+    #[test]
+    fn eg087_spatial_relations_add_and_query() {
+        let g = GraphCore::new();
+        let table = g.add_scene_object(&Pose::identity(), None);
+        let cup = g.add_scene_object(&Pose::identity(), None);
+        let book = g.add_scene_object(&Pose::identity(), None);
+        assert!(g.add_spatial_relation(&cup, &table, "ON"));
+        assert!(g.add_spatial_relation(&book, &table, "ON"));
+        assert!(g.add_spatial_relation(&table, &cup, "SUPPORTS"));
+        // Idempotent re-add is a no-op.
+        assert!(!g.add_spatial_relation(&cup, &table, "ON"));
+        // Absent endpoint / self-loop refused.
+        assert!(!g.add_spatial_relation(&cup, "ghost", "NEAR"));
+        assert!(!g.add_spatial_relation(&cup, &cup, "NEAR"));
+        let mut on = g.objects_with_relation("ON");
+        on.sort();
+        let mut expect = vec![(cup.clone(), table.clone()), (book.clone(), table.clone())];
+        expect.sort();
+        assert_eq!(on, expect);
+        assert_eq!(
+            g.objects_with_relation("SUPPORTS"),
+            vec![(table.clone(), cup.clone())]
+        );
+        assert!(g.objects_with_relation("IN").is_empty());
+    }
+
+    #[test]
+    fn eg087_bounding_volume_contains_and_intersects() {
+        let g = GraphCore::new();
+        let id = g.add_scene_object(&Pose::identity(), None);
+        assert!(g.get_bounding_volume(&id).is_none());
+        let box_ = Aabb::new(Vec3::ZERO, Vec3::new(4.0, 4.0, 4.0));
+        assert!(g.set_bounding_volume(&id, &box_));
+        let stored = g.get_bounding_volume(&id).unwrap();
+        assert_eq!(stored, box_);
+        // Pure-math predicates.
+        assert!(stored.contains_point(Vec3::new(2.0, 2.0, 2.0)));
+        assert!(!stored.contains_point(Vec3::new(5.0, 0.0, 0.0)));
+        let inner = Aabb::new(Vec3::new(1.0, 1.0, 1.0), Vec3::new(2.0, 2.0, 2.0));
+        assert!(stored.contains(&inner));
+        let overlap = Aabb::new(Vec3::new(3.0, 3.0, 3.0), Vec3::new(6.0, 6.0, 6.0));
+        assert!(stored.intersects(&overlap));
+        assert!(!stored.contains(&overlap));
+        // Pose stored on the same node still reads back independently.
+        assert!(g.get_pose(&id).is_some());
+    }
+
+    #[test]
+    fn eg087_add_scene_object_is_deterministic_and_stores_type() {
+        // Same graph state + inputs ⇒ same derived id (no RNG/clock).
+        let g1 = GraphCore::new();
+        let g2 = GraphCore::new();
+        let a = g1.add_scene_object(&t_pose(1.0, 2.0, 3.0), None);
+        let b = g2.add_scene_object(&t_pose(1.0, 2.0, 3.0), None);
+        assert_eq!(a, b, "deterministic id over (state, parent, pose)");
+        assert!(a.starts_with("scene:"));
+        let o = obj_of(&g1, &a);
+        assert_eq!(o.get("type"), Some(&serde_json::json!("SceneObject")));
+        // Absent parent is skipped — no dangling hierarchy edge, object is a root.
+        let orphan = g1.add_scene_object(&Pose::identity(), Some("ghost"));
+        assert!(g1.scene_parent(&orphan).is_none());
+    }
 }
 
 #[cfg(test)]
