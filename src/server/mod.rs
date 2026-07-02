@@ -60,6 +60,13 @@ pub mod sqlite_wire;
 // full builds compile NONE of it.
 #[cfg(feature = "mysql-wire")]
 pub mod mysql_wire;
+// MSSQL TDS wire-protocol listener (CONCEPT:EG-077). A hand-rolled TDS server — the
+// MSSQL `wire::WireProtocol` adapter (CONCEPT:EG-074), sibling of `pgwire`. Behind the
+// `mssql-wire` cargo feature (which pulls `wire`); DELIBERATELY kept OUT of
+// `node`/`full`/`pi` — the orchestrator folds it into a tier. Default builds compile
+// NONE of it.
+#[cfg(feature = "mssql-wire")]
+pub mod mssql_wire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
