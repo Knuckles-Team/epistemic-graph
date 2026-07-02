@@ -31,6 +31,15 @@
 //! * **Format I/O** (CONCEPT:EG-264): [`geojson`] (Feature/FeatureCollection with properties;
 //!   behind the `geo-io` feature), [`wkb`] (Well-Known Binary + EWKB), and [`gpx`] (GPS track /
 //!   route / waypoint reader).
+//! * **Web-map tiling** ([`tiles`], CONCEPT:EG-265): XYZ/TMS [`Tile`] addressing over
+//!   Web-Mercator (bounds ⇄ index, y-flip) + a hand-rolled Mapbox Vector Tile
+//!   ([`encode_mvt`]/[`decode_mvt`]) codec — no protobuf codegen.
+//! * **Weighted-network routing** ([`routing`], CONCEPT:EG-266): a [`Network`] of located
+//!   nodes + weighted edges with Dijkstra / A\* shortest path, [`Network::isochrone`]
+//!   reachability, and a nearest-neighbour + 2-opt TSP tour ([`solve_tsp`]).
+//! * **Map task tracking** ([`geotask`], CONCEPT:EG-267): a [`GeoTask`] (location + status +
+//!   service area) with an R-tree-backed [`GeoTaskIndex`] for bbox/polygon/nearest queries
+//!   and nearest-resource ↔ task assignment.
 //!
 //! The wire algebra (`Op::SpatialScan`/`SpatialOp`, `Pred::Spatial*`) lives in
 //! `eg-types::wire` (pure-serde, Pi-safe); the executor that drives THIS crate lives in
@@ -47,14 +56,17 @@
 pub mod algebra;
 pub mod crs;
 pub mod geodesic;
+pub mod geotask;
 #[cfg(feature = "geo-io")]
 pub mod geojson;
 pub mod geometry;
 pub mod gpx;
 pub mod predicates;
 pub mod registry;
+pub mod routing;
 pub mod rtree;
 pub mod strtree;
+pub mod tiles;
 pub mod wkb;
 pub mod wkt;
 
@@ -62,13 +74,20 @@ pub use algebra::{buffer, centroid, convex_hull, difference, intersection, simpl
 pub use crs::{reproject, Crs, SridGeometry};
 pub use geodesic::{geodesic_area, geodesic_ring_area, haversine_distance, vincenty_distance};
 pub use geometry::{Bbox, Geometry, LineString, Point, Polygon};
+pub use geotask::{nearest_resource, Assignment, GeoTask, GeoTaskIndex, TaskStatus};
 pub use gpx::{read_gpx, Gpx};
 pub use predicates::{
     contains, covers, crosses, disjoint, distance, equals, intersects, overlaps, touches, within,
 };
 pub use registry::{st_transform, Affine, CrsDef, CrsRegistry};
+pub use routing::{
+    distance_matrix, nearest_neighbour_tour, solve_tsp, tour_length, two_opt, Edge, Network, Path,
+};
 pub use rtree::RTree;
 pub use strtree::StrTree;
+pub use tiles::{
+    decode_mvt, encode_mvt, lonlat_to_tile, MvtFeature, MvtLayer, MvtValue, Tile, DEFAULT_EXTENT,
+};
 pub use wkb::{from_wkb, from_wkb_srid, to_ewkb, to_wkb};
 pub use wkt::{parse as parse_wkt, parse_with_srid, to_wkt};
 
