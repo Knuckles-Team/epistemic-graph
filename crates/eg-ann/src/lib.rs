@@ -24,6 +24,7 @@
 //! accelerator. The default build links no GPU, no faiss, no native-ML deps.
 
 pub mod flat;
+pub mod hnsw;
 pub mod ivfpq;
 pub mod kmeans;
 pub mod linalg;
@@ -34,6 +35,7 @@ pub mod recall;
 pub mod redb_store;
 
 pub use flat::{FlatIndex, Metric};
+pub use hnsw::HnswIndex;
 pub use ivfpq::{merge_topk, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB};
 pub use persist::{compact, open, save};
 pub use recall::{
