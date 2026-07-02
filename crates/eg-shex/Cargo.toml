@@ -1,0 +1,37 @@
+# eg-shex — pure-Rust ShEx (Shape Expressions) Core validation engine (CONCEPT:EG-133).
+#
+# The complement to eg-shacl (CONCEPT:EG-132): where SHACL constrains an RDF graph with
+# an RDF shapes graph, ShEx validates that focus nodes conform to *shape expressions*.
+# Sits in the DAG ABOVE eg-rdf (it reuses eg-rdf's re-exported oxrdf term/graph model —
+# the data graph is an `oxrdf::Graph`), a NON-LEAF leaf-crate: its ONLY graph dependency
+# is eg-rdf (feature `rdf`, which links oxrdf/oxttl — all pure Rust). eg-rdf does NOT
+# depend on eg-shex, so there is no DAG cycle.
+#
+# Pi contract: pure-Rust, no C/native dep. `regex` (for string `pattern` facets) is
+# already in the tree via eg-rdf's `sparql` feature (CONCEPT:EG-053) so it pins the SAME
+# crate — no new download. `serde_json` (the ShExJ abstract-syntax parser) is likewise
+# already resolved across the workspace. Folded into the engine's `shex` serving feature
+# (which implies `rdf`) by the orchestrator.
+[package]
+name = "eg-shex"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Pure-Rust ShEx (Shape Expressions) Core validation engine for the epistemic-graph engine (CONCEPT:EG-133) — parses a ShExJ schema (node constraints: nodeKind/datatype/string+numeric facets/value sets; triple constraints with cardinality; EachOf/OneOf/AND/OR/NOT combinators; shape references; CLOSED/EXTRA) and validates focus nodes of an RDF data graph against a shape map, producing a serde-serializable ShexReport. Reuses eg-rdf's oxrdf term/graph model; NO C/native deps."
+license = "MIT"
+
+[lib]
+name = "eg_shex"
+
+[dependencies]
+# The RDF term/graph model (oxrdf) + Turtle/N-Triples parse, re-exported by eg-rdf.
+# The data graph is an `eg_rdf::oxrdf::Graph`.
+eg-rdf = { path = "../eg-rdf", features = ["rdf"] }
+serde = { version = "1", features = ["derive"] }
+# The ShExJ (JSON abstract-syntax) schema parser. Unlike eg-shacl (whose shapes graph is
+# RDF Turtle), a ShEx schema is most robustly consumed as ShExJ, so serde_json is a
+# first-class (not dev) dependency here. Already resolved across the workspace.
+serde_json = "1"
+# `pattern` string-facet regex. Pure-Rust, already pulled by eg-rdf's `sparql` feature
+# (EG-053), so this pins the SAME crate — no new dependency in a `full` build.
+regex = "1"
