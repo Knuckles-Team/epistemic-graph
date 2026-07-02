@@ -249,6 +249,100 @@ pub enum Method {
     /// clock. Returns `Count` of messages acted on.
     #[cfg(feature = "broker")]
     SweepExpired { now_ms: u64 },
+    // ── Replayable append-log streams (CONCEPT:EG-283) ────────────────
+    // A `Stream` is a Kafka-class RETAIN + read-by-offset log living ALONGSIDE the
+    // EG-275 work-queue on the same control graph: messages are labeled `smsg:<stream>`
+    // with a per-stream monotonic offset and are NEVER deleted by a read — only by an
+    // explicit retention trim. A queue with no stream usage is byte-for-byte unchanged.
+    // Each mutation is deterministic from graph state + the EXPLICIT `now_ms`, so
+    // WAL/Raft replay reproduces byte-identical nodes.
+    /// Declare (idempotently upsert) a stream's retention policy (CONCEPT:EG-283).
+    /// Both bounds optional — an all-`None` policy is an unbounded append log that a
+    /// trim never touches. Also ensures the offset counter so the stream is publishable.
+    /// Returns `String("ok")`.
+    #[cfg(feature = "broker")]
+    StreamDeclare {
+        stream: String,
+        /// Keep at most this many newest messages (older dropped on trim).
+        max_messages: Option<u64>,
+        /// Drop messages older than this many ms (`now_ms - ts`) on trim.
+        max_age_ms: Option<u64>,
+    },
+    /// Append `payload` to `stream`, returning its assigned monotonic offset (`Count`)
+    /// (CONCEPT:EG-283). The message is RETAINED (read by offset), never auto-consumed.
+    #[cfg(feature = "broker")]
+    StreamPublish {
+        stream: String,
+        #[serde(with = "serde_bytes")]
+        payload: Vec<u8>,
+        /// Caller clock (ms) stamped as the message `ts` for age-based retention.
+        now_ms: u64,
+    },
+    /// Read up to `max` retained messages from `stream` starting at `from_offset`,
+    /// WITHOUT deleting (CONCEPT:EG-283 — replay). `from_offset < 0` ⇒ from the current
+    /// end ("only new"); `0` ⇒ earliest; otherwise that explicit offset. `max == 0` ⇒
+    /// uncapped. Returns `Raw(Vec<(offset, payload)>)` ascending by offset. Read-only.
+    #[cfg(feature = "broker")]
+    StreamRead {
+        stream: String,
+        from_offset: i64,
+        max: u64,
+    },
+    /// Trim `stream` per its declared retention (CONCEPT:EG-283): drop messages beyond
+    /// `max_messages` (oldest first) and/or older than `max_age_ms`. Returns `Count`
+    /// of messages removed. An undeclared / unbounded stream trims nothing.
+    #[cfg(feature = "broker")]
+    StreamTrim { stream: String, now_ms: u64 },
+    /// Commit a consumer-group's read `offset` on `stream` so it can resume
+    /// (CONCEPT:EG-283). Idempotent upsert; returns `String("ok")`.
+    #[cfg(feature = "broker")]
+    StreamCommitOffset {
+        stream: String,
+        group: String,
+        offset: i64,
+    },
+    /// Read a consumer-group's committed offset on `stream` (CONCEPT:EG-283). Returns
+    /// `Raw(Option<i64>)` — nil ⇒ the group has never committed. Read-only.
+    #[cfg(feature = "broker")]
+    StreamCommittedOffset { stream: String, group: String },
+    // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-284) ───────
+    // At-least-once on top of the EG-275 publish + claim path: a confirm allocates a
+    // broker-wide monotonic delivery-tag once the message is durably enqueued (or nacks
+    // on an unknown exchange); consumer ack/nack address the message by that tag.
+    /// Publish with a publisher confirm (CONCEPT:EG-284) — a superset of [`PublishEx`]
+    /// that also allocates a monotonic delivery-tag. Returns `Raw(ConfirmToken)` with
+    /// `confirmed = true` once durably enqueued (exchange exists) or a nack on an
+    /// unknown exchange. The tag increments on every call (confirms and nacks alike).
+    #[cfg(feature = "broker")]
+    PublishConfirmed {
+        exchange: String,
+        routing_key: String,
+        #[serde(with = "serde_bytes")]
+        payload: Vec<u8>,
+        #[serde(default)]
+        priority: i64,
+        #[serde(default)]
+        delay_ms: Option<u64>,
+        #[serde(default)]
+        ttl_ms: Option<u64>,
+        #[serde(default)]
+        now_ms: Option<u64>,
+    },
+    /// Acknowledge (remove) a claimed message by its consumer `delivery_tag`
+    /// (CONCEPT:EG-284) — the tag-addressed sibling of [`BrokerAck`]. Returns
+    /// `Bool(true)` if the message existed.
+    #[cfg(feature = "broker")]
+    BrokerAckTag { delivery_tag: i64 },
+    /// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-284) — the
+    /// tag-addressed sibling of [`BrokerReject`]. With `requeue` the message returns to
+    /// claimable (at-least-once redelivery) unless its delivery budget is exhausted.
+    /// Returns `String` outcome (`requeued`/`dead-lettered`/`dropped`/`absent`).
+    #[cfg(feature = "broker")]
+    BrokerNackTag {
+        delivery_tag: i64,
+        requeue: bool,
+        now_ms: u64,
+    },
     /// Batch property read: fetch properties for many nodes in ONE round-trip
     /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
     /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the
