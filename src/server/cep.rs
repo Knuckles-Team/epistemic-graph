@@ -28,12 +28,14 @@
 //! ## The subscription surface (transport-compatible)
 //! Rather than a new streaming frame / socket, EG-299 rides the SAME one-Request →
 //! one-Response transport every other reactive op uses (`CdcRead`/`Watch`/…):
-//!   * `CepSubscribe { pattern }` → register the pattern as a standing query, returns a
-//!     subscription id.
-//!   * `CepPoll { sub_id, timeout_ms }` → LONG-POLL (like `Watch`) for the matches pushed
-//!     since the last poll — returns immediately if any are buffered, else awaits the next
-//!     up to `timeout_ms`. The client re-polls to keep tailing.
-//!   * `CepUnsubscribe { sub_id }` → drop the standing query + its subscriber.
+//!
+//! * `CepSubscribe { pattern }` → register the pattern as a standing query, returns a
+//!   subscription id.
+//! * `CepPoll { sub_id, timeout_ms }` → LONG-POLL (like `Watch`) for the matches pushed
+//!   since the last poll — returns immediately if any are buffered, else awaits the next
+//!   up to `timeout_ms`. The client re-polls to keep tailing.
+//! * `CepUnsubscribe { sub_id }` → drop the standing query + its subscriber.
+//!
 //! Non-SQL / streaming by nature, so — exactly like the CDC methods — it is served ONLY
 //! over RPC dispatch, never pgwire (the "gate non-SQL" path).
 //!
@@ -161,13 +163,11 @@ impl CepSurface {
         drain_ready(&mut sub, &mut out);
         if out.is_empty() && timeout_ms > 0 {
             let wait = std::time::Duration::from_millis(timeout_ms);
-            match tokio::time::timeout(wait, sub.recv()).await {
-                Ok(Ok(m)) => {
-                    out.push(m);
-                    drain_ready(&mut sub, &mut out);
-                }
-                // Lagged/Closed while awaiting, or the timeout elapsed → return what we have.
-                Ok(Err(_)) | Err(_) => {}
+            // `Ok(Ok(m))` = a match arrived; anything else (Lagged/Closed while awaiting, or
+            // the timeout elapsing) → return whatever we have.
+            if let Ok(Ok(m)) = tokio::time::timeout(wait, sub.recv()).await {
+                out.push(m);
+                drain_ready(&mut sub, &mut out);
             }
         }
         Ok(out)
