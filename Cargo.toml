@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache"]
+# EG-185/186: fold eg-kvcache into node/full (the tiered + shared KV-cache leaf crate,
+# a sibling of eg-ann/eg-tensor). Added as a workspace member only; the tier aggregate
+# feature lists (node/full) and the path-dep + server-endpoint wiring are folded in by
+# the orchestrator / a follow-up, NOT edited here (avoids a tier-line merge conflict).
 
 [package]
 name = "epistemic-graph"
