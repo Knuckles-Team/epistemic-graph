@@ -472,6 +472,7 @@ fn publish_resolved(
 /// EXPLICIT `now_ms` to absolute `deliver_at`/`expires_at` etas (so replay is
 /// deterministic). With `priority == 0` and every option `None`, the message node is
 /// identical to a plain [`publish`]. Returns the delivered-queue count.
+#[allow(clippy::too_many_arguments)]
 pub fn publish_ex(
     core: &GraphCore,
     exchange: &str,
@@ -631,9 +632,7 @@ pub fn broker_consume(
         if prefetch > 0 && inflight >= prefetch {
             return None;
         }
-        let Some(cand) = best else {
-            return None;
-        };
+        let cand = best?;
         // Atomic claim: condition on the scanned status (+ the exact expired lease for a
         // reclaim, so a concurrent re-lease loses the race) then stamp ownership/lease.
         let mut conditions = serde_json::Map::new();
