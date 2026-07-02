@@ -27,6 +27,23 @@ pub enum Pred {
     GtNum { prop: String, n: f64 },
     /// `prop < n` (numeric).
     LtNum { prop: String, n: f64 },
+    /// SPATIAL — keep rows whose geometry (in node property `column`, stored as WKT)
+    /// is spatially WITHIN the query geometry `wkt` (CONCEPT:EG-083). Evaluated by
+    /// eg-geo's planar `within` in eg-plan (behind the `geo` feature) — NOT lowered to
+    /// SQL (DataFusion has no spatial), so the FILTER leg splits spatial preds out and
+    /// applies them per-row against the stored geometry. Gated by `geo` (implies
+    /// `query`); pure serde here (only two strings).
+    #[cfg(feature = "geo")]
+    SpatialWithin { column: String, wkt: String },
+    /// SPATIAL — keep rows whose geometry (node property `column`, WKT) lies within
+    /// planar `distance` of the query geometry `wkt` — an `ST_DWithin` (CONCEPT:EG-083).
+    /// Evaluated by eg-geo's planar `distance` in eg-plan. Gated by `geo`.
+    #[cfg(feature = "geo")]
+    SpatialDWithin {
+        column: String,
+        wkt: String,
+        distance: f64,
+    },
 }
 
 /// A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`
@@ -276,6 +293,16 @@ pub enum Op {
     /// `federation`-gated [`Op::ForeignScan`] above; see its note for why the UQL
     /// name marker stays distinct from the resolved spec.
     Foreign { name: String },
+    /// SOURCE (spatial, CONCEPT:EG-083) — seed the RowSet with every node in the spatial
+    /// `layer` (a node label / `type`) whose geometry's bounding box intersects `bbox`
+    /// (`[minx, miny, maxx, maxy]`). The executor builds eg-geo's packed Hilbert R-tree
+    /// over the layer's geometries and runs `query_bbox`, so the returned candidate set
+    /// then flows — like any source op — into a downstream spatial `Filter`
+    /// (`SpatialWithin`/`SpatialDWithin`) / `Traverse` / `Rank` / `Limit`, composing a
+    /// spatial filter with graph + vector in ONE plan. Gated by `geo` (the geometry model
+    /// + R-tree live in eg-geo behind eg-plan's own `geo` gate; this is the wire variant).
+    #[cfg(feature = "geo")]
+    SpatialScan { layer: String, bbox: [f64; 4] },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
@@ -560,4 +587,40 @@ pub struct FiredAction {
     /// The opaque action payload registered with the trigger (MessagePack).
     #[serde(default, with = "serde_bytes")]
     pub action: Vec<u8>,
+}
+
+// ── spatial wire-variant round-trip (CONCEPT:EG-083) ─────────────────────────
+#[cfg(all(test, feature = "geo"))]
+mod geo_tests {
+    use super::*;
+
+    /// The spatial Op/Pred variants are pure-serde and round-trip through MessagePack
+    /// (the wire format) unchanged — the proof `Method::UnifiedQuery { plan }` can carry
+    /// a spatial plan.
+    #[test]
+    fn spatial_variants_round_trip() {
+        let plan = Plan::new(vec![
+            Op::SpatialScan {
+                layer: "City".into(),
+                bbox: [0.0, 0.0, 10.0, 10.0],
+            },
+            Op::Filter {
+                preds: vec![
+                    Pred::SpatialWithin {
+                        column: "geom".into(),
+                        wkt: "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))".into(),
+                    },
+                    Pred::SpatialDWithin {
+                        column: "geom".into(),
+                        wkt: "POINT (5 5)".into(),
+                        distance: 2.5,
+                    },
+                ],
+            },
+            Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
 }
