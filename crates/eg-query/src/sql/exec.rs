@@ -21,17 +21,37 @@ pub use eg_types::protocol::QueryResult;
 
 use super::catalog::register_system_catalogs;
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
-use super::tablefuncs::{BetweennessFunc, PagerankFunc};
+use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
 use super::udfs::{
-    bm25_match_udf, bm25_score_udf, bm25_snippet_udf, epistemic_decay_udf, json_get_f64_udf,
-    json_get_i64_udf, json_get_udf, time_bucket_udf, vector_cosine_udf, vector_ip_udf,
-    vector_l2_udf,
+    bm25_match_udf, bm25_score_udf, bm25_snippet_udf, epistemic_decay_udf, greatest_udf,
+    int4range_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf, least_udf,
+    range_contained_by_udf, range_contains_range_udf, range_contains_udf, range_overlaps_udf,
+    time_bucket_udf, tsrange_udf, vector_cosine_udf, vector_ip_udf, vector_l2_udf,
 };
 use crate::tables::{StoredFunction, TableStore};
 
 /// One user table materialized for registration into the SQL context: its name plus
 /// the Arrow `(schema, batch)` scanned out of the redb store (CONCEPT:EG-018).
 type UserTable = (String, SchemaRef, arrow::record_batch::RecordBatch);
+
+/// Register the CONCEPT:EG-104 Postgres common-function surface — `greatest`/`least`,
+/// the range constructors (`int4range`/`tsrange`) + predicates (`range_contains`/
+/// `range_overlaps`/`range_contains_range`/`range_contained_by`), and the
+/// `generate_series` table function — on `ctx`. Shared so the graph exec path and the
+/// tables-only obs path expose the identical function set. (DataFusion's native array
+/// functions + `unnest` come from the `nested_expressions` feature, registered by
+/// `SessionContext::new_with_config`'s default-feature set — no explicit call needed.)
+fn register_pg_common(ctx: &SessionContext) {
+    ctx.register_udf(greatest_udf());
+    ctx.register_udf(least_udf());
+    ctx.register_udf(int4range_udf());
+    ctx.register_udf(tsrange_udf());
+    ctx.register_udf(range_contains_udf());
+    ctx.register_udf(range_overlaps_udf());
+    ctx.register_udf(range_contains_range_udf());
+    ctx.register_udf(range_contained_by_udf());
+    ctx.register_udtf("generate_series", Arc::new(GenerateSeriesFunc));
+}
 
 /// Implicit max rows guarded into the result. Transport is one Response per
 /// Request (no streaming), so an unbounded SELECT would buffer the whole graph in
@@ -85,6 +105,8 @@ pub fn exec_sql_over_tables(
         ctx.register_udf(bm25_match_udf());
         ctx.register_udf(bm25_score_udf());
         ctx.register_udf(bm25_snippet_udf());
+        // CONCEPT:EG-104 — greatest/least, range fns, generate_series (obs path too).
+        register_pg_common(&ctx);
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
@@ -281,6 +303,9 @@ fn build_ctx(
     ctx.register_udf(bm25_snippet_udf());
     ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
     ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
+    // CONCEPT:EG-104 — greatest/least, int4range/tsrange + range predicates, and the
+    // generate_series table function, rounding out the Postgres common-function surface.
+    register_pg_common(&ctx);
     #[cfg(feature = "finance")]
     {
         ctx.register_udaf(super::udfs::var_udaf());
