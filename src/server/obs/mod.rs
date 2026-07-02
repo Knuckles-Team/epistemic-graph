@@ -281,6 +281,13 @@ impl ObsState {
         }
     }
 
+    /// The durable time-series store handle — used by the PromQL facade
+    /// (CONCEPT:EG-172) to resolve selectors / enumerate labels over the same series
+    /// the log ingest lands in.
+    pub fn series_store(&self) -> Arc<SeriesStore> {
+        self.series.clone()
+    }
+
     /// Read a stream's tsdb series points over `[from, to)` (epoch-ns) — proves the
     /// records landed in the time-series tier.
     pub fn series_range(&self, stream: &str, from: i64, to: i64) -> Result<Vec<Point>, String> {
@@ -712,6 +719,15 @@ async fn handle(
     if path == "/healthz" || path == "/" && req.method == "GET" {
         return ("200 OK", "text/plain", "ok".to_string());
     }
+
+    // CONCEPT:EG-172 — the Prometheus HTTP query API (GET or POST), routed BEFORE the
+    // POST-only ingest guard (instant queries are typically GET). Gated on `promql`,
+    // which implies `obs`; absent that feature these paths fall through to 404.
+    #[cfg(feature = "promql")]
+    if path.starts_with("/api/v1/query") || path == "/api/v1/labels" || path.starts_with("/api/v1/label/") {
+        return crate::server::promql::handle(state, &req.method, path, query, &req.body).await;
+    }
+
     if req.method != "POST" {
         return ("405 Method Not Allowed", "text/plain", "POST only".to_string());
     }

@@ -89,6 +89,12 @@ pub mod graphql_sub;
 /// tied to the graph `ServerState`.
 #[cfg(feature = "obs")]
 pub mod obs;
+
+/// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-172, feature
+/// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the
+/// durable eg-tsdb series, backed by the pure-Rust `eg_tsdb::promql` engine.
+#[cfg(feature = "promql")]
+pub mod promql;
 // Process-wide user-defined relational table store (CONCEPT:EG-018/EG-023): the ONE
 // `eg_query::TableStore` (redb permits a single handle per file per process) shared by
 // BOTH the wire `Method::Sql` DDL/DML path and the pgwire shim, so a table created via

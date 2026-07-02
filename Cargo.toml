@@ -238,6 +238,15 @@ obs = [
     "dep:parquet",
     "dep:bytes",
 ]
+# CONCEPT:EG-172 — PromQL + the Prometheus HTTP query API (`/api/v1/query[_range]`,
+# `/labels`) served on the obs listener over the durable eg-tsdb series. Pure-Rust
+# parser + evaluator (`eg-tsdb/promql`) + the facade glue in `src/server/promql`; NO
+# new heavy dep (the Pi contract holds). Implies `obs` (needs the listener + the
+# durable SeriesStore + tsdb). DEFINED here but deliberately NOT auto-included by
+# `obs`, and NOT folded into node/full/cluster/pi — the orchestrator folds it at
+# merge time to avoid a tier-line conflict with the concurrent wave-18 work.
+# EG-172: fold promql into obs/node/full
+promql = ["obs", "eg-tsdb/promql"]
 # Streaming / CDC / continuous queries / subscriptions / triggers (CONCEPT:KG-2.229/
 # 230, Lane L). Reactivity layered over the existing per-graph durable change record
 # (the ledger): every durable mutation the dispatch shell records also emits an

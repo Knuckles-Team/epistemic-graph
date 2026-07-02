@@ -27,6 +27,13 @@ redb-store = ["dep:redb"]
 # Heavy (Arrow + DataFusion); OFF in the lean build, folded only into node/cluster/
 # full via the facade `query` feature.
 arrow-seg = ["dep:arrow", "dep:datafusion", "dep:tokio", "dep:async-trait"]
+# CONCEPT:EG-172 — the pure-Rust PromQL parser + evaluator (`promql` module). A
+# hand-rolled recursive-descent parser + an evaluator over a `SeriesSource` trait,
+# with a dependency-free anchored regex matcher for `=~`/`!~`. NO new deps (the Pi
+# contract holds) — enabling it only lights up the `promql` module. The facade wires
+# the Prometheus HTTP API over this behind its own `promql` feature (which implies
+# `obs`); the orchestrator folds that into obs/node/full at merge time.
+promql = []
 
 [dependencies]
 # The ONE shared decay curve (CONCEPT:KG-2.211) lives in eg-core; the finance
