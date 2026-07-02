@@ -9,6 +9,9 @@
 //! the data lives at the bottom of the DAG, the logic stays where it belongs.
 
 pub mod acl;
+// CONCEPT:EG-086 — probabilistic / uncertainty VALUE (distribution-valued
+// properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
+pub mod distribution;
 pub mod protocol;
 pub mod row_predicate;
 pub mod types;
@@ -17,3 +20,6 @@ pub mod wire;
 // CONCEPT:EG-045 — the serializable compound-WHERE predicate AST lives at the
 // bottom of the DAG so `eg-core` can evaluate it; `eg-query` decodes SQL into it.
 pub use row_predicate::{CmpOp, RowPredicate};
+
+// CONCEPT:EG-086 — surface the distribution VALUE at the crate root for callers.
+pub use distribution::Distribution;
