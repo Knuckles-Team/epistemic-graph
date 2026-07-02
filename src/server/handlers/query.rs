@@ -222,7 +222,7 @@ pub(crate) async fn try_handle(
             Ok(resp)
         }
         #[cfg(feature = "graphql")]
-        Method::GraphQl { query } => {
+        Method::GraphQl { query, variables } => {
             // GraphQL WRITE surface (CONCEPT:EG-019/EG-023): a `mutation { … }` document
             // maps onto eg-core's native write ops over the LIVE `GraphCore` via
             // `execute_mutation` (which bumps the OCC version / `mark_dirty` once it
@@ -262,11 +262,23 @@ pub(crate) async fn try_handle(
             // served to agent B for the same GraphQL query text, and the snapshot is
             // RLS-FILTERED to the caller's visible rows BEFORE the resolver runs — a
             // GraphQL read cannot leak rows across agents any more than a Cypher read.
+            // Bind the request's GraphQL `$variables` (task #23): a `query { … }` runs
+            // through `execute_with_variables` so `$var` args + `@skip`/`@include`
+            // resolve (CONCEPT:EG-065); absent ⇒ an empty object, byte-identical to the
+            // no-vars path. (A `subscription { … }` stays a poll of the current matches.)
+            let vars = variables.unwrap_or_else(|| serde_json::json!({}));
             #[cfg(feature = "result-cache")]
             let (snap, version, hash) = {
+                // Fold the bound variables INTO the cache key: the same query text with
+                // different `$variables` can produce different `{data}`, so the key must
+                // distinguish them or a variables-bound read would serve a stale result.
+                // An empty `{}` serializes to `{}` — byte-stable for the no-vars path.
+                let mut key_payload = query.as_bytes().to_vec();
+                key_payload.push(0);
+                key_payload.extend_from_slice(&serde_json::to_vec(&vars).unwrap_or_default());
                 let hash = rls_cache_hash(
                     "graphql",
-                    query.as_bytes(),
+                    &key_payload,
                     #[cfg(feature = "security")]
                     caller,
                     #[cfg(feature = "security")]
@@ -292,7 +304,7 @@ pub(crate) async fn try_handle(
                 if is_subscription {
                     eg_graphql::subscribe(&snap, &query)
                 } else {
-                    eg_graphql::execute(&snap, &query)
+                    eg_graphql::execute_with_variables(&snap, &query, &vars)
                 }
             })
             .await
@@ -1533,7 +1545,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         let (h0, m0) = core.result_cache().stats();
         let ra1 = dispatch(
             &state,
-            req_as(20, "alice", Method::GraphQl { query: GQL.into() }),
+            req_as(20, "alice", Method::GraphQl { query: GQL.into(), variables: None }),
         )
         .await;
         assert!(ra1.error.is_none(), "alice GraphQL failed: {:?}", ra1.error);
@@ -1555,7 +1567,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         // and recomputes BOB's filtered view.
         let rb = dispatch(
             &state,
-            req_as(21, "bob", Method::GraphQl { query: GQL.into() }),
+            req_as(21, "bob", Method::GraphQl { query: GQL.into(), variables: None }),
         )
         .await;
         assert!(rb.error.is_none(), "bob GraphQL failed: {:?}", rb.error);
@@ -1583,7 +1595,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         // Alice repeats: HITS her own per-agent slot (caching still works under RLS).
         let ra2 = dispatch(
             &state,
-            req_as(22, "alice", Method::GraphQl { query: GQL.into() }),
+            req_as(22, "alice", Method::GraphQl { query: GQL.into(), variables: None }),
         )
         .await;
         let (h3, m3) = core.result_cache().stats();
@@ -1713,6 +1725,7 @@ mod dispatch_write_tests {
                 1,
                 Method::GraphQl {
                     query: r#"mutation { createNode(label: "Person", id: "dave", props: {name: "Dave", age: 50}) { id name } }"#.into(),
+                    variables: None,
                 },
             ),
         )
@@ -1728,6 +1741,7 @@ mod dispatch_write_tests {
                 2,
                 Method::GraphQl {
                     query: r#"{ Person(name: "Dave") { name age } }"#.into(),
+                    variables: None,
                 },
             ),
         )

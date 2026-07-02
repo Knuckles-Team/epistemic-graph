@@ -40,6 +40,11 @@ pub mod pgwire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
+/// GraphQL real subscriptions over Server-Sent Events (CONCEPT:EG-064, feature
+/// `graphql`): a live query re-resolved on every eg-core change and pushed as
+/// `text/event-stream` frames over the same hand-rolled tokio HTTP idiom.
+#[cfg(feature = "graphql")]
+pub mod graphql_sub;
 // Process-wide user-defined relational table store (CONCEPT:EG-018/EG-023): the ONE
 // `eg_query::TableStore` (redb permits a single handle per file per process) shared by
 // BOTH the wire `Method::Sql` DDL/DML path and the pgwire shim, so a table created via
@@ -1079,6 +1084,7 @@ mod tests {
                 None,
                 Method::GraphQl {
                     query: r#"{ Person(name: "Alice") { name KNOWS { name } } }"#.into(),
+                    variables: None,
                 },
             ),
         )
