@@ -564,10 +564,20 @@ pub(crate) fn bm25_match_udf() -> ScalarUDF {
     })
 }
 
-/// `bm25_score(…) -> Float64` (CONCEPT:EG-119) — the desugaring target of
-/// `paradedb.score(...)`. A placeholder relevance score (constant `1.0`) so an
-/// `ORDER BY paradedb.score(id) DESC` query plans + runs; the true BM25 relevance comes
-/// from the eg-text-backed server pushdown (a documented follow-up). Variadic.
+/// `bm25_score(…) -> Float64` — the desugaring target of `paradedb.score(...)`
+/// (CONCEPT:EG-119), now backed by REAL BM25 relevance (CONCEPT:EG-311).
+///
+/// A per-row DataFusion scalar UDF only sees its own arguments — so which call form it
+/// receives decides whether it can rank:
+///   * `bm25_score(doc_text, 'query')` (2 args) ⇒ REAL per-row BM25 via
+///     [`eg_text::bm25_score`] (the informative form: the text column + the search
+///     query are both in scope).
+///   * `bm25_score(id)` (the single-arg form the standard `@@@` + `paradedb.score(id)`
+///     desugaring emits) ⇒ falls back to `1.0`, because the `@@@` query is NOT threaded
+///     to a per-row UDF. The corpus-TRUE ranking for that path is the server-side
+///     lowering of [`crate::Bm25SearchPlan`] onto `eg_text::TextIndex::search(query, k)`
+///     — the ONLY place both the query and the whole corpus/index co-exist (as EG-119
+///     noted). See the module docs on the two-path design.
 pub(crate) fn bm25_score_udf() -> ScalarUDF {
     use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
     #[derive(Debug)]
@@ -588,6 +598,22 @@ pub(crate) fn bm25_score_udf() -> ScalarUDF {
             Ok(DataType::Float64)
         }
         fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            // 2-arg informative form `(doc_text, query)` ⇒ real per-row BM25.
+            if args.len() == 2 {
+                let arrays = ColumnarValue::values_to_arrays(args)?;
+                let n = arrays[0].len().max(arrays[1].len());
+                let out: Float64Array = (0..n)
+                    .map(|i| {
+                        let di = i.min(arrays[0].len().saturating_sub(1));
+                        let qi = i.min(arrays[1].len().saturating_sub(1));
+                        let doc = row_to_string(arrays[0].as_ref(), di)?;
+                        let query = row_to_string(arrays[1].as_ref(), qi)?;
+                        Some(eg_text::bm25_score(&query, &doc) as f64)
+                    })
+                    .collect();
+                return Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef));
+            }
+            // Single-arg / other forms lack the query ⇒ neutral placeholder (see docs).
             let n = args
                 .iter()
                 .map(|a| match a {
@@ -608,11 +634,21 @@ pub(crate) fn bm25_score_udf() -> ScalarUDF {
     })
 }
 
-/// `bm25_snippet(…) -> Utf8` (CONCEPT:EG-119) — the desugaring target of
-/// `paradedb.snippet(...)`. A placeholder that echoes the first string argument (a real
-/// highlighted fragment is the eg-text server-side follow-up). Variadic.
+/// `bm25_snippet(…) -> Utf8` — the desugaring target of `paradedb.snippet(...)`
+/// (CONCEPT:EG-119), now producing a REAL highlighted fragment (CONCEPT:EG-311).
+///
+/// Like `bm25_score`, the call form decides what it can do:
+///   * `bm25_snippet(doc_text, 'query' [, maxlen])` ⇒ a real `<b>…</b>`-highlighted
+///     window via [`eg_text::bm25_snippet`] (default `maxlen` 200 when omitted).
+///   * `bm25_snippet(doc_text)` (the single-arg form the standard desugaring emits) ⇒
+///     echoes the text unchanged, because the `@@@` query needed to pick + highlight a
+///     fragment is not threaded to a per-row UDF (the server-side lowering is the
+///     query-aware path — see `bm25_score_udf` docs).
 pub(crate) fn bm25_snippet_udf() -> ScalarUDF {
     use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
+    /// Default snippet width (chars) when `paradedb.snippet` is called without an
+    /// explicit max length — a readable one-line fragment.
+    const DEFAULT_MAXLEN: usize = 200;
     #[derive(Debug)]
     struct Bm25SnippetUdf {
         signature: Signature,
@@ -633,6 +669,29 @@ pub(crate) fn bm25_snippet_udf() -> ScalarUDF {
         fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
             let arrays = ColumnarValue::values_to_arrays(args)?;
             let n = arrays.iter().map(|a| a.len()).max().unwrap_or(1);
+            // 2+ args ⇒ query is in scope ⇒ real highlighted snippet.
+            if arrays.len() >= 2 {
+                let out: StringArray = (0..n)
+                    .map(|i| {
+                        let di = i.min(arrays[0].len().saturating_sub(1));
+                        let qi = i.min(arrays[1].len().saturating_sub(1));
+                        let doc = row_to_string(arrays[0].as_ref(), di)?;
+                        let query = row_to_string(arrays[1].as_ref(), qi)?;
+                        let maxlen = arrays
+                            .get(2)
+                            .and_then(|a| {
+                                let mi = i.min(a.len().saturating_sub(1));
+                                row_to_i64(a.as_ref(), mi)
+                            })
+                            .filter(|&m| m > 0)
+                            .map(|m| m as usize)
+                            .unwrap_or(DEFAULT_MAXLEN);
+                        Some(eg_text::bm25_snippet(&query, &doc, maxlen))
+                    })
+                    .collect();
+                return Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef));
+            }
+            // Single-arg form lacks the query ⇒ echo the text unchanged (see docs).
             let out: StringArray = (0..n)
                 .map(|i| {
                     arrays.first().and_then(|a| {
