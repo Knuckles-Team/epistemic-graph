@@ -905,7 +905,9 @@ impl Parser {
     }
 
     /// One procedure argument (CONCEPT:EG-142): an inline `[…]` list literal (of
-    /// literals) folds to a `PropVal::Lit(Value::Array)`; otherwise a [`PropVal`].
+    /// literals) folds to a `PropVal::Lit(Value::Array)`; a `{…}` config-map literal
+    /// (CONCEPT:EG-298, e.g. `gds.pageRank({dampingFactor: 0.85})`) folds to a
+    /// `PropVal::Lit(Value::Object)`; otherwise a [`PropVal`].
     fn parse_arg(&mut self) -> Result<PropVal, String> {
         if matches!(self.peek(), Some(Tok::LBracket)) {
             self.next();
@@ -920,7 +922,60 @@ impl Parser {
             self.expect(&Tok::RBracket)?;
             return Ok(PropVal::Lit(Value::Array(items)));
         }
+        if matches!(self.peek(), Some(Tok::LBrace)) {
+            return Ok(PropVal::Lit(self.parse_map_literal()?));
+        }
         self.parse_prop_val()
+    }
+
+    /// `{ key: literal, … }` — a config-map literal argument for a `CALL gds.*`
+    /// procedure (CONCEPT:EG-298). Values are literals, nested `[…]` list literals,
+    /// or nested `{…}` maps. Folds to a `serde_json::Value::Object` so the procedure
+    /// receives a plain JSON config it can key `dampingFactor`/`maxIterations`/
+    /// `relationshipWeightProperty`/`topK`/… out of.
+    fn parse_map_literal(&mut self) -> Result<Value, String> {
+        self.expect(&Tok::LBrace)?;
+        let mut obj = serde_json::Map::new();
+        if matches!(self.peek(), Some(Tok::RBrace)) {
+            self.next();
+            return Ok(Value::Object(obj));
+        }
+        loop {
+            let key = self.ident()?;
+            self.expect(&Tok::Colon)?;
+            let val = self.parse_map_value()?;
+            obj.insert(key, val);
+            match self.peek() {
+                Some(Tok::Comma) => {
+                    self.next();
+                }
+                _ => break,
+            }
+        }
+        self.expect(&Tok::RBrace)?;
+        Ok(Value::Object(obj))
+    }
+
+    /// One value inside a config-map literal (CONCEPT:EG-298): a nested `[…]` list, a
+    /// nested `{…}` map, or a scalar literal.
+    fn parse_map_value(&mut self) -> Result<Value, String> {
+        if matches!(self.peek(), Some(Tok::LBracket)) {
+            self.next();
+            let mut items: Vec<Value> = Vec::new();
+            if !matches!(self.peek(), Some(Tok::RBracket)) {
+                items.push(self.parse_literal()?);
+                while matches!(self.peek(), Some(Tok::Comma)) {
+                    self.next();
+                    items.push(self.parse_literal()?);
+                }
+            }
+            self.expect(&Tok::RBracket)?;
+            return Ok(Value::Array(items));
+        }
+        if matches!(self.peek(), Some(Tok::LBrace)) {
+            return self.parse_map_literal();
+        }
+        self.parse_literal()
     }
 
     /// `YIELD col [AS alias], …` (CONCEPT:EG-142).

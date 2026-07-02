@@ -3,12 +3,15 @@
 //! consults [`registry`] for a [`CypherProcedure`] by (case-insensitive) name and
 //! materializes its result rows into the Cypher pipeline.
 //!
-//! The built-ins REUSE the eg-compute graph algorithms (`pagerank`,
-//! `betweenness_centrality`, `degree_centrality_all`, `community_detection`,
-//! `connected_components`, `personalized_pagerank`) so the graph-data-science surface
-//! is exactly the engine's own kernels adapted into `YIELD` rows over the current
-//! graph view — NO second implementation. A handful of APOC/`db.` metadata + list
-//! utilities round out a tractable representative set.
+//! The built-ins REUSE the eg-compute graph algorithms so the graph-data-science
+//! surface is exactly the engine's own kernels adapted into `YIELD` rows — NO
+//! second implementation. The core `gds.*` catalogue
+//! (pageRank/betweenness/degree/louvain/wcc/scc/dijkstra/nodeSimilarity) lives in
+//! the sibling [`super::gds`] module (CONCEPT:EG-298): it projects the current
+//! graph into `eg_compute::graph_algos::AdjacencyGraph`, parses a GDS config map,
+//! and streams `nodeId`/`score`/`communityId`/… rows. This module keeps
+//! `personalized_pagerank` on the earlier live-view kernel plus a handful of
+//! APOC/`db.` metadata + list utilities.
 //!
 //! WASM/user-defined procedures (via eg-wasm) are a documented follow-up: the trait +
 //! registry framework below is what a dynamic provider would register into.
@@ -55,12 +58,15 @@ fn build_registry() -> HashMap<String, Box<dyn CypherProcedure>> {
     let mut add = |p: Box<dyn CypherProcedure>| {
         m.insert(p.name().to_ascii_lowercase(), p);
     };
-    // ── GDS graph-data-science kernels (CONCEPT:EG-143) ───────────────────────
-    add(Box::new(PageRank));
-    add(Box::new(Betweenness));
-    add(Box::new(Degree));
-    add(Box::new(Louvain));
-    add(Box::new(Wcc));
+    // ── GDS graph-data-science kernels ────────────────────────────────────────
+    // The core `gds.*` catalogue (pageRank/betweenness/degree/louvain/wcc/scc/
+    // dijkstra/nodeSimilarity) is served by the EG-298 procedures, which project
+    // the current graph into `eg_compute::graph_algos::AdjacencyGraph`, parse a GDS
+    // config map, and stream `nodeId`/`score`/`communityId`/… rows (CONCEPT:EG-298).
+    for p in super::gds::gds_procedures() {
+        add(p);
+    }
+    // Personalized PageRank stays on the earlier live-view kernel (CONCEPT:EG-143).
     add(Box::new(PersonalizedPageRank));
     // ── APOC / db. metadata + list utilities (CONCEPT:EG-143) ─────────────────
     add(Box::new(DbLabels));
@@ -98,24 +104,6 @@ fn score_rows(scored: Vec<(String, f64)>) -> Vec<ProcRow> {
             ]
         })
         .collect()
-}
-
-/// `(node, <group-col>)` rows from a partition (`Vec<Vec<id>>`): each node tagged with
-/// its 0-based group index.
-fn group_rows(groups: Vec<Vec<String>>, group_col: &str) -> Vec<ProcRow> {
-    let mut out = Vec::new();
-    for (gid, members) in groups.into_iter().enumerate() {
-        for id in members {
-            out.push(vec![
-                ("node".to_string(), YieldValue::Node(id)),
-                (
-                    group_col.to_string(),
-                    YieldValue::Scalar(Value::Number((gid as u64).into())),
-                ),
-            ]);
-        }
-    }
-    out
 }
 
 /// Decode a node/edge property blob into a JSON object.
@@ -204,78 +192,10 @@ fn single_value_row(v: Value) -> Vec<ProcRow> {
     vec![vec![("value".to_string(), YieldValue::Scalar(v))]]
 }
 
-// ── GDS procedures (CONCEPT:EG-143) ─────────────────────────────────────────────
-
-struct PageRank;
-impl CypherProcedure for PageRank {
-    fn name(&self) -> &'static str {
-        "gds.pageRank"
-    }
-    fn columns(&self) -> &'static [&'static str] {
-        &["node", "score"]
-    }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        Ok(score_rows(algorithms::pagerank(view, 0.85, 20)))
-    }
-}
-
-struct Betweenness;
-impl CypherProcedure for Betweenness {
-    fn name(&self) -> &'static str {
-        "gds.betweenness"
-    }
-    fn columns(&self) -> &'static [&'static str] {
-        &["node", "score"]
-    }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        Ok(score_rows(algorithms::betweenness_centrality(view)))
-    }
-}
-
-struct Degree;
-impl CypherProcedure for Degree {
-    fn name(&self) -> &'static str {
-        "gds.degree"
-    }
-    fn columns(&self) -> &'static [&'static str] {
-        &["node", "score"]
-    }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        Ok(score_rows(algorithms::degree_centrality_all(view)))
-    }
-}
-
-struct Louvain;
-impl CypherProcedure for Louvain {
-    fn name(&self) -> &'static str {
-        "gds.louvain"
-    }
-    fn columns(&self) -> &'static [&'static str] {
-        &["node", "communityId"]
-    }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        Ok(group_rows(
-            algorithms::community_detection(view, 1.0),
-            "communityId",
-        ))
-    }
-}
-
-struct Wcc;
-impl CypherProcedure for Wcc {
-    fn name(&self) -> &'static str {
-        "gds.wcc"
-    }
-    fn columns(&self) -> &'static [&'static str] {
-        &["node", "componentId"]
-    }
-    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        Ok(group_rows(
-            algorithms::connected_components(view),
-            "componentId",
-        ))
-    }
-}
+// ── GDS procedures ──────────────────────────────────────────────────────────────
+// The core catalogue moved to the EG-298 `gds` module (config-driven, projected
+// onto `graph_algos::AdjacencyGraph`). Personalized PageRank remains here on the
+// earlier live-view kernel (CONCEPT:EG-143).
 
 struct PersonalizedPageRank;
 impl CypherProcedure for PersonalizedPageRank {
