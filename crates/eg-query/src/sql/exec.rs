@@ -20,6 +20,7 @@ use eg_core::graph::GraphView;
 pub use eg_types::protocol::QueryResult;
 
 use super::catalog::register_system_catalogs;
+use super::pgfamily::{plan_ann_search, AnnIndexPlan};
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
 use super::udfs::{
@@ -64,7 +65,16 @@ const MAX_ROWS: usize = 50_000;
 pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run(view, nodes, edges, Vec::new(), Vec::new(), Vec::new(), sql)
+    run(
+        view,
+        nodes,
+        edges,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        sql,
+    )
 }
 
 /// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph
@@ -172,7 +182,16 @@ pub struct TypedQueryResult {
 pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run_typed(view, nodes, edges, Vec::new(), Vec::new(), Vec::new(), sql)
+    run_typed(
+        view,
+        nodes,
+        edges,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        sql,
+    )
 }
 
 /// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-018). Identical
@@ -194,7 +213,10 @@ pub fn exec_sql_typed_with_tables(
     // CONCEPT:EG-118: the durable SQL stored functions, expanded into the query text
     // (scalar → scalar subquery; table → parameterized-view subquery) before planning.
     let functions = store.list_functions()?;
-    run_typed(view, nodes, edges, user, views, functions, sql)
+    // CONCEPT:EG-116/EG-313: the durable pgvector ANN index registrations, consulted to
+    // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index.
+    let ann_indexes = store.list_ann_indexes()?;
+    run_typed(view, nodes, edges, user, views, functions, ann_indexes, sql)
 }
 
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
@@ -212,6 +234,7 @@ pub fn exec_sql_cached(
         view,
         tables.nodes,
         tables.edges,
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -322,8 +345,81 @@ fn build_ctx(
     })
 }
 
+/// Real pgvector ANN top-k pushdown (CONCEPT:EG-313). When `sql` is a covered
+/// `SELECT … FROM t ORDER BY col <-> $q LIMIT k` (a registered `hnsw`/`ivfflat` index
+/// exists for `(t, col, metric)`), narrow the target table's materialized batch to the
+/// TRUE nearest-k rows — computed by building/consulting a real [`eg_ann`] index (HNSW
+/// or IVF per the index type) over the column's vectors and exact-reranking — BEFORE the
+/// query is planned. The subsequent (desugared) brute-force `ORDER BY` then runs over
+/// only those k rows, so projection/types/order are preserved while the O(N) scan the
+/// EG-115 fallback would do is replaced by the ANN top-k.
+///
+/// A no-op (⇒ the caller keeps the brute-force full scan) when: no index covers the
+/// query, a `WHERE` filter is present (pgvector filters THEN ranks — the pre-selection
+/// would change semantics), the query vector is an unresolved bind placeholder, or the
+/// target/column is not a materialized `List<Float32>` vector column with ≥ k usable rows.
+///
+/// Must be called on the PRE-desugar SQL (while the `<->`/`<=>`/`<#>` operators are still
+/// intact for [`plan_ann_search`]).
+fn apply_ann_pushdown(
+    sql: &str,
+    ann_indexes: &[AnnIndexPlan],
+    nodes: &mut (SchemaRef, arrow::record_batch::RecordBatch),
+    user_tables: &mut [UserTable],
+) {
+    if ann_indexes.is_empty() {
+        return;
+    }
+    let Some(plan) = plan_ann_search(sql, ann_indexes) else {
+        return;
+    };
+    if super::ann::sql_has_where(sql) {
+        return;
+    }
+    let Some(qvec) = super::ann::parse_query_vector(&plan.query) else {
+        return;
+    };
+    // The index method (hnsw/ivfflat) comes from the covering registration; the metric
+    // is the query operator's metric (already matched by `plan_ann_search`).
+    let Some(ix) = ann_indexes.iter().find(|ix| {
+        ix.table.eq_ignore_ascii_case(&plan.table)
+            && ix.column.eq_ignore_ascii_case(&plan.column)
+            && ix.metric == plan.metric
+    }) else {
+        return;
+    };
+    let method = ix.method;
+
+    if plan.table.eq_ignore_ascii_case("nodes") {
+        if let Some(sliced) = super::ann::topk_slice(
+            &nodes.0,
+            &nodes.1,
+            &plan.column,
+            method,
+            plan.metric,
+            &qvec,
+            plan.k,
+        ) {
+            nodes.1 = sliced;
+        }
+        return;
+    }
+    for (name, schema, batch) in user_tables.iter_mut() {
+        if name.eq_ignore_ascii_case(&plan.table) {
+            if let Some(sliced) =
+                super::ann::topk_slice(schema, batch, &plan.column, method, plan.metric, &qvec, plan.k)
+            {
+                *batch = sliced;
+            }
+            return;
+        }
+    }
+}
+
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
 /// graph table functions, then collect the query.
+// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs.
+#[allow(clippy::too_many_arguments)]
 fn run(
     view: &GraphView,
     nodes: (
@@ -337,11 +433,14 @@ fn run(
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
     functions: Vec<StoredFunction>,
+    ann_indexes: Vec<AnnIndexPlan>,
     sql: &str,
 ) -> Result<QueryResult, String> {
     // The graph table functions run their kernel over an owned snapshot; clone the
     // topology+ids once (cheap relative to the algorithm) so they don't borrow `view`.
     let snap = Arc::new(view.clone());
+    let mut nodes = nodes;
+    let mut user_tables = user_tables;
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -356,6 +455,10 @@ fn run(
     // parameterized-view subquery) BEFORE the pgvector desugar + planning, so an inlined
     // body is itself desugared and planned. A no-op when there are no functions.
     let sql = super::funcs::expand_functions(&sql, &functions)?;
+    // CONCEPT:EG-313 — real pgvector ANN top-k pushdown on the PRE-desugar SQL (the
+    // `<->`/`<=>`/`<#>` operators are still intact for the planner). Narrows the target
+    // batch to the true nearest-k via a real eg-ann index when one is registered.
+    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
     // CONCEPT:EG-115 — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
     // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
     // operator for them). A no-op when none are present or the SQL doesn't parse.
@@ -420,6 +523,8 @@ async fn register_views(
 /// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
 /// the Arrow schema + JSON cells). Shares the providers/UDFs/runtime verbatim so
 /// the pgwire read path is the SAME engine path as `Method::Sql`.
+// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs.
+#[allow(clippy::too_many_arguments)]
 fn run_typed(
     view: &GraphView,
     nodes: (
@@ -433,9 +538,12 @@ fn run_typed(
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
     functions: Vec<StoredFunction>,
+    ann_indexes: Vec<AnnIndexPlan>,
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
     let snap = Arc::new(view.clone());
+    let mut nodes = nodes;
+    let mut user_tables = user_tables;
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -446,6 +554,8 @@ fn run_typed(
     let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
     // CONCEPT:EG-118 — see `run`: expand SQL stored-function calls before desugar/planning.
     let sql = super::funcs::expand_functions(&sql, &functions)?;
+    // CONCEPT:EG-313 — see `run`: real pgvector ANN top-k pushdown on the pre-desugar SQL.
+    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
     // CONCEPT:EG-115 — see `run`: desugar the pgvector operators before planning.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {

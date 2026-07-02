@@ -1989,6 +1989,7 @@ dependencies = [
  "arrow-schema",
  "async-trait",
  "datafusion",
+ "eg-ann",
  "eg-compute",
  "eg-core",
  "eg-text",
