@@ -13,7 +13,9 @@ name = "eg_query"
 # `sql` pulls DataFusion + Arrow (heavy). A default build links NONE of them so
 # the engine stays lean for a Raspberry Pi.
 default = []
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb"]
+# `eg-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
+# the Postgres/Mongo JSON operators onto (CONCEPT:EG-084) — additive, always on with `sql`.
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "eg-types/query"]
 # Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
 # engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
