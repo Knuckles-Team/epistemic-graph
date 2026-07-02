@@ -899,6 +899,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::amqp_wire::serve(&addr, amqp_state).await {
                 tracing::error!("amqp-wire server error: {}", e);
+            }
+        });
+    }
+
     // ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) ─────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
