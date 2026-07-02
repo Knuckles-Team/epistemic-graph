@@ -259,6 +259,46 @@ fn create_table_cannot_shadow_graph_tables() {
     assert!(classify("CREATE TABLE edges (src TEXT)").is_err());
 }
 
+#[test]
+fn create_view_over_nodes_and_select_through_it() {
+    // CONCEPT:EG-072 — a view over the graph `nodes` table registers as a read-only
+    // relation, and a SELECT through it (even joined to a user table) resolves.
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+
+    // CREATE VIEW stocks AS SELECT id, symbol FROM nodes.
+    let StatementKind::CreateView(plan) =
+        classify("CREATE VIEW stocks AS SELECT id, symbol FROM nodes").expect("classify")
+    else {
+        panic!("expected CreateView");
+    };
+    store
+        .create_view(&plan.name, &plan.select_sql, plan.or_replace)
+        .unwrap();
+
+    // SELECT through the view.
+    let res =
+        exec_sql_typed_with_tables(&view, &store, "SELECT id, symbol FROM stocks ORDER BY id")
+            .expect("select through view");
+    assert_eq!(res.rows.len(), 2);
+    assert_eq!(res.rows[0][0], Value::String("n1".into()));
+    assert_eq!(res.rows[0][1], Value::String("AAPL".into()));
+
+    // A view can be JOINed and filtered like any relation.
+    let res2 = exec_sql_typed_with_tables(
+        &view,
+        &store,
+        "SELECT symbol FROM stocks WHERE id = 'n2'",
+    )
+    .expect("filtered view select");
+    assert_eq!(res2.rows.len(), 1);
+    assert_eq!(res2.rows[0][0], Value::String("MSFT".into()));
+
+    // DROP VIEW removes it — a subsequent SELECT no longer resolves.
+    store.drop_view("stocks", false).unwrap();
+    assert!(exec_sql_typed_with_tables(&view, &store, "SELECT id FROM stocks").is_err());
+}
+
 /// A direct store-level proof that EVERY supported column type round-trips its cell
 /// value (the scan returns the exact `Cell` that was coerced in).
 #[test]

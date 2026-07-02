@@ -35,9 +35,9 @@
 
 use datafusion::sql::sqlparser::ast::{
     AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator, ColumnDef as SqlColumnDef,
-    ColumnOption, CopyLegacyOption, CopyOption, CopySource, CopyTarget, CreateTable, Delete, Expr,
-    FromTable, Insert, ObjectName, ObjectType, SelectItem, SetExpr, Statement, TableFactor,
-    TableWithJoins, Value as SqlValue, Values,
+    ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption, CopySource, CopyTarget, CreateTable,
+    Delete, Expr, FromTable, Insert, ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction,
+    OnInsert, SelectItem, SetExpr, Statement, TableFactor, TableWithJoins, Value as SqlValue, Values,
 };
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -55,12 +55,26 @@ pub enum StatementKind {
     /// creations, fully decoded into id + property objects so they can be applied
     /// through a `GraphTxn`. A single-row INSERT is just a one-element vector.
     InsertNodes(InsertNodes),
+    /// `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-046) — populate the node
+    /// store from the projected rows of a SELECT (which may itself JOIN user tables
+    /// and the graph). The SELECT text is re-run through the DataFusion read path;
+    /// each result row builds an id + property object applied like `InsertNodes`.
+    InsertNodesSelect(InsertNodesSelect),
     /// `UPDATE nodes SET k = v[, …] WHERE …` — decoded SET map + a simple WHERE
     /// predicate, routed to `compare_and_set_fields` per matched node under a txn.
     UpdateNodes(UpdateNodes),
+    /// `UPDATE nodes SET … FROM <other> WHERE …` (CONCEPT:EG-047) — a correlated,
+    /// multi-table update: the matched ids AND per-row SET values are resolved
+    /// through DataFusion (`resolve_sql` yields `(id, <set-cols…>)`), then applied
+    /// per node via the serializable CAS gate.
+    UpdateNodesJoin(UpdateNodesJoin),
     /// `DELETE FROM nodes WHERE …` — a simple WHERE predicate, routed to
     /// `remove_node` per matched node under a txn.
     DeleteNodes(DeleteNodes),
+    /// `DELETE FROM nodes USING <other> WHERE …` (CONCEPT:EG-047) — a correlated,
+    /// multi-table delete: the matched ids are resolved through DataFusion
+    /// (`resolve_sql` yields `id`), then each is removed under its one-shot txn.
+    DeleteNodesJoin(DeleteNodesJoin),
 
     // ── arbitrary user-defined relational tables (CONCEPT:EG-018) ──────────────
     /// `CREATE TABLE name (col type, …) [IF NOT EXISTS]` — a new user table whose
@@ -70,6 +84,12 @@ pub enum StatementKind {
     DropTable(DropTablePlan),
     /// `ALTER TABLE name ADD COLUMN col type` — append a column to a user table.
     AlterTable(AlterTablePlan),
+    /// `CREATE VIEW name AS <select>` (CONCEPT:EG-072) — record a read-only named
+    /// query in the durable view catalog; a later SELECT that references it expands
+    /// the stored SELECT during context build.
+    CreateView(CreateViewPlan),
+    /// `DROP VIEW [IF EXISTS] name` (CONCEPT:EG-072) — remove a view catalog entry.
+    DropView(DropViewPlan),
     /// `INSERT INTO <user_table> (cols…) VALUES (…)[, …]` — literal multi-row insert
     /// into a user table (not `nodes`).
     InsertTable(InsertTable),
@@ -170,12 +190,85 @@ pub struct TableWhereEq {
     pub pred: eg_types::RowPredicate,
 }
 
-/// A decoded literal `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-018).
+/// A decoded literal `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-018), with an
+/// optional `ON CONFLICT` action and `RETURNING` flag (CONCEPT:EG-048).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InsertTable {
     pub table: String,
     pub columns: Vec<String>,
     pub rows: Vec<Vec<Value>>,
+    /// `ON CONFLICT (...) DO NOTHING|DO UPDATE` (CONCEPT:EG-048), or `None`.
+    pub on_conflict: Option<OnConflict>,
+    /// Whether a `RETURNING` clause was present (CONCEPT:EG-048).
+    pub returning: bool,
+}
+
+/// A decoded `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-046). The SELECT text is
+/// re-run through the DataFusion read path so it can JOIN user tables and the graph;
+/// each projected row becomes a node insert. `columns` must include `id`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertNodesSelect {
+    pub columns: Vec<String>,
+    pub select_sql: String,
+    pub returning: bool,
+    /// `ON CONFLICT` action applied per resolved row (CONCEPT:EG-048).
+    pub on_conflict: Option<OnConflict>,
+}
+
+/// A decoded `INSERT … ON CONFLICT (target_cols) DO NOTHING|DO UPDATE SET …`
+/// (CONCEPT:EG-048). For `nodes` the conflict key is always the node `id` (the
+/// `target_cols` are informational); for a user table `target_cols` name the
+/// unique/PK columns whose duplicate triggers the action (validated via the store's
+/// existing uniqueness check).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OnConflict {
+    pub target_cols: Vec<String>,
+    pub action: OnConflictAction,
+}
+
+/// The action an `ON CONFLICT` clause takes on a conflicting row (CONCEPT:EG-048).
+#[derive(Debug, Clone, PartialEq)]
+pub enum OnConflictAction {
+    /// `DO NOTHING` — skip the conflicting row.
+    DoNothing,
+    /// `DO UPDATE SET …` — merge these column assignments into the existing row.
+    DoUpdate(Map<String, Value>),
+}
+
+/// A decoded `UPDATE nodes SET … FROM <other> WHERE …` (CONCEPT:EG-047). `resolve_sql`
+/// is a SELECT that projects `id` plus one column per SET target (aliased to the
+/// target column name); the executor reads it, then applies each row's SET values to
+/// the node with that id via the serializable CAS gate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateNodesJoin {
+    pub set_targets: Vec<String>,
+    pub resolve_sql: String,
+    pub returning: bool,
+}
+
+/// A decoded `DELETE FROM nodes USING <other> WHERE …` (CONCEPT:EG-047). `resolve_sql`
+/// is a SELECT that projects the `id` of every node to remove.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteNodesJoin {
+    pub resolve_sql: String,
+    pub returning: bool,
+}
+
+/// A decoded `CREATE VIEW name AS <select>` (CONCEPT:EG-072). `select_sql` is the raw
+/// SELECT text stored in the durable view catalog; `or_replace` mirrors
+/// `CREATE OR REPLACE VIEW`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateViewPlan {
+    pub name: String,
+    pub select_sql: String,
+    pub or_replace: bool,
+}
+
+/// A decoded `DROP VIEW [IF EXISTS] name` (CONCEPT:EG-072).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DropViewPlan {
+    pub name: String,
+    pub if_exists: bool,
 }
 
 /// A decoded `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-018). The SELECT
@@ -231,11 +324,13 @@ pub struct InsertNode {
     pub properties: Map<String, Value>,
 }
 
-/// One or more decoded `INSERT` rows plus whether a `RETURNING` clause was present.
+/// One or more decoded `INSERT` rows plus whether a `RETURNING` clause was present,
+/// and an optional `ON CONFLICT` action applied per row (CONCEPT:EG-048).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InsertNodes {
     pub rows: Vec<InsertNode>,
     pub returning: bool,
+    pub on_conflict: Option<OnConflict>,
 }
 
 /// A decoded `UPDATE nodes SET … WHERE …`: the property updates to merge and the
@@ -307,10 +402,18 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
             if_exists,
             names,
             ..
-        } => classify_drop(*object_type, *if_exists, names).map(StatementKind::DropTable),
+        } => classify_drop(*object_type, *if_exists, names),
         Statement::AlterTable {
             name, operations, ..
         } => classify_alter_table(name, operations).map(StatementKind::AlterTable),
+        // ── views (CONCEPT:EG-072) ─────────────────────────────────────────────
+        Statement::CreateView {
+            name,
+            query,
+            or_replace,
+            materialized,
+            ..
+        } => classify_create_view(name, query, *or_replace, *materialized),
         // ── transactions + COPY (CONCEPT:EG-020) ──────────────────────────────
         Statement::StartTransaction { .. } => Ok(StatementKind::Begin),
         Statement::Commit { .. } => Ok(StatementKind::Commit),
@@ -699,7 +802,60 @@ fn classify_insert(insert: &Insert) -> Result<InsertNodes, String> {
     Ok(InsertNodes {
         rows,
         returning: insert.returning.is_some(),
+        on_conflict: decode_on_conflict(insert.on.as_ref())?,
     })
+}
+
+/// Decode a sqlparser `ON CONFLICT` clause into an [`OnConflict`] (CONCEPT:EG-048).
+/// `None`/absent ⇒ no upsert. A MySQL `ON DUPLICATE KEY UPDATE` and an
+/// `ON CONFLICT … DO UPDATE` with a `WHERE` are rejected (explicit follow-ups).
+fn decode_on_conflict(on: Option<&OnInsert>) -> Result<Option<OnConflict>, String> {
+    let Some(on) = on else {
+        return Ok(None);
+    };
+    let conflict = match on {
+        OnInsert::OnConflict(c) => c,
+        OnInsert::DuplicateKeyUpdate(_) => {
+            return Err("ON DUPLICATE KEY UPDATE is not supported; use ON CONFLICT".to_string())
+        }
+        _ => return Err("unsupported INSERT conflict clause".to_string()),
+    };
+    let target_cols = match &conflict.conflict_target {
+        Some(ConflictTarget::Columns(cols)) => cols.iter().map(|c| c.value.clone()).collect(),
+        Some(ConflictTarget::OnConstraint(_)) => {
+            return Err("ON CONFLICT ON CONSTRAINT is not supported (name the columns)".to_string())
+        }
+        None => Vec::new(),
+    };
+    let action = match &conflict.action {
+        SqlOnConflictAction::DoNothing => OnConflictAction::DoNothing,
+        SqlOnConflictAction::DoUpdate(do_update) => {
+            if do_update.selection.is_some() {
+                return Err(
+                    "ON CONFLICT DO UPDATE … WHERE is not supported (CONCEPT:EG-048)".to_string(),
+                );
+            }
+            let mut set = Map::new();
+            for a in &do_update.assignments {
+                let col = match &a.target {
+                    AssignmentTarget::ColumnName(name) => last_ident(name),
+                    AssignmentTarget::Tuple(_) => {
+                        return Err("ON CONFLICT DO UPDATE tuple assignment is not supported"
+                            .to_string())
+                    }
+                };
+                if col.eq_ignore_ascii_case("id") {
+                    return Err("ON CONFLICT DO UPDATE cannot reassign the `id` column".to_string());
+                }
+                set.insert(col, expr_to_json(&a.value)?);
+            }
+            OnConflictAction::DoUpdate(set)
+        }
+    };
+    Ok(Some(OnConflict {
+        target_cols,
+        action,
+    }))
 }
 
 /// Decode one `VALUES (…)` row against the column list into an [`InsertNode`].
@@ -737,9 +893,9 @@ fn classify_update(
     returning: &Option<Vec<SelectItem>>,
 ) -> Result<UpdateNodes, String> {
     require_nodes_target(table, "UPDATE")?;
-    if from.is_some() {
-        return Err("UPDATE … FROM is not supported (CONCEPT:KG-2.198 follow-up)".to_string());
-    }
+    // CONCEPT:EG-047 — a `FROM` clause is routed to `classify_update_nodes_join` by the
+    // caller before reaching here, so `from` is always `None` on this simple path.
+    let _ = from;
     if assignments.is_empty() {
         return Err("UPDATE nodes requires at least one SET assignment".to_string());
     }
@@ -804,12 +960,47 @@ fn insert_leaf(insert: &Insert) -> String {
 fn classify_any_insert(insert: &Insert) -> Result<StatementKind, String> {
     let leaf = insert_leaf(insert);
     if leaf.eq_ignore_ascii_case("nodes") {
+        // A SELECT/WITH body → `INSERT INTO nodes … SELECT` (CONCEPT:EG-046); a literal
+        // VALUES body → the existing single/multi-row node insert.
+        let is_select = matches!(
+            insert.source.as_ref().map(|s| s.body.as_ref()),
+            Some(SetExpr::Select(_)) | Some(SetExpr::Query(_)) | Some(SetExpr::SetOperation { .. })
+        );
+        if is_select {
+            return classify_insert_nodes_select(insert);
+        }
         return classify_insert(insert).map(StatementKind::InsertNodes);
     }
     if leaf.eq_ignore_ascii_case("edges") {
         return Err("INSERT is only supported on the `nodes` table".to_string());
     }
     classify_insert_table(insert, leaf)
+}
+
+/// Decode `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-046). The column list must
+/// include `id`; the SELECT body is kept as text to re-run through the DataFusion read
+/// path (so it may JOIN user tables and the graph).
+fn classify_insert_nodes_select(insert: &Insert) -> Result<StatementKind, String> {
+    if insert.columns.is_empty() {
+        return Err(
+            "INSERT INTO nodes … SELECT requires an explicit column list including `id`"
+                .to_string(),
+        );
+    }
+    let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
+    if !columns.iter().any(|c| c.eq_ignore_ascii_case("id")) {
+        return Err("INSERT INTO nodes … SELECT column list must include `id`".to_string());
+    }
+    let source = insert
+        .source
+        .as_ref()
+        .ok_or("INSERT INTO nodes … SELECT requires a SELECT source")?;
+    Ok(StatementKind::InsertNodesSelect(InsertNodesSelect {
+        columns,
+        select_sql: source.to_string(),
+        returning: insert.returning.is_some(),
+        on_conflict: decode_on_conflict(insert.on.as_ref())?,
+    }))
 }
 
 /// Decode an `INSERT INTO <user_table> …` into either a literal [`InsertTable`] (a
@@ -849,6 +1040,8 @@ fn classify_insert_table(insert: &Insert, table: String) -> Result<StatementKind
                 table,
                 columns,
                 rows: out_rows,
+                on_conflict: decode_on_conflict(insert.on.as_ref())?,
+                returning: insert.returning.is_some(),
             }))
         }
         // A SELECT/WITH/UNION source → INSERT … SELECT. Keep the source query as text;
@@ -877,6 +1070,12 @@ fn classify_any_update(
         _ => return Err("UPDATE target must be a table".to_string()),
     };
     if leaf.eq_ignore_ascii_case("nodes") {
+        // CONCEPT:EG-047 — a `FROM <other>` clause or a JOIN on the target makes this a
+        // correlated multi-table update; resolve ids + per-row SET values via DataFusion.
+        if from.is_some() || !table.joins.is_empty() {
+            return classify_update_nodes_join(table, assignments, from, selection, returning)
+                .map(StatementKind::UpdateNodesJoin);
+        }
         return classify_update(table, assignments, from, selection, returning)
             .map(StatementKind::UpdateNodes);
     }
@@ -940,13 +1139,24 @@ fn classify_any_delete(delete: &Delete) -> Result<StatementKind, String> {
         _ => return Err("DELETE target must be a table".to_string()),
     };
     if leaf.eq_ignore_ascii_case("nodes") {
+        // CONCEPT:EG-047 — a `USING <other>` clause or a JOIN on the target makes this a
+        // correlated multi-table delete; resolve ids via DataFusion.
+        if delete.using.is_some() || !target.joins.is_empty() {
+            return classify_delete_nodes_join(
+                target,
+                delete.using.as_ref(),
+                delete.selection.as_ref(),
+                &delete.returning,
+            )
+            .map(StatementKind::DeleteNodesJoin);
+        }
         return classify_delete(delete).map(StatementKind::DeleteNodes);
     }
     if leaf.eq_ignore_ascii_case("edges") {
         return Err("DELETE is only supported on the `nodes` table".to_string());
     }
     if delete.using.is_some() || !target.joins.is_empty() {
-        return Err("DELETE … USING/JOIN is not supported (EG-018 follow-up)".to_string());
+        return Err("DELETE … USING/JOIN is not supported for user tables".to_string());
     }
     let selector = decode_table_where(delete.selection.as_ref(), "DELETE", &leaf)?;
     Ok(StatementKind::DeleteTable(DeleteTable {
@@ -1124,26 +1334,53 @@ fn flip_cmp(op: CmpOp) -> CmpOp {
     }
 }
 
-/// Decode `DROP TABLE [IF EXISTS] name`. Only `TABLE` objects are handled here; any
-/// other `DROP …` is rejected so it isn't silently mis-routed.
+/// Decode `DROP TABLE [IF EXISTS] name` or `DROP VIEW [IF EXISTS] name`
+/// (CONCEPT:EG-072). Only `TABLE`/`VIEW` objects are handled; any other `DROP …` is
+/// rejected so it isn't silently mis-routed.
 fn classify_drop(
     object_type: ObjectType,
     if_exists: bool,
     names: &[ObjectName],
-) -> Result<DropTablePlan, String> {
-    if object_type != ObjectType::Table {
-        return Err(format!(
-            "DROP {object_type} is not supported (only DROP TABLE)"
-        ));
-    }
+) -> Result<StatementKind, String> {
     let name = match names {
         [one] => last_ident(one),
-        _ => return Err("DROP TABLE supports exactly one table".to_string()),
+        _ => return Err("DROP supports exactly one object".to_string()),
     };
-    if is_reserved_table(&name) {
-        return Err(format!("cannot DROP the reserved graph table `{name}`"));
+    match object_type {
+        ObjectType::Table => {
+            if is_reserved_table(&name) {
+                return Err(format!("cannot DROP the reserved graph table `{name}`"));
+            }
+            Ok(StatementKind::DropTable(DropTablePlan { name, if_exists }))
+        }
+        ObjectType::View => Ok(StatementKind::DropView(DropViewPlan { name, if_exists })),
+        other => Err(format!("DROP {other} is not supported (only TABLE/VIEW)")),
     }
-    Ok(DropTablePlan { name, if_exists })
+}
+
+/// Decode `CREATE [OR REPLACE] VIEW name AS <select>` (CONCEPT:EG-072). Read-only:
+/// the view name may not shadow a reserved graph table, the body must be a plain
+/// query, and MATERIALIZED views are rejected (a follow-up).
+fn classify_create_view(
+    name: &ObjectName,
+    query: &datafusion::sql::sqlparser::ast::Query,
+    or_replace: bool,
+    materialized: bool,
+) -> Result<StatementKind, String> {
+    if materialized {
+        return Err("CREATE MATERIALIZED VIEW is not supported (CONCEPT:EG-072)".to_string());
+    }
+    let name = last_ident(name);
+    if is_reserved_table(&name) {
+        return Err(format!(
+            "CREATE VIEW cannot use the reserved graph table name `{name}`"
+        ));
+    }
+    Ok(StatementKind::CreateView(CreateViewPlan {
+        name,
+        select_sql: query.to_string(),
+        or_replace,
+    }))
 }
 
 /// Decode `ALTER TABLE name ADD COLUMN col type`. Only a single `ADD COLUMN`
@@ -1339,15 +1576,89 @@ fn require_nodes_target(
     target: &datafusion::sql::sqlparser::ast::TableWithJoins,
     verb: &str,
 ) -> Result<(), String> {
-    if !target.joins.is_empty() {
-        return Err(format!(
-            "{verb} with a JOIN is not supported (CONCEPT:KG-2.198 follow-up)"
-        ));
-    }
+    // CONCEPT:EG-047 — a JOIN on the target routes to the multi-table path before this
+    // check; the plain path never carries joins.
     match &target.relation {
         TableFactor::Table { name, .. } => require_nodes_table(&name.to_string(), verb),
         _ => Err(format!("{verb} target must be the `nodes` table")),
     }
+}
+
+/// Decode `UPDATE nodes SET c = e[, …] FROM <other> WHERE …` into an
+/// [`UpdateNodesJoin`] (CONCEPT:EG-047). Renders a resolver SELECT projecting the node
+/// `id` plus each SET value expression (aliased to its target column) over the target +
+/// FROM relations and the WHERE predicate, so the executor can read `(id, <set-cols…>)`
+/// through DataFusion and apply each row.
+fn classify_update_nodes_join(
+    table: &TableWithJoins,
+    assignments: &[Assignment],
+    from: Option<&TableWithJoins>,
+    selection: Option<&Expr>,
+    returning: &Option<Vec<SelectItem>>,
+) -> Result<UpdateNodesJoin, String> {
+    if assignments.is_empty() {
+        return Err("UPDATE nodes requires at least one SET assignment".to_string());
+    }
+    let mut set_targets = Vec::with_capacity(assignments.len());
+    let mut projections = vec!["nodes.id AS id".to_string()];
+    for a in assignments {
+        let col = match &a.target {
+            AssignmentTarget::ColumnName(name) => last_ident(name),
+            AssignmentTarget::Tuple(_) => {
+                return Err("UPDATE nodes tuple assignment is not supported".to_string())
+            }
+        };
+        if col.eq_ignore_ascii_case("id") {
+            return Err("UPDATE nodes cannot reassign the `id` column".to_string());
+        }
+        // Alias each SET value expression to its target column so the resolver row is
+        // `(id, <target-col> = <value>…)`; quote the alias to survive reserved words.
+        projections.push(format!("({}) AS \"{}\"", a.value, col));
+        set_targets.push(col);
+    }
+    // FROM = the target `nodes` (with any joins) plus the correlated `FROM` relation.
+    let mut from_sql = table.to_string();
+    if let Some(f) = from {
+        from_sql.push_str(", ");
+        from_sql.push_str(&f.to_string());
+    }
+    let mut resolve_sql = format!("SELECT {} FROM {}", projections.join(", "), from_sql);
+    if let Some(sel) = selection {
+        resolve_sql.push_str(" WHERE ");
+        resolve_sql.push_str(&sel.to_string());
+    }
+    Ok(UpdateNodesJoin {
+        set_targets,
+        resolve_sql,
+        returning: returning.is_some(),
+    })
+}
+
+/// Decode `DELETE FROM nodes USING <other> WHERE …` into a [`DeleteNodesJoin`]
+/// (CONCEPT:EG-047). Renders a resolver SELECT projecting the node `id` over the target
+/// + USING relations and the WHERE predicate.
+fn classify_delete_nodes_join(
+    target: &TableWithJoins,
+    using: Option<&Vec<TableWithJoins>>,
+    selection: Option<&Expr>,
+    returning: &Option<Vec<SelectItem>>,
+) -> Result<DeleteNodesJoin, String> {
+    let mut from_sql = target.to_string();
+    if let Some(tables) = using {
+        for t in tables {
+            from_sql.push_str(", ");
+            from_sql.push_str(&t.to_string());
+        }
+    }
+    let mut resolve_sql = format!("SELECT nodes.id AS id FROM {from_sql}");
+    if let Some(sel) = selection {
+        resolve_sql.push_str(" WHERE ");
+        resolve_sql.push_str(&sel.to_string());
+    }
+    Ok(DeleteNodesJoin {
+        resolve_sql,
+        returning: returning.is_some(),
+    })
 }
 
 /// A literal `VALUES`/`SET`/WHERE cell → a JSON value. Only SQL literals are
@@ -1960,5 +2271,169 @@ mod tests {
     fn copy_to_and_reserved_rejected() {
         assert!(classify("COPY nodes FROM STDIN").is_err());
         assert!(classify("COPY prices TO STDOUT").is_err());
+    }
+
+    // ── INSERT INTO nodes … SELECT (CONCEPT:EG-046) ───────────────────────────
+
+    #[test]
+    fn insert_nodes_select_classifies() {
+        let k = classify("INSERT INTO nodes (id, rank) SELECT sku, px FROM prices").unwrap();
+        let StatementKind::InsertNodesSelect(ins) = k else {
+            panic!("expected InsertNodesSelect, got {k:?}");
+        };
+        assert_eq!(ins.columns, vec!["id".to_string(), "rank".to_string()]);
+        assert!(ins.select_sql.to_ascii_uppercase().contains("SELECT"));
+        assert!(!ins.returning);
+        assert!(ins.on_conflict.is_none());
+    }
+
+    #[test]
+    fn insert_nodes_select_requires_id_column() {
+        // Missing `id` in the column list → rejected.
+        let e = classify("INSERT INTO nodes (rank) SELECT px FROM prices").unwrap_err();
+        assert!(e.contains("must include `id`"), "{e}");
+    }
+
+    #[test]
+    fn insert_nodes_values_still_classifies_as_insert_nodes() {
+        // A literal VALUES body is NOT routed to the SELECT path.
+        let k = classify("INSERT INTO nodes (id, rank) VALUES ('n1', 3)").unwrap();
+        assert!(matches!(k, StatementKind::InsertNodes(_)), "{k:?}");
+    }
+
+    // ── ON CONFLICT + user-table RETURNING (CONCEPT:EG-048) ───────────────────
+
+    #[test]
+    fn insert_nodes_on_conflict_do_nothing() {
+        let k = classify("INSERT INTO nodes (id, rank) VALUES ('n1', 3) ON CONFLICT (id) DO NOTHING")
+            .unwrap();
+        let StatementKind::InsertNodes(ins) = k else {
+            panic!("expected InsertNodes");
+        };
+        let oc = ins.on_conflict.expect("on_conflict");
+        assert_eq!(oc.target_cols, vec!["id".to_string()]);
+        assert_eq!(oc.action, OnConflictAction::DoNothing);
+    }
+
+    #[test]
+    fn insert_nodes_on_conflict_do_update() {
+        let k = classify(
+            "INSERT INTO nodes (id, rank) VALUES ('n1', 3) \
+             ON CONFLICT (id) DO UPDATE SET rank = 9",
+        )
+        .unwrap();
+        let StatementKind::InsertNodes(ins) = k else {
+            panic!("expected InsertNodes");
+        };
+        let OnConflictAction::DoUpdate(set) = ins.on_conflict.unwrap().action else {
+            panic!("expected DoUpdate");
+        };
+        assert_eq!(set.get("rank").unwrap(), &Value::Number(9.into()));
+    }
+
+    #[test]
+    fn insert_user_table_on_conflict_and_returning() {
+        let k = classify(
+            "INSERT INTO prices (sku, px) VALUES ('AAPL', 1.5) \
+             ON CONFLICT (sku) DO UPDATE SET px = 2.0 RETURNING sku",
+        )
+        .unwrap();
+        let StatementKind::InsertTable(ins) = k else {
+            panic!("expected InsertTable, got {k:?}");
+        };
+        assert!(ins.returning);
+        let oc = ins.on_conflict.expect("on_conflict");
+        assert_eq!(oc.target_cols, vec!["sku".to_string()]);
+        assert!(matches!(oc.action, OnConflictAction::DoUpdate(_)));
+    }
+
+    #[test]
+    fn on_conflict_do_update_where_rejected() {
+        let e = classify(
+            "INSERT INTO nodes (id) VALUES ('n1') ON CONFLICT (id) DO UPDATE SET rank = 1 WHERE rank > 0",
+        )
+        .unwrap_err();
+        assert!(e.contains("WHERE"), "{e}");
+    }
+
+    // ── UPDATE…FROM / DELETE…USING on nodes (CONCEPT:EG-047) ──────────────────
+
+    #[test]
+    fn update_nodes_from_classifies_join() {
+        let k = classify(
+            "UPDATE nodes SET rank = p.px FROM prices p WHERE nodes.symbol = p.sku",
+        )
+        .unwrap();
+        let StatementKind::UpdateNodesJoin(u) = k else {
+            panic!("expected UpdateNodesJoin, got {k:?}");
+        };
+        assert_eq!(u.set_targets, vec!["rank".to_string()]);
+        let up = u.resolve_sql.to_ascii_uppercase();
+        assert!(up.contains("NODES.ID AS ID"), "{}", u.resolve_sql);
+        assert!(up.contains("FROM NODES") && up.contains("PRICES"), "{}", u.resolve_sql);
+        assert!(up.contains("WHERE"), "{}", u.resolve_sql);
+        assert!(u.resolve_sql.contains("\"rank\""), "{}", u.resolve_sql);
+    }
+
+    #[test]
+    fn update_nodes_join_cannot_reassign_id() {
+        let e = classify("UPDATE nodes SET id = p.x FROM other p WHERE nodes.a = p.a").unwrap_err();
+        assert!(e.contains("cannot reassign the `id`"), "{e}");
+    }
+
+    #[test]
+    fn delete_nodes_using_classifies_join() {
+        let k =
+            classify("DELETE FROM nodes USING prices p WHERE nodes.symbol = p.sku").unwrap();
+        let StatementKind::DeleteNodesJoin(d) = k else {
+            panic!("expected DeleteNodesJoin, got {k:?}");
+        };
+        let up = d.resolve_sql.to_ascii_uppercase();
+        assert!(up.contains("SELECT NODES.ID AS ID FROM NODES"), "{}", d.resolve_sql);
+        assert!(up.contains("PRICES") && up.contains("WHERE"), "{}", d.resolve_sql);
+    }
+
+    #[test]
+    fn plain_update_delete_nodes_unchanged() {
+        // No FROM/USING → the simple single-table path (not the join path).
+        assert!(matches!(
+            classify("UPDATE nodes SET rank = 1 WHERE id = 'n1'").unwrap(),
+            StatementKind::UpdateNodes(_)
+        ));
+        assert!(matches!(
+            classify("DELETE FROM nodes WHERE id = 'n1'").unwrap(),
+            StatementKind::DeleteNodes(_)
+        ));
+    }
+
+    // ── CREATE VIEW / DROP VIEW (CONCEPT:EG-072) ──────────────────────────────
+
+    #[test]
+    fn create_and_drop_view_classify() {
+        let k = classify("CREATE VIEW agents AS SELECT id FROM nodes WHERE type = 'Agent'").unwrap();
+        let StatementKind::CreateView(v) = k else {
+            panic!("expected CreateView, got {k:?}");
+        };
+        assert_eq!(v.name, "agents");
+        assert!(!v.or_replace);
+        assert!(v.select_sql.to_ascii_uppercase().contains("SELECT ID FROM NODES"));
+
+        let StatementKind::CreateView(v2) =
+            classify("CREATE OR REPLACE VIEW agents AS SELECT id FROM nodes").unwrap()
+        else {
+            panic!("expected CreateView");
+        };
+        assert!(v2.or_replace);
+
+        let StatementKind::DropView(d) = classify("DROP VIEW IF EXISTS agents").unwrap() else {
+            panic!("expected DropView");
+        };
+        assert!(d.if_exists && d.name == "agents");
+    }
+
+    #[test]
+    fn create_view_rejects_reserved_and_materialized() {
+        assert!(classify("CREATE VIEW nodes AS SELECT 1").is_err());
+        assert!(classify("CREATE MATERIALIZED VIEW v AS SELECT 1").is_err());
     }
 }
