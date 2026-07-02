@@ -77,6 +77,19 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             store.delete_where(&del.table, &del.selector.pred).unwrap();
             None
         }
+        // CONCEPT:EG-103 — route CREATE VIEW / CREATE FUNCTION to the store so the
+        // system-catalog tests can assert views (relkind='v') and functions (pg_proc)
+        // are reflected. Mirrors the pgwire shim's routing.
+        StatementKind::CreateView(plan) => {
+            store
+                .create_view(&plan.name, &plan.select_sql, plan.or_replace)
+                .unwrap();
+            None
+        }
+        StatementKind::CreateFunction(plan) => {
+            store.create_function(&plan.func, plan.or_replace).unwrap();
+            None
+        }
         other => panic!("unexpected statement kind for user-table test: {other:?}"),
     }
 }
@@ -416,4 +429,221 @@ fn vector_dimension_mismatch_rejected() {
     };
     let err = store.insert_rows(&ins.table, &ins.columns, &ins.rows);
     assert!(err.is_err(), "a 2-d vector into a vector(3) column must be rejected");
+}
+
+// ── Postgres system catalogs (CONCEPT:EG-103) ────────────────────────────────
+// A real psql/ORM introspects pg_catalog + information_schema over the live schema.
+// These build a table + view + function, then assert the synthesized system views
+// reflect them with the right relkind/types over the SAME exec path.
+
+/// Set up a store+graph with a user table `prices`, a view `cheap` over it, and a SQL
+/// function `add_two` — the three relation/routine kinds the catalogs must reflect.
+fn catalog_fixture() -> (TableStore, GraphView) {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (symbol TEXT, price DOUBLE, volume BIGINT, ok BOOLEAN)",
+    );
+    run(
+        &store,
+        &view,
+        "CREATE VIEW cheap AS SELECT symbol, price FROM prices WHERE price < 300",
+    );
+    run(
+        &store,
+        &view,
+        "CREATE FUNCTION add_two(a int, b int) RETURNS int AS $$ SELECT a + b $$ LANGUAGE sql",
+    );
+    (store, view)
+}
+
+/// `pg_catalog.pg_class` JOIN `pg_namespace` lists tables (`relkind='r'`) AND the view
+/// (`relkind='v'`) under `public` — the ORM bootstrap "list relations" probe (EG-103).
+#[test]
+fn pg_class_lists_tables_and_views_eg103() {
+    let (store, view) = catalog_fixture();
+    let r = run(
+        &store,
+        &view,
+        "SELECT c.relname, c.relkind FROM pg_catalog.pg_class c \
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = 'public' ORDER BY c.relname",
+    )
+    .unwrap();
+    let got: Vec<(String, String)> = r
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row[0].as_str().unwrap().to_string(),
+                row[1].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert!(got.contains(&("nodes".to_string(), "r".to_string())), "{got:?}");
+    assert!(got.contains(&("edges".to_string(), "r".to_string())), "{got:?}");
+    assert!(got.contains(&("prices".to_string(), "r".to_string())), "{got:?}");
+    assert!(
+        got.contains(&("cheap".to_string(), "v".to_string())),
+        "view must be relkind='v': {got:?}"
+    );
+}
+
+/// `information_schema.columns` lists a table's columns with their SQL `data_type` — the
+/// query SQLAlchemy `reflect()` issues to learn a table's shape (EG-103).
+#[test]
+fn information_schema_columns_lists_table_columns_eg103() {
+    let (store, view) = catalog_fixture();
+    let r = run(
+        &store,
+        &view,
+        "SELECT column_name, data_type FROM information_schema.columns \
+         WHERE table_name = 'prices' ORDER BY ordinal_position",
+    )
+    .unwrap();
+    let got: Vec<(String, String)> = r
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row[0].as_str().unwrap().to_string(),
+                row[1].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("symbol".to_string(), "text".to_string()),
+            ("price".to_string(), "double precision".to_string()),
+            ("volume".to_string(), "bigint".to_string()),
+            ("ok".to_string(), "boolean".to_string()),
+        ]
+    );
+}
+
+/// `information_schema.tables` lists both the base tables and the view with the correct
+/// `table_type` (EG-103).
+#[test]
+fn information_schema_tables_lists_tables_and_views_eg103() {
+    let (store, view) = catalog_fixture();
+    let r = run(
+        &store,
+        &view,
+        "SELECT table_name, table_type FROM information_schema.tables \
+         WHERE table_name IN ('prices','cheap') ORDER BY table_name",
+    )
+    .unwrap();
+    let got: Vec<(String, String)> = r
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row[0].as_str().unwrap().to_string(),
+                row[1].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("cheap".to_string(), "VIEW".to_string()),
+            ("prices".to_string(), "BASE TABLE".to_string()),
+        ]
+    );
+}
+
+/// The view's own columns are reflected in `information_schema.columns` too — read back
+/// from the registered view provider (EG-103).
+#[test]
+fn information_schema_reflects_view_columns_eg103() {
+    let (store, view) = catalog_fixture();
+    let r = run(
+        &store,
+        &view,
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_name = 'cheap' ORDER BY ordinal_position",
+    )
+    .unwrap();
+    let cols: Vec<String> = r
+        .rows
+        .iter()
+        .map(|row| row[0].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(cols, vec!["symbol".to_string(), "price".to_string()]);
+}
+
+/// `pg_catalog.pg_proc` and `information_schema.routines` reflect the EG-118 SQL
+/// function (EG-103).
+#[test]
+fn pg_proc_and_routines_reflect_function_eg103() {
+    let (store, view) = catalog_fixture();
+    let p = run(
+        &store,
+        &view,
+        "SELECT proname, pronargs FROM pg_catalog.pg_proc WHERE proname = 'add_two'",
+    )
+    .unwrap();
+    assert_eq!(p.rows.len(), 1, "add_two must appear in pg_proc");
+    assert_eq!(p.rows[0][0], Value::String("add_two".into()));
+    assert_eq!(p.rows[0][1], json!(2));
+
+    let r = run(
+        &store,
+        &view,
+        "SELECT routine_name, routine_type FROM information_schema.routines \
+         WHERE routine_name = 'add_two'",
+    )
+    .unwrap();
+    assert_eq!(r.rows.len(), 1);
+    assert_eq!(r.rows[0][1], Value::String("FUNCTION".into()));
+}
+
+/// The catalog scalar functions resolve — BOTH bare and `pg_catalog.`-qualified (as psql
+/// `\d` emits): `format_type`, `pg_table_is_visible`, `current_schema` (EG-103).
+#[test]
+fn catalog_functions_qualified_and_bare_eg103() {
+    let (store, view) = catalog_fixture();
+    let r = run(
+        &store,
+        &view,
+        "SELECT pg_catalog.format_type(20, -1) AS t, \
+                pg_catalog.pg_table_is_visible(16384) AS vis, \
+                current_schema() AS sch",
+    )
+    .unwrap();
+    assert_eq!(r.rows[0][0], Value::String("int8".into()));
+    assert_eq!(r.rows[0][1], Value::Bool(true));
+    assert_eq!(r.rows[0][2], Value::String("public".into()));
+}
+
+/// A psql `\d`-style query — JOIN `pg_class`/`pg_namespace`, filtered by
+/// `pg_catalog.pg_table_is_visible(c.oid)` and `pg_catalog.format_type` in the select —
+/// returns the live relations, exercising qualified table refs AND qualified function
+/// calls together (EG-103).
+#[test]
+fn psql_backslash_d_style_query_eg103() {
+    let (store, view) = catalog_fixture();
+    let r = run(
+        &store,
+        &view,
+        "SELECT c.relname, c.relkind \
+         FROM pg_catalog.pg_class c \
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+         WHERE c.relkind IN ('r','v') \
+           AND n.nspname = 'public' \
+           AND pg_catalog.pg_table_is_visible(c.oid) \
+         ORDER BY c.relname",
+    )
+    .unwrap();
+    let names: Vec<String> = r
+        .rows
+        .iter()
+        .map(|row| row[0].as_str().unwrap().to_string())
+        .collect();
+    for must in ["cheap", "edges", "nodes", "prices"] {
+        assert!(names.contains(&must.to_string()), "missing {must}: {names:?}");
+    }
 }

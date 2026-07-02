@@ -323,10 +323,14 @@ fn run(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-103 — strip the `pg_catalog.` qualifier off catalog FUNCTION calls
+    // (psql `\d`/ORMs emit `pg_catalog.format_type(...)`) so the bare-name UDFs resolve;
+    // schema-qualified TABLE refs (`pg_catalog.pg_class`) are untouched.
+    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
     // CONCEPT:EG-118 — expand SQL stored-function calls into inline SQL (scalar subquery /
     // parameterized-view subquery) BEFORE the pgvector desugar + planning, so an inlined
     // body is itself desugared and planned. A no-op when there are no functions.
-    let sql = super::funcs::expand_functions(sql, &functions)?;
+    let sql = super::funcs::expand_functions(&sql, &functions)?;
     // CONCEPT:EG-115 — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
     // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
     // operator for them). A no-op when none are present or the SQL doesn't parse.
@@ -413,8 +417,10 @@ fn run_typed(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-103 — see `run`: strip `pg_catalog.` off catalog function calls first.
+    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
     // CONCEPT:EG-118 — see `run`: expand SQL stored-function calls before desugar/planning.
-    let sql = super::funcs::expand_functions(sql, &functions)?;
+    let sql = super::funcs::expand_functions(&sql, &functions)?;
     // CONCEPT:EG-115 — see `run`: desugar the pgvector operators before planning.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
