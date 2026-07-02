@@ -995,22 +995,53 @@ fn sort_solutions(ctx: &Ctx, sols: &mut [Solution], order: &[OrderExpression]) {
     });
 }
 
-/// Compare two (possibly unbound) `ORDER BY` values (CONCEPT:EG-125). Unbound (`None`)
-/// sorts before any bound value; two bound values compare numerically when both parse as
-/// numbers, else by lexical value.
+/// The SPARQL `ORDER BY` term-type precedence rank (CONCEPT:EG-135). The spec fixes a
+/// total order ACROSS term kinds — an unbound value sorts before any bound value, then
+/// blank nodes, then IRIs, then literals — and only compares *values* within the same
+/// kind. Prior to EG-135 the comparator ignored the kind and compared every bound value
+/// by its lexical string, so a query ordering over MIXED IRI/literal (or blank/IRI)
+/// columns came back in the wrong group order. Ranks: unbound(0) < blank(1) < IRI(2) <
+/// literal(3).
+fn order_rank(b: &Option<Binding>) -> u8 {
+    match b {
+        None => 0,
+        Some(Binding::Node(s)) if s.starts_with("_:") => 1,
+        Some(Binding::Node(_)) => 2, // an `<iri>` node
+        Some(Binding::Literal(_)) => 3,
+    }
+}
+
+/// Compare two (possibly unbound) `ORDER BY` values under the full SPARQL term ordering
+/// (CONCEPT:EG-135, completing the EG-125 ORDER BY arm). Terms first order by KIND
+/// ([`order_rank`]: unbound < blank node < IRI < literal); only within the SAME kind do
+/// values compare — blank/IRI lexically by term id, and literals by a typed comparison:
+/// numerically when both lexical forms parse as numbers, else lexically (xsd:dateTime /
+/// xsd:date ISO-8601 lexicals already sort chronologically under a lexical compare for a
+/// shared timezone, and plain strings compare by code point).
 fn cmp_binding(a: &Option<Binding>, b: &Option<Binding>) -> std::cmp::Ordering {
     use std::cmp::Ordering;
+    // Cross-kind: the type precedence decides it outright.
+    let (ra, rb) = (order_rank(a), order_rank(b));
+    if ra != rb {
+        return ra.cmp(&rb);
+    }
     match (a, b) {
+        // Same rank ⇒ both unbound, both nodes, or both literals.
         (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Less,
-        (Some(_), None) => Ordering::Greater,
         (Some(x), Some(y)) => {
             let (xs, ys) = (x.as_str(), y.as_str());
-            match (xs.parse::<f64>(), ys.parse::<f64>()) {
-                (Ok(nx), Ok(ny)) => nx.partial_cmp(&ny).unwrap_or(Ordering::Equal),
-                _ => xs.cmp(ys),
+            // Typed value compare only applies to literals; nodes (same kind) order by id.
+            if matches!((x, y), (Binding::Literal(_), Binding::Literal(_))) {
+                match (xs.parse::<f64>(), ys.parse::<f64>()) {
+                    (Ok(nx), Ok(ny)) => nx.partial_cmp(&ny).unwrap_or(Ordering::Equal),
+                    _ => xs.cmp(ys),
+                }
+            } else {
+                xs.cmp(ys)
             }
         }
+        // Unreachable: differing ranks were handled above.
+        _ => Ordering::Equal,
     }
 }
 
