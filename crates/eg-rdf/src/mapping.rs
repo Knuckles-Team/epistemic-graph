@@ -511,6 +511,35 @@ pub fn parse_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
     Ok(out)
 }
 
+// ── EG-137: named-graph-aware `from_*` reader surface ────────────────────────────
+//
+// CONCEPT:EG-137 completes the RDF 1.1 concrete-syntax matrix — TriG + N-Quads (quad,
+// named-graph-aware) and RDF/XML — alongside Turtle/N-Triples (EG-050). The writers
+// (`to_trig`/`to_nquads`/`to_rdfxml`) sit above; these `from_*` readers give the matrix
+// a first-class, uniformly-named reader surface (delegating to the same oxttl/oxrdfxml
+// parsers). Named-graph awareness: `from_trig`/`from_nquads` yield `Quad`s carrying the
+// per-statement graph term; RDF/XML is a single-graph syntax so `from_rdfxml` yields
+// triples.
+
+/// EG-137: parse N-Quads into quads (subject/predicate/object + graph term). The
+/// canonically-named reader for the `application/n-quads` form.
+pub fn from_nquads(doc: &str) -> Result<Vec<Quad>, String> {
+    parse_nquads(doc)
+}
+
+/// EG-137: parse TriG (named-graph-aware Turtle) into quads. The canonically-named
+/// reader for the `application/trig` form.
+pub fn from_trig(doc: &str) -> Result<Vec<Quad>, String> {
+    parse_trig(doc)
+}
+
+/// EG-137: parse RDF/XML into triples (a single-graph syntax). The canonically-named
+/// reader for the `application/rdf+xml` form (feature `rdf-xml`).
+#[cfg(feature = "rdf-xml")]
+pub fn from_rdfxml(doc: &str) -> Result<Vec<Triple>, String> {
+    parse_rdfxml(doc)
+}
+
 /// A canonical, bnode/order-insensitive comparison key for a quad set (mirrors
 /// [`triple_set_key`], adding the graph name).
 pub fn quad_set_key(quads: &[Quad]) -> BTreeSet<String> {
@@ -854,6 +883,52 @@ ex:x ex:tag "a" , "b" , "c" .
             triple_set_key(&quads_as_triples(&quads)),
             "JSON-LD must round-trip the triple set"
         );
+    }
+
+    // ── EG-137: RDF 1.1 concrete-syntax matrix via the `from_*` reader surface ──
+
+    /// EG-137: N-Quads `to_nquads` → `from_nquads` round-trips the triple set AND the
+    /// named graph term (the quad-carried graph is preserved).
+    #[test]
+    fn eg137_nquads_from_reader_round_trips_named_graph() {
+        let triples = parse_turtle(TTL).unwrap();
+        let g = "http://example.org/g137";
+        let nq = to_nquads(&triples, Some(g)).unwrap();
+        let quads = from_nquads(&nq).unwrap();
+        assert_eq!(
+            triple_set_key(&triples),
+            triple_set_key(&quads_as_triples(&quads)),
+        );
+        assert!(quads
+            .iter()
+            .all(|q| matches!(&q.graph_name, GraphName::NamedNode(n) if n.as_str() == g)));
+    }
+
+    /// EG-137: TriG `to_trig` → `from_trig` round-trips the triple set AND the named graph.
+    #[test]
+    fn eg137_trig_from_reader_round_trips_named_graph() {
+        let triples = parse_turtle(TTL).unwrap();
+        let g = "http://example.org/g137";
+        let trig = to_trig(&triples, Some(g)).unwrap();
+        let quads = from_trig(&trig).unwrap();
+        assert_eq!(
+            triple_set_key(&triples),
+            triple_set_key(&quads_as_triples(&quads)),
+        );
+        assert!(quads
+            .iter()
+            .all(|q| matches!(&q.graph_name, GraphName::NamedNode(n) if n.as_str() == g)));
+    }
+
+    /// EG-137: RDF/XML `to_rdfxml` → `from_rdfxml` round-trips the triple set (feature
+    /// `rdf-xml`).
+    #[cfg(feature = "rdf-xml")]
+    #[test]
+    fn eg137_rdfxml_from_reader_round_trips() {
+        let triples = parse_turtle(TTL).unwrap();
+        let xml = to_rdfxml(&triples).unwrap();
+        let reparsed = from_rdfxml(&xml).unwrap();
+        assert_eq!(triple_set_key(&triples), triple_set_key(&reparsed));
     }
 
     // ── EG-130: RDF-star / SPARQL-star (RDF 1.2) ────────────────────────────
