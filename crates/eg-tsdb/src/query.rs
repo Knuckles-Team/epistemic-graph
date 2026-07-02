@@ -262,3 +262,220 @@ pub fn series_rolling_zscore(points: &[Point], window: usize) -> Vec<f64> {
     let vals: Vec<f64> = points.iter().map(|p| p.values[0]).collect();
     eg_compute::finance::signals::rolling_zscore(&vals, window)
 }
+
+// ───────────────────── multimodal sensor fusion (CONCEPT:EG-098) ────────────────
+//
+// Time-align N HETEROGENEOUS sensor streams (camera/LiDAR/audio/tactile/proprioceptive)
+// to ONE common clock and emit fused multi-channel rows. Each stream's cell is an OPAQUE
+// value carried through untouched: a plain scalar reading OR a reference to an EG-085
+// tensor blob (a camera/LiDAR frame). The alignment REUSES `asof_join_backward` — for
+// each reference-clock instant, each stream contributes its latest sample at-or-before
+// that instant, within `tolerance` ns; a stream too stale (or with no prior sample)
+// yields a GAP (`None`) for that channel. This composes the eg-tsdb ASOF primitive
+// (EG-067) with the EG-085 tensor modality into the robotics fusion op EG-088's CEP can
+// then run over.
+
+/// One opaque sample cell in a sensor stream (CONCEPT:EG-098). Either a plain scalar
+/// reading, or an opaque BLOB reference — an EG-085 tensor blob id (a camera/LiDAR
+/// frame) — carried through fusion UNTOUCHED. `sensor_fuse` never decodes a `Blob`
+/// (per-channel tensor decode is a documented follow-up); it only time-aligns the cell.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cell {
+    /// A scalar sensor reading.
+    Scalar(f64),
+    /// An opaque reference (e.g. an EG-085 tensor blob id) carried through as-is.
+    Blob(String),
+}
+
+/// One timestamped sample in a sensor stream: a ts (ns) + an opaque [`Cell`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sample {
+    pub ts: Ts,
+    pub cell: Cell,
+}
+
+impl Sample {
+    /// A scalar sample at `ts`.
+    pub fn scalar(ts: Ts, value: f64) -> Self {
+        Self {
+            ts,
+            cell: Cell::Scalar(value),
+        }
+    }
+
+    /// A blob-reference sample at `ts` (e.g. an EG-085 tensor frame id).
+    pub fn blob(ts: Ts, reference: impl Into<String>) -> Self {
+        Self {
+            ts,
+            cell: Cell::Blob(reference.into()),
+        }
+    }
+}
+
+/// A named heterogeneous sensor stream to fuse (CONCEPT:EG-098). `samples` MUST be
+/// ts-sorted (as they come out of the store) — the ASOF merge relies on it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeriesRef {
+    /// The stream / channel name (for identifying which column is which).
+    pub name: String,
+    /// The stream's ts-sorted samples.
+    pub samples: Vec<Sample>,
+}
+
+/// One fused multi-channel row (CONCEPT:EG-098): the common-clock timestamp and one
+/// aligned cell per input stream, IN STREAM ORDER. A `None` channel is a GAP — that
+/// stream had no sample at-or-before `ts` within `tolerance`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FusedRow {
+    pub ts: Ts,
+    pub channels: Vec<Option<Cell>>,
+}
+
+/// Time-align N heterogeneous sensor `streams` to ONE common clock and emit fused
+/// multi-channel rows (CONCEPT:EG-098). The common clock is the sorted, de-duplicated
+/// UNION of every stream's sample timestamps — so every sensor event across all streams
+/// becomes a fusion instant. For each instant, each stream contributes its latest sample
+/// at-or-before that instant via a backward ASOF join (`asof_join_backward`), within
+/// `tolerance` ns (`None` = unbounded); a stream with no prior sample, or one too stale,
+/// yields a GAP (`None`) for that channel. A stream's value is carried through as an
+/// opaque [`Cell`] — a scalar OR an EG-085 tensor-blob reference (camera/LiDAR frame) —
+/// so fusion is modality-agnostic.
+///
+/// The ASOF match is done over an INDEX-encoded series (each sample's array index rides
+/// as the ASOF value) so the opaque cell can be fetched back by index after the match —
+/// this REUSES `asof_join_backward` verbatim rather than re-implementing the merge.
+/// Streams must be ts-sorted; empty input (or all-empty streams) yields no rows.
+pub fn sensor_fuse(streams: &[SeriesRef], tolerance: Option<i64>) -> Vec<FusedRow> {
+    // 1. The common clock: the sorted, de-duplicated union of all sample timestamps.
+    let mut clock: Vec<Ts> = streams
+        .iter()
+        .flat_map(|s| s.samples.iter().map(|smp| smp.ts))
+        .collect();
+    clock.sort_unstable();
+    clock.dedup();
+    if clock.is_empty() {
+        return Vec::new();
+    }
+    // ASOF `left` = the reference clock (its value is unused; 0.0 is a placeholder).
+    let ref_pts: Vec<Point> = clock.iter().map(|&t| Point::single(t, 0.0)).collect();
+
+    // 2. Per stream, ASOF-backward-join an INDEX-encoded copy of the stream onto the
+    //    clock; the matched ASOF value is the sample index, which fetches the opaque
+    //    cell back. `None` (no prior sample / outside tolerance) is a gap.
+    let mut columns: Vec<Vec<Option<Cell>>> = Vec::with_capacity(streams.len());
+    for s in streams {
+        let idx_pts: Vec<Point> = s
+            .samples
+            .iter()
+            .enumerate()
+            .map(|(i, smp)| Point::single(smp.ts, i as f64))
+            .collect();
+        let joined = asof_join_backward(&ref_pts, &idx_pts, tolerance);
+        let col: Vec<Option<Cell>> = joined
+            .iter()
+            .map(|row| row.right.map(|idx| s.samples[idx as usize].cell.clone()))
+            .collect();
+        columns.push(col);
+    }
+
+    // 3. Transpose the per-stream columns into per-instant fused rows.
+    clock
+        .iter()
+        .enumerate()
+        .map(|(ri, &t)| FusedRow {
+            ts: t,
+            channels: columns.iter().map(|col| col[ri].clone()).collect(),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod sensor_fuse_tests {
+    use super::*;
+
+    const NS: i64 = 1_000_000_000; // 1 second in ns
+
+    /// 3 streams at DIFFERENT rates fuse to aligned multi-channel rows on the union
+    /// clock; each channel carries its latest sample at-or-before each instant, and a
+    /// tensor-blob channel is carried through as an opaque cell.
+    #[test]
+    fn three_streams_different_rates_fuse_aligned() {
+        // A: fast scalar @ 0,1,2,3,4 ; B: medium scalar @ 0,2,4 ; C: slow LiDAR blob @ 0.
+        let a = SeriesRef {
+            name: "imu".into(),
+            samples: (0..5).map(|i| Sample::scalar(i * NS, i as f64)).collect(),
+        };
+        let b = SeriesRef {
+            name: "gps".into(),
+            samples: vec![
+                Sample::scalar(0, 100.0),
+                Sample::scalar(2 * NS, 120.0),
+                Sample::scalar(4 * NS, 140.0),
+            ],
+        };
+        let c = SeriesRef {
+            name: "lidar".into(),
+            samples: vec![Sample::blob(0, "blob://frame0")],
+        };
+        let fused = sensor_fuse(&[a, b, c], None);
+
+        // Union clock = {0,1,2,3,4} → 5 fused rows, in order.
+        assert_eq!(fused.len(), 5);
+        assert_eq!(
+            fused.iter().map(|r| r.ts).collect::<Vec<_>>(),
+            vec![0, NS, 2 * NS, 3 * NS, 4 * NS]
+        );
+        // Every row carries all 3 channels.
+        assert!(fused.iter().all(|r| r.channels.len() == 3));
+
+        // @ ts=3: A latest = sample@3 (=3.0); B latest at-or-before 3 = sample@2 (=120);
+        // C latest = the blob@0, carried through opaque.
+        let r3 = &fused[3];
+        assert_eq!(r3.channels[0], Some(Cell::Scalar(3.0)));
+        assert_eq!(r3.channels[1], Some(Cell::Scalar(120.0)));
+        assert_eq!(r3.channels[2], Some(Cell::Blob("blob://frame0".into())));
+
+        // @ ts=4: A=4.0, B=140 (real sample@4), C still the blob@0 (unbounded tolerance).
+        let r4 = &fused[4];
+        assert_eq!(r4.channels[0], Some(Cell::Scalar(4.0)));
+        assert_eq!(r4.channels[1], Some(Cell::Scalar(140.0)));
+        assert_eq!(r4.channels[2], Some(Cell::Blob("blob://frame0".into())));
+    }
+
+    /// A sample OUTSIDE `tolerance` (or with no prior sample) yields a GAP (`None`).
+    #[test]
+    fn stale_or_missing_sample_yields_gap() {
+        // A: scalar @ 0,2,4 ; C: a single blob @ 0. Tolerance = 1s.
+        let a = SeriesRef {
+            name: "imu".into(),
+            samples: vec![
+                Sample::scalar(0, 10.0),
+                Sample::scalar(2 * NS, 20.0),
+                Sample::scalar(4 * NS, 40.0),
+            ],
+        };
+        let c = SeriesRef {
+            name: "lidar".into(),
+            samples: vec![Sample::blob(0, "blob://frame0")],
+        };
+        let fused = sensor_fuse(&[a, c], Some(NS));
+
+        // Clock = {0,2,4}. C only has a sample@0, so at ts=2 (2s stale) and ts=4 it is a
+        // GAP under a 1s tolerance; A is always fresh (exact hit each instant).
+        assert_eq!(fused.len(), 3);
+        assert_eq!(fused[0].channels, vec![Some(Cell::Scalar(10.0)), Some(Cell::Blob("blob://frame0".into()))]);
+        assert_eq!(fused[1].channels, vec![Some(Cell::Scalar(20.0)), None]);
+        assert_eq!(fused[2].channels, vec![Some(Cell::Scalar(40.0)), None]);
+    }
+
+    /// Empty input (and all-empty streams) yields no rows — degrade, never panic.
+    #[test]
+    fn empty_input_yields_no_rows() {
+        assert!(sensor_fuse(&[], None).is_empty());
+        let empty = SeriesRef {
+            name: "x".into(),
+            samples: vec![],
+        };
+        assert!(sensor_fuse(&[empty], None).is_empty());
+    }
+}
