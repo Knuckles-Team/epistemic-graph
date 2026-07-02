@@ -1251,6 +1251,305 @@ async fn try_coalesce_write(
     Ok(resp)
 }
 
+// ── Agent-memory / scene / trajectory dispatch round-trip (CONCEPT:EG-318) ────
+//
+// Drive the EG-318 Methods through the SAME `dispatch` entrypoint a wire request
+// hits (auth → routing → access-classify → handler → GraphCore), proving each wire
+// op reaches its eg-core primitive and returns the expected payload — the served
+// surface, not the library unit. Runs on a bare `--features server` build (the
+// state builder gates every optional field behind its own feature).
+#[cfg(test)]
+mod eg318_dispatch_tests {
+    use super::*;
+    use crate::channels::ChannelManager;
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    const SECRET: &str = "eg318-test-secret";
+
+    fn state_min() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+        }))
+    }
+
+    fn req(id: u64, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        }
+    }
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// CONCEPT:EG-318/EG-220 — CreateSummaryNode over the wire → SummaryChildren
+    /// reads back the linked children.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eg318_create_summary_then_read_children() {
+        let state = state_min();
+        for (i, id) in ["e1", "e2"].iter().enumerate() {
+            let r = dispatch(
+                &state,
+                req(
+                    100 + i as u64,
+                    Method::AddNode {
+                        node_id: (*id).into(),
+                        properties_msgpack: blob(serde_json::json!({"type": "Episodic"})),
+                    },
+                ),
+            )
+            .await;
+            assert!(r.error.is_none(), "AddNode: {:?}", r.error);
+        }
+        let created = dispatch(
+            &state,
+            req(
+                1,
+                Method::CreateSummaryNode {
+                    level: 1,
+                    child_ids: vec!["e1".into(), "e2".into()],
+                    props_msgpack: blob(serde_json::json!({})),
+                },
+            ),
+        )
+        .await;
+        let sid = match created.result {
+            Some(ResultPayload::String(s)) => s,
+            other => panic!("CreateSummaryNode: {:?} / {:?}", other, created.error),
+        };
+        let children = dispatch(
+            &state,
+            req(2, Method::SummaryChildren { node_id: sid.clone() }),
+        )
+        .await;
+        match children.result {
+            Some(ResultPayload::Ids(ids)) => assert_eq!(ids, vec!["e1", "e2"]),
+            other => panic!("SummaryChildren: {:?} / {:?}", other, children.error),
+        }
+    }
+
+    /// CONCEPT:EG-318/EG-221 — Consolidate over the wire returns the deterministic
+    /// semantic node id.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eg318_consolidate_returns_semantic_id() {
+        let state = state_min();
+        for (i, id) in ["a", "b"].iter().enumerate() {
+            let _ = dispatch(
+                &state,
+                req(
+                    200 + i as u64,
+                    Method::AddNode {
+                        node_id: (*id).into(),
+                        properties_msgpack: blob(serde_json::json!({"type": "Episodic"})),
+                    },
+                ),
+            )
+            .await;
+        }
+        let r = dispatch(
+            &state,
+            req(
+                3,
+                Method::Consolidate {
+                    episodic_ids: vec!["a".into(), "b".into()],
+                    semantic_props_msgpack: blob(serde_json::json!({"summary": "s"})),
+                },
+            ),
+        )
+        .await;
+        match r.result {
+            Some(ResultPayload::String(s)) => assert!(s.starts_with("semantic:")),
+            other => panic!("Consolidate: {:?} / {:?}", other, r.error),
+        }
+    }
+
+    /// CONCEPT:EG-318/EG-222 — Maintain (decay + evict) over the wire returns the
+    /// `(decayed, pruned_ids)` tuple.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eg318_maintain_decays_and_evicts() {
+        let state = state_min();
+        // A low-importance node in the working set gets evicted below threshold.
+        let _ = dispatch(
+            &state,
+            req(
+                300,
+                Method::AddNode {
+                    node_id: "low".into(),
+                    properties_msgpack: blob(serde_json::json!({"importance": 0.1})),
+                },
+            ),
+        )
+        .await;
+        let r = dispatch(
+            &state,
+            req(
+                4,
+                Method::Maintain {
+                    ids: vec!["low".into()],
+                    now_ms: 1_000,
+                    half_life_ms: 604_800_000,
+                    evict_threshold: 0.5,
+                    delete: false,
+                },
+            ),
+        )
+        .await;
+        let raw = match r.result {
+            Some(ResultPayload::Raw(b)) => b,
+            other => panic!("Maintain: {:?} / {:?}", other, r.error),
+        };
+        let (_decayed, pruned): (usize, Vec<String>) = rmp_serde::from_slice(&raw).unwrap();
+        assert_eq!(pruned, vec!["low"]);
+    }
+
+    /// CONCEPT:EG-318/EG-087 — AddSceneObject over the wire → WorldTransform reads
+    /// back the composed world pose.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eg318_scene_object_then_world_transform() {
+        let state = state_min();
+        let pose = serde_json::json!({"translation": {"x": 5.0, "y": 0.0, "z": 0.0}});
+        let created = dispatch(
+            &state,
+            req(
+                5,
+                Method::AddSceneObject {
+                    pose_msgpack: blob(pose),
+                    parent: None,
+                },
+            ),
+        )
+        .await;
+        let oid = match created.result {
+            Some(ResultPayload::String(s)) => s,
+            other => panic!("AddSceneObject: {:?} / {:?}", other, created.error),
+        };
+        let wt = dispatch(&state, req(6, Method::WorldTransform { node_id: oid })).await;
+        match wt.result {
+            Some(ResultPayload::Json(v)) => {
+                let tx = v["translation"]["x"].as_f64().unwrap();
+                assert!((tx - 5.0).abs() < 1e-9, "world x = {tx}");
+            }
+            other => panic!("WorldTransform: {:?} / {:?}", other, wt.error),
+        }
+    }
+
+    /// CONCEPT:EG-318/EG-099 — StartTrajectory + AppendStep over the wire →
+    /// DiscountedReturn computes `Σ gamma^t · reward`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn eg318_trajectory_append_then_discounted_return() {
+        let state = state_min();
+        let started = dispatch(
+            &state,
+            req(
+                7,
+                Method::StartTrajectory {
+                    props_msgpack: blob(serde_json::json!({})),
+                },
+            ),
+        )
+        .await;
+        let tid = match started.result {
+            Some(ResultPayload::String(s)) => s,
+            other => panic!("StartTrajectory: {:?} / {:?}", other, started.error),
+        };
+        for (i, reward) in [2.0f64, 4.0].into_iter().enumerate() {
+            let r = dispatch(
+                &state,
+                req(
+                    8 + i as u64,
+                    Method::AppendStep {
+                        traj_id: tid.clone(),
+                        action_msgpack: blob(serde_json::json!("go")),
+                        reward,
+                        state_ref: None,
+                        next_state_ref: None,
+                        t: i as u64,
+                    },
+                ),
+            )
+            .await;
+            // Raw(Option<String>) — Some(step id) since the trajectory exists.
+            match r.result {
+                Some(ResultPayload::Raw(b)) => {
+                    let step: Option<String> = rmp_serde::from_slice(&b).unwrap();
+                    assert!(step.is_some(), "AppendStep should return a step id");
+                }
+                other => panic!("AppendStep: {:?} / {:?}", other, r.error),
+            }
+        }
+        let dr = dispatch(
+            &state,
+            req(
+                20,
+                Method::DiscountedReturn {
+                    traj_id: tid,
+                    gamma: 0.5,
+                },
+            ),
+        )
+        .await;
+        match dr.result {
+            // 2.0 + 0.5^1 * 4.0 = 4.0
+            Some(ResultPayload::Float(f)) => assert!((f - 4.0).abs() < 1e-9, "return = {f}"),
+            other => panic!("DiscountedReturn: {:?} / {:?}", other, dr.error),
+        }
+    }
+}
+
 // ── Blob substrate dispatch round-trip (CONCEPT:KG-2.206) ─────────────────────
 //
 // Drives the Blob* methods through the SAME `dispatch` entrypoint a wire request
