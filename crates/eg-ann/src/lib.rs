@@ -23,16 +23,23 @@
 //! Pi/full tiers — serving is CPU integer-table lookups (ADC) and needs no
 //! accelerator. The default build links no GPU, no faiss, no native-ML deps.
 
+pub mod flat;
 pub mod ivfpq;
 pub mod kmeans;
 pub mod linalg;
 pub mod persist;
+pub mod recall;
 
 #[cfg(feature = "redb")]
 pub mod redb_store;
 
+pub use flat::{FlatIndex, Metric};
 pub use ivfpq::{merge_topk, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB};
 pub use persist::{compact, open, save};
+pub use recall::{
+    average_precision, evaluate_recall, mean_average_precision, precision_at_k, recall_at_k,
+    RecallReport,
+};
 
 #[cfg(test)]
 mod tests {
