@@ -22,6 +22,9 @@ pub mod isolation;
 pub mod jsonpath;
 #[cfg(feature = "security")]
 pub mod rbac;
+/// CONCEPT:EG-303 — durable RBAC/identity persistence (redb-backed, feature `security`).
+#[cfg(feature = "security")]
+pub mod rbac_persist;
 pub mod read_through;
 pub mod registry;
 #[cfg(feature = "result-cache")]
