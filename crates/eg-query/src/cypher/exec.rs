@@ -1803,6 +1803,84 @@ mod tests {
         assert!(err.contains("unknown procedure"), "{err}");
     }
 
+    // ── APOC/GDS procedure library (CONCEPT:EG-143) ─────────────────────────────
+
+    #[test]
+    fn call_db_relationship_types_builtin() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["KNOWS"]);
+    }
+
+    #[test]
+    fn call_gds_pagerank_scores_nodes() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.pageRank() YIELD node, score RETURN node, score",
+        )
+        .unwrap();
+        assert_eq!(qr.columns, vec!["node", "score"]);
+        // Every node scored; carol (a KNOWS sink) should out-rank alice.
+        assert_eq!(qr.rows.len(), 4);
+        let mut by_node: HashMap<String, f64> = HashMap::new();
+        for r in 0..qr.rows.len() {
+            let c = cells_of(&qr, r);
+            by_node.insert(c[0].as_str().unwrap().to_string(), c[1].as_f64().unwrap());
+        }
+        assert!(by_node["carol"] > by_node["alice"]);
+    }
+
+    #[test]
+    fn call_gds_wcc_groups_components() {
+        let v = fixture();
+        // alice/bob/carol are one weakly-connected component; d1 is its own.
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.wcc() YIELD node, componentId RETURN node, componentId",
+        )
+        .unwrap();
+        let mut comp: HashMap<String, i64> = HashMap::new();
+        for r in 0..qr.rows.len() {
+            let c = cells_of(&qr, r);
+            comp.insert(c[0].as_str().unwrap().to_string(), c[1].as_i64().unwrap());
+        }
+        assert_eq!(comp["alice"], comp["bob"]);
+        assert_eq!(comp["bob"], comp["carol"]);
+        assert_ne!(comp["alice"], comp["d1"]);
+    }
+
+    #[test]
+    fn call_apoc_coll_sum_and_meta_stats() {
+        let v = fixture();
+        let qr = exec_cypher(&v, "CALL apoc.coll.sum([1, 2, 3, 4]) YIELD value RETURN value")
+            .unwrap();
+        assert_eq!(cells_of(&qr, 0)[0], Value::Number(10.into()));
+
+        let stats = exec_cypher(
+            &v,
+            "CALL apoc.meta.stats() YIELD nodeCount, relCount RETURN nodeCount, relCount",
+        )
+        .unwrap();
+        let c = cells_of(&stats, 0);
+        assert_eq!(c[0], Value::Number(4.into())); // 4 nodes
+        assert_eq!(c[1], Value::Number(2.into())); // 2 KNOWS edges
+    }
+
+    #[test]
+    fn call_proc_result_feeds_downstream_match() {
+        // CONCEPT:EG-143 — a YIELD `node` binds an anchorable node id, so a downstream
+        // labelled MATCH re-anchors on it and filters by label (keeps only the Doc).
+        let v = fixture();
+        let qr = exec_cypher(&v, "CALL gds.degree() YIELD node MATCH (node:Doc) RETURN node")
+            .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["d1"]);
+    }
+
     // ── write path (CONCEPT:EG-020 / EG-061) ───────────────────────────────────
 
     fn col0(qr: &QueryResult) -> Vec<String> {
