@@ -111,6 +111,21 @@ pub enum StatementKind {
     /// `COPY <table> [(cols…)] FROM STDIN [WITH (FORMAT …)]` — bulk ingest; the shim
     /// switches the connection into copy-in mode and streams rows into the user table.
     CopyIn(CopyPlan),
+
+    // ── extensions (CONCEPT:EG-102) ────────────────────────────────────────────
+    /// `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` — record `name` in the
+    /// durable extension catalog so a client's setup script proceeds. The concrete
+    /// surface each extension unlocks (pgvector types/ops, AGE, TimescaleDB, pg_search)
+    /// lands in its own later item; this accepts + records the enablement.
+    CreateExtension {
+        name: String,
+        if_not_exists: bool,
+    },
+    /// `DROP EXTENSION [IF EXISTS] name [CASCADE|RESTRICT]` — remove a catalog entry.
+    DropExtension {
+        name: String,
+        if_exists: bool,
+    },
 }
 
 /// A decoded `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020). `columns` empty ⇒
@@ -356,6 +371,12 @@ pub struct DeleteNodes {
 /// a write whose shape this increment cannot route (e.g. a write into a table
 /// other than `nodes`, a complex WHERE, or a join/subquery in DML).
 pub fn classify(sql: &str) -> Result<StatementKind, String> {
+    // CONCEPT:EG-102 — `DROP EXTENSION` has no `sqlparser` AST node (no
+    // `ObjectType::Extension`), so recognize it textually BEFORE the parser (mirrors
+    // the `COPY … FROM STDIN` pre-check) and route it to the extension catalog.
+    if let Some((name, if_exists)) = parse_drop_extension(sql) {
+        return Ok(StatementKind::DropExtension { name, if_exists });
+    }
     // `COPY … FROM STDIN` is sent over the wire WITHOUT the inline TSV data block that
     // `sqlparser` insists follows the `;` — so append a `;` to satisfy its grammar
     // (it then parses an EMPTY data block). The real rows arrive as `CopyData` frames.
@@ -397,6 +418,12 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
         Statement::Delete(delete) => classify_any_delete(delete),
         // ── DDL (CONCEPT:EG-018) ──────────────────────────────────────────────
         Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
+        // ── extensions (CONCEPT:EG-102) ─────────────────────────────────────────
+        Statement::CreateExtension {
+            name,
+            if_not_exists,
+            ..
+        } => classify_create_extension(&name.value, *if_not_exists),
         Statement::Drop {
             object_type,
             if_exists,
@@ -1381,6 +1408,71 @@ fn classify_create_view(
         select_sql: query.to_string(),
         or_replace,
     }))
+}
+
+/// The extension names the engine recognizes (CONCEPT:EG-102). `CREATE EXTENSION` on
+/// one of these is accepted + recorded so a client's setup script proceeds; each
+/// extension's concrete surface (pgvector types/ops EG-115, AGE, TimescaleDB,
+/// pg_search) lands in its own later item.
+fn is_recognized_extension(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "vector" | "pg_age" | "age" | "timescaledb" | "pg_search"
+    )
+}
+
+/// Decode `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` (CONCEPT:EG-102).
+/// A recognized extension is accepted + recorded; an unknown name is rejected with a
+/// precise error (never silently accepted) so a client learns the surface is absent.
+fn classify_create_extension(name: &str, if_not_exists: bool) -> Result<StatementKind, String> {
+    if !is_recognized_extension(name) {
+        return Err(format!(
+            "CREATE EXTENSION `{name}` is not recognized (supported: \
+             vector, pg_age/age, timescaledb, pg_search)"
+        ));
+    }
+    Ok(StatementKind::CreateExtension {
+        name: name.to_string(),
+        if_not_exists,
+    })
+}
+
+/// Recognize `DROP EXTENSION [IF EXISTS] name [CASCADE|RESTRICT]` textually
+/// (CONCEPT:EG-102) — `sqlparser` 0.51 has no `DROP EXTENSION` AST node. Returns
+/// `(name, if_exists)` when the statement is a single-extension drop, else `None`
+/// (so `classify` falls through to the parser for every non-`DROP EXTENSION` input).
+fn parse_drop_extension(sql: &str) -> Option<(String, bool)> {
+    let trimmed = sql.trim().trim_end_matches(';');
+    let mut toks = trimmed.split_whitespace();
+    if !toks.next()?.eq_ignore_ascii_case("DROP") {
+        return None;
+    }
+    if !toks.next()?.eq_ignore_ascii_case("EXTENSION") {
+        return None;
+    }
+    // Optional `IF EXISTS`.
+    let mut peek = toks.next()?;
+    let mut if_exists = false;
+    if peek.eq_ignore_ascii_case("IF") {
+        if !toks.next()?.eq_ignore_ascii_case("EXISTS") {
+            return None;
+        }
+        if_exists = true;
+        peek = toks.next()?;
+    }
+    // A single extension name (a comma-list or trailing junk beyond CASCADE/RESTRICT
+    // is not this simple shape).
+    let name = peek.trim_matches('"');
+    if name.is_empty() || name.contains(',') {
+        return None;
+    }
+    // Only CASCADE/RESTRICT may follow.
+    if let Some(tail) = toks.next() {
+        if !tail.eq_ignore_ascii_case("CASCADE") && !tail.eq_ignore_ascii_case("RESTRICT") {
+            return None;
+        }
+    }
+    Some((name.to_string(), if_exists))
 }
 
 /// Decode `ALTER TABLE name ADD COLUMN col type`. Only a single `ADD COLUMN`
@@ -2435,5 +2527,59 @@ mod tests {
     fn create_view_rejects_reserved_and_materialized() {
         assert!(classify("CREATE VIEW nodes AS SELECT 1").is_err());
         assert!(classify("CREATE MATERIALIZED VIEW v AS SELECT 1").is_err());
+    }
+
+    // ── CREATE / DROP EXTENSION (CONCEPT:EG-102) ──────────────────────────────
+
+    #[test]
+    fn create_extension_classify() {
+        let k = classify("CREATE EXTENSION vector").unwrap();
+        let StatementKind::CreateExtension { name, if_not_exists } = k else {
+            panic!("expected CreateExtension, got {k:?}");
+        };
+        assert_eq!(name, "vector");
+        assert!(!if_not_exists);
+
+        let k = classify("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public").unwrap();
+        let StatementKind::CreateExtension { name, if_not_exists } = k else {
+            panic!("expected CreateExtension");
+        };
+        assert_eq!(name, "vector");
+        assert!(if_not_exists);
+
+        // The other recognized names are accepted so a client's setup script proceeds.
+        for ext in ["age", "pg_age", "timescaledb", "pg_search"] {
+            assert!(
+                matches!(
+                    classify(&format!("CREATE EXTENSION IF NOT EXISTS {ext}")).unwrap(),
+                    StatementKind::CreateExtension { .. }
+                ),
+                "extension `{ext}` should be recognized"
+            );
+        }
+    }
+
+    #[test]
+    fn create_extension_rejects_unknown() {
+        assert!(classify("CREATE EXTENSION nonesuch").is_err());
+    }
+
+    #[test]
+    fn drop_extension_classify() {
+        let StatementKind::DropExtension { name, if_exists } =
+            classify("DROP EXTENSION IF EXISTS vector").unwrap()
+        else {
+            panic!("expected DropExtension");
+        };
+        assert_eq!(name, "vector");
+        assert!(if_exists);
+
+        let StatementKind::DropExtension { name, if_exists } =
+            classify("DROP EXTENSION vector CASCADE").unwrap()
+        else {
+            panic!("expected DropExtension");
+        };
+        assert_eq!(name, "vector");
+        assert!(!if_exists);
     }
 }
