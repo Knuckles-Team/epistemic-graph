@@ -613,14 +613,10 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DROP TABLE", r)
         }
+        // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — one dispatch helper.
         K::AlterTable(plan) => {
             let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
-                let column = columns.into_iter().next().ok_or("ALTER TABLE: no column")?;
-                store.add_column(&plan.name, column).map(|_| 0usize)
-            })
-            .await;
+            let r = compute_off_lock(req_id, move || apply_alter_table(&store, plan).map(|_| 0usize)).await;
             sql_write_ack(req_id, "ALTER TABLE", r)
         }
         K::InsertTable(ins) => {
@@ -1002,6 +998,35 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column
             })
         })
         .collect()
+}
+
+/// Route a decoded `ALTER TABLE` action to the matching durable `TableStore` mutation
+/// (CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 DROP/RENAME COLUMN, RENAME TABLE, ALTER
+/// COLUMN TYPE, DROP CONSTRAINT). Mirrors the embedded/pgwire dispatch.
+#[cfg(feature = "query")]
+fn apply_alter_table(
+    store: &eg_query::TableStore,
+    plan: eg_query::AlterTablePlan,
+) -> Result<(), String> {
+    use eg_query::AlterTableAction as A;
+    match plan.action {
+        A::AddColumn(col) => {
+            let columns = to_store_columns(std::slice::from_ref(&col))?;
+            let column = columns.into_iter().next().ok_or("ALTER TABLE: no column")?;
+            store.add_column(&plan.name, column)
+        }
+        A::DropColumn { column, if_exists } => store.drop_column(&plan.name, &column, if_exists),
+        A::RenameColumn { from, to } => store.rename_column(&plan.name, &from, &to),
+        A::RenameTable { new_name } => store.rename_table(&plan.name, &new_name),
+        A::AlterColumnType { column, new_type } => {
+            let ty = eg_query::ColumnType::parse(&new_type)?;
+            store.alter_column_type(&plan.name, &column, ty)
+        }
+        A::DropConstraint {
+            constraint,
+            if_exists,
+        } => store.drop_constraint(&plan.name, &constraint, if_exists),
+    }
 }
 
 /// Produce the off-lock `GraphView` the query planner consumes, with per-agent
