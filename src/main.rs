@@ -928,6 +928,55 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── Redis RESP wire-protocol listener (CONCEPT:EG-174) ────────────────
+    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+    // the binary is built `--features redis-wire` AND EPISTEMIC_GRAPH_REDIS_ADDR is set.
+    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
+    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // `127.0.0.1:6379` (the Redis default), a bare port binds loopback:port, a full addr
+    // verbatim. A native hand-rolled RESP2/RESP3 server storing Redis types on the
+    // engine's durable KV surface, so a Redis client runs GET/SET/HSET/… directly.
+    #[cfg(feature = "redis-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::redis_wire::REDIS_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:6379",
+    ) {
+        let redis_state = state.clone();
+        info!("redis-wire: serving Redis RESP protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::redis_wire::serve(&addr, redis_state).await {
+                tracing::error!("redis-wire server error: {}", e);
+            }
+        });
+    }
+
+    // ── S3-compatible object-storage REST surface (CONCEPT:EG-176) ────────
+    // Opt-in AND feature-gated, mirroring the obs listener: it starts ONLY when the
+    // binary is built `--features s3-api` AND EPISTEMIC_GRAPH_S3_ADDR is set. With the
+    // feature off, or on but unset, this is a no-op. Deploy-configurable
+    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // `127.0.0.1:9000` (the MinIO default), a bare port binds loopback:port, a full addr
+    // verbatim. A hand-rolled S3 REST API over the content-addressed BLOB CAS + the
+    // durable KV listing index, with a SigV4-lite auth guard (anonymous unless
+    // EPISTEMIC_GRAPH_S3_ACCESS_KEY/SECRET_KEY are configured).
+    #[cfg(feature = "s3-api")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::s3::S3_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:9000",
+    ) {
+        let s3_state = state.clone();
+        info!("s3-api: serving S3-compatible REST surface on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::s3::serve(&addr, s3_state).await {
+                tracing::error!("s3-api server error: {}", e);
+            }
+        });
+    }
+
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
