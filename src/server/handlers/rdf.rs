@@ -165,6 +165,18 @@ pub(crate) async fn try_handle(
         Method::ShaclValidate { shapes, data_graph } => {
             Ok(handle_shacl_validate(state, req_id, graph_name, &core, shapes, data_graph).await)
         }
+        // ShEx Core validation (CONCEPT:EG-133). Read-only. Gated `shex`; a build without
+        // it drops this arm → `other => Err(other)` → the dispatch not-available catch-all
+        // (the variant is unconditional in the enum, like ShaclValidate/EG-132).
+        #[cfg(feature = "shex")]
+        Method::ShexValidate {
+            schema,
+            data_graph,
+            shape_map,
+        } => Ok(
+            handle_shex_validate(state, req_id, graph_name, &core, schema, data_graph, shape_map)
+                .await,
+        ),
         other => Err(other),
     }
 }
@@ -220,6 +232,66 @@ async fn handle_shacl_validate(
     match serde_json::to_value(&report) {
         Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
         Err(e) => Response::err(req_id, format!("ShaclValidate: serialize report: {e}")),
+    }
+}
+
+/// Validate the request graph (or an inline `data_graph` Turtle document) against a
+/// **ShExJ** `schema` for a `shape_map` (`[node_iri, shape_label]` pairs) (CONCEPT:EG-133),
+/// returning a `Json` `ShexReport`. Read-only: an empty `data_graph` exports the LIVE
+/// graph's RDF (the same triples `GetRdf` serializes) and validates that.
+#[cfg(feature = "shex")]
+async fn handle_shex_validate(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+    schema: String,
+    data_graph: String,
+    shape_map: Vec<[String; 2]>,
+) -> Response {
+    let schema = match eg_shex::Schema::from_shexj(&schema) {
+        Ok(s) => s,
+        Err(e) => return Response::err(req_id, format!("ShexValidate: bad schema: {e}")),
+    };
+    // Data graph: an inline Turtle document, else the live graph's exported RDF.
+    let data = if data_graph.trim().is_empty() {
+        #[cfg(feature = "rdf-redb")]
+        let quads = state.read().await.rdf_quads.clone();
+        #[cfg(not(feature = "rdf-redb"))]
+        let _ = state;
+        let exported = eg_rdf::mapping::export_triples(
+            core,
+            graph_name,
+            #[cfg(feature = "rdf-redb")]
+            quads.as_deref(),
+        );
+        match exported {
+            Ok(triples) => {
+                let mut g = eg_shex::Graph::new();
+                for t in &triples {
+                    g.insert(t);
+                }
+                g
+            }
+            Err(e) => {
+                return Response::err(req_id, format!("ShexValidate: export live graph: {e}"))
+            }
+        }
+    } else {
+        match eg_shex::graph_from_turtle(&data_graph) {
+            Ok(g) => g,
+            Err(e) => return Response::err(req_id, format!("ShexValidate: bad data graph: {e}")),
+        }
+    };
+    let pairs: Vec<(&str, &str)> = shape_map
+        .iter()
+        .map(|p| (p[0].as_str(), p[1].as_str()))
+        .collect();
+    let map = eg_shex::ShapeMap::from_iri_pairs(&pairs);
+    let report = eg_shex::validate(&schema, &data, &map);
+    match serde_json::to_value(&report) {
+        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+        Err(e) => Response::err(req_id, format!("ShexValidate: serialize report: {e}")),
     }
 }
 
