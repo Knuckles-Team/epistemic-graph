@@ -97,6 +97,15 @@ federation = ["query"]
 # eg-geo crate, and the executor in eg-plan, both behind their own `geo` gates; this only
 # adds three enum variants (Pi-safe wire data, no dep).
 geo = ["query"]
+# Array / tensor modality (CONCEPT:EG-085): gates the `Op::TensorScan` SOURCE op + the
+# `Op::TensorOp { kind }` TRANSFORM op (Slice/Reduce/Elementwise) of the cross-modal
+# plan AST, plus the pure-serde `TensorOpKind`/`TensorReduceKind`/`TensorElementwiseOp`
+# DTOs they embed. They live inside the `query`-gated `Op` enum, so this implies
+# `query`. PURE serde — the dense N-D array model + the slice/reduce/elementwise/reshape
+# ops + the byte-blob codec live in the eg-tensor crate, and the executor in eg-plan,
+# both behind their own `tensor` gates; this only adds enum variants (Pi-safe wire data,
+# no dep).
+tensor = ["query"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
