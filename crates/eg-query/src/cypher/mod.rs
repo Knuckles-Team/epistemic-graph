@@ -24,5 +24,7 @@ mod exec;
 mod parser;
 mod plan;
 
-pub use exec::{exec_cypher, exec_cypher_write};
+pub use exec::{
+    exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params, Params,
+};
 pub use plan::{CypherQuery, Statement, WriteOp, WriteQuery};

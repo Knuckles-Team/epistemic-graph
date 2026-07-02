@@ -42,6 +42,32 @@ pub enum ReadStage {
         items: Vec<WithItem>,
         where_clause: Option<WhereExpr>,
     },
+    /// `UNWIND <list> AS <var>` (CONCEPT:EG-141) — expand a list expression into one
+    /// row per element, binding each element to `var`, pipelining downstream.
+    Unwind { list: ListExpr, var: String },
+}
+
+/// The list operand of an `UNWIND` (CONCEPT:EG-141): an inline list literal, a query
+/// parameter (`$name`), or a bound variable that already holds a list value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListExpr {
+    /// `[e1, e2, …]` — each element is a [`PropVal`] (literal / `$param` / var-ref).
+    List(Vec<PropVal>),
+    /// `$name` — a query parameter expected to hold a JSON array.
+    Param(String),
+    /// A bound variable holding a list (e.g. a path-var or a `$param`-bound list).
+    Ref(String),
+}
+
+/// A property-map / argument value (CONCEPT:EG-141/142): a literal, a query parameter
+/// (`$name`), or a reference to a bound variable. Read-side inline property maps
+/// (`(n {id: x})`) and procedure args resolve `Param`/`Ref` against the live params +
+/// binding; the write path resolves them the same way when realizing nodes/edges.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropVal {
+    Lit(Value),
+    Param(String),
+    Ref(String),
 }
 
 /// One `WITH` projection item: a variable, optionally aliased (`a AS b`).
@@ -67,8 +93,10 @@ pub struct Pattern {
 pub struct NodePat {
     pub var: Option<String>,
     pub label: Option<String>,
-    /// Inline property map for a write pattern (`(n:L {k: v})`). `None` on reads.
-    pub props: Option<Vec<(String, Value)>>,
+    /// Inline property map (`(n:L {k: v})`). On the write path these realize the
+    /// created/merged node; on the read path (CONCEPT:EG-141) they constrain the
+    /// matched node (`(n {id: x})`). Values may reference params/bound vars.
+    pub props: Option<Vec<(String, PropVal)>>,
 }
 
 /// `-[:REL]->` / `<-[:REL]-` / `-[:REL*1..3]->`. The relationship type, an optional
@@ -83,8 +111,9 @@ pub struct EdgePat {
     pub var_len: Option<(usize, usize)>,
     /// The edge variable (`-[r:REL]->`), if named — used by `DELETE r` (CONCEPT:EG-020).
     pub var: Option<String>,
-    /// Inline edge properties for a write pattern. `None` on reads.
-    pub props: Option<Vec<(String, Value)>>,
+    /// Inline edge properties for a write pattern. `None` on reads. Values may
+    /// reference params/bound vars (CONCEPT:EG-141).
+    pub props: Option<Vec<(String, PropVal)>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
