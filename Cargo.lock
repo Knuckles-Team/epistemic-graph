@@ -2185,6 +2185,7 @@ dependencies = [
  "eg-rdf",
  "eg-shacl",
  "eg-shex",
+ "eg-stream",
  "eg-text",
  "eg-tsdb",
  "eg-types",
