@@ -10,8 +10,11 @@
 //!   * `POST /sparql`  `application/sparql-update`     → UPDATE (body = the update)
 //!   * `POST /sparql`  `application/x-www-form-urlencoded` with `query=` or `update=`
 //!
-//! Result media types: `application/sparql-results+json` for SELECT (bindings) and ASK
-//! (boolean); `application/n-triples` for CONSTRUCT/DESCRIBE (an RDF graph). The default
+//! Result media types are content-negotiated (CONCEPT:EG-050) from the `Accept` header
+//! (with an `output=`/`format=` query-param override): SELECT/ASK serve SPARQL-results
+//! JSON (default), XML, CSV or TSV; CONSTRUCT/DESCRIBE serve N-Triples (default) or
+//! Turtle. With no `Accept` header the per-form default is used (byte-identical to the
+//! prior fixed behavior). The default
 //! graph is `?default-graph-uri=` (or `EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH`, else
 //! `__commons__`); EVERY registry graph is exposed as a named graph so `GRAPH <name>{}`
 //! and `GRAPH ?g{}` work across the engine's graphs.
@@ -57,7 +60,7 @@ pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
                 ),
             };
             let resp = format!(
-                "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\naccess-control-allow-origin: *\r\nconnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\naccess-control-allow-origin: *\r\naccess-control-allow-headers: content-type, accept\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             );
             let _ = stream.write_all(resp.as_bytes()).await;
@@ -204,7 +207,12 @@ async fn handle(
             Err(e) => ("400 Bad Request", "text/plain", e),
         }
     } else {
-        run_query(state, &text, &default_graph, &req.accept).await
+        // `output=`/`format=` query-param override wins over the Accept header (EG-050).
+        let fmt_override = params
+            .get("output")
+            .or_else(|| params.get("format"))
+            .map(|s| s.as_str());
+        run_query(state, &text, &default_graph, &req.accept, fmt_override).await
     }
 }
 
@@ -214,6 +222,7 @@ async fn run_query(
     query: &str,
     default_graph: &str,
     accept: &str,
+    fmt_override: Option<&str>,
 ) -> (&'static str, &'static str, String) {
     // Gather cores under a brief read lock, then snapshot off-lock.
     let (default_core, named_cores) = {
@@ -248,20 +257,31 @@ async fn run_query(
 
     match outcome {
         Ok(Ok(QueryOutcome::Solutions(r))) => {
-            ("200 OK", "application/sparql-results+json", select_json(&r))
+            let ct = choose_ct(&accept, fmt_override, SELECT_FORMS);
+            let body = match ct {
+                "application/sparql-results+xml" => results_xml(&r),
+                "text/csv" => results_csv(&r),
+                "text/tab-separated-values" => results_tsv(&r),
+                _ => select_json(&r),
+            };
+            ("200 OK", ct, body)
         }
-        Ok(Ok(QueryOutcome::Boolean(b))) => (
-            "200 OK",
-            "application/sparql-results+json",
-            format!("{{\"head\":{{}},\"boolean\":{b}}}"),
-        ),
-        Ok(Ok(QueryOutcome::Graph(triples))) => match eg_rdf::mapping::to_ntriples(&triples) {
-            Ok(nt) => {
-                let _ = &accept;
-                ("200 OK", "application/n-triples", nt)
+        Ok(Ok(QueryOutcome::Boolean(b))) => {
+            let ct = choose_ct(&accept, fmt_override, SELECT_FORMS);
+            ("200 OK", ct, boolean_body(ct, b))
+        }
+        Ok(Ok(QueryOutcome::Graph(triples))) => {
+            let ct = choose_ct(&accept, fmt_override, GRAPH_FORMS);
+            let ser = if ct == "text/turtle" {
+                eg_rdf::mapping::to_turtle(&triples)
+            } else {
+                eg_rdf::mapping::to_ntriples(&triples)
+            };
+            match ser {
+                Ok(body) => ("200 OK", ct, body),
+                Err(e) => ("500 Internal Server Error", "text/plain", e),
             }
-            Err(e) => ("500 Internal Server Error", "text/plain", e),
-        },
+        }
         Ok(Err(e)) => (
             "400 Bad Request",
             "text/plain",
@@ -402,6 +422,218 @@ fn term_json(b: &Binding) -> serde_json::Value {
     }
 }
 
+// ── content negotiation (CONCEPT:EG-050) ─────────────────────────────────────────
+
+/// Candidate SELECT/ASK output media types, DEFAULT (SPARQL-results JSON) first.
+const SELECT_FORMS: &[&str] = &[
+    "application/sparql-results+json",
+    "application/sparql-results+xml",
+    "text/csv",
+    "text/tab-separated-values",
+];
+/// Candidate CONSTRUCT/DESCRIBE output media types, DEFAULT (N-Triples) first.
+const GRAPH_FORMS: &[&str] = &["application/n-triples", "text/turtle"];
+
+/// Resolve the response media type (CONCEPT:EG-050): an `output=`/`format=` override
+/// (constrained to this form's candidates) wins; otherwise negotiate the `Accept` header.
+fn choose_ct(accept: &str, fmt_override: Option<&str>, forms: &[&'static str]) -> &'static str {
+    if let Some(tok) = fmt_override {
+        if let Some(ct) = override_ct(tok, forms) {
+            return ct;
+        }
+    }
+    negotiate(accept, forms)
+}
+
+/// Map a short `output=`/`format=` token (or a full media type) to one of `forms`, or
+/// `None` if it names nothing valid for this query form (so the caller falls back).
+fn override_ct(token: &str, forms: &[&'static str]) -> Option<&'static str> {
+    let t = token.trim().to_ascii_lowercase();
+    let want: &str = match t.as_str() {
+        "json" | "srj" => "application/sparql-results+json",
+        "xml" | "srx" => "application/sparql-results+xml",
+        "csv" => "text/csv",
+        "tsv" => "text/tab-separated-values",
+        "nt" | "ntriples" | "n-triples" => "application/n-triples",
+        "ttl" | "turtle" => "text/turtle",
+        s => s,
+    };
+    forms.iter().copied().find(|&f| f == want)
+}
+
+/// Pick the best media type among `forms` for an `Accept` header (CONCEPT:EG-050).
+/// Empty / `*/*` / no acceptable match → the per-form default (`forms[0]`). Honors
+/// q-values and `type/*` wildcards; on a q-tie the client's listed order is respected.
+fn negotiate(accept: &str, forms: &[&'static str]) -> &'static str {
+    let accept = accept.trim();
+    if accept.is_empty() {
+        return forms[0];
+    }
+    let mut best: Option<(&'static str, f32)> = None;
+    for part in accept.split(',') {
+        let mut segs = part.split(';');
+        let media = segs.next().unwrap_or("").trim().to_ascii_lowercase();
+        let mut q = 1.0f32;
+        for seg in segs {
+            if let Some(v) = seg.trim().strip_prefix("q=") {
+                q = v.parse().unwrap_or(1.0);
+            }
+        }
+        if q <= 0.0 {
+            continue;
+        }
+        for &f in forms {
+            let matches = media == f
+                || media == "*/*"
+                || (media.ends_with("/*") && f.starts_with(&media[..media.len() - 1]));
+            if matches {
+                if best.map(|(_, bq)| q > bq).unwrap_or(true) {
+                    best = Some((f, q));
+                }
+                break;
+            }
+        }
+    }
+    best.map(|(f, _)| f).unwrap_or(forms[0])
+}
+
+// ── hand-written SPARQL 1.1 Query Results serializers (CONCEPT:EG-050) ────────────
+
+/// The ASK boolean rendered for the negotiated media type (JSON default, XML, or a bare
+/// `true`/`false` for CSV/TSV). The JSON form is byte-identical to the prior fixed output.
+fn boolean_body(ct: &str, b: bool) -> String {
+    match ct {
+        "application/sparql-results+xml" => format!(
+            "<?xml version=\"1.0\"?>\n<sparql xmlns=\"http://www.w3.org/2005/sparql-results#\">\n <head/>\n <boolean>{b}</boolean>\n</sparql>\n"
+        ),
+        "text/csv" | "text/tab-separated-values" => format!("{b}"),
+        _ => format!("{{\"head\":{{}},\"boolean\":{b}}}"),
+    }
+}
+
+/// SPARQL 1.1 Query Results XML for a SELECT solution table.
+fn results_xml(r: &SparqlResult) -> String {
+    let mut out = String::from(
+        "<?xml version=\"1.0\"?>\n<sparql xmlns=\"http://www.w3.org/2005/sparql-results#\">\n <head>\n",
+    );
+    for v in &r.vars {
+        out.push_str(&format!("  <variable name=\"{}\"/>\n", xml_escape(v)));
+    }
+    out.push_str(" </head>\n <results>\n");
+    for sol in &r.solutions {
+        out.push_str("  <result>\n");
+        for v in &r.vars {
+            if let Some(b) = sol.get(v) {
+                out.push_str(&format!(
+                    "   <binding name=\"{}\">{}</binding>\n",
+                    xml_escape(v),
+                    term_xml(b)
+                ));
+            }
+        }
+        out.push_str("  </result>\n");
+    }
+    out.push_str(" </results>\n</sparql>\n");
+    out
+}
+
+/// A binding → a SPARQL-XML term element (`<uri>`/`<bnode>`/`<literal>`), mirroring the
+/// `term_json` classification.
+fn term_xml(b: &Binding) -> String {
+    match b {
+        Binding::Node(s) => {
+            if let Some(iri) = s.strip_prefix('<').and_then(|x| x.strip_suffix('>')) {
+                format!("<uri>{}</uri>", xml_escape(iri))
+            } else if let Some(bn) = s.strip_prefix("_:") {
+                format!("<bnode>{}</bnode>", xml_escape(bn))
+            } else {
+                format!("<literal>{}</literal>", xml_escape(s))
+            }
+        }
+        Binding::Literal(v) => format!("<literal>{}</literal>", xml_escape(v)),
+    }
+}
+
+/// SPARQL 1.1 Query Results CSV: a header row of bare variable names, then one row per
+/// solution. CSV is lossy (no term-type info): IRIs are the bare IRI, literals the
+/// lexical value; a field with `,`/`"`/CR/LF is double-quoted with `"` doubled. CRLF
+/// line endings per the spec; an unbound variable is an empty field.
+fn results_csv(r: &SparqlResult) -> String {
+    let mut out = String::new();
+    out.push_str(&r.vars.join(","));
+    out.push_str("\r\n");
+    for sol in &r.solutions {
+        let cells: Vec<String> = r
+            .vars
+            .iter()
+            .map(|v| sol.get(v).map(csv_cell).unwrap_or_default())
+            .collect();
+        out.push_str(&cells.join(","));
+        out.push_str("\r\n");
+    }
+    out
+}
+
+fn csv_cell(b: &Binding) -> String {
+    let raw = match b {
+        Binding::Node(s) => s
+            .strip_prefix('<')
+            .and_then(|x| x.strip_suffix('>'))
+            .map(String::from)
+            .unwrap_or_else(|| s.clone()),
+        Binding::Literal(v) => v.clone(),
+    };
+    if raw.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", raw.replace('"', "\"\""))
+    } else {
+        raw
+    }
+}
+
+/// SPARQL 1.1 Query Results TSV: a header row of `?var` names, then one tab-separated row
+/// per solution. TSV keeps term types (Turtle syntax): IRIs as `<iri>`, blank nodes as
+/// `_:label`, literals as escaped quoted strings; an unbound variable is an empty field.
+fn results_tsv(r: &SparqlResult) -> String {
+    let mut out = String::new();
+    let header: Vec<String> = r.vars.iter().map(|v| format!("?{v}")).collect();
+    out.push_str(&header.join("\t"));
+    out.push('\n');
+    for sol in &r.solutions {
+        let cells: Vec<String> = r
+            .vars
+            .iter()
+            .map(|v| sol.get(v).map(tsv_cell).unwrap_or_default())
+            .collect();
+        out.push_str(&cells.join("\t"));
+        out.push('\n');
+    }
+    out
+}
+
+fn tsv_cell(b: &Binding) -> String {
+    match b {
+        Binding::Node(s) if s.starts_with('<') || s.starts_with("_:") => s.clone(),
+        Binding::Node(s) => format!("\"{}\"", tsv_escape(s)),
+        Binding::Literal(v) => format!("\"{}\"", tsv_escape(v)),
+    }
+}
+
+fn tsv_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\t', "\\t")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// XML text/attribute escaping for the SPARQL-XML serializer.
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 // ── tiny HTTP helpers (no external dep) ──────────────────────────────────────────
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -491,5 +723,80 @@ mod tests {
         assert_eq!(j["head"]["vars"][0], "s");
         assert_eq!(j["results"]["bindings"][0]["s"]["type"], "uri");
         assert_eq!(j["results"]["bindings"][0]["s"]["value"], "http://x");
+    }
+
+    // ── CONCEPT:EG-050 content negotiation + serializers ─────────────────────────
+
+    fn sample_result() -> SparqlResult {
+        let mut sol = eg_rdf::sparql::Solution::new();
+        sol.insert("s".to_string(), Binding::Node("<http://x>".to_string()));
+        sol.insert("n".to_string(), Binding::Literal("a,b".to_string()));
+        SparqlResult {
+            vars: vec!["s".to_string(), "n".to_string()],
+            solutions: vec![sol],
+        }
+    }
+
+    #[test]
+    fn negotiate_defaults_and_accept() {
+        // Empty / */* / unknown → the per-form default (forms[0]).
+        assert_eq!(negotiate("", SELECT_FORMS), "application/sparql-results+json");
+        assert_eq!(negotiate("*/*", SELECT_FORMS), "application/sparql-results+json");
+        assert_eq!(
+            negotiate("application/octet-stream", SELECT_FORMS),
+            "application/sparql-results+json"
+        );
+        assert_eq!(negotiate("", GRAPH_FORMS), "application/n-triples");
+        // Explicit acceptable types are honored.
+        assert_eq!(negotiate("text/csv", SELECT_FORMS), "text/csv");
+        assert_eq!(negotiate("text/turtle", GRAPH_FORMS), "text/turtle");
+        // q-values choose the highest-weighted acceptable type.
+        assert_eq!(
+            negotiate("text/csv;q=0.5, application/sparql-results+xml;q=0.9", SELECT_FORMS),
+            "application/sparql-results+xml"
+        );
+    }
+
+    #[test]
+    fn format_override_wins_and_falls_back() {
+        assert_eq!(choose_ct("", Some("csv"), SELECT_FORMS), "text/csv");
+        assert_eq!(choose_ct("text/csv", Some("xml"), SELECT_FORMS),
+            "application/sparql-results+xml");
+        // An override invalid for this form is ignored → negotiate the Accept header.
+        assert_eq!(choose_ct("text/csv", Some("turtle"), SELECT_FORMS), "text/csv");
+        assert_eq!(choose_ct("", Some("ttl"), GRAPH_FORMS), "text/turtle");
+    }
+
+    #[test]
+    fn csv_quotes_special_fields() {
+        let csv = results_csv(&sample_result());
+        // header + one data row, CRLF-terminated; the comma field is quoted, IRI bare.
+        assert_eq!(csv, "s,n\r\nhttp://x,\"a,b\"\r\n");
+    }
+
+    #[test]
+    fn tsv_keeps_term_types() {
+        let tsv = results_tsv(&sample_result());
+        assert_eq!(tsv, "?s\t?n\n<http://x>\t\"a,b\"\n");
+    }
+
+    #[test]
+    fn xml_shape_and_escaping() {
+        let xml = results_xml(&sample_result());
+        assert!(xml.contains("<variable name=\"s\"/>"));
+        assert!(xml.contains("<uri>http://x</uri>"));
+        assert!(xml.contains("<literal>a,b</literal>"));
+        assert_eq!(xml_escape("a<b&c\">"), "a&lt;b&amp;c&quot;&gt;");
+    }
+
+    #[test]
+    fn boolean_bodies_per_media_type() {
+        // JSON default byte-identical to the prior fixed output.
+        assert_eq!(
+            boolean_body("application/sparql-results+json", true),
+            "{\"head\":{},\"boolean\":true}"
+        );
+        assert!(boolean_body("application/sparql-results+xml", false).contains("<boolean>false</boolean>"));
+        assert_eq!(boolean_body("text/csv", true), "true");
     }
 }
