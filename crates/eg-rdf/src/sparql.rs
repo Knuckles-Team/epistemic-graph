@@ -1789,6 +1789,16 @@ fn eval_bool_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Soluti
                 .map(|b| is_quoted(&b))
                 .unwrap_or(false),
         ),
+        // GeoSPARQL boolean spatial relations (CONCEPT:EG-261): a `geof:sf*` call parses
+        // to `Function::Custom(<geof-ns>…)`; we evaluate the two operands to their WKT
+        // lexical forms and lower the relation onto eg-geo's DE-9IM predicates.
+        #[cfg(feature = "geosparql")]
+        F::Custom(iri) if iri.as_str().starts_with(crate::geosparql::GEOF_NS) => {
+            let local = &iri.as_str()[crate::geosparql::GEOF_NS.len()..];
+            let a = expr_str(ctx, args.first()?, sol)?;
+            let b = expr_str(ctx, args.get(1)?, sol)?;
+            crate::geosparql::eval_relation(local, &a, &b)
+        }
         _ => None,
     }
 }
@@ -1952,6 +1962,30 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
         | F::IsBlank | F::IsLiteral | F::IsNumeric => Some(Binding::Literal(
             if eval_bool_function(ctx, f, args, sol)? { "true" } else { "false" }.to_string(),
         )),
+        // GeoSPARQL value functions (CONCEPT:EG-261): `geof:distance(a,b,units)` → a
+        // numeric literal; `geof:buffer(g,radius,units)` → a WKT lexical (a wktLiteral).
+        // A boolean `geof:sf*` used in a value context renders as "true"/"false".
+        #[cfg(feature = "geosparql")]
+        F::Custom(iri) if iri.as_str().starts_with(crate::geosparql::GEOF_NS) => {
+            let local = &iri.as_str()[crate::geosparql::GEOF_NS.len()..];
+            match local {
+                "distance" => {
+                    let a = expr_str(ctx, args.first()?, sol)?;
+                    let b = expr_str(ctx, args.get(1)?, sol)?;
+                    let units = args.get(2).and_then(|u| expr_str(ctx, u, sol)).unwrap_or_default();
+                    Some(Binding::Literal(fmt_num(crate::geosparql::eval_distance(&a, &b, &units)?)))
+                }
+                "buffer" => {
+                    let g = expr_str(ctx, args.first()?, sol)?;
+                    let radius = num(ctx, args.get(1)?, sol)?;
+                    let units = args.get(2).and_then(|u| expr_str(ctx, u, sol)).unwrap_or_default();
+                    Some(Binding::Literal(crate::geosparql::eval_buffer(&g, radius, &units)?))
+                }
+                _ => Some(Binding::Literal(
+                    if eval_bool_function(ctx, f, args, sol)? { "true" } else { "false" }.to_string(),
+                )),
+            }
+        }
         _ => None,
     }
 }
