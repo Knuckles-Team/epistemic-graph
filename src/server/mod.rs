@@ -89,6 +89,10 @@ pub mod obs;
 // one surface is visible to the other. Behind `query` (TableStore needs eg-query/sql).
 #[cfg(feature = "query")]
 pub mod sql_tables;
+// Natural-language query planner resolution (CONCEPT:EG-080, feature `nl-query`): owns
+// which `eg_plan::NlPlanner` the facade uses (injected vs standalone-config default).
+#[cfg(feature = "nl-query")]
+pub mod nl;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged
@@ -100,6 +104,9 @@ pub mod txn;
 // `server::{handle_connection,serve_uds,serve_tcp}` — used by main.rs/persist.rs/tests.
 pub use auth::compute_auth_token;
 pub use dispatch::dispatch;
+// NL planner injection (CONCEPT:EG-080): an embedder opts into engine-driven NL→query.
+#[cfg(feature = "nl-query")]
+pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
 // Distributed-compute materialized-view boot reload (CONCEPT:KG-2.227): the binary
 // calls this on startup to repopulate the in-RAM matview index from redb.
 #[cfg(feature = "compute-dist")]
