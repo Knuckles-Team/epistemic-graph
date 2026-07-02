@@ -182,6 +182,30 @@ fn two_shard_txn(txn_id: &str, a_node: &str, b_node: &str) -> CrossShardTxn {
     }
 }
 
+/// A two-graph cross-shard txn where shardA WRITES a node and shardB is READ-ONLY
+/// (its slice carries no methods) — the EG-081 read-only-participant fast-path shape.
+fn writer_plus_readonly_txn(txn_id: &str, a_node: &str) -> CrossShardTxn {
+    let writer = GraphSlice {
+        graph_name: GRAPH_A.to_string(),
+        graph_fname: crate::persist::sanitize(GRAPH_A),
+        graph_type: GraphType::Global,
+        methods: vec![Method::AddNode {
+            node_id: a_node.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": a_node})).unwrap(),
+        }],
+    };
+    let read_only = GraphSlice {
+        graph_name: GRAPH_B.to_string(),
+        graph_fname: crate::persist::sanitize(GRAPH_B),
+        graph_type: GraphType::Global,
+        methods: vec![], // EMPTY write-set → read-only participant.
+    };
+    CrossShardTxn {
+        txn_id: txn_id.to_string(),
+        slices: vec![writer, read_only],
+    }
+}
+
 async fn wait_until<F, Fut>(timeout: Duration, mut pred: F) -> Result<(), ()>
 where
     F: FnMut() -> Fut,
@@ -600,5 +624,176 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
 
     multi.stop_listener();
     backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 7. EG-081 read-only fast path — a participant with an EMPTY write-set slice
+//    is validated but SKIPS its prepare-log + phase-2 write; the writer still
+//    commits atomically and no durable 2PC record leaks.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn read_only_participant_skips_prepare_and_phase2() {
+    let dir = fresh_dir("readonly");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+
+    // shardA writes, shardB is read-only (empty slice). Still a 2-group span → the
+    // cross-shard path runs, but only shardA enters the durable 2PC protocol.
+    let txn = writer_plus_readonly_txn("t-ro", "ro1");
+    let outcome = coord.commit_cross_shard(&txn).await.expect("commit");
+    assert_eq!(outcome, TxnOutcome::Committed);
+
+    // The writer landed; the read-only participant applied NOTHING.
+    assert_eq!(node_count(&state, GRAPH_A).await, 1, "writer committed");
+    assert_eq!(node_count(&state, GRAPH_B).await, 0, "read-only applied nothing");
+
+    // OBSERVABLE: exactly one group took the read-only fast path.
+    assert_eq!(
+        coord.readonly_skipped(),
+        1,
+        "shardB skipped the durable prepare via the read-only fast path"
+    );
+
+    // The read-only group (200) NEVER wrote a durable prepare record; the writer's
+    // records are cleared after the resolved commit → no 2PC state leaks anywhere.
+    let redb = backend.as_redb().unwrap();
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "no prepare records (writer cleared, read-only never wrote one)"
+    );
+    assert_eq!(
+        redb.xshard_decision_get("t-ro").unwrap(),
+        None,
+        "decision cleared"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 8. EG-081 parallel prepare — a 3-WRITER cross-shard txn prepared CONCURRENTLY
+//    reaches the SAME atomic decision as the sequential protocol: it commits on
+//    every writing participant, and recovery re-applies after a post-decision
+//    crash. Proves join_all with >2 futures preserves correctness + recovery.
+// ─────────────────────────────────────────────────────────────────────────
+
+const GROUP_C: u64 = 300;
+const GRAPH_C: &str = "shardC";
+
+/// Add a THIRD single-member group (shardC→300) to an already-running node and wait
+/// for it to elect its leader (uses `ensure_group`, the self-bootstrap seam).
+async fn add_third_group(multi: &Arc<MultiRaft>) {
+    multi.ensure_group(GROUP_C).await.expect("ensure group C");
+    multi.router().assign(GRAPH_C, GROUP_C);
+    let g = multi.group(GROUP_C).await.expect("group C exists");
+    wait_until(Duration::from_secs(15), || {
+        let g = g.clone();
+        async move { g.current_leader().await == Some(1u64) }
+    })
+    .await
+    .expect("group C must elect a leader");
+}
+
+/// A three-graph cross-shard txn inserting one node into each of shardA/B/C — three
+/// WRITING participants, so PHASE 1 joins three prepare futures.
+fn three_writer_txn(txn_id: &str, a: &str, b: &str, c: &str) -> CrossShardTxn {
+    let slice = |graph: &str, node: &str| GraphSlice {
+        graph_name: graph.to_string(),
+        graph_fname: crate::persist::sanitize(graph),
+        graph_type: GraphType::Global,
+        methods: vec![Method::AddNode {
+            node_id: node.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": node})).unwrap(),
+        }],
+    };
+    CrossShardTxn {
+        txn_id: txn_id.to_string(),
+        slices: vec![slice(GRAPH_A, a), slice(GRAPH_B, b), slice(GRAPH_C, c)],
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_prepare_multi_writer_commits_atomically() {
+    let dir = fresh_dir("parcommit");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+    add_third_group(&multi).await;
+
+    // Three writing participants prepared CONCURRENTLY → one atomic COMMIT decision.
+    let txn = three_writer_txn("t-par", "pa", "pb", "pc");
+    let outcome = coord.commit_cross_shard(&txn).await.expect("commit");
+    assert_eq!(outcome, TxnOutcome::Committed);
+
+    // The parallel-prepared txn landed on ALL THREE participants (all-or-nothing).
+    assert_eq!(node_count(&state, GRAPH_A).await, 1, "A committed");
+    assert_eq!(node_count(&state, GRAPH_B).await, 1, "B committed");
+    assert_eq!(node_count(&state, GRAPH_C).await, 1, "C committed");
+    assert_eq!(coord.readonly_skipped(), 0, "no read-only participants here");
+
+    // Durable records cleared after a resolved commit — same end-state as sequential.
+    let redb = backend.as_redb().unwrap();
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "prepares cleared"
+    );
+    assert_eq!(
+        redb.xshard_decision_get("t-par").unwrap(),
+        None,
+        "decision cleared"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
+    let dir = fresh_dir("parrecover");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let txn_id = "t-par-recover";
+    {
+        let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+        add_third_group(&multi).await;
+        let txn = three_writer_txn(txn_id, "ra", "rb", "rc");
+        // PHASE 1 (durable prepares) + log COMMIT, but crash before phase-2 apply.
+        assert!(coord.prepare_only(&txn).await.expect("prepare"));
+        coord.decide_only(txn_id, true).await.expect("decide");
+        assert_eq!(node_count(&state, GRAPH_A).await, 0);
+        assert_eq!(node_count(&state, GRAPH_B).await, 0);
+        assert_eq!(node_count(&state, GRAPH_C).await, 0);
+        multi.stop_listener();
+        multi.close_group(GROUP_A).await.unwrap();
+        multi.close_group(GROUP_B).await.unwrap();
+        multi.close_group(GROUP_C).await.unwrap();
+    }
+    backend.shutdown();
+    drop(backend);
+
+    let backend2: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
+    add_third_group(&multi2).await;
+
+    // RECOVERY resolves the in-doubt multi-writer txn from its COMMIT decision.
+    let resolved = coord2.recover_in_doubt().await.expect("recover");
+    assert_eq!(resolved, 1, "one in-doubt txn resolved");
+    assert_eq!(node_count(&state2, GRAPH_A).await, 1, "recovery committed A");
+    assert_eq!(node_count(&state2, GRAPH_B).await, 1, "recovery committed B");
+    assert_eq!(node_count(&state2, GRAPH_C).await, 1, "recovery committed C");
+
+    let redb = backend2.as_redb().unwrap();
+    assert!(redb.xshard_scan_prepares().unwrap().is_empty());
+    assert_eq!(redb.xshard_decision_get(txn_id).unwrap(), None);
+
+    multi2.stop_listener();
+    backend2.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
 }
