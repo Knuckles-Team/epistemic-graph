@@ -257,7 +257,7 @@ impl SpanStore {
             .collect();
 
         // Newest-started first, then apply the limit.
-        matched.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        matched.sort_by_key(|t| std::cmp::Reverse(t.start_time));
         let limit = if q.limit == 0 { DEFAULT_TRACE_LIMIT } else { q.limit };
         matched.truncate(limit);
         matched
