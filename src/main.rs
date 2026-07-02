@@ -880,6 +880,29 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-275) ────────────────
+    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+    // the binary is built `--features amqp-wire` AND EPISTEMIC_GRAPH_AMQP_ADDR is set.
+    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
+    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // `127.0.0.1:5672`, a bare port binds loopback:port, a full addr verbatim. Maps AMQP
+    // exchange/queue/basic.* onto the `broker` primitives (KG-2.303 queue) via dispatch.
+    #[cfg(feature = "amqp-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::amqp_wire::AMQP_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:5672",
+    ) {
+        let amqp_state = state.clone();
+        info!("amqp-wire: serving AMQP 0.9.1 wire protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::amqp_wire::serve(&addr, amqp_state).await {
+                tracing::error!("amqp-wire server error: {}", e);
+            }
+        });
+    }
+
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
