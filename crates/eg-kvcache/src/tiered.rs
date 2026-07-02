@@ -1,0 +1,610 @@
+//! The tiered KV-cache store (CONCEPT:EG-185).
+//!
+//! [`TieredCache`] is a three-tier, byte-budgeted cache for KV-cache blocks that lets an
+//! LLM runtime **survive OOM by offloading blocks to cheaper tiers** instead of dropping
+//! them (or crashing):
+//!
+//! * **HOT** — raw blocks in RAM, an importance/recency-scored LRU. Fastest; smallest
+//!   byte budget. Every access bumps the block's score.
+//! * **WARM** — still in RAM but **compressed** ([`crate::compress`]), so more blocks
+//!   fit before anything has to leave RAM.
+//! * **COLD** — a [`ColdStore`] blob device (an in-RAM map by default, or a durable redb
+//!   store behind the `durable` feature). This is the disk-offload rung: bytes that no
+//!   longer fit in RAM live here and, with `durable`, survive a restart.
+//!
+//! **Movement is score-driven.** On a hit a block is *promoted* toward HOT and its score
+//! rises. Under byte pressure the lowest-scoring UNPINNED block is *demoted* one rung
+//! (HOT→WARM→COLD) — its bytes move, they are NOT dropped — and only a block that falls
+//! out of the COLD budget is finally dropped. [`TieredCache::pin`] protects a block from
+//! ALL eviction (e.g. a shared prefix's KV every request needs).
+//!
+//! All capacity is accounted in **bytes** per tier (KV pages vary wildly in size), never
+//! in entry count.
+
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+
+use crate::cold::{ColdStore, MemoryColdStore};
+use crate::compress::StoredBlock;
+use crate::value::CacheValue;
+
+/// A HOT-tier resident: the raw value plus its score / recency / size.
+struct HotEntry<V> {
+    value: V,
+    score: f64,
+    last: u64,
+    bytes: usize,
+}
+
+/// A WARM-tier resident: the compressed block plus its score / recency.
+struct WarmEntry {
+    block: StoredBlock,
+    score: f64,
+    last: u64,
+}
+
+/// COLD-tier per-key metadata (the bytes live in the [`ColdStore`]).
+struct ColdMeta {
+    compressed: bool,
+    orig_len: usize,
+    stored_len: usize,
+    score: f64,
+    last: u64,
+}
+
+/// Which tier a key currently resides in (used by [`TieredCache::tier_of`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tier {
+    /// Raw, in RAM.
+    Hot,
+    /// Compressed, in RAM.
+    Warm,
+    /// In the cold blob device (possibly durable).
+    Cold,
+}
+
+/// A point-in-time snapshot of cache occupancy + activity counters (CONCEPT:EG-185).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CacheStats {
+    /// Entries currently in HOT.
+    pub hot_entries: usize,
+    /// Entries currently in WARM.
+    pub warm_entries: usize,
+    /// Entries currently in COLD.
+    pub cold_entries: usize,
+    /// Bytes resident in HOT (raw sizes).
+    pub hot_bytes: usize,
+    /// Bytes resident in WARM (compressed sizes).
+    pub warm_bytes: usize,
+    /// Bytes resident in COLD (compressed sizes).
+    pub cold_bytes: usize,
+    /// Keys currently pinned.
+    pub pinned: usize,
+    /// Lifetime `get` hits (any tier).
+    pub hits: u64,
+    /// Lifetime `get` misses.
+    pub misses: u64,
+    /// Lifetime promotions (a hit in WARM/COLD moved back to HOT).
+    pub promotions: u64,
+    /// Lifetime HOT→WARM demotions.
+    pub demotions_to_warm: u64,
+    /// Lifetime WARM→COLD demotions.
+    pub demotions_to_cold: u64,
+    /// Lifetime blocks dropped (fell out of the COLD budget, or a cold write failed).
+    pub drops: u64,
+}
+
+/// A three-tier, byte-budgeted, score-driven KV-cache store (CONCEPT:EG-185).
+///
+/// `K` is the block key (e.g. a token-span / prefix hash), `V` the block value (any
+/// [`CacheValue`]; the common case is [`crate::Block`] = `Vec<u8>`). Construct with
+/// [`TieredCache::new`] for the pure-RAM cold tier, or [`TieredCache::with_cold_store`]
+/// to plug in a durable ([`crate::cold::RedbColdStore`]) device.
+pub struct TieredCache<K, V>
+where
+    K: Hash + Eq + Clone,
+    V: CacheValue,
+{
+    hot: HashMap<K, HotEntry<V>>,
+    warm: HashMap<K, WarmEntry>,
+    cold_meta: HashMap<K, ColdMeta>,
+    cold_store: Box<dyn ColdStore<K>>,
+    pinned: HashSet<K>,
+
+    hot_cap: usize,
+    warm_cap: usize,
+    cold_cap: usize,
+
+    hot_bytes: usize,
+    warm_bytes: usize,
+    cold_bytes: usize,
+
+    clock: u64,
+    // Lifetime counters.
+    hits: u64,
+    misses: u64,
+    promotions: u64,
+    demotions_to_warm: u64,
+    demotions_to_cold: u64,
+    drops: u64,
+}
+
+impl<K, V> TieredCache<K, V>
+where
+    K: Hash + Eq + Clone,
+    V: CacheValue,
+{
+    /// A cache with the given per-tier **byte** budgets and the default in-RAM COLD
+    /// store ([`MemoryColdStore`]) — no durable device, no dependency.
+    pub fn new(hot_cap: usize, warm_cap: usize, cold_cap: usize) -> Self
+    where
+        K: 'static,
+    {
+        Self::with_cold_store(hot_cap, warm_cap, cold_cap, Box::new(MemoryColdStore::new()))
+    }
+
+    /// A cache with an explicit COLD backing store — e.g. a durable
+    /// [`crate::cold::RedbColdStore`] so demoted bytes survive an OOM / restart
+    /// (CONCEPT:EG-185).
+    pub fn with_cold_store(
+        hot_cap: usize,
+        warm_cap: usize,
+        cold_cap: usize,
+        cold_store: Box<dyn ColdStore<K>>,
+    ) -> Self {
+        TieredCache {
+            hot: HashMap::new(),
+            warm: HashMap::new(),
+            cold_meta: HashMap::new(),
+            cold_store,
+            pinned: HashSet::new(),
+            hot_cap,
+            warm_cap,
+            cold_cap,
+            hot_bytes: 0,
+            warm_bytes: 0,
+            cold_bytes: 0,
+            clock: 0,
+            hits: 0,
+            misses: 0,
+            promotions: 0,
+            demotions_to_warm: 0,
+            demotions_to_cold: 0,
+            drops: 0,
+        }
+    }
+
+    /// Monotonic logical clock tick (recency tiebreak for eviction).
+    fn tick(&mut self) -> u64 {
+        self.clock += 1;
+        self.clock
+    }
+
+    /// Insert / overwrite a block. It lands in HOT with a fresh score; byte pressure is
+    /// then resolved by cascading demotion (CONCEPT:EG-185).
+    pub fn put(&mut self, key: K, value: V) {
+        // Drop any prior copy in every tier so accounting stays exact.
+        self.remove_resident(&key);
+        let clk = self.tick();
+        let bytes = value.byte_len();
+        self.hot_bytes += bytes;
+        self.hot.insert(
+            key,
+            HotEntry { value, score: 1.0, last: clk, bytes },
+        );
+        self.enforce_hot();
+    }
+
+    /// Look a block up. On a hit it is promoted toward HOT and its score bumped; on a
+    /// miss returns `None`. Requires `&mut self` because a hit mutates tiers / scores.
+    pub fn get(&mut self, key: &K) -> Option<V> {
+        let clk = self.tick();
+        if let Some(e) = self.hot.get_mut(key) {
+            e.score += 1.0;
+            e.last = clk;
+            self.hits += 1;
+            return Some(e.value.clone());
+        }
+        // WARM hit → decompress + promote to HOT.
+        if let Some(w) = self.warm.remove(key) {
+            self.warm_bytes -= w.block.stored_len();
+            let bytes = w.block.decode();
+            let value = V::from_bytes(&bytes);
+            self.hits += 1;
+            self.promotions += 1;
+            self.insert_hot(key.clone(), value, w.score + 1.0, clk);
+            return self.hot.get(key).map(|e| e.value.clone());
+        }
+        // COLD hit → read blob + decompress + promote to HOT.
+        if let Some(m) = self.cold_meta.remove(key) {
+            self.cold_bytes -= m.stored_len;
+            let blob = self.cold_store.get(key).ok().flatten();
+            let _ = self.cold_store.remove(key);
+            if let Some(raw) = blob {
+                let sb = StoredBlock { data: raw, compressed: m.compressed, orig_len: m.orig_len };
+                let value = V::from_bytes(&sb.decode());
+                self.hits += 1;
+                self.promotions += 1;
+                self.insert_hot(key.clone(), value, m.score + 1.0, clk);
+                return self.hot.get(key).map(|e| e.value.clone());
+            }
+        }
+        self.misses += 1;
+        None
+    }
+
+    /// Whether `key` is resident in ANY tier.
+    pub fn contains(&self, key: &K) -> bool {
+        self.hot.contains_key(key)
+            || self.warm.contains_key(key)
+            || self.cold_meta.contains_key(key)
+    }
+
+    /// Which tier `key` currently lives in, if resident.
+    pub fn tier_of(&self, key: &K) -> Option<Tier> {
+        if self.hot.contains_key(key) {
+            Some(Tier::Hot)
+        } else if self.warm.contains_key(key) {
+            Some(Tier::Warm)
+        } else if self.cold_meta.contains_key(key) {
+            Some(Tier::Cold)
+        } else {
+            None
+        }
+    }
+
+    /// Pin a key so it is NEVER demoted or evicted (CONCEPT:EG-185). If resident it is
+    /// pulled up to HOT; a not-yet-resident key is remembered so a later `put` is pinned.
+    pub fn pin(&mut self, key: &K) {
+        self.pinned.insert(key.clone());
+        // Pull a resident-but-cold/warm pinned block up into HOT (protected + fast).
+        if !self.hot.contains_key(key) {
+            let clk = self.tick();
+            if let Some(w) = self.warm.remove(key) {
+                self.warm_bytes -= w.block.stored_len();
+                let value = V::from_bytes(&w.block.decode());
+                self.insert_hot(key.clone(), value, w.score, clk);
+            } else if let Some(m) = self.cold_meta.remove(key) {
+                self.cold_bytes -= m.stored_len;
+                if let Some(raw) = self.cold_store.get(key).ok().flatten() {
+                    let _ = self.cold_store.remove(key);
+                    let sb = StoredBlock { data: raw, compressed: m.compressed, orig_len: m.orig_len };
+                    let value = V::from_bytes(&sb.decode());
+                    self.insert_hot(key.clone(), value, m.score, clk);
+                }
+            }
+        }
+    }
+
+    /// Unpin a key, making it eligible for demotion / eviction again.
+    pub fn unpin(&mut self, key: &K) {
+        self.pinned.remove(key);
+        self.enforce_hot();
+    }
+
+    /// Whether `key` is pinned.
+    pub fn is_pinned(&self, key: &K) -> bool {
+        self.pinned.contains(key)
+    }
+
+    /// Forcibly remove `key` from every tier (and unpin it). Returns whether it existed.
+    pub fn evict(&mut self, key: &K) -> bool {
+        self.pinned.remove(key);
+        self.remove_resident(key)
+    }
+
+    /// A snapshot of occupancy + lifetime counters (CONCEPT:EG-185).
+    pub fn stats(&self) -> CacheStats {
+        CacheStats {
+            hot_entries: self.hot.len(),
+            warm_entries: self.warm.len(),
+            cold_entries: self.cold_meta.len(),
+            hot_bytes: self.hot_bytes,
+            warm_bytes: self.warm_bytes,
+            cold_bytes: self.cold_bytes,
+            pinned: self.pinned.len(),
+            hits: self.hits,
+            misses: self.misses,
+            promotions: self.promotions,
+            demotions_to_warm: self.demotions_to_warm,
+            demotions_to_cold: self.demotions_to_cold,
+            drops: self.drops,
+        }
+    }
+
+    /// Total resident entries across all tiers.
+    pub fn len(&self) -> usize {
+        self.hot.len() + self.warm.len() + self.cold_meta.len()
+    }
+
+    /// Whether the cache holds no resident blocks.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    // ---- internal machinery -------------------------------------------------
+
+    /// Insert straight into HOT (used by promotion) then rebalance.
+    fn insert_hot(&mut self, key: K, value: V, score: f64, clk: u64) {
+        let bytes = value.byte_len();
+        self.hot_bytes += bytes;
+        self.hot.insert(key, HotEntry { value, score, last: clk, bytes });
+        self.enforce_hot();
+    }
+
+    /// Remove a key from whichever tier it is in, fixing byte accounting. Returns
+    /// whether it was resident. Does NOT touch the pinned set.
+    fn remove_resident(&mut self, key: &K) -> bool {
+        if let Some(e) = self.hot.remove(key) {
+            self.hot_bytes -= e.bytes;
+            true
+        } else if let Some(w) = self.warm.remove(key) {
+            self.warm_bytes -= w.block.stored_len();
+            true
+        } else if let Some(m) = self.cold_meta.remove(key) {
+            self.cold_bytes -= m.stored_len;
+            let _ = self.cold_store.remove(key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Pick the lowest-scoring UNPINNED key of a tier (tiebreak: oldest access first).
+    fn lowest_hot(&self) -> Option<K> {
+        self.hot
+            .iter()
+            .filter(|(k, _)| !self.pinned.contains(*k))
+            .min_by(|a, b| {
+                a.1.score
+                    .partial_cmp(&b.1.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.1.last.cmp(&b.1.last))
+            })
+            .map(|(k, _)| k.clone())
+    }
+
+    fn lowest_warm(&self) -> Option<K> {
+        self.warm
+            .iter()
+            .filter(|(k, _)| !self.pinned.contains(*k))
+            .min_by(|a, b| {
+                a.1.score
+                    .partial_cmp(&b.1.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.1.last.cmp(&b.1.last))
+            })
+            .map(|(k, _)| k.clone())
+    }
+
+    fn lowest_cold(&self) -> Option<K> {
+        self.cold_meta
+            .iter()
+            .filter(|(k, _)| !self.pinned.contains(*k))
+            .min_by(|a, b| {
+                a.1.score
+                    .partial_cmp(&b.1.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.1.last.cmp(&b.1.last))
+            })
+            .map(|(k, _)| k.clone())
+    }
+
+    /// Enforce the HOT byte budget by demoting to WARM, then cascade downward. Pinned
+    /// blocks are never chosen, so a pinned working set may exceed the budget (by
+    /// design — pins are a hard "keep this" contract).
+    fn enforce_hot(&mut self) {
+        while self.hot_bytes > self.hot_cap {
+            let Some(k) = self.lowest_hot() else { break };
+            let e = self.hot.remove(&k).expect("lowest_hot key present");
+            self.hot_bytes -= e.bytes;
+            // Demote HOT → WARM: compress the raw block.
+            let bytes = e.value.as_bytes();
+            let sb = StoredBlock::encode(&bytes);
+            self.warm_bytes += sb.stored_len();
+            self.warm.insert(k, WarmEntry { block: sb, score: e.score, last: e.last });
+            self.demotions_to_warm += 1;
+        }
+        self.enforce_warm();
+    }
+
+    /// Enforce the WARM byte budget by demoting to COLD, then cascade.
+    fn enforce_warm(&mut self) {
+        while self.warm_bytes > self.warm_cap {
+            let Some(k) = self.lowest_warm() else { break };
+            let w = self.warm.remove(&k).expect("lowest_warm key present");
+            self.warm_bytes -= w.block.stored_len();
+            // Demote WARM → COLD: spill the compressed bytes to the cold device.
+            let stored_len = w.block.stored_len();
+            match self.cold_store.put(&k, &w.block.data) {
+                Ok(()) => {
+                    self.cold_bytes += stored_len;
+                    self.cold_meta.insert(
+                        k,
+                        ColdMeta {
+                            compressed: w.block.compressed,
+                            orig_len: w.block.orig_len,
+                            stored_len,
+                            score: w.score,
+                            last: w.last,
+                        },
+                    );
+                    self.demotions_to_cold += 1;
+                }
+                Err(_) => {
+                    // Cold device rejected the write — the block is dropped.
+                    self.drops += 1;
+                }
+            }
+        }
+        self.enforce_cold();
+    }
+
+    /// Enforce the COLD byte budget by DROPPING the lowest-scoring cold blocks — the
+    /// only place a block leaves the cache entirely.
+    fn enforce_cold(&mut self) {
+        while self.cold_bytes > self.cold_cap {
+            let Some(k) = self.lowest_cold() else { break };
+            let m = self.cold_meta.remove(&k).expect("lowest_cold key present");
+            self.cold_bytes -= m.stored_len;
+            let _ = self.cold_store.remove(&k);
+            self.drops += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::Block;
+
+    /// An INCOMPRESSIBLE KV page of `len` bytes seeded by `seed` — consecutive bytes
+    /// differ, so the WARM RLE codec falls back to raw and the page keeps its full byte
+    /// size in every tier. This is what makes the byte-budget / cascade assertions below
+    /// exercise real tier transitions (a run-heavy page would shrink to a few bytes in
+    /// WARM and never cascade).
+    fn page(len: usize, seed: u8) -> Block {
+        (0..len)
+            .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed).wrapping_add(1))
+            .collect()
+    }
+
+    /// CONCEPT:EG-185 — capacity is accounted in BYTES; a put over the HOT budget
+    /// demotes rather than rejects, and stats reflect the byte split.
+    #[test]
+    fn eg185_capacity_accounting_is_in_bytes() {
+        // HOT holds ~100 bytes, WARM/COLD generous.
+        let mut c: TieredCache<u64, Block> = TieredCache::new(100, 10_000, 10_000);
+        c.put(1, page(40, 1));
+        c.put(2, page(40, 2));
+        let s = c.stats();
+        assert_eq!(s.hot_bytes, 80, "two 40-byte pages fit HOT");
+        assert_eq!(s.hot_entries, 2);
+        // Third page pushes HOT over 100 ⇒ the lowest-score block demotes to WARM.
+        c.put(3, page(40, 3));
+        let s = c.stats();
+        assert!(s.hot_bytes <= 100, "HOT stays within its byte budget");
+        assert_eq!(s.hot_entries + s.warm_entries + s.cold_entries, 3, "no block lost");
+    }
+
+    /// CONCEPT:EG-185 — the LRU evicts the LOWEST-SCORE block first: accessing a block
+    /// raises its score so a colder neighbour is the one demoted.
+    #[test]
+    fn eg185_lru_evicts_lowest_score_first() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(80, 10_000, 10_000);
+        c.put(1, page(40, 1));
+        c.put(2, page(40, 2));
+        // Bump key 1's score with repeated hits; key 2 stays cold.
+        for _ in 0..5 {
+            assert!(c.get(&1).is_some());
+        }
+        // A third block forces one demotion; the low-score key 2 must be the victim.
+        c.put(3, page(40, 3));
+        assert_eq!(c.tier_of(&1), Some(Tier::Hot), "hot, frequently-used block stays HOT");
+        assert_eq!(c.tier_of(&2), Some(Tier::Warm), "lowest-score block demoted");
+    }
+
+    /// CONCEPT:EG-185 — a hit in a lower tier PROMOTES the block back to HOT.
+    #[test]
+    fn eg185_promotion_on_access_moves_block_back_to_hot() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(80, 10_000, 10_000);
+        c.put(1, page(40, 1));
+        c.put(2, page(40, 2));
+        c.put(3, page(40, 3)); // forces a demotion to WARM
+        // Find a block that got demoted, then access it and confirm it is promoted.
+        let demoted = [1u64, 2, 3]
+            .into_iter()
+            .find(|k| c.tier_of(k) == Some(Tier::Warm))
+            .expect("some block demoted to WARM");
+        assert_eq!(c.get(&demoted).unwrap(), page(40, demoted as u8), "value survives the round-trip");
+        assert_eq!(c.tier_of(&demoted), Some(Tier::Hot), "access promoted it back to HOT");
+        assert!(c.stats().promotions >= 1);
+    }
+
+    /// CONCEPT:EG-185 — demotion under pressure MOVES bytes to WARM/COLD; it does NOT
+    /// drop them. The value is still retrievable after cascading all the way to COLD.
+    #[test]
+    fn eg185_demotion_under_pressure_moves_bytes_not_drops() {
+        // Tiny HOT + tiny WARM so a block must cascade HOT→WARM→COLD, but a huge COLD
+        // so nothing is actually dropped.
+        let mut c: TieredCache<u64, Block> = TieredCache::new(50, 30, 1_000_000);
+        for k in 0..10u64 {
+            c.put(k, page(40, k as u8));
+        }
+        let s = c.stats();
+        assert_eq!(s.drops, 0, "nothing dropped while COLD has room");
+        assert_eq!(s.hot_entries + s.warm_entries + s.cold_entries, 10, "all 10 blocks retained");
+        assert!(s.cold_entries > 0, "pressure pushed bytes down to COLD");
+        // Every block is still retrievable (bytes were offloaded, not lost).
+        for k in 0..10u64 {
+            assert_eq!(c.get(&k), Some(page(40, k as u8)), "block {k} recoverable after offload");
+        }
+    }
+
+    /// CONCEPT:EG-185 — a block only leaves the cache when it falls out of the COLD
+    /// budget (the final drop rung).
+    #[test]
+    fn eg185_drop_only_when_cold_budget_exceeded() {
+        // All tiers tiny ⇒ blocks must eventually drop out of COLD.
+        let mut c: TieredCache<u64, Block> = TieredCache::new(40, 40, 40);
+        for k in 0..10u64 {
+            c.put(k, page(40, k as u8));
+        }
+        let s = c.stats();
+        assert!(s.drops > 0, "small COLD budget forces drops");
+        assert!(c.len() < 10, "some blocks evicted entirely");
+    }
+
+    /// CONCEPT:EG-185 — a PINNED block is never demoted or evicted, even under heavy
+    /// pressure that drops everything else.
+    #[test]
+    fn eg185_pin_prevents_eviction_under_pressure() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(40, 40, 40);
+        c.put(0, page(40, 0));
+        c.pin(&0);
+        // Flood the cache; the pinned block must stay HOT throughout. (Inspect the tier
+        // WITHOUT `get`, which would bump the block's score and mask the eviction test.)
+        for k in 1..50u64 {
+            c.put(k, page(40, k as u8));
+        }
+        assert_eq!(c.tier_of(&0), Some(Tier::Hot), "pinned block never demoted");
+        assert!(c.contains(&0), "pinned block still resident");
+        // After unpin the low-score block becomes evictable again under pressure.
+        c.unpin(&0);
+        for k in 50..100u64 {
+            c.put(k, page(40, k as u8));
+        }
+        assert_ne!(c.tier_of(&0), Some(Tier::Hot),
+            "after unpin the block is demoted/dropped under pressure like any other");
+    }
+
+    /// CONCEPT:EG-185 — `evict` forcibly removes a block from all tiers (and unpins it).
+    #[test]
+    fn eg185_evict_forcibly_removes_across_tiers() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        c.put(7, page(40, 7));
+        c.pin(&7);
+        assert!(c.evict(&7), "evict reports it existed");
+        assert!(!c.contains(&7), "gone from every tier");
+        assert!(!c.is_pinned(&7), "evict also unpins");
+    }
+
+    /// CONCEPT:EG-185 — re-`put` of an existing key overwrites (no double-accounting).
+    #[test]
+    fn eg185_reput_overwrites_without_double_accounting() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        c.put(1, page(40, 1));
+        c.put(1, page(60, 1));
+        assert_eq!(c.stats().hot_entries, 1);
+        assert_eq!(c.stats().hot_bytes, 60, "byte accounting reflects the overwrite");
+        assert_eq!(c.get(&1), Some(page(60, 1)));
+    }
+
+    /// CONCEPT:EG-185 — a miss is counted and returns None.
+    #[test]
+    fn eg185_miss_returns_none_and_counts() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        assert_eq!(c.get(&42), None);
+        assert_eq!(c.stats().misses, 1);
+    }
+}

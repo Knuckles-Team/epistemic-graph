@@ -1920,6 +1920,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-kvcache"
+version = "0.1.0"
+dependencies = [
+ "redb",
+ "tempfile",
+]
+
+[[package]]
 name = "eg-plan"
 version = "0.33.0"
 dependencies = [
