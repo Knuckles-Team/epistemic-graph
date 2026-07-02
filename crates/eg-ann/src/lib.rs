@@ -31,7 +31,7 @@ pub mod persist;
 #[cfg(feature = "redb")]
 pub mod redb_store;
 
-pub use ivfpq::{IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB};
+pub use ivfpq::{merge_topk, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB};
 pub use persist::{compact, open, save};
 
 #[cfg(test)]
@@ -194,6 +194,113 @@ mod tests {
         idx.add(&[(99999, novel.clone())]);
         let res = idx.search(&novel, 5, SearchParams::default());
         assert_eq!(res[0].id, 99999, "incrementally-added vector must be top-1");
+    }
+
+    #[test]
+    fn merge_topk_matches_single_combined_index() {
+        // CONCEPT:EG-069 — the gather step. Splitting the SAME hits across N shards and
+        // merging their local top-k must reproduce EXACTLY the global top-k a single
+        // combined result would give (ids AND nearest-first order).
+        fn mk(pairs: &[(u64, f32)]) -> Vec<SearchResult> {
+            pairs
+                .iter()
+                .map(|&(id, distance)| SearchResult { id, distance })
+                .collect()
+        }
+        // A single combined ranked list (the ground truth).
+        let all = mk(&[
+            (10, 0.9),
+            (11, 0.1),
+            (12, 0.5),
+            (13, 0.3),
+            (14, 0.7),
+            (15, 0.2),
+            (16, 0.05),
+            (17, 0.4),
+        ]);
+        let mut truth = all.clone();
+        truth.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+        truth.truncate(3);
+
+        // Scatter the SAME hits across 3 shards, each pre-sorted to its local top-k.
+        let shard_a = mk(&[(10, 0.9), (13, 0.3)]);
+        let shard_b = mk(&[(11, 0.1), (12, 0.5), (14, 0.7)]);
+        let shard_c = mk(&[(15, 0.2), (16, 0.05), (17, 0.4)]);
+        let merged = merge_topk(&[shard_a, shard_b, shard_c], 3);
+
+        assert_eq!(
+            merged.iter().map(|r| r.id).collect::<Vec<_>>(),
+            truth.iter().map(|r| r.id).collect::<Vec<_>>(),
+            "merged top-3 must equal the single-combined top-3 (nearest first)"
+        );
+        // Distances carried through unchanged.
+        for (m, t) in merged.iter().zip(truth.iter()) {
+            assert_eq!(m.distance, t.distance);
+        }
+        // Degenerate shapes: k=0 → empty; fewer total than k → all, sorted.
+        assert!(merge_topk(&[mk(&[(1, 0.2)])], 0).is_empty());
+        let few = merge_topk(&[mk(&[(1, 0.2)]), mk(&[(2, 0.1)])], 10);
+        assert_eq!(few.iter().map(|r| r.id).collect::<Vec<_>>(), vec![2, 1]);
+    }
+
+    #[test]
+    fn search_filtered_respects_allowlist() {
+        // CONCEPT:EG-070 — a pre-filtered search must return ONLY allowed ids, and the
+        // top-k among them must match a brute-force top-k restricted to the same set.
+        use std::collections::HashSet;
+        let dim = 64;
+        let n = 5000;
+        let data = clustered_vecs(n, dim, 50, 5);
+        let idx = build(&data, dim, 64);
+
+        // Permit an arbitrary (non-contiguous) ~1/3 of the ids.
+        let allow: HashSet<u64> = (0..n as u64).filter(|id| id % 3 == 0).collect();
+        let sp = SearchParams {
+            nprobe: 32,
+            refine: true,
+            refine_factor: 16,
+        };
+        let q = &data[300]; // 300 % 3 == 0, so the self-hit is allowed
+        let allow_ref = allow.clone();
+        let got = idx.search_filtered(q, 10, sp, Some(&move |id| allow_ref.contains(&id)));
+
+        // 1. EVERY returned id is allowed.
+        assert!(
+            got.iter().all(|r| allow.contains(&r.id)),
+            "filtered search returned a disallowed id: {:?}",
+            got.iter().map(|r| r.id).collect::<Vec<_>>()
+        );
+        assert!(!got.is_empty(), "expected some allowed hits");
+
+        // 2. The exact-nearest allowed neighbour is present (self-retrieval within set).
+        assert!(got.iter().any(|r| r.id == 300), "allowed self must be found");
+
+        // 3. Top-k agrees with a brute force restricted to the allowed subset (recall).
+        let allowed_data: Vec<(u64, &Vec<f32>)> = data
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i as u64, v))
+            .filter(|(id, _)| allow.contains(id))
+            .collect();
+        let mut truth: Vec<(u64, f32)> = allowed_data
+            .iter()
+            .map(|(id, v)| (*id, kmeans::sq_dist(q, v)))
+            .collect();
+        truth.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let truth_top: HashSet<u64> = truth.iter().take(10).map(|(id, _)| *id).collect();
+        let got_ids: HashSet<u64> = got.iter().map(|r| r.id).collect();
+        let hits = truth_top.intersection(&got_ids).count();
+        assert!(
+            hits >= 9,
+            "restricted top-10 recall too low: {hits}/10 (got {got_ids:?} vs truth {truth_top:?})"
+        );
+
+        // 4. `allow = None` (via `search`) is unchanged and CAN return disallowed ids.
+        let unfiltered = idx.search(q, 10, sp);
+        assert!(
+            unfiltered.iter().any(|r| !allow.contains(&r.id)),
+            "unfiltered search should surface disallowed ids too"
+        );
     }
 
     /// THE BAR: recall@10 ≥ 0.95 vs brute force on a representative scale. Runs at

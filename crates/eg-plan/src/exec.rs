@@ -133,17 +133,17 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         }
 
         Op::Rank { query } => {
-            // kNN over the FULL store, then keep only the current candidate set, in
-            // similarity order. (Equivalent to "rank these candidates": the store's
-            // kNN is over all embeddings, so we over-fetch then intersect.)
+            // CONCEPT:EG-070 — hybrid metadata pre-filter. Push the current candidate
+            // set INTO the ANN scan as an allowlist so the returned top-k already
+            // satisfies the predicate — filtering happens DURING the probe instead of
+            // over-fetching `k*4` and post-filtering. Semantics are unchanged: with an
+            // empty candidate set the allowlist rejects everything (a source `Rank`
+            // yields no rows, exactly as the prior over-fetch-then-intersect did).
             let candidates = input.id_set();
             let k = candidates.len().max(1);
-            let want = (k * 4).max(k + 32);
-            let ranked = ctx.semantic.semantic_search(query, want);
-            let scored: Vec<(String, f32)> = ranked
-                .into_iter()
-                .filter(|(id, _)| candidates.contains(id.as_str()))
-                .collect();
+            let scored = ctx
+                .semantic
+                .semantic_search_filtered(query, k, |id| candidates.contains(id));
             Ok(RowSet::from_scored(scored))
         }
 
