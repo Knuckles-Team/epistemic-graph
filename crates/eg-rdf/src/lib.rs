@@ -54,6 +54,15 @@ pub use spargebra;
 #[cfg(feature = "sparql")]
 pub mod sparql;
 
+/// EG-101 — OBDA virtual graphs / R2RML (Phase Q). Expose a FOREIGN tabular source as a
+/// virtual, SPARQL-queryable RDF graph: an R2RML-style [`obda::TriplesMap`] (subject-IRI
+/// template + predicate→object maps) turns rows into triples ON DEMAND, and a SPARQL query
+/// over a [`obda::VirtualGraph`] pulls only the query-relevant predicates/columns from the
+/// backing [`obda::ObdaSource`] — never materializing the whole dataset. Behind `sparql`
+/// (needs the evaluator + oxrdf term model). CONCEPT:EG-101.
+#[cfg(feature = "sparql")]
+pub mod obda;
+
 /// SPARQL 1.1 UPDATE executed over the native property-graph write ops (CONCEPT:EG-017):
 /// INSERT/DELETE DATA, DELETE/INSERT … WHERE, CLEAR/CREATE/DROP GRAPH, with named-graph
 /// routing through the `GraphStore` trait. Behind `sparql` (needs spargebra's Update).
