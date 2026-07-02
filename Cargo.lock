@@ -1926,6 +1926,7 @@ dependencies = [
  "eg-geo",
  "eg-query",
  "eg-rdf",
+ "eg-stream",
  "eg-tensor",
  "eg-text",
  "eg-tsdb",
@@ -1978,6 +1979,14 @@ dependencies = [
  "serde_json",
  "spargebra",
  "tempfile",
+]
+
+[[package]]
+name = "eg-stream"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
