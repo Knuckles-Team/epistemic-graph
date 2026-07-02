@@ -44,12 +44,20 @@
 //! [`LiveQuery`] + the server carrier; the change stream is `GraphCore::changes()`. A
 //! parse error names the unsupported construct.
 
+/// CONCEPT:EG-295 — Apollo Federation v2 subgraph support (schema `@link` + `@key`/
+/// `@shareable`/… directives, `_service.sdl`, `_entities`). Gated by the `federation`
+/// sub-feature (default-on; the facade's `graphql` feature pulls this crate with default
+/// features, so federation rides into graphql/node/full — see `Cargo.toml`).
+#[cfg(feature = "federation")]
+pub mod federation;
 pub mod mutation;
 pub mod parser;
 pub mod resolver;
 pub mod schema;
 pub mod subscription;
 
+#[cfg(feature = "federation")]
+pub use federation::{EntityMeta, FederatedSchema, FieldFedMeta, KeyDirective};
 pub use mutation::execute as execute_mutation;
 pub use parser::{parse, parse_operation, GqlError, Mutation, Operation, Query, Subscription};
 pub use resolver::{execute, execute_query, execute_with_variables};
