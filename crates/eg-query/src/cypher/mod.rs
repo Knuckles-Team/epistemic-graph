@@ -23,8 +23,10 @@
 mod exec;
 mod parser;
 mod plan;
+mod proc;
 
 pub use exec::{
     exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params, Params,
 };
 pub use plan::{CypherQuery, Statement, WriteOp, WriteQuery};
+pub use proc::{CypherProcedure, ProcRow, YieldValue};

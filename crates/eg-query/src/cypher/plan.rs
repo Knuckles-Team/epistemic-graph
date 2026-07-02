@@ -45,6 +45,23 @@ pub enum ReadStage {
     /// `UNWIND <list> AS <var>` (CONCEPT:EG-141) — expand a list expression into one
     /// row per element, binding each element to `var`, pipelining downstream.
     Unwind { list: ListExpr, var: String },
+    /// `CALL { <subquery> }` (CONCEPT:EG-142) — an evaluated read sub-query whose
+    /// result rows join (cartesian) onto each incoming row.
+    Call { subquery: Box<CypherQuery> },
+    /// `CALL proc.name(args) YIELD col [AS alias], …` (CONCEPT:EG-142) — a registered
+    /// procedure invocation; each yielded column binds into the pipeline.
+    CallProc {
+        name: String,
+        args: Vec<PropVal>,
+        yields: Vec<YieldItem>,
+    },
+}
+
+/// One `YIELD col [AS alias]` item on a `CALL proc(...)` stage (CONCEPT:EG-142).
+#[derive(Debug, Clone, PartialEq)]
+pub struct YieldItem {
+    pub col: String,
+    pub alias: Option<String>,
 }
 
 /// The list operand of an `UNWIND` (CONCEPT:EG-141): an inline list literal, a query
