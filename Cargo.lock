@@ -1926,6 +1926,7 @@ dependencies = [
  "eg-geo",
  "eg-query",
  "eg-rdf",
+ "eg-tensor",
  "eg-text",
  "eg-tsdb",
  "eg-types",
@@ -1977,6 +1978,14 @@ dependencies = [
  "serde_json",
  "spargebra",
  "tempfile",
+]
+
+[[package]]
+name = "eg-tensor"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
