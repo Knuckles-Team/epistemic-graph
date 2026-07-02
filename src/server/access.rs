@@ -95,6 +95,23 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::ParseRepository { .. }
             | Method::DeleteGraph { .. }
             | Method::ClaimNext { .. }
+            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-318):
+            // each writes nodes/edges (summaries, semantic nodes, decay/evict
+            // bookkeeping, scene objects, trajectories/steps) → Write access + WAL
+            // record. The paired reads (SummaryChildren/SummariesAtLevel/
+            // WorldTransform/SceneChildren/DiscountedReturn/BestTrajectory) stay Read.
+            | Method::CreateSummaryNode { .. }
+            | Method::Consolidate { .. }
+            | Method::Reinforce { .. }
+            | Method::DecayNode { .. }
+            | Method::DecayMemories { .. }
+            | Method::EvictBelow { .. }
+            | Method::Maintain { .. }
+            | Method::AddSceneObject { .. }
+            | Method::SetPose { .. }
+            | Method::Reparent { .. }
+            | Method::StartTrajectory { .. }
+            | Method::AppendStep { .. }
     )
 }
 
