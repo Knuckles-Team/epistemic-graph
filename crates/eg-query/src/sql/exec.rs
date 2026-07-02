@@ -418,6 +418,8 @@ fn apply_ann_pushdown(
 
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
 /// graph table functions, then collect the query.
+// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs.
+#[allow(clippy::too_many_arguments)]
 fn run(
     view: &GraphView,
     nodes: (
@@ -521,6 +523,8 @@ async fn register_views(
 /// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
 /// the Arrow schema + JSON cells). Shares the providers/UDFs/runtime verbatim so
 /// the pgwire read path is the SAME engine path as `Method::Sql`.
+// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs.
+#[allow(clippy::too_many_arguments)]
 fn run_typed(
     view: &GraphView,
     nodes: (
