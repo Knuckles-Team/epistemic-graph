@@ -1,7 +1,7 @@
 # epistemic-graph
 
 <p align="center">
-  <b>One durable, Rust-native engine that is a drop-in substrate for graph · vector · SQL · SPARQL/RDF/OWL · time-series · blob · key-value</b><br>
+  <b>One durable, Rust-native engine that is a drop-in substrate for graph · vector · SQL · SPARQL/RDF/OWL · time-series · blob · key-value · message-broker · observability · spatial/GIS · tensor · agent-memory</b><br>
   <sub>Every modality is a first-class citizen of one <code>RowSet</code> planner — from a Raspberry Pi to a replicated Raft cluster, from one core.</sub>
 </p>
 
@@ -31,8 +31,14 @@
 
 A modern agent platform normally needs a graph database **and** a vector index **and** a SQL warehouse
 **and** a triple-store + reasoner **and** a time-series DB **and** a blob store **and** a full-text
-index — seven systems, seven copies of the data, six sync pipelines, and a brittle application layer
-that stitches results back together.
+index **and** a message broker **and** an observability stack **and** a GIS engine **and** an LLM
+KV-cache — a dozen systems, a dozen copies of the data, a rat's nest of sync pipelines, and a brittle
+application layer that stitches results back together.
+
+`epistemic-graph` is the **"master of all databases"**: it speaks the *wire protocols* of the systems
+it replaces (Postgres, MySQL, MSSQL, SQLite, Neo4j Bolt, Redis, S3, AMQP/MQTT/STOMP, PromQL, OTLP) so
+existing clients, drivers and ORMs connect **unmodified** — all resolving to ONE exec path over ONE
+store.
 
 `epistemic-graph` collapses that rack into **one durable engine with one unified query planner**. Every
 modality is a view over the same `RowSet` algebra, so a single plan can seed candidates from an OWL
@@ -50,15 +56,22 @@ transactions.
 
 | You run today | epistemic-graph as a drop-in | Current parity |
 |---------------|------------------------------|----------------|
-| **Postgres** (psql / BI / ORM) | pgwire server: SCRAM/trust auth, simple + extended protocol, `pg_catalog`/`information_schema` | ✅ read SQL · ✅ user tables + DDL + `COPY` · 🔶 compound-WHERE DML + wire transactions |
-| **Stardog / GraphDB** (RDF triple-store + reasoner) | RDF dataset over the property graph, SPARQL, OWL 2 EL⁺/RL reasoning | ✅ SELECT/ASK/CONSTRUCT/DESCRIBE + UPDATE + `/sparql` endpoint + reasoning · 🔶 content negotiation, rich FILTER |
-| **Neo4j** (property graph) | native petgraph core + Cypher `MATCH…RETURN` + writes + graph algorithms | ✅ read traversal, algorithms, writes (`CREATE/MERGE/SET/DELETE`) · 🔶 `ORDER BY`/`WITH`/aggregation |
-| **Pinecone / Milvus** (vector DB) | native IVF-PQ + OPQ + SQ8 ANN, persistent, warm-on-start | ✅ |
-| **InfluxDB / TimescaleDB** (time-series) | native redb TSDB: ASOF, gap-fill, `time_bucket`, OHLC, decay | ✅ primitives · 🔶 time-ops as planner ops |
-| **S3 / MinIO** (blob) | content-addressed streaming CAS, redb-native or S3-backed | ✅ |
+| **Postgres** (psql / BI / ORM) | pgwire server: SCRAM/trust auth, simple + extended protocol, `pg_catalog` + `information_schema` (`\d`/`\dt`/`\l`), `CREATE FUNCTION`, arrays/ranges + common functions, `CREATE EXTENSION` | ✅ read SQL · ✅ user tables + DDL + `COPY` · ✅ compound-WHERE DML + `INSERT…SELECT` + `ON CONFLICT` + mixed-store wire transactions · ✅ views/functions |
+| **Postgres extensions** (pgvector / AGE / TimescaleDB / ParadeDB) | `vector` type + `<->`/`<=>`/`<#>` with ANN index pushdown, AGE `cypher()`, TimescaleDB hypertables + continuous aggregates, ParadeDB `@@@` BM25 | ✅ pgvector · ✅ AGE · ✅ Timescale · ✅ ParadeDB (EG-114/116/117/119) |
+| **Stardog / GraphDB** (RDF triple-store + reasoner) | RDF dataset over the property graph, SPARQL 1.1, OWL 2 EL⁺/RL reasoning, SHACL + ShEx, ICV integrity constraints, GeoSPARQL | ✅ SELECT/ASK/CONSTRUCT/DESCRIBE + UPDATE + `/sparql` + total-ordering `ORDER BY` + rich FILTER + content negotiation + SHACL/ICV + JSON-LD/TriG/RDF-XML · 🔶 OWL-DL tableau, SWRL |
+| **Neo4j** (property graph) | native petgraph core + Cypher `MATCH…RETURN` + writes + GDS algorithms + `CALL`/`UNWIND`, plus a native **Bolt v4.4** wire | ✅ read traversal, writes (`CREATE/MERGE/SET/DELETE`), `ORDER BY`/`WITH`/aggregation, GDS (PageRank/Louvain/betweenness/Dijkstra/SCC), Bolt drivers (EG-144/159) |
+| **Pinecone / Milvus** (vector DB) | native IVF-PQ + OPQ + SQ8 ANN + exact/flat index + recall harness, persistent, warm-on-start | ✅ (EG-297) |
+| **InfluxDB / TimescaleDB** (time-series) | native redb TSDB: ASOF, gap-fill, `time_bucket`, OHLC, decay, columnar segments + SQL window frames | ✅ primitives + window functions (EG-089) · 🔶 `Op::Window` planner op |
+| **S3 / MinIO** (blob) | content-addressed streaming CAS, redb-native or S3-backed, plus an **S3 REST** serving surface (SigV4-lite) | ✅ (EG-176) |
+| **Redis** (KV / structures) | native **RESP2/3** wire over the KV surface (GET/SET/INCR, hashes, lists, sets, sorted-sets) | ✅ (EG-174) |
 | **SQLite / RocksDB** (embedded KV) | `EmbeddedEngine` in-process handle + generic namespaced KV over the same redb rows | ✅ embedded graph API · ✅ generic KV · ✅ SQLite/MySQL/MSSQL/Bolt wires |
-| **MySQL / MariaDB / SQL Server / Neo4j / RabbitMQ** (protocol clients) | hand-rolled MySQL, MSSQL-TDS, SQLite-NDJSON, Neo4j Bolt v4.4 and AMQP 0.9.1 listeners over the shared wire core | ✅ connect + query via native drivers · see [`connecting.md`](docs/interfaces/connecting.md) |
-| **Prometheus / OpenObserve / Jaeger** (observability) | obs listener: log ingest + PromQL `/api/v1/query` + OTLP traces `/v1/traces` over the durable TSDB | ✅ logs · ✅ PromQL · ✅ traces |
+| **MySQL / MariaDB / SQL Server** (protocol clients) | hand-rolled MySQL (handshake v10), MSSQL-TDS and SQLite-NDJSON listeners over the shared wire core | ✅ connect + query via native drivers · see [`connecting.md`](docs/interfaces/connecting.md) (EG-075/076/077) |
+| **RabbitMQ / Kafka** (message broker) | native broker: exchanges/topic-routing, DLQ, TTL, priority, delayed delivery, consumer-groups + QoS, replayable streams, publisher confirms; **AMQP 0.9.1 / MQTT / STOMP** wires | ✅ (EG-275–284, EG-281/282) |
+| **Prometheus / OpenObserve / Jaeger** (observability) | obs listener: log ingest + PromQL `/api/v1/query` + OTLP traces `/v1/traces` + service-map + VRL-style pipelines + super-cluster federated search | ✅ logs · ✅ PromQL · ✅ traces · ✅ pipelines · ✅ federated (EG-160–165/172/243) |
+| **PostGIS / GIS** (spatial) | native eg-geo: CRS/reprojection, R-tree, GeoJSON/WKB/GPX, XYZ/TMS + MVT tiles, routing/isochrones/TSP, map task-tracking | ✅ (EG-262–267) |
+| **Apollo GraphQL** | Apollo Federation v2 subgraph (`_service`/`_entities`, `@key`) + APQ/depth/complexity hardening | ✅ (EG-295/296) · 🔶 subscriptions/relay |
+| **vLLM / LMCache** (LLM KV-cache) | tiered hot/warm/cold KV-block cache + shared dedup backend + HTTP endpoint (LMCache remote-backend contract) | ✅ (EG-185/186/187) |
+| **Agent memory** (Zep / mem0 / LeanRAG) | bi-temporal `AsOf`, summary-node tier, episodic→semantic consolidation, decay/reinforce, LeanRAG hierarchical retrieval, NL→query | ✅ (EG-220/221/222/195) · 🔶 NL→query (LLM-optional) |
 
 The point is **convergence, not a checkbox**: the modalities share one snapshot, one ACID transaction,
 one security model, and one planner. See the full [capability matrix](#capability-matrix) below for the
@@ -75,22 +88,33 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | Interface | Operation | Status | Feature | Notes |
 |-----------|-----------|:------:|---------|-------|
 | **SQL** | `SELECT` (joins, aggregates, CTE, window, subquery) | ✅ | `query` | DataFusion 43 over `nodes` + `edges`; real predicate pushdown (Inexact) |
-| **SQL** | `INSERT` / `UPDATE` / `DELETE` | ✅ | `query` | **`nodes` table only**, literal `VALUES`, single `col = literal` WHERE (KG-2.198) |
-| **SQL** | Complex/compound WHERE, `INSERT…SELECT`, JOIN-in-DML | 🔶 | `query` | KG-2.198 follow-up; explicitly errors today |
+| **SQL** | `INSERT` / `UPDATE` / `DELETE` (+ `RETURNING`) | ✅ | `query` | `nodes` + user tables (KG-2.198); serializable CAS gates |
+| **SQL** | Compound/`AND`/`OR`/`IN`/`BETWEEN`/`IS NULL` WHERE DML, `INSERT…SELECT`, `UPDATE…FROM`/`DELETE…USING`, `ON CONFLICT` upsert | ✅ | `query` | EG-045/046/047/048; serializable re-check under the write guard |
+| **SQL** | Mixed-store wire transactions (`BEGIN`/`COMMIT`/`ROLLBACK` + `TransactionStatus`) | ✅ | `pgwire` | EG-049; node + user-table ops, read-your-own-writes; documented non-2PC user-table window |
+| **SQL** | `CREATE VIEW`/`DROP VIEW`, `CREATE FUNCTION`, arrays/ranges + common functions | ✅ | `query` | EG-072/118/104; durable view + function catalog |
 | **SQL** | Arbitrary user tables + DDL (`CREATE`/`ALTER ADD COLUMN`/`DROP`), `COPY` | ✅ | `query` | durable redb table catalog (EG-018/EG-020); JOINable to the graph |
+| **SQL** | Columnar segments + window functions (`ROW_NUMBER`/`RANK`/`LAG`/`LEAD`/`OVER(…)`) | ✅ | `query` | EG-089; struct-of-arrays analytical scan |
+| **Postgres compat** | `pg_catalog` + `information_schema` system views (`\d`/`\dt`/`\l`) | ✅ | `pgwire` | EG-103; synthesized from live table/view/function catalogs |
+| **Postgres compat** | `CREATE EXTENSION` catalog · pgvector `vector` + `<->`/`<=>`/`<#>` + ANN pushdown | ✅ | `pgwire` | EG-102/115/116 |
+| **Postgres compat** | AGE `cypher()` set-returning function, TimescaleDB hypertables + continuous aggregates, ParadeDB `@@@` BM25 | ✅ | `pgwire` | EG-114/117/119 |
 | **Postgres wire** | listener, simple + extended/prepared protocol | ✅ | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR`; also pulled in by `cluster` |
 | **Postgres wire** | SCRAM-SHA-256 / trust auth, `pg_catalog` introspection | ✅ | `pgwire` | KG-2.202 / KG-2.201; pg user → engine ACL actor |
 | **SPARQL** | `SELECT` (BGP, paths, FILTER subset, OPTIONAL, UNION, GROUP/agg, BIND, DISTINCT, SLICE) | ✅ | `sparql` | spargebra parser compiled to LPG scans |
 | **SPARQL** | `ASK` / `CONSTRUCT` / `DESCRIBE` | ✅ | `sparql` | template instantiation + bounded description (gated by `rdf`, implied by `sparql`) |
 | **SPARQL** | `UPDATE` (`INSERT/DELETE DATA`, `DELETE/INSERT WHERE`, `CLEAR`, `CREATE`/`DROP GRAPH`) | ✅ | `sparql` | `eg-rdf/src/update.rs`; `LOAD` intentionally deferred (no HTTP fetch in write path) |
 | **SPARQL** | `/sparql` HTTP endpoint (W3C SPARQL 1.1 Protocol) | ✅ | `sparql-http` | `src/server/sparql_http.rs`; GET + POST query/update |
-| **SPARQL** | true named graphs (quad dataset) | ✅ | `sparql` | `GRAPH ?g`/constant-IRI over registry graphs (`FROM`/`FROM NAMED` 🔶) |
-| **SPARQL** | content negotiation, SPO/POS index, regex/arith FILTER, sub-SELECT, SERVICE, MINUS | 🔶 | `sparql` | results JSON only; naive full-scan; FILTER is a subset |
+| **SPARQL** | true named graphs (quad dataset) + `FROM`/`FROM NAMED` | ✅ | `sparql` | `GRAPH ?g`/constant-IRI over registry graphs (EG-054) |
+| **SPARQL** | `ORDER BY` total-ordering, `VALUES`, `MINUS`, `EXISTS`/`NOT EXISTS`, negated property set | ✅ | `sparql` | EG-135/125/055/056; fixes the unordered-results correctness gap |
+| **SPARQL** | content negotiation (JSON/XML/CSV/TSV/Turtle/N-Triples), rich FILTER, sub-SELECT, SERVICE federation | ✅ | `sparql` | EG-050/053/051/052; SSRF allowlist on SERVICE |
+| **SPARQL** | SHACL + ShEx validation, ICV integrity constraints, GeoSPARQL + RCC8/Egenhofer | ✅ | `sparql`/`geosparql` | EG-132/133/146/261/155 |
+| **RDF I/O** | JSON-LD 1.1, TriG, N-Quads, RDF/XML serialization matrix | ✅ | `rdf` | EG-136/137 (alongside Turtle/N-Triples) |
 | **Cypher** | `MATCH … WHERE … RETURN … LIMIT` (var-length `[*m..n]`) | ✅ | `cypher` | read over a snapshot; WHERE is AND-only today |
-| **Cypher** | writes (`CREATE`/`MERGE`/`SET`/`DELETE`+`DETACH`) | ✅ | `cypher` | native eg-core mutations; `REMOVE` 🔶 |
-| **Cypher** | `ORDER BY`/`SKIP`/`WITH`/`OPTIONAL MATCH`/`OR`/aggregation/`DISTINCT` | 🔶 | `cypher` | not yet in grammar/executor |
+| **Cypher** | writes (`CREATE`/`MERGE`/`SET`/`DELETE`+`DETACH`/`REMOVE`) | ✅ | `cypher` | native eg-core mutations (EG-061) |
+| **Cypher** | `ORDER BY`/`SKIP`/`WITH`/`OPTIONAL MATCH`/`OR`/aggregation/`DISTINCT`/`UNWIND`/`CALL` | ✅ | `cypher` | EG-062/141/142; GDS via `CALL gds.*` (EG-143/144) |
+| **Cypher** | Neo4j **Bolt v4.4** wire (PackStream v2) | ✅ | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159); neo4j drivers / cypher-shell |
 | **GraphQL** | read queries (scan + BFS, schema-from-graph, aliases, `first`/`limit`, filters) | ✅ | `graphql` | byte-equal to Cypher path |
 | **GraphQL** | mutations (`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge`) | ✅ | `graphql` | native eg-core mutations |
+| **GraphQL** | Apollo Federation v2 subgraph (`_service`/`_entities`, `@key`) + APQ/depth/complexity hardening | ✅ | `graphql` | EG-295/296 |
 | **GraphQL** | subscriptions / fragments / variables / directives / relay pagination | 🔶 | `graphql` | poll-only stub; fragments/variables rejected at parse |
 | **OWL** | EL⁺ + RL forward-chaining materialization & classification | ✅ | `owl` | pure-Rust; consistency + incremental + justifications |
 | **OWL** | confidence-weighting + Ebbinghaus time-decay | ✅ | `owl` | KG-2.236; per-axiom `eg:confidence`, fact decay |
@@ -98,6 +122,7 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **OWL** | OWL-DL (tableau, cardinality, `allValuesFrom`), SWRL user rules | 🗺 | — | out of the EL+RL envelope by design |
 | **Vector / ANN** | IVF-PQ + OPQ + SQ8-refine, persistent (reopen w/o rebuild), warm-on-start | ✅ | `ann` | parallel/SIMD brute-force fallback below threshold |
 | **Vector / ANN** | hybrid metadata pre-filter (kNN + `allow(id)` predicate) | ✅ | `ann` | `search_filtered` (EG-070); filtered during the ADC probe |
+| **Vector / ANN** | exact/flat kNN index + ANN-vs-exact re-rank + recall@k/precision harness | ✅ | `ann` | EG-297 |
 | **Vector / ANN** | cross-shard kNN merge | 🗺 | `ann` | single-shard today; `merge_topk` is the leaf primitive |
 | **Time-series** | store + `time_bucket`, ASOF join, gap-fill LOCF, OHLC, downsample, decay | ✅ | `tsdb` | native redb columnar, no DataFusion |
 | **Time-series** | time-ops as unified planner ops (`Op::Window`) | 🔶 | `tsdb` | functions ready; `Op::Window` is pass-through in the plan today |
@@ -111,15 +136,31 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **Multi-wire** | MSSQL TDS wire | ✅ | `mssql-wire` | `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-077) |
 | **Multi-wire** | SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O 🔶 follow-up |
 | **Multi-wire** | Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159) |
-| **Broker** | AMQP 0.9.1 listener + RabbitMQ-class exchanges/queues | ✅ | `amqp-wire` / `broker` | `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
-| **Observability** | log ingest + PromQL `/api/v1/query` + OTLP traces `/v1/traces` | ✅ | `obs`/`promql`/`traces` | `EPISTEMIC_GRAPH_OBS_ADDR`, default `:5080` (EG-160/172/163) |
-| **Spatial / GIS** | `SpatialScan` + `ST_Within`/`ST_DWithin`, GeoSPARQL, CRS/R-tree/GeoJSON/WKB | ✅ | `geo`/`geosparql` | eg-geo (EG-083/261/262/263/264); no GEOS/PROJ |
-| **Agent memory** | bi-temporal `AsOf`, Ebbinghaus decay, episodic→semantic consolidation | ✅ | (core) | `Op::AsOf` (KG-2.250), `decay`, `consolidate` (EG-220/221) |
+| **Broker** | exchanges (direct/topic/fanout) + bindings/routing over the KG-2.303 work-queue | ✅ | `broker` | RabbitMQ-class (EG-275) |
+| **Broker** | DLQ · message/queue TTL · priority · delayed/scheduled delivery · consumer-groups + QoS/prefetch | ✅ | `broker` | EG-276/277/278/279/280 |
+| **Broker** | replayable append-log streams (Kafka-style offsets/retention) + publisher confirms + manual ack/nack | ✅ | `broker` | EG-283/284 |
+| **Broker wires** | AMQP 0.9.1 · MQTT 3.1.1/5.0 · STOMP 1.2 listeners | ✅ | `amqp-wire`/`mqtt-wire`/`stomp-wire` | `EPISTEMIC_GRAPH_{AMQP,MQTT,STOMP}_ADDR` (EG-275/281/282) |
+| **KV / structures** | Redis RESP2/3 wire (strings/hashes/lists/sets/sorted-sets) | ✅ | `redis-wire` | `EPISTEMIC_GRAPH_REDIS_ADDR` (EG-174) |
+| **Object store** | S3-compatible REST (bucket/object CRUD, SigV4-lite) over the blob CAS | ✅ | `s3-api` | EG-176 |
+| **Observability** | log ingest + PromQL `/api/v1/query` + OTLP traces `/v1/traces` + service-dependency map | ✅ | `obs`/`promql`/`traces` | `EPISTEMIC_GRAPH_OBS_ADDR`, default `:5080` (EG-160/172/163) |
+| **Observability** | VRL-style ingest pipelines (parse/filter/enrich, cross-modal) + super-cluster federated search | ✅ | `obs`/`federation` | EG-165/243 |
+| **Spatial / GIS** | `SpatialScan` + `ST_Within`/`ST_DWithin`, GeoSPARQL + RCC8/Egenhofer, CRS/reproject, R-tree, GeoJSON/WKB/GPX | ✅ | `geo`/`geosparql` | eg-geo (EG-083/261/155/262/263/264); no GEOS/PROJ |
+| **Spatial / GIS** | XYZ/TMS + Mapbox Vector Tiles · weighted routing/isochrones/TSP · map-based task tracking | ✅ | `geo` | EG-265/266/267 |
+| **Document / JSON** | deep JSONPath query + durable inverted path-index; PG `->`/`->>`/`@>` + Mongo `$match` | ✅ | (core)/`query` | `Pred::JsonPath` (EG-084) |
+| **Tensor / probabilistic** | N-D array store (CAS-backed) + `TensorScan`/`TensorOp`; distribution-valued properties | ✅ | `tensor` | EG-085/086 |
+| **Scene-graph / 3D** | `:SceneObject` pose + transform hierarchy + spatial relations (robotics/AR/urban-3D) | ✅ | (core) | EG-087 |
+| **CEP / streams** | windowed event ingest + `Op::Cep` bounded-NFA pattern match over sliding/tumbling windows | ✅ | `stream` | EG-088 |
+| **Robotics** | multimodal sensor fusion (ASOF-aligned) + action/trajectory memory | ✅ | `tensor` | EG-098/099 |
+| **KV-cache (LLM)** | tiered hot/warm/cold KV-block cache + shared dedup backend + HTTP endpoint (vLLM/LMCache contract) | ✅ | `kvcache` | eg-kvcache (EG-185/186/187) |
+| **Agent memory** | bi-temporal `AsOf`, decay/reinforce, summary-node tier, episodic→semantic consolidation, LeanRAG retrieval | ✅ | (core) | `Op::AsOf` (KG-2.250); EG-220/221/222/195 |
+| **OBDA** | R2RML virtual graphs — SPARQL over a foreign source rewrites to `ForeignScan` (no materialization) | ✅ | `federation` | EG-101 |
+| **RBAC** | durable roles + role hierarchy + resource/action grants over per-agent RLS | ✅ | `security` | EG-092 |
+| **Backup / DR** | consistent online backup + restore CLI + PITR (`Method::Backup`/`Restore`) | ✅ | `redb` | EG-090 |
 | **Full-text** | Tantivy BM25 inverted index, `RankText` + reciprocal-rank fusion | ✅ | `text` | composes in the unified planner |
 | **Unified planner** | `Scan·Filter·Traverse·Rank·RankText·FuseRrf·Reason·SparqlBgp·Udf·ForeignScan·AsOf·Limit` | ✅ | `query`+ | each op feature-gated; see [UQL](docs/uql.md) |
 | **Unified planner** | `Op::Window` / `Op::Foreign` execution | 🔶 | `query` | currently pass-through seams |
 | **UQL** | text DSL → `wire::Plan` (one parse, zero new exec path) | ✅ | (front-end always ships) | dependency-free parser |
-| **UQL** | natural-language → query | 🗺 | — | only a reserved, rejected seam today |
+| **UQL** | natural-language → query (`Method::NlQuery`, `/nl`, `nl_query()` UDF) | 🔶 | `nl-query` | EG-078/080; LLM-optional seam — inert until an OpenAI-compatible endpoint is configured |
 | **Durability** | redb-authoritative, commit-before-ack (`kill -9`-safe) | ✅ | `redb` | folded into every tier |
 | **Distribution** | openraft replication + automatic failover | ✅ | `raft` | `cluster` tier; off ⇒ byte-for-byte single-node |
 | **Distribution** | cross-shard 2PC (presumed-abort, crash-recoverable) | ✅ | `raft` | classic blocking window; 3PC/non-blocking 🗺 |
