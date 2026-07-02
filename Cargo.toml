@@ -335,6 +335,17 @@ harness = ["raft"]
 # pulls it in too. DELIBERATELY kept OUT of `node`/`full` — the orchestrator folds it.
 wire = ["query", "server"]
 pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
+# MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
+# adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
+# `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
+# text-protocol result-set + OK/ERR packets) framed directly over `tokio::net`. Links
+# NO server-side mysql protocol crate — only `sha1` (the mysql_native_password digest),
+# gated behind this feature. Reuses the shared `wire::WireSession` classify→exec→txn
+# core (needs `query` + `server` + `wire`). Kept OUT of pi; DELIBERATELY NOT folded
+# into `node`/`full` here — the orchestrator folds it at merge time (avoids a tier-line
+# merge conflict with the concurrent SQLite/MSSQL waves). The listener only starts when
+# ALSO configured via EPISTEMIC_GRAPH_MYSQL_ADDR.
+mysql-wire = ["dep:sha1", "query", "server", "wire"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
@@ -592,6 +603,12 @@ pgwire = { version = "0.40", optional = true, default-features = false, features
 ] }
 # Stream/sink combinators for the pgwire DataRow result stream (feature `pgwire`).
 futures = { version = "0.3", optional = true }
+# SHA-1 digest for the hand-rolled MySQL `mysql_native_password` auth exchange
+# (feature `mysql-wire`, CONCEPT:EG-076). OPTIONAL + referenced ONLY under
+# #[cfg(feature = "mysql-wire")], so a default/pi/node/full build links no sha1 via
+# this crate (the mysql wire ships only when the orchestrator folds the feature into a
+# tier). Pure-Rust; the mysql_native_password spec mandates SHA-1 specifically.
+sha1 = { version = "0.10", optional = true }
 
 # Optional Prometheus observability (feature `metrics`, on by default).
 # default-features = false drops the protobuf encoder — text exposition only.
