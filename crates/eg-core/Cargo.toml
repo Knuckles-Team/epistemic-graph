@@ -40,6 +40,14 @@ security = ["dep:redb"]
 # bounded LRU + 128-bit query hash — no new dep — so the facade folds it into the
 # lean Pi tier as well as node/cluster/full.
 result-cache = []
+# Durable JSONPath index persistence (CONCEPT:EG-308): the redb-backed
+# `RedbPathIndexStore` impl of the dep-free `PathIndexPersistence` seam, so the
+# demand-driven EG-084 JSONPath index (`path → value → ids` / `path → ids`) is
+# written through to `{persist_dir}/path_index.redb` and rehydrated at boot,
+# skipping the full node rescan on the first JSON filter after a cold start. Links
+# `redb` (the SAME 4.1 the durable tiers + EG-303 link); OFF by default so a bare /
+# Pi eg-core build stays fully in-memory (the seam + in-memory default are dep-free).
+path-persist = ["dep:redb"]
 # Cold object-store tier seam (CONCEPT:KG-2.233): a `ColdTier` trait (RAM→redb→
 # object-store) + an in-memory default impl, for offloading a cold graph's whole
 # serialized state and rehydrating on access. The trait + default are dep-free

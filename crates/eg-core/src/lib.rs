@@ -20,6 +20,10 @@ pub mod index;
 pub mod isolation;
 /// CONCEPT:EG-084 — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
 pub mod jsonpath;
+/// CONCEPT:EG-308 — durable JSONPath index persistence. The dep-free
+/// `PathIndexPersistence` seam + in-memory default are always compiled; the
+/// redb-backed `RedbPathIndexStore` is gated behind the `path-persist` feature.
+pub mod path_persist;
 #[cfg(feature = "security")]
 pub mod rbac;
 /// CONCEPT:EG-303 — durable RBAC/identity persistence (redb-backed, feature `security`).
