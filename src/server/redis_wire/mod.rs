@@ -106,6 +106,12 @@ impl Entry {
     }
 }
 
+/// A set of `(field, value)` byte pairs (hash entries / bulk arg pairs).
+type BytePairs = Vec<(Vec<u8>, Vec<u8>)>;
+/// The result of parsing one command out of the read buffer: `Ok(None)` ⇒
+/// incomplete (read more), `Ok(Some((args, consumed)))` ⇒ a complete command.
+type CommandParse = Result<Option<(Vec<Vec<u8>>, usize)>, String>;
+
 /// The WRONGTYPE error text (verbatim Redis wording, so clients that match on it
 /// still work).
 const WRONGTYPE: &str =
@@ -361,7 +367,7 @@ impl RedisStore {
         }
     }
 
-    fn hgetall(&self, key: &str) -> Result<Vec<(Vec<u8>, Vec<u8>)>, String> {
+    fn hgetall(&self, key: &str) -> Result<BytePairs, String> {
         let _g = self.lock.lock();
         match self.load(key)? {
             Some(Entry {
@@ -776,7 +782,7 @@ fn fmt_double(d: f64) -> String {
 /// form (`redis-cli`) and the inline (whitespace) form (telnet). Returns
 /// `Ok(None)` when the buffer holds only a partial command (read more),
 /// `Ok(Some((args, consumed)))` on a complete one, and `Err` on a protocol error.
-fn try_parse_command(buf: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, String> {
+fn try_parse_command(buf: &[u8]) -> CommandParse {
     if buf.is_empty() {
         return Ok(None);
     }
@@ -799,7 +805,7 @@ fn read_crlf_line(buf: &[u8], from: usize) -> Option<(&[u8], usize)> {
     None
 }
 
-fn parse_inline_command(buf: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, String> {
+fn parse_inline_command(buf: &[u8]) -> CommandParse {
     match read_crlf_line(buf, 0) {
         Some((line, next)) => {
             let args = line
@@ -820,7 +826,7 @@ fn parse_inline_command(buf: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, Str
     }
 }
 
-fn parse_array_command(buf: &[u8]) -> Result<Option<(Vec<Vec<u8>>, usize)>, String> {
+fn parse_array_command(buf: &[u8]) -> CommandParse {
     let (header, mut pos) = match read_crlf_line(buf, 0) {
         Some(v) => v,
         None => return Ok(None),
@@ -1041,7 +1047,7 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
             Ok(Resp::Array(Some(out)))
         }
         "MSET" => {
-            if args.len() < 3 || (args.len() - 1) % 2 != 0 {
+            if args.len() < 3 || !(args.len() - 1).is_multiple_of(2) {
                 return Err("ERR wrong number of arguments for 'mset'".into());
             }
             let mut i = 1;
@@ -1054,7 +1060,7 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
         }
         "HSET" => {
             let k = key(1)?;
-            if args.len() < 4 || (args.len() - 2) % 2 != 0 {
+            if args.len() < 4 || !(args.len() - 2).is_multiple_of(2) {
                 return Err("ERR wrong number of arguments for 'hset'".into());
             }
             let mut pairs = Vec::new();
@@ -1118,7 +1124,7 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
         }
         "ZADD" => {
             let k = key(1)?;
-            if args.len() < 4 || (args.len() - 2) % 2 != 0 {
+            if args.len() < 4 || !(args.len() - 2).is_multiple_of(2) {
                 return Err("ERR wrong number of arguments for 'zadd'".into());
             }
             let mut pairs = Vec::new();
@@ -1171,7 +1177,7 @@ fn execute_data(store: &RedisStore, cmd: &str, args: &[Vec<u8>], proto: u8) -> R
                 }
             }
             let keys = store.scan(pattern.as_deref())?;
-            let items = keys.into_iter().map(|k| Resp::bulk_str(k)).collect();
+            let items = keys.into_iter().map(Resp::bulk_str).collect();
             Ok(Resp::Array(Some(vec![Resp::bulk_str("0"), Resp::Array(Some(items))])))
         }
         "TYPE" => Ok(Resp::Simple(store.type_of(&key(1)?)?.into())),
@@ -1250,7 +1256,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     let persist_dir = { state.read().await.persist_dir.clone() };
     let store = Arc::new(
         RedisStore::open(persist_dir.as_deref())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            .map_err(std::io::Error::other)?,
     );
     let password = std::env::var(REDIS_PASSWORD_ENV).ok().filter(|s| !s.is_empty());
     serve_with_store(addr, store, password).await
