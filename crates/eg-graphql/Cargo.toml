@@ -32,8 +32,16 @@ name = "eg_graphql"
 # rides into the facade's `graphql`/`node`/`full` tiers automatically (the facade pulls
 # `eg-graphql` with its default features; no tier-aggregate-list edit needed). Build a
 # federation-free GraphQL surface with `--no-default-features`.
-default = ["federation"]
+#
+# EG-296: fold GraphQL enterprise hardening into graphql/node/full the SAME way — the
+# depth/complexity/APQ/introspection controls (CONCEPT:EG-296) live behind the `hardening`
+# sub-feature, default-ON so they ride into the facade's `graphql`/`node`/`full` tiers with
+# NO tier-aggregate-list edit (the facade pulls `eg-graphql` with default features; `pi`
+# excludes `graphql` entirely, so `sha2` never enters the Pi tree). `hardening` pulls
+# `sha2` for the APQ sha256 digest. Build a hardening-free surface with `--no-default-features`.
+default = ["federation", "hardening"]
 federation = []
+hardening = ["dep:sha2"]
 
 [dependencies]
 eg-core = { path = "../eg-core" }
@@ -43,6 +51,10 @@ rmp-serde = "1.3"
 # Variable-hop / single-hop edge traversal over GraphView's StableDiGraph. Already
 # linked transitively via eg-core; pin the same minor. NOT a new heavy dep.
 petgraph = { version = "0.6.4", features = ["serde-1"] }
+# EG-296: sha256 digest for Automatic Persisted Queries (APQ). RustCrypto `sha2` is
+# already a workspace dep elsewhere; optional + gated by `hardening`, so it links only
+# into the GraphQL-bearing tiers (never Pi, which excludes `graphql`).
+sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 # The equivalence test runs the SAME query through the engine's real Cypher executor
