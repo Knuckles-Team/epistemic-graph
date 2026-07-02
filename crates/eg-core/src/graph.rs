@@ -343,6 +343,101 @@ impl GraphView {
             false
         }
     }
+
+    /// Does this view currently hold a node with `node_id`? (Read-your-own-writes
+    /// conflict checks over an overlaid snapshot — CONCEPT:EG-049.)
+    pub fn has_node(&self, node_id: &str) -> bool {
+        self.node_map.contains_key(node_id)
+    }
+
+    /// The decoded property object for a node in this view, or `None` when the node
+    /// is absent / its blob is not a decodable object (CONCEPT:EG-049 RETURNING over
+    /// an overlaid snapshot).
+    pub fn node_row_object(
+        &self,
+        node_id: &str,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let blob = self.node_properties.get(node_id)?;
+        match rmp_serde::from_slice::<serde_json::Value>(blob) {
+            Ok(serde_json::Value::Object(o)) => Some(o),
+            _ => None,
+        }
+    }
+
+    // ── Read-your-own-writes overlay (CONCEPT:EG-049) ────────────────────
+    //
+    // A pgwire wire transaction buffers its graph-node mutations and only applies
+    // them at COMMIT (through `GraphCore::txn`). A SELECT issued INSIDE that open
+    // transaction runs against `analysis_snapshot()` — a point-in-time clone that
+    // predates the buffered writes — so without an overlay it would NOT see the
+    // txn's own uncommitted inserts/updates/deletes. These methods replay a
+    // buffered op onto the cloned view (never touching the live `GraphCore`), so a
+    // read inside the txn observes its own writes. They mirror the corresponding
+    // `GraphTxn` op minus the ledger (a view carries no ledger).
+
+    /// Overlay a buffered node ADD onto this snapshot (mirrors `GraphTxn::add_node`).
+    pub fn overlay_add_node(&mut self, node_id: String, properties_msgpack: Vec<u8>) {
+        if !self.node_map.contains_key(&node_id) {
+            let idx = self.graph.add_node(node_id.clone());
+            self.node_map.insert(node_id.clone(), idx);
+        }
+        self.node_properties
+            .insert(node_id, Arc::new(properties_msgpack));
+    }
+
+    /// Overlay a buffered node REMOVE onto this snapshot (mirrors
+    /// `GraphTxn::remove_node`): drop the node, its properties, and any incident
+    /// edge properties.
+    pub fn overlay_remove_node(&mut self, node_id: &str) {
+        if let Some(idx) = self.node_map.remove(node_id) {
+            self.node_properties.remove(node_id);
+            self.edge_properties
+                .retain(|k, _| k.0 != node_id && k.1 != node_id);
+            self.graph.remove_node(idx);
+        }
+    }
+
+    /// Overlay a buffered compare-and-set onto this snapshot (mirrors
+    /// `GraphTxn::compare_and_set_fields`): when every `(field, expected)` in
+    /// `conditions` matches the node's current value (a MISSING field reads as
+    /// `null`), merge `updates` into the property object. Returns whether it
+    /// applied. A missing/undecodable node, or a failed condition, is a no-op
+    /// returning `false`.
+    pub fn overlay_compare_and_set_fields(
+        &mut self,
+        node_id: &str,
+        conditions: &serde_json::Map<String, serde_json::Value>,
+        updates: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        let bytes = match self.node_properties.get(node_id) {
+            Some(b) => b.clone(),
+            None => return false,
+        };
+        let mut val = match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let obj = match val.as_object_mut() {
+            Some(o) => o,
+            None => return false,
+        };
+        for (field, expected) in conditions {
+            let current = obj.get(field).unwrap_or(&serde_json::Value::Null);
+            if current != expected {
+                return false;
+            }
+        }
+        for (field, value) in updates {
+            obj.insert(field.clone(), value.clone());
+        }
+        let reenc = match rmp_serde::to_vec_named(&val) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        self.node_properties
+            .insert(node_id.to_string(), Arc::new(reenc));
+        true
+    }
 }
 
 /// Streams a byte slice as lowercase hex DIRECTLY into a formatter (CONCEPT:EG-028).
@@ -2488,6 +2583,79 @@ mod tests {
 
     fn props(map: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&map).unwrap()
+    }
+
+    // ── read-your-own-writes overlay (CONCEPT:EG-049) ────────────────────────
+
+    fn overlay_obj(map: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        match map {
+            serde_json::Value::Object(o) => o,
+            _ => panic!("expected object"),
+        }
+    }
+
+    #[test]
+    fn overlay_add_is_visible_in_view() {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), props(serde_json::json!({"rank": 1})));
+        let mut view = core.analysis_snapshot();
+        assert!(!view.has_node("n9"));
+        view.overlay_add_node("n9".into(), props(serde_json::json!({"rank": 9})));
+        // The overlay sees the buffered add; the live core does NOT.
+        assert!(view.has_node("n9"));
+        assert_eq!(
+            view.node_row_object("n9").unwrap().get("rank"),
+            Some(&serde_json::json!(9))
+        );
+        assert!(!core.has_node("n9"), "live core untouched by overlay");
+    }
+
+    #[test]
+    fn overlay_remove_hides_node_in_view() {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), props(serde_json::json!({"rank": 1})));
+        let mut view = core.analysis_snapshot();
+        view.overlay_remove_node("n1");
+        assert!(!view.has_node("n1"));
+        assert!(view.node_row_object("n1").is_none());
+        assert!(core.has_node("n1"), "live core untouched by overlay");
+    }
+
+    #[test]
+    fn overlay_cas_merges_when_condition_holds() {
+        let core = GraphCore::new();
+        core.add_node(
+            "n1".into(),
+            props(serde_json::json!({"rank": 1, "state": "open"})),
+        );
+        let mut view = core.analysis_snapshot();
+        // Condition holds → merge applied in the view.
+        assert!(view.overlay_compare_and_set_fields(
+            "n1",
+            &overlay_obj(serde_json::json!({"state": "open"})),
+            &overlay_obj(serde_json::json!({"rank": 2})),
+        ));
+        assert_eq!(
+            view.node_row_object("n1").unwrap().get("rank"),
+            Some(&serde_json::json!(2))
+        );
+        // Condition fails → no-op.
+        assert!(!view.overlay_compare_and_set_fields(
+            "n1",
+            &overlay_obj(serde_json::json!({"state": "closed"})),
+            &overlay_obj(serde_json::json!({"rank": 3})),
+        ));
+        assert_eq!(
+            view.node_row_object("n1").unwrap().get("rank"),
+            Some(&serde_json::json!(2)),
+            "failed CAS left the value unchanged"
+        );
+        // A CAS on an absent node is a no-op returning false.
+        assert!(!view.overlay_compare_and_set_fields(
+            "nope",
+            &serde_json::Map::new(),
+            &overlay_obj(serde_json::json!({"x": 1})),
+        ));
     }
 
     // ── secondary property index (CONCEPT:KG-2.199) ──────────────────────────
