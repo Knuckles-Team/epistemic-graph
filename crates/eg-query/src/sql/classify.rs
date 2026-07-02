@@ -38,8 +38,10 @@ use datafusion::sql::sqlparser::ast::{
     ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption, CopySource, CopyTarget, CreateTable,
     Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr, FunctionArguments, Insert,
     ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction, OnInsert, SelectItem, SetExpr,
-    Statement, TableFactor, TableWithJoins, Value as SqlValue, Values,
+    Statement, TableFactor, TableWithJoins, UnaryOperator, Value as SqlValue, Values,
 };
+// CONCEPT:EG-114/116/117 — the Postgres-family extension plan shapes classify routes to.
+use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};
 // CONCEPT:EG-084 — the wire predicate the JSON operators lower onto. Surfaced by
 // `eg-types/query`, which the `sql` feature (this module's gate) always enables.
 use eg_types::wire::{JsonPathOp, Pred};
@@ -130,6 +132,21 @@ pub enum StatementKind {
         name: String,
         if_exists: bool,
     },
+
+    // ── Postgres-family extension parity (wave 19) ─────────────────────────────
+    /// `SELECT <proj> FROM cypher('graph', $$ <cypher> $$) AS (cols…)` (CONCEPT:EG-114)
+    /// — an Apache-AGE set-returning function. The inner Cypher runs on the named
+    /// graph; its agtype (JSON) result is projected onto the `AS` columns.
+    CypherCall(CypherCallPlan),
+    /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-116) — register a
+    /// pgvector ANN index so a `ORDER BY col <-> $1 LIMIT k` query pushes down to eg-ann.
+    CreateAnnIndex(AnnIndexPlan),
+    /// `SELECT create_hypertable('t','ts')` (CONCEPT:EG-117) — record TimescaleDB
+    /// time-partitioning metadata for a table.
+    CreateHypertable(HypertablePlan),
+    /// `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS SELECT …`
+    /// (CONCEPT:EG-117) — a continuous aggregate lowered onto the durable view catalog.
+    CreateContinuousAggregate(ContinuousAggPlan),
 }
 
 /// A decoded `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020). `columns` empty ⇒
@@ -381,6 +398,25 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
     if let Some((name, if_exists)) = parse_drop_extension(sql) {
         return Ok(StatementKind::DropExtension { name, if_exists });
     }
+    // CONCEPT:EG-114 — Apache AGE `cypher('g', $$ … $$) AS (cols…)`. `sqlparser` 0.51
+    // cannot parse the typed `AS` column list on a table function, so recognize it
+    // textually before the parser (like `DROP EXTENSION`) and route to the Cypher engine.
+    if let Some(plan) = super::pgfamily::parse_cypher_call(sql) {
+        return Ok(StatementKind::CypherCall(plan));
+    }
+    // CONCEPT:EG-116 — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
+    // opclass (and `IF NOT EXISTS` on an index) does not parse in `sqlparser` 0.51, so
+    // recognize the ANN-index shape textually. A non-ANN `CREATE INDEX` returns `None`.
+    if let Some(plan) = super::pgfamily::parse_create_ann_index(sql) {
+        return Ok(StatementKind::CreateAnnIndex(plan));
+    }
+    // CONCEPT:EG-117 — TimescaleDB continuous aggregate. The dotted
+    // `WITH (timescaledb.continuous)` option does not parse, so recognize it textually;
+    // a plain `CREATE MATERIALIZED VIEW` returns `None` and the parser rejects it (a
+    // documented follow-up in `classify_create_view`).
+    if let Some(plan) = super::pgfamily::parse_continuous_aggregate(sql) {
+        return Ok(StatementKind::CreateContinuousAggregate(plan));
+    }
     // `COPY … FROM STDIN` is sent over the wire WITHOUT the inline TSV data block that
     // `sqlparser` insists follows the `;` — so append a `;` to satisfy its grammar
     // (it then parses an EMPTY data block). The real rows arrive as `CopyData` frames.
@@ -400,8 +436,15 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
     };
 
     match stmt {
-        Statement::Query(_)
-        | Statement::Explain { .. }
+        // CONCEPT:EG-117 — `SELECT create_hypertable('t','ts')` parses as an ordinary
+        // query; detect it before falling through to the read path.
+        Statement::Query(_) => {
+            if let Some(plan) = super::pgfamily::detect_create_hypertable(stmt) {
+                return Ok(StatementKind::CreateHypertable(plan));
+            }
+            Ok(StatementKind::Read)
+        }
+        Statement::Explain { .. }
         | Statement::ShowVariable { .. }
         | Statement::ShowColumns { .. }
         | Statement::ShowTables { .. } => Ok(StatementKind::Read),
@@ -801,12 +844,14 @@ pub fn returning_columns(sql: &str) -> Option<Vec<String>> {
     Some(cols)
 }
 
-/// Rewrite the pgvector distance operators (CONCEPT:EG-115) in `sql` to the engine's
-/// registered scalar UDF calls, so DataFusion — which has no operator for them — can
-/// plan the query:
+/// Rewrite the pgvector distance operators (CONCEPT:EG-115) AND the ParadeDB BM25
+/// operators/functions (CONCEPT:EG-119) in `sql` to the engine's registered scalar UDF
+/// calls, so DataFusion — which has no operator for them — can plan the query:
 ///   * `a <-> b` (L2 distance)              → `vector_l2(a, b)`
 ///   * `a <=> b` (cosine distance)          → `vector_cosine(a, b)`
 ///   * `a <#> b` (negative inner product)   → `vector_ip(a, b)`
+///   * `col @@@ 'q'` (BM25 match, EG-119)   → `bm25_match(col, 'q')`
+///   * `paradedb.score(x)` / `.snippet(x)`  → `bm25_score(x)` / `bm25_snippet(x)`
 ///
 /// Pure text→AST→text: parse with the SAME Postgres dialect, walk the query's
 /// projection / WHERE / HAVING / ORDER BY expressions replacing the operators, then
@@ -884,6 +929,24 @@ fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
         Expr::BinaryOp { left, op, right } => {
             rewrite_expr_vector_ops(left, changed);
             rewrite_expr_vector_ops(right, changed);
+            // CONCEPT:EG-119 — ParadeDB `col @@@ 'query'` BM25 search. `@@@` tokenizes as
+            // `AtAt` with a `@`(PGAbs)-wrapped right operand; rewrite to `bm25_match(col,
+            // 'query')` so DataFusion can plan a lexical filter (the eg-text BM25 pushdown
+            // + ranking is the server-side lowering).
+            if matches!(op, BinaryOperator::AtAt) {
+                if let Expr::UnaryOp {
+                    op: UnaryOperator::PGAbs,
+                    expr: inner,
+                } = right.as_ref()
+                {
+                    let rhs = (**inner).clone();
+                    if let Some(call) = vector_udf_call("bm25_match", left, &rhs) {
+                        *expr = call;
+                        *changed = true;
+                        return;
+                    }
+                }
+            }
             let fname = match op {
                 BinaryOperator::Custom(s) if s == "<->" => Some("vector_l2"),
                 BinaryOperator::Custom(s) if s == "<#>" => Some("vector_ip"),
@@ -895,6 +958,33 @@ fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
                 if let Some(call) = vector_udf_call(fname, left, right) {
                     *expr = call;
                     *changed = true;
+                }
+            }
+        }
+        // CONCEPT:EG-119 — `paradedb.score(x)`/`paradedb.snippet(x)` → the registered
+        // `bm25_score`/`bm25_snippet` UDFs. Rename the function + recurse into its args.
+        Expr::Function(f) => {
+            if f.name.0.len() == 2 && f.name.0[0].value.eq_ignore_ascii_case("paradedb") {
+                let renamed = match f.name.0[1].value.to_ascii_lowercase().as_str() {
+                    "score" => Some("bm25_score"),
+                    "snippet" => Some("bm25_snippet"),
+                    _ => None,
+                };
+                if let Some(new_name) = renamed {
+                    f.name.0 = vec![datafusion::sql::sqlparser::ast::Ident::new(new_name)];
+                    *changed = true;
+                }
+            }
+            if let FunctionArguments::List(list) = &mut f.args {
+                for arg in &mut list.args {
+                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(e))
+                    | FunctionArg::Named {
+                        arg: FunctionArgExpr::Expr(e),
+                        ..
+                    } = arg
+                    {
+                        rewrite_expr_vector_ops(e, changed);
+                    }
                 }
             }
         }
@@ -2957,6 +3047,68 @@ mod tests {
         };
         assert_eq!(name, "vector");
         assert!(!if_exists);
+    }
+
+    // ── Postgres-family extension parity routing (EG-114/116/117/119) ─────────
+
+    #[test]
+    fn eg114_classify_routes_cypher_call() {
+        let k = classify(
+            "SELECT * FROM cypher('g', $$ MATCH (n) RETURN n.id $$) AS (id agtype)",
+        )
+        .unwrap();
+        let StatementKind::CypherCall(p) = k else {
+            panic!("expected CypherCall, got {k:?}");
+        };
+        assert_eq!(p.graph, "g");
+        assert_eq!(p.columns[0].name, "id");
+    }
+
+    #[test]
+    fn eg116_classify_routes_create_ann_index() {
+        let k = classify("CREATE INDEX ON items USING hnsw (embedding vector_l2_ops)").unwrap();
+        assert!(matches!(k, StatementKind::CreateAnnIndex(_)));
+    }
+
+    #[test]
+    fn eg117_classify_routes_create_hypertable() {
+        let k = classify("SELECT create_hypertable('conditions', 'ts')").unwrap();
+        let StatementKind::CreateHypertable(p) = k else {
+            panic!("expected CreateHypertable, got {k:?}");
+        };
+        assert_eq!(p.table, "conditions");
+        assert_eq!(p.time_column, "ts");
+    }
+
+    #[test]
+    fn eg117_classify_routes_continuous_aggregate() {
+        let k = classify(
+            "CREATE MATERIALIZED VIEW cagg WITH (timescaledb.continuous) AS \
+             SELECT time_bucket('1 hour', ts) AS b, avg(v) FROM conditions GROUP BY b",
+        )
+        .unwrap();
+        assert!(matches!(k, StatementKind::CreateContinuousAggregate(_)));
+    }
+
+    #[test]
+    fn eg119_desugar_at_at_at_to_bm25_match() {
+        let out = desugar_vector_ops("SELECT id FROM docs WHERE body @@@ 'rust lang'");
+        assert!(
+            out.to_ascii_lowercase().contains("bm25_match"),
+            "expected @@@ to desugar to bm25_match: {out}"
+        );
+    }
+
+    #[test]
+    fn eg119_desugar_paradedb_score_and_snippet() {
+        let out = desugar_vector_ops(
+            "SELECT paradedb.snippet(body) FROM docs WHERE body @@@ 'q' \
+             ORDER BY paradedb.score(id) DESC",
+        );
+        let lower = out.to_ascii_lowercase();
+        assert!(lower.contains("bm25_score"), "score not desugared: {out}");
+        assert!(lower.contains("bm25_snippet"), "snippet not desugared: {out}");
+        assert!(!lower.contains("paradedb."), "paradedb.* left in: {out}");
     }
 
     // ── CONCEPT:EG-084 — JSON operator lowering onto `Pred::JsonPath` ─────────

@@ -11,6 +11,10 @@
 mod catalog;
 mod classify;
 mod exec;
+/// Postgres-family extension parity (CONCEPT:EG-114/116/117/119): AGE `cypher()`,
+/// pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
+/// ParadeDB `@@@` BM25 — the pure parse/plan/project layer.
+mod pgfamily;
 mod providers;
 mod tablefuncs;
 mod udfs;
@@ -26,5 +30,11 @@ pub use classify::{
 pub use exec::{
     exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed, exec_sql_typed_with_tables,
     PgColType, QueryResult, TypedColumn, TypedQueryResult,
+};
+// CONCEPT:EG-114/116/117/119 — Postgres-family extension parity plans + planners.
+pub use pgfamily::{
+    cypher_output_columns, parse_create_ann_index, parse_cypher_call, plan_ann_search,
+    plan_bm25_search, project_cypher_rows, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan,
+    ContinuousAggPlan, CypherCallPlan, CypherColumn, HypertablePlan, VectorMetric,
 };
 pub use providers::SqlCache;
