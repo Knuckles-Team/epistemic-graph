@@ -114,3 +114,9 @@ mod federation_tests;
 // manual join, plus the real sqlx DSN path errors cleanly when unreachable.
 #[cfg(all(test, feature = "federation-sql"))]
 mod federation_sql_tests;
+
+// The spatial `SpatialScan` + `Spatial{Within,DWithin}` executor proofs
+// (CONCEPT:EG-083): a bbox R-tree scan + geometry filters compose with the graph/
+// vector legs in ONE plan.
+#[cfg(all(test, feature = "geo"))]
+mod geo_tests;
