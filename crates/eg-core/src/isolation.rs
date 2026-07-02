@@ -99,6 +99,10 @@ pub use crate::acl::{AgentIdentity, AgentRole};
 pub struct IsolationLayer {
     /// Known agent identities for ACL resolution.
     agents: HashMap<String, AgentIdentity>,
+    /// RBAC policy (CONCEPT:EG-092): roles + grants layered on top of the per-agent
+    /// ACL/RLS. An EMPTY policy leaves every existing decision unchanged.
+    #[cfg(feature = "security")]
+    rbac: crate::rbac::RbacPolicy,
 }
 
 impl Default for IsolationLayer {
@@ -111,7 +115,39 @@ impl IsolationLayer {
     pub fn new() -> Self {
         IsolationLayer {
             agents: HashMap::new(),
+            #[cfg(feature = "security")]
+            rbac: crate::rbac::RbacPolicy::new(),
         }
+    }
+
+    /// Add/replace an RBAC role definition (CONCEPT:EG-092).
+    #[cfg(feature = "security")]
+    pub fn add_role(&mut self, role: crate::acl::Role) {
+        self.rbac.add_role(role);
+    }
+
+    /// Remove an RBAC role definition (CONCEPT:EG-092).
+    #[cfg(feature = "security")]
+    pub fn remove_role(&mut self, name: &str) {
+        self.rbac.remove_role(name);
+    }
+
+    /// Add an RBAC grant (CONCEPT:EG-092).
+    #[cfg(feature = "security")]
+    pub fn add_grant(&mut self, grant: crate::acl::Grant) {
+        self.rbac.add_grant(grant);
+    }
+
+    /// Remove an RBAC grant (CONCEPT:EG-092). Returns true when one was removed.
+    #[cfg(feature = "security")]
+    pub fn remove_grant(&mut self, grant: &crate::acl::Grant) -> bool {
+        self.rbac.remove_grant(grant)
+    }
+
+    /// Read-only access to the RBAC policy (for admin `List` / persistence).
+    #[cfg(feature = "security")]
+    pub fn rbac(&self) -> &crate::rbac::RbacPolicy {
+        &self.rbac
     }
 
     /// Register or update an agent identity.
@@ -144,6 +180,30 @@ impl IsolationLayer {
         if let Some(identity) = self.agents.get(agent_id) {
             if identity.role == AgentRole::System {
                 return true;
+            }
+        }
+
+        // RBAC (CONCEPT:EG-092): consult roles/grants layered on top of the ACL.
+        // Backward-compatible: an EMPTY policy is skipped entirely, so the existing
+        // GraphType decision below is returned unchanged. When grants exist, an
+        // explicit Deny for the agent's roles wins (deny overrides), an explicit
+        // Allow grants access the base ACL would otherwise deny, and NO applicable
+        // grant falls through to the base ACL decision (additive, not a lockdown).
+        #[cfg(feature = "security")]
+        {
+            if !self.rbac.is_empty() {
+                if let Some(identity) = self.agents.get(agent_id) {
+                    let ctx = crate::acl::ResourceContext::graph(graph_name);
+                    let action = match access {
+                        AccessLevel::Read => crate::acl::RbacAction::Read,
+                        AccessLevel::Write => crate::acl::RbacAction::Write,
+                    };
+                    match self.rbac.evaluate(&identity.roles, &ctx, action) {
+                        Some(crate::acl::GrantEffect::Deny) => return false,
+                        Some(crate::acl::GrantEffect::Allow) => return true,
+                        None => {}
+                    }
+                }
             }
         }
 
@@ -330,16 +390,19 @@ mod tests {
                 subordinates: vec!["worker1".to_string(), "worker2".to_string()],
             },
             teams: vec!["alpha".to_string()],
+            roles: vec![],
         });
         layer.register_agent(AgentIdentity {
             agent_id: "worker1".to_string(),
             role: AgentRole::Agent,
             teams: vec!["alpha".to_string()],
+            roles: vec![],
         });
         layer.register_agent(AgentIdentity {
             agent_id: "worker2".to_string(),
             role: AgentRole::Agent,
             teams: vec!["alpha".to_string()],
+            roles: vec![],
         });
         layer
     }
@@ -529,6 +592,7 @@ mod tests {
                 agent_id: "auditor".to_string(),
                 role: AgentRole::Agent,
                 teams: vec![],
+                roles: vec![],
             });
             let mut v = GraphView::default();
             let idx = v.graph.add_node("g".to_string());
@@ -552,6 +616,147 @@ mod tests {
             let before = v.node_properties.len();
             layer.filter_view("anyone", &mut v);
             assert_eq!(v.node_properties.len(), before);
+        }
+    }
+
+    // ── RBAC-at-scale layered on check_access (CONCEPT:EG-092) ───────────
+    #[cfg(feature = "security")]
+    mod rbac_access {
+        use super::*;
+        use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+
+        /// Register an agent holding `roles`.
+        fn with_roles(layer: &mut IsolationLayer, id: &str, roles: Vec<String>) {
+            layer.register_agent(AgentIdentity {
+                agent_id: id.to_string(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                roles,
+            });
+        }
+
+        #[test]
+        fn empty_policy_leaves_acl_unchanged() {
+            // No grants ⇒ the existing peer-isolation ACL result stands: worker2 may
+            // NOT read worker1's private agent graph.
+            let layer = setup();
+            assert!(!layer.check_access(
+                "worker2",
+                "agent:worker1",
+                GraphType::Agent,
+                Some("worker1"),
+                AccessLevel::Read
+            ));
+        }
+
+        #[test]
+        fn rbac_grant_allows_access_acl_would_deny() {
+            // worker2 normally can't read worker1's agent graph. An RBAC grant on the
+            // "auditor" role for that graph flips it to Allow.
+            let mut layer = IsolationLayer::new();
+            with_roles(&mut layer, "worker2", vec!["auditor".into()]);
+            layer.add_grant(Grant {
+                role: "auditor".into(),
+                resource: ResourceSelector::Graph("agent:worker1".into()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            assert!(layer.check_access(
+                "worker2",
+                "agent:worker1",
+                GraphType::Agent,
+                Some("worker1"),
+                AccessLevel::Read
+            ));
+        }
+
+        #[test]
+        fn rbac_deny_overrides_base_allow() {
+            // Owner would normally get full access to its own graph; an explicit RBAC
+            // Deny on the owner's role revokes write.
+            let mut layer = IsolationLayer::new();
+            with_roles(&mut layer, "worker1", vec!["frozen".into()]);
+            layer.add_grant(Grant {
+                role: "frozen".into(),
+                resource: ResourceSelector::Graph("agent:worker1".into()),
+                action: RbacAction::Write,
+                effect: GrantEffect::Deny,
+            });
+            assert!(!layer.check_access(
+                "worker1",
+                "agent:worker1",
+                GraphType::Agent,
+                Some("worker1"),
+                AccessLevel::Write
+            ));
+        }
+
+        #[test]
+        fn rbac_hierarchy_inherited_grant_honored_by_check_access() {
+            // "senior" inherits "reader"; a reader Read grant on the graph lets a
+            // senior-only agent read it through check_access.
+            let mut layer = IsolationLayer::new();
+            with_roles(&mut layer, "sam", vec!["senior".into()]);
+            layer.add_role(Role::new("reader"));
+            layer.add_role(Role::with_parents("senior", vec!["reader".into()]));
+            layer.add_grant(Grant {
+                role: "reader".into(),
+                resource: ResourceSelector::Graph("agent:other".into()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            assert!(layer.check_access(
+                "sam",
+                "agent:other",
+                GraphType::Agent,
+                Some("other"),
+                AccessLevel::Read
+            ));
+        }
+
+        #[test]
+        fn rbac_no_applicable_grant_falls_through_to_acl() {
+            // Policy is non-empty but no grant matches THIS (resource,action) for the
+            // agent ⇒ the base ACL still decides (commons stays writable to all).
+            let mut layer = setup();
+            layer.add_grant(Grant {
+                role: "auditor".into(),
+                resource: ResourceSelector::Graph("agent:worker1".into()),
+                action: RbacAction::Read,
+                effect: GrantEffect::Allow,
+            });
+            assert!(layer.check_access(
+                "worker1",
+                "__commons__",
+                GraphType::Commons,
+                None,
+                AccessLevel::Write
+            ));
+        }
+
+        #[test]
+        fn system_role_still_bypasses_rbac_deny() {
+            // System bypass precedes RBAC — a Deny cannot lock out System.
+            let mut layer = IsolationLayer::new();
+            layer.register_agent(AgentIdentity {
+                agent_id: "root".to_string(),
+                role: AgentRole::System,
+                teams: vec![],
+                roles: vec!["frozen".into()],
+            });
+            layer.add_grant(Grant {
+                role: "frozen".into(),
+                resource: ResourceSelector::All,
+                action: RbacAction::Write,
+                effect: GrantEffect::Deny,
+            });
+            assert!(layer.check_access(
+                "root",
+                "agent:anything",
+                GraphType::Agent,
+                Some("someone"),
+                AccessLevel::Write
+            ));
         }
     }
 }
