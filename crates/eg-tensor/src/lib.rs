@@ -12,6 +12,9 @@
 //! * Ops: [`Tensor::slice`] (per-axis start..end gather), [`Tensor::reduce`]
 //!   ([`ReduceKind`] sum/mean/max/min over one axis), [`Tensor::elementwise`]
 //!   ([`ElementwiseOp`] add/sub/mul/div with a scalar), and [`Tensor::reshape`].
+//! * [`TensorStore`] — content-addressed, restart-durable persistence (CONCEPT:EG-085):
+//!   tensors are kept as content-hashed byte blobs and `persist`/`load` round-trip them
+//!   to a directory so a store survives a restart (std-only, no new dep).
 //!
 //! The wire algebra (`Op::TensorScan`, `Op::TensorOp { kind }`) lives in
 //! `eg-types::wire` (pure-serde, Pi-safe); the executor that drives THIS crate lives in
@@ -21,6 +24,8 @@
 //! N-D arrays (images / sensor frames / genomics / ML features).
 
 mod blob;
+mod store;
 mod tensor;
 
+pub use store::{content_hash, TensorStore};
 pub use tensor::{Buffer, DType, ElementwiseOp, ReduceKind, Tensor};
