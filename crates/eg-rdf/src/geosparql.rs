@@ -22,9 +22,16 @@
 //! Feature-gated behind `geosparql` (implies the crate's `sparql` + pulls `eg-geo`);
 //! OUT of `pi` by construction (folded into `node`/`full` at the aggregate-feature layer).
 //!
+//! On top of the Simple-Features (`sf*`) relations, the **RCC8** (Region Connection
+//! Calculus) and **Egenhofer** 9-intersection topological-relation families are served
+//! through the SAME dispatch (CONCEPT:EG-155). Each is a boolean `geof:` FILTER function
+//! over two geometry operands, composed from the `eg-geo` DE-9IM predicates
+//! (CONCEPT:EG-258) — including the [`boundaries_intersect`](eg_geo::predicates::boundaries_intersect)
+//! cell added under EG-155 to separate the *tangential* from the *non-tangential* part
+//! relations (TPP/NTPP, `ehCoveredBy`/`ehInside`). No geometry math is re-implemented here.
+//!
 //! Deferred follow-ups: GML geometry literals (`geo:gmlLiteral`) — see the code note on
-//! [`geom_from_lexical`]; the RCC8 / Egenhofer topological-relation families are tracked
-//! separately under CONCEPT:EG-155.
+//! [`geom_from_lexical`].
 
 use eg_geo::{algebra, centroid, geodesic, predicates, Geometry};
 
@@ -87,8 +94,55 @@ pub fn eval_relation(local: &str, a_wkt: &str, b_wkt: &str) -> Option<bool> {
         "sfTouches" => predicates::touches(&a, &b),
         "sfCrosses" => predicates::crosses(&a, &b),
         "sfOverlaps" => predicates::overlaps(&a, &b),
+
+        // ── RCC8 (Region Connection Calculus), CONCEPT:EG-155 ──────────────────────
+        // The 8 jointly-exhaustive pairwise-disjoint RCC8 base relations, each lowered
+        // onto the eg-geo DE-9IM predicate set. `rcc8eq`/`rcc8dc`/`rcc8ec`/`rcc8po` map
+        // directly to equals/disjoint/touches(externally-connected)/overlaps; the four
+        // proper-part relations split on whether the boundaries meet (tangential) — the
+        // inverses just swap the operands.
+        "rcc8eq" => predicates::equals(&a, &b),
+        "rcc8dc" => predicates::disjoint(&a, &b),
+        "rcc8ec" => predicates::touches(&a, &b),
+        "rcc8po" => predicates::overlaps(&a, &b),
+        "rcc8tpp" => is_tangential_proper_part(&a, &b),
+        "rcc8ntpp" => is_nontangential_proper_part(&a, &b),
+        "rcc8tppi" => is_tangential_proper_part(&b, &a),
+        "rcc8ntppi" => is_nontangential_proper_part(&b, &a),
+
+        // ── Egenhofer 9-intersection relations, CONCEPT:EG-155 ─────────────────────
+        // The 8 Egenhofer topological relations. equals/disjoint/meet/overlap coincide
+        // with RCC8 eq/dc/ec/po; coveredBy/inside (and their inverses covers/contains)
+        // are the tangential/non-tangential proper-part relations respectively.
+        "ehEquals" => predicates::equals(&a, &b),
+        "ehDisjoint" => predicates::disjoint(&a, &b),
+        "ehMeet" => predicates::touches(&a, &b),
+        "ehOverlap" => predicates::overlaps(&a, &b),
+        "ehCoveredBy" => is_tangential_proper_part(&a, &b),
+        "ehInside" => is_nontangential_proper_part(&a, &b),
+        "ehCovers" => is_tangential_proper_part(&b, &a),
+        "ehContains" => is_nontangential_proper_part(&b, &a),
+
         _ => return None,
     })
+}
+
+/// Is `a` a PROPER PART of `b` — spatially within `b` but not equal to it? The shared base
+/// of the RCC8/Egenhofer part relations (CONCEPT:EG-155).
+fn is_proper_part(a: &Geometry, b: &Geometry) -> bool {
+    predicates::within(a, b) && !predicates::equals(a, b)
+}
+
+/// RCC8 `TPP` / Egenhofer `coveredBy`: `a` is a proper part of `b` whose boundary MEETS
+/// `b`'s boundary — a *tangential* proper part (CONCEPT:EG-155).
+fn is_tangential_proper_part(a: &Geometry, b: &Geometry) -> bool {
+    is_proper_part(a, b) && predicates::boundaries_intersect(a, b)
+}
+
+/// RCC8 `NTPP` / Egenhofer `inside`: `a` is a proper part of `b` lying strictly in `b`'s
+/// interior — boundaries DISJOINT, a *non-tangential* proper part (CONCEPT:EG-155).
+fn is_nontangential_proper_part(a: &Geometry, b: &Geometry) -> bool {
+    is_proper_part(a, b) && !predicates::boundaries_intersect(a, b)
 }
 
 /// `geof:distance(a, b, units)` (CONCEPT:EG-261): the distance between two geometries in
@@ -197,4 +251,100 @@ mod tests {
         let wkt = eval_buffer("POINT(0 0)", 1.0, "").expect("buffer produces WKT");
         assert!(geom_from_lexical(&wkt).is_some(), "buffer WKT re-parses: {wkt}");
     }
+
+    // ── RCC8 / Egenhofer fixtures (CONCEPT:EG-155) ─────────────────────────────────
+    /// The 10×10 container region used across the RCC8/Egenhofer tests.
+    const BIG: &str = "POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))";
+
+    /// EG-155: `rcc8eq` — spatially equal regions are EQ (and only EQ); a different region
+    /// is not.
+    #[test]
+    fn eg155_rcc8eq_true_and_false() {
+        assert_eq!(eval_relation("rcc8eq", BIG, BIG), Some(true));
+        assert_eq!(
+            eval_relation("rcc8eq", BIG, "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))"),
+            Some(false)
+        );
+    }
+
+    /// EG-155: `rcc8dc` — two far-apart regions are DisConnected; touching ones are not.
+    #[test]
+    fn eg155_rcc8dc_true_and_false() {
+        let far = "POLYGON((20 20, 21 20, 21 21, 20 21, 20 20))";
+        assert_eq!(eval_relation("rcc8dc", BIG, far), Some(true));
+        // Sharing an edge ⇒ connected ⇒ NOT disconnected.
+        let abut = "POLYGON((10 0, 12 0, 12 10, 10 10, 10 0))";
+        assert_eq!(eval_relation("rcc8dc", BIG, abut), Some(false));
+    }
+
+    /// EG-155: `rcc8ec` — regions sharing only a boundary edge are Externally Connected;
+    /// overlapping ones are not.
+    #[test]
+    fn eg155_rcc8ec_true_and_false() {
+        let abut = "POLYGON((10 0, 12 0, 12 10, 10 10, 10 0))";
+        assert_eq!(eval_relation("rcc8ec", BIG, abut), Some(true));
+        let overlap = "POLYGON((5 5, 15 5, 15 15, 5 15, 5 5))";
+        assert_eq!(eval_relation("rcc8ec", BIG, overlap), Some(false));
+    }
+
+    /// EG-155: `rcc8po` — regions with overlapping interiors where neither contains the
+    /// other are Partially Overlapping; a contained region is not.
+    #[test]
+    fn eg155_rcc8po_true_and_false() {
+        let overlap = "POLYGON((5 5, 15 5, 15 15, 5 15, 5 5))";
+        assert_eq!(eval_relation("rcc8po", BIG, overlap), Some(true));
+        let inside = "POLYGON((2 2, 4 2, 4 4, 2 4, 2 2))";
+        assert_eq!(eval_relation("rcc8po", BIG, inside), Some(false));
+    }
+
+    /// EG-155: `rcc8tpp` — a region sharing part of the container's boundary is a
+    /// Tangential Proper Part; a strictly-interior region is NOT tpp (it is ntpp), and the
+    /// inverse `rcc8tppi` swaps the roles.
+    #[test]
+    fn eg155_rcc8tpp_true_and_false() {
+        // Corner square: its two edges lie along BIG's boundary ⇒ tangential.
+        let corner = "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))";
+        assert_eq!(eval_relation("rcc8tpp", corner, BIG), Some(true));
+        assert_eq!(eval_relation("rcc8tppi", BIG, corner), Some(true));
+        // Strictly interior ⇒ not tangential.
+        let interior = "POLYGON((2 2, 4 2, 4 4, 2 4, 2 2))";
+        assert_eq!(eval_relation("rcc8tpp", interior, BIG), Some(false));
+    }
+
+    /// EG-155: `rcc8ntpp` — a region strictly inside the container (boundaries disjoint) is
+    /// a Non-Tangential Proper Part; a boundary-sharing one is NOT ntpp, and `rcc8ntppi`
+    /// swaps the roles.
+    #[test]
+    fn eg155_rcc8ntpp_true_and_false() {
+        let interior = "POLYGON((2 2, 4 2, 4 4, 2 4, 2 2))";
+        assert_eq!(eval_relation("rcc8ntpp", interior, BIG), Some(true));
+        assert_eq!(eval_relation("rcc8ntppi", BIG, interior), Some(true));
+        // Boundary-touching corner square is tangential ⇒ NOT ntpp.
+        let corner = "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))";
+        assert_eq!(eval_relation("rcc8ntpp", corner, BIG), Some(false));
+    }
+
+    /// EG-155: the Egenhofer `ehMeet`/`ehCovers`/`ehInside` relations agree with their
+    /// RCC8 counterparts (ec / tppi / ntpp) — meet on a shared edge, covers a tangential
+    /// proper part, inside a strictly-interior region.
+    #[test]
+    fn eg155_egenhofer_meet_covers_inside() {
+        let abut = "POLYGON((10 0, 12 0, 12 10, 10 10, 10 0))";
+        assert_eq!(eval_relation("ehMeet", BIG, abut), Some(true));
+
+        let corner = "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))";
+        // BIG covers the corner square (boundary-sharing proper part).
+        assert_eq!(eval_relation("ehCovers", BIG, corner), Some(true));
+        assert_eq!(eval_relation("ehCoveredBy", corner, BIG), Some(true));
+
+        let interior = "POLYGON((2 2, 4 2, 4 4, 2 4, 2 2))";
+        assert_eq!(eval_relation("ehInside", interior, BIG), Some(true));
+        assert_eq!(eval_relation("ehContains", BIG, interior), Some(true));
+        // A strictly-interior region is inside, NOT (tangentially) covered.
+        assert_eq!(eval_relation("ehCoveredBy", interior, BIG), Some(false));
+    }
+
+    // The full `FILTER(geof:rcc8ntpp(...))` SPARQL query is exercised end-to-end in the
+    // `sparql` test module (`eg155_sparql_filter_rcc8ntpp_full_query`), alongside the
+    // sibling EG-261 `sfWithin` query, where the graph-loading test helpers live.
 }

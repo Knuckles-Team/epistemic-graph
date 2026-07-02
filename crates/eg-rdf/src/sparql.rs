@@ -3654,6 +3654,63 @@ ex:gB    geo:asWKT "POINT(5 5)"^^geo:wktLiteral .
         );
     }
 
+    /// Load three polygon features (container + strictly-interior + boundary-tangential),
+    /// each with the canonical `geo:asWKT` shape, for the RCC8 query test (CONCEPT:EG-155).
+    #[cfg(feature = "geosparql")]
+    fn rcc8_view() -> GraphView {
+        let ttl = r#"
+@prefix geo: <http://www.opengis.net/ont/geosparql#> .
+@prefix ex:  <http://example.org/> .
+ex:big   geo:asWKT "POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))"^^geo:wktLiteral .
+ex:inner geo:asWKT "POLYGON((2 2, 4 2, 4 4, 2 4, 2 2))"^^geo:wktLiteral .
+ex:edge  geo:asWKT "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))"^^geo:wktLiteral .
+"#;
+        let core = eg_core::graph::GraphCore::new();
+        let mut iris = IriStore::default();
+        load_triples(
+            &core,
+            &mut iris,
+            "g",
+            parse_turtle(ttl).unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+        core.analysis_snapshot()
+    }
+
+    /// EG-155: a full SPARQL `FILTER(geof:rcc8ntpp(?pw, ?bw))` query end-to-end — the new
+    /// RCC8 relation dispatches through the shared `geof:` boolean-function hook, admitting
+    /// only the strictly-interior region (NTPP) and rejecting both the boundary-tangential
+    /// region (that is TPP) and the container itself.
+    #[cfg(feature = "geosparql")]
+    #[test]
+    fn eg155_sparql_filter_rcc8ntpp_full_query() {
+        let view = rcc8_view();
+        let res = run(
+            &view,
+            r#"
+            PREFIX geo:  <http://www.opengis.net/ont/geosparql#>
+            PREFIX geof: <http://www.opengis.net/def/function/geosparql/>
+            SELECT ?part WHERE {
+              ?part geo:asWKT ?pw .
+              <http://example.org/big> geo:asWKT ?bw .
+              FILTER(geof:rcc8ntpp(?pw, ?bw))
+            }"#,
+        )
+        .unwrap();
+        let parts: Vec<String> = res
+            .solutions
+            .iter()
+            .filter_map(|s| s.get("part").map(|b| b.as_str().to_string()))
+            .collect();
+        assert_eq!(
+            parts,
+            vec!["<http://example.org/inner>"],
+            "only the strictly-interior region is a non-tangential proper part; got {parts:?}"
+        );
+    }
+
     /// EG-261: `geof:distance` is usable as a projected value expression in a full query
     /// (the 3-4-5 planar triangle → 5).
     #[cfg(feature = "geosparql")]
