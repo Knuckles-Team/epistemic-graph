@@ -95,6 +95,13 @@ pub mod obs;
 /// durable eg-tsdb series, backed by the pure-Rust `eg_tsdb::promql` engine.
 #[cfg(feature = "promql")]
 pub mod promql;
+
+/// Distributed traces: OTLP-JSON span ingest + Jaeger/OpenObserve trace-search,
+/// assembly and service-dependency-graph API (CONCEPT:EG-163, feature `traces`),
+/// served on the obs listener over the pure-Rust `eg_tsdb::traces` span store —
+/// completing the observability trilogy (logs + metrics + traces).
+#[cfg(feature = "traces")]
+pub mod traces;
 // Process-wide user-defined relational table store (CONCEPT:EG-018/EG-023): the ONE
 // `eg_query::TableStore` (redb permits a single handle per file per process) shared by
 // BOTH the wire `Method::Sql` DDL/DML path and the pgwire shim, so a table created via
