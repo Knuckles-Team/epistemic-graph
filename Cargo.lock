@@ -1991,6 +1991,7 @@ dependencies = [
  "datafusion",
  "eg-compute",
  "eg-core",
+ "eg-text",
  "eg-types",
  "petgraph",
  "redb",
