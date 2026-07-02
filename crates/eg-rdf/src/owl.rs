@@ -114,7 +114,9 @@ const OWL_DIFFERENT_FROM: &str = "http://www.w3.org/2002/07/owl#differentFrom";
 const EG_CONFIDENCE: &str = "http://epistemic-graph/owl#confidence";
 
 /// `<iri>` canonical form (matches the node-id convention of [`crate::mapping`]).
-fn iri(s: &str) -> String {
+/// `pub(crate)` so the [`crate::tableau`] OWL-DL reasoner (CONCEPT:EG-059) reuses the
+/// SAME node-id convention without a second copy.
+pub(crate) fn iri(s: &str) -> String {
     format!("<{s}>")
 }
 
@@ -220,12 +222,14 @@ pub struct Ontology {
 // ── Parsing OWL axioms out of an RDF triple stream ───────────────────────────
 
 /// Index the triples for axiom extraction: `(s, p) -> [o]` and `s -> [(p,o)]`.
-struct TripleIndex {
+/// `pub(crate)` so the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-059) reads class
+/// expressions out of the SAME triple index.
+pub(crate) struct TripleIndex {
     spo: HashMap<(String, String), Vec<Term>>,
 }
 
 impl TripleIndex {
-    fn build(triples: &[Triple]) -> Self {
+    pub(crate) fn build(triples: &[Triple]) -> Self {
         let mut spo: HashMap<(String, String), Vec<Term>> = HashMap::new();
         for t in triples {
             let s = term_key(&t.subject.clone().into());
@@ -234,20 +238,21 @@ impl TripleIndex {
         }
         Self { spo }
     }
-    fn objects(&self, s: &str, p: &str) -> &[Term] {
+    pub(crate) fn objects(&self, s: &str, p: &str) -> &[Term] {
         self.spo
             .get(&(s.to_string(), p.to_string()))
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
-    fn first_object(&self, s: &str, p: &str) -> Option<&Term> {
+    pub(crate) fn first_object(&self, s: &str, p: &str) -> Option<&Term> {
         self.objects(s, p).first()
     }
 }
 
 /// Canonical key for a subject/object term (IRI or blank node) — matches the
 /// node-id convention so the EL closure speaks the SAME ids the property-graph uses.
-fn term_key(t: &Term) -> String {
+/// `pub(crate)` — shared with the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-059).
+pub(crate) fn term_key(t: &Term) -> String {
     match t {
         Term::NamedNode(n) => format!("<{}>", n.as_str()),
         Term::BlankNode(b) => format!("_:{}", b.as_str()),
@@ -665,7 +670,9 @@ fn conjunction_to_concept(mut cs: Vec<Concept>) -> Concept {
 }
 
 /// Walk an `rdf:first`/`rdf:rest`/`rdf:nil` collection into a vector of object terms.
-fn parse_rdf_list(idx: &TripleIndex, head: &Term) -> Vec<Term> {
+/// `pub(crate)` — the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-059) walks the same
+/// `intersectionOf`/`unionOf`/`oneOf` RDF collections.
+pub(crate) fn parse_rdf_list(idx: &TripleIndex, head: &Term) -> Vec<Term> {
     let mut out = Vec::new();
     let mut cur = term_key(head);
     let mut guard = 0;
@@ -727,7 +734,8 @@ fn register_class(ont: &mut Ontology, c: &str) {
 }
 
 /// A short, human-readable rendering of an IRI node-id (local name) for labels.
-fn short(id: &str) -> String {
+/// `pub(crate)` — reused by the [`crate::tableau`] OWL-DL reasoner (CONCEPT:EG-059).
+pub(crate) fn short(id: &str) -> String {
     let inner = id
         .strip_prefix('<')
         .and_then(|s| s.strip_suffix('>'))
