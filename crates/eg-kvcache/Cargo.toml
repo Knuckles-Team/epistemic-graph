@@ -1,0 +1,32 @@
+[package]
+name = "eg-kvcache"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Tiered (hot/warm/cold) KV-cache store (CONCEPT:EG-185) + a content-addressed shared multi-instance KV-cache backend (CONCEPT:EG-186) for the epistemic-graph engine — the vLLM/LMCache shared-KV / OOM-offload substrate. Pure-Rust, Pi-lean; the durable cold tier is behind the optional `durable` feature (redb)."
+license = "MIT"
+
+[lib]
+name = "eg_kvcache"
+
+# Pure-Rust, Pi-lean by design — a leaf crate like eg-ann / eg-tensor. The RAM-only
+# build (hot + compressed-warm + in-memory-cold) links NO dependency at all: the
+# content hash (FNV-1a-128), the RLE compressor and the tiered LRU are all
+# hand-written. The DURABLE cold tier (offload-to-disk so the KV cache survives an
+# OOM / restart) is behind the optional `durable` feature and is the ONLY thing that
+# pulls redb — mirroring how eg-ann/eg-tsdb gate their redb tier. So a `pi`/default
+# build of this crate carries no redb, and the durable tier reuses the engine's
+# existing KG-2.195 redb durability tier.
+[dependencies]
+redb = { version = "4.1", optional = true }
+
+[features]
+default = []
+# Durable COLD tier (CONCEPT:EG-185): a crash-safe, single-writer redb-backed blob
+# store the cache demotes cold bytes into, so the KV cache SURVIVES an OOM / process
+# restart. OFF by default (the RAM-only build needs no redb).
+durable = ["dep:redb"]
+
+[dev-dependencies]
+# Only the `durable` redb cold-tier test touches the filesystem.
+tempfile = "3.10"
