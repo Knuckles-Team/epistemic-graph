@@ -797,6 +797,122 @@ pub fn returning_columns(sql: &str) -> Option<Vec<String>> {
     Some(cols)
 }
 
+/// Rewrite the pgvector distance operators (CONCEPT:EG-115) in `sql` to the engine's
+/// registered scalar UDF calls, so DataFusion — which has no operator for them — can
+/// plan the query:
+///   * `a <-> b` (L2 distance)              → `vector_l2(a, b)`
+///   * `a <=> b` (cosine distance)          → `vector_cosine(a, b)`
+///   * `a <#> b` (negative inner product)   → `vector_ip(a, b)`
+///
+/// Pure text→AST→text: parse with the SAME Postgres dialect, walk the query's
+/// projection / WHERE / HAVING / ORDER BY expressions replacing the operators, then
+/// re-serialize. Returns the ORIGINAL `sql` unchanged when it doesn't parse or contains
+/// no vector operator (so a query that DataFusion parses but `sqlparser` doesn't is
+/// never perturbed). The `ORDER BY emb <-> '[1,2,3]' LIMIT k` nearest-neighbour shape is
+/// the primary target; the eg-ann INDEX pushdown is a separate later item (EG-116).
+pub fn desugar_vector_ops(sql: &str) -> String {
+    let Ok(mut stmts) = Parser::parse_sql(&PostgreSqlDialect {}, sql) else {
+        return sql.to_string();
+    };
+    let mut changed = false;
+    for stmt in &mut stmts {
+        if let Statement::Query(q) = stmt {
+            rewrite_query_vector_ops(q, &mut changed);
+        }
+    }
+    if changed {
+        stmts
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join("; ")
+    } else {
+        sql.to_string()
+    }
+}
+
+/// Rewrite vector operators throughout a `Query` (body clauses + ORDER BY).
+fn rewrite_query_vector_ops(q: &mut datafusion::sql::sqlparser::ast::Query, changed: &mut bool) {
+    rewrite_setexpr_vector_ops(&mut q.body, changed);
+    if let Some(order_by) = &mut q.order_by {
+        for ob in &mut order_by.exprs {
+            rewrite_expr_vector_ops(&mut ob.expr, changed);
+        }
+    }
+}
+
+/// Rewrite vector operators in a `SetExpr` (a SELECT body or a UNION/INTERSECT arm).
+fn rewrite_setexpr_vector_ops(body: &mut SetExpr, changed: &mut bool) {
+    match body {
+        SetExpr::Select(select) => {
+            for item in &mut select.projection {
+                match item {
+                    SelectItem::UnnamedExpr(e) => rewrite_expr_vector_ops(e, changed),
+                    SelectItem::ExprWithAlias { expr, .. } => {
+                        rewrite_expr_vector_ops(expr, changed)
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(sel) = &mut select.selection {
+                rewrite_expr_vector_ops(sel, changed);
+            }
+            if let Some(having) = &mut select.having {
+                rewrite_expr_vector_ops(having, changed);
+            }
+        }
+        SetExpr::Query(q) => rewrite_query_vector_ops(q, changed),
+        SetExpr::SetOperation { left, right, .. } => {
+            rewrite_setexpr_vector_ops(left, changed);
+            rewrite_setexpr_vector_ops(right, changed);
+        }
+        _ => {}
+    }
+}
+
+/// Recursively rewrite vector operators in an expression tree. Recurses into operands
+/// FIRST (so a nested `a <-> (b <=> c)` fully desugars), then replaces a top-level
+/// vector-operator `BinaryOp` with the corresponding UDF call. The call node is built
+/// by re-parsing `fname(left, right)` (both operands already serialize to valid SQL),
+/// avoiding a version-fragile hand-construction of `sqlparser`'s `Function` AST.
+fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
+    match expr {
+        Expr::BinaryOp { left, op, right } => {
+            rewrite_expr_vector_ops(left, changed);
+            rewrite_expr_vector_ops(right, changed);
+            let fname = match op {
+                BinaryOperator::Custom(s) if s == "<->" => Some("vector_l2"),
+                BinaryOperator::Custom(s) if s == "<#>" => Some("vector_ip"),
+                // `<=>` parses as `Spaceship`; in a pgvector context it is cosine distance.
+                BinaryOperator::Spaceship => Some("vector_cosine"),
+                _ => None,
+            };
+            if let Some(fname) = fname {
+                if let Some(call) = vector_udf_call(fname, left, right) {
+                    *expr = call;
+                    *changed = true;
+                }
+            }
+        }
+        Expr::Nested(inner) => rewrite_expr_vector_ops(inner, changed),
+        Expr::UnaryOp { expr, .. } => rewrite_expr_vector_ops(expr, changed),
+        Expr::Cast { expr, .. } => rewrite_expr_vector_ops(expr, changed),
+        _ => {}
+    }
+}
+
+/// Build the `fname(left, right)` call expression by re-parsing its SQL text (both
+/// operands already serialize to valid SQL). `None` if the (internally-generated) text
+/// fails to parse — the caller then leaves the operator in place.
+fn vector_udf_call(fname: &str, left: &Expr, right: &Expr) -> Option<Expr> {
+    let text = format!("{fname}({left}, {right})");
+    Parser::new(&PostgreSqlDialect {})
+        .try_with_sql(&text)
+        .ok()?
+        .parse_expr()
+        .ok()
+}
+
 /// Decode `INSERT INTO nodes (id, …) VALUES (…)[, (…)…]` into [`InsertNodes`].
 /// Only the `nodes` table, a column list including `id`, and literal `VALUES`
 /// rows are accepted — anything else is an explicit error (no silent mis-route).

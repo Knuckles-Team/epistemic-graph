@@ -185,6 +185,168 @@ pub(crate) fn epistemic_decay_udf() -> ScalarUDF {
     )
 }
 
+// ── pgvector distance UDFs (CONCEPT:EG-115) ─────────────────────────────────
+
+/// Extract row `row` of `array` as a dense `Vec<f32>` (CONCEPT:EG-115), accepting the
+/// forms a vector argument arrives in: a `List`/`FixedSizeList` of `Float32`/`Float64`
+/// (a stored vector column, materialized as `List<Float32>`), or a `Utf8` pgvector text
+/// literal `[1,2,3]` (an `ORDER BY emb <-> '[1,2,3]'` query literal). Returns `None` for
+/// a NULL or an unrecognized/unparseable value.
+fn row_to_vector(array: &dyn Array, row: usize) -> Option<Vec<f32>> {
+    use arrow::array::{
+        Float32Array, Float64Array, LargeStringArray, ListArray, StringArray, StringViewArray,
+    };
+    use arrow::datatypes::DataType;
+    if array.is_null(row) {
+        return None;
+    }
+    let child_to_floats = |child: ArrayRef| -> Option<Vec<f32>> {
+        if let Some(a) = child.as_any().downcast_ref::<Float32Array>() {
+            return Some((0..a.len()).map(|i| a.value(i)).collect());
+        }
+        child
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .map(|a| (0..a.len()).map(|i| a.value(i) as f32).collect())
+    };
+    match array.data_type() {
+        DataType::Utf8 => crate::tables::schema::parse_vector_text(
+            array.as_any().downcast_ref::<StringArray>()?.value(row),
+        )
+        .ok(),
+        DataType::LargeUtf8 => crate::tables::schema::parse_vector_text(
+            array.as_any().downcast_ref::<LargeStringArray>()?.value(row),
+        )
+        .ok(),
+        DataType::Utf8View => crate::tables::schema::parse_vector_text(
+            array.as_any().downcast_ref::<StringViewArray>()?.value(row),
+        )
+        .ok(),
+        DataType::List(_) => {
+            child_to_floats(array.as_any().downcast_ref::<ListArray>()?.value(row))
+        }
+        DataType::FixedSizeList(_, _) => child_to_floats(
+            array
+                .as_any()
+                .downcast_ref::<arrow::array::FixedSizeListArray>()?
+                .value(row),
+        ),
+        _ => None,
+    }
+}
+
+/// L2 (Euclidean) distance `‖a − b‖₂`. `None` on a dimension mismatch.
+fn dist_l2(a: &[f32], b: &[f32]) -> Option<f64> {
+    if a.len() != b.len() {
+        return None;
+    }
+    Some(
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| ((*x - *y) as f64).powi(2))
+            .sum::<f64>()
+            .sqrt(),
+    )
+}
+
+/// Cosine distance `1 − (a·b)/(‖a‖‖b‖)`. `None` on a dimension mismatch; a zero-norm
+/// operand yields distance `1.0` (maximally dissimilar), matching pgvector.
+fn dist_cosine(a: &[f32], b: &[f32]) -> Option<f64> {
+    if a.len() != b.len() {
+        return None;
+    }
+    let dot: f64 = a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum();
+    let na: f64 = a.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
+    let nb: f64 = b.iter().map(|y| (*y as f64).powi(2)).sum::<f64>().sqrt();
+    if na == 0.0 || nb == 0.0 {
+        return Some(1.0);
+    }
+    Some(1.0 - dot / (na * nb))
+}
+
+/// Negative inner product `−(a·b)` — pgvector's `<#>` (so ascending order still ranks
+/// most-similar first). `None` on a dimension mismatch.
+fn dist_neg_ip(a: &[f32], b: &[f32]) -> Option<f64> {
+    if a.len() != b.len() {
+        return None;
+    }
+    Some(-a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum::<f64>())
+}
+
+/// A pgvector distance scalar UDF (CONCEPT:EG-115): `fn(vector, vector) -> Float64`.
+/// The signature accepts ANY two argument types (`Signature::any(2)`) so it takes both
+/// a stored `List<Float32>` column AND a `Utf8` query literal (`'[1,2,3]'`) in either
+/// position; each row's operands are decoded by [`row_to_vector`] and reduced by
+/// `kernel`. A row where either operand doesn't decode yields NULL (never an error).
+#[derive(Debug)]
+struct VectorDistanceUdf {
+    name: &'static str,
+    signature: datafusion::logical_expr::Signature,
+    kernel: fn(&[f32], &[f32]) -> Option<f64>,
+}
+
+impl datafusion::logical_expr::ScalarUDFImpl for VectorDistanceUdf {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn signature(&self) -> &datafusion::logical_expr::Signature {
+        &self.signature
+    }
+    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
+        Ok(DataType::Float64)
+    }
+    fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        let arrays = ColumnarValue::values_to_arrays(args)?;
+        if arrays.len() != 2 {
+            return Err(datafusion::error::DataFusionError::Execution(format!(
+                "{} expects exactly 2 arguments",
+                self.name
+            )));
+        }
+        let n = arrays[0].len().max(arrays[1].len());
+        let out: Float64Array = (0..n)
+            .map(|i| {
+                let li = i.min(arrays[0].len().saturating_sub(1));
+                let ri = i.min(arrays[1].len().saturating_sub(1));
+                let a = row_to_vector(arrays[0].as_ref(), li)?;
+                let b = row_to_vector(arrays[1].as_ref(), ri)?;
+                (self.kernel)(&a, &b)
+            })
+            .collect();
+        Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+    }
+}
+
+fn vector_distance_udf(
+    name: &'static str,
+    kernel: fn(&[f32], &[f32]) -> Option<f64>,
+) -> ScalarUDF {
+    use datafusion::logical_expr::Signature;
+    ScalarUDF::new_from_impl(VectorDistanceUdf {
+        name,
+        signature: Signature::any(2, Volatility::Immutable),
+        kernel,
+    })
+}
+
+/// `vector_l2(a, b)` — L2 distance, the `<->` operator (CONCEPT:EG-115).
+pub(crate) fn vector_l2_udf() -> ScalarUDF {
+    vector_distance_udf("vector_l2", dist_l2)
+}
+
+/// `vector_cosine(a, b)` — cosine distance, the `<=>` operator (CONCEPT:EG-115).
+pub(crate) fn vector_cosine_udf() -> ScalarUDF {
+    vector_distance_udf("vector_cosine", dist_cosine)
+}
+
+/// `vector_ip(a, b)` — negative inner product, the `<#>` operator (CONCEPT:EG-115).
+pub(crate) fn vector_ip_udf() -> ScalarUDF {
+    vector_distance_udf("vector_ip", dist_neg_ip)
+}
+
 // ── finance aggregate UDFs (CONCEPT:KG-2.184, feature `finance`) ────────────
 
 /// `var(returns) -> Float64` and `cvar(returns) -> Float64` aggregate UDFs over a

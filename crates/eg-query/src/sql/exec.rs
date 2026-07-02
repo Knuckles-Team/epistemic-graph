@@ -22,7 +22,10 @@ pub use eg_types::protocol::QueryResult;
 use super::catalog::register_pg_catalog;
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, PagerankFunc};
-use super::udfs::{epistemic_decay_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf};
+use super::udfs::{
+    epistemic_decay_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf, vector_cosine_udf,
+    vector_ip_udf, vector_l2_udf,
+};
 use crate::tables::TableStore;
 
 /// One user table materialized for registration into the SQL context: its name plus
@@ -71,6 +74,10 @@ pub enum PgColType {
     Int8,
     Float8,
     Bool,
+    /// A pgvector `vector` column (CONCEPT:EG-115) — a `List<Float32>` result column.
+    /// The pgwire shim maps it to a stable float-array wire OID and renders each value
+    /// as the pgvector text form `[1,2,3]`.
+    Vector,
 }
 
 /// One typed result column: its name plus the pg-mappable type inferred from the
@@ -185,6 +192,11 @@ fn build_ctx(
     ctx.register_udf(json_get_f64_udf());
     ctx.register_udf(json_get_i64_udf());
     ctx.register_udf(epistemic_decay_udf());
+    // CONCEPT:EG-115 — pgvector distance functions the `<->`/`<=>`/`<#>` operators
+    // desugar to (brute-force over a vector column; the eg-ann index pushdown is EG-116).
+    ctx.register_udf(vector_l2_udf());
+    ctx.register_udf(vector_cosine_udf());
+    ctx.register_udf(vector_ip_udf());
     ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
     ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
     #[cfg(feature = "finance")]
@@ -223,10 +235,14 @@ fn run(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-115 — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
+    // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
+    // operator for them). A no-op when none are present or the SQL doesn't parse.
+    let sql = super::classify::desugar_vector_ops(sql);
     rt.block_on(async move {
         let ctx = build_ctx(snap, nodes, edges, user_tables)?;
         register_views(&ctx, &views).await?;
-        let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
+        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_result(&batches)
     })
@@ -239,7 +255,9 @@ fn run(
 /// since dropped) is skipped with a debug log rather than failing every query.
 async fn register_views(ctx: &SessionContext, views: &[(String, String)]) -> Result<(), String> {
     for (name, select_sql) in views {
-        match ctx.sql(select_sql).await {
+        // CONCEPT:EG-115 — a view body may itself use the pgvector operators.
+        let select_sql = super::classify::desugar_vector_ops(select_sql);
+        match ctx.sql(&select_sql).await {
             Ok(df) => {
                 let provider = df.into_view();
                 if let Err(e) = ctx.register_table(name.as_str(), provider) {
@@ -282,10 +300,12 @@ fn run_typed(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-115 — see `run`: desugar the pgvector operators before planning.
+    let sql = super::classify::desugar_vector_ops(sql);
     rt.block_on(async move {
         let ctx = build_ctx(snap, nodes, edges, user_tables)?;
         register_views(&ctx, &views).await?;
-        let df = ctx.sql(sql).await.map_err(|e| format!("sql: {e}"))?;
+        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
     })
@@ -300,6 +320,10 @@ fn pg_col_type(dt: &arrow::datatypes::DataType) -> PgColType {
         Boolean => PgColType::Bool,
         Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => PgColType::Int8,
         Float16 | Float32 | Float64 => PgColType::Float8,
+        // CONCEPT:EG-115 — a `List<Float32>` result column is a pgvector `vector`.
+        List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => {
+            PgColType::Vector
+        }
         _ => PgColType::Text,
     }
 }
@@ -534,6 +558,32 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
                 .unwrap()
                 .value(row),
         ),
+        // ── pgvector `vector` (CONCEPT:EG-115): a `List<Float32>` cell → JSON array of
+        // numbers; the pgwire shim renders that array as the pgvector text `[1,2,3]`. ──
+        List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => {
+            use arrow::array::{FixedSizeListArray, ListArray};
+            let child = if let Some(la) = col.as_any().downcast_ref::<ListArray>() {
+                la.value(row)
+            } else {
+                col.as_any()
+                    .downcast_ref::<FixedSizeListArray>()
+                    .unwrap()
+                    .value(row)
+            };
+            let floats = child
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .ok_or("vector child is not Float32")?;
+            Value::Array(
+                (0..floats.len())
+                    .map(|i| {
+                        serde_json::Number::from_f64(floats.value(i) as f64)
+                            .map(Value::Number)
+                            .unwrap_or(Value::Null)
+                    })
+                    .collect(),
+            )
+        }
         // ── everything else: Decimal128/256 (→ lossless decimal string), Date32/64,
         // Time32/64, Timestamp(*)[/tz] (→ ISO-8601 string), List/LargeList/Struct/Map
         // (→ Arrow's textual rendering), or any unforeseen type — degrade to the Arrow
