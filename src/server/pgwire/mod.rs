@@ -915,6 +915,14 @@ impl EngineBackend {
             // CONCEPT:EG-072 — CREATE/DROP VIEW over the durable view catalog.
             StatementKind::CreateView(plan) => self.run_create_view(plan).await,
             StatementKind::DropView(plan) => self.run_drop_view(plan).await,
+            // CONCEPT:EG-102 — CREATE/DROP EXTENSION over the durable extension catalog.
+            StatementKind::CreateExtension {
+                name,
+                if_not_exists,
+            } => self.run_create_extension(name, if_not_exists).await,
+            StatementKind::DropExtension { name, if_exists } => {
+                self.run_drop_extension(name, if_exists).await
+            }
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
             // Transaction-control statements are handled above.
             StatementKind::Begin | StatementKind::Commit | StatementKind::Rollback => {
@@ -1109,6 +1117,32 @@ impl EngineBackend {
             .map_err(|e| user_err(format!("drop view task failed: {e}")))?
             .map_err(user_err)?;
         Ok(Response::Execution(Tag::new("DROP VIEW")))
+    }
+
+    /// CONCEPT:EG-102 — `CREATE EXTENSION [IF NOT EXISTS] name`: record the enablement
+    /// in the durable extension catalog (commit-before-ack) so a client's setup script
+    /// proceeds; the extension's concrete surface lands in its own later item.
+    async fn run_create_extension(
+        &self,
+        name: String,
+        if_not_exists: bool,
+    ) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.create_extension(&name, if_not_exists))
+            .await
+            .map_err(|e| user_err(format!("create extension task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("CREATE EXTENSION")))
+    }
+
+    /// CONCEPT:EG-102 — `DROP EXTENSION [IF EXISTS] name`.
+    async fn run_drop_extension(&self, name: String, if_exists: bool) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.drop_extension(&name, if_exists))
+            .await
+            .map_err(|e| user_err(format!("drop extension task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("DROP EXTENSION")))
     }
 
     /// A scalar cell coerced to the string node-id form the engine stores.
