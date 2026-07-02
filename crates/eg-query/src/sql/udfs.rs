@@ -347,6 +347,306 @@ pub(crate) fn vector_ip_udf() -> ScalarUDF {
     vector_distance_udf("vector_ip", dist_neg_ip)
 }
 
+// ── TimescaleDB time_bucket (CONCEPT:EG-117) ────────────────────────────────
+
+/// Parse a Postgres interval spelling (`'1 hour'`, `'30 minutes'`, `'15 min'`,
+/// `'1 day'`, `'2 weeks'`, `'10 s'`) OR a bare integer to a width in SECONDS. `None`
+/// for an un-parseable spelling.
+fn interval_to_seconds(s: &str) -> Option<i64> {
+    let t = s.trim();
+    if let Ok(n) = t.parse::<i64>() {
+        return Some(n);
+    }
+    let mut it = t.split_whitespace();
+    let n: i64 = it.next()?.parse().ok()?;
+    let unit = it.next().unwrap_or("seconds").to_ascii_lowercase();
+    let mult = match unit.trim_end_matches('s') {
+        "second" | "sec" | "s" => 1,
+        "minute" | "min" | "m" => 60,
+        "hour" | "hr" | "h" => 3_600,
+        "day" | "d" => 86_400,
+        "week" | "w" => 604_800,
+        _ => return None,
+    };
+    Some(n * mult)
+}
+
+/// Read row `row` of `array` as an i64 epoch-seconds timestamp, accepting `Int64`,
+/// `Float64` (truncated), or a `Timestamp` (converted to whole seconds).
+fn row_to_epoch_secs(array: &dyn Array, row: usize) -> Option<i64> {
+    use arrow::array::{
+        Float64Array, Int64Array, TimestampMicrosecondArray, TimestampMillisecondArray,
+        TimestampNanosecondArray, TimestampSecondArray,
+    };
+    use arrow::datatypes::{DataType, TimeUnit};
+    if array.is_null(row) {
+        return None;
+    }
+    match array.data_type() {
+        DataType::Int64 => Some(array.as_any().downcast_ref::<Int64Array>()?.value(row)),
+        DataType::Float64 => Some(array.as_any().downcast_ref::<Float64Array>()?.value(row) as i64),
+        DataType::Timestamp(unit, _) => {
+            let raw = match unit {
+                TimeUnit::Second => array
+                    .as_any()
+                    .downcast_ref::<TimestampSecondArray>()?
+                    .value(row),
+                TimeUnit::Millisecond => {
+                    array
+                        .as_any()
+                        .downcast_ref::<TimestampMillisecondArray>()?
+                        .value(row)
+                        / 1_000
+                }
+                TimeUnit::Microsecond => {
+                    array
+                        .as_any()
+                        .downcast_ref::<TimestampMicrosecondArray>()?
+                        .value(row)
+                        / 1_000_000
+                }
+                TimeUnit::Nanosecond => {
+                    array
+                        .as_any()
+                        .downcast_ref::<TimestampNanosecondArray>()?
+                        .value(row)
+                        / 1_000_000_000
+                }
+            };
+            Some(raw)
+        }
+        _ => None,
+    }
+}
+
+/// Read row `row` of `array` as a UTF-8 string (any of the Arrow string encodings).
+fn row_to_string(array: &dyn Array, row: usize) -> Option<String> {
+    use arrow::array::{LargeStringArray, StringArray, StringViewArray};
+    use arrow::datatypes::DataType;
+    if array.is_null(row) {
+        return None;
+    }
+    match array.data_type() {
+        DataType::Utf8 => Some(
+            array
+                .as_any()
+                .downcast_ref::<StringArray>()?
+                .value(row)
+                .to_string(),
+        ),
+        DataType::LargeUtf8 => Some(
+            array
+                .as_any()
+                .downcast_ref::<LargeStringArray>()?
+                .value(row)
+                .to_string(),
+        ),
+        DataType::Utf8View => Some(
+            array
+                .as_any()
+                .downcast_ref::<StringViewArray>()?
+                .value(row)
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+/// `time_bucket(width, ts) -> Int64` (CONCEPT:EG-117) — floor `ts` (epoch seconds) to
+/// the start of its `width`-wide bucket, the TimescaleDB time-bucket label. `width` is
+/// a Postgres interval string (`'1 hour'`) or an integer number of seconds; `ts` is an
+/// Int64/Float64 epoch or a Timestamp. NULL on an un-parseable width or a NULL ts —
+/// the same "never error" discipline as the other UDFs. This is the exact bucket
+/// labelling the eg-tsdb `Op::Window` (EG-067) aggregation uses; gap-fill is a follow-up.
+pub(crate) fn time_bucket_udf() -> ScalarUDF {
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature};
+    #[derive(Debug)]
+    struct TimeBucketUdf {
+        signature: Signature,
+    }
+    impl ScalarUDFImpl for TimeBucketUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "time_bucket"
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(DataType::Int64)
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            if arrays.len() != 2 {
+                return Err(datafusion::error::DataFusionError::Execution(
+                    "time_bucket expects exactly 2 arguments (width, ts)".into(),
+                ));
+            }
+            let n = arrays[0].len().max(arrays[1].len());
+            let out: Int64Array = (0..n)
+                .map(|i| {
+                    let wi = i.min(arrays[0].len().saturating_sub(1));
+                    let ti = i.min(arrays[1].len().saturating_sub(1));
+                    let width = row_to_string(arrays[0].as_ref(), wi)
+                        .and_then(|s| interval_to_seconds(&s))
+                        .or_else(|| row_to_epoch_secs(arrays[0].as_ref(), wi))?;
+                    if width <= 0 {
+                        return None;
+                    }
+                    let ts = row_to_epoch_secs(arrays[1].as_ref(), ti)?;
+                    Some((ts.div_euclid(width)) * width)
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+        }
+    }
+    ScalarUDF::new_from_impl(TimeBucketUdf {
+        signature: Signature::any(2, Volatility::Immutable),
+    })
+}
+
+// ── ParadeDB BM25 UDFs (CONCEPT:EG-119) ─────────────────────────────────────
+
+/// `bm25_match(col, query) -> Boolean` (CONCEPT:EG-119) — the desugaring target of the
+/// ParadeDB `col @@@ 'query'` operator. A lexical term-contains filter (case-insensitive
+/// whitespace tokens) so a `WHERE col @@@ 'q'` query runs directly through DataFusion;
+/// the full BM25-ranked pushdown onto eg-text's Tantivy index is the server-side
+/// lowering (see `plan_bm25_search`). NULL/absent operands ⇒ false.
+pub(crate) fn bm25_match_udf() -> ScalarUDF {
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature};
+    use arrow::array::BooleanArray;
+    #[derive(Debug)]
+    struct Bm25MatchUdf {
+        signature: Signature,
+    }
+    impl ScalarUDFImpl for Bm25MatchUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "bm25_match"
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(DataType::Boolean)
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            if arrays.len() != 2 {
+                return Err(datafusion::error::DataFusionError::Execution(
+                    "bm25_match expects exactly 2 arguments (col, query)".into(),
+                ));
+            }
+            let n = arrays[0].len().max(arrays[1].len());
+            let out: BooleanArray = (0..n)
+                .map(|i| {
+                    let ci = i.min(arrays[0].len().saturating_sub(1));
+                    let qi = i.min(arrays[1].len().saturating_sub(1));
+                    let col = row_to_string(arrays[0].as_ref(), ci)?.to_ascii_lowercase();
+                    let query = row_to_string(arrays[1].as_ref(), qi)?.to_ascii_lowercase();
+                    Some(query.split_whitespace().any(|term| col.contains(term)))
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+        }
+    }
+    ScalarUDF::new_from_impl(Bm25MatchUdf {
+        signature: Signature::any(2, Volatility::Immutable),
+    })
+}
+
+/// `bm25_score(…) -> Float64` (CONCEPT:EG-119) — the desugaring target of
+/// `paradedb.score(...)`. A placeholder relevance score (constant `1.0`) so an
+/// `ORDER BY paradedb.score(id) DESC` query plans + runs; the true BM25 relevance comes
+/// from the eg-text-backed server pushdown (a documented follow-up). Variadic.
+pub(crate) fn bm25_score_udf() -> ScalarUDF {
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
+    #[derive(Debug)]
+    struct Bm25ScoreUdf {
+        signature: Signature,
+    }
+    impl ScalarUDFImpl for Bm25ScoreUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "bm25_score"
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(DataType::Float64)
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let n = args
+                .iter()
+                .map(|a| match a {
+                    ColumnarValue::Array(arr) => arr.len(),
+                    ColumnarValue::Scalar(_) => 1,
+                })
+                .max()
+                .unwrap_or(1);
+            let out: Float64Array = (0..n).map(|_| Some(1.0)).collect();
+            Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+        }
+    }
+    ScalarUDF::new_from_impl(Bm25ScoreUdf {
+        signature: Signature::one_of(
+            vec![TypeSignature::VariadicAny, TypeSignature::Any(0)],
+            Volatility::Immutable,
+        ),
+    })
+}
+
+/// `bm25_snippet(…) -> Utf8` (CONCEPT:EG-119) — the desugaring target of
+/// `paradedb.snippet(...)`. A placeholder that echoes the first string argument (a real
+/// highlighted fragment is the eg-text server-side follow-up). Variadic.
+pub(crate) fn bm25_snippet_udf() -> ScalarUDF {
+    use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
+    #[derive(Debug)]
+    struct Bm25SnippetUdf {
+        signature: Signature,
+    }
+    impl ScalarUDFImpl for Bm25SnippetUdf {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn name(&self) -> &str {
+            "bm25_snippet"
+        }
+        fn signature(&self) -> &Signature {
+            &self.signature
+        }
+        fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
+            Ok(DataType::Utf8)
+        }
+        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+            let arrays = ColumnarValue::values_to_arrays(args)?;
+            let n = arrays.iter().map(|a| a.len()).max().unwrap_or(1);
+            let out: StringArray = (0..n)
+                .map(|i| {
+                    arrays.first().and_then(|a| {
+                        let idx = i.min(a.len().saturating_sub(1));
+                        row_to_string(a.as_ref(), idx)
+                    })
+                })
+                .collect();
+            Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+        }
+    }
+    ScalarUDF::new_from_impl(Bm25SnippetUdf {
+        signature: Signature::one_of(
+            vec![TypeSignature::VariadicAny, TypeSignature::Any(0)],
+            Volatility::Immutable,
+        ),
+    })
+}
+
 // ── finance aggregate UDFs (CONCEPT:KG-2.184, feature `finance`) ────────────
 
 /// `var(returns) -> Float64` and `cvar(returns) -> Float64` aggregate UDFs over a
