@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-wasm", "crates/eg-graphql"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-wasm", "crates/eg-graphql"]
 
 [package]
 name = "epistemic-graph"
@@ -329,6 +329,12 @@ owl-plan = ["owl", "query", "eg-plan/owl", "eg-types/owl-plan"]
 # Opt-in lossless redb `quads` table for multi-valued-literal predicates the
 # property blob can't hold (CONCEPT:KG-2.217). Rides the engine `redb` tier.
 rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb", "eg-plan?/rdf-redb"]
+# SHACL Core validation (CONCEPT:EG-132) — the pure-Rust eg-shacl engine over the
+# RDF term/graph model. IMPLIES `rdf` (it validates RDF data against an RDF shapes
+# graph); the `Method::ShaclValidate` handler is gated on this feature. Pure Rust —
+# links NO C/native dep (regex rides eg-rdf's sparql stack) — so it folds into
+# node/full alongside rdf/sparql. Kept OUT of `pi`.
+shacl = ["rdf", "dep:eg-shacl"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).
@@ -346,7 +352,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -366,7 +372,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "shacl"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
@@ -410,6 +416,9 @@ eg-tsdb = { path = "crates/eg-tsdb", optional = true }
 # build links none of them (asserted by cargo tree). Its `rdf-redb` quad table rides
 # the facade `redb` feature.
 eg-rdf = { path = "crates/eg-rdf", optional = true }
+# Optional pure-Rust SHACL Core validator (feature `shacl`, CONCEPT:EG-132). Sits above
+# eg-rdf (reuses its oxrdf term/graph model); pulled only when `shacl` is on.
+eg-shacl = { path = "crates/eg-shacl", optional = true }
 # Optional native GraphQL read surface (feature `graphql`, CONCEPT:KG-2.235). Pure-Rust
 # (schema-from-graph + hand-written parser/resolver, NO async-graphql), pulled only when
 # enabled so a default/pi build links none of it.
