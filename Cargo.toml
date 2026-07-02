@@ -511,6 +511,14 @@ sparql-http = ["sparql", "server"]
 # new crate enters the tree), so it IMPLIES both `sparql-http` and `federation`. HEAVY-ish
 # (rustls/ring) → kept OUT of `pi`; folded into node/full.
 sparql-service = ["sparql-http", "federation", "dep:ureq"]
+# Super-cluster federated search (CONCEPT:EG-243): a `/federated` POST surface that fans a
+# read query across a registry of peer engine instances AND the local store, then unions /
+# de-dups + RRF-re-ranks the partials (a slow/dead peer degrades to `partial: true` +
+# `failed_peers` instead of failing). REUSES the SAME pure-Rust `ureq`/rustls stack the
+# other federation surfaces link (NO new HTTP crate enters the tree); SSRF-vetted with the
+# SAME allowlist/internal-range guard as EG-052. HEAVY-ish (rustls/ring) → kept OUT of
+# `pi`; folded into node/full by the orchestrator (NOT edited into the tier lists here).
+federation-search = ["server", "dep:ureq"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,

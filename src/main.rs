@@ -90,6 +90,15 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_OBS_ADDR")]
     obs_addr: Option<String>,
 
+    /// Super-cluster federated-search HTTP listener address (e.g. 127.0.0.1:7900),
+    /// feature `federation-search` (CONCEPT:EG-243). Disabled when unset. Serves a
+    /// `/federated` POST (`{query, lang}`) that fans the read query across the peers in
+    /// `EPISTEMIC_GRAPH_FEDERATION_PEERS` AND the local store, then unions/de-dups +
+    /// RRF-re-ranks the partials (a slow/dead peer degrades to `partial: true`). Separate
+    /// from the RPC transports and the `/sparql` surface.
+    #[arg(long, env = "EPISTEMIC_GRAPH_FEDERATED_ADDR")]
+    federated_addr: Option<String>,
+
     /// Self-terminate after N seconds with ZERO active connections (reference-
     /// counted idle shutdown). 0 or absent ⇒ NEVER self-terminate on idle: the
     /// engine is long-living/persistent and runs forever like a normal server.
@@ -720,6 +729,33 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "sparql-http"))]
     if sparql_addr.is_some() {
         tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
+    }
+
+    // ── Super-cluster federated search (CONCEPT:EG-243) ──────────────────
+    // Opt-in AND feature-gated: the `/federated` listener starts ONLY when built
+    // `--features federation-search` AND --federated-addr / EPISTEMIC_GRAPH_FEDERATED_ADDR
+    // is set. With the feature off, or unset, this is a no-op. Fans a read query across the
+    // peers in EPISTEMIC_GRAPH_FEDERATION_PEERS AND the local store, then merges the
+    // partials. Deploy-configurable (EG-022): a bare enable token binds the safe localhost
+    // default `127.0.0.1:7900`.
+    let federated_addr = resolve_listener_addr(args.federated_addr.as_deref(), "127.0.0.1:7900");
+    #[cfg(feature = "federation-search")]
+    if let Some(ref federated_addr) = federated_addr {
+        let listener = tokio::net::TcpListener::bind(federated_addr).await?;
+        info!(
+            "Federated search: serving super-cluster /federated on http://{}/federated",
+            federated_addr
+        );
+        let fed_state = state.clone();
+        tokio::spawn(async move {
+            epistemic_graph::server::federation::serve(listener, fed_state).await;
+        });
+    }
+    #[cfg(not(feature = "federation-search"))]
+    if federated_addr.is_some() {
+        tracing::warn!(
+            "--federated-addr ignored: binary built without the `federation-search` feature"
+        );
     }
 
     // ── GraphQL subscription SSE carrier (CONCEPT:EG-064) ────────────────

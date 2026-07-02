@@ -147,6 +147,14 @@ pub mod sql_tables;
 // which `eg_plan::NlPlanner` the facade uses (injected vs standalone-config default).
 #[cfg(feature = "nl-query")]
 pub mod nl;
+// Super-cluster federated search (CONCEPT:EG-243, feature `federation-search`): fans a
+// read query across a registry of peer engine instances (SSRF-vetted, per-peer timeouts)
+// AND the local store, then unions/de-dups + RRF-re-ranks the partials — a slow/dead peer
+// degrades to `partial: true` + `failed_peers` rather than failing the query. Behind the
+// `federation-search` cargo feature (pulls the same pure-Rust `ureq`/rustls stack the
+// other federation surfaces link — NO new HTTP dep, kept OUT of the Pi tier).
+#[cfg(feature = "federation-search")]
+pub mod federation;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged
