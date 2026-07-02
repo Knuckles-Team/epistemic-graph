@@ -7,10 +7,14 @@ epistemic-graph speaks SQL two ways:
 2. **Over the Postgres wire** via the `pgwire` feature (folded into `cluster`) — any `psql` / BI tool /
    ORM connects as if to Postgres.
 
-> Status snapshot: read-path `SELECT` is full DataFusion. Writes are `INSERT`/`UPDATE`/`DELETE` on `nodes`
-> and on **arbitrary user tables**, with DDL (`CREATE`/`ALTER ADD COLUMN`/`DROP TABLE`, `COPY`) over a
-> durable redb catalog. Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML, `ON CONFLICT`,
-> and wire transactions are 🔶 in-progress. See the [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
+> Status snapshot: read-path `SELECT` is full DataFusion (incl. window functions, EG-089). Writes are
+> `INSERT`/`UPDATE`/`DELETE` on `nodes` and on **arbitrary user tables**, with DDL
+> (`CREATE`/`ALTER ADD COLUMN`/`DROP TABLE`/`CREATE VIEW`/`CREATE FUNCTION`, `COPY`) over a durable redb
+> catalog. Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML (`UPDATE…FROM`/`DELETE…USING`),
+> `ON CONFLICT` upsert, user-table `RETURNING`, and mixed-store wire transactions are **shipped**
+> (EG-045..049, EG-072). Postgres-extension surfaces (`pg_catalog`/`information_schema`, arrays/ranges,
+> pgvector, AGE `cypher()`, TimescaleDB, ParadeDB) light up via `CREATE EXTENSION`. See the
+> [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
 
 ## The tables
 
@@ -21,7 +25,7 @@ The SQL surface exposes the graph as two synthetic tables:
 | `nodes` | `(id, properties JSON, …)` | the graph node store, with a predicate-pushdown provider |
 | `edges` | `(src, tgt, type, …)` | a DataFusion `MemTable` over the edge store |
 
-`pg_catalog` and `information_schema` are registered so introspection-driven tools work.
+`pg_catalog` and `information_schema` are registered so introspection-driven tools work (see below).
 
 ## SELECT — full DataFusion 43
 
@@ -37,6 +41,22 @@ ORDER BY n DESC;
 JSON accessors (`json_get*`) and `epistemic_decay` are registered as UDFs; `pagerank` and `betweenness`
 are table-valued functions; under the `finance` feature `var`/`cvar` are aggregate UDFs.
 
+### Window functions & columnar scans (EG-089)
+
+Full SQL window frames run over the table/tsdb store, which keeps a columnar (struct-of-arrays) segment
+layout for analytical scans:
+
+```sql
+SELECT id,
+       ROW_NUMBER() OVER (PARTITION BY region ORDER BY score DESC) AS rnk,
+       AVG(score)   OVER (PARTITION BY region
+                          ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS moving_avg
+FROM metrics;
+```
+
+`ROW_NUMBER`/`RANK`/`DENSE_RANK`/`LAG`/`LEAD`/`FIRST_VALUE`/`LAST_VALUE`/`SUM`/`AVG` `OVER (PARTITION BY …
+ORDER BY … ROWS/RANGE BETWEEN …)` are all supported.
+
 **Predicate pushdown** is real: an indexable `col = literal` equality narrows the `nodes` scan through a
 bounded per-column equality index before DataFusion re-applies the filter (the pushdown is `Inexact`, so
 correctness never depends on it).
@@ -50,23 +70,84 @@ DELETE FROM nodes WHERE id = 'AgentC';
 ```
 
 Each statement maps to a native graph write (`add_node` / `compare_and_set_fields` / `remove_node`) and
-is replicated/durable like any other mutation. Constraints today:
+is replicated/durable like any other mutation. The DML surface is now full (EG-045..049):
 
-- target must be `nodes` (`INSERT INTO edges …` errors);
-- `INSERT` takes literal `VALUES` rows with an explicit column list including `id` (no `INSERT … SELECT`);
-- `WHERE` is a single `<column> = <literal>` equality (no compound predicates, JOIN, `FROM`, `USING`);
-- `id` cannot be reassigned.
+- **Compound WHERE** (EG-045): `UPDATE`/`DELETE` accept `AND`/`OR`/`NOT`/`IN`/`BETWEEN`/ranges/`IS NULL`,
+  applied through serializable compare-and-set / remove gates (the predicate is re-checked under the write
+  guard, so a concurrent write can't slip a row through);
+- **`INSERT INTO nodes … SELECT`** (EG-046): populate the node store from a SELECT that may JOIN user
+  tables and the graph, with `RETURNING`;
+- **Multi-table DML** (EG-047): correlated `UPDATE nodes … FROM …` / `DELETE FROM nodes … USING …`;
+- **`ON CONFLICT`** (EG-048): `INSERT … ON CONFLICT (cols) DO NOTHING|DO UPDATE` for `nodes` and user
+  tables, plus `RETURNING` on user-table `INSERT`/`UPDATE`/`DELETE`;
+- `INSERT INTO edges …` still errors (target must be `nodes`); `id` cannot be reassigned.
 
-Compound WHERE, `INSERT … SELECT` into `nodes`, multi-table DML (`UPDATE…FROM`/`DELETE…USING`), and
-`ON CONFLICT` are 🔶 in-progress (EG-045..048); the single-equality forms error with a clear message today.
+### Transactions (mixed-store, over the wire — EG-049)
 
-## DDL & user tables
+pgwire `BEGIN`/`COMMIT`/`ROLLBACK` buffer **both** graph-node ops and user-table ops in one transaction;
+reads inside the txn see the buffered writes (read-your-own-writes). `COMMIT` applies the node batch (one
+`GraphCore::txn()` + one durable group) then the user-table txn. `ReadyForQuery` reports `T`/`E`/`I`, and
+an aborted txn rejects statements until `ROLLBACK` (`25P02`). The node↔table commit is best-effort ordered
+(a documented non-2PC window).
 
-Arbitrary user tables are first-class: `CREATE TABLE`, `ALTER TABLE … ADD COLUMN`, `DROP TABLE`, and `COPY`
-persist to a durable redb catalog (`crates/eg-query/src/tables/`, EG-018/EG-020), and user-table DML
-(`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`) executes against it. User tables are JOINable to the graph
-`nodes`/`edges` in a single query. `CREATE VIEW`, `ALTER` beyond `ADD COLUMN`, and user-table `RETURNING`
-are 🔶 in-progress (EG-048/EG-072). Reserved names `nodes`/`edges` are rejected for DDL.
+## DDL, views & user tables
+
+Arbitrary user tables are first-class: `CREATE TABLE`, `ALTER TABLE … ADD COLUMN`, `DROP TABLE`, `COPY`,
+and `CREATE VIEW` / `DROP VIEW` (EG-072 — a referenced view expands to its stored SELECT) persist to a
+durable redb catalog (`crates/eg-query/src/tables/`, EG-018/EG-020). User-table DML
+(`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `RETURNING`) executes against it, and user tables are
+JOINable to the graph `nodes`/`edges` in a single query. Reserved names `nodes`/`edges` are rejected for DDL.
+
+### Stored functions (EG-118)
+
+```sql
+CREATE FUNCTION active_count() RETURNS int AS $$
+  SELECT count(*) FROM nodes WHERE properties->>'state' = 'active'
+$$ LANGUAGE sql;
+
+SELECT active_count();
+```
+
+`CREATE FUNCTION … LANGUAGE sql` persists scalar + table SQL-language functions in a durable catalog and
+invokes them in queries. PL/pgSQL control-flow (`IF`/`LOOP`/`RETURN`) is a documented follow-up.
+
+### Arrays, ranges & scalar functions (EG-104)
+
+Array types (`int[]`/`text[]`: literals, subscript, `ANY`/`ALL`, `unnest`, `array_agg`, `array_length`,
+`||` concat, `@>`/`&&` overlap) and range types (`int4range`/`tsrange` with `@>`/`&&`/`<@`) parse and
+execute, along with the common scalar functions ORMs/BI emit: `string_agg`, `split_part`, `regexp_replace`,
+`to_char`/`to_timestamp`, `date_trunc`, `extract`, `greatest`/`least`, `generate_series`,
+`coalesce`/`nullif`.
+
+## Postgres extensions — `CREATE EXTENSION` (EG-102)
+
+An unmodified Postgres client/ORM can `CREATE EXTENSION` to light up a family surface; enabled extensions
+are recorded in a durable catalog:
+
+| Extension | Surfaces | Concept |
+|-----------|----------|---------|
+| `vector` (pgvector) | `vector(n)` column type + `<->` (L2) / `<=>` (cosine) / `<#>` (neg-inner) operators; `CREATE INDEX … USING hnsw/ivfflat` pushes `ORDER BY emb <-> $1 LIMIT k` down to the eg-ann index | EG-115 / EG-116 |
+| `pg_age` (Apache AGE) | `SELECT * FROM cypher('graph', $$ MATCH … RETURN … $$) AS (a agtype)` routes the inner Cypher to the eg-query Cypher engine | EG-114 |
+| `timescaledb` | `create_hypertable()`, `time_bucket()` gap-fill, and `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates over the eg-tsdb store | EG-117 |
+| `pg_search` (ParadeDB) | the `@@@` BM25 search operator + `paradedb.*` `score()`/`snippet()` over the eg-text index | EG-119 |
+
+```sql
+CREATE EXTENSION vector;
+CREATE TABLE items (id text, emb vector(384));
+CREATE INDEX ON items USING hnsw (emb vector_cosine_ops);
+SELECT id FROM items ORDER BY emb <=> $1 LIMIT 10;   -- pushed to eg-ann (EG-116)
+
+CREATE EXTENSION pg_age;
+SELECT * FROM cypher('social', $$ MATCH (a)-[:KNOWS]->(b) RETURN a.id, b.id $$) AS (a agtype, b agtype);
+```
+
+## System-catalog compatibility — `pg_catalog` / `information_schema` (EG-103)
+
+So `psql` (`\d`, `\dt`, `\l`), ORMs, and BI tools introspect the engine, the system catalogs are
+synthesized from the live table/view/function catalogs and answerable as normal `SELECT`s:
+`pg_catalog.pg_class`/`pg_namespace`/`pg_attribute`/`pg_type`/`pg_index`/`pg_proc` and
+`information_schema.tables`/`columns`/`schemata`/`views`/`routines`, plus common `pg_catalog` functions
+(`pg_table_is_visible`, `format_type`, `current_schema`).
 
 ## Postgres wire quick-start
 

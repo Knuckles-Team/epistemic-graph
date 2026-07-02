@@ -26,11 +26,18 @@ orchestrator folds per-tier (MySQL/MSSQL/SQLite/Bolt/AMQP) build cleanly with `-
 | MSSQL TDS wire | `sqlcmd`, drivers | `mssql-wire` | `EPISTEMIC_GRAPH_MSSQL_ADDR` | `127.0.0.1:1433` |
 | SQLite-dialect NDJSON | any TCP client | `sqlite-wire` | `EPISTEMIC_GRAPH_SQLITE_ADDR` | `127.0.0.1:<your port>` |
 | Neo4j Bolt wire | `cypher-shell`, drivers | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` | `127.0.0.1:7687` |
+| Redis RESP wire | `redis-cli`, clients | `redis-wire` | `EPISTEMIC_GRAPH_REDIS_ADDR` | `127.0.0.1:6379` |
+| S3 REST API | `aws s3`, MinIO SDKs | `s3-api` | `EPISTEMIC_GRAPH_S3_ADDR` | `127.0.0.1:9000` |
 | AMQP 0.9.1 broker | `pika`, AMQP clients | `amqp-wire` | `EPISTEMIC_GRAPH_AMQP_ADDR` | `127.0.0.1:5672` |
-| SPARQL 1.1 HTTP | `curl`, `rdflib`, Jena | `sparql-http` | `EPISTEMIC_GRAPH_SPARQL_ADDR` (`--sparql-addr`) | `127.0.0.1:7878` |
+| MQTT 3.1.1/5.0 broker | `mosquitto_pub`, IoT | `mqtt-wire` | `EPISTEMIC_GRAPH_MQTT_ADDR` | `127.0.0.1:1883` |
+| STOMP 1.2 broker | STOMP clients | `stomp-wire` | `EPISTEMIC_GRAPH_STOMP_ADDR` | `127.0.0.1:61613` |
+| KV-cache (vLLM/LMCache) | vLLM/LMCache connector | `kvcache-server` | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | `127.0.0.1:9130` |
+| SPARQL 1.1 HTTP + `/nl` | `curl`, `rdflib`, Jena | `sparql-http` | `EPISTEMIC_GRAPH_SPARQL_ADDR` (`--sparql-addr`) | `127.0.0.1:7878` |
 | GraphQL SSE carrier | GraphQL clients | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR` (`--graphql-addr`) | `127.0.0.1:7879` |
+| Federated search (`/federated`) | `curl`, apps | `federation-search` | `EPISTEMIC_GRAPH_FEDERATED_ADDR` (`--federated-addr`) | `127.0.0.1:7900` |
 | PromQL / Prometheus API | Grafana, `curl` | `promql` (impl `obs`) | `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`) | `127.0.0.1:5080` |
 | OTLP traces | OTel exporters, `curl` | `traces` (impl `obs`) | `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`) | `127.0.0.1:5080` |
+| Obs logs (OTLP/`_bulk`/syslog) | log shippers | `obs` | `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`) | `127.0.0.1:5080` |
 | Prometheus `/metrics` | Prometheus scrape | `metrics` (default) | `GRAPH_SERVICE_METRICS_ADDR` (`--metrics-addr`) | `127.0.0.1:9101` |
 
 > The default ports above are the **documented conventions** each listener binds when given a
@@ -142,11 +149,51 @@ with drv.session() as s:
 - Bolt speaks **Cypher, not SQL**, so it does not use the SQL `WireSession` core — `RUN`'s
   Cypher goes straight to the eg-query cypher engine.
 
+## Redis — `redis-cli` / clients (`redis-wire`)
+
+A hand-rolled **RESP2/RESP3** listener (`src/server/redis_wire/`, CONCEPT:EG-174) serving the
+core Redis command set over the engine's namespace-scoped KV surface (feature `kv`): strings
+(`GET`/`SET`/`DEL`/`EXPIRE`/`INCR`), hashes (`HSET`/`HGET`), lists (`LPUSH`/`LRANGE`), sets
+(`SADD`/`SMEMBERS`), sorted sets (`ZADD`/`ZRANGE`), and keyspace `SCAN`.
+
+```bash
+EPISTEMIC_GRAPH_REDIS_ADDR=127.0.0.1:6379 \
+  epistemic-graph-server --persist-dir /var/lib/eg   # built --features "redis-wire server"
+
+redis-cli -h 127.0.0.1 -p 6379 SET agent:1 online
+redis-cli -h 127.0.0.1 -p 6379 GET agent:1        # → "online"
+```
+
+- **Auth**: `EPISTEMIC_GRAPH_REDIS_PASSWORD` enables `AUTH` (`redis-cli -a …`); unset ⇒ no auth
+  (dev). The command set is a documented **subset** of Redis, backed by the durable KV store.
+
+## S3 — `aws s3` / MinIO SDKs (`s3-api`)
+
+An **S3-compatible REST API** (`src/server/s3/`, CONCEPT:EG-176) over the blob CAS: bucket +
+object CRUD (`PUT`/`GET`/`DELETE`/`HEAD`/List) with **SigV4-lite** auth, so S3 clients read/write
+blobs as objects.
+
+```bash
+EPISTEMIC_GRAPH_S3_ADDR=127.0.0.1:9000 \
+EPISTEMIC_GRAPH_S3_ACCESS_KEY=agent \
+EPISTEMIC_GRAPH_S3_SECRET_KEY=$SECRET \
+  epistemic-graph-server --persist-dir /var/lib/eg   # built --features "s3-api server"
+
+aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://docs
+aws --endpoint-url http://127.0.0.1:9000 s3 cp ./report.pdf s3://docs/report.pdf
+aws --endpoint-url http://127.0.0.1:9000 s3 ls s3://docs
+```
+
+- **Auth**: SigV4-lite keyed by `EPISTEMIC_GRAPH_S3_ACCESS_KEY` / `…_S3_SECRET_KEY`.
+- Objects are stored content-addressed in the same dedup'd, refcount-GC'd blob store as the
+  native blob surface (see [kv-blob](kv-blob.md)).
+
 ## RabbitMQ — AMQP 0.9.1 client (`amqp-wire` / `broker`)
 
 A hand-rolled **AMQP 0.9.1** server (no heavy AMQP crate) mapping
 connection/channel/exchange/queue/`basic.*` frames onto the engine's RabbitMQ-class broker
-primitives (exchanges, bindings, topic routing) over the KG-2.303 work-queue.
+primitives (exchanges, bindings, topic routing) over the KG-2.303 work-queue. See
+[messaging](messaging.md) for the broker semantics (DLQ/TTL/priority/streams/confirms).
 
 ```bash
 EPISTEMIC_GRAPH_AMQP_ADDR=127.0.0.1:5672 \
@@ -160,6 +207,69 @@ ch = conn.channel()
 ch.queue_declare(queue="tasks")
 ch.basic_publish(exchange="", routing_key="tasks", body="hello")
 ```
+
+- The broker graph is `EPISTEMIC_GRAPH_AMQP_GRAPH` (default `__commons__`). All three broker
+  wires (AMQP/MQTT/STOMP) share the **one** broker — a message published over AMQP can be
+  consumed over MQTT/STOMP by topic.
+
+## MQTT — `mosquitto_pub` / IoT (`mqtt-wire`)
+
+An **MQTT 3.1.1 / 5.0** listener (`src/server/mqtt_wire/`, CONCEPT:EG-281) mapping
+CONNECT/PUBLISH/SUBSCRIBE/PINGREQ/DISCONNECT onto the EG-275 broker (topic exchange + bindings,
+QoS 0/1), so MQTT/IoT clients pub/sub over the native broker.
+
+```bash
+EPISTEMIC_GRAPH_MQTT_ADDR=127.0.0.1:1883 \
+  epistemic-graph-server --persist-dir /var/lib/eg   # built --features "mqtt-wire server"
+
+mosquitto_sub -h 127.0.0.1 -p 1883 -t 'sensors/#' &
+mosquitto_pub -h 127.0.0.1 -p 1883 -t 'sensors/room1' -m '21.5'
+```
+
+- Broker graph: `EPISTEMIC_GRAPH_MQTT_GRAPH` (default `__commons__`).
+
+## STOMP — text-frame clients (`stomp-wire`)
+
+A **STOMP 1.2** text-frame listener (`src/server/stomp_wire/`, CONCEPT:EG-282) mapping
+CONNECT/SEND/SUBSCRIBE/ACK/DISCONNECT onto the EG-275 broker.
+
+```bash
+EPISTEMIC_GRAPH_STOMP_ADDR=127.0.0.1:61613 \
+  epistemic-graph-server --persist-dir /var/lib/eg   # built --features "stomp-wire server"
+```
+
+```text
+CONNECT
+accept-version:1.2
+
+^@
+SEND
+destination:/queue/tasks
+
+hello^@
+```
+
+- Broker graph: `EPISTEMIC_GRAPH_STOMP_GRAPH` (default `__commons__`).
+
+## KV-cache — vLLM / LMCache shared blocks (`kvcache-server`)
+
+A gated HTTP surface over the tiered shared KV-cache (`src/server/kvcache_http/`,
+CONCEPT:EG-185/186/187), so parallel-deployed vLLM/LMCache instances share LLM KV blocks by
+token-hash (dedup + OOM-offload). See [kvcache](kvcache.md) for the tier model and the LMCache
+connector contract.
+
+```bash
+EPISTEMIC_GRAPH_KVCACHE_ADDR=127.0.0.1:9130 \
+EPISTEMIC_GRAPH_KVCACHE_TOKEN=$SECRET \
+  epistemic-graph-server --persist-dir /var/lib/eg   # built --features "kvcache-server server"
+
+curl -s -XPUT --data-binary @block.bin http://127.0.0.1:9130/kv/<token-hash>   # store
+curl -s http://127.0.0.1:9130/kv/<token-hash>                                  # fetch (404 if absent)
+curl -s http://127.0.0.1:9130/kv/<token-hash>/exists                           # {"hash":…,"exists":bool}
+curl -s http://127.0.0.1:9130/kv/stats                                         # occupancy + dedup stats
+```
+
+- **Auth**: bearer `EPISTEMIC_GRAPH_KVCACHE_TOKEN` when set (`Authorization: Bearer …`).
 
 ---
 
@@ -219,6 +329,44 @@ curl -s -XPOST 'http://127.0.0.1:5080/v1/traces' \
 
 # trace search + single-trace assembly + service-dependency graph
 curl -s 'http://127.0.0.1:5080/api/traces?service=my-svc'
+```
+
+See [observability](observability.md) for the full logs + PromQL + traces + VRL-pipeline surface.
+
+### Super-cluster federated search (`federation-search`)
+
+`/federated` fans a read query across the peer registry
+(`EPISTEMIC_GRAPH_FEDERATION_PEERS`, an SSRF allowlist in `EPISTEMIC_GRAPH_FEDERATION_ALLOW`)
+**and** the local store, then unions/de-dups + RRF-re-ranks the partials (a slow/dead peer
+degrades to `partial: true`, never fails — CONCEPT:EG-243). This is a **separate** listener from
+`/sparql`, on its own `EPISTEMIC_GRAPH_FEDERATED_ADDR`.
+
+```bash
+EPISTEMIC_GRAPH_FEDERATED_ADDR=127.0.0.1:7900 \
+EPISTEMIC_GRAPH_FEDERATION_PEERS='http://peer-b:7900,http://peer-c:7900' \
+EPISTEMIC_GRAPH_FEDERATION_ALLOW='peer-b,peer-c' \
+  epistemic-graph-server --persist-dir /var/lib/eg   # built --features "federation-search server"
+
+curl -s -XPOST 'http://127.0.0.1:7900/federated' \
+  -H 'content-type: application/json' \
+  --data '{"query":"SELECT id FROM nodes LIMIT 10","lang":"sql"}'
+```
+
+Peers answer each other over `/federated?local=1` (run-locally-only, no re-fan). Distinct from
+the in-plan `Op::ForeignScan` federation (KG-2.232) — that composes a single foreign source into
+one query plan; `/federated` scatter-gathers a whole query across peer engines.
+
+### Natural-language query (`/nl`, `nl-query`)
+
+`POST /nl` on the **SPARQL** listener turns a natural-language string into a plan and executes it
+through the deterministic pipeline (CONCEPT:EG-078/080). It needs `nl-query` **and** an
+OpenAI-compatible endpoint (`EPISTEMIC_GRAPH_NL_ENDPOINT` / `…_NL_MODEL` / `…_NL_API_KEY_ENV`);
+unconfigured it returns a clear "not configured" error, never a panic.
+
+```bash
+curl -s -XPOST 'http://127.0.0.1:7878/nl' \
+  -H 'content-type: application/json' \
+  --data '{"text":"how many Doc nodes mention Alice?","graph":"my_graph"}'
 ```
 
 ### Prometheus `/metrics` (the engine's own telemetry, `metrics`, default-on)

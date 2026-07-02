@@ -4,8 +4,10 @@ The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index 
 `SemanticStore` backend — no faiss, no GPU at serve time, no rebuild-on-load. It is Pi-lean and folded
 into every durable serving tier.
 
-> Status snapshot: single-shard ANN is production-grade and fully supported. Cross-shard kNN merge and
-> hybrid metadata pre-filtering are roadmap. See the [capability matrix](../capabilities.md#vector-ann-eg-ann-eg-core).
+> Status snapshot: single-shard ANN is production-grade. Cross-shard kNN scatter-gather (EG-069), hybrid
+> metadata pre-filtering pushed into the ANN probe (EG-070), an exact/flat index + recall harness (EG-297),
+> and pgvector distance operators + index pushdown (EG-115/116) are all shipped. See the
+> [capability matrix](../capabilities.md#vector-ann-eg-ann-eg-core).
 
 ## What the index is
 
@@ -45,6 +47,21 @@ rebuilt in a single O(N) integer pass. Writes are atomic (temp + rename). A redb
 - Cosine similarity is served via normalized-L2 (`cos = 1 − d/2`); overwrites tombstone the prior row,
   and a VACUUM compaction reclaims them.
 
+## Exact / flat index & recall harness (EG-297)
+
+Alongside the IVF-PQ ANN, a **brute-force exact kNN index** provides ground truth for small sets and a
+**re-rank stage** over ANN candidates for high precision (a hybrid combining ANN recall with exact-distance
+refinement). A **recall@k / precision self-evaluation harness** measures the ANN against the exact ground
+truth, so you can quantify the accuracy/latency trade-off for a given dataset.
+
+## Cross-shard & pre-filtered search (EG-069/070)
+
+- **Cross-shard kNN** (EG-069): a vector search fans out across shards / Raft groups and merges the
+  per-shard top-k into a global top-k (server-layer scatter-gather over the `eg-ann` indexes).
+- **Hybrid pre-filter** (EG-070): a graph/SQL predicate is pushed *into* the `ivfpq::search` scan (a
+  candidate-id allowlist / predicate arg) so filtering happens during the ANN probe, not as
+  over-fetch-then-post-filter.
+
 ## Using it
 
 Vector rank is a first-class planner op — `Rank { query }` — so an ANN search composes with graph
@@ -55,4 +72,8 @@ MATCH (:Doc) WHERE year > 2024
   |> RANK BY ~[0.1, 0.9, 0.0]
   |> LIMIT 10
 ```
+
+Over pgwire, the same index answers pgvector `ORDER BY emb <-> $1 LIMIT k` (L2 `<->` / cosine `<=>` /
+neg-inner `<#>`), pushed down to the ANN index by `CREATE INDEX … USING hnsw/ivfflat` (EG-115/116) — see
+[sql](sql.md#postgres-extensions--create-extension-eg-102).
 </content>
