@@ -22,10 +22,13 @@
 //! a [`Dataset`] of the store's graph snapshots (named-graph aware), then instantiates
 //! the delete/insert quad patterns per solution.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use eg_core::graph::GraphCore;
-use oxrdf::{Literal, NamedOrBlankNode, Term};
+use oxrdf::{Graph, Literal, NamedOrBlankNode, Term, Triple};
+
+use crate::guard::{GuardRejection, WriteGuard};
 use spargebra::algebra::GraphTarget;
 use spargebra::term::{
     GraphName, GraphNamePattern, GroundQuad, GroundQuadPattern, GroundTerm, GroundTermPattern,
@@ -216,6 +219,143 @@ pub fn execute(
         }
     }
     Ok(report)
+}
+
+// ── EG-300 constraint-enforced commit (WriteGuard hook) ─────────────────────────
+
+/// The failure of a guarded commit (CONCEPT:EG-300): either the underlying
+/// parse/execute failed, or a [`WriteGuard`] refused the change set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateError {
+    /// The update failed to parse or execute (the same message the plain path returns).
+    Exec(String),
+    /// A constraint guard rejected the commit — NO change was applied to the store.
+    Rejected(GuardRejection),
+}
+
+impl std::fmt::Display for UpdateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UpdateError::Exec(e) => write!(f, "update failed: {e}"),
+            UpdateError::Rejected(r) => write!(f, "update rejected by constraint guard: {r}"),
+        }
+    }
+}
+
+impl std::error::Error for UpdateError {}
+
+/// Parse + execute a SPARQL UPDATE string under a [`WriteGuard`] (CONCEPT:EG-300).
+pub fn execute_guarded_str(
+    update_str: &str,
+    store: &dyn GraphStore,
+    proj: &Projection,
+    guard: &dyn WriteGuard,
+) -> Result<UpdateReport, UpdateError> {
+    let update = parse_update(update_str).map_err(UpdateError::Exec)?;
+    execute_guarded(&update, store, proj, guard)
+}
+
+/// Execute a parsed SPARQL UPDATE as a **constraint-enforced transaction** (CONCEPT:EG-300).
+///
+/// The whole change set is the transaction boundary. When the guard is [`WriteGuard::active`]:
+///
+///  1. snapshot the store's graphs (`base`);
+///  2. replay the update on a throwaway *shadow* store seeded from `base` (so the REAL
+///     store is never touched speculatively) → the projected `after`;
+///  3. per graph, diff `after` vs `base` into net additions/removals and call
+///     [`WriteGuard::check_graph`];
+///  4. if any graph is refused → return [`UpdateError::Rejected`] and the real store is
+///     left UNCHANGED (nothing was committed);
+///  5. otherwise replay the update on the real store and return its [`UpdateReport`].
+///
+/// When the guard is inactive this is byte-for-byte [`execute`] (zero simulate/diff cost),
+/// so an `Off` policy is fully backward-compatible. Deterministic: the shadow replay and
+/// the real replay start from the identical `base`, so `DELETE/INSERT … WHERE` binds the
+/// same solutions in both.
+pub fn execute_guarded(
+    update: &Update,
+    store: &dyn GraphStore,
+    proj: &Projection,
+    guard: &dyn WriteGuard,
+) -> Result<UpdateReport, UpdateError> {
+    if !guard.active() {
+        return execute(update, store, proj).map_err(UpdateError::Exec);
+    }
+
+    // (1) snapshot base — the default graph plus every named graph currently in the store.
+    let base = snapshot_store(store).map_err(UpdateError::Exec)?;
+
+    // (2) seed a shadow store from base and replay the update there (real store untouched).
+    let shadow = MapStore::new();
+    for (g, triples) in &base {
+        if let Some(core) = shadow.core(g.as_deref()) {
+            insert_triples(&core, triples).map_err(UpdateError::Exec)?;
+        }
+    }
+    execute(update, &shadow, proj).map_err(UpdateError::Exec)?;
+    let after = snapshot_store(&shadow).map_err(UpdateError::Exec)?;
+
+    // (3) per graph, diff and ask the guard (over the union of base + after graph names).
+    let mut names: HashSet<Option<String>> = base.keys().cloned().collect();
+    names.extend(after.keys().cloned());
+    let empty: Vec<Triple> = Vec::new();
+    for name in names {
+        let b = base.get(&name).unwrap_or(&empty);
+        let a = after.get(&name).unwrap_or(&empty);
+        let (additions, removals) = triple_diff(b, a);
+        if additions.is_empty() && removals.is_empty() {
+            continue; // this graph is unchanged — nothing to validate.
+        }
+        let base_graph = triples_to_graph(b);
+        guard
+            .check_graph(name.as_deref(), &base_graph, &additions, &removals)
+            .map_err(UpdateError::Rejected)?;
+    }
+
+    // (4/5) accepted — commit to the real store (same base ⇒ same result).
+    execute(update, store, proj).map_err(UpdateError::Exec)
+}
+
+/// Snapshot every graph of a store to RDF triples: the default graph (key `None`) plus
+/// each named graph. Reuses the same lossless export the whole-graph copy path uses.
+fn snapshot_store(
+    store: &dyn GraphStore,
+) -> Result<HashMap<Option<String>, Vec<Triple>>, String> {
+    let mut out: HashMap<Option<String>, Vec<Triple>> = HashMap::new();
+    if let Some(core) = store.core(None) {
+        out.insert(None, export_graph_triples(&core, "")?);
+    }
+    for (name, core) in store.named() {
+        let triples = export_graph_triples(&core, &name)?;
+        out.insert(Some(name), triples);
+    }
+    Ok(out)
+}
+
+/// Net additions (`after \ base`) and removals (`base \ after`) between two triple sets.
+fn triple_diff(base: &[Triple], after: &[Triple]) -> (Vec<Triple>, Vec<Triple>) {
+    let base_set: HashSet<&Triple> = base.iter().collect();
+    let after_set: HashSet<&Triple> = after.iter().collect();
+    let additions = after
+        .iter()
+        .filter(|t| !base_set.contains(*t))
+        .cloned()
+        .collect();
+    let removals = base
+        .iter()
+        .filter(|t| !after_set.contains(*t))
+        .cloned()
+        .collect();
+    (additions, removals)
+}
+
+/// Build an oxrdf [`Graph`] from a slice of triples (the guard's `base` argument).
+fn triples_to_graph(triples: &[Triple]) -> Graph {
+    let mut g = Graph::new();
+    for t in triples {
+        g.insert(t);
+    }
+    g
 }
 
 // ── DELETE/INSERT … WHERE ───────────────────────────────────────────────────────

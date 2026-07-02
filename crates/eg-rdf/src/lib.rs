@@ -34,6 +34,12 @@ pub use oxrdf;
 #[cfg(feature = "rdf")]
 pub mod mapping;
 
+/// EG-300 — the write-time constraint-guard hook the commit path invokes. Defined here
+/// (below the SHACL/ICV engine in the DAG) so an upper layer — eg-shacl's ICV policy —
+/// can IMPLEMENT it without a dependency cycle. See [`update::execute_guarded`].
+#[cfg(feature = "rdf")]
+pub mod guard;
+
 /// EG-136 — hand-rolled JSON-LD 1.1 serialization + parse over the eg-rdf term model,
 /// built directly on `serde_json` (NO heavy JSON-LD crate). Expanded + compacted
 /// (`@context`) writers and an expanded/compacted parser (`@id`/`@type`/`@value`/
