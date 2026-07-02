@@ -170,3 +170,134 @@ fn mixed_relational_and_spatial_filter() {
     ]);
     assert_eq!(run(&plan, &view), vec!["B", "D"]);
 }
+
+// ── EG-258 DE-9IM relation filters + EG-255 reproject + EG-259 SpatialOp ──────────
+
+/// A layer of `Parcel` polygons for the topological-relation proofs.
+///   P1 = [0,0]-[4,4] ; P2 = [2,2]-[6,6] (overlaps P1) ; P3 = [10,10]-[12,12] (far)
+fn parcels() -> GraphView {
+    let core = GraphCore::new();
+    for (id, wkt) in [
+        ("P1", "POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0))"),
+        ("P2", "POLYGON ((2 2, 6 2, 6 6, 2 6, 2 2))"),
+        ("P3", "POLYGON ((10 10, 12 10, 12 12, 10 12, 10 10))"),
+    ] {
+        core.add_node(id.into(), blob(json!({ "type": "Parcel", "geometry": wkt })));
+    }
+    core.analysis_snapshot()
+}
+
+fn scan_parcels() -> Op {
+    Op::SpatialScan {
+        layer: "Parcel".into(),
+        bbox: [-100.0, -100.0, 100.0, 100.0],
+    }
+}
+
+#[test]
+fn spatial_contains_filter() {
+    let view = parcels();
+    // Which parcels CONTAIN the point (1,1)? Only P1 (strictly inside).
+    let plan = Plan::new(vec![
+        scan_parcels(),
+        Op::Filter {
+            preds: vec![Pred::SpatialContains {
+                column: "geometry".into(),
+                wkt: "POINT (1 1)".into(),
+            }],
+        },
+    ]);
+    assert_eq!(run(&plan, &view), vec!["P1"]);
+}
+
+#[test]
+fn spatial_disjoint_and_overlaps_filters() {
+    let view = parcels();
+    // DISJOINT from P1's box [0,0]-[4,4]: only P3 (P2 overlaps it).
+    let disj = Plan::new(vec![
+        scan_parcels(),
+        Op::Filter {
+            preds: vec![Pred::SpatialDisjoint {
+                column: "geometry".into(),
+                wkt: "POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0))".into(),
+            }],
+        },
+    ]);
+    assert_eq!(run(&disj, &view), vec!["P3"]);
+    // OVERLAPS P1's box: only P2 (P1 equals it — not an overlap; P3 is disjoint).
+    let ovl = Plan::new(vec![
+        scan_parcels(),
+        Op::Filter {
+            preds: vec![Pred::SpatialOverlaps {
+                column: "geometry".into(),
+                wkt: "POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0))".into(),
+            }],
+        },
+    ]);
+    assert_eq!(run(&ovl, &view), vec!["P2"]);
+}
+
+#[test]
+fn reproject_keeps_tagged_rows_drops_untagged() {
+    // Two cities: one WKT carries an EWKT SRID=4326 tag, the other does not.
+    let core = GraphCore::new();
+    core.add_node(
+        "tagged".into(),
+        blob(json!({ "type": "City", "geometry": "SRID=4326;POINT (2.35 48.85)" })),
+    );
+    core.add_node(
+        "untagged".into(),
+        blob(json!({ "type": "City", "geometry": "POINT (2.35 48.85)" })),
+    );
+    let view = core.analysis_snapshot();
+    // Reproject to Web-Mercator: only the SRID-tagged row has a resolvable source CRS.
+    let plan = Plan::new(vec![
+        Op::SpatialScan {
+            layer: "City".into(),
+            bbox: [-100.0, -100.0, 100.0, 100.0],
+        },
+        Op::Reproject {
+            to_epsg: 3857,
+            from_epsg: None,
+        },
+    ]);
+    assert_eq!(run(&plan, &view), vec!["tagged"]);
+    // With an explicit `from_epsg` override, the untagged row reprojects too.
+    let plan2 = Plan::new(vec![
+        Op::SpatialScan {
+            layer: "City".into(),
+            bbox: [-100.0, -100.0, 100.0, 100.0],
+        },
+        Op::Reproject {
+            to_epsg: 3857,
+            from_epsg: Some(4326),
+        },
+    ]);
+    assert_eq!(run(&plan2, &view), vec!["tagged", "untagged"]);
+}
+
+#[test]
+fn spatial_op_buffer_and_intersection() {
+    use crate::algebra::Op;
+    use eg_types::wire::SpatialOpKind;
+    let view = parcels();
+    // Buffer succeeds for every parcel (derived geometry always exists).
+    let buf = Plan::new(vec![
+        scan_parcels(),
+        Op::SpatialOp {
+            kind: SpatialOpKind::Buffer { distance: 1.0 },
+        },
+    ]);
+    assert_eq!(run(&buf, &view), vec!["P1", "P2", "P3"]);
+    // Intersection with P1's box [0,0]-[4,4]: P1 (self) and P2 (overlap) yield a non-empty
+    // polygon; P3 (disjoint) yields nothing and is DROPPED.
+    let inter = Plan::new(vec![
+        scan_parcels(),
+        Op::SpatialOp {
+            kind: SpatialOpKind::Intersection {
+                wkt: "POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0))".into(),
+            },
+        },
+    ]);
+    assert_eq!(run(&inter, &view), vec!["P1", "P2"]);
+}
