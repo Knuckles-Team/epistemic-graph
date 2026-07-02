@@ -27,7 +27,7 @@ use super::udfs::{
     json_get_i64_udf, json_get_udf, time_bucket_udf, vector_cosine_udf, vector_ip_udf,
     vector_l2_udf,
 };
-use crate::tables::TableStore;
+use crate::tables::{StoredFunction, TableStore};
 
 /// One user table materialized for registration into the SQL context: its name plus
 /// the Arrow `(schema, batch)` scanned out of the redb store (CONCEPT:EG-018).
@@ -44,7 +44,7 @@ const MAX_ROWS: usize = 50_000;
 pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run(view, nodes, edges, Vec::new(), Vec::new(), sql)
+    run(view, nodes, edges, Vec::new(), Vec::new(), Vec::new(), sql)
 }
 
 /// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph
@@ -150,7 +150,7 @@ pub struct TypedQueryResult {
 pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
-    run_typed(view, nodes, edges, Vec::new(), Vec::new(), sql)
+    run_typed(view, nodes, edges, Vec::new(), Vec::new(), Vec::new(), sql)
 }
 
 /// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-018). Identical
@@ -169,7 +169,10 @@ pub fn exec_sql_typed_with_tables(
     // CONCEPT:EG-072: the durable views, registered as read-only named queries so a
     // SELECT that references a view expands its stored SELECT during context build.
     let views = store.list_views()?;
-    run_typed(view, nodes, edges, user, views, sql)
+    // CONCEPT:EG-118: the durable SQL stored functions, expanded into the query text
+    // (scalar → scalar subquery; table → parameterized-view subquery) before planning.
+    let functions = store.list_functions()?;
+    run_typed(view, nodes, edges, user, views, functions, sql)
 }
 
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
@@ -183,7 +186,15 @@ pub fn exec_sql_cached(
     sql: &str,
 ) -> Result<QueryResult, String> {
     let tables = cache.tables_at(view, version)?;
-    run(view, tables.nodes, tables.edges, Vec::new(), Vec::new(), sql)
+    run(
+        view,
+        tables.nodes,
+        tables.edges,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        sql,
+    )
 }
 
 /// Build the shared `SessionContext` for a SQL run: register the `nodes`/`edges`
@@ -275,6 +286,7 @@ fn run(
     ),
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
+    functions: Vec<StoredFunction>,
     sql: &str,
 ) -> Result<QueryResult, String> {
     // The graph table functions run their kernel over an owned snapshot; clone the
@@ -286,13 +298,17 @@ fn run(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-118 — expand SQL stored-function calls into inline SQL (scalar subquery /
+    // parameterized-view subquery) BEFORE the pgvector desugar + planning, so an inlined
+    // body is itself desugared and planned. A no-op when there are no functions.
+    let sql = super::funcs::expand_functions(sql, &functions)?;
     // CONCEPT:EG-115 — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
     // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
     // operator for them). A no-op when none are present or the SQL doesn't parse.
-    let sql = super::classify::desugar_vector_ops(sql);
+    let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
         let ctx = build_ctx(snap, nodes, edges, user_tables)?;
-        register_views(&ctx, &views).await?;
+        register_views(&ctx, &views, &functions).await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_result(&batches)
@@ -304,10 +320,17 @@ fn run(
 /// register the resulting `ViewTable` under the view's name so a query that references
 /// it expands the SELECT. A view whose SELECT fails to plan (e.g. it referenced a table
 /// since dropped) is skipped with a debug log rather than failing every query.
-async fn register_views(ctx: &SessionContext, views: &[(String, String)]) -> Result<(), String> {
+async fn register_views(
+    ctx: &SessionContext,
+    views: &[(String, String)],
+    functions: &[StoredFunction],
+) -> Result<(), String> {
     for (name, select_sql) in views {
+        // CONCEPT:EG-118 — a view body may itself call a stored function; expand it first.
+        let select_sql = super::funcs::expand_functions(select_sql, functions)
+            .unwrap_or_else(|_| select_sql.clone());
         // CONCEPT:EG-115 — a view body may itself use the pgvector operators.
-        let select_sql = super::classify::desugar_vector_ops(select_sql);
+        let select_sql = super::classify::desugar_vector_ops(&select_sql);
         match ctx.sql(&select_sql).await {
             Ok(df) => {
                 let provider = df.into_view();
@@ -342,6 +365,7 @@ fn run_typed(
     ),
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
+    functions: Vec<StoredFunction>,
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
     let snap = Arc::new(view.clone());
@@ -351,11 +375,13 @@ fn run_typed(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
+    // CONCEPT:EG-118 — see `run`: expand SQL stored-function calls before desugar/planning.
+    let sql = super::funcs::expand_functions(sql, &functions)?;
     // CONCEPT:EG-115 — see `run`: desugar the pgvector operators before planning.
-    let sql = super::classify::desugar_vector_ops(sql);
+    let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
         let ctx = build_ctx(snap, nodes, edges, user_tables)?;
-        register_views(&ctx, &views).await?;
+        register_views(&ctx, &views, &functions).await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
