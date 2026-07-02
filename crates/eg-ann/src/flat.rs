@@ -279,3 +279,167 @@ fn sort_nearest_first(v: &mut [SearchResult]) {
             .then_with(|| a.id.cmp(&b.id))
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tiny hand-checkable index: 2-D points at known coordinates.
+    fn idx() -> FlatIndex {
+        let mut f = FlatIndex::new(2);
+        f.add(&[
+            (10, vec![0.0, 0.0]),
+            (20, vec![1.0, 0.0]),
+            (30, vec![0.0, 2.0]),
+            (40, vec![3.0, 4.0]),
+        ]);
+        f
+    }
+
+    #[test]
+    fn eg297_flat_exact_topk_l2_matches_hand_computed() {
+        // Squared-L2 from the origin: 10→0, 20→1, 30→4, 40→25.
+        let f = idx();
+        let res = f.search(&[0.0, 0.0], 3, Metric::L2);
+        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20, 30]);
+        assert_eq!(res[0].distance, 0.0);
+        assert_eq!(res[1].distance, 1.0);
+        assert_eq!(res[2].distance, 4.0);
+    }
+
+    #[test]
+    fn eg297_flat_exact_topk_cosine_matches_hand_computed() {
+        // Query along +x. cosine distance = 1 − cos.
+        //   20 [1,0] cos=1     → 0.0     (nearest)
+        //   40 [3,4] cos=3/5   → 0.4
+        //   30 [0,2] cos=0     → 1.0
+        //   10 [0,0] zero-norm → 1.0     (tie, id-broken after 30)
+        let f = idx();
+        let res = f.search(&[1.0, 0.0], 2, Metric::Cosine);
+        assert_eq!(res[0].id, 20);
+        assert!((res[0].distance - 0.0).abs() < 1e-6, "d={}", res[0].distance);
+        assert_eq!(res[1].id, 40);
+        assert!((res[1].distance - 0.4).abs() < 1e-6, "d={}", res[1].distance);
+    }
+
+    #[test]
+    fn eg297_flat_exact_topk_inner_product_is_max_dot() {
+        // Inner product distance = −⟨q,x⟩, so the largest dot is nearest.
+        // q=[1,0]: 40 dot 3 → −3, 20 dot 1 → −1, 10/30 dot 0 → 0.
+        let f = idx();
+        let res = f.search(&[1.0, 0.0], 2, Metric::InnerProduct);
+        assert_eq!(res[0].id, 40);
+        assert_eq!(res[0].distance, -3.0);
+        assert_eq!(res[1].id, 20);
+        assert_eq!(res[1].distance, -1.0);
+    }
+
+    #[test]
+    fn eg297_metric_distance_symmetric_and_zero_norm_cosine() {
+        let a = [1.0f32, 2.0, 3.0];
+        let b = [4.0f32, -1.0, 0.5];
+        for m in [Metric::L2, Metric::Cosine, Metric::InnerProduct] {
+            assert!((m.distance(&a, &b) - m.distance(&b, &a)).abs() < 1e-6);
+        }
+        // A zero vector is maximally far under cosine (no direction).
+        assert_eq!(Metric::Cosine.distance(&[0.0, 0.0], &[1.0, 1.0]), 1.0);
+        // Identical direction → cosine distance 0.
+        assert!(Metric::Cosine.distance(&[2.0, 0.0], &[5.0, 0.0]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn eg297_rerank_recovers_exact_order_from_shuffled_overfetch() {
+        // An ANN over-fetches candidates in an arbitrary (wrong) order and may
+        // include ids not in the index; exact rerank must recover the true top-k.
+        let f = idx();
+        let shuffled_overfetch = vec![40u64, 30, 20, 10, 99_999];
+        let res = f.rerank(&[0.0, 0.0], &shuffled_overfetch, 3);
+        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20, 30]);
+        assert!(!res.iter().any(|r| r.id == 99_999), "absent id must be skipped");
+        // Distances are the true (recomputed) ones, not any ANN estimate.
+        assert_eq!(res[0].distance, 0.0);
+        assert_eq!(res[1].distance, 1.0);
+    }
+
+    #[test]
+    fn eg297_rerank_dedups_repeated_candidates() {
+        let f = idx();
+        let res = f.rerank(&[0.0, 0.0], &[20, 20, 10, 10, 30], 5);
+        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn eg297_refine_ann_reorders_ann_result_by_exact_distance() {
+        // The ANN's approximate distances are deliberately in the WRONG order;
+        // refine_ann discards them and re-scores exactly.
+        let f = idx();
+        let ann = vec![
+            SearchResult { id: 40, distance: 0.01 },
+            SearchResult { id: 30, distance: 0.02 },
+            SearchResult { id: 10, distance: 0.03 },
+            SearchResult { id: 20, distance: 0.04 },
+        ];
+        let res = f.refine_ann(&[0.0, 0.0], &ann, 2, Metric::L2);
+        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20]);
+    }
+
+    #[test]
+    fn eg297_delete_excluded_from_search_and_rerank() {
+        let mut f = idx();
+        assert_eq!(f.delete(10), 1);
+        assert_eq!(f.live_len(), 3);
+        let res = f.search(&[0.0, 0.0], 4, Metric::L2);
+        assert!(!res.iter().any(|r| r.id == 10), "tombstoned id must not appear");
+        let rr = f.rerank(&[0.0, 0.0], &[10, 20, 30], 4);
+        assert!(!rr.iter().any(|r| r.id == 10));
+        assert!(f.vector_of(10).is_none());
+        assert!(f.vector_of(20).is_some());
+    }
+
+    #[test]
+    fn eg297_search_k_zero_and_empty_index() {
+        let f = idx();
+        assert!(f.search(&[0.0, 0.0], 0, Metric::L2).is_empty());
+        let empty = FlatIndex::new(2);
+        assert!(empty.search(&[0.0, 0.0], 5, Metric::L2).is_empty());
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn eg297_byte_size_accounts_vectors_ids_tombstones() {
+        // Each added row costs dim*4 (f32) + 8 (id) + 1 (tombstone) bytes minimum.
+        let mut f = FlatIndex::new(4);
+        let base = f.byte_size();
+        f.add(&[(1, vec![1.0; 4]), (2, vec![2.0; 4])]);
+        let grew = f.byte_size();
+        let per_row = 4 * std::mem::size_of::<f32>() + std::mem::size_of::<u64>() + 1;
+        assert!(
+            grew >= base + 2 * per_row,
+            "byte_size {grew} must account >= {} added bytes (base {base})",
+            2 * per_row
+        );
+    }
+
+    #[test]
+    fn eg297_serde_round_trip_preserves_vectors_and_search() {
+        let f = idx();
+        let before = f.search(&[0.5, 0.5], 4, Metric::L2);
+        let bytes = bincode::serialize(&f).expect("serialize FlatIndex");
+        let back: FlatIndex = bincode::deserialize(&bytes).expect("deserialize FlatIndex");
+        assert_eq!(back.dim, f.dim);
+        assert_eq!(back.ids, f.ids);
+        assert_eq!(back.vectors, f.vectors);
+        assert_eq!(back.deleted, f.deleted);
+        let after = back.search(&[0.5, 0.5], 4, Metric::L2);
+        assert_eq!(before, after, "search must be identical after a serde round-trip");
+    }
+
+    #[test]
+    fn eg297_metric_serde_round_trip() {
+        for m in [Metric::L2, Metric::Cosine, Metric::InnerProduct] {
+            let s = bincode::serialize(&m).unwrap();
+            let back: Metric = bincode::deserialize(&s).unwrap();
+            assert_eq!(m, back);
+        }
+    }
+}
