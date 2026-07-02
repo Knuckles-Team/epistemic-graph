@@ -13,6 +13,10 @@ pub use eg_core::{compute, graph, isolation, registry};
 pub use eg_types::{acl, protocol, types, wire};
 
 pub mod algorithms;
+// CONCEPT:EG-144 — standalone graph data-science algorithms (Neo4j GDS parity).
+// Pure-Rust, deterministic, generic over node id; decoupled from the live engine
+// graph so it is unit-testable in isolation. Always-on (no heavy deps).
+pub mod graph_algos;
 pub mod ast;
 pub mod parser;
 pub mod screen;
