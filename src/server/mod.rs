@@ -190,12 +190,14 @@ mod tests {
                     subordinates: vec!["worker1".into(), "worker2".into()],
                 },
                 teams: vec!["alpha".into()],
+                roles: vec![],
             });
             for w in ["worker1", "worker2"] {
                 s.isolation.register_agent(AgentIdentity {
                     agent_id: w.into(),
                     role: AgentRole::Agent,
                     teams: vec!["alpha".into()],
+                    roles: vec![],
                 });
             }
             s.registry
