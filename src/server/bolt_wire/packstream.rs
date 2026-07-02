@@ -511,7 +511,7 @@ mod tests {
     #[test]
     fn bolt_packstream_roundtrips_float() {
         roundtrip(PackValue::Float(0.0));
-        roundtrip(PackValue::Float(3.141592653589793));
+        roundtrip(PackValue::Float(std::f64::consts::PI));
         roundtrip(PackValue::Float(-2.5e10));
     }
 

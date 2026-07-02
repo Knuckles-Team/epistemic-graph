@@ -632,6 +632,7 @@ mod tests {
         core.analysis_snapshot()
     }
 
+    #[allow(dead_code)]
     fn empty_vars() -> Variables {
         Variables::new()
     }

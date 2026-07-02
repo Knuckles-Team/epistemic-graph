@@ -12,7 +12,7 @@
 //!   * `eg096_node_write` — AddNode throughput into ONE graph (elements/sec).
 //!   * `eg096_edge_write` — AddEdge throughput over a pre-populated node set.
 //!   * `eg096_query`      — in-process read latency: single-hop `get_neighbors`
-//!                          and a `get_nodes_by_label` index lookup.
+//!     and a `get_nodes_by_label` index lookup.
 //!   * `eg096_ann_knn`    — IVF-PQ kNN search latency swept over `nprobe`.
 //!
 //! Run:  cargo bench --bench eg096_massive_scale_bench

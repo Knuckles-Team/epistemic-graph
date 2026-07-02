@@ -316,7 +316,12 @@ mod tests {
     fn eg087_pose_json_roundtrip() {
         let p = Pose {
             translation: Vec3::new(1.0, -2.0, 3.5),
-            rotation: Quat::new(0.0, 0.0, 0.7071, 0.7071),
+            rotation: Quat::new(
+                0.0,
+                0.0,
+                std::f64::consts::FRAC_1_SQRT_2,
+                std::f64::consts::FRAC_1_SQRT_2,
+            ),
             scale: Vec3::new(1.0, 2.0, 3.0),
         };
         assert_eq!(Pose::from_json(&p.to_json()), Some(p));

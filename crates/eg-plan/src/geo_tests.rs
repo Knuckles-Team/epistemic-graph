@@ -5,6 +5,7 @@
 //!  * `Op::SpatialScan { layer, bbox }` — an eg-geo packed-Hilbert-R-tree bbox scan.
 //!  * `Pred::SpatialWithin { column, wkt }` — geometry-within-polygon FILTER.
 //!  * `Pred::SpatialDWithin { column, wkt, distance }` — within-planar-distance FILTER.
+//!
 //! And a compose proof: `SpatialScan` then a spatial `Filter` in ONE plan.
 
 use eg_core::compute::semantic::SemanticStore;

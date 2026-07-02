@@ -2100,7 +2100,7 @@ mod tests {
             iv[0].value
         );
         // rate() drops the metric name.
-        assert!(iv[0].labels.get(METRIC_NAME).is_none());
+        assert!(!iv[0].labels.contains_key(METRIC_NAME));
     }
 
     #[test]
@@ -2147,8 +2147,8 @@ mod tests {
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].value, 60.0);
         assert_eq!(iv[0].labels.get("job").unwrap(), "api");
-        assert!(iv[0].labels.get("method").is_none()); // collapsed away
-        assert!(iv[0].labels.get(METRIC_NAME).is_none());
+        assert!(!iv[0].labels.contains_key("method")); // collapsed away
+        assert!(!iv[0].labels.contains_key(METRIC_NAME));
     }
 
     #[test]
@@ -2233,7 +2233,7 @@ mod tests {
             _ => panic!(),
         };
         assert_eq!(iv[0].value, 80.0);
-        assert!(iv[0].labels.get(METRIC_NAME).is_none()); // arith drops name
+        assert!(!iv[0].labels.contains_key(METRIC_NAME)); // arith drops name
 
         // vector - vector, matched on identical labels (get - get = 0).
         let v = query_instant(

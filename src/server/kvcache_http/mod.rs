@@ -448,11 +448,11 @@ mod tests {
         let none = None;
         // Two PUTs of the SAME hash ⇒ one resident block, a dedup hit on the second.
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/dup", &vec![1u8; 100], &[])).status,
+            handle(&s, &none, &req("PUT", "/kv/dup", &[1u8; 100], &[])).status,
             "201 Created"
         );
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/dup", &vec![1u8; 100], &[])).status,
+            handle(&s, &none, &req("PUT", "/kv/dup", &[1u8; 100], &[])).status,
             "200 OK"
         );
         let stats = handle(&s, &none, &req("GET", "/kv/stats", b"", &[]));

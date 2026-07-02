@@ -580,7 +580,7 @@ mod tests {
         assert_eq!(edges[0]["node"]["name"], json!("Alice"));
         assert_eq!(edges[1]["node"]["name"], json!("Bob"));
         // each edge carries an opaque cursor.
-        assert!(edges[0]["cursor"].as_str().unwrap().len() > 0);
+        assert!(!edges[0]["cursor"].as_str().unwrap().is_empty());
         // pageInfo: more rows remain (carol), so hasNextPage is true.
         assert_eq!(conn["pageInfo"]["hasNextPage"], json!(true));
         let end_cursor = conn["pageInfo"]["endCursor"].as_str().unwrap().to_string();

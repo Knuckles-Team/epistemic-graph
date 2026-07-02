@@ -285,7 +285,7 @@ pub enum CepNodeSpec {
 }
 
 /// STREAM — the full CEP spec carried by `Op::Cep` (CONCEPT:EG-088): the `pattern` tree
-/// + the `window` it is evaluated over. PURE serde — the executor turns it into an
+/// and the `window` it is evaluated over. PURE serde — the executor turns it into an
 /// eg-stream `run(pattern, events, window)` call behind eg-plan's `stream` gate; this is
 /// the wire variant.
 #[cfg(feature = "stream")]
