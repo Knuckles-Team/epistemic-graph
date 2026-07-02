@@ -19,6 +19,9 @@
 // historical `crate::` paths so every module's `crate::protocol::` /
 // `crate::graph::` / `crate::registry::` reference resolves unchanged.
 pub use eg_core::{compute, decay, graph, index, isolation, registry};
+// CONCEPT:EG-275 — message-broker primitives, re-exported under `crate::broker`.
+#[cfg(feature = "broker")]
+pub use eg_core::broker;
 pub use eg_types::{acl, protocol, types, wire};
 // Compute domains live in `eg-compute`; re-export under the historical `crate::`
 // paths. algorithms/ast/parser are always present; the feature-gated domains are
