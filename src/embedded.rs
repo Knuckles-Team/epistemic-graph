@@ -516,10 +516,9 @@ impl EmbeddedEngine {
                 store.drop_table(&plan.name, plan.if_exists)?;
                 Ok(status_result("DROP TABLE"))
             }
+            // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — one dispatch helper.
             StatementKind::AlterTable(plan) => {
-                let columns = to_store_columns(std::slice::from_ref(&plan.add_column))?;
-                let column = columns.into_iter().next().expect("one column");
-                store.add_column(&plan.name, column)?;
+                apply_alter_table(store, plan)?;
                 Ok(status_result("ALTER TABLE"))
             }
             StatementKind::InsertTable(ins) => {
@@ -602,6 +601,35 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column
             })
         })
         .collect()
+}
+
+/// Route a decoded `ALTER TABLE` action to the matching durable `TableStore` mutation
+/// (CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 DROP/RENAME COLUMN, RENAME TABLE, ALTER
+/// COLUMN TYPE, DROP CONSTRAINT). The single facade mapping the embedded path reuses.
+#[cfg(feature = "query")]
+fn apply_alter_table(
+    store: &eg_query::TableStore,
+    plan: eg_query::AlterTablePlan,
+) -> Result<(), String> {
+    use eg_query::AlterTableAction as A;
+    match plan.action {
+        A::AddColumn(col) => {
+            let columns = to_store_columns(std::slice::from_ref(&col))?;
+            let column = columns.into_iter().next().expect("one column");
+            store.add_column(&plan.name, column)
+        }
+        A::DropColumn { column, if_exists } => store.drop_column(&plan.name, &column, if_exists),
+        A::RenameColumn { from, to } => store.rename_column(&plan.name, &from, &to),
+        A::RenameTable { new_name } => store.rename_table(&plan.name, &new_name),
+        A::AlterColumnType { column, new_type } => {
+            let ty = eg_query::ColumnType::parse(&new_type)?;
+            store.alter_column_type(&plan.name, &column, ty)
+        }
+        A::DropConstraint {
+            constraint,
+            if_exists,
+        } => store.drop_constraint(&plan.name, &constraint, if_exists),
+    }
 }
 
 /// A one-row `status` result for a DDL statement (CREATE/ALTER/DROP TABLE).

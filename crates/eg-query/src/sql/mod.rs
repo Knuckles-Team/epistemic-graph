@@ -61,7 +61,8 @@ mod udfs;
 
 pub use classify::{
     classify, infer_param_sites, json_pred_from_expr, mongo_match_to_preds, returning_columns,
-    schema_probe_sql, AlterTablePlan, ColumnDef, CopyFormat, CopyPlan, CreateFunctionPlan,
+    schema_probe_sql, AlterTableAction, AlterTablePlan, ColumnDef, CopyFormat, CopyPlan,
+    CreateFunctionPlan,
     CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable, DropFunctionPlan,
     DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
     InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite, StatementKind,
