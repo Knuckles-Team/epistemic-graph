@@ -30,13 +30,15 @@ pub mod kmeans;
 pub mod linalg;
 pub mod persist;
 pub mod recall;
+pub mod scatter;
 
 #[cfg(feature = "redb")]
 pub mod redb_store;
 
 pub use flat::{FlatIndex, Metric};
 pub use hnsw::HnswIndex;
-pub use ivfpq::{merge_topk, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB};
+pub use ivfpq::{merge_topk, merge_topk_stable, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB};
+pub use scatter::{scatter_knn, ScatterKnn, ShardIndex};
 pub use persist::{compact, open, save};
 pub use recall::{
     average_precision, evaluate_recall, mean_average_precision, precision_at_k, recall_at_k,
