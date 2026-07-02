@@ -2022,6 +2022,7 @@ dependencies = [
 name = "eg-tensor"
 version = "0.1.0"
 dependencies = [
+ "eg-tsdb",
  "serde",
  "serde_json",
 ]
