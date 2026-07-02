@@ -11,6 +11,12 @@ name = "eg_core"
 
 [features]
 default = []
+# Message-broker exchanges/routing (CONCEPT:EG-275) on top of the KG-2.303 work
+# queue: the `broker` module (Exchange/Binding/topic-route) + `GraphCore::
+# broker_enqueue`. PURE-RUST — no new dep (only serde/serde_json/rmp already linked)
+# — so it is Pi-safe; the facade folds it into the durable serving tiers. Gates
+# `eg-types/broker` so the broker `Method` variants appear in lock step.
+broker = ["eg-types/broker"]
 # Use the native eg-ann IVF-PQ+OPQ+SQ8-refine index (CONCEPT:KG-2.207) as the
 # SemanticStore ANN backend instead of the rebuild-on-load hnsw_rs index. The
 # persisted index reopens WITHOUT rebuilding from raw vectors. OFF by default;

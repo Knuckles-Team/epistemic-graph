@@ -27,6 +27,11 @@ query = []
 # behind the facade `graphql` feature; a build without it drops the variant (→ the
 # dispatch "not available in this build" catch-all).
 graphql = []
+# Message broker (CONCEPT:EG-275): gates the broker admin/data `Method` variants
+# (`DeclareExchange`/`DeleteExchange`/`BindQueue`/`UnbindQueue`/`Publish`). PURE serde
+# — no heavy dep — so it folds into the serving tiers; a build without it drops the
+# variants (→ the dispatch "not available in this build" catch-all).
+broker = []
 # Lexical BM25 full-text rank + RRF hybrid fusion (CONCEPT:KG-2.215). Gates the
 # `Op::RankText` / `Op::FuseRrf` variants of the cross-modal plan AST. Implies
 # `query` because those variants live inside the `query`-gated `Op` enum (the AST
