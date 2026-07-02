@@ -1,0 +1,22 @@
+[package]
+name = "eg-geo"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Pure-Rust spatial / geospatial modality for the epistemic-graph engine (CONCEPT:EG-083) — geometry (point/line/polygon), WKT parse/serialize, planar spatial predicates, and an in-house packed Hilbert R-tree bbox index. NO GEOS/PROJ/C deps (the Pi contract)."
+license = "MIT"
+
+[lib]
+name = "eg_geo"
+
+# Pure-Rust, Pi-lean by design — a leaf crate like eg-ann. The ONLY dependency is
+# serde (so a `Geometry` persists as a typed value in the redb per-graph store, per
+# CONCEPT:EG-083). NO GEOS/PROJ/C deps, NO geo/geo-types crate: the geometry model,
+# WKT codec, planar predicates and the packed Hilbert R-tree are all hand-written, so
+# the crate stays truly minimal and folds cleanly into the `geo` serving tiers.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+# The R-tree correctness test cross-checks query_bbox against a brute-force scan over
+# pseudo-random boxes; a tiny deterministic LCG in-test avoids even a rand dep.
