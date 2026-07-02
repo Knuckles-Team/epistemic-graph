@@ -44,3 +44,37 @@ KvCas
 # reasoning op with no Python consumer yet (the bound RDF surface covers add/remove/
 # get/sparql/owl); bind here until a live caller exists (Wire-First).
 RunRules
+
+# --- Wave 18-22 engine ops served via wire adapters / HTTP surfaces, not the thin Python client ---
+# Backup/Restore (CONCEPT:EG-090): ops/maintenance surface, not a client call.
+Backup
+Restore
+# Native message broker + streams (CONCEPT:EG-275..284): reached via the AMQP/MQTT/STOMP
+# wire adapters + graph_bus, not the Python client. Exchange/queue/publish/consume/ack + streams.
+DeclareExchange
+DeleteExchange
+DeclareQueue
+BindQueue
+UnbindQueue
+Publish
+PublishEx
+PublishConfirmed
+BrokerConsume
+BrokerAck
+BrokerReject
+BrokerAckTag
+BrokerNackTag
+SweepExpired
+StreamDeclare
+StreamPublish
+StreamRead
+StreamTrim
+StreamCommitOffset
+StreamCommittedOffset
+# NL->query (CONCEPT:EG-080): served via the /nl HTTP route, not the client.
+NlQuery
+# RBAC admin (CONCEPT:EG-092): admin/governance op, not a client call.
+RbacAdmin
+# SHACL/ShEx validation (CONCEPT:EG-132/133): reached via the RDF/SPARQL surface.
+ShaclValidate
+ShexValidate
