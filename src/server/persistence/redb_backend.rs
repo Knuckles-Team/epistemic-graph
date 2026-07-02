@@ -983,6 +983,15 @@ impl RedbBackend {
         self.shards.len()
     }
 
+    /// The persist dir this store lives in (CONCEPT:EG-090) — derived from shard 0's
+    /// file path parent. Used by the live restore RPC to stage a rebuilt copy beside the
+    /// running store (an in-place restore needs the engine stopped — the file lock).
+    pub fn persist_dir(&self) -> Option<std::path::PathBuf> {
+        std::path::Path::new(&self.shard0().db_path)
+            .parent()
+            .map(|p| p.to_path_buf())
+    }
+
     /// Take an ONLINE consistent backup of the whole durable store into `dst_dir`
     /// (CONCEPT:EG-090), while the engine keeps serving. Per shard, opens a
     /// `Database::begin_read()` MVCC snapshot (CONCEPT:EG-027) on the LIVE writer's

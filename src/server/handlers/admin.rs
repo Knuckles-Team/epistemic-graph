@@ -134,8 +134,97 @@ pub(crate) async fn try_handle(
                 )),
             }
         }
+        // ── Online backup / restore (CONCEPT:EG-090) ─────────────────
+        Method::Backup { destination, label } => {
+            // ONLINE, no quiesce: per-shard begin_read() MVCC snapshot streamed verbatim.
+            // The engine version + wall-clock timestamp are supplied HERE (application
+            // code) — the library `backup` fn never reads the clock.
+            let ts = now_secs();
+            match backend.backup(
+                std::path::Path::new(&destination),
+                env!("CARGO_PKG_VERSION"),
+                ts,
+                label.as_deref().unwrap_or(""),
+            ) {
+                Ok(r) => Ok(Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({
+                        "destination": destination,
+                        "label": label.unwrap_or_default(),
+                        "timestamp": ts,
+                        "engine_version": env!("CARGO_PKG_VERSION"),
+                        "shards": r.shards,
+                        "graphs": r.graphs,
+                        "nodes": r.nodes,
+                        "edges": r.edges,
+                        "ledger": r.ledger,
+                        "semantic": r.semantic,
+                        "audit": r.audit,
+                        "global": r.global,
+                    })),
+                )),
+                Err(e) => Ok(Response::err(req_id, format!("Backup failed: {e}"))),
+            }
+        }
+        Method::Restore { source } => {
+            // The running engine holds an exclusive lock on its live persist dir, so an
+            // in-place restore is offline-only (use the `restore` CLI). Over the wire we
+            // STAGE the rebuilt copy in a sibling dir for the operator to swap in.
+            let Some(persist_dir) = backend.persist_dir() else {
+                return Ok(Response::err(
+                    req_id,
+                    "cannot resolve the engine persist dir for a staged restore",
+                ));
+            };
+            let stage = persist_dir.with_file_name(format!(
+                "{}.restored-{}",
+                persist_dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "eg".to_string()),
+                now_secs()
+            ));
+            match crate::server::persistence::backup::restore_bundle(
+                std::path::Path::new(&source),
+                &stage,
+                None,
+            ) {
+                Ok(r) => Ok(Response::ok(
+                    req_id,
+                    ResultPayload::Json(serde_json::json!({
+                        "source": source,
+                        "staged_dir": stage.display().to_string(),
+                        "note": "restored into a sibling dir; stop the engine and swap it \
+                                 into the persist dir to activate (in-place restore uses \
+                                 the offline `restore` CLI)",
+                        "restored_shards": r.restored_shards,
+                        "bundle_engine_version": r.manifest.engine_version,
+                        "bundle_timestamp": r.manifest.timestamp,
+                        "bundle_label": r.manifest.label,
+                        "graphs": r.migration.graphs,
+                        "nodes": r.migration.nodes,
+                        "edges": r.migration.edges,
+                        "ledger": r.migration.ledger,
+                        "semantic": r.migration.semantic,
+                        "audit": r.migration.audit,
+                        "global": r.migration.global,
+                    })),
+                )),
+                Err(e) => Ok(Response::err(req_id, format!("Restore failed: {e}"))),
+            }
+        }
         other => Err(other),
     }
+}
+
+/// Wall-clock Unix seconds for the backup/restore RPC (CONCEPT:EG-090). Lives in the
+/// HANDLER (application code), never in the library `backup`/`restore_bundle` fns.
+#[cfg(feature = "redb")]
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Non-redb build: every admin method returns a clean "not available" error.
@@ -152,7 +241,9 @@ pub(crate) async fn try_handle(
         | Method::CatalogRemove { .. }
         | Method::CatalogList
         | Method::RebalancePlan { .. }
-        | Method::RebalanceExecute { .. } => Ok(Response::err(
+        | Method::RebalanceExecute { .. }
+        | Method::Backup { .. }
+        | Method::Restore { .. } => Ok(Response::err(
             req_id,
             "M3 resharding admin is not available in this build (requires the `redb` feature)",
         )),
