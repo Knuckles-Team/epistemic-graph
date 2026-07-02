@@ -94,7 +94,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Persistent index — reopen WITHOUT rebuild (mmap codes, O(N) posting rebuild) | ✅ | `persist.rs` `open` |
 | Parallel + SIMD brute-force fallback (rayon, contiguous arena, cached L2 norms) | ✅ | `semantic_store_ann.rs` |
 | Warm-on-start (index built off the query path) | ✅ | `warm()` / `ensure_index` |
-| Cross-shard kNN merge, hybrid metadata pre-filter | 🗺 | single-shard today |
+| Hybrid metadata pre-filter (kNN with an `allow(id)` predicate) | ✅ | `ivfpq.rs` `search_filtered` (EG-070); tested DURING the ADC probe, not post-filter |
+| Cross-shard kNN merge | 🗺 | single-shard today; `merge_topk` is the leaf primitive |
 
 ## Time-series (`eg-tsdb`)
 
@@ -123,7 +124,37 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Embedded in-process engine over redb rows (no Tokio/socket/HMAC, commit-before-return) | ✅ | `src/embedded.rs` `EmbeddedEngine::open` (KG-2.216) |
 | Durable graph-shaped tables (`nodes`/`edges`/`ledger`/`semantic_store`/`graph_meta`) | ✅ | `src/redb_store.rs` |
 | Generic namespaced `get`/`put`/`delete`/`scan`/`cas` KV surface over redb | ✅ | `src/server/kv.rs` `KvStore` (EG-022); `Method::Kv*`; durable, commit-before-ack; not graph-scoped |
-| Multi-wire SQL (SQLite / MySQL-MariaDB / MSSQL behind one `WireProtocol` trait) | 🔶 | Postgres ✅ via `pgwire`; SQLite/MySQL/MSSQL wires being added |
+
+## Wire protocols & interop endpoints (`WireProtocol` + hand-rolled listeners)
+
+Every listener is **opt-in** — it starts only when the binary is built with its feature
+AND its `EPISTEMIC_GRAPH_*_ADDR` env var (or CLI flag) is set. The SQL wires share the
+one wire-neutral `classify → dispatch → exec` core (`src/server/wire`, CONCEPT:EG-074) —
+no SQL is reimplemented per wire. See [`interfaces/connecting.md`](interfaces/connecting.md)
+for per-wire connect+query recipes and the full env-var/port table.
+
+| Surface | Status | Feature | Evidence |
+|---------|:------:|---------|----------|
+| Wire-neutral SQL core (`WireProtocol`/`WireSession`) | ✅ | `wire` | `src/server/wire` (EG-074); shared by every SQL wire |
+| Postgres wire (psql / BI / ORM) | ✅ | `pgwire` | `src/server/pgwire`; `EPISTEMIC_GRAPH_PGWIRE_ADDR` (KG-2.189) |
+| MySQL / MariaDB wire (hand-rolled handshake v10 + `mysql_native_password`) | ✅ | `mysql-wire` | `src/server/mysql_wire`; `EPISTEMIC_GRAPH_MYSQL_ADDR` (EG-076) |
+| MSSQL TDS wire (hand-rolled TDS) | ✅ | `mssql-wire` | `src/server/mssql_wire`; `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-077) |
+| SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O is a documented follow-up |
+| Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `src/server/bolt_wire`; `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159) |
+| AMQP 0.9.1 broker wire (exchanges/queues over the KG-2.303 work-queue) | ✅ | `amqp-wire` (impl `broker`) | `src/server/amqp_wire`; `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
+| GraphQL SSE subscription carrier | 🔶 | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR`; poll-only broadcast today |
+
+## Observability endpoints (`obs` listener, CONCEPT:EG-160/172/163)
+
+The obs listener (`EPISTEMIC_GRAPH_OBS_ADDR`, default `127.0.0.1:5080`) fronts the
+logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
+
+| Surface | Status | Feature | Evidence |
+|---------|:------:|---------|----------|
+| Log ingest (OTLP/HTTP, Elasticsearch `_bulk`/`_doc`, JSON-lines) + Parquet-on-CAS segments | ✅ | `obs` | `src/server/obs` (EG-160/161) |
+| PromQL + Prometheus HTTP query API (`/api/v1/query[_range]`, `/api/v1/labels`) | ✅ | `promql` | `src/server/promql` + `eg-tsdb/promql` (EG-172) |
+| Distributed traces (OTLP-JSON `POST /v1/traces`, `/api/traces` search, service-dep graph) | ✅ | `traces` | `src/server/traces` (EG-163) |
+| Prometheus `/metrics` exposition (engine's own counters/gauges) | ✅ | `metrics` (default) | `--metrics-addr` / `GRAPH_SERVICE_METRICS_ADDR`, default `127.0.0.1:9101` |
 
 ## Unified planner & UQL (`eg-plan`)
 
@@ -136,7 +167,28 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `ForeignScan` (remote engine / HTTP-JSON / external SQL) | ✅ | `federation` / `federation-sql` |
 | `Window`, `Foreign` execution | 🔶 | pass-through seams in `exec.rs` today |
 | UQL text DSL → `wire::Plan` (dependency-free parser) | ✅ | `eg-plan/src/uql` (KG-2.214) |
-| Natural-language → query | 🗺 | only a reserved, rejected seam |
+| `SpatialScan` / `Pred::SpatialWithin`/`SpatialDWithin` | ✅ | `geo` feature (EG-083); eg-geo executor + leaf crate |
+| `TensorScan` / `TensorOp`, `Cep` event-stream match | ✅ | `tensor` (EG-085) / `stream` (EG-088) |
+| Natural-language → query (`Method::NlQuery`, `/nl` route) | 🔶 | `nl-query` (EG-078/080); the NL→UQL planning SEAM ships and is LLM-optional — inert (clear "not configured" error, never a panic) until an OpenAI-compatible endpoint is configured |
+
+## Spatial / GIS (`geo` + `geosparql`)
+
+| Operation | Status | Evidence |
+|-----------|:------:|----------|
+| CRS registry + affine/Helmert reprojection | ✅ | `eg-geo` (EG-262) |
+| Durable STR-packed R-tree spatial index | ✅ | `eg-geo` (EG-263) |
+| GeoJSON / WKB / GPX / WKT I/O | ✅ | `eg-geo` (EG-262/264, `geo-io`) |
+| `Op::SpatialScan` + `SpatialWithin`/`SpatialDWithin` predicates in a UnifiedQuery | ✅ | `geo` feature (EG-083) |
+| OGC GeoSPARQL `geo:`/`geof:` vocabulary + spatial FILTER functions over SPARQL | ✅ | `geosparql` feature (EG-261); reuses eg-geo (no GEOS/PROJ) |
+
+## Agent-native memory (`eg-core`)
+
+| Operation | Status | Evidence |
+|-----------|:------:|----------|
+| Bi-temporal `AsOf` (valid-time + transaction-time `tx_from`/`tx_to`) | ✅ | `wire.rs` `Op::AsOf` + `TimeAxis` (KG-2.249/2.250) |
+| Ebbinghaus time-decay recency weighting of facts | ✅ | `eg_core::decay::ebbinghaus_weight`; `GRAPH_SERVICE_DECAY_HALF_LIFE` |
+| Episodic→semantic consolidation primitive (localized, provenance-preserving) | ✅ | `graph.rs` `consolidate` (EG-220/221); tested |
+| Uncertainty-distribution-valued properties | ✅ | `graph.rs` `Distribution` accessors (EG-086) |
 
 ## Durability & distribution
 
