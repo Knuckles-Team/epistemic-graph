@@ -33,6 +33,14 @@ rdf-redb = ["rdf", "dep:redb"]
 # the RDF stack: implies `rdf`, links ZERO native/C crate (pure Rust — no horned-owl,
 # no whelk-rs). Safe to fold into pi/node/full alongside rdf/sparql.
 owl = ["rdf"]
+# W5 — OWL-DL tableau reasoner (CONCEPT:EG-059): a description-logic tableau
+# (ALCQO + role hierarchy) that DECIDES the constructs the EL⁺/RL `owl` path cannot —
+# full cardinality (≥n/≤n, qualified), complementOf/negation (NNF), oneOf/hasValue
+# nominals, and reasoning-by-cases over a unionOf SUPERCLASS. Implies `owl` (it reuses
+# owl.rs's triple index + node-id convention). Pure Rust — adds NO dep beyond the RDF
+# stack. Pi contract: deliberately OUT of `pi` (a Pi node runs the tractable EL⁺/RL
+# fast path only); folded into node/full via the facade.
+owl-dl = ["owl"]
 
 [dependencies]
 eg-core = { path = "../eg-core" }

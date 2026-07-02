@@ -66,3 +66,15 @@ pub mod owl;
 /// server-op-ready entry points (a `RunRules` op is a thin pass-through). Behind `owl`.
 #[cfg(feature = "owl")]
 pub mod rules;
+
+/// W5 — the OWL-DL **tableau** reasoner (CONCEPT:EG-059). A pure-Rust description-logic
+/// tableau (ALCQO + role hierarchy) that DECIDES the constructs the monotone EL⁺/RL
+/// [`owl`] path cannot: full cardinality restrictions (`≥n`/`≤n`, qualified),
+/// `complementOf`/negation (via negation-normal-form), `oneOf`/`hasValue` nominals, and
+/// reasoning-by-cases over a `unionOf` SUPERCLASS. Entry points: [`tableau::is_consistent`],
+/// [`tableau::is_subsumed`], [`tableau::is_instance`], [`tableau::classify_dl`], and the
+/// [`tableau::reason_dl`] engine-picker (EL⁺/RL fast path when the ontology is inside the
+/// tractable envelope, tableau only when a DL construct forces it). Pure Rust; behind
+/// `owl-dl` (implies `owl`). Pi contract: OUT of `pi`, folded into node/full.
+#[cfg(feature = "owl-dl")]
+pub mod tableau;
