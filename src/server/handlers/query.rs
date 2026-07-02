@@ -745,6 +745,26 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DROP VIEW", r)
         }
+        // CONCEPT:EG-102 — CREATE/DROP EXTENSION over the RPC wire.
+        K::CreateExtension {
+            name,
+            if_not_exists,
+        } => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store.create_extension(&name, if_not_exists).map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "CREATE EXTENSION", r)
+        }
+        K::DropExtension { name, if_exists } => {
+            let store = store.clone();
+            let r = compute_off_lock(req_id, move || {
+                store.drop_extension(&name, if_exists).map(|_| 0usize)
+            })
+            .await;
+            sql_write_ack(req_id, "DROP EXTENSION", r)
+        }
         // `COPY … FROM STDIN` is a streamed, connection-stateful pgwire op (rows arrive
         // as CopyData frames), with no single-request wire form.
         K::CopyIn(_) => Response::err(
