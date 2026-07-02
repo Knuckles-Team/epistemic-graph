@@ -76,10 +76,11 @@ use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
 
 use eg_query::{
-    AlterTablePlan, Column, ColumnType, CopyFormat, CopyPlan, CreateTablePlan, DeleteNodes,
-    DeleteTable, DropTablePlan, InsertNodes, InsertSelect, InsertTable, PgColType, StatementKind,
+    AlterTablePlan, Column, ColumnType, CopyFormat, CopyPlan, CreateTablePlan, CreateViewPlan,
+    DeleteNodes, DeleteNodesJoin, DeleteTable, DropTablePlan, DropViewPlan, InsertNodes,
+    InsertNodesSelect, InsertSelect, InsertTable, OnConflictAction, PgColType, StatementKind,
     TableSchema, TableStore, TableTxn, TxnOp, TypedColumn, TypedQueryResult, UpdateNodes,
-    UpdateTable, WhereEq,
+    UpdateNodesJoin, UpdateTable, WhereEq,
 };
 
 use crate::server::ServerState;
@@ -679,6 +680,20 @@ impl EngineBackend {
             StatementKind::DeleteTable(del) => self.run_delete_table(del).await,
             // `COPY … FROM STDIN` (CONCEPT:EG-020): switch the connection into copy-in
             // mode; the streamed rows are ingested in `on_copy_done`.
+            // CONCEPT:EG-046 — INSERT INTO nodes … SELECT (facade dispatch).
+            StatementKind::InsertNodesSelect(ins) => {
+                self.run_insert_nodes_select(&graph, sql, ins, result_format).await
+            }
+            // CONCEPT:EG-047 — UPDATE nodes … FROM … / DELETE FROM nodes … USING … .
+            StatementKind::UpdateNodesJoin(upd) => {
+                self.run_update_nodes_join(&graph, sql, upd, result_format).await
+            }
+            StatementKind::DeleteNodesJoin(del) => {
+                self.run_delete_nodes_join(&graph, sql, del, result_format).await
+            }
+            // CONCEPT:EG-072 — CREATE/DROP VIEW over the durable view catalog.
+            StatementKind::CreateView(plan) => self.run_create_view(plan).await,
+            StatementKind::DropView(plan) => self.run_drop_view(plan).await,
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
             // Transaction-control statements are handled above.
             StatementKind::Begin | StatementKind::Commit | StatementKind::Rollback => {
@@ -766,6 +781,228 @@ impl EngineBackend {
             .map_err(|e| user_err(format!("drop table task failed: {e}")))?
             .map_err(user_err)?;
         Ok(Response::Execution(Tag::new("DROP TABLE")))
+    }
+
+    /// CONCEPT:EG-072 — `CREATE [OR REPLACE] VIEW name AS SELECT …`: persist the view
+    /// text in the durable view catalog (commit-before-ack); `build_ctx` expands it on read.
+    async fn run_create_view(&self, plan: CreateViewPlan) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || {
+            store.create_view(&plan.name, &plan.select_sql, plan.or_replace)
+        })
+        .await
+        .map_err(|e| user_err(format!("create view task failed: {e}")))?
+        .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("CREATE VIEW")))
+    }
+
+    /// CONCEPT:EG-072 — `DROP VIEW [IF EXISTS] name`.
+    async fn run_drop_view(&self, plan: DropViewPlan) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.drop_view(&plan.name, plan.if_exists))
+            .await
+            .map_err(|e| user_err(format!("drop view task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("DROP VIEW")))
+    }
+
+    /// A scalar cell coerced to the string node-id form the engine stores.
+    fn cell_to_node_id(v: &serde_json::Value) -> PgWireResult<String> {
+        match v {
+            serde_json::Value::String(s) => Ok(s.clone()),
+            serde_json::Value::Number(n) => Ok(n.to_string()),
+            serde_json::Value::Bool(b) => Ok(b.to_string()),
+            serde_json::Value::Null => Err(user_err("resolved a NULL `id` for a node write")),
+            other => Err(user_err(format!("`id` must be a scalar, got {other}"))),
+        }
+    }
+
+    /// CONCEPT:EG-046 — `INSERT INTO nodes (cols…) SELECT …`: run the SELECT through the
+    /// read path, then materialize each row as a node (the `id` column → node id, the rest
+    /// → properties), honoring `ON CONFLICT` (CONCEPT:EG-048). RETURNING optional.
+    async fn run_insert_nodes_select(
+        &self,
+        graph: &str,
+        sql: &str,
+        ins: InsertNodesSelect,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let result = self.run_read(graph, ins.select_sql).await?;
+        if result.columns.len() != ins.columns.len() {
+            return Err(user_err(format!(
+                "INSERT INTO nodes … SELECT column count mismatch: {} target columns, {} selected",
+                ins.columns.len(),
+                result.columns.len()
+            )));
+        }
+        let id_pos = ins
+            .columns
+            .iter()
+            .position(|c| c.eq_ignore_ascii_case("id"))
+            .ok_or_else(|| user_err("INSERT INTO nodes … SELECT must include the `id` column"))?;
+        let core = self.graph_core(graph).await?;
+        let empty = serde_json::Map::new();
+        let cond_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(empty.clone()))
+            .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let mut n = 0usize;
+        for row in result.rows {
+            let node_id = Self::cell_to_node_id(&row[id_pos])?;
+            let mut props = serde_json::Map::new();
+            for (i, col) in ins.columns.iter().enumerate() {
+                if i != id_pos {
+                    props.insert(col.clone(), row[i].clone());
+                }
+            }
+            // ON CONFLICT — conflict key is the node id.
+            if core.has_node(&node_id) {
+                match ins.on_conflict.as_ref().map(|oc| &oc.action) {
+                    Some(OnConflictAction::DoNothing) => continue,
+                    Some(OnConflictAction::DoUpdate(set)) => {
+                        core.compare_and_set_fields(&node_id, &empty, set);
+                        let upd_blob =
+                            rmp_serde::to_vec_named(&serde_json::Value::Object(set.clone()))
+                                .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+                        let method = crate::protocol::Method::CompareAndSetNodeFields {
+                            node_id: node_id.clone(),
+                            conditions_msgpack: cond_blob.clone(),
+                            updates_msgpack: upd_blob,
+                        };
+                        self.record_durable_write(graph, &method).await?;
+                        if ins.returning {
+                            affected.push((node_id, set.clone()));
+                        }
+                        n += 1;
+                        continue;
+                    }
+                    None => {} // no ON CONFLICT → overwrite (add_node semantics)
+                }
+            }
+            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
+                .map_err(|e| user_err(format!("encode node properties: {e}")))?;
+            core.add_node(node_id.clone(), blob.clone());
+            let method = crate::protocol::Method::AddNode {
+                node_id: node_id.clone(),
+                properties_msgpack: blob,
+            };
+            self.record_durable_write(graph, &method).await?;
+            if ins.returning {
+                affected.push((node_id, props));
+            }
+            n += 1;
+        }
+        core.mark_dirty();
+        if ins.returning {
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("INSERT").with_rows(n)))
+        }
+    }
+
+    /// CONCEPT:EG-047 — `UPDATE nodes SET … FROM … WHERE …`: the classifier rendered a
+    /// resolution `SELECT nodes.id, <set-exprs…> FROM …`; each row gives the matched id
+    /// plus its per-row SET values. Applied via the serializable merge under the guard.
+    async fn run_update_nodes_join(
+        &self,
+        graph: &str,
+        sql: &str,
+        upd: UpdateNodesJoin,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let result = self.run_read(graph, upd.resolve_sql).await?;
+        if result.columns.len() != upd.set_targets.len() + 1 {
+            return Err(user_err(format!(
+                "UPDATE … FROM resolution shape mismatch: expected id + {} set columns, got {}",
+                upd.set_targets.len(),
+                result.columns.len()
+            )));
+        }
+        let core = self.graph_core(graph).await?;
+        let empty = serde_json::Map::new();
+        let cond_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(empty.clone()))
+            .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for row in result.rows {
+            let id = Self::cell_to_node_id(&row[0])?;
+            if !seen.insert(id.clone()) {
+                continue; // a join can resolve the same id twice — apply once
+            }
+            let mut updates = serde_json::Map::new();
+            for (i, col) in upd.set_targets.iter().enumerate() {
+                updates.insert(col.clone(), row[i + 1].clone());
+            }
+            if core.compare_and_set_fields(&id, &empty, &updates) {
+                let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+                    .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+                let method = crate::protocol::Method::CompareAndSetNodeFields {
+                    node_id: id.clone(),
+                    conditions_msgpack: cond_blob.clone(),
+                    updates_msgpack: upd_blob,
+                };
+                self.record_durable_write(graph, &method).await?;
+                if upd.returning {
+                    affected.push((id, updates));
+                }
+            }
+        }
+        core.mark_dirty();
+        let n = affected.len();
+        if upd.returning {
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("UPDATE").with_rows(n)))
+        }
+    }
+
+    /// CONCEPT:EG-047 — `DELETE FROM nodes USING … WHERE …`: the classifier rendered a
+    /// resolution `SELECT nodes.id FROM … USING …`; remove each resolved node.
+    async fn run_delete_nodes_join(
+        &self,
+        graph: &str,
+        sql: &str,
+        del: DeleteNodesJoin,
+        result_format: Option<&Format>,
+    ) -> PgWireResult<Response> {
+        let result = self.run_read(graph, del.resolve_sql).await?;
+        let core = self.graph_core(graph).await?;
+        let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut n = 0usize;
+        for row in result.rows {
+            let id = Self::cell_to_node_id(&row[0])?;
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            if del.returning {
+                let props = self.node_props(graph, &id).await?;
+                affected.push((id.clone(), props));
+            }
+            core.remove_node(id.clone());
+            let method = crate::protocol::Method::RemoveNode {
+                node_id: id.clone(),
+            };
+            self.record_durable_write(graph, &method).await?;
+            n += 1;
+        }
+        core.mark_dirty();
+        if del.returning {
+            let (cols, types) = self.returning_cols(graph, sql).await?;
+            Ok(Response::Query(query_response(
+                returning_result(&affected, &cols, &types),
+                result_format,
+            )))
+        } else {
+            Ok(Response::Execution(Tag::new("DELETE").with_rows(n)))
+        }
     }
 
     /// `ALTER TABLE … ADD COLUMN` (CONCEPT:EG-018).
