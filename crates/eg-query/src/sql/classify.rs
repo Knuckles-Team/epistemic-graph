@@ -36,9 +36,13 @@
 use datafusion::sql::sqlparser::ast::{
     AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator, ColumnDef as SqlColumnDef,
     ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption, CopySource, CopyTarget, CreateTable,
-    Delete, Expr, FromTable, Insert, ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction,
-    OnInsert, SelectItem, SetExpr, Statement, TableFactor, TableWithJoins, Value as SqlValue, Values,
+    Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr, FunctionArguments, Insert,
+    ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction, OnInsert, SelectItem, SetExpr,
+    Statement, TableFactor, TableWithJoins, Value as SqlValue, Values,
 };
+// CONCEPT:EG-084 — the wire predicate the JSON operators lower onto. Surfaced by
+// `eg-types/query`, which the `sql` feature (this module's gate) always enables.
+use eg_types::wire::{JsonPathOp, Pred};
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 use serde_json::{Map, Value};
@@ -1922,6 +1926,262 @@ fn sql_value_to_json(v: &SqlValue) -> Result<Value, String> {
     }
 }
 
+// ── Postgres/Mongo JSON operator lowering onto `Pred::JsonPath` (CONCEPT:EG-084) ──
+//
+// DataFusion has no JSONPath, so the deep JSON operators are decoded HERE into the
+// `Pred::JsonPath` wire predicate; `eg-plan`'s FILTER leg then evaluates them per-row
+// (via `eg_core::jsonpath`) and the planner consults eg-core's inverted path-index for
+// selectivity. All functions are pure decoders over the sqlparser `Expr` — no execution.
+
+/// CONCEPT:EG-084 — lower a Postgres JSON WHERE expression onto a [`Pred::JsonPath`].
+/// Recognizes:
+///   * `col ->> 'k' = 'v'` / `col -> 'k' = <lit>` — deep equality over an accessor chain;
+///   * `col #> '{a,b}' = <lit>` / `#>>` — path-array accessor equality;
+///   * `col @> '<json>'` — `@>` JSON containment (at the accessor path; `$` for a bare col);
+///   * `col @? '$.path'` — jsonpath existence;
+///   * `jsonb_path_exists(col,'$.p')` / `jsonb_path_query(col,'$.p')` — existence;
+///   * `jsonb_path_query(col,'$.p') = <lit>` — equality at the jsonpath.
+///
+/// Returns an `Err` for any expression that is not a lowerable JSON predicate (so a
+/// caller can fall back to the plain relational path).
+pub fn json_pred_from_expr(expr: &Expr) -> Result<Pred, String> {
+    let inner = match expr {
+        Expr::Nested(e) => e.as_ref(),
+        other => other,
+    };
+    // A bare existence function: jsonb_path_exists/query(col, '$.path').
+    if let Some((_, path)) = jsonb_fn_path(inner) {
+        return Ok(Pred::JsonPath {
+            path,
+            op: JsonPathOp::Exists,
+        });
+    }
+    if let Expr::BinaryOp { left, op, right } = inner {
+        match op {
+            // `col @> '<json>'` — containment at the accessor path (`$` for a bare column).
+            BinaryOperator::AtArrow => {
+                let path = json_accessor_path(left)
+                    .map(|(_, p)| p)
+                    .or_else(|| bare_column(left).map(|_| "$".to_string()))
+                    .ok_or_else(|| {
+                        format!("`@>` left must be a JSON column/accessor, got `{left}`")
+                    })?;
+                let value = json_literal(right)?;
+                return Ok(Pred::JsonPath {
+                    path,
+                    op: JsonPathOp::Contains { value },
+                });
+            }
+            // `col @? '$.path'` — the RHS is a full jsonpath string.
+            BinaryOperator::AtQuestion => {
+                let path = string_operand(right)
+                    .ok_or_else(|| "`@?` right must be a jsonpath string literal".to_string())?;
+                return Ok(Pred::JsonPath {
+                    path,
+                    op: JsonPathOp::Exists,
+                });
+            }
+            // `<accessor> = <lit>` — deep equality. The LHS must be a `->`/`#>` accessor
+            // chain or a `jsonb_path_query(...)` call (a bare `col = 'v'` is relational
+            // and is NOT lowered here).
+            BinaryOperator::Eq => {
+                let path = json_accessor_path(left)
+                    .or_else(|| jsonb_fn_path(left))
+                    .map(|(_, p)| p)
+                    .ok_or_else(|| format!("`=` left is not a JSON accessor, got `{left}`"))?;
+                let value = expr_to_json(right)?;
+                return Ok(Pred::JsonPath {
+                    path,
+                    op: JsonPathOp::Eq { value },
+                });
+            }
+            _ => {}
+        }
+    }
+    Err(format!("not a lowerable JSON predicate: `{expr}`"))
+}
+
+/// A bare (possibly qualified) column name, else `None`.
+fn bare_column(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Identifier(_) | Expr::CompoundIdentifier(_) => ident_column(expr).ok(),
+        Expr::Nested(e) => bare_column(e),
+        _ => None,
+    }
+}
+
+/// Build a JSONPath string from a Postgres accessor chain (`col -> 'a' ->> 'b'`,
+/// `col #> '{a,b}'`), returning `(column, "$['a']['b']")` (CONCEPT:EG-084). Requires at
+/// least one accessor operator — a bare column returns `None` (it is not a JSON access).
+fn json_accessor_path(expr: &Expr) -> Option<(String, String)> {
+    match expr {
+        Expr::Nested(e) => json_accessor_path(e),
+        Expr::BinaryOp { left, op, right } => match op {
+            BinaryOperator::Arrow | BinaryOperator::LongArrow => {
+                let (col, base) = accessor_base(left)?;
+                Some((col, format!("{base}{}", json_key_segment(right)?)))
+            }
+            BinaryOperator::HashArrow | BinaryOperator::HashLongArrow => {
+                let (col, base) = accessor_base(left)?;
+                Some((col, format!("{base}{}", json_text_path(right)?)))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The base of an accessor chain: a bare column (`$`) or a nested accessor.
+fn accessor_base(expr: &Expr) -> Option<(String, String)> {
+    match expr {
+        Expr::Identifier(_) | Expr::CompoundIdentifier(_) => {
+            Some((ident_column(expr).ok()?, "$".to_string()))
+        }
+        Expr::Nested(e) => accessor_base(e),
+        _ => json_accessor_path(expr),
+    }
+}
+
+/// One `->`/`->>` key: a string literal ⇒ `['key']`, a number literal ⇒ `[n]`.
+fn json_key_segment(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Value(SqlValue::SingleQuotedString(s))
+        | Expr::Value(SqlValue::DoubleQuotedString(s)) => Some(format!("['{s}']")),
+        Expr::Value(SqlValue::Number(n, _)) => {
+            let i: usize = n.parse().ok()?;
+            Some(format!("[{i}]"))
+        }
+        _ => None,
+    }
+}
+
+/// A `#>` / `#>>` text path `'{a,b,1}'` ⇒ `['a']['b'][1]` (numeric tokens are indices).
+fn json_text_path(expr: &Expr) -> Option<String> {
+    let s = string_operand(expr)?;
+    let inner = s.trim().strip_prefix('{')?.strip_suffix('}')?;
+    let mut path = String::new();
+    for tok in inner.split(',') {
+        let tok = tok.trim();
+        if tok.is_empty() {
+            return None;
+        }
+        match tok.parse::<usize>() {
+            Ok(i) => path.push_str(&format!("[{i}]")),
+            Err(_) => path.push_str(&format!("['{tok}']")),
+        }
+    }
+    Some(path)
+}
+
+/// Extract a string literal operand, else `None`.
+fn string_operand(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Value(SqlValue::SingleQuotedString(s))
+        | Expr::Value(SqlValue::DoubleQuotedString(s)) => Some(s.clone()),
+        Expr::Nested(e) => string_operand(e),
+        _ => None,
+    }
+}
+
+/// The RHS of `@>`: a JSON literal (a quoted string parsed as JSON, or a bare scalar).
+fn json_literal(expr: &Expr) -> Result<Value, String> {
+    match expr {
+        Expr::Value(SqlValue::SingleQuotedString(s))
+        | Expr::Value(SqlValue::DoubleQuotedString(s)) => {
+            serde_json::from_str(s).map_err(|e| format!("`@>` right must be a JSON literal: {e}"))
+        }
+        other => expr_to_json(other),
+    }
+}
+
+/// Recognize `jsonb_path_query`/`jsonb_path_exists`/… `(col, '$.path')`, returning
+/// `(column, jsonpath)` (CONCEPT:EG-084).
+fn jsonb_fn_path(expr: &Expr) -> Option<(String, String)> {
+    let Expr::Function(Function { name, args, .. }) = expr else {
+        return None;
+    };
+    let fname = name.to_string().to_ascii_lowercase();
+    if !matches!(
+        fname.as_str(),
+        "jsonb_path_query"
+            | "json_path_query"
+            | "jsonb_path_exists"
+            | "jsonb_path_query_first"
+            | "jsonb_path_match"
+    ) {
+        return None;
+    }
+    let FunctionArguments::List(list) = args else {
+        return None;
+    };
+    let mut exprs = list.args.iter().filter_map(|a| match a {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(e)) => Some(e),
+        _ => None,
+    });
+    let col = bare_column(exprs.next()?)?;
+    let path = string_operand(exprs.next()?)?;
+    Some((col, path))
+}
+
+/// CONCEPT:EG-084 — lower a Mongo-style `$match` document filter onto ANDed
+/// [`Pred::JsonPath`]s. Each entry maps a dotted field path to either a bare value / an
+/// `{ "$eq": v }` spec (equality), `{ "$exists": true }` (existence), or `{ "$contains":
+/// v }` (a Mongo-ism for our `@>` containment). No Mongo/doc-query SURFACE exists in the
+/// engine yet, so this is the additive lowering primitive a future `$match` entry point
+/// would call — kept public + tested.
+pub fn mongo_match_to_preds(filter: &Value) -> Result<Vec<Pred>, String> {
+    let obj = filter
+        .as_object()
+        .ok_or_else(|| "$match filter must be a JSON object".to_string())?;
+    let mut preds = Vec::with_capacity(obj.len());
+    for (field, spec) in obj {
+        let path = mongo_field_to_path(field);
+        let pred = match spec {
+            Value::Object(m) if m.keys().any(|k| k.starts_with('$')) => {
+                if let Some(v) = m.get("$eq") {
+                    Pred::JsonPath {
+                        path,
+                        op: JsonPathOp::Eq { value: v.clone() },
+                    }
+                } else if let Some(v) = m.get("$exists") {
+                    if v.as_bool() == Some(true) {
+                        Pred::JsonPath {
+                            path,
+                            op: JsonPathOp::Exists,
+                        }
+                    } else {
+                        return Err("$match `$exists: false` is not supported".to_string());
+                    }
+                } else if let Some(v) = m.get("$contains") {
+                    Pred::JsonPath {
+                        path,
+                        op: JsonPathOp::Contains { value: v.clone() },
+                    }
+                } else {
+                    return Err(format!("unsupported $match operator spec in `{field}`"));
+                }
+            }
+            other => Pred::JsonPath {
+                path,
+                op: JsonPathOp::Eq {
+                    value: other.clone(),
+                },
+            },
+        };
+        preds.push(pred);
+    }
+    Ok(preds)
+}
+
+/// A Mongo dotted field path (`a.b`) ⇒ the JSONPath `$['a']['b']` (CONCEPT:EG-084).
+fn mongo_field_to_path(field: &str) -> String {
+    let mut p = String::from("$");
+    for seg in field.split('.') {
+        p.push_str(&format!("['{seg}']"));
+    }
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2697,5 +2957,149 @@ mod tests {
         };
         assert_eq!(name, "vector");
         assert!(!if_exists);
+    }
+
+    // ── CONCEPT:EG-084 — JSON operator lowering onto `Pred::JsonPath` ─────────
+
+    fn parse_where_expr(s: &str) -> Expr {
+        Parser::new(&PostgreSqlDialect {})
+            .try_with_sql(s)
+            .unwrap()
+            .parse_expr()
+            .unwrap()
+    }
+
+    #[test]
+    fn eg084_lower_long_arrow_equality() {
+        // `props->>'k' = 'v'` ⇒ deep equality at `$['k']`.
+        let e = parse_where_expr("props->>'lang' = 'rust'");
+        assert_eq!(
+            json_pred_from_expr(&e).unwrap(),
+            Pred::JsonPath {
+                path: "$['lang']".into(),
+                op: JsonPathOp::Eq {
+                    value: serde_json::json!("rust")
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn eg084_lower_arrow_chain_and_index() {
+        // `props->'meta'->>'year' = '2024'` ⇒ `$['meta']['year']`.
+        let e = parse_where_expr("props->'meta'->>'year' = '2024'");
+        let Pred::JsonPath { path, op } = json_pred_from_expr(&e).unwrap() else {
+            panic!("expected JsonPath");
+        };
+        assert_eq!(path, "$['meta']['year']");
+        assert_eq!(
+            op,
+            JsonPathOp::Eq {
+                value: serde_json::json!("2024")
+            }
+        );
+        // Array index: `tags->0`.
+        let e = parse_where_expr("tags->0 = 'a'");
+        let Pred::JsonPath { path, .. } = json_pred_from_expr(&e).unwrap() else {
+            panic!("expected JsonPath");
+        };
+        assert_eq!(path, "$[0]");
+    }
+
+    #[test]
+    fn eg084_lower_hash_arrow_text_path() {
+        // `props#>'{meta,lang}' = 'rust'` ⇒ `$['meta']['lang']`.
+        let e = parse_where_expr("props#>'{meta,lang}' = 'rust'");
+        let Pred::JsonPath { path, .. } = json_pred_from_expr(&e).unwrap() else {
+            panic!("expected JsonPath");
+        };
+        assert_eq!(path, "$['meta']['lang']");
+    }
+
+    #[test]
+    fn eg084_lower_at_arrow_containment() {
+        // `props @> '{"meta":{"lang":"rust"}}'` ⇒ containment at `$`.
+        let e = parse_where_expr(r#"props @> '{"meta":{"lang":"rust"}}'"#);
+        assert_eq!(
+            json_pred_from_expr(&e).unwrap(),
+            Pred::JsonPath {
+                path: "$".into(),
+                op: JsonPathOp::Contains {
+                    value: serde_json::json!({"meta": {"lang": "rust"}})
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn eg084_lower_jsonb_path_query_existence_and_eq() {
+        // Bare function ⇒ existence.
+        let e = parse_where_expr("jsonb_path_query(props, '$.meta.lang')");
+        assert_eq!(
+            json_pred_from_expr(&e).unwrap(),
+            Pred::JsonPath {
+                path: "$.meta.lang".into(),
+                op: JsonPathOp::Exists,
+            }
+        );
+        // `jsonb_path_exists` ⇒ existence too.
+        let e = parse_where_expr("jsonb_path_exists(props, '$.tags')");
+        assert!(matches!(
+            json_pred_from_expr(&e).unwrap(),
+            Pred::JsonPath {
+                op: JsonPathOp::Exists,
+                ..
+            }
+        ));
+        // Function `= <lit>` ⇒ equality at the jsonpath.
+        let e = parse_where_expr("jsonb_path_query(props, '$.meta.lang') = 'go'");
+        assert_eq!(
+            json_pred_from_expr(&e).unwrap(),
+            Pred::JsonPath {
+                path: "$.meta.lang".into(),
+                op: JsonPathOp::Eq {
+                    value: serde_json::json!("go")
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn eg084_bare_column_equality_is_not_json() {
+        // A plain relational `col = 'v'` must NOT be lowered to JsonPath.
+        let e = parse_where_expr("type = 'Doc'");
+        assert!(json_pred_from_expr(&e).is_err());
+    }
+
+    #[test]
+    fn eg084_mongo_match_lowering() {
+        // `{ "meta.lang": "rust", "tags": {"$exists": true}, "$root": {"$contains": {...}} }`
+        let filter = serde_json::json!({
+            "meta.lang": "rust",
+            "tags": {"$exists": true},
+        });
+        let mut preds = mongo_match_to_preds(&filter).unwrap();
+        preds.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
+        assert!(preds.contains(&Pred::JsonPath {
+            path: "$['meta']['lang']".into(),
+            op: JsonPathOp::Eq {
+                value: serde_json::json!("rust")
+            },
+        }));
+        assert!(preds.contains(&Pred::JsonPath {
+            path: "$['tags']".into(),
+            op: JsonPathOp::Exists,
+        }));
+        // `$contains` operator form.
+        let filter = serde_json::json!({"meta": {"$contains": {"lang": "go"}}});
+        assert_eq!(
+            mongo_match_to_preds(&filter).unwrap(),
+            vec![Pred::JsonPath {
+                path: "$['meta']".into(),
+                op: JsonPathOp::Contains {
+                    value: serde_json::json!({"lang": "go"})
+                },
+            }]
+        );
     }
 }
