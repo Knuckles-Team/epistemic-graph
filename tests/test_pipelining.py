@@ -211,6 +211,7 @@ async def test_within_caller_ordering_preserved():
 
 @pytest.mark.asyncio
 async def test_real_engine_single_connection_pipelines(start_epistemic_graph_server):
+    _ = start_epistemic_graph_server  # fixture manages server lifecycle (ref for vulture)
     # The real engine: N concurrent HEAVY ops (BetweennessCentrality, O(V*E)) on ONE
     # connection must run concurrently server-side — wall-clock ≪ the serial sum —
     # proving handle_connection no longer serializes one connection's requests.
