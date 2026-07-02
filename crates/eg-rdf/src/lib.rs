@@ -34,6 +34,14 @@ pub use oxrdf;
 #[cfg(feature = "rdf")]
 pub mod mapping;
 
+/// EG-136 — hand-rolled JSON-LD 1.1 serialization + parse over the eg-rdf term model,
+/// built directly on `serde_json` (NO heavy JSON-LD crate). Expanded + compacted
+/// (`@context`) writers and an expanded/compacted parser (`@id`/`@type`/`@value`/
+/// `@graph`). Behind `rdf` — so it links under plain `rdf`/`sparql` (and is pi-safe),
+/// unlike the `oxjsonld`-backed [`mapping::to_jsonld`] (out-of-pi `json-ld` feature).
+#[cfg(feature = "rdf")]
+pub mod jsonld;
+
 #[cfg(feature = "rdf-redb")]
 pub mod quads;
 
