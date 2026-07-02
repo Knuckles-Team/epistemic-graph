@@ -357,6 +357,13 @@ sqlite-wire = ["wire"]
 # merge conflict with the concurrent SQLite/MSSQL waves). The listener only starts when
 # ALSO configured via EPISTEMIC_GRAPH_MYSQL_ADDR.
 mysql-wire = ["dep:sha1", "query", "server", "wire"]
+# MSSQL TDS wire-protocol listener (CONCEPT:EG-077) — the MSSQL `WireProtocol` adapter
+# (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` (the Pi
+# contract: NO server-side `tiberius`/`tds` crate), so it adds NO new dependency —
+# only `query` + `server` + the shared `wire` core. DELIBERATELY kept OUT of
+# `node`/`full`/`pi`/`cluster` — the orchestrator folds it into a tier. The listener
+# only starts when ALSO configured via EPISTEMIC_GRAPH_MSSQL_ADDR.
+mssql-wire = ["query", "server", "wire"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
@@ -476,7 +483,7 @@ node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", 
 # multi-Raft groups). The sibling tracks each extended `cluster`; this unions them so
 # the cluster tier links raft AND pgwire AND the distributed-compute coordinator (and
 # transitively datafusion via `query`).
-cluster = ["node", "raft", "pgwire", "compute-dist", "nonblocking", "sqlite-wire", "mysql-wire"]
+cluster = ["node", "raft", "pgwire", "compute-dist", "nonblocking", "sqlite-wire", "mysql-wire", "mssql-wire"]
 # `pi-max` = the genuinely-Pi-3-friendly MAXIMAL build: every PURE-RUST feature that
 # fits a Pi WITHOUT a C toolchain and WITHOUT DataFusion. It is `pi` (server + graph +
 # algorithms + redb + cypher + ann + rdf + sparql + owl + streaming + result-cache +
