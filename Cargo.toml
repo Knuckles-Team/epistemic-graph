@@ -201,6 +201,31 @@ graphql = ["dep:eg-graphql", "eg-types/graphql", "server"]
 # bare default. When `query` is ALSO on, eg-tsdb's `arrow-seg` lights up the
 # DataFusion `time_bucket = GROUP BY (ts/w)*w` leg (see the `query` feature below).
 tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store", "dep:eg-plan", "eg-plan/timeseries"]
+# Observability log ingestion front door + Parquet-on-blob-CAS segments
+# (CONCEPT:EG-160/161) — the first slice of Phase T ("surpass OpenObserve"). A
+# hand-rolled HTTP listener (the SAME dep-free idiom as `metrics`/`sparql-http` — NO
+# axum/hyper, so the Pi contract holds) accepting OTLP/HTTP, Elasticsearch
+# `_bulk`/`_doc` and JSON-lines log records, landing them in an eg-tsdb series (time
+# range + retention) + a per-stream eg-text Tantivy index (full-text), and rolling
+# Parquet columnar segments into the blob CAS (S3 when `blob-s3` is on). IMPLIES
+# `tsdb` (series) + `text` (Tantivy full-text — which itself implies `query`) +
+# `blob` (the CAS). Pulls the `parquet` crate (+ `arrow`/`bytes` — arrow is already
+# in the tree via `query`) for the Arrow→Parquet segment encode. HEAVY (tsdb+Tantivy+
+# DataFusion+parquet), so it is OFF by default and — per the Pi contract — kept OUT of
+# `pi` (tsdb+Tantivy are already out of pi). DEFINED here but deliberately NOT folded
+# into `node`/`full`: the orchestrator folds `obs` into the deployment tiers at merge
+# time (avoids a tier-line merge conflict with the concurrent WireProtocol/GIS waves).
+obs = [
+    "server",
+    "tsdb",
+    "text",
+    "blob",
+    "dep:eg-text",
+    "eg-text/tantivy",
+    "dep:arrow",
+    "dep:parquet",
+    "dep:bytes",
+]
 # Streaming / CDC / continuous queries / subscriptions / triggers (CONCEPT:KG-2.229/
 # 230, Lane L). Reactivity layered over the existing per-graph durable change record
 # (the ledger): every durable mutation the dispatch shell records also emits an
@@ -379,7 +404,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -399,7 +424,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "shacl", "otel", "shex"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "shacl", "otel", "shex", "obs"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
@@ -438,6 +463,24 @@ eg-plan = { path = "crates/eg-plan", optional = true }
 # 211); pulls redb only (native primitives), and DataFusion only when `query` is ALSO
 # on (its `arrow-seg` feature, enabled transitively by the facade `query` feature).
 eg-tsdb = { path = "crates/eg-tsdb", optional = true }
+# Optional embedded BM25 full-text index (feature `obs`, CONCEPT:EG-160). Reused
+# DIRECTLY for the per-stream log text index. Pulled (with its `tantivy` backend) only
+# under `obs`; a default/pi build links neither eg-text-directly nor Tantivy. NOTE:
+# eg-text is ALSO pulled transitively via eg-plan's `text` (the facade `text` feature),
+# so this direct edge adds no NEW crate — it only makes `eg_text::TextIndex` nameable.
+eg-text = { path = "crates/eg-text", optional = true }
+# Arrow + Parquet columnar segment encode for observability logs (feature `obs`,
+# CONCEPT:EG-161). `arrow` 53 is ALREADY in the tree via `query`/DataFusion (no new
+# crate); `parquet` IS a new dependency (DataFusion here is built default-features=off,
+# so parquet was absent) — pinned to arrow 53's matching line, default-features off so
+# only the `arrow` integration is linked (NO compression codecs / C deps). Both are
+# OPTIONAL + referenced only under `#[cfg(feature = "obs")]`, so a default/pi/full build
+# (obs off) links NO parquet (asserted by `cargo tree --features pi | grep -c parquet` = 0).
+arrow = { version = "53", optional = true }
+parquet = { version = "53", optional = true, default-features = false, features = ["arrow"] }
+# Zero-copy byte buffer for the Parquet reader's `ChunkReader` (feature `obs`). Already
+# in the tree (tokio); optional + obs-gated so a default/pi build is unaffected.
+bytes = { version = "1", optional = true }
 # Optional native RDF/SPARQL surface (features `rdf`/`sparql`, CONCEPT:KG-2.217/218).
 # Pulls oxrdf/oxttl/spargebra — ALL pure-Rust — only when enabled, so a default/pi
 # build links none of them (asserted by cargo tree). Its `rdf-redb` quad table rides
