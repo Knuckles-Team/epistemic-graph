@@ -38,4 +38,7 @@ pub use tables::{
 pub mod cypher;
 
 #[cfg(feature = "cypher")]
-pub use cypher::{exec_cypher, exec_cypher_write};
+pub use cypher::{
+    exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params, CypherProcedure,
+    Params, ProcRow, YieldValue,
+};

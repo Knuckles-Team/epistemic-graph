@@ -33,9 +33,9 @@
 use serde_json::Value;
 
 use super::plan::{
-    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, NodePat, OrderKey,
-    Pattern, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement, Test, WhereExpr,
-    WithItem, WriteOp, WriteQuery,
+    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr, NodePat,
+    OrderKey, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement,
+    Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -66,6 +66,8 @@ enum Tok {
     Ident(String),
     Str(String),
     Num(f64),
+    /// `$name` — a query parameter reference (CONCEPT:EG-141).
+    Param(String),
 }
 
 fn tokenize(input: &str) -> Result<Vec<Tok>, String> {
@@ -205,6 +207,19 @@ fn tokenize(input: &str) -> Result<Vec<Tok>, String> {
                     .map_err(|_| format!("bad number: {num_str}"))?;
                 out.push(Tok::Num(n));
             }
+            '$' => {
+                // `$name` parameter reference (CONCEPT:EG-141).
+                i += 1;
+                let start = i;
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                if i == start {
+                    return Err("expected a parameter name after '$'".into());
+                }
+                let name: String = chars[start..i].iter().collect();
+                out.push(Tok::Param(name));
+            }
             a if a.is_alphabetic() || a == '_' => {
                 let start = i;
                 while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
@@ -298,9 +313,10 @@ impl Parser {
         Ok(NodePat { var, label, props })
     }
 
-    /// Parse an inline `{ key: literal, … }` property map (CONCEPT:EG-020). Keys are
-    /// identifiers; values are literals (string/number/bool). An empty `{}` is valid.
-    fn parse_prop_map(&mut self) -> Result<Vec<(String, Value)>, String> {
+    /// Parse an inline `{ key: value, … }` property map (CONCEPT:EG-020/EG-141). Keys
+    /// are identifiers; values are a literal, a `$param`, or a bound-variable
+    /// reference (`{id: x}`). An empty `{}` is valid.
+    fn parse_prop_map(&mut self) -> Result<Vec<(String, PropVal)>, String> {
         self.expect(&Tok::LBrace)?;
         let mut out = Vec::new();
         if matches!(self.peek(), Some(Tok::RBrace)) {
@@ -310,7 +326,7 @@ impl Parser {
         loop {
             let key = self.ident()?;
             self.expect(&Tok::Colon)?;
-            let val = self.parse_literal()?;
+            let val = self.parse_prop_val()?;
             out.push((key, val));
             match self.peek() {
                 Some(Tok::Comma) => {
@@ -321,6 +337,26 @@ impl Parser {
         }
         self.expect(&Tok::RBrace)?;
         Ok(out)
+    }
+
+    /// Parse a single [`PropVal`] operand (CONCEPT:EG-141): a `$param`, a bare
+    /// identifier that is a bound-variable reference (except `true`/`false`, which are
+    /// boolean literals), or any other literal.
+    fn parse_prop_val(&mut self) -> Result<PropVal, String> {
+        match self.peek() {
+            Some(Tok::Param(_)) => {
+                let Some(Tok::Param(name)) = self.next() else {
+                    unreachable!()
+                };
+                Ok(PropVal::Param(name))
+            }
+            Some(Tok::Ident(s))
+                if !s.eq_ignore_ascii_case("true") && !s.eq_ignore_ascii_case("false") =>
+            {
+                Ok(PropVal::Ref(self.ident()?))
+            }
+            _ => Ok(PropVal::Lit(self.parse_literal()?)),
+        }
     }
 
     /// Edge forms: `-[:REL]->`, `-[:REL*1..3]->`, `<-[:REL]-`. Direction is set by
@@ -678,45 +714,50 @@ impl Parser {
             }));
         }
 
-        // Otherwise it must open with (OPTIONAL) MATCH.
-        let optional = if self.peek_keyword("OPTIONAL") {
-            self.eat_keyword("OPTIONAL")?;
-            true
-        } else {
-            false
-        };
-        self.eat_keyword("MATCH")?;
-        let path_var = self.parse_optional_path_var()?;
-        let pattern = self.parse_pattern()?;
-        let where_clause = self.parse_optional_where()?;
+        // A statement opening with (OPTIONAL) MATCH may be a write-over-a-binding.
+        let first = if self.peek_keyword("MATCH") || self.peek_keyword("OPTIONAL") {
+            let optional = if self.peek_keyword("OPTIONAL") {
+                self.eat_keyword("OPTIONAL")?;
+                true
+            } else {
+                false
+            };
+            self.eat_keyword("MATCH")?;
+            let path_var = self.parse_optional_path_var()?;
+            let pattern = self.parse_pattern()?;
+            let where_clause = self.parse_optional_where()?;
 
-        // `MATCH … <write clause>+ [RETURN …]` ⇒ a write over the matched binding.
-        if self.at_write_clause() {
-            if optional {
-                return Err("OPTIONAL MATCH cannot precede a write clause".into());
+            // `MATCH … <write clause>+ [RETURN …]` ⇒ a write over the matched binding.
+            if self.at_write_clause() {
+                if optional {
+                    return Err("OPTIONAL MATCH cannot precede a write clause".into());
+                }
+                if path_var.is_some() {
+                    return Err("a path variable cannot bind on a write statement".into());
+                }
+                let ops = self.parse_write_clauses()?;
+                let returns = self.parse_optional_simple_return()?;
+                self.finish()?;
+                return Ok(Statement::Write(WriteQuery {
+                    match_pattern: Some(pattern),
+                    where_clause,
+                    ops,
+                    returns,
+                }));
             }
-            if path_var.is_some() {
-                return Err("a path variable cannot bind on a write statement".into());
-            }
-            let ops = self.parse_write_clauses()?;
-            let returns = self.parse_optional_simple_return()?;
-            self.finish()?;
-            return Ok(Statement::Write(WriteQuery {
-                match_pattern: Some(pattern),
+            ReadStage::Match {
+                pattern,
+                optional,
                 where_clause,
-                ops,
-                returns,
-            }));
-        }
+                path_var,
+            }
+        } else {
+            // A read opening with UNWIND / CALL / WITH (CONCEPT:EG-141/142).
+            self.parse_read_stage()?
+        };
 
-        // Otherwise a read: collect the first MATCH stage + any further stages, then
-        // the terminal RETURN.
-        let mut stages = vec![ReadStage::Match {
-            pattern,
-            optional,
-            where_clause,
-            path_var,
-        }];
+        // Collect any further reading stages, then the terminal RETURN.
+        let mut stages = vec![first];
         loop {
             if self.peek_keyword("RETURN") {
                 break;
@@ -729,8 +770,15 @@ impl Parser {
         Ok(Statement::Read(CypherQuery { stages, ret }))
     }
 
-    /// Parse one non-initial reading stage: `(OPTIONAL) MATCH …` or `WITH …`.
+    /// Parse one reading stage: `(OPTIONAL) MATCH …`, `WITH …`, `UNWIND …` or
+    /// `CALL …` (CONCEPT:EG-062/EG-141/EG-142).
     fn parse_read_stage(&mut self) -> Result<ReadStage, String> {
+        if self.peek_keyword("UNWIND") {
+            return self.parse_unwind();
+        }
+        if self.peek_keyword("CALL") {
+            return self.parse_call();
+        }
         if self.peek_keyword("WITH") {
             self.eat_keyword("WITH")?;
             let mut items = vec![self.parse_with_item()?];
@@ -771,6 +819,144 @@ impl Parser {
             None
         };
         Ok(WithItem { var, alias })
+    }
+
+    // ── UNWIND / CALL (CONCEPT:EG-141 / EG-142) ───────────────────────────────
+
+    /// `UNWIND <list> AS <var>` (CONCEPT:EG-141).
+    fn parse_unwind(&mut self) -> Result<ReadStage, String> {
+        self.eat_keyword("UNWIND")?;
+        let list = self.parse_list_expr()?;
+        self.eat_keyword("AS")?;
+        let var = self.ident()?;
+        Ok(ReadStage::Unwind { list, var })
+    }
+
+    /// The UNWIND operand: `[e, …]`, `$param`, or a bound-var reference (CONCEPT:EG-141).
+    fn parse_list_expr(&mut self) -> Result<ListExpr, String> {
+        match self.peek() {
+            Some(Tok::LBracket) => {
+                self.next();
+                let mut items = Vec::new();
+                if !matches!(self.peek(), Some(Tok::RBracket)) {
+                    items.push(self.parse_prop_val()?);
+                    while matches!(self.peek(), Some(Tok::Comma)) {
+                        self.next();
+                        items.push(self.parse_prop_val()?);
+                    }
+                }
+                self.expect(&Tok::RBracket)?;
+                Ok(ListExpr::List(items))
+            }
+            Some(Tok::Param(_)) => {
+                let Some(Tok::Param(name)) = self.next() else {
+                    unreachable!()
+                };
+                Ok(ListExpr::Param(name))
+            }
+            Some(Tok::Ident(_)) => Ok(ListExpr::Ref(self.ident()?)),
+            other => Err(format!("expected a list expression for UNWIND, found {other:?}")),
+        }
+    }
+
+    /// `CALL { subquery }` or `CALL proc.name(args) YIELD …` (CONCEPT:EG-142).
+    fn parse_call(&mut self) -> Result<ReadStage, String> {
+        self.eat_keyword("CALL")?;
+        if matches!(self.peek(), Some(Tok::LBrace)) {
+            let subquery = self.parse_subquery()?;
+            return Ok(ReadStage::Call {
+                subquery: Box::new(subquery),
+            });
+        }
+        let name = self.parse_proc_name()?;
+        let args = self.parse_arg_list()?;
+        self.eat_keyword("YIELD")?;
+        let yields = self.parse_yield_items()?;
+        Ok(ReadStage::CallProc { name, args, yields })
+    }
+
+    /// A dotted procedure name (`gds.pageRank`, `apoc.coll.sum`) (CONCEPT:EG-142).
+    fn parse_proc_name(&mut self) -> Result<String, String> {
+        let mut name = self.ident()?;
+        while matches!(self.peek(), Some(Tok::Dot)) {
+            self.next();
+            name.push('.');
+            name.push_str(&self.ident()?);
+        }
+        Ok(name)
+    }
+
+    /// `( arg, … )` — the parenthesized argument list of a procedure call. Each arg is
+    /// a literal, a `$param`, a bound-var reference, or an inline `[…]` list literal.
+    fn parse_arg_list(&mut self) -> Result<Vec<PropVal>, String> {
+        self.expect(&Tok::LParen)?;
+        let mut args = Vec::new();
+        if !matches!(self.peek(), Some(Tok::RParen)) {
+            args.push(self.parse_arg()?);
+            while matches!(self.peek(), Some(Tok::Comma)) {
+                self.next();
+                args.push(self.parse_arg()?);
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(args)
+    }
+
+    /// One procedure argument (CONCEPT:EG-142): an inline `[…]` list literal (of
+    /// literals) folds to a `PropVal::Lit(Value::Array)`; otherwise a [`PropVal`].
+    fn parse_arg(&mut self) -> Result<PropVal, String> {
+        if matches!(self.peek(), Some(Tok::LBracket)) {
+            self.next();
+            let mut items: Vec<Value> = Vec::new();
+            if !matches!(self.peek(), Some(Tok::RBracket)) {
+                items.push(self.parse_literal()?);
+                while matches!(self.peek(), Some(Tok::Comma)) {
+                    self.next();
+                    items.push(self.parse_literal()?);
+                }
+            }
+            self.expect(&Tok::RBracket)?;
+            return Ok(PropVal::Lit(Value::Array(items)));
+        }
+        self.parse_prop_val()
+    }
+
+    /// `YIELD col [AS alias], …` (CONCEPT:EG-142).
+    fn parse_yield_items(&mut self) -> Result<Vec<YieldItem>, String> {
+        let mut items = vec![self.parse_yield_item()?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            items.push(self.parse_yield_item()?);
+        }
+        Ok(items)
+    }
+
+    fn parse_yield_item(&mut self) -> Result<YieldItem, String> {
+        let col = self.ident()?;
+        let alias = if self.peek_keyword("AS") {
+            self.eat_keyword("AS")?;
+            Some(self.ident()?)
+        } else {
+            None
+        };
+        Ok(YieldItem { col, alias })
+    }
+
+    /// `{ <read stages> RETURN <spec> }` — the body of a `CALL { … }` subquery
+    /// (CONCEPT:EG-142). Reads only; terminated by the matching `}`.
+    fn parse_subquery(&mut self) -> Result<CypherQuery, String> {
+        self.expect(&Tok::LBrace)?;
+        let mut stages = vec![self.parse_read_stage()?];
+        loop {
+            if self.peek_keyword("RETURN") {
+                break;
+            }
+            stages.push(self.parse_read_stage()?);
+        }
+        self.eat_keyword("RETURN")?;
+        let ret = self.parse_return_spec()?;
+        self.expect(&Tok::RBrace)?;
+        Ok(CypherQuery { stages, ret })
     }
 
     /// A leading `p =` path-variable binding (CONCEPT:EG-063): an identifier directly
@@ -1095,6 +1281,73 @@ mod tests {
         match &q.stages[0] {
             ReadStage::Match { path_var, .. } => assert_eq!(path_var.as_deref(), Some("p")),
             _ => panic!("expected MATCH"),
+        }
+    }
+
+    #[test]
+    fn parses_unwind_list_literal() {
+        // CONCEPT:EG-141
+        let q = parse("UNWIND [1, 2, 3] AS x RETURN x").unwrap();
+        match &q.stages[0] {
+            ReadStage::Unwind { list, var } => {
+                assert_eq!(var, "x");
+                match list {
+                    ListExpr::List(items) => assert_eq!(items.len(), 3),
+                    _ => panic!("expected list literal"),
+                }
+            }
+            _ => panic!("expected UNWIND"),
+        }
+    }
+
+    #[test]
+    fn parses_unwind_param_then_match_with_inline_prop_ref() {
+        // CONCEPT:EG-141 — $param list + read-side inline prop referencing a var.
+        let q = parse("UNWIND $ids AS x MATCH (n {id: x}) RETURN n").unwrap();
+        assert!(matches!(&q.stages[0], ReadStage::Unwind { list: ListExpr::Param(p), .. } if p == "ids"));
+        match &q.stages[1] {
+            ReadStage::Match { pattern, .. } => {
+                let props = pattern.start.props.as_ref().unwrap();
+                assert_eq!(props[0].0, "id");
+                assert!(matches!(&props[0].1, PropVal::Ref(r) if r == "x"));
+            }
+            _ => panic!("expected MATCH"),
+        }
+    }
+
+    #[test]
+    fn parses_call_subquery() {
+        // CONCEPT:EG-142
+        let q = parse("CALL { MATCH (a:Person) RETURN a } RETURN a").unwrap();
+        assert!(matches!(&q.stages[0], ReadStage::Call { .. }));
+    }
+
+    #[test]
+    fn parses_call_proc_yield() {
+        // CONCEPT:EG-142/EG-143
+        let q = parse("CALL gds.pageRank() YIELD node, score RETURN node, score").unwrap();
+        match &q.stages[0] {
+            ReadStage::CallProc { name, args, yields } => {
+                assert_eq!(name, "gds.pageRank");
+                assert!(args.is_empty());
+                assert_eq!(yields.len(), 2);
+                assert_eq!(yields[0].col, "node");
+            }
+            _ => panic!("expected CALL proc"),
+        }
+    }
+
+    #[test]
+    fn parses_call_proc_with_list_arg_and_alias() {
+        // CONCEPT:EG-142/EG-143
+        let q = parse("CALL apoc.coll.sum([1, 2, 3]) YIELD value AS s RETURN s").unwrap();
+        match &q.stages[0] {
+            ReadStage::CallProc { name, args, yields } => {
+                assert_eq!(name, "apoc.coll.sum");
+                assert!(matches!(&args[0], PropVal::Lit(Value::Array(a)) if a.len() == 3));
+                assert_eq!(yields[0].alias.as_deref(), Some("s"));
+            }
+            _ => panic!("expected CALL proc"),
         }
     }
 
