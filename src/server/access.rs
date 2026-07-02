@@ -42,7 +42,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         return cypher_is_write(query);
     }
     #[cfg(feature = "graphql")]
-    if let Method::GraphQl { query } = method {
+    if let Method::GraphQl { query, .. } = method {
         return graphql_is_mutation(query);
     }
     matches!(
