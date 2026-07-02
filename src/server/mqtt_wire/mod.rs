@@ -25,8 +25,19 @@
 //! (topic filters incl. `+`/`#` wildcards → broker topic bindings), UNSUBSCRIBE/
 //! UNSUBACK, PINGREQ/PINGRESP, DISCONNECT. Auth is a localhost TRUST surface (any
 //! CONNECT accepted, like the SQL wires' trust mode). DEFERRED (a client degrades
-//! gracefully): retained messages, will messages, QoS 2 (PUBREC/PUBREL/PUBCOMP), full
-//! MQTT 5.0 properties (parsed-then-skipped), TLS, and session persistence.
+//! gracefully): retained messages, will messages, QoS 2 (PUBREC/PUBREL/PUBCOMP), TLS,
+//! and session persistence.
+//!
+//! ## Publisher confirms + idempotent publish (CONCEPT:EG-314 / EG-284)
+//! MQTT's QoS-1 PUBLISH → PUBACK already IS the publisher-confirm surface (the broker
+//! durably enqueues, then the PUBACK acknowledges), so no extra frame is needed. Every
+//! PUBLISH is routed through `Method::PublishIdempotent` (CONCEPT:EG-314): an MQTT 5.0
+//! client MAY attach the User Properties `producer-id` + `producer-seq`, and the broker
+//! dedups a re-published `(producer-id, seq)` against that producer's durable
+//! high-water mark for effectively-once delivery — the QoS-1 PUBACK is still returned
+//! for the (dropped) duplicate. A PUBLISH with no producer properties (or an MQTT 3.1.1
+//! client) is unchanged (at-least-once). EG-283 stream reads have no MQTT frame and are
+//! reached through the RPC surface (`Method::StreamRead`), as on the AMQP wire.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -197,6 +208,53 @@ fn key_to_mqtt_topic(key: &str) -> String {
     key.replace('.', "/")
 }
 
+/// Scan an MQTT 5.0 PUBLISH property block for the idempotency User Properties
+/// `producer-id` + `producer-seq` (CONCEPT:EG-314), returning `(producer_id,
+/// producer_seq)`. Steps over the other PUBLISH properties by their known wire widths;
+/// an unrecognised property id ends the scan (its width is undeterminable) with whatever
+/// was found so far. `producer-seq` accepts a decimal string value.
+fn parse_publish_properties(bytes: &[u8]) -> (Option<String>, Option<i64>) {
+    let mut c = Cursor::new(bytes);
+    let mut producer_id: Option<String> = None;
+    let mut producer_seq: Option<i64> = None;
+    while c.remaining() > 0 {
+        let id = c.u8();
+        match id {
+            0x01 => {
+                c.u8();
+            } // payload format indicator (byte)
+            0x02 => {
+                c.u32();
+            } // message expiry interval (4 bytes)
+            0x23 => {
+                c.u16();
+            } // topic alias (2 bytes)
+            0x03 | 0x08 => {
+                let _ = c.mqtt_str();
+            } // content-type / response-topic (UTF-8)
+            0x09 => {
+                let n = c.u16() as usize;
+                let _ = c.take(n);
+            } // correlation data (binary)
+            0x0B => {
+                c.varint();
+            } // subscription identifier (varint)
+            0x26 => {
+                // User Property: a UTF-8 string pair.
+                let key = c.mqtt_str();
+                let val = c.mqtt_str();
+                match key.as_str() {
+                    "producer-id" => producer_id = Some(val),
+                    "producer-seq" => producer_seq = val.parse().ok(),
+                    _ => {}
+                }
+            }
+            _ => break, // unknown property — width unknown, stop the scan
+        }
+    }
+    (producer_id, producer_seq)
+}
+
 /// An MQTT SUBSCRIBE topic FILTER (`sport/+/#`) → broker topic-binding pattern
 /// (`sport.*.#`). MQTT `+` (one level) maps to the broker `*` (one word); MQTT `#`
 /// (zero-or-more trailing levels) maps to the broker `#` (zero-or-more words) as-is.
@@ -272,17 +330,31 @@ async fn handle_connection(
                 let mut c = Cursor::new(&payload);
                 let topic = c.mqtt_str();
                 let packet_id = if qos > 0 { c.u16() } else { 0 };
-                if version >= 5 {
-                    c.skip_props();
-                }
+                // MQTT 5.0 property block → extract the EG-314 idempotency user
+                // properties (`producer-id` / `producer-seq`); MQTT 3.1.1 has none.
+                let (producer_id, producer_seq) = if version >= 5 {
+                    let props = c.take_props();
+                    parse_publish_properties(&props)
+                } else {
+                    (None, None)
+                };
                 let body = c.rest();
+                // Route through the idempotent path — with no producer-id it is a plain
+                // at-least-once publish (byte-identical to before); with one the broker
+                // dedups (CONCEPT:EG-314).
                 let _ = engine_call(
                     &state,
                     &graph,
-                    Method::Publish {
+                    Method::PublishIdempotent {
                         exchange: exchange.clone(),
                         routing_key: mqtt_topic_to_key(&topic),
                         payload: body,
+                        producer_id,
+                        seq: producer_seq.unwrap_or(0),
+                        priority: 0,
+                        delay_ms: None,
+                        ttl_ms: None,
+                        now_ms: None,
                     },
                 )
                 .await;
@@ -580,6 +652,38 @@ impl<'a> Cursor<'a> {
         self.i += 2;
         x
     }
+    fn u32(&mut self) -> u32 {
+        if self.i + 4 > self.b.len() {
+            return 0;
+        }
+        let mut a = [0u8; 4];
+        a.copy_from_slice(&self.b[self.i..self.i + 4]);
+        self.i += 4;
+        u32::from_be_bytes(a)
+    }
+    /// Read `n` bytes (clamped), advancing the cursor.
+    fn take(&mut self, n: usize) -> &'a [u8] {
+        let end = (self.i + n).min(self.b.len());
+        let out = &self.b[self.i.min(self.b.len())..end];
+        self.i = end;
+        out
+    }
+    /// A variable-byte-length-prefixed MQTT binary block (a `u16`-length-prefixed slot
+    /// is `mqtt_str`; this is the property-block form). Returns the block bytes and
+    /// advances past them (CONCEPT:EG-314 — reach the PUBLISH property block).
+    fn take_props(&mut self) -> Vec<u8> {
+        let rem = &self.b[self.i.min(self.b.len())..];
+        if let Some((plen, consumed)) = decode_remaining_length(rem) {
+            let start = self.i + consumed;
+            let end = (start + plen).min(self.b.len());
+            let out = self.b[start.min(self.b.len())..end].to_vec();
+            self.i = end;
+            out
+        } else {
+            self.i = self.b.len();
+            Vec::new()
+        }
+    }
     /// A length-prefixed UTF-8 MQTT string.
     fn mqtt_str(&mut self) -> String {
         let len = self.u16() as usize;
@@ -597,6 +701,18 @@ impl<'a> Cursor<'a> {
     }
     fn remaining(&self) -> usize {
         self.b.len().saturating_sub(self.i)
+    }
+    /// Read an MQTT variable-byte integer, advancing the cursor (used for the MQTT 5.0
+    /// Subscription-Identifier property).
+    fn varint(&mut self) -> usize {
+        let rem = &self.b[self.i.min(self.b.len())..];
+        if let Some((val, consumed)) = decode_remaining_length(rem) {
+            self.i = (self.i + consumed).min(self.b.len());
+            val
+        } else {
+            self.i = self.b.len();
+            0
+        }
     }
     fn rest(&mut self) -> Vec<u8> {
         let out = self.b[self.i.min(self.b.len())..].to_vec();
@@ -704,6 +820,46 @@ mod tests {
         }
         assert_eq!(filters, vec!["sport/+/score", "news/#"]);
         assert_eq!(mqtt_filter_to_pattern(&filters[0]), "sport.*.score");
+    }
+
+    // ── CONCEPT:EG-314 idempotent publish over MQTT 5.0 user properties ───
+
+    #[test]
+    fn eg314_parse_publish_properties_extracts_producer_user_props() {
+        let mut props = Vec::new();
+        // A content-type property first, to prove non-user props are stepped over.
+        props.push(0x03);
+        put_mqtt_str(&mut props, "text/plain");
+        // producer-id + producer-seq user properties (0x26).
+        props.push(0x26);
+        put_mqtt_str(&mut props, "producer-id");
+        put_mqtt_str(&mut props, "prod-9");
+        props.push(0x26);
+        put_mqtt_str(&mut props, "producer-seq");
+        put_mqtt_str(&mut props, "5");
+        let (id, seq) = parse_publish_properties(&props);
+        assert_eq!(id.as_deref(), Some("prod-9"));
+        assert_eq!(seq, Some(5));
+    }
+
+    #[test]
+    fn eg314_parse_publish_properties_absent_is_none() {
+        assert_eq!(parse_publish_properties(&[]), (None, None));
+    }
+
+    #[test]
+    fn eg314_take_props_reads_varint_length_prefixed_block() {
+        let mut block = Vec::new();
+        block.push(0x26);
+        put_mqtt_str(&mut block, "producer-id");
+        put_mqtt_str(&mut block, "P");
+        let mut buf = Vec::new();
+        encode_remaining_length(block.len(), &mut buf); // property-length prefix
+        buf.extend_from_slice(&block);
+        buf.extend_from_slice(b"BODY"); // payload after the property block
+        let mut c = Cursor::new(&buf);
+        assert_eq!(c.take_props(), block);
+        assert_eq!(c.rest(), b"BODY".to_vec());
     }
 
     #[test]
