@@ -1710,6 +1710,33 @@ pub enum Method {
         data_graph: String,
     },
 
+    // ── ShEx (Shape Expressions) Core validation (CONCEPT:EG-133) ────────────
+    // The complement to `ShaclValidate` (EG-132): validate that focus nodes of an RDF
+    // DATA graph CONFORM to shape expressions in a ShEx schema, driven by a shape map
+    // (focus node → shape label). The engine half is the pure-Rust `eg-shex` crate. Like
+    // `ShaclValidate`/`Backup` (EG-090), this variant is UNCONDITIONAL in the enum; the
+    // HANDLER is gated on the `shex` feature — a build without it drops the handler arm
+    // and the request falls through to the dispatch "not available in this build"
+    // catch-all. The fields are inline strings so the protocol crate (bottom of the DAG)
+    // carries no eg-shex type; the handler parses the ShExJ schema + the data graph and
+    // returns a `Json` `ShexReport`.
+    /// Validate `data_graph` against a **ShExJ** `schema` for a `shape_map` (a list of
+    /// `[node_iri, shape_label]` pairs; `"START"` selects the schema's start shape)
+    /// (CONCEPT:EG-133). `data_graph` is an RDF Turtle document; an EMPTY `data_graph`
+    /// validates against the LIVE RDF of the request's graph (the same triples `GetRdf`
+    /// would export). Returns a `Json` `ShexReport`. Read-only. Handler gated `shex`
+    /// (implies `rdf`).
+    ShexValidate {
+        /// The ShEx schema as a ShExJ (JSON abstract-syntax) document.
+        schema: String,
+        /// The data graph as a Turtle document; empty ⇒ use the request's live graph.
+        #[serde(default)]
+        data_graph: String,
+        /// The shape map: `[node_iri, shape_label]` pairs. `shape_label` may be `"START"`.
+        #[serde(default)]
+        shape_map: Vec<[String; 2]>,
+    },
+
     // ── Streaming / CDC / subscriptions / reactivity (CONCEPT:KG-2.229/230) ──
     // A reactive surface over the engine's per-graph durable change record (the
     // ledger). Every durable mutation the dispatch shell records also emits an
