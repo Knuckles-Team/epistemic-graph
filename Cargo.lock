@@ -1917,6 +1917,7 @@ dependencies = [
  "parking_lot",
  "petgraph",
  "rayon",
+ "redb",
  "rmp-serde",
  "serde",
  "serde_json",
