@@ -36,6 +36,7 @@
 //!   3. On each statement: (optionally) substitute its own parameter form into a
 //!      literal SQL string, then call [`WireProtocol::execute`] and encode the
 //!      returned [`WireOutcome`] / [`WireError`] into its own wire bytes.
+//!
 //! NOTHING in the classify/dispatch/exec/txn/durability path is reimplemented — the
 //! new wire only adds framing + encoding. This is the EG-074 promise.
 

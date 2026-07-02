@@ -12,6 +12,7 @@
 //!   * SCRAM/trust startup auth (see `auth.rs`),
 //!   * the simple + extended (prepared-statement) query protocols, parameter binding,
 //!   * the Arrow→OID result encoding and the `COPY … FROM STDIN` wire decoders,
+//!
 //! all of which sit ON TOP of [`WireSession`] via [`WireProtocol::execute`], turning a
 //! wire-neutral [`WireOutcome`] / [`WireError`] into Postgres bytes.
 //!
