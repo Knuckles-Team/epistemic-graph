@@ -60,20 +60,42 @@
 //! The outcome is therefore deterministic from the durable decision record alone — no
 //! participant ever applies without a COMMIT decision on disk.
 //!
+//! ## Commit-path optimizations (CONCEPT:EG-081)
+//!
+//! Two tractable 2PC optimizations are folded into the commit path above WITHOUT
+//! weakening any durability/recovery invariant:
+//!
+//!   * **Read-only-participant fast path.** A participant group whose write-set slice
+//!     is EMPTY (it only READ, or has no ops) is OCC-validated but skips PHASE 1's
+//!     durable prepare-log AND its PHASE 2 write entirely (the standard 2PC read-only
+//!     optimization). It never enters the durable protocol, so the atomic commit point
+//!     and recovery only ever cover the groups that actually mutate. A fully read-only
+//!     cross-shard txn commits with ZERO durable 2PC records. (`readonly_skipped`
+//!     counts the groups that took this path.)
+//!   * **Parallel prepare.** PHASE 1 issues the PREPAREs to all WRITING participant
+//!     groups CONCURRENTLY (joined futures) instead of strictly one-at-a-time in
+//!     GroupId order, shrinking the prepare latency to the slowest single group rather
+//!     than the sum. Deadlock-freedom is preserved because a prepare holds NO lock
+//!     across groups (see PHASE 1 below); the former GroupId sequencing was defensive,
+//!     not load-bearing. PHASE 2 apply (and the shared recovery re-apply) stays
+//!     sequential in GroupId order — it is post-decision and order-independent, so
+//!     leaving it sequential costs nothing and keeps one apply path for recovery.
+//!
 //! ## Failure model (honest — this is classic 2PC)
 //!
 //! This is textbook 2PC and inherits its one blocking window: if the coordinator
 //! crashes AFTER a participant voted YES but BEFORE the decision record is durable,
 //! that participant is in-doubt and cannot unilaterally resolve until the coordinator
-//! (its redb decision record) comes back. Increment 1 accepts this blocking window —
+//! (its redb decision record) comes back. This increment accepts this blocking window —
 //! the coordinator is the committing node and its redb IS the decision log, so a
 //! restarted coordinator resolves every in-doubt txn deterministically from disk. A
 //! non-blocking commit (3PC / Paxos-Commit, or replicating the decision record itself
-//! through Raft so a surviving node can resolve) is a documented follow-up; so are
-//! Calvin-style deterministic ordering, parallel-commit, read-only-participant
-//! optimization, and a >2-group scale test.
+//! through Raft so a surviving node can resolve) plus Calvin-style deterministic
+//! ordering remain a separate follow-up track (CONCEPT:EG-082); so is a cross-NODE
+//! participant path and a larger >2-group scale test.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -137,11 +159,27 @@ pub enum TxnOutcome {
 pub struct CrossShardCoordinator {
     multi: Arc<MultiRaft>,
     backend: Arc<dyn PersistenceBackend>,
+    /// Observability (CONCEPT:EG-081): count of participant groups that took the
+    /// read-only fast path — i.e. their write-set slice was EMPTY, so they were
+    /// OCC-validated but NEVER durably prepared or applied in phase 2. Cheap
+    /// relaxed counter, useful as a metric and as a test observable.
+    readonly_skipped: Arc<AtomicU64>,
 }
 
 impl CrossShardCoordinator {
     pub fn new(multi: Arc<MultiRaft>, backend: Arc<dyn PersistenceBackend>) -> Self {
-        Self { multi, backend }
+        Self {
+            multi,
+            backend,
+            readonly_skipped: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Total number of participant groups skipped by the read-only fast path across
+    /// this coordinator's lifetime (CONCEPT:EG-081) — groups whose write-set slice was
+    /// empty and therefore never got a durable PREPARE record or a phase-2 write.
+    pub fn readonly_skipped(&self) -> u64 {
+        self.readonly_skipped.load(Ordering::Relaxed)
     }
 
     /// The concrete redb backend (cross-shard txns require the redb durable tier —
@@ -182,19 +220,71 @@ impl CrossShardCoordinator {
             ));
         }
 
-        // ── PHASE 1: PREPARE each participant in GroupId order ──────────────────
+        // ── EG-081 READ-ONLY-PARTICIPANT FAST PATH ──────────────────────────────
+        // Partition participants into WRITING groups (their slice mutates → full
+        // 2PC: durable PREPARE + phase-2 replicated apply) and READ-ONLY groups
+        // (their slice's write-set is EMPTY → they only READ in the txn). A
+        // read-only participant needs NEITHER a durable prepare log NOR a phase-2
+        // write — the standard 2PC read-only optimization. We still OCC-VALIDATE its
+        // reads (so cross-shard isolation is unchanged), then release it (one-phase);
+        // it simply never enters the durable protocol. This shrinks the participant
+        // set that the atomic commit point + recovery must cover to only the groups
+        // that actually mutate, and cuts their fsync + Raft round-trips entirely.
+        let (writing, read_only) = self.split_participants(participants);
+        self.readonly_skipped
+            .fetch_add(read_only.len() as u64, Ordering::Relaxed);
+
+        // OCC-validate every read-only participant's reads (no durable state written
+        // for these). An unreachable or read-invalidated read-only participant cannot
+        // confirm its reads → the txn ABORTS. Because NOTHING durable has been written
+        // yet (no read-only log, no writer prepared), this is a pure rollback with
+        // zero 2PC state to clear and nothing for recovery to find.
+        for (gid, slices) in &read_only {
+            if !self.validate_read_only_participant(*gid, slices).await? {
+                return Ok(TxnOutcome::Aborted);
+            }
+        }
+
+        // A fully read-only cross-shard txn (no group mutates) commits WITHOUT any
+        // durable decision/prepare record at all — there is nothing to make atomic or
+        // to recover, since no participant applies anything.
+        if writing.is_empty() {
+            return Ok(TxnOutcome::Committed);
+        }
+
+        // ── PHASE 1: PREPARE every WRITING participant CONCURRENTLY (EG-081) ─────
+        // Deadlock-freedom under parallel prepare: a prepare holds NO lock ACROSS
+        // groups. Each `prepare_participant` takes its group's shared app_state READ
+        // guard only for the span of its own OCC validation (released before its
+        // durable write), and the redb writer serializes the prepare-log commits
+        // internally. No prepare ever waits on a lock another prepare holds, so there
+        // is no cross-group lock cycle regardless of the order prepares arrive in —
+        // the former strict GroupId sequencing was a defensive lock-order that the
+        // actual (across-groups lock-free) prepare does not require. The per-group
+        // local lock order inside each group is unchanged. We therefore issue the
+        // independent prepare RPCs/durable-writes as joined futures instead of one at
+        // a time; the joined set preserves input (GroupId) order so the collected
+        // votes are deterministic.
+        let prepare_futs = writing.iter().map(|(gid, slices)| {
+            let gid = *gid;
+            async move {
+                (
+                    gid,
+                    self.prepare_participant(redb, &txn.txn_id, gid, slices)
+                        .await,
+                )
+            }
+        });
+        let votes = futures::future::join_all(prepare_futs).await;
+
         let mut prepared_groups: Vec<GroupId> = Vec::new();
         let mut all_yes = true;
-        for (gid, slices) in &participants {
-            match self
-                .prepare_participant(redb, &txn.txn_id, *gid, slices)
-                .await
-            {
-                Ok(true) => prepared_groups.push(*gid),
-                Ok(false) => {
-                    all_yes = false;
-                    break; // a NO vote ends prepare — we will ABORT.
-                }
+        for (gid, vote) in votes {
+            match vote {
+                // Ok(true) ⟺ a durable prepare record was committed (commit-before-vote):
+                // the group is exactly the set that must be cleared on abort/commit.
+                Ok(true) => prepared_groups.push(gid),
+                Ok(false) => all_yes = false,
                 Err(e) => {
                     tracing::warn!(
                         "xshard {}: prepare of group {} errored ({e}) → abort",
@@ -202,18 +292,17 @@ impl CrossShardCoordinator {
                         gid
                     );
                     all_yes = false;
-                    break;
                 }
             }
         }
 
         // ── THE ATOMIC COMMIT POINT: durably record the decision ────────────────
-        let commit = all_yes && prepared_groups.len() == participants.len();
+        let commit = all_yes && prepared_groups.len() == writing.len();
         redb.xshard_decision_put(&txn.txn_id, commit).await?;
 
-        // ── PHASE 2: apply the decision ─────────────────────────────────────────
+        // ── PHASE 2: apply the decision (writing participants only) ─────────────
         if commit {
-            self.apply_commit(redb, &txn.txn_id, &participants).await?;
+            self.apply_commit(redb, &txn.txn_id, &writing).await?;
             Ok(TxnOutcome::Committed)
         } else {
             // ABORT: clear every prepared participant (only those that got a record),
@@ -222,6 +311,45 @@ impl CrossShardCoordinator {
                 .await?;
             Ok(TxnOutcome::Aborted)
         }
+    }
+
+    /// Split the participant map into (WRITING, READ-ONLY) groups (CONCEPT:EG-081).
+    /// A group is READ-ONLY iff EVERY slice it owns has an empty method/write-set —
+    /// it contributed only reads to the txn (or no ops at all), so it can skip the
+    /// durable prepare + phase-2 write entirely.
+    fn split_participants(
+        &self,
+        participants: BTreeMap<GroupId, Vec<GraphSlice>>,
+    ) -> (
+        BTreeMap<GroupId, Vec<GraphSlice>>,
+        BTreeMap<GroupId, Vec<GraphSlice>>,
+    ) {
+        let mut writing: BTreeMap<GroupId, Vec<GraphSlice>> = BTreeMap::new();
+        let mut read_only: BTreeMap<GroupId, Vec<GraphSlice>> = BTreeMap::new();
+        for (gid, slices) in participants {
+            if slices.iter().all(|s| s.methods.is_empty()) {
+                read_only.insert(gid, slices);
+            } else {
+                writing.insert(gid, slices);
+            }
+        }
+        (writing, read_only)
+    }
+
+    /// Validate a READ-ONLY participant's reads without preparing it (CONCEPT:EG-081).
+    /// Mirrors the reachability + OCC check `prepare_participant` runs for a writer,
+    /// but writes NO durable prepare record and applies nothing: an unreachable group
+    /// cannot confirm its reads (→ NO), otherwise the reads are OCC-validated against
+    /// the live group state exactly as a writer's would be.
+    async fn validate_read_only_participant(
+        &self,
+        gid: GroupId,
+        slices: &[GraphSlice],
+    ) -> Result<bool, String> {
+        if self.multi.group(gid).await.is_none() {
+            return Ok(false);
+        }
+        Ok(self.validate_slices(slices).await)
     }
 
     /// PHASE 1 for one participant: validate its OCC read-set against the live group
