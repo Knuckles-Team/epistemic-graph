@@ -41,7 +41,10 @@
 //!   ([`encode_mvt`]/[`decode_mvt`]) codec — no protobuf codegen.
 //! * **Weighted-network routing** ([`routing`], CONCEPT:EG-266): a [`Network`] of located
 //!   nodes + weighted edges with Dijkstra / A\* shortest path, [`Network::isochrone`]
-//!   reachability, and a nearest-neighbour + 2-opt TSP tour ([`solve_tsp`]).
+//!   reachability, and a nearest-neighbour + 2-opt TSP tour ([`solve_tsp`]). Extended
+//!   (CONCEPT:EG-312) with **turn restrictions / turn costs** ([`TurnRestrictions`],
+//!   [`Network::dijkstra_with_turns`]) and **time-dependent edge weights**
+//!   ([`TrafficProfile`], [`Network::shortest_path_time_dependent`]).
 //! * **Map task tracking** ([`geotask`], CONCEPT:EG-267): a [`GeoTask`] (location + status +
 //!   service area) with an R-tree-backed [`GeoTaskIndex`] for bbox/polygon/nearest queries
 //!   and nearest-resource ↔ task assignment.
@@ -97,6 +100,7 @@ pub use predicates::{
 pub use registry::{st_transform, Affine, CrsDef, CrsRegistry};
 pub use routing::{
     distance_matrix, nearest_neighbour_tour, solve_tsp, tour_length, two_opt, Edge, Network, Path,
+    TimeCost, TrafficProfile, TurnCost, TurnRestrictions,
 };
 pub use rtree::RTree;
 pub use shapefile::{
