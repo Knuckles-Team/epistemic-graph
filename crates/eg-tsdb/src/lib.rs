@@ -25,6 +25,9 @@ pub mod point;
 pub mod query;
 pub mod time_op;
 
+#[cfg(feature = "promql")]
+pub mod promql;
+
 #[cfg(feature = "redb-store")]
 pub mod store;
 
