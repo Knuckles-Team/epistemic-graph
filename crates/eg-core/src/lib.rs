@@ -14,6 +14,8 @@ pub mod compute;
 pub mod decay;
 pub mod graph;
 pub mod index;
+/// CONCEPT:EG-084 — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
+pub mod jsonpath;
 pub mod isolation;
 #[cfg(feature = "security")]
 pub mod rbac;
