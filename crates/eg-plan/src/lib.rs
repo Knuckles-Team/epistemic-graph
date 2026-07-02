@@ -126,3 +126,9 @@ mod geo_tests;
 // per-row and compose with the graph/vector legs in ONE plan.
 #[cfg(all(test, feature = "tensor"))]
 mod tensor_tests;
+
+// The event-stream / CEP `Op::Cep` executor proofs (CONCEPT:EG-088): a layer scan
+// seeds a time-ordered event stream, then the bounded NFA (sequence/within/absence over
+// sliding/tumbling windows) narrows it — cross-modal graph→stream in ONE plan.
+#[cfg(all(test, feature = "stream"))]
+mod stream_tests;
