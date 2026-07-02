@@ -297,6 +297,13 @@ where
         )
     };
 
+    // CONCEPT:EG-320 — the optional QoS/SLO scheduler. `None` unless
+    // `EPISTEMIC_GRAPH_QOS` is configured (built once, process-global), in which case
+    // the default admission path below is byte-for-byte unchanged. When `Some`, each
+    // request is first gated on priority-class / per-tenant fair-share / quota BEFORE the
+    // baseline global+per-graph admission, and the granted permit rides the dispatch task.
+    let qos = crate::server::qos::configured();
+
     // Split the duplex stream: the read loop drives `read_half`; a single writer
     // task owns `write_half`.
     let (mut read_half, mut write_half) = tokio::io::split(stream);
@@ -360,6 +367,36 @@ where
         // dedicated lane writes can't touch ("always an open lane for MCP reads").
         // Writes stay strictly back-pressured — shed BUSY (retry), never dropped.
         let is_write = crate::server::access::requires_write(&req.method);
+
+        // ── CONCEPT:EG-320 — QoS/SLO admission gate (opt-in) ─────────────────────────
+        // Runs BEFORE the baseline admission. Classifies the request by priority class +
+        // tenant and applies priority preemption / per-tenant fair-share / hard quota. A
+        // shed request returns a typed, retryable `BUSY:` signal; an admitted one yields a
+        // RAII permit the dispatch task holds until it completes. Skipped entirely (and so
+        // zero-overhead / behaviour-preserving) when QoS is not configured.
+        let qos_permit = if let Some(sched) = qos.as_ref() {
+            let qreq = crate::server::qos::classify(
+                &req.method,
+                &req.graph,
+                req.agent_id.as_deref(),
+                is_write,
+            );
+            match sched.try_admit(&qreq) {
+                crate::server::qos::QosDecision::Admit(p) => Some(p),
+                crate::server::qos::QosDecision::Reject(why) => {
+                    crate::metrics::busy_rejected();
+                    let resp = Response::err(req.id, why.busy_message());
+                    drop(conn_permit);
+                    if tx.send(encode_frame(&resp)).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+
         let (g_permit, pg_permit, read_permit) =
             match admit_request(&sem, &read_sem, &pg_map, pg_limit, &req.graph, is_write) {
                 Admission::Granted {
@@ -395,6 +432,9 @@ where
             drop(read_permit);
             drop(pg_permit);
             drop(g_permit);
+            // CONCEPT:EG-320 — release the QoS slot (tenant/class/global counters) once
+            // the request completes; `None` when QoS is not configured.
+            drop(qos_permit);
             drop(conn_permit);
             crate::metrics::connection_request_finished(task_sem.available_permits());
         });
