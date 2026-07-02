@@ -335,6 +335,13 @@ harness = ["raft"]
 # pulls it in too. DELIBERATELY kept OUT of `node`/`full` — the orchestrator folds it.
 wire = ["query", "server"]
 pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
+# MSSQL TDS wire-protocol listener (CONCEPT:EG-077) — the MSSQL `WireProtocol` adapter
+# (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` (the Pi
+# contract: NO server-side `tiberius`/`tds` crate), so it adds NO new dependency —
+# only `query` + `server` + the shared `wire` core. DELIBERATELY kept OUT of
+# `node`/`full`/`pi`/`cluster` — the orchestrator folds it into a tier. The listener
+# only starts when ALSO configured via EPISTEMIC_GRAPH_MSSQL_ADDR.
+mssql-wire = ["query", "server", "wire"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
