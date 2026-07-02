@@ -832,6 +832,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => tracing::error!("sqlite-wire bind {} failed: {}", addr, e),
         }
+    }
+
     // ── MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) ──────────
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
     // `--features mysql-wire` AND EPISTEMIC_GRAPH_MYSQL_ADDR is set. With the feature
