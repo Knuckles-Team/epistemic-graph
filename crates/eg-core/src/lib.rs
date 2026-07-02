@@ -8,6 +8,9 @@
 //! unchanged.
 pub use eg_types::{acl, protocol, types, wire};
 
+// CONCEPT:EG-275 — message-broker exchanges/routing on top of the KG-2.303 queue.
+#[cfg(feature = "broker")]
+pub mod broker;
 #[cfg(feature = "cold-tier")]
 pub mod cold_tier;
 pub mod compute;
