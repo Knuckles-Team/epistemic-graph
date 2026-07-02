@@ -26,18 +26,28 @@
 //!   (pure-serde `CepPatternSpec`, Pi-safe, no eg-stream dep); the executor that drives
 //!   THIS crate over an input RowSet lives in `eg-plan::exec` behind eg-plan's `stream`
 //!   feature. The batch `Op::Cep` over a RowSet + this engine is what lands.
-//! * **Live standing queries (EG-064) — documented follow-up.** The EG-064 CDC
-//!   `ChangeNotifier` broadcast bus can feed live windows so a *standing* CEP query
-//!   subscribes and matches incrementally. That live loop is an acceptable follow-up; it
-//!   is deliberately NOT built here so the engine stays synchronous and runtime-free
-//!   (hence trivially unit-testable). The engine's [`run`] is the reusable core the live
-//!   loop would call per advanced window.
+//! * **Live standing queries (EG-064) — the `stream` feature.** The DEFERRED push half is
+//!   now built in [`live`] (behind the `stream` feature, the only thing that pulls
+//!   `tokio`): [`live::CepEngine`] owns N standing queries, fans each incoming [`Event`]
+//!   to every query's incremental NFA state (the SAME steppers [`run`] is built from —
+//!   see [`live`]), and pushes completed matches out per-query
+//!   [`tokio::sync::broadcast`] channels ([`live::CepSubscription`]) with drop-oldest +
+//!   lag-count backpressure. Sliding + tumbling windows and `within`-timeout expiry all
+//!   work on the live path, and `eg088_live_equals_batch_*` asserts the live emission set
+//!   equals [`run`] for the same ts-ordered stream. The default / Pi build enables
+//!   neither `tokio` nor [`live`] — the core stays synchronous + runtime-free. Wiring the
+//!   EG-064 `ChangeNotifier` → `Event` adapter and any Method/WebSocket subscription route
+//!   into the SERVER is the remaining documented follow-up (eg-stream is a leaf crate and
+//!   must not depend on eg-core; exactly as `eg_graphql::LiveQuery` leaves its transport
+//!   to the server).
 //!
-//! This crate is dependency-light (serde + serde_json — see `Cargo.toml`) and is folded
-//! into the `node`/`full` serving tiers, kept OUT of `pi`.
+//! The batch core is dependency-light (serde + serde_json); the `stream` feature adds
+//! `tokio`. The crate is folded into the `node`/`full` serving tiers, kept OUT of `pi`.
 
 mod cep;
 mod event;
+#[cfg(feature = "stream")]
+pub mod live;
 
 pub use cep::{run, CepPattern, Match, Window, MAX_ACTIVE_RUNS};
 pub use event::{AttrPredicate, Event, EventMatcher};

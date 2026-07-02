@@ -9,13 +9,30 @@ license = "MIT"
 [lib]
 name = "eg_stream"
 
-# Pure-Rust, Pi-lean by design — a leaf crate like eg-ann / eg-geo / eg-tensor. The
-# ONLY dependencies are serde (the `CepPattern` / `Event` / `Match` are serializable so
-# a pattern persists / rides the wire) and serde_json (the concept row fixes an event's
-# `attrs` to a `serde_json::Map`, and per-event predicates compare `serde_json::Value`s —
-# the same value model eg-plan already decodes node blobs into). NO tokio / async / C
-# deps: the NFA engine is synchronous and runtime-free, so it folds cleanly into the
-# `stream` serving tiers (node/full), kept OUT of `pi`.
+# Pi-lean by design — a leaf crate like eg-ann / eg-geo / eg-tensor. The BATCH engine's
+# only deps are serde (the `CepPattern` / `Event` / `Match` are serializable so a pattern
+# persists / rides the wire) and serde_json (the concept row fixes an event's `attrs` to a
+# `serde_json::Map`, and per-event predicates compare `serde_json::Value`s — the same value
+# model eg-plan already decodes node blobs into). `tokio` is pulled ONLY by the `stream`
+# feature (the LIVE standing-query engine); a default / Pi build links none of it, so the
+# batch NFA stays synchronous + runtime-free and folds cleanly into node/full, OUT of `pi`.
+
+[features]
+# Default = the pure-Rust, runtime-free BATCH CEP engine only (serde + serde_json). This
+# is what eg-plan pulls for the batch `Op::Cep` executor, and it links NO tokio.
+default = []
+# The LIVE / standing-query half (CONCEPT:EG-088): `live::CepEngine` + `CepSubscription`,
+# the push loop fed by the EG-064 CDC bus. The ONLY thing that pulls `tokio` (broadcast
+# channels + the spawned bus-drain task). Activated by the top-level engine's `stream`
+# feature (`eg-plan/stream → eg-stream/stream`), so `node`/`full` get the live engine while
+# a default / Pi build (which never turns `stream` on) links no tokio.
+stream = ["dep:tokio"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# Async runtime for the LIVE standing-query engine ONLY (feature `stream`): broadcast
+# channels for per-subscription match fan-out + backpressure, and the source bus-drain
+# task. Optional + referenced only under #[cfg(feature = "stream")], so a default / Pi
+# build links none of it. `sync` = channels, `rt` + `macros` = spawn + `#[tokio::test]`.
+tokio = { version = "1.38", features = ["sync", "rt", "macros"], optional = true }
