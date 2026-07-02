@@ -24,14 +24,25 @@
 //!  * Selectors with matchers `=`, `!=`, `=~`, `!~`; instant + range (`metric[5m]`);
 //!    `offset <dur>`.
 //!  * Functions `rate`, `irate`, `increase` (range vectors, counter-reset aware),
-//!    `abs`, `ceil`, `floor`, `histogram_quantile`.
+//!    `abs`, `ceil`, `floor`, `histogram_quantile`, `scalar`.
 //!  * Aggregations `sum`, `avg`, `min`, `max`, `count` with `by(...)` / `without(...)`.
 //!  * Binary arithmetic (`+ - * / % ^`) and comparison (`== != > < >= <=`, with `bool`)
 //!    between scalars and vectors, and vector↔vector with default / `on` / `ignoring`
 //!    one-to-one label matching, plus set ops `and` / `or` / `unless`.
 //!
+//! ## Extended surface (CONCEPT:EG-302)
+//!
+//!  * `_over_time` family over a range vector: `sum_over_time`, `avg_over_time`,
+//!    `min_over_time`, `max_over_time`, `count_over_time`, `stddev_over_time`,
+//!    `stdvar_over_time`, `quantile_over_time`, `last_over_time`.
+//!  * Range-vector rates/derivatives: `delta`, `idelta`, `deriv`, `predict_linear`.
+//!  * Aggregations `topk`, `bottomk`, `quantile`, `stddev`, `stdvar`, `count_values`.
+//!  * Label functions `label_replace(v, dst, repl, src, regex)`, `label_join`.
+//!  * Value shaping: `clamp`, `clamp_min`, `clamp_max`, `round`.
+//!
 //! Deferred (documented follow-ups): `group_left`/`group_right` many-to-one matching,
-//! subqueries, `@`-modifier, `count_values`/`topk`/`quantile`, `label_replace`.
+//! subqueries, `@`-modifier, `holt_winters`, `resets`, `changes`, `sort`/`sort_desc`,
+//! `time`/`timestamp`/`vector`, trig/`exp`/`ln`/`log2`/`log10`/`sqrt` scalar math.
 
 use std::collections::BTreeMap;
 
@@ -264,7 +275,8 @@ impl BinOp {
     }
 }
 
-/// Aggregation operators (`sum`/`avg`/`min`/`max`/`count`).
+/// Aggregation operators (`sum`/`avg`/`min`/`max`/`count` + CONCEPT:EG-302
+/// `stddev`/`stdvar`/`topk`/`bottomk`/`quantile`/`count_values`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggOp {
     Sum,
@@ -272,6 +284,30 @@ pub enum AggOp {
     Min,
     Max,
     Count,
+    /// CONCEPT:EG-302 — population standard deviation of a group's values.
+    Stddev,
+    /// CONCEPT:EG-302 — population variance of a group's values.
+    Stdvar,
+    /// CONCEPT:EG-302 — the largest `k` elements of each group (`topk(k, v)`).
+    Topk,
+    /// CONCEPT:EG-302 — the smallest `k` elements of each group (`bottomk(k, v)`).
+    Bottomk,
+    /// CONCEPT:EG-302 — the φ-quantile of each group (`quantile(phi, v)`).
+    Quantile,
+    /// CONCEPT:EG-302 — count of each distinct value into a new label
+    /// (`count_values("label", v)`).
+    CountValues,
+}
+
+impl AggOp {
+    /// Whether this aggregation takes a leading parameter inside its parens
+    /// (`topk(k, v)`, `quantile(phi, v)`, `count_values("l", v)`).
+    fn takes_param(self) -> bool {
+        matches!(
+            self,
+            AggOp::Topk | AggOp::Bottomk | AggOp::Quantile | AggOp::CountValues
+        )
+    }
 }
 
 /// The label-matching modifier on a vector↔vector binary op.
@@ -302,12 +338,15 @@ pub enum Expr {
     },
     /// A function call.
     Call { func: String, args: Vec<Expr> },
-    /// An aggregation with an optional by/without grouping.
+    /// An aggregation with an optional by/without grouping and, for the
+    /// parametrized ops (`topk`/`bottomk`/`quantile`/`count_values`), a leading
+    /// parameter expression.
     Aggregate {
         op: AggOp,
         expr: Box<Expr>,
         by: bool,
         labels: Vec<String>,
+        param: Option<Box<Expr>>,
     },
     /// A binary operation (with optional `bool` modifier + vector matching).
     Binary {
@@ -885,6 +924,14 @@ impl Parser {
     fn parse_aggregate(&mut self, op: AggOp) -> Result<Expr, PromqlError> {
         let mut grouping = self.parse_grouping()?;
         self.expect(&Tok::LParen)?;
+        // Parametrized aggregations (`topk(k, v)`, `quantile(phi, v)`,
+        // `count_values("l", v)`) carry their parameter as the first argument.
+        let mut param = None;
+        if op.takes_param() {
+            let p = self.parse_expr()?;
+            self.expect(&Tok::Comma)?;
+            param = Some(Box::new(p));
+        }
         let expr = self.parse_expr()?;
         self.expect(&Tok::RParen)?;
         if grouping.is_none() {
@@ -896,6 +943,7 @@ impl Parser {
             expr: Box::new(expr),
             by,
             labels,
+            param,
         })
     }
 
@@ -995,6 +1043,13 @@ fn agg_op(name: &str) -> Option<AggOp> {
         "min" => Some(AggOp::Min),
         "max" => Some(AggOp::Max),
         "count" => Some(AggOp::Count),
+        // CONCEPT:EG-302 extended aggregations.
+        "stddev" => Some(AggOp::Stddev),
+        "stdvar" => Some(AggOp::Stdvar),
+        "topk" => Some(AggOp::Topk),
+        "bottomk" => Some(AggOp::Bottomk),
+        "quantile" => Some(AggOp::Quantile),
+        "count_values" => Some(AggOp::CountValues),
         _ => None,
     }
 }
@@ -1115,10 +1170,39 @@ impl<'a> Evaluator<'a> {
                 expr,
                 by,
                 labels,
+                param,
             } => {
                 let v = self.eval_instant(expr, t)?;
                 let samples = as_instant(v, "aggregation operand")?;
-                Ok(Value::Instant(aggregate(*op, samples, *by, labels)))
+                let result = match op {
+                    AggOp::CountValues => {
+                        let dst = match param.as_deref() {
+                            Some(Expr::Str(s)) => s.clone(),
+                            _ => {
+                                return err(
+                                    "count_values expects a string label name as its first argument",
+                                )
+                            }
+                        };
+                        count_values(samples, *by, labels, &dst)
+                    }
+                    AggOp::Topk | AggOp::Bottomk => {
+                        let p = param.as_deref().ok_or_else(|| {
+                            PromqlError("topk/bottomk require a scalar `k` parameter".into())
+                        })?;
+                        let k = self.scalar_arg(p, t, "topk/bottomk k")?;
+                        topk_bottomk(*op, samples, *by, labels, k)
+                    }
+                    AggOp::Quantile => {
+                        let p = param.as_deref().ok_or_else(|| {
+                            PromqlError("quantile requires a scalar `phi` parameter".into())
+                        })?;
+                        let phi = self.scalar_arg(p, t, "quantile phi")?;
+                        quantile_agg(phi, samples, *by, labels)
+                    }
+                    _ => aggregate(*op, samples, *by, labels),
+                };
+                Ok(Value::Instant(result))
             }
             Expr::Binary {
                 op,
@@ -1176,7 +1260,114 @@ impl<'a> Evaluator<'a> {
                     f64::NAN
                 }))
             }
+            // CONCEPT:EG-302 — `<agg>_over_time` over a range vector.
+            "sum_over_time" | "avg_over_time" | "min_over_time" | "max_over_time"
+            | "count_over_time" | "stddev_over_time" | "stdvar_over_time" | "last_over_time" => {
+                let arg = one_arg(func, args)?;
+                let rv = self.eval_instant(arg, t)?;
+                let series = as_range(rv, func)?;
+                Ok(Value::Instant(over_time_family(func, series)))
+            }
+            "quantile_over_time" => {
+                if args.len() != 2 {
+                    return err("quantile_over_time expects (phi, range-vector)");
+                }
+                let phi = self.scalar_arg(&args[0], t, "quantile_over_time phi")?;
+                let rv = self.eval_instant(&args[1], t)?;
+                let series = as_range(rv, "quantile_over_time")?;
+                Ok(Value::Instant(quantile_over_time(phi, series)))
+            }
+            // CONCEPT:EG-302 — range-vector deltas / derivatives.
+            "delta" | "idelta" | "deriv" => {
+                let arg = one_arg(func, args)?;
+                let rv = self.eval_instant(arg, t)?;
+                let series = as_range(rv, func)?;
+                Ok(Value::Instant(delta_family(func, series, t)))
+            }
+            "predict_linear" => {
+                if args.len() != 2 {
+                    return err("predict_linear expects (range-vector, t)");
+                }
+                let rv = self.eval_instant(&args[0], t)?;
+                let series = as_range(rv, "predict_linear")?;
+                let secs = self.scalar_arg(&args[1], t, "predict_linear t")?;
+                Ok(Value::Instant(predict_linear(series, secs, t)))
+            }
+            // CONCEPT:EG-302 — clamp / round.
+            "clamp" => {
+                if args.len() != 3 {
+                    return err("clamp expects (vector, min, max)");
+                }
+                let iv = self.eval_instant(&args[0], t)?;
+                let samples = as_instant(iv, "clamp")?;
+                let min = self.scalar_arg(&args[1], t, "clamp min")?;
+                let max = self.scalar_arg(&args[2], t, "clamp max")?;
+                Ok(Value::Instant(clamp(samples, min, max)))
+            }
+            "clamp_min" | "clamp_max" => {
+                if args.len() != 2 {
+                    return err(format!("{func} expects (vector, scalar)"));
+                }
+                let iv = self.eval_instant(&args[0], t)?;
+                let samples = as_instant(iv, func)?;
+                let bound = self.scalar_arg(&args[1], t, func)?;
+                let f: Box<dyn Fn(f64) -> f64> = if func == "clamp_min" {
+                    Box::new(move |v| v.max(bound))
+                } else {
+                    Box::new(move |v| v.min(bound))
+                };
+                Ok(Value::Instant(map_values(strip_name(samples), f)))
+            }
+            "round" => {
+                if args.is_empty() || args.len() > 2 {
+                    return err("round expects (vector) or (vector, to_nearest)");
+                }
+                let iv = self.eval_instant(&args[0], t)?;
+                let samples = as_instant(iv, "round")?;
+                let to_nearest = if args.len() == 2 {
+                    self.scalar_arg(&args[1], t, "round to_nearest")?
+                } else {
+                    1.0
+                };
+                Ok(Value::Instant(round(samples, to_nearest)))
+            }
+            // CONCEPT:EG-302 — label functions.
+            "label_replace" => {
+                if args.len() != 5 {
+                    return err("label_replace expects (vector, dst, replacement, src, regex)");
+                }
+                let iv = self.eval_instant(&args[0], t)?;
+                let samples = as_instant(iv, "label_replace")?;
+                let dst = str_arg(&args[1], "label_replace dst_label")?;
+                let repl = str_arg(&args[2], "label_replace replacement")?;
+                let src = str_arg(&args[3], "label_replace src_label")?;
+                let regex = str_arg(&args[4], "label_replace regex")?;
+                Ok(Value::Instant(label_replace(samples, dst, repl, src, regex)?))
+            }
+            "label_join" => {
+                if args.len() < 3 {
+                    return err("label_join expects (vector, dst, separator, src_label...)");
+                }
+                let iv = self.eval_instant(&args[0], t)?;
+                let samples = as_instant(iv, "label_join")?;
+                let dst = str_arg(&args[1], "label_join dst_label")?;
+                let sep = str_arg(&args[2], "label_join separator")?;
+                let srcs: Vec<&str> = args[3..]
+                    .iter()
+                    .map(|a| str_arg(a, "label_join src_label"))
+                    .collect::<Result<_, _>>()?;
+                Ok(Value::Instant(label_join(samples, dst, sep, &srcs)))
+            }
             other => err(format!("unsupported function '{other}' (EG-172 follow-up)")),
+        }
+    }
+
+    /// Evaluate `e` and require it to be a scalar (used for function/aggregation
+    /// parameters like `topk`'s `k`, `quantile`'s `phi`, `clamp`'s bounds).
+    fn scalar_arg(&self, e: &Expr, t: Ts, ctx: &str) -> Result<f64, PromqlError> {
+        match self.eval_instant(e, t)? {
+            Value::Scalar(s) => Ok(s),
+            _ => err(format!("{ctx}: expected a scalar argument")),
         }
     }
 
@@ -1352,15 +1543,17 @@ fn rate_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> {
 
 // ───────────────────────────── aggregation ─────────────────────────────
 
-fn aggregate(
-    op: AggOp,
+/// Group instant samples by the retained (by/without) labels — dropping `__name__`
+/// always — preserving first-seen group order. Returns the group key-labels in order
+/// alongside the full samples that fell into each group (so selector aggregations like
+/// `topk` can keep the original per-sample labels).
+fn group_samples(
     samples: Vec<InstantSample>,
     by: bool,
     labels: &[String],
-) -> Vec<InstantSample> {
-    // Group key: the retained labels (drop __name__ always).
+) -> (Vec<Labels>, Vec<Vec<InstantSample>>) {
     let mut order: Vec<Labels> = Vec::new();
-    let mut groups: BTreeMap<String, (usize, Vec<f64>)> = BTreeMap::new();
+    let mut groups: BTreeMap<String, (usize, Vec<InstantSample>)> = BTreeMap::new();
     for s in samples {
         let mut key_labels = Labels::new();
         for (k, v) in &s.labels {
@@ -1378,19 +1571,36 @@ fn aggregate(
         }
         let key = label_key(&key_labels);
         let entry = groups.entry(key).or_insert_with(|| {
-            order.push(key_labels);
+            order.push(key_labels.clone());
             (order.len() - 1, Vec::new())
         });
-        entry.1.push(s.value);
+        entry.1.push(s);
     }
-    let mut reduced: Vec<Option<f64>> = vec![None; order.len()];
-    for (_k, (idx, vals)) in groups {
-        reduced[idx] = Some(reduce(op, &vals));
+    let mut by_idx: Vec<Vec<InstantSample>> = vec![Vec::new(); order.len()];
+    for (_k, (idx, gs)) in groups {
+        by_idx[idx] = gs;
     }
+    (order, by_idx)
+}
+
+/// The simple, value-collapsing aggregations (sum/avg/min/max/count/stddev/stdvar).
+fn aggregate(
+    op: AggOp,
+    samples: Vec<InstantSample>,
+    by: bool,
+    labels: &[String],
+) -> Vec<InstantSample> {
+    let (order, groups) = group_samples(samples, by, labels);
     order
         .into_iter()
-        .zip(reduced)
-        .filter_map(|(labels, v)| v.map(|value| InstantSample { labels, value }))
+        .zip(groups)
+        .map(|(labels, gs)| {
+            let vals: Vec<f64> = gs.iter().map(|s| s.value).collect();
+            InstantSample {
+                labels,
+                value: reduce(op, &vals),
+            }
+        })
         .collect()
 }
 
@@ -1407,7 +1617,375 @@ fn reduce(op: AggOp, vals: &[f64]) -> f64 {
                 vals.iter().sum::<f64>() / vals.len() as f64
             }
         }
+        AggOp::Stdvar => variance(vals),
+        AggOp::Stddev => variance(vals).sqrt(),
+        // Parametrized ops never reach `reduce` (dispatched separately).
+        AggOp::Topk | AggOp::Bottomk | AggOp::Quantile | AggOp::CountValues => f64::NAN,
     }
+}
+
+/// Population variance of `vals` (÷N, Prometheus convention). Empty ⇒ NaN.
+fn variance(vals: &[f64]) -> f64 {
+    let n = vals.len() as f64;
+    if n == 0.0 {
+        return f64::NAN;
+    }
+    let mean = vals.iter().sum::<f64>() / n;
+    vals.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n
+}
+
+/// Linear-interpolated φ-quantile over a set of values (Prometheus `quantile`/
+/// `quantile_over_time` semantics: rank = φ·(n−1), interpolate between neighbours).
+/// `vals` is sorted in place. φ<0 ⇒ −Inf, φ>1 ⇒ +Inf, empty ⇒ NaN.
+fn quantile(phi: f64, vals: &mut [f64]) -> f64 {
+    if vals.is_empty() {
+        return f64::NAN;
+    }
+    if phi < 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if phi > 1.0 {
+        return f64::INFINITY;
+    }
+    vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = vals.len();
+    let rank = phi * (n as f64 - 1.0);
+    let lower = rank.floor() as usize;
+    let upper = rank.ceil() as usize;
+    let weight = rank - lower as f64;
+    vals[lower] * (1.0 - weight) + vals[upper] * weight
+}
+
+/// CONCEPT:EG-302 — `topk(k, v)` / `bottomk(k, v)`. Keeps each selected sample's own
+/// labels (including `__name__`). Ties are broken deterministically by label key.
+fn topk_bottomk(
+    op: AggOp,
+    samples: Vec<InstantSample>,
+    by: bool,
+    labels: &[String],
+    k: f64,
+) -> Vec<InstantSample> {
+    let keep = if k.is_nan() || k < 0.0 { 0 } else { k as usize };
+    let (_order, groups) = group_samples(samples, by, labels);
+    let mut out = Vec::new();
+    for mut gs in groups {
+        gs.sort_by(|a, b| {
+            let primary = if op == AggOp::Topk {
+                b.value.partial_cmp(&a.value)
+            } else {
+                a.value.partial_cmp(&b.value)
+            };
+            primary
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| label_key(&a.labels).cmp(&label_key(&b.labels)))
+        });
+        gs.truncate(keep);
+        out.extend(gs);
+    }
+    out
+}
+
+/// CONCEPT:EG-302 — `quantile(phi, v)` per group.
+fn quantile_agg(
+    phi: f64,
+    samples: Vec<InstantSample>,
+    by: bool,
+    labels: &[String],
+) -> Vec<InstantSample> {
+    let (order, groups) = group_samples(samples, by, labels);
+    order
+        .into_iter()
+        .zip(groups)
+        .map(|(labels, gs)| {
+            let mut vals: Vec<f64> = gs.iter().map(|s| s.value).collect();
+            InstantSample {
+                labels,
+                value: quantile(phi, &mut vals),
+            }
+        })
+        .collect()
+}
+
+/// CONCEPT:EG-302 — `count_values("label", v)`: within each group, count the samples
+/// carrying each distinct value and emit one series per value with `label=<value>`.
+fn count_values(
+    samples: Vec<InstantSample>,
+    by: bool,
+    labels: &[String],
+    dst: &str,
+) -> Vec<InstantSample> {
+    let (order, groups) = group_samples(samples, by, labels);
+    let mut out = Vec::new();
+    for (glabels, gs) in order.into_iter().zip(groups) {
+        let mut counts: BTreeMap<String, f64> = BTreeMap::new();
+        for s in gs {
+            *counts.entry(format!("{}", s.value)).or_insert(0.0) += 1.0;
+        }
+        for (vstr, c) in counts {
+            let mut l = glabels.clone();
+            l.insert(dst.to_string(), vstr);
+            out.push(InstantSample {
+                labels: l,
+                value: c,
+            });
+        }
+    }
+    out
+}
+
+// ───────────────────────────── _over_time / delta / deriv (EG-302) ─────────────────────────────
+
+/// CONCEPT:EG-302 — the `<agg>_over_time` family over a range vector. All drop the
+/// metric name EXCEPT `last_over_time`, which preserves the series' labels verbatim
+/// (Prometheus semantics).
+fn over_time_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> {
+    let mut out = Vec::new();
+    for s in series {
+        if s.points.is_empty() {
+            continue;
+        }
+        let vals: Vec<f64> = s.points.iter().map(|p| p.1).collect();
+        let value = match func {
+            "sum_over_time" => vals.iter().sum(),
+            "avg_over_time" => vals.iter().sum::<f64>() / vals.len() as f64,
+            "min_over_time" => vals.iter().copied().fold(f64::INFINITY, f64::min),
+            "max_over_time" => vals.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            "count_over_time" => vals.len() as f64,
+            "stddev_over_time" => variance(&vals).sqrt(),
+            "stdvar_over_time" => variance(&vals),
+            "last_over_time" => *vals.last().unwrap(),
+            _ => unreachable!("over_time_family called with {func}"),
+        };
+        let mut labels = s.labels.clone();
+        if func != "last_over_time" {
+            labels.remove(METRIC_NAME);
+        }
+        out.push(InstantSample { labels, value });
+    }
+    out
+}
+
+/// CONCEPT:EG-302 — `quantile_over_time(phi, range-vector)`.
+fn quantile_over_time(phi: f64, series: Vec<RangeSeries>) -> Vec<InstantSample> {
+    let mut out = Vec::new();
+    for s in series {
+        if s.points.is_empty() {
+            continue;
+        }
+        let mut vals: Vec<f64> = s.points.iter().map(|p| p.1).collect();
+        let mut labels = s.labels.clone();
+        labels.remove(METRIC_NAME);
+        out.push(InstantSample {
+            labels,
+            value: quantile(phi, &mut vals),
+        });
+    }
+    out
+}
+
+/// CONCEPT:EG-302 — `delta` (last−first, no extrapolation, matching the crate's
+/// non-extrapolating `rate`), `idelta` (last−penultimate), `deriv` (least-squares
+/// slope per second). All need ≥2 points and drop the metric name.
+fn delta_family(func: &str, series: Vec<RangeSeries>, t: Ts) -> Vec<InstantSample> {
+    let mut out = Vec::new();
+    for s in series {
+        let n = s.points.len();
+        if n < 2 {
+            continue;
+        }
+        let value = match func {
+            "delta" => s.points[n - 1].1 - s.points[0].1,
+            "idelta" => s.points[n - 1].1 - s.points[n - 2].1,
+            "deriv" => linear_regression(&s.points, t).0,
+            _ => unreachable!("delta_family called with {func}"),
+        };
+        let mut labels = s.labels.clone();
+        labels.remove(METRIC_NAME);
+        out.push(InstantSample { labels, value });
+    }
+    out
+}
+
+/// CONCEPT:EG-302 — `predict_linear(range-vector, t)`: least-squares extrapolation
+/// `t` seconds past the evaluation instant. Needs ≥2 points; drops the metric name.
+fn predict_linear(series: Vec<RangeSeries>, secs: f64, t: Ts) -> Vec<InstantSample> {
+    let mut out = Vec::new();
+    for s in series {
+        if s.points.len() < 2 {
+            continue;
+        }
+        let (slope, intercept) = linear_regression(&s.points, t);
+        let mut labels = s.labels.clone();
+        labels.remove(METRIC_NAME);
+        out.push(InstantSample {
+            labels,
+            value: intercept + slope * secs,
+        });
+    }
+    out
+}
+
+/// Ordinary least-squares regression of value against time (seconds relative to
+/// `intercept_time`). Returns `(slope_per_second, value_at_intercept_time)`. The slope
+/// is shift-invariant, so `deriv` can pass any `intercept_time`.
+fn linear_regression(points: &[(Ts, f64)], intercept_time: Ts) -> (f64, f64) {
+    let n = points.len() as f64;
+    let mut sx = 0.0;
+    let mut sy = 0.0;
+    let mut sxx = 0.0;
+    let mut sxy = 0.0;
+    for (ts, v) in points {
+        let x = (*ts - intercept_time) as f64 / NS_PER_SEC;
+        sx += x;
+        sy += v;
+        sxx += x * x;
+        sxy += x * v;
+    }
+    let cov = sxy - sx * sy / n;
+    let varx = sxx - sx * sx / n;
+    let slope = if varx == 0.0 { 0.0 } else { cov / varx };
+    let intercept = sy / n - slope * sx / n;
+    (slope, intercept)
+}
+
+// ───────────────────────────── clamp / round (EG-302) ─────────────────────────────
+
+/// CONCEPT:EG-302 — `clamp(v, min, max)`. If `min > max` the result is empty
+/// (Prometheus semantics). Drops the metric name.
+fn clamp(samples: Vec<InstantSample>, min: f64, max: f64) -> Vec<InstantSample> {
+    if min > max {
+        return Vec::new();
+    }
+    map_values(strip_name(samples), move |v| v.max(min).min(max))
+}
+
+/// CONCEPT:EG-302 — `round(v, to_nearest)`: round to the nearest multiple of
+/// `to_nearest` (default 1), ties away from zero. Drops the metric name.
+fn round(samples: Vec<InstantSample>, to_nearest: f64) -> Vec<InstantSample> {
+    let inv = if to_nearest == 0.0 {
+        1.0
+    } else {
+        1.0 / to_nearest
+    };
+    map_values(strip_name(samples), move |v| (v * inv + 0.5).floor() / inv)
+}
+
+// ───────────────────────────── label_replace / label_join (EG-302) ─────────────────────────────
+
+/// Require `e` to be a string literal (for the label-function string arguments).
+fn str_arg<'a>(e: &'a Expr, ctx: &str) -> Result<&'a str, PromqlError> {
+    match e {
+        Expr::Str(s) => Ok(s.as_str()),
+        _ => err(format!("{ctx}: expected a string literal argument")),
+    }
+}
+
+/// CONCEPT:EG-302 — `label_replace(v, dst, replacement, src, regex)`. For each series,
+/// if `regex` fully matches the value of `src`, `dst` is set to `replacement` with
+/// `$1`/`${1}` capture-group references expanded (an empty result removes `dst`);
+/// otherwise the series is passed through unchanged. All other labels — including
+/// `__name__` — are preserved.
+fn label_replace(
+    samples: Vec<InstantSample>,
+    dst: &str,
+    repl: &str,
+    src: &str,
+    regex: &str,
+) -> Result<Vec<InstantSample>, PromqlError> {
+    let re = CaptureRegex::compile(regex)?;
+    let mut out = Vec::with_capacity(samples.len());
+    for mut s in samples {
+        let src_val = s.labels.get(src).map(String::as_str).unwrap_or("");
+        if let Some(groups) = re.captures(src_val) {
+            let newv = expand_replacement(repl, &groups);
+            if newv.is_empty() {
+                s.labels.remove(dst);
+            } else {
+                s.labels.insert(dst.to_string(), newv);
+            }
+        }
+        out.push(s);
+    }
+    Ok(out)
+}
+
+/// CONCEPT:EG-302 — `label_join(v, dst, separator, src_label...)`: join the values of
+/// the source labels with `separator` into `dst` (an empty join removes `dst`). All
+/// other labels are preserved.
+fn label_join(
+    samples: Vec<InstantSample>,
+    dst: &str,
+    sep: &str,
+    srcs: &[&str],
+) -> Vec<InstantSample> {
+    let mut out = Vec::with_capacity(samples.len());
+    for mut s in samples {
+        let joined = srcs
+            .iter()
+            .map(|l| s.labels.get(*l).cloned().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(sep);
+        if joined.is_empty() {
+            s.labels.remove(dst);
+        } else {
+            s.labels.insert(dst.to_string(), joined);
+        }
+        out.push(s);
+    }
+    out
+}
+
+/// Expand a `label_replace` replacement string. `$0` is the whole match, `$1`..`$N`
+/// and `${N}` are numbered capture groups (a reference to an unmatched/absent group
+/// expands to empty), and `$$` is a literal `$`.
+fn expand_replacement(repl: &str, groups: &[Option<String>]) -> String {
+    let chars: Vec<char> = repl.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '$' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        i += 1; // consume '$'
+        if i >= chars.len() {
+            out.push('$');
+            break;
+        }
+        if chars[i] == '$' {
+            out.push('$');
+            i += 1;
+            continue;
+        }
+        let mut num = String::new();
+        if chars[i] == '{' {
+            i += 1;
+            while i < chars.len() && chars[i] != '}' {
+                num.push(chars[i]);
+                i += 1;
+            }
+            if i < chars.len() {
+                i += 1; // consume '}'
+            }
+        } else {
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                num.push(chars[i]);
+                i += 1;
+            }
+            if num.is_empty() {
+                // A bare `$` not followed by a group reference is kept literally.
+                out.push('$');
+                continue;
+            }
+        }
+        if let Ok(n) = num.parse::<usize>() {
+            if let Some(Some(v)) = groups.get(n) {
+                out.push_str(v);
+            }
+        }
+    }
+    out
 }
 
 // ───────────────────────────── histogram_quantile ─────────────────────────────
@@ -1979,6 +2557,315 @@ fn re_star(inner: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool
     // Greedy: consume as many as possible (guarding against empty matches), then k.
     re_match(inner, input, pos, &|p| {
         p > pos && re_star(inner, input, p, k)
+    }) || k(pos)
+}
+
+// ───────────────────────────── capture-aware regex (label_replace, EG-302) ─────────────────────────────
+
+use std::cell::RefCell;
+
+/// Per-group `[start, end)` char spans recorded during a capture match. Index 0 is
+/// reserved for the whole match; groups are numbered 1..=ngroups in open-paren order.
+type CapSlots = Vec<Option<(usize, usize)>>;
+
+/// A fully-anchored regex that records numbered capture groups, for `label_replace`.
+/// Shares the same surface as the label-matcher [`Regex`] (literals, `.`, classes,
+/// alternation, groups, greedy `* + ?`, `\d \w \s`), but `(...)` here is a *capturing*
+/// group. Hand-rolled — NO dependency (the Pi contract holds).
+#[derive(Debug, Clone)]
+struct CaptureRegex {
+    root: CapNode,
+    ngroups: usize,
+}
+
+#[derive(Debug, Clone)]
+enum CapNode {
+    Empty,
+    Char(char),
+    AnyChar,
+    Class { neg: bool, ranges: Vec<(char, char)> },
+    Concat(Vec<CapNode>),
+    Alt(Vec<CapNode>),
+    Star(Box<CapNode>),
+    Plus(Box<CapNode>),
+    Opt(Box<CapNode>),
+    Group(usize, Box<CapNode>),
+}
+
+impl CaptureRegex {
+    fn compile(pat: &str) -> Result<CaptureRegex, PromqlError> {
+        let chars: Vec<char> = pat.chars().collect();
+        let mut rp = CapReParser {
+            chars: &chars,
+            pos: 0,
+            ngroups: 0,
+        };
+        let root = rp.parse_alt()?;
+        if rp.pos != rp.chars.len() {
+            return err(format!(
+                "invalid regex '{pat}': unexpected char at {}",
+                rp.pos
+            ));
+        }
+        Ok(CaptureRegex {
+            root,
+            ngroups: rp.ngroups,
+        })
+    }
+
+    /// Full (anchored) match; on success returns each group's captured substring
+    /// (index 0 = whole match, 1..=ngroups = groups; `None` for unmatched groups).
+    fn captures(&self, s: &str) -> Option<Vec<Option<String>>> {
+        let input: Vec<char> = s.chars().collect();
+        let slots: RefCell<CapSlots> = RefCell::new(vec![None; self.ngroups + 1]);
+        let matched = cap_match(&self.root, &input, 0, &slots, &|p| p == input.len());
+        if !matched {
+            return None;
+        }
+        let raw = slots.into_inner();
+        let mut out = Vec::with_capacity(raw.len());
+        out.push(Some(s.to_string())); // group 0 = whole match
+        for g in &raw[1..] {
+            out.push(g.map(|(a, b)| input[a..b].iter().collect::<String>()));
+        }
+        Some(out)
+    }
+}
+
+struct CapReParser<'a> {
+    chars: &'a [char],
+    pos: usize,
+    ngroups: usize,
+}
+
+impl<'a> CapReParser<'a> {
+    fn peek(&self) -> Option<char> {
+        self.chars.get(self.pos).copied()
+    }
+
+    fn parse_alt(&mut self) -> Result<CapNode, PromqlError> {
+        let mut branches = vec![self.parse_concat()?];
+        while self.peek() == Some('|') {
+            self.pos += 1;
+            branches.push(self.parse_concat()?);
+        }
+        if branches.len() == 1 {
+            Ok(branches.pop().unwrap())
+        } else {
+            Ok(CapNode::Alt(branches))
+        }
+    }
+
+    fn parse_concat(&mut self) -> Result<CapNode, PromqlError> {
+        let mut parts = Vec::new();
+        while let Some(c) = self.peek() {
+            if c == '|' || c == ')' {
+                break;
+            }
+            parts.push(self.parse_quantified()?);
+        }
+        if parts.is_empty() {
+            Ok(CapNode::Empty)
+        } else if parts.len() == 1 {
+            Ok(parts.pop().unwrap())
+        } else {
+            Ok(CapNode::Concat(parts))
+        }
+    }
+
+    fn parse_quantified(&mut self) -> Result<CapNode, PromqlError> {
+        let atom = self.parse_atom()?;
+        match self.peek() {
+            Some('*') => {
+                self.pos += 1;
+                Ok(CapNode::Star(Box::new(atom)))
+            }
+            Some('+') => {
+                self.pos += 1;
+                Ok(CapNode::Plus(Box::new(atom)))
+            }
+            Some('?') => {
+                self.pos += 1;
+                Ok(CapNode::Opt(Box::new(atom)))
+            }
+            _ => Ok(atom),
+        }
+    }
+
+    fn parse_atom(&mut self) -> Result<CapNode, PromqlError> {
+        match self.peek() {
+            Some('(') => {
+                self.pos += 1;
+                // Assign this group's index in open-paren (left-to-right) order.
+                self.ngroups += 1;
+                let idx = self.ngroups;
+                let inner = self.parse_alt()?;
+                if self.peek() != Some(')') {
+                    return err("unbalanced '(' in regex");
+                }
+                self.pos += 1;
+                Ok(CapNode::Group(idx, Box::new(inner)))
+            }
+            Some('[') => self.parse_class(),
+            Some('.') => {
+                self.pos += 1;
+                Ok(CapNode::AnyChar)
+            }
+            Some('\\') => {
+                self.pos += 1;
+                let c = self
+                    .peek()
+                    .ok_or_else(|| PromqlError("dangling escape in regex".into()))?;
+                self.pos += 1;
+                Ok(cap_escape_node(c))
+            }
+            Some(c) => {
+                self.pos += 1;
+                Ok(CapNode::Char(c))
+            }
+            None => Ok(CapNode::Empty),
+        }
+    }
+
+    fn parse_class(&mut self) -> Result<CapNode, PromqlError> {
+        self.pos += 1; // '['
+        let mut neg = false;
+        if self.peek() == Some('^') {
+            neg = true;
+            self.pos += 1;
+        }
+        let mut ranges: Vec<(char, char)> = Vec::new();
+        while let Some(c) = self.peek() {
+            if c == ']' {
+                self.pos += 1;
+                return Ok(CapNode::Class { neg, ranges });
+            }
+            let start = if c == '\\' {
+                self.pos += 1;
+                let e = self
+                    .peek()
+                    .ok_or_else(|| PromqlError("dangling escape in class".into()))?;
+                self.pos += 1;
+                if let Some((lo, hi)) = escape_class(e) {
+                    ranges.push((lo, hi));
+                    continue;
+                }
+                e
+            } else {
+                self.pos += 1;
+                c
+            };
+            if self.peek() == Some('-') && self.chars.get(self.pos + 1) != Some(&']') {
+                self.pos += 1; // '-'
+                let end = self
+                    .peek()
+                    .ok_or_else(|| PromqlError("unterminated class range".into()))?;
+                self.pos += 1;
+                ranges.push((start, end));
+            } else {
+                ranges.push((start, start));
+            }
+        }
+        err("unterminated character class")
+    }
+}
+
+fn cap_escape_node(c: char) -> CapNode {
+    match c {
+        'd' => CapNode::Class {
+            neg: false,
+            ranges: vec![('0', '9')],
+        },
+        'D' => CapNode::Class {
+            neg: true,
+            ranges: vec![('0', '9')],
+        },
+        'w' => CapNode::Class {
+            neg: false,
+            ranges: vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')],
+        },
+        'W' => CapNode::Class {
+            neg: true,
+            ranges: vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')],
+        },
+        's' => CapNode::Class {
+            neg: false,
+            ranges: vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')],
+        },
+        'S' => CapNode::Class {
+            neg: true,
+            ranges: vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')],
+        },
+        'n' => CapNode::Char('\n'),
+        't' => CapNode::Char('\t'),
+        other => CapNode::Char(other),
+    }
+}
+
+/// CPS backtracking matcher recording capture spans into `slots`. On a group, the span
+/// is set before invoking the continuation and restored if the continuation fails, so
+/// backtracking never leaves a stale capture on the final successful path.
+fn cap_match(
+    node: &CapNode,
+    input: &[char],
+    pos: usize,
+    slots: &RefCell<CapSlots>,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
+    match node {
+        CapNode::Empty => k(pos),
+        CapNode::Char(c) => pos < input.len() && input[pos] == *c && k(pos + 1),
+        CapNode::AnyChar => pos < input.len() && k(pos + 1),
+        CapNode::Class { neg, ranges } => {
+            pos < input.len() && class_match(*neg, ranges, input[pos]) && k(pos + 1)
+        }
+        CapNode::Concat(parts) => cap_concat(parts, 0, input, pos, slots, k),
+        CapNode::Alt(branches) => branches.iter().any(|b| cap_match(b, input, pos, slots, k)),
+        CapNode::Star(inner) => cap_star(inner, input, pos, slots, k),
+        CapNode::Plus(inner) => {
+            cap_match(inner, input, pos, slots, &|p| {
+                cap_star(inner, input, p, slots, k)
+            })
+        }
+        CapNode::Opt(inner) => cap_match(inner, input, pos, slots, k) || k(pos),
+        CapNode::Group(idx, inner) => cap_match(inner, input, pos, slots, &|end| {
+            let saved = slots.borrow()[*idx];
+            slots.borrow_mut()[*idx] = Some((pos, end));
+            if k(end) {
+                true
+            } else {
+                slots.borrow_mut()[*idx] = saved;
+                false
+            }
+        }),
+    }
+}
+
+fn cap_concat(
+    parts: &[CapNode],
+    i: usize,
+    input: &[char],
+    pos: usize,
+    slots: &RefCell<CapSlots>,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
+    if i == parts.len() {
+        return k(pos);
+    }
+    cap_match(&parts[i], input, pos, slots, &|p| {
+        cap_concat(parts, i + 1, input, p, slots, k)
+    })
+}
+
+fn cap_star(
+    inner: &CapNode,
+    input: &[char],
+    pos: usize,
+    slots: &RefCell<CapSlots>,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
+    cap_match(inner, input, pos, slots, &|p| {
+        p > pos && cap_star(inner, input, p, slots, k)
     }) || k(pos)
 }
 
