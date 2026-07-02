@@ -38,17 +38,12 @@ use std::collections::HashMap;
 ///   * [`Metric::InnerProduct`] — the NEGATED inner product `−⟨a,b⟩`, so a larger
 ///     (more positive) dot product yields a smaller distance (maximum-inner-product
 ///     search under the same ascending order).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Metric {
+    #[default]
     L2,
     Cosine,
     InnerProduct,
-}
-
-impl Default for Metric {
-    fn default() -> Self {
-        Metric::L2
-    }
 }
 
 impl Metric {
