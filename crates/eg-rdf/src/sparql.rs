@@ -1827,6 +1827,92 @@ fn eval_str_function(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solutio
             };
             Some(Binding::Literal(slice))
         }
+        // ── Term constructors (CONCEPT:EG-127) ────────────────────────────────
+        // BNODE() → a fresh blank node; BNODE(str) → a blank node labelled from the
+        // arg. The arg-less form is NON-DETERMINISTIC (see `next_rand_u64`) and must
+        // stay out of any cached/deterministic evaluation path.
+        F::BNode => {
+            let label = match args.first() {
+                Some(a) => sanitize_bnode_label(&expr_str(ctx, a, sol)?),
+                None => format!("b{:x}", fresh_id()),
+            };
+            Some(Binding::Node(format!("_:{label}")))
+        }
+        // STRDT(lexical, datatype) / STRLANG(lexical, lang): a `Binding` carries only
+        // the lexical form (as DATATYPE/LANG already infer best-effort), so the value
+        // round-trips while the datatype/lang ride along implicitly.
+        F::StrDt | F::StrLang => Some(Binding::Literal(expr_str(ctx, args.first()?, sol)?)),
+        // UUID() → a fresh urn:uuid: IRI; STRUUID() → its lexical form. NON-DETERMINISTIC.
+        F::Uuid => Some(Binding::Node(format!("<urn:uuid:{}>", fresh_uuid()))),
+        F::StrUuid => Some(Binding::Literal(fresh_uuid())),
+
+        // ── Hash built-ins (CONCEPT:EG-127) ──────────────────────────────────
+        // Pure-Rust RustCrypto, gated behind `sparql-hash` (OUT of pi). When the
+        // feature is off they fall through to `_ => None` (unsupported, fails SAFE).
+        #[cfg(feature = "sparql-hash")]
+        F::Md5 => Some(Binding::Literal(hash_hex::<md5::Md5>(&expr_str(ctx, args.first()?, sol)?))),
+        #[cfg(feature = "sparql-hash")]
+        F::Sha1 => Some(Binding::Literal(hash_hex::<sha1::Sha1>(&expr_str(ctx, args.first()?, sol)?))),
+        #[cfg(feature = "sparql-hash")]
+        F::Sha256 => Some(Binding::Literal(hash_hex::<sha2::Sha256>(&expr_str(ctx, args.first()?, sol)?))),
+        #[cfg(feature = "sparql-hash")]
+        F::Sha384 => Some(Binding::Literal(hash_hex::<sha2::Sha384>(&expr_str(ctx, args.first()?, sol)?))),
+        #[cfg(feature = "sparql-hash")]
+        F::Sha512 => Some(Binding::Literal(hash_hex::<sha2::Sha512>(&expr_str(ctx, args.first()?, sol)?))),
+
+        // ── Numeric built-ins (CONCEPT:EG-127) ───────────────────────────────
+        F::Abs => Some(Binding::Literal(fmt_num(num(ctx, args.first()?, sol)?.abs()))),
+        F::Ceil => Some(Binding::Literal(fmt_num(num(ctx, args.first()?, sol)?.ceil()))),
+        F::Floor => Some(Binding::Literal(fmt_num(num(ctx, args.first()?, sol)?.floor()))),
+        // SPARQL ROUND is half-towards-positive-infinity (ROUND(-2.5)=-2, ROUND(2.5)=3).
+        F::Round => Some(Binding::Literal(fmt_num((num(ctx, args.first()?, sol)? + 0.5).floor()))),
+        // RAND() → xsd:double in [0,1). NON-DETERMINISTIC.
+        F::Rand => Some(Binding::Literal(fmt_num(rand_f64()))),
+
+        // ── Date-time built-ins (CONCEPT:EG-127) ─────────────────────────────
+        // NOW() → the current xsd:dateTime (UTC). NON-DETERMINISTIC.
+        F::Now => Some(Binding::Literal(now_xsd_datetime())),
+        F::Year => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.year as f64))),
+        F::Month => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.month as f64))),
+        F::Day => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.day as f64))),
+        F::Hours => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.hour as f64))),
+        F::Minutes => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.minute as f64))),
+        F::Seconds => Some(Binding::Literal(fmt_num(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.second))),
+        F::Tz => Some(Binding::Literal(parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.tz)),
+        F::Timezone => Some(Binding::Literal(tz_to_duration(
+            &parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.tz,
+        ))),
+
+        // ── String extras (CONCEPT:EG-127) ───────────────────────────────────
+        F::StrBefore => {
+            let s = expr_str(ctx, args.first()?, sol)?;
+            let sep = expr_str(ctx, args.get(1)?, sol)?;
+            Some(Binding::Literal(match s.find(&sep) {
+                Some(i) => s[..i].to_string(),
+                None => String::new(),
+            }))
+        }
+        F::StrAfter => {
+            let s = expr_str(ctx, args.first()?, sol)?;
+            let sep = expr_str(ctx, args.get(1)?, sol)?;
+            Some(Binding::Literal(match s.find(&sep) {
+                Some(i) => s[i + sep.len()..].to_string(),
+                None => String::new(),
+            }))
+        }
+        // REPLACE(str, pattern, replacement [, flags]) — regex-backed (reuses the
+        // `regex` dep already in `sparql`); `$1` back-references pass through.
+        F::Replace => {
+            let s = expr_str(ctx, args.first()?, sol)?;
+            let pat = expr_str(ctx, args.get(1)?, sol)?;
+            let rep = expr_str(ctx, args.get(2)?, sol)?;
+            let flags = args.get(3).and_then(|fl| expr_str(ctx, fl, sol)).unwrap_or_default();
+            let pattern = if flags.contains('i') { format!("(?i){pat}") } else { pat };
+            let re = regex::Regex::new(&pattern).ok()?;
+            Some(Binding::Literal(re.replace_all(&s, rep.as_str()).into_owned()))
+        }
+        F::EncodeForUri => Some(Binding::Literal(encode_for_uri(&expr_str(ctx, args.first()?, sol)?))),
+
         // Boolean built-ins composed in a string context → "true"/"false".
         F::Contains | F::StrStarts | F::StrEnds | F::Regex | F::LangMatches | F::IsIri
         | F::IsBlank | F::IsLiteral | F::IsNumeric => Some(Binding::Literal(
@@ -1895,6 +1981,224 @@ fn expr_str(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<String> {
 
 fn num(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<f64> {
     expr_str(ctx, e, sol)?.parse::<f64>().ok()
+}
+
+// ── EG-127 helpers: hashing, non-deterministic sources, date-time, URI encoding ──
+
+/// Hex-encoded digest of `input` for the SPARQL hash built-ins (CONCEPT:EG-127). The
+/// `sha2::Digest` bound is the shared RustCrypto `digest::Digest` trait (re-exported by
+/// `md-5`/`sha1`/`sha2` at the same 0.10 line), so it accepts `Md5`/`Sha1`/`Sha2*`.
+#[cfg(feature = "sparql-hash")]
+fn hash_hex<D: sha2::Digest>(input: &str) -> String {
+    use std::fmt::Write as _;
+    let out = D::digest(input.as_bytes());
+    let mut s = String::with_capacity(out.len() * 2);
+    for b in out {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
+
+/// Global PRNG state for the non-deterministic built-ins (`RAND`/`UUID`/`STRUUID`/
+/// arg-less `BNODE`). NOT cryptographic and deliberately kept off any cached path.
+static RNG_STATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// SplitMix64 mixed with the wall clock + a monotonic counter — a cheap, dependency-free
+/// non-deterministic source. Sufficient for SPARQL RAND/UUID (which need no crypto grade).
+fn next_rand_u64() -> u64 {
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut x = RNG_STATE
+        .fetch_add(0x9E37_79B9_7F4A_7C15, std::sync::atomic::Ordering::Relaxed)
+        ^ t;
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^ (x >> 31)
+}
+
+/// A 53-bit-mantissa double in `[0, 1)` for `RAND()`.
+fn rand_f64() -> f64 {
+    (next_rand_u64() >> 11) as f64 / ((1u64 << 53) as f64)
+}
+
+/// A fresh opaque id for arg-less `BNODE()`.
+fn fresh_id() -> u64 {
+    next_rand_u64()
+}
+
+/// A blank-node label reduced to `[A-Za-z0-9_]` so `BNODE(str)` yields a legal label.
+fn sanitize_bnode_label(s: &str) -> String {
+    let cleaned: String = s
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect();
+    if cleaned.is_empty() {
+        format!("b{:x}", fresh_id())
+    } else {
+        cleaned
+    }
+}
+
+/// An RFC-4122 v4 UUID string (used by `UUID()`/`STRUUID()`).
+fn fresh_uuid() -> String {
+    let (a, b) = (next_rand_u64(), next_rand_u64());
+    let bytes = [
+        (a >> 56) as u8,
+        (a >> 48) as u8,
+        (a >> 40) as u8,
+        (a >> 32) as u8,
+        (a >> 24) as u8,
+        (a >> 16) as u8,
+        (((a >> 8) as u8) & 0x0f) | 0x40, // version 4
+        a as u8,
+        (((b >> 56) as u8) & 0x3f) | 0x80, // variant 10xx
+        (b >> 48) as u8,
+        (b >> 40) as u8,
+        (b >> 32) as u8,
+        (b >> 24) as u8,
+        (b >> 16) as u8,
+        (b >> 8) as u8,
+        b as u8,
+    ];
+    let mut s = String::with_capacity(36);
+    use std::fmt::Write as _;
+    for (i, byte) in bytes.iter().enumerate() {
+        if matches!(i, 4 | 6 | 8 | 10) {
+            s.push('-');
+        }
+        let _ = write!(s, "{byte:02x}");
+    }
+    s
+}
+
+/// Percent-encode per SPARQL `ENCODE_FOR_URI` (unreserved set `A-Za-z0-9-_.~` pass through).
+fn encode_for_uri(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => {
+                let _ = write!(out, "%{b:02X}");
+            }
+        }
+    }
+    out
+}
+
+/// Decomposed xsd:dateTime / xsd:date fields for the accessor built-ins.
+struct DateTimeParts {
+    year: i64,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: f64,
+    /// The timezone lexical exactly as written (`""`, `"Z"`, `"+01:00"`, `"-05:00"`).
+    tz: String,
+}
+
+/// Parse an xsd:dateTime (or xsd:date) lexical enough to serve YEAR..SECONDS/TZ/TIMEZONE.
+fn parse_datetime(s: &str) -> Option<DateTimeParts> {
+    let s = s.trim();
+    let (neg, rest) = match s.strip_prefix('-') {
+        Some(r) => (true, r),
+        None => (false, s),
+    };
+    let (date_part, time_part) = match rest.split_once('T') {
+        Some((d, t)) => (d, Some(t)),
+        None => (rest, None),
+    };
+    let mut di = date_part.split('-');
+    let year: i64 = di.next()?.parse().ok()?;
+    let month: u32 = di.next()?.parse().ok()?;
+    let day: u32 = di.next()?.parse().ok()?;
+    let (mut hour, mut minute, mut second, mut tz) = (0u32, 0u32, 0.0f64, String::new());
+    if let Some(tp) = time_part {
+        // Split off the timezone: `Z`/`+..` is unambiguous; a trailing `-..` is the tz.
+        let (hms, tzs) = if let Some(i) = tp.find(['Z', '+']) {
+            (&tp[..i], tp[i..].to_string())
+        } else if let Some(i) = tp.rfind('-') {
+            (&tp[..i], tp[i..].to_string())
+        } else {
+            (tp, String::new())
+        };
+        tz = tzs;
+        let mut ti = hms.split(':');
+        hour = ti.next()?.parse().ok()?;
+        minute = ti.next()?.parse().ok()?;
+        second = ti.next().unwrap_or("0").parse().ok()?;
+    }
+    Some(DateTimeParts {
+        year: if neg { -year } else { year },
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        tz,
+    })
+}
+
+/// The `xsd:dayTimeDuration` form of a timezone lexical, per SPARQL `TIMEZONE`
+/// (`Z`/empty → `PT0S`, `+01:00` → `PT1H`, `-05:30` → `-PT5H30M`).
+fn tz_to_duration(tz: &str) -> String {
+    if tz.is_empty() || tz == "Z" {
+        return "PT0S".to_string();
+    }
+    let (sign, rest) = match tz.strip_prefix('+') {
+        Some(r) => ("", r),
+        None => match tz.strip_prefix('-') {
+            Some(r) => ("-", r),
+            None => return "PT0S".to_string(),
+        },
+    };
+    let mut it = rest.split(':');
+    let h: i64 = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+    let m: i64 = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+    let mut out = format!("{sign}PT");
+    if h != 0 {
+        out.push_str(&format!("{h}H"));
+    }
+    if m != 0 {
+        out.push_str(&format!("{m}M"));
+    }
+    if h == 0 && m == 0 {
+        out.push_str("0S");
+    }
+    out
+}
+
+/// The current UTC instant as an `xsd:dateTime` lexical (`NOW()`), without a date crate:
+/// seconds-since-epoch → civil date via Howard Hinnant's `days_from_civil` inverse.
+fn now_xsd_datetime() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (y, m, d) = civil_from_days(days);
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
+}
+
+/// Civil (proleptic Gregorian) `(year, month, day)` from a days-since-1970-01-01 count.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 #[cfg(test)]
@@ -3051,5 +3355,107 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
             remote.contains("?s") && remote.contains("?o"),
             "projects in-scope vars: {remote}"
         );
+    }
+
+    // ── EG-127: SPARQL 1.1 builtin-function library completion ──────────────
+
+    /// Evaluate a scalar expression via `BIND(<expr> AS ?x)` over an empty BGP.
+    fn scalar(view: &GraphView, expr: &str) -> String {
+        let q = format!("SELECT ?x WHERE {{ BIND({expr} AS ?x) }}");
+        let res = run(view, &q).unwrap_or_else(|e| panic!("run {expr}: {e}"));
+        res.solutions
+            .first()
+            .and_then(|s| s.get("x"))
+            .unwrap_or_else(|| panic!("no ?x for {expr}"))
+            .as_str()
+            .to_string()
+    }
+
+    /// EG-127: hash built-ins against the canonical `"abc"` test vectors.
+    #[cfg(feature = "sparql-hash")]
+    #[test]
+    fn eg127_hash_builtins_known_vectors() {
+        let v = loaded_view();
+        assert_eq!(scalar(&v, r#"MD5("abc")"#), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(
+            scalar(&v, r#"SHA1("abc")"#),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+        assert_eq!(
+            scalar(&v, r#"SHA256("abc")"#),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            scalar(&v, r#"SHA384("abc")"#),
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed\
+8086072ba1e7cc2358baeca134c825a7"
+        );
+        assert_eq!(
+            scalar(&v, r#"SHA512("abc")"#),
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a\
+2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+        );
+    }
+
+    /// EG-127: term constructors — UUID()/STRUUID() and STRDT().
+    #[test]
+    fn eg127_term_constructors() {
+        let v = loaded_view();
+        assert_eq!(scalar(&v, "STRLEN(STRUUID())"), "36");
+        assert!(
+            scalar(&v, "STR(UUID())").starts_with("urn:uuid:"),
+            "UUID() is a urn:uuid: IRI"
+        );
+        // STRDT keeps the lexical value; BNODE(str) yields a labelled blank node.
+        assert_eq!(
+            scalar(&v, r#"STRDT("42", <http://www.w3.org/2001/XMLSchema#integer>)"#),
+            "42"
+        );
+        assert_eq!(scalar(&v, r#"STR(BNODE("tag1"))"#), "_:tag1");
+    }
+
+    /// EG-127: date-time accessors over an xsd:dateTime lexical + NOW().
+    #[test]
+    fn eg127_datetime_accessors() {
+        let v = loaded_view();
+        let dt = r#""2024-03-15T10:30:45+01:00""#;
+        assert_eq!(scalar(&v, &format!("YEAR({dt})")), "2024");
+        assert_eq!(scalar(&v, &format!("MONTH({dt})")), "3");
+        assert_eq!(scalar(&v, &format!("DAY({dt})")), "15");
+        assert_eq!(scalar(&v, &format!("HOURS({dt})")), "10");
+        assert_eq!(scalar(&v, &format!("MINUTES({dt})")), "30");
+        assert_eq!(scalar(&v, &format!("SECONDS({dt})")), "45");
+        assert_eq!(scalar(&v, &format!("TZ({dt})")), "+01:00");
+        assert_eq!(scalar(&v, &format!("TIMEZONE({dt})")), "PT1H");
+        // NOW() is a well-formed xsd:dateTime whose year is in the plausible range.
+        let now_year: i64 = scalar(&v, "YEAR(NOW())").parse().unwrap();
+        assert!(now_year >= 2024, "NOW() year = {now_year}");
+    }
+
+    /// EG-127: REPLACE (regex-backed) + STRBEFORE/STRAFTER.
+    #[test]
+    fn eg127_string_extras() {
+        let v = loaded_view();
+        assert_eq!(scalar(&v, r#"REPLACE("abcabc", "b", "X")"#), "aXcaXc");
+        assert_eq!(scalar(&v, r#"REPLACE("Foo", "o", "0", "i")"#), "F00");
+        assert_eq!(scalar(&v, r#"STRBEFORE("hello@world", "@")"#), "hello");
+        assert_eq!(scalar(&v, r#"STRAFTER("hello@world", "@")"#), "world");
+        // Separator not found ⇒ empty string.
+        assert_eq!(scalar(&v, r#"STRBEFORE("abc", "z")"#), "");
+        assert_eq!(scalar(&v, r#"ENCODE_FOR_URI("a b/c")"#), "a%20b%2Fc");
+    }
+
+    /// EG-127: numeric built-ins ABS/CEIL/FLOOR/ROUND (half-toward-+inf).
+    #[test]
+    fn eg127_numeric_builtins() {
+        let v = loaded_view();
+        assert_eq!(scalar(&v, "ABS(-5)"), "5");
+        assert_eq!(scalar(&v, "CEIL(1.2)"), "2");
+        assert_eq!(scalar(&v, "FLOOR(1.8)"), "1");
+        assert_eq!(scalar(&v, "ROUND(2.5)"), "3");
+        assert_eq!(scalar(&v, "ROUND(-2.5)"), "-2");
+        // RAND() is a double in [0,1).
+        let r: f64 = scalar(&v, "RAND()").parse().unwrap();
+        assert!((0.0..1.0).contains(&r), "RAND() = {r}");
     }
 }
