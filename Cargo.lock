@@ -1970,6 +1970,7 @@ name = "eg-rdf"
 version = "0.1.0"
 dependencies = [
  "eg-core",
+ "eg-geo",
  "md-5 0.10.6",
  "oxjsonld",
  "oxrdf",
