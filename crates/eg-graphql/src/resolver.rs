@@ -180,16 +180,8 @@ fn should_include(directives: &[Directive], vars: &Variables) -> Result<bool, St
     let mut include = true;
     for d in directives {
         match d.name.as_str() {
-            "skip" => {
-                if directive_if(d, vars)? {
-                    include = false;
-                }
-            }
-            "include" => {
-                if !directive_if(d, vars)? {
-                    include = false;
-                }
-            }
+            "skip" if directive_if(d, vars)? => include = false,
+            "include" if !directive_if(d, vars)? => include = false,
             _ => {}
         }
     }
