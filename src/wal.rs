@@ -801,6 +801,114 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// CONCEPT:EG-318 — the memory/scene/trajectory durable Methods are all
+    /// classified `is_durable_mutation` and replay byte-identically: a fresh graph
+    /// fed only the logged Methods reproduces the SAME summary children, world
+    /// transform, and discounted return as the live graph, because every generated id
+    /// is deterministic (sorted inputs / node-count / step ordinal) and the only clock
+    /// is the logged `now_ms`.
+    #[test]
+    fn eg318_memory_scene_trajectory_methods_replay_deterministically() {
+        use crate::graph::GraphCore;
+
+        // Build a working graph directly via the eg-core primitives (the "live" side).
+        let live = GraphCore::new();
+        live.add_node("e1".into(), props(serde_json::json!({"type": "Episodic"})));
+        live.add_node("e2".into(), props(serde_json::json!({"type": "Episodic"})));
+        let sum_id = live.create_summary_node(
+            1,
+            &["e1".into(), "e2".into()],
+            serde_json::Map::new(),
+        );
+        let pose = serde_json::json!({"translation": {"x": 1.0, "y": 2.0, "z": 3.0}});
+        let obj_id = {
+            let p = eg_core::scene::Pose::from_json(&pose).unwrap();
+            live.add_scene_object(&p, None)
+        };
+        let traj_id = live.start_trajectory(serde_json::Map::new());
+        live.append_step(&traj_id, serde_json::json!("go"), 2.0, None, None, 0);
+        live.append_step(&traj_id, serde_json::json!("go"), 4.0, None, None, 1);
+
+        // The SAME sequence as durable Methods (what the dispatch shell would log).
+        let pose_blob = props(pose.clone());
+        let ops = vec![
+            Method::AddNode {
+                node_id: "e1".into(),
+                properties_msgpack: props(serde_json::json!({"type": "Episodic"})),
+            },
+            Method::AddNode {
+                node_id: "e2".into(),
+                properties_msgpack: props(serde_json::json!({"type": "Episodic"})),
+            },
+            Method::CreateSummaryNode {
+                level: 1,
+                child_ids: vec!["e1".into(), "e2".into()],
+                props_msgpack: props(serde_json::json!({})),
+            },
+            Method::AddSceneObject {
+                pose_msgpack: pose_blob.clone(),
+                parent: None,
+            },
+            Method::StartTrajectory {
+                props_msgpack: props(serde_json::json!({})),
+            },
+            Method::AppendStep {
+                traj_id: traj_id.clone(),
+                action_msgpack: props(serde_json::json!("go")),
+                reward: 2.0,
+                state_ref: None,
+                next_state_ref: None,
+                t: 0,
+            },
+            Method::AppendStep {
+                traj_id: traj_id.clone(),
+                action_msgpack: props(serde_json::json!("go")),
+                reward: 4.0,
+                state_ref: None,
+                next_state_ref: None,
+                t: 1,
+            },
+        ];
+        // Every mutating variant MUST be logged.
+        for m in &ops[2..] {
+            assert!(is_durable_mutation(m), "EG-318 mutation must be durable: {m:?}");
+        }
+
+        let dir = std::env::temp_dir().join(format!("eg-wal-eg318-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = wal_path(dir.to_str().unwrap(), "g");
+        {
+            let mut w = WalWriter::open(&path).unwrap();
+            for m in &ops {
+                w.append(m).unwrap();
+            }
+        }
+        // Replay into a fresh graph and prove the derived reads match the live graph.
+        let replayed = GraphCore::new();
+        let n = replay(&replayed, &path);
+        assert_eq!(n, ops.len());
+
+        // Deterministic ids reproduced.
+        assert_eq!(
+            replayed.summary_children(&sum_id),
+            live.summary_children(&sum_id)
+        );
+        assert_eq!(replayed.summary_children(&sum_id), vec!["e1", "e2"]);
+        // Scene world transform reproduced.
+        let lw = live.world_transform(&obj_id).unwrap();
+        let rw = replayed.world_transform(&obj_id).unwrap();
+        assert_eq!(lw.to_json(), rw.to_json());
+        // Trajectory discounted return reproduced (2.0 + 0.5*4.0 = 4.0 at gamma=0.5).
+        assert!((replayed.discounted_return(&traj_id, 0.5) - 4.0).abs() < 1e-9);
+        assert!(
+            (replayed.discounted_return(&traj_id, 0.5)
+                - live.discounted_return(&traj_id, 0.5))
+            .abs()
+                < 1e-9
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn truncate_prefix_keeps_ops_appended_after_checkpoint() {
         // The checkpoint/WAL race: an op appended AFTER the checkpoint captured the
