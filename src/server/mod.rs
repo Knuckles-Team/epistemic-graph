@@ -73,6 +73,13 @@ pub mod mssql_wire;
 // Default/pi/node/full builds compile NONE of it.
 #[cfg(feature = "amqp-wire")]
 pub mod amqp_wire;
+// Neo4j Bolt wire-protocol listener (CONCEPT:EG-159). A native Bolt v4.4 server — a
+// hand-rolled PackStream v2 codec + chunked framing + message state machine over
+// `tokio::net`, routing RUN's Cypher straight to the eg-query cypher engine. Behind the
+// `bolt-wire` cargo feature (which pulls `cypher` + `server`); it does NOT use the SQL
+// `wire`/`WireSession` core (Bolt speaks Cypher). Default/pi builds compile NONE of it.
+#[cfg(feature = "bolt-wire")]
+pub mod bolt_wire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;

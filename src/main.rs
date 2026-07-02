@@ -899,6 +899,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::amqp_wire::serve(&addr, amqp_state).await {
                 tracing::error!("amqp-wire server error: {}", e);
+    // ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) ─────────────────
+    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+    // the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
+    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
+    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // `127.0.0.1:7687` (the Neo4j default), a bare port binds loopback:port, a full addr
+    // verbatim. A native hand-rolled Bolt v4.4 server (PackStream v2 + chunked framing)
+    // that routes RUN's Cypher straight to the eg-query cypher engine, so a Neo4j driver
+    // runs Cypher over a graph directly.
+    #[cfg(feature = "bolt-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::bolt_wire::BOLT_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:7687",
+    ) {
+        let bolt_state = state.clone();
+        info!("bolt-wire: serving Neo4j Bolt wire protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::bolt_wire::serve(&addr, bolt_state).await {
+                tracing::error!("bolt-wire server error: {}", e);
             }
         });
     }
