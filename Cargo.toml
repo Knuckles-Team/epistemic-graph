@@ -255,6 +255,13 @@ sparql = ["rdf", "eg-rdf/sparql", "eg-types/sparql"]
 # query + update the engine unchanged via `--sparql-addr`. IMPLIES `sparql` (+ `server`
 # for the Tokio listener). Pure-Rust; no new native dep. Folded into node/full.
 sparql-http = ["sparql", "server"]
+# SPARQL SERVICE federation (CONCEPT:EG-052): the `/sparql` endpoint's SELECT path binds a
+# `ureq`-backed `RemoteSparql` client so a `SERVICE <ep> { … }` clause evaluates against a
+# remote endpoint (SILENT semantics, SSRF allowlist `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW`,
+# default fail-closed). REUSES the SAME `ureq`/rustls stack `federation` already links (NO
+# new crate enters the tree), so it IMPLIES both `sparql-http` and `federation`. HEAVY-ish
+# (rustls/ring) → kept OUT of `pi`; folded into node/full.
+sparql-service = ["sparql-http", "federation", "dep:ureq"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
@@ -286,7 +293,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "result-cache", "cold-tier", "cost"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "result-cache", "cold-tier", "cost"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -306,7 +313,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation", "federation-sql"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-service", "rdf-redb", "owl-plan", "wasm-udf", "security", "federation", "federation-sql"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
@@ -358,6 +365,11 @@ eg-graphql = { path = "crates/eg-graphql", optional = true }
 # wasmtime + cranelift only when enabled, so a default/pi build links neither
 # (asserted by cargo tree). The sandboxed `UdfRegistry` lives on ServerState.
 eg-wasm = { path = "crates/eg-wasm", optional = true }
+# SPARQL SERVICE federation client (feature `sparql-service`, CONCEPT:EG-052). The SAME
+# pure-Rust rustls HTTP client `federation` already links via eg-plan — pinned to the
+# same 2.x, so activating it here adds a direct edge but NO new crate to the tree (a
+# `--features pi` build still links no ureq). Gated so default/Pi builds link none of it.
+ureq = { version = "2.10", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
