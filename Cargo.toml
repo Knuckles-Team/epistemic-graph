@@ -369,6 +369,21 @@ sqlite-wire = ["wire"]
 # merge conflict with the concurrent SQLite/MSSQL waves). The listener only starts when
 # ALSO configured via EPISTEMIC_GRAPH_MYSQL_ADDR.
 mysql-wire = ["dep:sha1", "query", "server", "wire"]
+# Message broker (CONCEPT:EG-275): RabbitMQ-class exchanges/bindings/topic-routing on
+# top of the KG-2.303 work-queue. Turns on `eg-core/broker` (the pure `broker` module
+# + `GraphCore::broker_enqueue`) + `eg-types/broker` (the broker `Method` variants).
+# PURE-RUST — NO new dependency (only serde/serde_json/rmp already linked) — so it is
+# Pi-safe. DEFINED here but DELIBERATELY kept OUT of node/full/cluster/pi — the
+# orchestrator folds it (see fold note below).
+broker = ["eg-core/broker", "eg-types/broker"]
+# AMQP 0.9.1 wire listener (CONCEPT:EG-275): a HAND-ROLLED AMQP 0.9.1 server (no heavy
+# AMQP crate — the Pi contract) that maps connection/channel/exchange/queue/basic.*
+# frames onto the `broker` primitives via the engine dispatch. Needs `broker` + `server`
+# (the listener rides the Tokio transport). The listener only starts when ALSO
+# configured via EPISTEMIC_GRAPH_AMQP_ADDR. Kept OUT of pi (a network listener) and NOT
+# folded into node/full/cluster here — the orchestrator folds it at merge time.
+amqp-wire = ["broker", "server"]
+# EG-275: fold broker/amqp-wire into cluster
 # MSSQL TDS wire-protocol listener (CONCEPT:EG-077) — the MSSQL `WireProtocol` adapter
 # (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` (the Pi
 # contract: NO server-side `tiberius`/`tds` crate), so it adds NO new dependency —

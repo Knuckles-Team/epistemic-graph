@@ -126,6 +126,41 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
     },
+    // ── Message broker (CONCEPT:EG-275) ──────────────────────────────
+    // Exchange/binding admin + publish DATA ops for the RabbitMQ-class broker built
+    // on the KG-2.303 work-queue (queues are pending nodes; consume/ack REUSE
+    // `ClaimNext` + `CompareAndSetNodeFields`, so no consume variant is needed).
+    // Feature-gated `broker` (PURE serde, no dep) — a build without it drops the
+    // variants → the dispatch "not available in this build" catch-all.
+    /// Declare (idempotently upsert) an exchange. `kind` is `direct`/`topic`/`fanout`.
+    #[cfg(feature = "broker")]
+    DeclareExchange { exchange: String, kind: String },
+    /// Delete an exchange and all of its bindings (queues/messages untouched).
+    #[cfg(feature = "broker")]
+    DeleteExchange { exchange: String },
+    /// Bind `queue` to `exchange` under `routing_key` (idempotent).
+    #[cfg(feature = "broker")]
+    BindQueue {
+        exchange: String,
+        queue: String,
+        routing_key: String,
+    },
+    /// Remove a specific `exchange`/`queue`/`routing_key` binding.
+    #[cfg(feature = "broker")]
+    UnbindQueue {
+        exchange: String,
+        queue: String,
+        routing_key: String,
+    },
+    /// Publish `payload` to `exchange` with `routing_key`; the engine routes it to all
+    /// matched queues atomically. Returns the delivered-queue count (`Count`).
+    #[cfg(feature = "broker")]
+    Publish {
+        exchange: String,
+        routing_key: String,
+        #[serde(with = "serde_bytes")]
+        payload: Vec<u8>,
+    },
     /// Batch property read: fetch properties for many nodes in ONE round-trip
     /// instead of N `GetNodeProperties` calls. Returns a `Raw` list of
     /// `[node_id, properties_msgpack | nil]` in input order (nil ⇒ absent), so the

@@ -67,6 +67,12 @@ pub mod mysql_wire;
 // NONE of it.
 #[cfg(feature = "mssql-wire")]
 pub mod mssql_wire;
+// AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-275). A hand-rolled AMQP 0.9.1 server
+// mapping exchange/queue/basic.* frames onto the `broker` primitives via the engine
+// dispatch. Behind the `amqp-wire` cargo feature; links NO AMQP crate (Pi contract).
+// Default/pi/node/full builds compile NONE of it.
+#[cfg(feature = "amqp-wire")]
+pub mod amqp_wire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;

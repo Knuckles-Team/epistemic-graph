@@ -186,6 +186,59 @@ pub(crate) async fn try_handle(
             let claimed = g.claim_next_fields(&label, &updates);
             Response::ok(req_id, ResultPayload::raw(&claimed))
         }
+        // ── Message broker admin + data (CONCEPT:EG-275) ─────────────────
+        // Built on the KG-2.303 queue: exchanges/bindings are nodes on this target
+        // graph; publish routes + enqueues; consume/ack REUSE ClaimNext + CAS above.
+        // Same handler home + precedent as ClaimNext. Gated `broker`; a slim build
+        // drops the variants (they fall to the catch-all "not available").
+        #[cfg(feature = "broker")]
+        Method::DeclareExchange { exchange, kind } => {
+            let Some(k) = crate::broker::ExchangeKind::parse(&kind) else {
+                return Response::err(
+                    req_id,
+                    format!("unknown exchange kind '{kind}' (want direct/topic/fanout)"),
+                );
+            };
+            match crate::broker::declare_exchange(&core, &exchange, k) {
+                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                Err(e) => Response::err(req_id, e),
+            }
+        }
+        #[cfg(feature = "broker")]
+        Method::DeleteExchange { exchange } => {
+            let existed = crate::broker::delete_exchange(&core, &exchange);
+            Response::ok(req_id, ResultPayload::Bool(existed))
+        }
+        #[cfg(feature = "broker")]
+        Method::BindQueue {
+            exchange,
+            queue,
+            routing_key,
+        } => {
+            crate::broker::bind_queue(&core, &exchange, &queue, &routing_key);
+            Response::ok(req_id, ResultPayload::String("ok".to_string()))
+        }
+        #[cfg(feature = "broker")]
+        Method::UnbindQueue {
+            exchange,
+            queue,
+            routing_key,
+        } => {
+            let existed =
+                crate::broker::unbind_queue(&core, &exchange, &queue, &routing_key);
+            Response::ok(req_id, ResultPayload::Bool(existed))
+        }
+        #[cfg(feature = "broker")]
+        Method::Publish {
+            exchange,
+            routing_key,
+            payload,
+        } => {
+            // Deterministic (routes over current bindings + monotonic seq); the same
+            // Method replays identically from the WAL (see `wal::apply`).
+            let delivered = crate::broker::publish(&core, &exchange, &routing_key, &payload);
+            Response::ok(req_id, ResultPayload::Count(delivered as u64))
+        }
         Method::GetNodePropertiesBatch { node_ids } => {
             if node_ids.len() > MAX_BATCH_IDS {
                 return Response::err(

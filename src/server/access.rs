@@ -27,6 +27,21 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     ) {
         return true;
     }
+    // Message-broker admin + publish (CONCEPT:EG-275, feature `broker`) all mutate the
+    // control graph's exchange/binding/message nodes, so they classify as writes (Write
+    // access + WAL record). Consume/ack ride `ClaimNext`/`CompareAndSetNodeFields`,
+    // already classified below.
+    #[cfg(feature = "broker")]
+    if matches!(
+        method,
+        Method::DeclareExchange { .. }
+            | Method::DeleteExchange { .. }
+            | Method::BindQueue { .. }
+            | Method::UnbindQueue { .. }
+            | Method::Publish { .. }
+    ) {
+        return true;
+    }
     // Query-surface writes (CONCEPT:EG-023): the `Sql`/`CypherQuery`/`GraphQl` variants
     // carry a query STRING, so whether they mutate the graph depends on the statement,
     // not the variant. Parse just enough to classify; a write needs Write access and
