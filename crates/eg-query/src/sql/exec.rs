@@ -46,6 +46,44 @@ pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
     run(view, nodes, edges, Vec::new(), Vec::new(), sql)
 }
 
+/// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph
+/// (CONCEPT:EG-162). Each `(name, schema, batches)` is registered as a DataFusion
+/// `MemTable`, and the `json_get*` scalar UDFs are registered so a JSON-object column
+/// (e.g. an observability log record's `attrs`) is reachable schema-on-read. This is
+/// the SQL leg the observability log-search surface (`src/server/obs`) drives: it
+/// hands the Parquet log segments + hot series it scanned out of the blob CAS as Arrow
+/// batches and runs SQL (`SELECT severity, count(*) FROM logs GROUP BY severity`, …)
+/// over them. Synchronous — builds and drives its own current-thread runtime, safe to
+/// call inside `spawn_blocking` (the `compute_off_lock` idiom).
+pub fn exec_sql_over_tables(
+    tables: Vec<(String, SchemaRef, Vec<arrow::record_batch::RecordBatch>)>,
+    sql: &str,
+) -> Result<TypedQueryResult, String> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("runtime build: {e}"))?;
+    let sql = super::classify::desugar_vector_ops(sql);
+    rt.block_on(async move {
+        let config = SessionConfig::new().with_information_schema(true);
+        let ctx = SessionContext::new_with_config(config);
+        for (name, schema, batches) in tables {
+            // One partition; an empty `batches` registers a valid empty table so a
+            // `SELECT … FROM <name>` returns 0 rows rather than "table not found".
+            let mem = MemTable::try_new(schema, vec![batches])
+                .map_err(|e| format!("mem table `{name}`: {e}"))?;
+            ctx.register_table(name.as_str(), Arc::new(mem))
+                .map_err(|e| format!("register `{name}`: {e}"))?;
+        }
+        ctx.register_udf(json_get_udf());
+        ctx.register_udf(json_get_f64_udf());
+        ctx.register_udf(json_get_i64_udf());
+        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
+        let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
+        batches_to_typed(&batches)
+    })
+}
+
 /// Materialize EVERY user table in `store` into an Arrow `(name, schema, batch)` so
 /// it can be registered alongside `nodes`/`edges` (CONCEPT:EG-018). One redb scan
 /// per table; the unified-engine payoff is that the resulting tables join the graph

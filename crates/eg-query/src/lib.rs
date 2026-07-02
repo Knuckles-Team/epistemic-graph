@@ -19,8 +19,9 @@ pub mod tables;
 
 #[cfg(feature = "sql")]
 pub use sql::{
-    classify, exec_sql, exec_sql_cached, exec_sql_typed, exec_sql_typed_with_tables,
-    infer_param_sites, returning_columns, schema_probe_sql, AlterTablePlan, ColumnDef, CopyFormat,
+    classify, exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed,
+    exec_sql_typed_with_tables, infer_param_sites, returning_columns, schema_probe_sql,
+    AlterTablePlan, ColumnDef, CopyFormat,
     CopyPlan, CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable,
     DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
     InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite, PgColType, QueryResult,
