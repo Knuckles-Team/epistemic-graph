@@ -1097,6 +1097,17 @@ pub enum Method {
         role: crate::acl::AgentRole,
         teams: Vec<String>,
         signature: String,
+        /// RBAC role names this agent holds (CONCEPT:EG-092). `#[serde(default)]`
+        /// keeps pre-RBAC clients wire-compatible (they omit it ⇒ empty set).
+        #[serde(default)]
+        roles: Vec<String>,
+    },
+    /// Administer the RBAC role/grant policy (CONCEPT:EG-092). Unconditional in the
+    /// enum; the handler is gated behind the `security` feature (a non-security build
+    /// falls to the dispatch "not available in this build" catch-all, like EG-090's
+    /// backup/restore on a non-redb build).
+    RbacAdmin {
+        op: crate::acl::RbacAdminOp,
     },
     ApplyMultisigMutation {
         signatures: Vec<String>,
