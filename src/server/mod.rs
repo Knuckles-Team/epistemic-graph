@@ -45,6 +45,14 @@ pub mod wire;
 // Default/pi/node builds compile NONE of it.
 #[cfg(feature = "pgwire")]
 pub mod pgwire;
+// SQLite-compatible served surface (CONCEPT:EG-075) — Phase J. SQLite has NO client/
+// server wire protocol, so this is a lightweight NDJSON-over-TCP endpoint that accepts
+// SQLite-dialect SQL, rewrites the SQLite-isms (AUTOINCREMENT / INTEGER PRIMARY KEY /
+// PRAGMA no-ops) and runs them through the shared `WireSession` (CONCEPT:EG-074). The
+// SECOND `wire` consumer after pgwire; behind the `sqlite-wire` feature (pulls in
+// `wire`). Pure-Rust — NO C-linked sqlite. Kept OUT of node/full — the orchestrator folds it.
+#[cfg(feature = "sqlite-wire")]
+pub mod sqlite_wire;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
