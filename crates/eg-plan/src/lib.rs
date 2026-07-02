@@ -64,6 +64,14 @@ pub mod uql;
 
 #[cfg(feature = "query")]
 pub mod exec;
+// The natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
+// `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + the `plan_and_execute*`
+// helpers are pure (only touch the existing `uql::parse` + `execute`), so they ride the
+// `nl-query` feature which IMPLIES `query`; the concrete `UreqNlPlanner` inside is
+// additionally gated on `nl-query` (it pulls the shared `ureq` rustls client). Kept OUT
+// of pi.
+#[cfg(feature = "nl-query")]
+pub mod nl;
 // The federation foreign-source seam (CONCEPT:KG-2.232) — the `ForeignSource` trait +
 // the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
 #[cfg(feature = "federation")]
@@ -79,6 +87,11 @@ pub mod rowset;
 
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
+
+// The NL→query seam surface (CONCEPT:EG-078/EG-080): the trait + the LLM-optional
+// `Option<&dyn NlPlanner>` entry point, and the concrete `UreqNlPlanner`.
+#[cfg(feature = "nl-query")]
+pub use nl::{plan_and_execute, plan_and_execute_opt, NlPlanner, UreqNlPlanner};
 
 // Re-export the federation surface so a caller naming a foreign source goes through
 // eg-plan: the trait + the spec-dispatcher.

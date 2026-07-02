@@ -221,6 +221,62 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
+        #[cfg(feature = "nl-query")]
+        Method::NlQuery { text, graph } => {
+            // CONCEPT:EG-078/EG-080 — natural-language → executable query → rows. Resolve
+            // the configured/injected `NlPlanner`, turn the NL into a UQL query STRING,
+            // then run it through the IDENTICAL `UnifiedQueryText` pipeline
+            // (`eg_plan::uql::parse` + `run_unified`). NO LLM in the engine core and NO
+            // new execution path — the produced query rides the deterministic pipeline.
+            // The graph was already used for routing; the handler runs against `core`.
+            let _ = graph;
+            let planner = match crate::server::nl::resolve_planner() {
+                Some(p) => p,
+                None => {
+                    return Ok(Response::err(
+                        req_id,
+                        "NlQuery: no NL planner configured — set an OpenAI-compatible \
+                         endpoint in agent-utilities config.json (or \
+                         EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
+                         server::set_nl_planner"
+                            .to_string(),
+                    ))
+                }
+            };
+            let hint = nl_schema_hint(&core);
+            let uql = match planner.plan(&text, &hint) {
+                Ok(q) => q,
+                Err(e) => return Ok(Response::err(req_id, format!("NlQuery planner error: {e}"))),
+            };
+            let plan = match eg_plan::uql::parse(&uql) {
+                Ok(p) => p,
+                Err(e) => {
+                    return Ok(Response::err(
+                        req_id,
+                        format!("NlQuery produced invalid UQL: {}", e.render(&uql)),
+                    ))
+                }
+            };
+            // RLS-filtered off-lock snapshot, exactly like the Sql/UnifiedQueryText reads.
+            // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
+            // NL text would risk serving a stale/foreign result.
+            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+            let mut snap = core.analysis_snapshot();
+            #[cfg(feature = "security")]
+            rls.filter_view(caller.unwrap_or(""), &mut snap);
+            let semantic = core.semantic_store.read().clone();
+            let resp = match compute_off_lock(req_id, move || run_unified(plan, None, &snap, &semantic))
+                .await
+            {
+                Ok(Ok(rows)) => {
+                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
         #[cfg(feature = "graphql")]
         Method::GraphQl { query, variables } => {
             // GraphQL WRITE surface (CONCEPT:EG-019/EG-023): a `mutation { … }` document
@@ -877,6 +933,40 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column
 /// `core.analysis_snapshot()` (zero overhead, behavior unchanged). Used on the
 /// `not(result-cache)` path; with the result cache the same `filter_view` is applied
 /// inline on the versioned snapshot so the version pairs atomically with the filter.
+/// CONCEPT:EG-080 — build the `schema_hint` fed to the NL planner: the distinct node
+/// LABELS present in the target graph (capped so a huge graph stays cheap), so the model
+/// targets real labels. Scans up to a bound of the snapshot's node blobs for their
+/// `type`/`node_type`/`label` field (mirroring `get_nodes_by_label`). Best-effort — an
+/// empty hint (no labels found) is fine; the planner's system prompt carries the grammar.
+#[cfg(feature = "nl-query")]
+fn nl_schema_hint(core: &Arc<GraphCore>) -> String {
+    use std::collections::BTreeSet;
+    const SCAN_CAP: usize = 512;
+    let snap = core.analysis_snapshot();
+    let mut labels: BTreeSet<String> = BTreeSet::new();
+    for blob in snap.node_properties.values().take(SCAN_CAP) {
+        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) {
+            for key in ["type", "node_type", "label"] {
+                if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
+                    labels.insert(s.to_string());
+                    break;
+                }
+            }
+        }
+        if labels.len() >= 64 {
+            break;
+        }
+    }
+    if labels.is_empty() {
+        "Available node labels: (none discovered)".to_string()
+    } else {
+        format!(
+            "Available node labels: {}",
+            labels.into_iter().collect::<Vec<_>>().join(", ")
+        )
+    }
+}
+
 #[cfg(all(
     any(feature = "query", feature = "cypher", feature = "graphql"),
     not(feature = "result-cache")
