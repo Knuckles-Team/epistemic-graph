@@ -26,6 +26,15 @@
 // lean / Pi build exactly like `point`/`query` — always on, no feature gate.
 pub mod columnar;
 pub mod point;
+
+// CONCEPT:EG-165 — VRL-style ingest transform pipelines (OpenObserve/Vector-style
+// parse_json / filter / set / rename / coerce / route stages applied to a log/event
+// record BEFORE it lands in a series), plus a cross-modal `enrich` hook that resolves
+// a field from a caller-injected graph lookup (the "surpass OpenObserve" angle).
+// Pure-Rust + serde only (a tiny hand-rolled JSON reader — no serde_json), so it
+// compiles in the lean / Pi build exactly like `point`/`columnar` — always on.
+pub mod pipeline;
+
 pub mod query;
 pub mod time_op;
 
