@@ -22,6 +22,10 @@
 mod catalog;
 mod classify;
 mod exec;
+/// SQL stored-function (`CREATE FUNCTION … LANGUAGE sql`) expansion (CONCEPT:EG-118) —
+/// inline a scalar function body as a scalar subquery, expand a table function as a
+/// parameterized-view subquery in `FROM`; reuses the SQL exec path (no new evaluator).
+mod funcs;
 /// Postgres-family extension parity (CONCEPT:EG-114/116/117/119): AGE `cypher()`,
 /// pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
 /// ParadeDB `@@@` BM25 — the pure parse/plan/project layer.
@@ -32,11 +36,11 @@ mod udfs;
 
 pub use classify::{
     classify, infer_param_sites, json_pred_from_expr, mongo_match_to_preds, returning_columns,
-    schema_probe_sql, AlterTablePlan, ColumnDef, CopyFormat, CopyPlan, CreateTablePlan,
-    CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable, DropTablePlan, DropViewPlan,
-    InsertNode, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict,
-    OnConflictAction, ParamLiteralType, ParamSite, StatementKind, TableWhereEq, UpdateNodes,
-    UpdateNodesJoin, UpdateTable, WhereEq,
+    schema_probe_sql, AlterTablePlan, ColumnDef, CopyFormat, CopyPlan, CreateFunctionPlan,
+    CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable, DropFunctionPlan,
+    DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
+    InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite, StatementKind,
+    TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 pub use exec::{
     exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed, exec_sql_typed_with_tables,
