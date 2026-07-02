@@ -406,6 +406,20 @@ impl EngineBackend {
                     })
                     .collect())
             }
+            // CONCEPT:EG-114 — an AGE cypher() call is a read; describe the typed `AS`
+            // columns (narrowed by the projection) WITHOUT executing the Cypher.
+            Ok(StatementKind::CypherCall(plan)) => Ok(eg_query::cypher_output_columns(&plan)
+                .into_iter()
+                .map(|c| {
+                    FieldInfo::new(
+                        c.name,
+                        None,
+                        None,
+                        pg_type(c.ty),
+                        pgwire::api::results::FieldFormat::Text,
+                    )
+                })
+                .collect()),
             // DDL / user-table DML (CONCEPT:EG-018) → no result columns (like a
             // non-RETURNING write); and unclassifiable (e.g. SET graph) → none either.
             Ok(_) | Err(_) => Ok(Vec::new()),
