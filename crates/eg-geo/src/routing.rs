@@ -19,9 +19,28 @@
 //!
 //! Pure-Rust, dependency-free (only a `BinaryHeap` from `std`), reusing EG-256's geodesic
 //! [`haversine_distance`](crate::geodesic::haversine_distance) for great-circle costs/heuristics.
+//!
+//! ## Turn restrictions & time-dependent weights (CONCEPT:EG-312)
+//!
+//! Real road networks are not plain weighted graphs: a manoeuvre *through* a junction has a
+//! cost of its own (a no-left-turn is banned, a u-turn is expensive), and an edge's cost
+//! depends on *when* you traverse it (rush-hour traffic, opening hours). EG-312 layers two
+//! **additive** capabilities on top of EG-266 without touching the plain-weight API:
+//!
+//! * **Turn costs / restrictions** — a [`TurnCost`] model (penalty for a
+//!   `(from → via → to)` transition; `INFINITY` bans it). [`Network::dijkstra_with_turns`]
+//!   / [`Network::astar_with_turns`] route over an *edge-expanded* state space
+//!   (`(prev_node, node)` states) so the search consults the turn cost at every junction and
+//!   still returns an optimal [`Path`]. [`TurnRestrictions`] is a ready table-driven model
+//!   with a configurable u-turn penalty.
+//! * **Time-dependent edge weights** — a [`TimeCost`] model (`(from, to, base_weight,
+//!   t_depart) → cost`) so an edge costs more at rush hour or is closed outside opening
+//!   hours. [`Network::shortest_path_time_dependent`] runs a time-dependent Dijkstra
+//!   (label = earliest arrival) that picks different routes for different departure times.
+//!   [`TrafficProfile`] is a ready piecewise time-window model.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 
 use crate::geodesic::haversine_distance;
 use crate::geometry::Point;
@@ -244,6 +263,198 @@ impl Network {
         }
         Some((dist, prev))
     }
+
+    // ── turn restrictions / turn costs (CONCEPT:EG-312) ─────────────────────────────────
+
+    /// **Dijkstra honouring turn costs** (CONCEPT:EG-312). Like [`Network::dijkstra`] but the
+    /// cost of every manoeuvre `(prev → node → next)` is charged from the `turns` model, so a
+    /// banned turn (cost `INFINITY`) is never taken and a penalised turn (e.g. a u-turn) is
+    /// avoided when a cheaper legal route exists. The optimal legal [`Path`] or `None`.
+    ///
+    /// Implemented via **edge-based expansion**: the search state is `(prev_node, node)` (the
+    /// directed edge just travelled), so the same node can legitimately be re-entered from a
+    /// different predecessor (needed when a turn restriction forces a detour or a u-turn).
+    pub fn dijkstra_with_turns<T: TurnCost>(
+        &self,
+        source: usize,
+        target: usize,
+        turns: &T,
+    ) -> Option<Path> {
+        self.search_turns(source, target, turns, |_| 0.0)
+    }
+
+    /// **A\*** honouring turn costs (CONCEPT:EG-312) with a caller-supplied admissible
+    /// `heuristic` (estimated remaining cost from a node's [`Point`] to the target). Same
+    /// turn-aware edge expansion as [`Network::dijkstra_with_turns`].
+    pub fn astar_with_turns<T: TurnCost>(
+        &self,
+        source: usize,
+        target: usize,
+        turns: &T,
+        heuristic: impl Fn(&Point) -> f64,
+    ) -> Option<Path> {
+        self.search_turns(source, target, turns, heuristic)
+    }
+
+    /// **A\*** honouring turn costs with the built-in great-circle heuristic (CONCEPT:EG-312) —
+    /// admissible when edge weights are geodesic distances in metres (see
+    /// [`Network::astar_greatcircle`]).
+    pub fn astar_greatcircle_with_turns<T: TurnCost>(
+        &self,
+        source: usize,
+        target: usize,
+        turns: &T,
+    ) -> Option<Path> {
+        if target >= self.locations.len() {
+            return None;
+        }
+        let goal = self.locations[target];
+        self.search_turns(source, target, turns, move |p| haversine_distance(p, &goal))
+    }
+
+    /// Core turn-aware Dijkstra/A\* (CONCEPT:EG-312). State = `(prev_node, node)`; the turn
+    /// cost `turns(prev, node, next)` is added when relaxing `node → next` (skipped when the
+    /// state is the start, which has no prior edge). A turn cost of `INFINITY`/NaN prunes the
+    /// move. Deterministic: relaxation order follows the heap's `(priority, …)` ordering and
+    /// the adjacency-list order, both fixed by construction.
+    fn search_turns<T: TurnCost>(
+        &self,
+        source: usize,
+        target: usize,
+        turns: &T,
+        heuristic: impl Fn(&Point) -> f64,
+    ) -> Option<Path> {
+        let n = self.locations.len();
+        if source >= n || target >= n {
+            return None;
+        }
+        // `usize::MAX` as `prev` marks the start state: no prior edge, so no turn is charged.
+        let start = (usize::MAX, source);
+        let mut dist: HashMap<(usize, usize), f64> = HashMap::new();
+        let mut prev_state: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
+        dist.insert(start, 0.0);
+        let mut heap = BinaryHeap::new();
+        heap.push(TurnFrontier {
+            priority: heuristic(&self.locations[source]),
+            cost: 0.0,
+            prev: usize::MAX,
+            node: source,
+        });
+        while let Some(TurnFrontier {
+            cost, prev, node, ..
+        }) = heap.pop()
+        {
+            if node == target {
+                return reconstruct_turns((prev, node), cost, &prev_state);
+            }
+            if cost > dist.get(&(prev, node)).copied().unwrap_or(f64::INFINITY) {
+                continue; // stale heap entry
+            }
+            for e in &self.adjacency[node] {
+                let tc = if prev == usize::MAX {
+                    0.0
+                } else {
+                    turns.turn_cost(prev, node, e.to)
+                };
+                if !tc.is_finite() {
+                    continue; // banned turn (INFINITY) or NaN
+                }
+                let nd = cost + e.weight + tc;
+                let key = (node, e.to);
+                if nd < dist.get(&key).copied().unwrap_or(f64::INFINITY) {
+                    dist.insert(key, nd);
+                    prev_state.insert(key, (prev, node));
+                    heap.push(TurnFrontier {
+                        priority: nd + heuristic(&self.locations[e.to]),
+                        cost: nd,
+                        prev: node,
+                        node: e.to,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    // ── time-dependent / time-window edge weights (CONCEPT:EG-312) ──────────────────────
+
+    /// **Time-dependent shortest path** (CONCEPT:EG-312): the least-cost [`Path`] from
+    /// `source` to `target` when departing `source` at time `t_start`, where each edge's cost
+    /// is a function of the moment it is entered (traffic profiles, opening hours). The `cost`
+    /// model receives `(from, to, base_weight, t_depart)` and returns the realised traversal
+    /// cost (travel time); a non-finite/negative result closes the edge at that instant.
+    ///
+    /// Runs a **time-dependent Dijkstra** whose label is the earliest known arrival time at
+    /// each node — optimal under the standard **FIFO / no-overtaking** assumption (departing an
+    /// edge later never yields an earlier arrival). The returned [`Path::cost`] is the total
+    /// elapsed travel time (`arrival − t_start`). Departing at different `t_start` values can
+    /// therefore select different routes.
+    pub fn shortest_path_time_dependent<C: TimeCost>(
+        &self,
+        source: usize,
+        target: usize,
+        t_start: f64,
+        cost: &C,
+    ) -> Option<Path> {
+        let n = self.locations.len();
+        if source >= n || target >= n {
+            return None;
+        }
+        let mut arrival = vec![f64::INFINITY; n];
+        let mut prev = vec![usize::MAX; n];
+        arrival[source] = t_start;
+        let mut heap = BinaryHeap::new();
+        heap.push(Frontier {
+            priority: t_start,
+            cost: t_start,
+            node: source,
+        });
+        while let Some(Frontier {
+            cost: t_now, node, ..
+        }) = heap.pop()
+        {
+            if node == target {
+                break;
+            }
+            if t_now > arrival[node] {
+                continue; // stale heap entry
+            }
+            for e in &self.adjacency[node] {
+                let travel = cost.traverse_cost(node, e.to, e.weight, t_now);
+                if !travel.is_finite() || travel < 0.0 {
+                    continue; // edge closed at this instant (e.g. outside opening hours)
+                }
+                let arr = t_now + travel;
+                if arr < arrival[e.to] {
+                    arrival[e.to] = arr;
+                    prev[e.to] = node;
+                    heap.push(Frontier {
+                        priority: arr,
+                        cost: arr,
+                        node: e.to,
+                    });
+                }
+            }
+        }
+        if !arrival[target].is_finite() {
+            return None;
+        }
+        let mut nodes = vec![target];
+        let mut cur = target;
+        while cur != source {
+            let p = prev[cur];
+            if p == usize::MAX {
+                return None;
+            }
+            nodes.push(p);
+            cur = p;
+        }
+        nodes.reverse();
+        Some(Path {
+            nodes,
+            cost: arrival[target] - t_start,
+        })
+    }
 }
 
 /// A routed path (CONCEPT:EG-266): the ordered node ids from source to target and the total
@@ -300,6 +511,200 @@ impl Ord for Frontier {
         o.priority
             .partial_cmp(&self.priority)
             .unwrap_or(Ordering::Equal)
+    }
+}
+
+// ── turn-cost model (CONCEPT:EG-312) ────────────────────────────────────────────────────
+
+/// A **turn-cost model** (CONCEPT:EG-312): the extra cost of the manoeuvre that, having
+/// arrived at junction `via` from `from`, leaves `via` toward `to`. Returning `f64::INFINITY`
+/// **bans** the turn (e.g. a no-left-turn); a finite value is added to the path cost (e.g. a
+/// u-turn penalty or a signalised-junction delay). Any `Fn(usize, usize, usize) -> f64` is a
+/// turn-cost model, and [`TurnRestrictions`] is a ready table-driven one.
+pub trait TurnCost {
+    /// The added cost of the turn `from → via → to` (`INFINITY` = banned).
+    fn turn_cost(&self, from: usize, via: usize, to: usize) -> f64;
+}
+
+impl<F: Fn(usize, usize, usize) -> f64> TurnCost for F {
+    fn turn_cost(&self, from: usize, via: usize, to: usize) -> f64 {
+        (self)(from, via, to)
+    }
+}
+
+/// A table-driven [`TurnCost`] model (CONCEPT:EG-312): explicit per-turn penalties/bans plus a
+/// blanket **u-turn penalty** applied to any `from → via → from` manoeuvre. Explicit table
+/// entries take precedence over the u-turn default, so a specific u-turn can be individually
+/// allowed, penalised or banned. Build with [`TurnRestrictions::new`] then [`ban`] /
+/// [`penalize`] / [`with_uturn_penalty`].
+///
+/// [`ban`]: TurnRestrictions::ban
+/// [`penalize`]: TurnRestrictions::penalize
+/// [`with_uturn_penalty`]: TurnRestrictions::with_uturn_penalty
+#[derive(Clone, Debug, Default)]
+pub struct TurnRestrictions {
+    table: HashMap<(usize, usize, usize), f64>,
+    uturn_penalty: f64,
+}
+
+impl TurnRestrictions {
+    /// An empty model — no restrictions and a zero u-turn penalty (CONCEPT:EG-312).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the blanket u-turn penalty (builder form) charged to any `from → via → from`
+    /// manoeuvre lacking an explicit table entry (CONCEPT:EG-312).
+    pub fn with_uturn_penalty(mut self, penalty: f64) -> Self {
+        self.uturn_penalty = penalty;
+        self
+    }
+
+    /// Set the blanket u-turn penalty in place (CONCEPT:EG-312).
+    pub fn set_uturn_penalty(&mut self, penalty: f64) -> &mut Self {
+        self.uturn_penalty = penalty;
+        self
+    }
+
+    /// **Ban** the turn `from → via → to` (cost `INFINITY`) — CONCEPT:EG-312.
+    pub fn ban(&mut self, from: usize, via: usize, to: usize) -> &mut Self {
+        self.table.insert((from, via, to), f64::INFINITY);
+        self
+    }
+
+    /// **Penalise** the turn `from → via → to` by `cost` (added to the path) — CONCEPT:EG-312.
+    pub fn penalize(&mut self, from: usize, via: usize, to: usize, cost: f64) -> &mut Self {
+        self.table.insert((from, via, to), cost);
+        self
+    }
+}
+
+impl TurnCost for TurnRestrictions {
+    fn turn_cost(&self, from: usize, via: usize, to: usize) -> f64 {
+        if let Some(&c) = self.table.get(&(from, via, to)) {
+            return c; // explicit entry wins
+        }
+        if from == to {
+            return self.uturn_penalty; // a u-turn back down the edge we came from
+        }
+        0.0
+    }
+}
+
+/// A turn-aware priority-queue entry (CONCEPT:EG-312): like [`Frontier`] but the search state
+/// is the directed edge `(prev, node)` just travelled, so a node can be re-entered from a
+/// different predecessor. Ordered so the smallest `priority` pops first.
+struct TurnFrontier {
+    priority: f64,
+    cost: f64,
+    prev: usize,
+    node: usize,
+}
+impl PartialEq for TurnFrontier {
+    fn eq(&self, o: &Self) -> bool {
+        self.priority == o.priority
+    }
+}
+impl Eq for TurnFrontier {}
+impl PartialOrd for TurnFrontier {
+    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for TurnFrontier {
+    fn cmp(&self, o: &Self) -> Ordering {
+        o.priority
+            .partial_cmp(&self.priority)
+            .unwrap_or(Ordering::Equal)
+    }
+}
+
+/// Rebuild the node sequence for a turn-aware search (CONCEPT:EG-312) by walking the
+/// `(prev, node)` predecessor-state chain back to the start state.
+fn reconstruct_turns(
+    winning: (usize, usize),
+    cost: f64,
+    prev_state: &HashMap<(usize, usize), (usize, usize)>,
+) -> Option<Path> {
+    let mut nodes = Vec::new();
+    let mut st = winning;
+    loop {
+        nodes.push(st.1);
+        match prev_state.get(&st) {
+            Some(&p) => st = p,
+            None => break, // start state (prev == usize::MAX): its node is the source
+        }
+    }
+    nodes.reverse();
+    Some(Path { nodes, cost })
+}
+
+// ── time-dependent edge-cost model (CONCEPT:EG-312) ─────────────────────────────────────
+
+/// A **time-dependent edge-cost model** (CONCEPT:EG-312): the realised cost (travel time) of
+/// traversing edge `from → to` (base weight `base_weight`) when it is entered at `t_depart`.
+/// Returning a non-finite or negative value closes the edge at that instant (e.g. outside
+/// opening hours). Any `Fn(usize, usize, f64, f64) -> f64` is a model, and [`TrafficProfile`]
+/// is a ready piecewise time-window one.
+pub trait TimeCost {
+    /// The traversal cost of `from → to` (base `base_weight`) departing at `t_depart`.
+    fn traverse_cost(&self, from: usize, to: usize, base_weight: f64, t_depart: f64) -> f64;
+}
+
+impl<F: Fn(usize, usize, f64, f64) -> f64> TimeCost for F {
+    fn traverse_cost(&self, from: usize, to: usize, base_weight: f64, t_depart: f64) -> f64 {
+        (self)(from, to, base_weight, t_depart)
+    }
+}
+
+/// A piecewise **time-window** [`TimeCost`] model (CONCEPT:EG-312) — a traffic / opening-hours
+/// profile. Each directed edge `(from, to)` may carry `[start, end)` windows with a cost
+/// **multiplier** on the base weight (e.g. `3.0` for rush-hour congestion, `INFINITY` to close
+/// the edge outside opening hours). Windows are tested in insertion order and the first match
+/// wins (deterministic); outside every window the base weight applies unchanged.
+/// One `(start, end, multiplier)` time-window on an edge (CONCEPT:EG-312).
+type TimeWindow = (f64, f64, f64);
+
+#[derive(Clone, Debug, Default)]
+pub struct TrafficProfile {
+    windows: HashMap<(usize, usize), Vec<TimeWindow>>,
+}
+
+impl TrafficProfile {
+    /// An empty profile (every edge at its base weight for all time) — CONCEPT:EG-312.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a `[start, end)` window on directed edge `from → to` multiplying the base weight by
+    /// `multiplier` for departures inside it (CONCEPT:EG-312). `INFINITY` closes the edge in
+    /// that window. Returns `&mut self` for chaining.
+    pub fn add_window(
+        &mut self,
+        from: usize,
+        to: usize,
+        start: f64,
+        end: f64,
+        multiplier: f64,
+    ) -> &mut Self {
+        self.windows
+            .entry((from, to))
+            .or_default()
+            .push((start, end, multiplier));
+        self
+    }
+}
+
+impl TimeCost for TrafficProfile {
+    fn traverse_cost(&self, from: usize, to: usize, base_weight: f64, t_depart: f64) -> f64 {
+        if let Some(ws) = self.windows.get(&(from, to)) {
+            for &(start, end, mult) in ws {
+                if t_depart >= start && t_depart < end {
+                    return base_weight * mult;
+                }
+            }
+        }
+        base_weight
     }
 }
 
@@ -562,5 +967,187 @@ mod tests {
         sorted.sort_unstable();
         assert_eq!(sorted, vec![0, 1, 2, 3], "every city visited once");
         assert!(len.is_finite() && len > 0.0);
+    }
+
+    // ── turn restrictions / turn costs (CONCEPT:EG-312) ─────────────────────────────────
+
+    /// The [`TurnRestrictions`] model (CONCEPT:EG-312): explicit bans/penalties win over the
+    /// blanket u-turn penalty; unrestricted turns are free.
+    #[test]
+    fn eg312_turn_restrictions_model_lookup() {
+        let mut tr = TurnRestrictions::new().with_uturn_penalty(4.0);
+        tr.ban(0, 1, 2).penalize(3, 4, 5, 1.5);
+        assert!(tr.turn_cost(0, 1, 2).is_infinite(), "banned turn");
+        assert_eq!(tr.turn_cost(3, 4, 5), 1.5, "explicit penalty");
+        assert_eq!(tr.turn_cost(0, 1, 0), 4.0, "blanket u-turn penalty");
+        assert_eq!(tr.turn_cost(0, 1, 3), 0.0, "unrestricted turn is free");
+        // An explicit entry overrides the u-turn default for that specific manoeuvre.
+        tr.penalize(7, 8, 7, 0.0);
+        assert_eq!(tr.turn_cost(7, 8, 7), 0.0, "u-turn explicitly allowed");
+    }
+
+    /// A banned turn forces a strictly longer *legal* path than the turn-free optimum
+    /// (CONCEPT:EG-312). Plain Dijkstra takes `0→1→2` (cost 2); banning the turn `0→1→2`
+    /// forces the detour `0→3→2` (cost 3).
+    ///
+    /// ```text
+    ///   0 --1-- 1 --1-- 2      (banned turn at node 1: 0→1→2)
+    ///    \             /
+    ///     1          2
+    ///      \       /
+    ///        \-- 3 --/
+    /// ```
+    #[test]
+    fn eg312_turn_restriction_forces_longer_legal_path() {
+        let mut g = Network::new();
+        for i in 0..4 {
+            g.add_node(Point::new(i as f64, 0.0));
+        }
+        g.add_undirected_edge(0, 1, 1.0).unwrap();
+        g.add_undirected_edge(1, 2, 1.0).unwrap();
+        g.add_undirected_edge(0, 3, 1.0).unwrap();
+        g.add_undirected_edge(3, 2, 2.0).unwrap();
+
+        // Turn-free optimum.
+        let plain = g.dijkstra(0, 2).unwrap();
+        assert_eq!(plain.cost, 2.0);
+        assert_eq!(plain.nodes, vec![0, 1, 2]);
+
+        // Ban the turn 0→1→2: the router must take the longer legal detour.
+        let mut tr = TurnRestrictions::new();
+        tr.ban(0, 1, 2);
+        let legal = g.dijkstra_with_turns(0, 2, &tr).unwrap();
+        assert_eq!(legal.cost, 3.0, "detour costs more than the banned direct route");
+        assert_eq!(legal.nodes, vec![0, 3, 2], "goes around via node 3");
+
+        // A\* with turns must agree with Dijkstra-with-turns.
+        let a = g.astar_with_turns(0, 2, &tr, |_| 0.0).unwrap();
+        assert_eq!(a.cost, legal.cost);
+        assert_eq!(a.nodes, legal.nodes);
+    }
+
+    /// A no-left-turn at a junction is worked around either by a **u-turn** (charged the u-turn
+    /// penalty) or by a longer **detour**; the u-turn penalty decides which the router picks
+    /// (CONCEPT:EG-312). Small penalty → u-turn route `0→1→4→1→2`; large penalty → detour
+    /// `0→1→3→2`.
+    #[test]
+    fn eg312_uturn_penalty_changes_route_choice() {
+        let mut g = Network::new();
+        for i in 0..5 {
+            g.add_node(Point::new(i as f64, 0.0));
+        }
+        g.add_undirected_edge(0, 1, 1.0).unwrap(); // approach
+        g.add_undirected_edge(1, 2, 1.0).unwrap(); // the "left" turn target
+        g.add_undirected_edge(1, 4, 1.0).unwrap(); // straight ahead (u-turn point)
+        g.add_undirected_edge(1, 3, 2.0).unwrap(); // detour leg
+        g.add_undirected_edge(3, 2, 2.0).unwrap(); // detour leg
+
+        // No left turn: arriving at 1 from 0, cannot go straight to 2. U-turns are free here.
+        let ban_left = |from: usize, via: usize, to: usize| -> f64 {
+            if (from, via, to) == (0, 1, 2) {
+                f64::INFINITY
+            } else {
+                0.0
+            }
+        };
+        // Sanity: with the ban but *free* u-turns, the router makes a u-turn (cost 4).
+        let free_uturn = g.dijkstra_with_turns(0, 2, &ban_left).unwrap();
+        assert_eq!(free_uturn.cost, 4.0);
+        assert_eq!(free_uturn.nodes, vec![0, 1, 4, 1, 2], "u-turn at node 4");
+
+        // Cheap u-turn (0.5): u-turn route (4.5) still beats the detour (5.0).
+        let mut cheap = TurnRestrictions::new().with_uturn_penalty(0.5);
+        cheap.ban(0, 1, 2);
+        let via_uturn = g.dijkstra_with_turns(0, 2, &cheap).unwrap();
+        assert_eq!(via_uturn.cost, 4.5);
+        assert_eq!(via_uturn.nodes, vec![0, 1, 4, 1, 2]);
+
+        // Expensive u-turn (10): the detour (5.0) now wins.
+        let mut pricey = TurnRestrictions::new().with_uturn_penalty(10.0);
+        pricey.ban(0, 1, 2);
+        let via_detour = g.dijkstra_with_turns(0, 2, &pricey).unwrap();
+        assert_eq!(via_detour.cost, 5.0);
+        assert_eq!(via_detour.nodes, vec![0, 1, 3, 2], "goes around the block");
+    }
+
+    /// Turn-aware routing with no restrictions reproduces plain Dijkstra (CONCEPT:EG-312) — the
+    /// additive layer is a pure superset.
+    #[test]
+    fn eg312_turns_with_empty_model_match_plain_dijkstra() {
+        let g = diamond();
+        let plain = g.dijkstra(0, 3).unwrap();
+        let turns = g.dijkstra_with_turns(0, 3, &TurnRestrictions::new()).unwrap();
+        assert_eq!(plain.cost, turns.cost);
+        assert_eq!(plain.nodes, turns.nodes);
+    }
+
+    // ── time-dependent / time-window edge weights (CONCEPT:EG-312) ──────────────────────
+
+    /// A two-route network where departure time selects the path (CONCEPT:EG-312). Route A
+    /// (`0→1→3`, base 2) is fast off-peak but jams 5× during `[8, 9)`; route B (`0→2→3`, base
+    /// 3.2) is steady. Departing at `t=0` picks A; departing at `t=8` picks B.
+    #[test]
+    fn eg312_time_dependent_picks_different_paths_by_departure_time() {
+        let mut g = Network::new();
+        for i in 0..4 {
+            g.add_node(Point::new(i as f64, 0.0));
+        }
+        g.add_undirected_edge(0, 1, 1.0).unwrap();
+        g.add_undirected_edge(1, 3, 1.0).unwrap(); // route A: fast highway
+        g.add_undirected_edge(0, 2, 1.6).unwrap();
+        g.add_undirected_edge(2, 3, 1.6).unwrap(); // route B: steady backroad
+
+        let mut traffic = TrafficProfile::new();
+        traffic.add_window(0, 1, 8.0, 9.0, 5.0); // rush-hour jam on the highway
+        traffic.add_window(1, 3, 8.0, 9.0, 5.0);
+
+        // Off-peak departure: highway is fastest.
+        let off_peak = g.shortest_path_time_dependent(0, 3, 0.0, &traffic).unwrap();
+        assert_eq!(off_peak.nodes, vec![0, 1, 3]);
+        assert_eq!(off_peak.cost, 2.0);
+
+        // Rush-hour departure: highway jams (0→1 costs 5, total 6) so the backroad wins.
+        let rush = g.shortest_path_time_dependent(0, 3, 8.0, &traffic).unwrap();
+        assert_eq!(rush.nodes, vec![0, 2, 3], "avoids the jammed highway");
+        assert!((rush.cost - 3.2).abs() < 1e-9);
+    }
+
+    /// A closed edge (opening-hours window with an `INFINITY` multiplier) is skipped when
+    /// departing inside the closure, forcing an alternate route (CONCEPT:EG-312).
+    #[test]
+    fn eg312_time_window_closes_edge_outside_opening_hours() {
+        let mut g = Network::new();
+        for i in 0..4 {
+            g.add_node(Point::new(i as f64, 0.0));
+        }
+        g.add_undirected_edge(0, 1, 1.0).unwrap();
+        g.add_undirected_edge(1, 3, 1.0).unwrap(); // preferred route via a gated road
+        g.add_undirected_edge(0, 2, 5.0).unwrap();
+        g.add_undirected_edge(2, 3, 5.0).unwrap(); // long always-open alternate
+
+        let mut hours = TrafficProfile::new();
+        hours.add_window(0, 1, 15.0, 1e9, f64::INFINITY); // 0→1 closed after t=15
+
+        // Before closure: fast route open.
+        let open = g.shortest_path_time_dependent(0, 3, 0.0, &hours).unwrap();
+        assert_eq!(open.nodes, vec![0, 1, 3]);
+        assert_eq!(open.cost, 2.0);
+
+        // After closure: 0→1 is shut, must take the long alternate.
+        let shut = g.shortest_path_time_dependent(0, 3, 20.0, &hours).unwrap();
+        assert_eq!(shut.nodes, vec![0, 2, 3], "detours around the closed road");
+        assert_eq!(shut.cost, 10.0);
+    }
+
+    /// A constant [`TimeCost`] (base weight for all time) reproduces plain Dijkstra
+    /// (CONCEPT:EG-312).
+    #[test]
+    fn eg312_constant_time_cost_matches_plain_dijkstra() {
+        let g = diamond();
+        let plain = g.dijkstra(0, 3).unwrap();
+        let const_cost = |_from: usize, _to: usize, w: f64, _dep: f64| w;
+        let td = g.shortest_path_time_dependent(0, 3, 0.0, &const_cost).unwrap();
+        assert_eq!(plain.nodes, td.nodes);
+        assert_eq!(plain.cost, td.cost);
     }
 }
