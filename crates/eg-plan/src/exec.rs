@@ -53,6 +53,19 @@ pub struct PlanCtx<'a> {
     /// non-federation build's `PlanCtx` is unchanged.
     #[cfg(feature = "federation")]
     pub foreign: Option<&'a crate::federation::ForeignSourceRegistry>,
+    /// CONCEPT:EG-304 — the content-addressed [`eg_tensor::TensorStore`] into which the
+    /// tensor executor WRITES BACK every derived tensor an `Op::TensorOp` produces, so a
+    /// derived tensor becomes a durable, dedup-shared CAS blob addressable by its
+    /// deterministic content hash — the EG-085 CAS-write-back follow-up that v1 left
+    /// documented-but-unbuilt. `None` (the default) preserves today's validate-only
+    /// behavior byte-for-byte: no write-back, fully backward-compatible. Held behind a
+    /// [`std::sync::Mutex`] so the write-back is interior-mutable through the shared
+    /// `&PlanCtx` the executor threads, while `PlanCtx` itself stays `Send + Sync`. An
+    /// identical derived tensor content-addresses to the SAME blob, so re-running a plan
+    /// (or many rows yielding the same result) DEDUPS to one blob. Gated behind `tensor`,
+    /// so a non-tensor build's `PlanCtx` is unchanged.
+    #[cfg(feature = "tensor")]
+    pub tensor_store: Option<&'a std::sync::Mutex<eg_tensor::TensorStore>>,
 }
 
 impl<'a> PlanCtx<'a> {
@@ -69,6 +82,8 @@ impl<'a> PlanCtx<'a> {
             udf: None,
             #[cfg(feature = "federation")]
             foreign: None,
+            #[cfg(feature = "tensor")]
+            tensor_store: None,
         }
     }
 
@@ -93,6 +108,18 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "federation")]
     pub fn with_foreign(mut self, registry: &'a crate::federation::ForeignSourceRegistry) -> Self {
         self.foreign = Some(registry);
+        self
+    }
+
+    /// Attach a content-addressed [`eg_tensor::TensorStore`] so the tensor executor
+    /// WRITES BACK each derived tensor an `Op::TensorOp` produces into the CAS
+    /// (CONCEPT:EG-304). A server/facade owns the store (behind a [`std::sync::Mutex`])
+    /// and can later `persist` it to disk for durability; without this call the executor
+    /// keeps its prior validate-only behavior (no write-back), so a default ctx is
+    /// byte-for-byte the old one.
+    #[cfg(feature = "tensor")]
+    pub fn with_tensor_store(mut self, store: &'a std::sync::Mutex<eg_tensor::TensorStore>) -> Self {
+        self.tensor_store = Some(store);
         self
     }
 }
@@ -226,7 +253,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "tensor")]
         Op::TensorScan { layer } => Ok(tensor_scan(ctx.view, layer)),
         #[cfg(feature = "tensor")]
-        Op::TensorOp { kind } => Ok(tensor_op(ctx.view, input, kind)),
+        Op::TensorOp { kind } => Ok(tensor_op(ctx, input, kind)),
 
         // TRANSFORM (probabilistic, CONCEPT:EG-086) — score each row by a closed-form
         // probabilistic query (expectation / marginal / conditional posterior / seeded
@@ -1142,15 +1169,44 @@ fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
 /// row's stored tensor (CONCEPT:EG-085). Rows whose tensor is missing/invalid or where
 /// the op fails (e.g. a slice out of bounds) are DROPPED — order- and score-preserving
 /// via [`RowSet::intersect_keep_order`], exactly as the spatial `Filter` leg drops rows
-/// with no geometry. The transformed tensor is computed to validate the op per row; a
-/// v1 executor does NOT persist the result back to the blob CAS — writing derived
-/// tensors as new content-addressed blobs is the documented follow-up.
+/// with no geometry.
+///
+/// CONCEPT:EG-304 — CAS write-back: when a [`PlanCtx::tensor_store`] is attached, each
+/// derived tensor that the op successfully produces is WRITTEN BACK into that
+/// content-addressed [`eg_tensor::TensorStore`] (via [`eg_tensor::TensorStore::put`]),
+/// so the result becomes a durable, dedup-shared blob addressable by its deterministic
+/// content hash — closing the EG-085 follow-up. The write-back is additive and does NOT
+/// change which rows survive: a row is kept iff the op succeeds, exactly as before, so a
+/// `None` store yields byte-for-byte the prior (validate-only) behavior. Deterministic:
+/// identical derived tensors content-address to one blob (idempotent dedup) regardless of
+/// row order or how many times the plan runs.
 #[cfg(feature = "tensor")]
-fn tensor_op(view: &GraphView, input: RowSet, kind: &eg_types::wire::TensorOpKind) -> RowSet {
+fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) -> RowSet {
     let keep: HashSet<&str> = input
         .rows()
         .iter()
-        .filter(|r| row_tensor(view, &r.id).is_some_and(|t| apply_tensor_op(&t, kind).is_ok()))
+        .filter(|r| {
+            // Compute the derived tensor to VALIDATE the op per row; on success, write it
+            // back to the CAS (CONCEPT:EG-304) when a store is attached.
+            match row_tensor(ctx.view, &r.id) {
+                Some(t) => match apply_tensor_op(&t, kind) {
+                    Ok(derived) => {
+                        if let Some(store) = ctx.tensor_store {
+                            // Recover from a poisoned lock: `put` is infallible, so the
+                            // guard is never left in a bad state; keep the write-back
+                            // durable rather than propagating a poison panic.
+                            store
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .put(&derived);
+                        }
+                        true
+                    }
+                    Err(_) => false,
+                },
+                None => false,
+            }
+        })
         .map(|r| r.id.as_str())
         .collect();
     input.intersect_keep_order(&keep)
