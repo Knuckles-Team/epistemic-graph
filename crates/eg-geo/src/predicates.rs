@@ -269,6 +269,37 @@ pub fn crosses(a: &Geometry, b: &Geometry) -> bool {
     interiors_intersect(a, b) && !covers(a, b) && !covers(b, a) && !overlaps(a, b)
 }
 
+/// Do the BOUNDARIES of `a` and `b` share at least one point — the DE-9IM `B(a) ∩ B(b)`
+/// cell (CONCEPT:EG-155)?
+///
+/// The boundary is the polygon's rings (exterior + holes) or a linestring's chain
+/// segments; a point has an empty boundary (so it never boundary-intersects). This is the
+/// single extra cell needed on top of the EG-258 predicate set to separate the
+/// **tangential** from the **non-tangential** part relations of the RCC8 / Egenhofer
+/// families (TPP vs NTPP, `ehCoveredBy`/`ehCovers` vs `ehInside`/`ehContains`): a proper
+/// part whose boundary meets its container's boundary is *tangential*, otherwise
+/// *non-tangential*. Exact for the common polygon cases; segment-based like the sibling
+/// predicates. (CONCEPT:EG-155)
+pub fn boundaries_intersect(a: &Geometry, b: &Geometry) -> bool {
+    let (pa, pb) = (prims(a), prims(b));
+    for x in &pa {
+        let sa = prim_segments(x);
+        if sa.is_empty() {
+            continue;
+        }
+        for y in &pb {
+            for (a1, a2) in &sa {
+                for (b1, b2) in prim_segments(y) {
+                    if seg_seg_intersect(a1, a2, &b1, &b2) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Topological dimension of a geometry: 0 (point), 1 (line), 2 (polygon) — the MAX over
 /// its flattened primitives; `-1` for an empty geometry.
 fn dim(g: &Geometry) -> i8 {
@@ -488,6 +519,27 @@ mod tests {
         let outside = Geometry::Point(Point::new(9.0, 9.0));
         assert!(within(&inside, &square()));
         assert!(!within(&outside, &square()));
+    }
+
+    /// CONCEPT:EG-155: `boundaries_intersect` is true when two polygons' rings share a
+    /// point (a boundary-tangential inner square, and an edge-abutting neighbour), and
+    /// false for a strictly-interior square (whose ring never meets the container's) — the
+    /// exact cell that separates tangential from non-tangential part relations. (Uses the
+    /// `poly` fixture helper defined later in this test module.)
+    #[test]
+    fn eg155_boundaries_intersect_tangential_vs_interior() {
+        let big = poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]);
+        // Corner square shares two edges with `big`'s boundary.
+        let corner = poly(&[(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0), (0.0, 0.0)]);
+        assert!(boundaries_intersect(&big, &corner));
+        // Edge-abutting neighbour touches along x=10.
+        let abut = poly(&[(10.0, 0.0), (12.0, 0.0), (12.0, 10.0), (10.0, 10.0), (10.0, 0.0)]);
+        assert!(boundaries_intersect(&big, &abut));
+        // Strictly-interior square: rings never meet.
+        let inner = poly(&[(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0), (2.0, 2.0)]);
+        assert!(!boundaries_intersect(&big, &inner));
+        // A point has an empty boundary ⇒ never boundary-intersects.
+        assert!(!boundaries_intersect(&big, &Geometry::Point(Point::new(5.0, 5.0))));
     }
 
     #[test]
