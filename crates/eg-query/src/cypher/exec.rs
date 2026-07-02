@@ -31,32 +31,51 @@ pub use eg_types::protocol::QueryResult;
 
 use super::parser;
 use super::plan::{
-    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, NodePat, Pattern,
-    ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement, Test, WhereExpr, WithItem,
-    WriteOp, WriteQuery,
+    AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr, NodePat,
+    Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement, Test,
+    WhereExpr, WithItem, WriteOp, WriteQuery,
 };
 
 /// Implicit max rows (mirrors the SQL surface): one Response per Request, so an
 /// unbounded RETURN would buffer the whole result in one message.
 const MAX_ROWS: usize = 50_000;
 
+/// Query parameters (`$name` → JSON value), supplied by the caller (CONCEPT:EG-141).
+pub type Params = serde_json::Map<String, Value>;
+
 /// A var→node-id binding row. A path variable (CONCEPT:EG-063) is stored under the
 /// `@path@<var>` key as a JSON-array string of the node ids along the path; an edge
-/// variable (write path) under `@edge@<var>` as `src\0tgt`.
+/// variable (write path) under `@edge@<var>` as `src\0tgt`; a SCALAR value bound by
+/// `UNWIND`/`CALL`/`YIELD` (CONCEPT:EG-141/142) under `@val@<var>` as a JSON string.
 type Binding = HashMap<String, String>;
 
 /// Parse + run `cypher` over `view` (read-only, single graph). Synchronous and
 /// dep-free — safe to call inside `spawn_blocking` like `exec_sql`.
 pub fn exec_cypher(view: &GraphView, cypher: &str) -> Result<QueryResult, String> {
+    exec_cypher_params(view, cypher, &Params::new())
+}
+
+/// Parse + run `cypher` over `view` with `$name` query parameters (CONCEPT:EG-141) —
+/// e.g. `UNWIND $ids AS x MATCH (n {id: x}) RETURN n`. `exec_cypher` is the
+/// zero-parameter form.
+pub fn exec_cypher_params(
+    view: &GraphView,
+    cypher: &str,
+    params: &Params,
+) -> Result<QueryResult, String> {
     let query = parser::parse(cypher)?;
-    let bindings = run_stages(view, &query.stages)?;
+    let bindings = run_stages(view, &query.stages, params)?;
     finalize(view, &query, bindings)
 }
 
 // ── read-stage pipeline (CONCEPT:EG-062) ─────────────────────────────────────
 
 /// Run the reading-stage pipeline, threading bindings from one stage to the next.
-fn run_stages(view: &GraphView, stages: &[ReadStage]) -> Result<Vec<Binding>, String> {
+fn run_stages(
+    view: &GraphView,
+    stages: &[ReadStage],
+    params: &Params,
+) -> Result<Vec<Binding>, String> {
     // Seed with one empty binding so the first MATCH resolves from scratch.
     let mut bindings: Vec<Binding> = vec![HashMap::new()];
     for stage in stages {
@@ -69,7 +88,8 @@ fn run_stages(view: &GraphView, stages: &[ReadStage]) -> Result<Vec<Binding>, St
             } => {
                 let mut out: Vec<Binding> = Vec::new();
                 for incoming in &bindings {
-                    let mut matched = resolve_match(view, pattern, where_clause, incoming)?;
+                    let mut matched =
+                        resolve_match(view, pattern, where_clause, incoming, params)?;
                     if let Some(pv) = path_var {
                         for b in matched.iter_mut() {
                             record_path(pattern, b, pv);
@@ -98,9 +118,68 @@ fn run_stages(view: &GraphView, stages: &[ReadStage]) -> Result<Vec<Binding>, St
                 }
                 bindings = out;
             }
+            ReadStage::Unwind { list, var } => {
+                let mut out: Vec<Binding> = Vec::new();
+                for b in &bindings {
+                    for elem in eval_list(b, params, list)? {
+                        let mut nb = b.clone();
+                        nb.insert(val_key(var), serde_json::to_string(&elem).unwrap_or_default());
+                        out.push(nb);
+                    }
+                }
+                bindings = out;
+            }
         }
     }
     Ok(bindings)
+}
+
+/// The binding key a scalar value (from UNWIND/CALL/YIELD) is stored under.
+fn val_key(var: &str) -> String {
+    format!("@val@{var}")
+}
+
+/// Evaluate an UNWIND list operand into its element values (CONCEPT:EG-141).
+fn eval_list(b: &Binding, params: &Params, list: &ListExpr) -> Result<Vec<Value>, String> {
+    match list {
+        ListExpr::List(items) => items
+            .iter()
+            .map(|pv| resolve_prop_val(b, params, pv))
+            .collect(),
+        ListExpr::Param(name) => match params.get(name) {
+            Some(Value::Array(a)) => Ok(a.clone()),
+            Some(other) => Err(format!("UNWIND $ {name} expects a list, found {other}")),
+            None => Err(format!("UNWIND references undefined parameter ${name}")),
+        },
+        ListExpr::Ref(var) => match bound_value(b, var) {
+            Some(Value::Array(a)) => Ok(a),
+            Some(_) | None => Ok(Vec::new()),
+        },
+    }
+}
+
+/// Resolve a [`PropVal`] to a JSON value against the live params + binding
+/// (CONCEPT:EG-141): a literal as-is, a `$param` from `params`, a `Ref` from the
+/// binding (its scalar `@val@` value, else its bound node id as a string).
+fn resolve_prop_val(b: &Binding, params: &Params, pv: &PropVal) -> Result<Value, String> {
+    match pv {
+        PropVal::Lit(v) => Ok(v.clone()),
+        PropVal::Param(name) => params
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("undefined parameter ${name}")),
+        PropVal::Ref(var) => Ok(bound_value(b, var).unwrap_or(Value::Null)),
+    }
+}
+
+/// The value a bound variable carries: its `@val@` scalar (decoded), else its node id
+/// as a string, else `None`.
+fn bound_value(b: &Binding, var: &str) -> Option<Value> {
+    if let Some(s) = b.get(&val_key(var)) {
+        Some(serde_json::from_str(s).unwrap_or(Value::Null))
+    } else {
+        b.get(var).map(|id| Value::String(id.clone()))
+    }
 }
 
 /// Resolve a linear MATCH `pattern` into var→node-id bindings, applying `where`.
@@ -113,12 +192,27 @@ fn resolve_match(
     pattern: &Pattern,
     where_clause: &Option<WhereExpr>,
     anchor: &Binding,
+    params: &Params,
 ) -> Result<Vec<Binding>, String> {
-    // Start candidates: the anchored id if the start var is bound, else the label set.
+    // Start candidates: the anchored id if the start var is bound, else the label set,
+    // then narrowed by any inline property constraints (CONCEPT:EG-141).
     let start_ids: Vec<String> = match pattern.start.var.as_ref().and_then(|v| anchor.get(v)) {
         Some(id) => vec![id.clone()],
         None => label_candidates(view, &pattern.start),
-    };
+    }
+    .into_iter()
+    // An ANCHORED start node still has its `:Label`/inline props enforced here — the
+    // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-142
+    // lets a CALL/YIELD node id flow into a labelled MATCH).
+    .filter(|id| {
+        pattern
+            .start
+            .label
+            .as_ref()
+            .is_none_or(|l| node_has_label_id(view, id, l))
+            && node_props_match(view, id, &pattern.start, anchor, params)
+    })
+    .collect();
 
     // (binding, current-node-id) partials, extended hop by hop.
     let mut partials: Vec<(Binding, String)> = Vec::new();
@@ -143,6 +237,10 @@ fn resolve_match(
                     if !node_has_label_id(view, &t, lbl) {
                         continue;
                     }
+                }
+                // inline property constraints (CONCEPT:EG-141)
+                if !node_props_match(view, &t, node, b, params) {
+                    continue;
                 }
                 // anchor / already-bound consistency
                 if let Some(v) = &node.var {
@@ -314,6 +412,9 @@ fn project_with(b: &Binding, items: &[WithItem]) -> Binding {
         if let Some(p) = b.get(&path_key(&it.var)) {
             nb.insert(path_key(&target), p.clone());
         }
+        if let Some(v) = b.get(&val_key(&it.var)) {
+            nb.insert(val_key(&target), v.clone());
+        }
     }
     nb
 }
@@ -350,6 +451,7 @@ fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
                     .map(|it| it.alias.clone().unwrap_or_else(|| it.var.clone()))
                     .collect();
             }
+            ReadStage::Unwind { var, .. } => push(var, &mut scope),
         }
     }
     scope
@@ -512,6 +614,9 @@ fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
         Expr::Var(v) => {
             if let Some(p) = binding.get(&path_key(v)) {
                 serde_json::from_str(p).unwrap_or(Value::Null)
+            } else if let Some(s) = binding.get(&val_key(v)) {
+                // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-141/142).
+                serde_json::from_str(s).unwrap_or(Value::Null)
             } else if let Some(id) = binding.get(v) {
                 Value::String(id.clone())
             } else {
@@ -631,6 +736,8 @@ fn arg_value(view: &GraphView, b: &Binding, arg: &AggArg) -> Option<Value> {
         AggArg::Var(v) => {
             if let Some(p) = b.get(&path_key(v)) {
                 Some(serde_json::from_str(p).unwrap_or(Value::Null))
+            } else if let Some(s) = b.get(&val_key(v)) {
+                Some(serde_json::from_str(s).unwrap_or(Value::Null))
             } else {
                 b.get(v).map(|id| Value::String(id.clone()))
             }
@@ -721,6 +828,30 @@ fn node_has_label(blob: &[u8], label: &str) -> bool {
     false
 }
 
+/// Do node `id`'s stored properties satisfy `node`'s inline property constraints
+/// (`(n {k: v})`, CONCEPT:EG-141)? Each constraint value resolves against the live
+/// params + binding, then must equal the node's stored property. No inline map ⇒ true.
+fn node_props_match(
+    view: &GraphView,
+    id: &str,
+    node: &NodePat,
+    binding: &Binding,
+    params: &Params,
+) -> bool {
+    let Some(props) = &node.props else {
+        return true;
+    };
+    for (key, pv) in props {
+        let Ok(expected) = resolve_prop_val(binding, params, pv) else {
+            return false;
+        };
+        if node_prop(view, id, key).as_ref() != Some(&expected) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Read one property from a node's blob.
 fn node_prop(view: &GraphView, node_id: &str, prop: &str) -> Option<Value> {
     let blob = view.node_properties.get(node_id)?;
@@ -737,22 +868,32 @@ fn node_prop(view: &GraphView, node_id: &str, prop: &str) -> Option<Value> {
 /// statement reads or writes. Writes map to eg-core's OWN native ops — NO DataFusion
 /// — and `mark_dirty()` is called once after a mutation so caches refresh.
 pub fn exec_cypher_write(core: &GraphCore, cypher: &str) -> Result<QueryResult, String> {
+    exec_cypher_write_params(core, cypher, &Params::new())
+}
+
+/// The parameterized form of [`exec_cypher_write`] (CONCEPT:EG-141) — the single
+/// entry-point for a read-or-write statement with `$name` query parameters.
+pub fn exec_cypher_write_params(
+    core: &GraphCore,
+    cypher: &str,
+    params: &Params,
+) -> Result<QueryResult, String> {
     match parser::parse_statement(cypher)? {
         Statement::Read(_) => {
             let view = core.analysis_snapshot();
-            exec_cypher(&view, cypher)
+            exec_cypher_params(&view, cypher, params)
         }
-        Statement::Write(w) => exec_write(core, &w),
+        Statement::Write(w) => exec_write(core, &w, params),
     }
 }
 
 /// Execute a parsed write statement against `core` (CONCEPT:EG-020 / EG-061).
-fn exec_write(core: &GraphCore, w: &WriteQuery) -> Result<QueryResult, String> {
+fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<QueryResult, String> {
     // Resolve the leading MATCH (if any) over a snapshot into bindings. No MATCH ⇒
     // one empty binding (the write clauses run exactly once).
     let snap = core.analysis_snapshot();
     let mut bindings: Vec<Binding> = match &w.match_pattern {
-        Some(pattern) => resolve_match(&snap, pattern, &w.where_clause, &HashMap::new())?,
+        Some(pattern) => resolve_match(&snap, pattern, &w.where_clause, &HashMap::new(), params)?,
         None => vec![HashMap::new()],
     };
 
@@ -783,7 +924,7 @@ fn exec_write(core: &GraphCore, w: &WriteQuery) -> Result<QueryResult, String> {
     let mut mutated = false;
     for binding in bindings.iter_mut() {
         for op in &w.ops {
-            apply_write_op(core, &snap, binding, op, &mut mutated)?;
+            apply_write_op(core, &snap, binding, op, params, &mut mutated)?;
         }
     }
     if mutated {
@@ -807,11 +948,12 @@ fn apply_write_op(
     snap: &GraphView,
     binding: &mut Binding,
     op: &WriteOp,
+    params: &Params,
     mutated: &mut bool,
 ) -> Result<(), String> {
     match op {
-        WriteOp::Create(pattern) => apply_create(core, binding, pattern, mutated)?,
-        WriteOp::Merge(node) => apply_merge(core, binding, node, mutated)?,
+        WriteOp::Create(pattern) => apply_create(core, binding, pattern, params, mutated)?,
+        WriteOp::Merge(node) => apply_merge(core, binding, node, params, mutated)?,
         WriteOp::Set(items) => apply_set(core, binding, items, mutated)?,
         WriteOp::Delete { vars, detach } => {
             apply_delete(core, snap, binding, vars, *detach, mutated)?
@@ -827,17 +969,18 @@ fn apply_create(
     core: &GraphCore,
     binding: &mut Binding,
     pattern: &Pattern,
+    params: &Params,
     mutated: &mut bool,
 ) -> Result<(), String> {
-    let start_id = realize_node(core, binding, &pattern.start, mutated)?;
+    let start_id = realize_node(core, binding, &pattern.start, params, mutated)?;
     let mut prev_id = start_id;
     for (edge, node) in &pattern.hops {
-        let next_id = realize_node(core, binding, node, mutated)?;
+        let next_id = realize_node(core, binding, node, params, mutated)?;
         let (src, tgt) = match edge.direction {
             Direction::Right => (prev_id.clone(), next_id.clone()),
             Direction::Left => (next_id.clone(), prev_id.clone()),
         };
-        let mut props = props_to_map(edge.props.as_deref());
+        let mut props = props_to_map(edge.props.as_deref(), binding, params)?;
         if let Some(rel) = &edge.rel_type {
             props.insert("relationship".into(), Value::String(rel.clone()));
         }
@@ -857,6 +1000,7 @@ fn realize_node(
     core: &GraphCore,
     binding: &mut Binding,
     node: &NodePat,
+    params: &Params,
     mutated: &mut bool,
 ) -> Result<String, String> {
     if let Some(var) = &node.var {
@@ -864,7 +1008,7 @@ fn realize_node(
             return Ok(existing.clone());
         }
     }
-    let mut props = props_to_map(node.props.as_deref());
+    let mut props = props_to_map(node.props.as_deref(), binding, params)?;
     if let Some(label) = &node.label {
         props
             .entry("type".to_string())
@@ -890,9 +1034,10 @@ fn apply_merge(
     core: &GraphCore,
     binding: &mut Binding,
     node: &NodePat,
+    params: &Params,
     mutated: &mut bool,
 ) -> Result<(), String> {
-    let want = props_to_map(node.props.as_deref());
+    let want = props_to_map(node.props.as_deref(), binding, params)?;
     let candidates: Vec<(String, Vec<u8>)> = match &node.label {
         Some(label) => core.get_nodes_by_label(label, 0),
         None => core.get_nodes(),
@@ -908,7 +1053,7 @@ fn apply_merge(
             return Ok(());
         }
     }
-    realize_node(core, binding, node, mutated)?;
+    realize_node(core, binding, node, params, mutated)?;
     Ok(())
 }
 
@@ -1108,15 +1253,20 @@ fn gen_node_id() -> String {
     format!("cy_{nanos:x}_{n:x}")
 }
 
-/// A Cypher inline-property list → a JSON object map.
-fn props_to_map(props: Option<&[(String, Value)]>) -> serde_json::Map<String, Value> {
+/// A Cypher inline-property list → a JSON object map, resolving each value against the
+/// live params + binding (literal / `$param` / bound-var reference; CONCEPT:EG-141).
+fn props_to_map(
+    props: Option<&[(String, PropVal)]>,
+    binding: &Binding,
+    params: &Params,
+) -> Result<serde_json::Map<String, Value>, String> {
     let mut m = serde_json::Map::new();
     if let Some(list) = props {
-        for (k, v) in list {
-            m.insert(k.clone(), v.clone());
+        for (k, pv) in list {
+            m.insert(k.clone(), resolve_prop_val(binding, params, pv)?);
         }
     }
-    m
+    Ok(m)
 }
 
 /// The variable name for a node position, auto-naming anonymous nodes so the write
@@ -1422,6 +1572,45 @@ mod tests {
         let path = cells_of(&qr, 0)[0].as_array().unwrap().clone();
         let seq: Vec<&str> = path.iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(seq, vec!["alice", "bob"]);
+    }
+
+    // ── UNWIND (CONCEPT:EG-141) ─────────────────────────────────────────────────
+
+    #[test]
+    fn unwind_list_literal_yields_one_row_per_element() {
+        let v = fixture();
+        let qr = exec_cypher(&v, "UNWIND [1, 2, 3] AS x RETURN x").unwrap();
+        assert_eq!(qr.columns, vec!["x"]);
+        assert_eq!(qr.rows.len(), 3);
+        let vals: Vec<i64> = (0..3)
+            .map(|r| cells_of(&qr, r)[0].as_i64().unwrap())
+            .collect();
+        assert_eq!(vals, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn unwind_param_then_match_inline_prop() {
+        // CONCEPT:EG-141 — a $param list drives UNWIND, and each unwound value is
+        // referenced by a read-side inline property `(n:Person {name: nm})`.
+        let v = fixture();
+        let mut params = Params::new();
+        params.insert("names".into(), serde_json::json!(["Alice", "Carol"]));
+        let qr = exec_cypher_params(
+            &v,
+            "UNWIND $names AS nm MATCH (n:Person {name: nm}) RETURN n",
+            &params,
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["alice", "carol"]);
+    }
+
+    #[test]
+    fn unwind_pipelines_into_aggregation() {
+        let v = fixture();
+        let qr = exec_cypher(&v, "UNWIND [10, 20, 30] AS x RETURN sum(x), count(*)").unwrap();
+        let c = cells_of(&qr, 0);
+        assert_eq!(c[0], Value::Number(60.into()));
+        assert_eq!(c[1], Value::Number(3.into()));
     }
 
     // ── write path (CONCEPT:EG-020 / EG-061) ───────────────────────────────────
