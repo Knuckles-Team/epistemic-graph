@@ -16,8 +16,10 @@
 //!     the query path uses (CONCEPT:EG-019).
 //!   * [`subscribe`] / [`subscribe_versioned`] — a poll over the current matches for a
 //!     GraphQL SUBSCRIPTION (a query that streams); the OCC `version()` lets a watcher
-//!     re-render only on change. A full push transport is a documented deferral
-//!     (see `crate::subscription`).
+//!     re-render only on change.
+//!   * [`LiveQuery`] — the real PUSH path (CONCEPT:EG-064): a subscription parsed once,
+//!     re-resolved per change event. The server layer subscribes to `GraphCore::changes()`
+//!     and drives it over a WS/SSE carrier; this crate stays runtime-free.
 //!
 //! ## Why a hand-written parser (async-graphql evaluated, rejected)
 //! `async-graphql` is the standard Rust GraphQL crate, but it pulls ~80+ transitive
@@ -37,9 +39,10 @@
 //! `first`/`limit` selection keeps returning a bare `[Type]` array (non-breaking).
 //!
 //! ## Deferred (documented)
-//! A push subscription transport (a `tokio::sync::broadcast` change-stream — see
-//! `crate::subscription`), interfaces/unions, and relay pagination on nested EDGE fields
-//! (root-level connections are supported). A parse error names the unsupported construct.
+//! Interfaces/unions and relay pagination on nested EDGE fields (root-level connections
+//! are supported). A push subscription transport is now REAL (CONCEPT:EG-064) — see
+//! [`LiveQuery`] + the server carrier; the change stream is `GraphCore::changes()`. A
+//! parse error names the unsupported construct.
 
 pub mod mutation;
 pub mod parser;
@@ -51,7 +54,7 @@ pub use mutation::execute as execute_mutation;
 pub use parser::{parse, parse_operation, GqlError, Mutation, Operation, Query, Subscription};
 pub use resolver::{execute, execute_query, execute_with_variables};
 pub use schema::Schema;
-pub use subscription::{poll as subscribe, poll_versioned as subscribe_versioned};
+pub use subscription::{poll as subscribe, poll_versioned as subscribe_versioned, LiveQuery};
 
 #[cfg(test)]
 mod tests {
@@ -397,6 +400,65 @@ mod tests {
         let (d1, v1) = subscribe_versioned(&core, "subscription { Person { name } }").unwrap();
         assert!(v1 > v0, "version must advance after a write ({v0} -> {v1})");
         assert_eq!(d1["data"]["Person"].as_array().unwrap().len(), 4);
+    }
+
+    /// CONCEPT:EG-064 — the REAL push path: a write emits a `ChangeEvent` over
+    /// `GraphCore::changes()`, and the sink re-resolves the `LiveQuery` against a fresh
+    /// snapshot, observing the new state. This exercises the exact eg-core → sink →
+    /// eg-graphql re-resolve wiring the server carrier drives (minus the transport).
+    #[test]
+    fn live_query_re_resolves_on_change_event() {
+        use eg_core::graph::{ChangeEvent, ChangeSink};
+        use std::sync::{Arc, Mutex as StdMutex};
+
+        let core = Arc::new(core_fixture());
+        let live = Arc::new(LiveQuery::parse("subscription { Person { name } }").unwrap());
+
+        // Record the People-count each re-resolve sees.
+        let seen: Arc<StdMutex<Vec<usize>>> = Arc::new(StdMutex::new(Vec::new()));
+
+        struct Sink {
+            core: std::sync::Weak<GraphCore>,
+            live: Arc<LiveQuery>,
+            seen: Arc<StdMutex<Vec<usize>>>,
+        }
+        impl ChangeSink for Sink {
+            fn on_change(&self, _event: &ChangeEvent) {
+                if let Some(core) = self.core.upgrade() {
+                    let (data, _v) = self.live.resolve(&core).unwrap();
+                    let n = data["data"]["Person"].as_array().unwrap().len();
+                    self.seen.lock().unwrap().push(n);
+                }
+            }
+        }
+        let sink: Arc<dyn ChangeSink> = Arc::new(Sink {
+            core: Arc::downgrade(&core),
+            live: live.clone(),
+            seen: seen.clone(),
+        });
+        core.changes().subscribe(&sink);
+
+        // Baseline (initial frame the carrier would push): 3 People.
+        let (d0, _v0) = live.resolve(&core).unwrap();
+        assert_eq!(d0["data"]["Person"].as_array().unwrap().len(), 3);
+
+        // A write → mark_dirty → ChangeEvent → sink re-resolves the live query.
+        execute_mutation(
+            &core,
+            r#"mutation { createNode(label: "Person", id: "eve", props: {name: "Eve"}) { id } }"#,
+        )
+        .unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert!(
+            !seen.is_empty(),
+            "a change event should have re-resolved the live query"
+        );
+        assert_eq!(
+            *seen.last().unwrap(),
+            4,
+            "the re-resolved live query should now see 4 People"
+        );
     }
 
     // ── fragments / variables / directives (CONCEPT:EG-065) ───────────────────────
