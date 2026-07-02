@@ -4,12 +4,16 @@
 //! type + index with **NO GEOS/PROJ/C dependency** — the Raspberry-Pi contract. It
 //! provides:
 //!
-//! * [`Geometry`] — `Point` / `LineString` / `Polygon`, each with a bounding box
-//!   ([`Bbox`]); serde-serializable so a geometry persists as a typed value in the
-//!   engine's redb per-graph store.
-//! * A hand-written [`wkt`] codec (`POINT`/`LINESTRING`/`POLYGON`).
+//! * [`Geometry`] — the full OGC model: `Point` / `LineString` / `Polygon`
+//!   (with interior rings) plus `MultiPoint` / `MultiLineString` / `MultiPolygon` /
+//!   `GeometryCollection` (CONCEPT:EG-257), each with a bounding box ([`Bbox`]);
+//!   serde-serializable so a geometry persists as a typed value in the engine's redb
+//!   per-graph store.
+//! * A hand-written [`wkt`]/EWKT codec covering every variant (`SRID=…;` tolerated).
 //! * Planar spatial [`predicates`]: [`within`] / [`intersects`] / [`distance`]
-//!   (Euclidean for v1; a geodesic metric is a documented follow-up).
+//!   (Euclidean).
+//! * Geodesic metrics ([`geodesic`], CONCEPT:EG-256): Haversine + Vincenty distance and
+//!   spherical polygon area on WGS84 — pure-Rust, no C deps.
 //! * An in-house packed Hilbert [`RTree`] over a set of bounding boxes supporting
 //!   `query_bbox(bbox) -> Vec<id>`.
 //!
@@ -19,11 +23,13 @@
 //! dependency-light (only serde) and is folded into the `node`/`full` serving tiers,
 //! kept OUT of `pi`.
 
+pub mod geodesic;
 pub mod geometry;
 pub mod predicates;
 pub mod rtree;
 pub mod wkt;
 
+pub use geodesic::{geodesic_area, geodesic_ring_area, haversine_distance, vincenty_distance};
 pub use geometry::{Bbox, Geometry, LineString, Point, Polygon};
 pub use predicates::{distance, intersects, within};
 pub use rtree::RTree;
