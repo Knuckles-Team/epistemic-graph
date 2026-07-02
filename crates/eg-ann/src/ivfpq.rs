@@ -601,7 +601,7 @@ pub fn merge_topk_stable(shards: &[Vec<SearchResult>], k: usize) -> Vec<SearchRe
         }
     }
     let mut out: Vec<SearchResult> = heap.into_iter().map(|w| w.0).collect();
-    out.sort_by(|a, b| worse_than(a, b));
+    out.sort_by(worse_than);
     out
 }
 
