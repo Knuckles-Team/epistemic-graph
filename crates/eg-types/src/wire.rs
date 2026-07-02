@@ -27,6 +27,18 @@ pub enum Pred {
     GtNum { prop: String, n: f64 },
     /// `prop < n` (numeric).
     LtNum { prop: String, n: f64 },
+    /// DOCUMENT/JSON — keep rows whose node property document satisfies a deep
+    /// JSONPath predicate (CONCEPT:EG-084). `path` is a JSONPath (`$.a.b`, `$.a[0]`,
+    /// `$.a[*]`, wildcard) evaluated against the row's decoded JSON; `op` is the
+    /// existence / equality / `@>`-containment test. This is the lowered form of the
+    /// Postgres JSON operators (`->`, `->>`, `@>`, `jsonb_path_query`) and a Mongo-style
+    /// `$match` — see `eg_query::sql::classify`. Like the spatial preds it is NOT lowered
+    /// to SQL (DataFusion has no JSONPath): `eg-plan`'s FILTER leg splits it out and
+    /// applies it per-row against the stored JSON, and the planner can consult eg-core's
+    /// inverted path-index for candidate selectivity. PURE serde here (a string, a small
+    /// enum, and a `serde_json::Value` literal — exactly as `CepAttrPredSpec` carries),
+    /// so it is present whenever `query` is on and adds NO dependency.
+    JsonPath { path: String, op: JsonPathOp },
     /// SPATIAL — keep rows whose geometry (in node property `column`, stored as WKT)
     /// is spatially WITHIN the query geometry `wkt` (CONCEPT:EG-083). Evaluated by
     /// eg-geo's planar `within` in eg-plan (behind the `geo` feature) — NOT lowered to
@@ -68,6 +80,24 @@ pub enum Pred {
     SpatialEquals { column: String, wkt: String },
     #[cfg(feature = "geo")]
     SpatialDisjoint { column: String, wkt: String },
+}
+
+/// DOCUMENT/JSON — the test applied by [`Pred::JsonPath`] against the value(s) a
+/// JSONPath resolves to (CONCEPT:EG-084). PURE serde (a small tag + an optional
+/// `serde_json::Value` literal); the actual walk/containment lives in
+/// `eg_core::jsonpath` behind eg-plan's FILTER leg — this is the wire variant.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum JsonPathOp {
+    /// The path resolves to at least one value (`jsonb_path_query` existence / `@?`).
+    Exists,
+    /// Some value at the path equals `value` (Postgres `->` / `->>` equality). A `->>`
+    /// text compare coerces a scalar to text, so a JSON-string `value` also matches a
+    /// numeric leaf whose canonical text is equal.
+    Eq { value: serde_json::Value },
+    /// The value at the path CONTAINS `value` per Postgres `@>` JSON containment
+    /// (object ⊇ object, array ⊇ array/scalar, scalar equality).
+    Contains { value: serde_json::Value },
 }
 
 /// SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-259).
@@ -1027,5 +1057,60 @@ mod timeseries_tests {
         let bytes = rmp_serde::to_vec_named(&plan).unwrap();
         let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(plan, back);
+    }
+}
+
+// ── document/JSON wire-variant round-trip (CONCEPT:EG-084) ───────────────────
+#[cfg(all(test, feature = "query"))]
+mod docjson_tests {
+    use super::*;
+
+    /// CONCEPT:EG-084 — the `Pred::JsonPath` variant + its `JsonPathOp` (existence /
+    /// equality / `@>` containment) are pure serde and round-trip through MessagePack
+    /// (the wire format) unchanged, so `Method::UnifiedQuery { plan }` can carry a deep
+    /// JSON filter.
+    #[test]
+    fn eg084_jsonpath_pred_round_trips() {
+        let plan = Plan::new(vec![
+            Op::Filter {
+                preds: vec![
+                    Pred::JsonPath {
+                        path: "$.meta.lang".into(),
+                        op: JsonPathOp::Eq {
+                            value: serde_json::json!("rust"),
+                        },
+                    },
+                    Pred::JsonPath {
+                        path: "$.tags[*]".into(),
+                        op: JsonPathOp::Exists,
+                    },
+                    Pred::JsonPath {
+                        path: "$".into(),
+                        op: JsonPathOp::Contains {
+                            value: serde_json::json!({"meta": {"year": 2024}}),
+                        },
+                    },
+                ],
+            },
+            Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+
+    /// CONCEPT:EG-084 — JSON round-trip too (the REST/UQL surface serializes the plan as
+    /// JSON), proving the enum tags are stable across both wire encodings.
+    #[test]
+    fn eg084_jsonpath_pred_json_round_trips() {
+        let p = Pred::JsonPath {
+            path: "$.a.b".into(),
+            op: JsonPathOp::Contains {
+                value: serde_json::json!([1, 2, 3]),
+            },
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        let back: Pred = serde_json::from_str(&s).unwrap();
+        assert_eq!(p, back);
     }
 }

@@ -99,6 +99,30 @@ struct PropertyIndex {
 /// Default cap on the number of distinct property keys ever indexed.
 const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
 
+/// Inverted JSONPath path-index (CONCEPT:EG-084 — document/JSON deep indexing): for
+/// each indexed JSONPath, a `value → node ids` map (equality/`->>`) PLUS the set of
+/// ids for which the path resolves to any value (existence/containment selectivity).
+/// Built lazily on [`GraphCore`] and invalidated by `mark_dirty()`, mirroring the flat
+/// [`PropertyIndex`] — so a `WHERE props->>'k' = 'v'` / `props @> '{"k":"v"}'` filter is
+/// index-accelerated (candidate ids) instead of a full node scan.
+///
+/// Policy (bounded + demand-driven, exactly like [`PropertyIndex`], so a deep document
+/// with many paths cannot blow up memory):
+/// * a JSONPath is indexed the FIRST time it is queried (and then reused);
+/// * `EPISTEMIC_GRAPH_INDEXED_JSON_PATHS` (comma-separated) pre-seeds paths;
+/// * `EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS` (default 64) caps the distinct paths ever
+///   indexed; once full a new path is refused (the caller full-scans).
+#[derive(Debug, Default)]
+struct PathIndex {
+    /// `jsonpath → (canonical scalar value → node ids)` for equality lookups.
+    by_value: HashMap<String, HashMap<String, Vec<String>>>,
+    /// `jsonpath → node ids` for which the path resolves to ANY value (existence).
+    present: HashMap<String, Vec<String>>,
+}
+
+/// Default cap on the number of distinct JSONPaths ever indexed (CONCEPT:EG-084).
+const DEFAULT_MAX_INDEXED_JSON_PATHS: usize = 64;
+
 /// Capability node types whose names/synonyms form the lexical gate vocabulary.
 const CAPABILITY_NODE_TYPES: &[&str] = &[
     "Tool",
@@ -256,6 +280,15 @@ pub struct GraphCore {
     /// `None` until first use / after invalidation; the inner map only ever holds
     /// the keys demanded so far.
     property_index: RwLock<Option<PropertyIndex>>,
+    /// Cached inverted JSONPath path-index (CONCEPT:EG-084 — document/JSON deep
+    /// indexing): `jsonpath → value → ids` (equality/`->>`) + `jsonpath → ids`
+    /// (existence/`@>` selectivity), so a deep JSON filter is index-accelerated
+    /// instead of a full node scan. Bounded + demand-driven exactly like
+    /// `property_index`, and invalidated by the SAME `mark_dirty()` after any write —
+    /// a JSON write can change a nested value without changing `node_count`, so
+    /// validity must NOT key on node count. `None` until first use / after
+    /// invalidation.
+    path_index: RwLock<Option<PathIndex>>,
     /// The unified secondary-index registry/seam (CONCEPT:KG-2.213). Owns the
     /// `SecondaryIndex` descriptors (label, property, + discoverable vector /
     /// ontology) so a planner consults ONE registry — `index_for(predicate)` /
@@ -771,6 +804,8 @@ impl GraphCore {
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             property_index: RwLock::new(None),
+            // CONCEPT:EG-084 — cold JSONPath path-index; built lazily on first use.
+            path_index: RwLock::new(None),
             index_manager: crate::index::IndexManager::with_default_indexes(),
             read_through: RwLock::new(None),
             #[cfg(feature = "result-cache")]
@@ -837,6 +872,14 @@ impl GraphCore {
         // `value → ids` maps are stale and are rebuilt (over the same demanded keys)
         // on the next `nodes_by_property` lookup.
         *self.property_index.write() = None;
+        // Invalidate the lazy JSONPath path-index (CONCEPT:EG-084): a write may have
+        // added/removed a node or changed a nested JSON value, so the cached
+        // `path → value → ids` maps are stale and are rebuilt (over the same demanded
+        // paths) on the next `nodes_by_json_path` / `nodes_with_json_path` lookup. This
+        // is how the index is "maintained on the mutation path": every committed write
+        // funnels through `mark_dirty` under the topology write guard, so the index is
+        // never consistent-stale across a mutation.
+        *self.path_index.write() = None;
         // CONCEPT:EG-064 — fan out a change notification (post-write version) to any
         // live subscribers (the GraphQL subscription carrier). A single relaxed
         // atomic load when there are none, so this is off the write hot path.
@@ -862,6 +905,8 @@ impl GraphCore {
         // subsequent local read after a remote-applied change rebuilds them.
         *self.label_index.write() = None;
         *self.property_index.write() = None;
+        // CONCEPT:EG-084 — the JSONPath path-index is derived state too; retire it.
+        *self.path_index.write() = None;
         // CONCEPT:EG-064 — a replicated write must also wake local live-query
         // subscribers, so a subscription reflects remote writes, not just local ones.
         self.changes.emit(new_version);
@@ -1385,6 +1430,148 @@ impl GraphCore {
     /// (`EPISTEMIC_GRAPH_INDEXED_PROPERTIES`, comma-separated). Empty when unset.
     fn seed_indexed_properties() -> Vec<String> {
         std::env::var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES")
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(str::trim)
+                    .filter(|k| !k.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    // ── inverted JSONPath path-index (CONCEPT:EG-084) ─────────────────────────
+
+    /// Node ids whose JSONPath `path` resolves to a scalar equal to `value`, via the
+    /// bounded, demand-driven inverted path-index (CONCEPT:EG-084). This is the
+    /// index-accelerated backing for `WHERE props->>'k' = 'v'` (and `props->'k' = …`).
+    /// `value` is compared against the canonical string form of the stored scalar (see
+    /// [`crate::jsonpath::canonical_scalar`]), so a numeric `30` matches `"30"`.
+    ///
+    /// Returns `None` when `path` is not (and cannot be) indexed under the bound — the
+    /// caller must then full-scan. Returns `Some(vec)` (possibly empty) when the path IS
+    /// indexed. The cache is invalidated by `mark_dirty()` after any write, so it never
+    /// serves a consistent-stale view across a mutation.
+    pub fn nodes_by_json_path(&self, path: &str, value: &str) -> Option<Vec<String>> {
+        {
+            let guard = self.path_index.read();
+            if let Some(idx) = guard.as_ref() {
+                if let Some(by_value) = idx.by_value.get(path) {
+                    return Some(by_value.get(value).cloned().unwrap_or_default());
+                }
+            }
+        }
+        let mut guard = self.path_index.write();
+        let idx = guard.get_or_insert_with(PathIndex::default);
+        self.ensure_json_path_indexed(idx, path)?;
+        Some(
+            idx.by_value
+                .get(path)
+                .and_then(|by_value| by_value.get(value).cloned())
+                .unwrap_or_default(),
+        )
+    }
+
+    /// Node ids for which JSONPath `path` resolves to ANY value — the EXISTENCE set
+    /// (CONCEPT:EG-084), the index-accelerated backing for `props @> …` / `jsonb_path_query`
+    /// existence and a selectivity estimate for the planner. Returns `None` when `path`
+    /// is not (and cannot be) indexed under the bound (full-scan fallback).
+    pub fn nodes_with_json_path(&self, path: &str) -> Option<Vec<String>> {
+        {
+            let guard = self.path_index.read();
+            if let Some(idx) = guard.as_ref() {
+                if let Some(ids) = idx.present.get(path) {
+                    return Some(ids.clone());
+                }
+            }
+        }
+        let mut guard = self.path_index.write();
+        let idx = guard.get_or_insert_with(PathIndex::default);
+        self.ensure_json_path_indexed(idx, path)?;
+        Some(idx.present.get(path).cloned().unwrap_or_default())
+    }
+
+    /// Ensure `path` is present in the JSONPath index, honouring the bound
+    /// (CONCEPT:EG-084). `Some(())` if the path is (now) indexed, `None` if the cap is
+    /// full and the path is not already present (caller full-scans). Pre-seeds any paths
+    /// named in `EPISTEMIC_GRAPH_INDEXED_JSON_PATHS` on the first build.
+    #[allow(clippy::map_entry)]
+    fn ensure_json_path_indexed(&self, idx: &mut PathIndex, path: &str) -> Option<()> {
+        let cap = Self::max_indexed_json_paths();
+        if idx.by_value.is_empty() && idx.present.is_empty() {
+            for seed in Self::seed_indexed_json_paths() {
+                if idx.by_value.len() >= cap || idx.by_value.contains_key(&seed) {
+                    continue;
+                }
+                let (by_value, present) = self.build_json_path_maps(&seed);
+                idx.by_value.insert(seed.clone(), by_value);
+                idx.present.insert(seed, present);
+            }
+        }
+        if idx.by_value.contains_key(path) {
+            return Some(());
+        }
+        if idx.by_value.len() >= cap {
+            return None;
+        }
+        let (by_value, present) = self.build_json_path_maps(path);
+        idx.by_value.insert(path.to_string(), by_value);
+        idx.present.insert(path.to_string(), present);
+        Some(())
+    }
+
+    /// Scan the node store once and build, for one JSONPath, both the `value → ids`
+    /// equality map (over the canonical scalar form of each matched leaf) and the
+    /// existence `ids` set (CONCEPT:EG-084). A malformed path yields empty maps.
+    fn build_json_path_maps(
+        &self,
+        path: &str,
+    ) -> (HashMap<String, Vec<String>>, Vec<String>) {
+        let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
+        let mut present: Vec<String> = Vec::new();
+        let Some(segs) = crate::jsonpath::parse_path(path) else {
+            return (by_value, present);
+        };
+        for entry in self.node_properties.iter() {
+            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
+            else {
+                continue;
+            };
+            let matches = crate::jsonpath::eval(&val, &segs);
+            if matches.is_empty() {
+                continue;
+            }
+            present.push(entry.key().clone());
+            for m in matches {
+                if let Some(vk) = crate::jsonpath::canonical_scalar(m) {
+                    by_value.entry(vk).or_default().push(entry.key().clone());
+                }
+            }
+        }
+        for ids in by_value.values_mut() {
+            ids.sort_unstable();
+            ids.dedup();
+        }
+        present.sort_unstable();
+        present.dedup();
+        (by_value, present)
+    }
+
+    /// Cap on the number of distinct JSONPaths ever indexed
+    /// (`EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS`, default 64) (CONCEPT:EG-084).
+    fn max_indexed_json_paths() -> usize {
+        std::env::var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(DEFAULT_MAX_INDEXED_JSON_PATHS)
+    }
+
+    /// JSONPaths to pre-seed into the index on first build
+    /// (`EPISTEMIC_GRAPH_INDEXED_JSON_PATHS`, comma-separated) (CONCEPT:EG-084).
+    fn seed_indexed_json_paths() -> Vec<String> {
+        std::env::var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS")
             .ok()
             .map(|s| {
                 s.split(',')
@@ -2085,6 +2272,8 @@ impl GraphCore {
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             property_index: RwLock::new(None),
+            // CONCEPT:EG-084 — fork starts with a cold JSONPath path-index too.
+            path_index: RwLock::new(None),
             // A fork gets its own default index registry (the registry is fixed
             // metadata, not graph state) (CONCEPT:KG-2.213).
             index_manager: crate::index::IndexManager::with_default_indexes(),
@@ -3023,6 +3212,139 @@ mod tests {
             core.nodes_by_property("team", "blue").unwrap(),
             vec!["n3", "n4"]
         );
+    }
+
+    // ── inverted JSONPath path-index (CONCEPT:EG-084) ─────────────────────────
+
+    /// Build a graph of deep JSON documents for the path-index tests.
+    fn json_graph() -> GraphCore {
+        let core = GraphCore::new();
+        core.add_node(
+            "n1".into(),
+            props(serde_json::json!({
+                "type": "Doc", "meta": {"lang": "rust", "year": 2024},
+                "tags": ["a", "b"]
+            })),
+        );
+        core.add_node(
+            "n2".into(),
+            props(serde_json::json!({
+                "type": "Doc", "meta": {"lang": "go", "year": 2024},
+                "tags": ["b", "c"]
+            })),
+        );
+        core.add_node(
+            "n3".into(),
+            props(serde_json::json!({
+                "type": "Doc", "meta": {"lang": "rust", "year": 2025}
+            })),
+        );
+        core
+    }
+
+    #[test]
+    fn eg084_path_index_deep_equality_and_existence() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let core = json_graph();
+        // Deep `->>`-style equality via the index (demand-driven build of `$.meta.lang`).
+        let mut rust = core.nodes_by_json_path("$.meta.lang", "rust").unwrap();
+        rust.sort();
+        assert_eq!(rust, vec!["n1", "n3"]);
+        assert_eq!(core.nodes_by_json_path("$.meta.lang", "go").unwrap(), vec!["n2"]);
+        // Numeric leaf indexes under its canonical string form.
+        let mut y24 = core.nodes_by_json_path("$.meta.year", "2024").unwrap();
+        y24.sort();
+        assert_eq!(y24, vec!["n1", "n2"]);
+        // Existence: n1/n2 have `tags`, n3 does not.
+        let mut has_tags = core.nodes_with_json_path("$.tags").unwrap();
+        has_tags.sort();
+        assert_eq!(has_tags, vec!["n1", "n2"]);
+        // Wildcard existence over array elements.
+        let mut any_tag = core.nodes_with_json_path("$.tags[*]").unwrap();
+        any_tag.sort();
+        assert_eq!(any_tag, vec!["n1", "n2"]);
+    }
+
+    #[test]
+    fn eg084_path_index_maintained_on_add_cas_remove() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let core = json_graph();
+        assert_eq!(core.nodes_by_json_path("$.meta.lang", "go").unwrap(), vec!["n2"]);
+
+        // ADD: a fresh node lands in the rebuilt index.
+        let v0 = core.version();
+        core.add_node(
+            "n4".into(),
+            props(serde_json::json!({"type": "Doc", "meta": {"lang": "go"}})),
+        );
+        core.mark_dirty();
+        assert_ne!(core.version(), v0, "add must bump version");
+        let mut go = core.nodes_by_json_path("$.meta.lang", "go").unwrap();
+        go.sort();
+        assert_eq!(go, vec!["n2", "n4"], "index reflects the add");
+
+        // CAS (property change): rewrite n2's nested lang go -> rust (upsert).
+        core.add_node(
+            "n2".into(),
+            props(serde_json::json!({"type": "Doc", "meta": {"lang": "rust"}})),
+        );
+        core.mark_dirty();
+        assert_eq!(
+            core.nodes_by_json_path("$.meta.lang", "go").unwrap(),
+            vec!["n4"],
+            "index reflects the nested-value CAS"
+        );
+        let mut rust = core.nodes_by_json_path("$.meta.lang", "rust").unwrap();
+        rust.sort();
+        assert_eq!(rust, vec!["n1", "n2", "n3"]);
+
+        // REMOVE: n4 gone from the index.
+        core.remove_node("n4".into());
+        core.mark_dirty();
+        assert_eq!(
+            core.nodes_by_json_path("$.meta.lang", "go").unwrap(),
+            Vec::<String>::new(),
+            "index reflects the remove"
+        );
+    }
+
+    #[test]
+    fn eg084_path_index_containment_selectivity() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let core = json_graph();
+        // `props @> '{"meta":{"lang":"rust"}}'`: the existence set at `$.meta.lang`
+        // (index-accelerated candidates) narrows to n1/n3, then per-row containment
+        // confirms — here every candidate qualifies.
+        let candidates = core.nodes_with_json_path("$.meta.lang").unwrap();
+        let mut kept: Vec<String> = candidates
+            .into_iter()
+            .filter(|id| {
+                let blob = core.get_node_properties(id).unwrap();
+                let v: serde_json::Value = rmp_serde::from_slice(&blob).unwrap();
+                crate::jsonpath::path_contains(&v, "$", &serde_json::json!({"meta": {"lang": "rust"}}))
+            })
+            .collect();
+        kept.sort();
+        assert_eq!(kept, vec!["n1", "n3"]);
+    }
+
+    #[test]
+    fn eg084_path_index_bounded_cap_falls_back() {
+        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS", "1");
+        std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
+        let core = json_graph();
+        // First path indexes fine.
+        assert!(core.nodes_by_json_path("$.meta.lang", "rust").is_some());
+        // Second distinct path exceeds the cap -> None (caller full-scans).
+        assert!(core.nodes_by_json_path("$.meta.year", "2024").is_none());
+        std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
     }
 
     /// CONCEPT:EG-064 — a committed write emits a `ChangeEvent` carrying the bumped

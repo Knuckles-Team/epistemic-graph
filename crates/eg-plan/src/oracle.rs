@@ -72,6 +72,9 @@ fn sql_where(preds: &[Pred]) -> String {
             Pred::Eq { prop, value } => format!("{prop} = '{}'", value.replace('\'', "''")),
             Pred::GtNum { prop, n } => format!("{prop} > {n}"),
             Pred::LtNum { prop, n } => format!("{prop} < {n}"),
+            // JSONPath preds (CONCEPT:EG-084) are not a SQL surface (per-row via
+            // `eg_core::jsonpath`); this defensive arm keeps the match exhaustive.
+            Pred::JsonPath { .. } => "1=1".into(),
             // Spatial preds (CONCEPT:EG-083 / EG-258) are not a SQL surface (see
             // `exec::filter_op`); this defensive arm keeps the match exhaustive under `geo`.
             #[cfg(feature = "geo")]

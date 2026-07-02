@@ -731,13 +731,27 @@ fn sort_by_score_desc(mut scored: Vec<(String, f32)>) -> Vec<(String, f32)> {
 /// spatial. A non-geo build has no spatial Pred variants, so every pred is relational
 /// and this is byte-for-byte the original SQL path.
 fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, String> {
-    // Partition spatial preds from relational preds (a non-geo build has no spatial
-    // variants, so `relational` is simply every pred).
+    // Partition per-row preds (spatial via eg-geo, JSON via eg-core::jsonpath —
+    // CONCEPT:EG-084) from relational preds lowered to SQL. DataFusion has neither
+    // spatial nor JSONPath, so each is split out and applied per-row against the stored
+    // blob. A non-geo build has no spatial variants; JSONPath is always present under
+    // `query`, so `relational` is every remaining pred.
+    let mut relational: Vec<Pred> = Vec::with_capacity(preds.len());
     #[cfg(feature = "geo")]
-    let (relational, spatial): (Vec<Pred>, Vec<Pred>) =
-        preds.iter().cloned().partition(|p| !is_spatial_pred(p));
-    #[cfg(not(feature = "geo"))]
-    let relational: Vec<Pred> = preds.to_vec();
+    let mut spatial: Vec<Pred> = Vec::new();
+    let mut jsonpath: Vec<Pred> = Vec::new();
+    for p in preds {
+        #[cfg(feature = "geo")]
+        if is_spatial_pred(p) {
+            spatial.push(p.clone());
+            continue;
+        }
+        if is_jsonpath_pred(p) {
+            jsonpath.push(p.clone());
+            continue;
+        }
+        relational.push(p.clone());
+    }
 
     // Predicate pushdown across the modality boundary: when the input is already a
     // candidate set (from a prior TRAVERSE/RANK), restrict the relational scan to those
@@ -750,7 +764,6 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     let passed = sql_filter_ids(ctx.view, &relational, restrict.as_deref())?;
     // Preserve the input's order (so a vector-first plan stays ranked); if there was no
     // input (Filter is the source), the SQL order is the order.
-    #[cfg_attr(not(feature = "geo"), allow(unused_mut))]
     let mut out = if input.is_empty() {
         RowSet::from_ids(passed)
     } else {
@@ -763,7 +776,55 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     for p in &spatial {
         out = spatial_filter(ctx.view, out, p)?;
     }
+    // Apply each JSONPath predicate against the stored per-row JSON (CONCEPT:EG-084),
+    // order- and score-preserving — exactly the spatial leg's shape.
+    for p in &jsonpath {
+        out = jsonpath_filter(ctx.view, out, p)?;
+    }
     Ok(out)
+}
+
+// ── the document/JSON leg — eg-core::jsonpath over the GraphView blobs (EG-084) ──
+
+/// Is `pred` a JSONPath predicate (evaluated per-row by `eg_core::jsonpath`, NOT lowered
+/// to SQL)? (CONCEPT:EG-084.)
+fn is_jsonpath_pred(pred: &Pred) -> bool {
+    matches!(pred, Pred::JsonPath { .. })
+}
+
+/// FILTER (document/JSON, CONCEPT:EG-084): keep rows whose stored JSON satisfies the
+/// JSONPath predicate `pred`. Each row's blob is decoded to a `serde_json::Value` and the
+/// path/op is evaluated by `eg_core::jsonpath` (existence / `->>`-equality / `@>`
+/// containment). Rows with no/undecodable blob are dropped. Order- and score-preserving
+/// via [`RowSet::intersect_keep_order`] — the same shape as `spatial_filter`.
+fn jsonpath_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSet, String> {
+    use eg_types::wire::JsonPathOp;
+    let Pred::JsonPath { path, op } = pred else {
+        // Non-JSON preds never reach here (`filter_op` splits them out).
+        return Ok(input);
+    };
+    let keep: HashSet<&str> = input
+        .rows()
+        .iter()
+        .filter(|r| {
+            row_json(view, &r.id).is_some_and(|v| match op {
+                JsonPathOp::Exists => eg_core::jsonpath::path_exists(&v, path),
+                JsonPathOp::Eq { value } => eg_core::jsonpath::path_eq(&v, path, value),
+                JsonPathOp::Contains { value } => {
+                    eg_core::jsonpath::path_contains(&v, path, value)
+                }
+            })
+        })
+        .map(|r| r.id.as_str())
+        .collect();
+    Ok(input.intersect_keep_order(&keep))
+}
+
+/// Decode node `id`'s stored property blob to a `serde_json::Value` (CONCEPT:EG-084) —
+/// the JSON leg's counterpart to `row_geometry`.
+fn row_json(view: &GraphView, id: &str) -> Option<serde_json::Value> {
+    let blob = view.node_properties.get(id)?;
+    rmp_serde::from_slice(blob.as_slice()).ok()
 }
 
 // ── the spatial leg — eg-geo geometry / R-tree over the GraphView blobs (EG-083) ─
@@ -1229,6 +1290,10 @@ fn where_clause(preds: &[Pred]) -> String {
             }
             Pred::GtNum { prop, n } => format!("{prop} > {n}"),
             Pred::LtNum { prop, n } => format!("{prop} < {n}"),
+            // JSONPath preds (CONCEPT:EG-084) are NOT lowered to SQL — `filter_op` splits
+            // them out and applies them per-row via `eg_core::jsonpath`, so they never
+            // reach here. This defensive arm keeps the match exhaustive: a no-op `1=1`.
+            Pred::JsonPath { .. } => "1=1".into(),
             // Spatial preds (CONCEPT:EG-083 / EG-258) are NOT lowered to SQL — `filter_op`
             // splits them out and applies them per-row via eg-geo, so they never reach here.
             // This defensive arm keeps the match exhaustive under `geo`: a no-op `1=1`.
