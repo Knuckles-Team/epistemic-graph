@@ -94,6 +94,18 @@ geo = ["query", "dep:eg-geo", "eg-types/geo"]
 # folds it into node/full but NEVER `pi`. A default/Pi build (neither feature) links no
 # eg-tensor and drops the tensor arms.
 tensor = ["query", "dep:eg-tensor", "eg-types/tensor"]
+# Event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-088): the
+# `Op::Cep { pattern }` TRANSFORM op — interpret the input RowSet's rows as a
+# time-ordered event stream (each row's node blob carries `ts`/`key`/`attrs`), run the
+# eg-stream bounded NFA (Sequence/Within/Absence over sliding/tumbling windows), and keep
+# the rows that participate in a match. Pulls the pure-Rust eg-stream leaf crate (only
+# serde + serde_json — NO tokio/async/C dep) and turns on the `stream` wire variant in
+# eg-types. IMPLIES `query` (the op lives inside the `query`-gated `Op` enum, beside the
+# DataFusion FILTER leg). OFF by default; the facade folds it into node/full but NEVER
+# `pi`. A default/Pi build (neither feature) links no eg-stream and drops the CEP arm.
+# EG-067 `Op::Window` is the plan-side windowing primitive; the live standing-query loop
+# fed by the EG-064 CDC bus is a documented follow-up.
+stream = ["query", "dep:eg-stream", "eg-types/stream"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -128,6 +140,11 @@ eg-geo = { path = "../eg-geo", optional = true }
 # `tensor`, CONCEPT:EG-085). Optional + only referenced under #[cfg(feature = "tensor")];
 # only-serde leaf crate (NO BLAS/LAPACK/C dep), so a default/Pi build links none of it.
 eg-tensor = { path = "../eg-tensor", optional = true }
+# The pure-Rust event-stream + CEP modality (bounded NFA over sliding/tumbling windows —
+# Sequence/Within/Absence + per-event attribute predicates) backing the `Cep` op (feature
+# `stream`, CONCEPT:EG-088). Optional + only referenced under #[cfg(feature = "stream")];
+# serde + serde_json only (NO tokio/async/C dep), so a default/Pi build links none of it.
+eg-stream = { path = "../eg-stream", optional = true }
 # The native time-series windowed-aggregate primitives (`time_bucket`/`aggregate`)
 # backing the `Op::Window` executor (feature `timeseries`, CONCEPT:EG-067). Optional +
 # only referenced under #[cfg(feature = "timeseries")]; its `query` primitives are
