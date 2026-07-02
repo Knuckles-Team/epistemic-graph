@@ -156,11 +156,16 @@ async fn handle(
         Some((p, q)) => (p, q),
         None => (req.target.as_str(), ""),
     };
+    if req.method == "OPTIONS" && (path.starts_with("/sparql") || path.starts_with("/rdf-graphs"))
+    {
+        return ("204 No Content", "text/plain", String::new());
+    }
+    // W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-134) — direct graph management.
+    if path.starts_with("/rdf-graphs") {
+        return handle_graph_store(state, &req, path, query_string).await;
+    }
     if !path.starts_with("/sparql") {
         return ("404 Not Found", "text/plain", "not found".to_string());
-    }
-    if req.method == "OPTIONS" {
-        return ("204 No Content", "text/plain", String::new());
     }
     let params = parse_form(query_string);
 
@@ -549,6 +554,191 @@ async fn run_update(
     .await
     .map_err(|e| format!("compute task failed: {e}"))?;
     report.map(|_| ())
+}
+
+// ── W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-134) ─────────────────────
+//
+// Direct RDF-graph management over HTTP, DISTINCT from the query/update `/sparql`
+// endpoint: the resource IS the graph, addressed by its name.
+//
+//   * `GET`  /rdf-graphs/service?graph=<iri>   → serialize the graph (EG-050 nego)
+//   * `PUT`  …                                  → replace the graph with the posted RDF
+//   * `POST` …                                  → merge the posted RDF into the graph
+//   * `DELETE` …                                → empty the graph
+//   * `HEAD` …                                  → as GET, headers only
+//
+// Naming follows the spec's two forms: INDIRECT `/rdf-graphs/service?graph=<iri>` (or
+// `?default` for the default graph) and DIRECT `/rdf-graphs/<name>`. It reuses the SAME
+// registry, RDF parsers (`parse_turtle`/`parse_ntriples`), the merge-aware
+// `insert_triples` write op, and the `export_triples` + Turtle/N-Triples serializers the
+// query endpoint already uses. Like the endpoint UPDATE path, writes apply straight
+// through the live cores and are marked dirty for the next checkpoint.
+async fn handle_graph_store(
+    state: &Arc<RwLock<ServerState>>,
+    req: &HttpRequest,
+    path: &str,
+    query_string: &str,
+) -> (&'static str, &'static str, String) {
+    let params = parse_form(query_string);
+    let Some(graph) = gsp_target(path, &params) else {
+        return (
+            "400 Bad Request",
+            "text/plain",
+            "graph store protocol: name the graph via /rdf-graphs/service?graph=<iri> \
+             (or ?default) or /rdf-graphs/<name>"
+                .to_string(),
+        );
+    };
+
+    match req.method.as_str() {
+        "GET" | "HEAD" => {
+            let core = {
+                let s = state.read().await;
+                s.registry.get(&graph).map(|e| e.core.clone())
+            };
+            let Some(core) = core else {
+                return ("404 Not Found", "text/plain", format!("no such graph: {graph}"));
+            };
+            let ct = choose_ct(
+                &req.accept,
+                params
+                    .get("output")
+                    .or_else(|| params.get("format"))
+                    .map(|s| s.as_str()),
+                GRAPH_FORMS,
+            );
+            let head_only = req.method == "HEAD";
+            let g = graph.clone();
+            let out = tokio::task::spawn_blocking(move || {
+                let triples = export_graph(&core, &g)?;
+                if ct == "text/turtle" {
+                    eg_rdf::mapping::to_turtle(&triples)
+                } else {
+                    eg_rdf::mapping::to_ntriples(&triples)
+                }
+            })
+            .await;
+            match out {
+                Ok(Ok(body)) => ("200 OK", ct, if head_only { String::new() } else { body }),
+                Ok(Err(e)) => ("500 Internal Server Error", "text/plain", e),
+                Err(e) => (
+                    "500 Internal Server Error",
+                    "text/plain",
+                    format!("compute task failed: {e}"),
+                ),
+            }
+        }
+        "PUT" | "POST" => {
+            let triples = match parse_rdf_body(&req.content_type, &req.body) {
+                Ok(t) => t,
+                Err(e) => return ("400 Bad Request", "text/plain", format!("parse RDF body: {e}")),
+            };
+            let replace = req.method == "PUT";
+            // Ensure the graph exists (remember whether we created it ⇒ 201 vs 204).
+            let (core, created) = {
+                let mut s = state.write().await;
+                let created = !s.registry.exists(&graph);
+                if created {
+                    let _ = s.registry.create_graph(&graph, GraphType::Global, None);
+                }
+                match s.registry.get(&graph).map(|e| e.core.clone()) {
+                    Some(c) => (c, created),
+                    None => {
+                        return (
+                            "500 Internal Server Error",
+                            "text/plain",
+                            format!("could not open graph: {graph}"),
+                        )
+                    }
+                }
+            };
+            let applied = tokio::task::spawn_blocking(move || -> Result<(), String> {
+                if replace {
+                    core.clear(); // PUT replaces; POST merges.
+                }
+                eg_rdf::update::insert_triples(&core, &triples)?;
+                core.mark_dirty();
+                Ok(())
+            })
+            .await;
+            match applied {
+                Ok(Ok(())) if created => ("201 Created", "text/plain", String::new()),
+                Ok(Ok(())) => ("204 No Content", "text/plain", String::new()),
+                Ok(Err(e)) => ("400 Bad Request", "text/plain", e),
+                Err(e) => (
+                    "500 Internal Server Error",
+                    "text/plain",
+                    format!("compute task failed: {e}"),
+                ),
+            }
+        }
+        "DELETE" => {
+            let core = {
+                let s = state.read().await;
+                s.registry.get(&graph).map(|e| e.core.clone())
+            };
+            let Some(core) = core else {
+                return ("404 Not Found", "text/plain", format!("no such graph: {graph}"));
+            };
+            // Empty the graph (keeps the registry entry addressable — the same semantics
+            // the endpoint UPDATE `DROP`/`DropNamedGraph` op uses).
+            core.clear();
+            core.mark_dirty();
+            ("204 No Content", "text/plain", String::new())
+        }
+        _ => (
+            "405 Method Not Allowed",
+            "text/plain",
+            "graph store protocol: use GET/PUT/POST/DELETE/HEAD".to_string(),
+        ),
+    }
+}
+
+/// Resolve the Graph-Store-Protocol target graph name from the request path + params.
+/// Indirect `/rdf-graphs/service?graph=<iri>` (or `?default` ⇒ the configured default
+/// graph); direct `/rdf-graphs/<name>` (the trailing, percent-decoded path segment).
+fn gsp_target(path: &str, params: &HashMap<String, String>) -> Option<String> {
+    if path == "/rdf-graphs/service" || path == "/rdf-graphs/service/" {
+        if params.contains_key("default") {
+            return Some(gsp_default_graph());
+        }
+        return params.get("graph").filter(|g| !g.is_empty()).cloned();
+    }
+    let name = path.strip_prefix("/rdf-graphs/")?;
+    if name.is_empty() {
+        return None;
+    }
+    Some(percent_decode(name))
+}
+
+/// The configured default-graph name (shared with the query/update endpoint default).
+fn gsp_default_graph() -> String {
+    std::env::var(DEFAULT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string())
+}
+
+/// Parse an RDF request body per its `Content-Type` (N-Triples when so typed, else Turtle
+/// — a superset that also parses N-Triples), reusing the endpoint's existing parsers.
+fn parse_rdf_body(content_type: &str, body: &str) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
+    if content_type.contains("n-triples") || content_type.contains("ntriples") {
+        eg_rdf::mapping::parse_ntriples(body)
+    } else {
+        eg_rdf::mapping::parse_turtle(body)
+    }
+}
+
+/// Export a graph core to RDF triples for GSP `GET` — a cfg wrapper over the shared
+/// [`eg_rdf::mapping::export_triples`] inverse mapping (the multi-valued-literal quad
+/// store, present only under `rdf-redb`, is not unioned into this convenience read).
+fn export_graph(core: &GraphCore, name: &str) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
+    #[cfg(feature = "rdf-redb")]
+    {
+        eg_rdf::mapping::export_triples(core, name, None)
+    }
+    #[cfg(not(feature = "rdf-redb"))]
+    {
+        let _ = name;
+        eg_rdf::mapping::export_triples(core, name)
+    }
 }
 
 /// The registry-backed store the endpoint UPDATE writes through (pre-seeded cores).
@@ -1024,6 +1214,110 @@ mod tests {
         assert_eq!(term_json(sol.get("s").unwrap())["type"], "uri");
         assert_eq!(term_json(sol.get("b").unwrap())["type"], "bnode");
         assert_eq!(term_json(sol.get("l").unwrap())["type"], "literal");
+    }
+
+    // ── CONCEPT:EG-134 — Graph Store HTTP Protocol ──────────────────────────────
+
+    /// Indirect (`/rdf-graphs/service?graph=` / `?default`) and direct (`/rdf-graphs/<name>`)
+    /// naming both resolve to the target graph; a bare `/rdf-graphs` names nothing.
+    #[test]
+    fn gsp_target_resolves_indirect_and_direct() {
+        let g = parse_form("graph=http%3A%2F%2Fex%2Fg1");
+        assert_eq!(
+            gsp_target("/rdf-graphs/service", &g),
+            Some("http://ex/g1".to_string())
+        );
+        let d = parse_form("default");
+        assert_eq!(gsp_target("/rdf-graphs/service", &d), Some(gsp_default_graph()));
+        // Direct naming percent-decodes the trailing segment.
+        assert_eq!(
+            gsp_target("/rdf-graphs/http%3A%2F%2Fex%2Fg2", &HashMap::new()),
+            Some("http://ex/g2".to_string())
+        );
+        // No graph named.
+        assert_eq!(gsp_target("/rdf-graphs/service", &HashMap::new()), None);
+        assert_eq!(gsp_target("/rdf-graphs/", &HashMap::new()), None);
+    }
+
+    /// Content-type routing of the RDF body parser (Turtle default, N-Triples when typed).
+    #[test]
+    fn gsp_parse_rdf_body_by_content_type() {
+        let ttl = "@prefix ex: <http://ex/> . ex:a ex:p ex:b .";
+        assert_eq!(parse_rdf_body("text/turtle", ttl).unwrap().len(), 1);
+        let nt = "<http://ex/a> <http://ex/p> <http://ex/b> .";
+        assert_eq!(parse_rdf_body("application/n-triples", nt).unwrap().len(), 1);
+        // Unknown content-type falls back to Turtle (a superset that parses N-Triples).
+        assert_eq!(parse_rdf_body("", nt).unwrap().len(), 1);
+    }
+
+    /// PUT-then-GET round-trips a graph: parse the posted RDF, replace the core, then
+    /// export + serialize + re-parse yields the SAME triple set. (Exercises the exact
+    /// parse → `clear` + `insert_triples` → `export_graph` → serializer path GET/PUT use;
+    /// a full `ServerState` has no public test constructor.)
+    #[test]
+    fn gsp_put_then_get_round_trips() {
+        let core = GraphCore::new();
+        let body = "@prefix ex: <http://ex/> .
+                    ex:a ex:knows ex:b .
+                    ex:a ex:name \"Alice\" .";
+        let triples = parse_rdf_body("text/turtle", body).unwrap();
+        // PUT = replace: clear then insert.
+        core.clear();
+        eg_rdf::update::insert_triples(&core, &triples).unwrap();
+        // GET = export + serialize (default N-Triples), then re-parse to compare.
+        let exported = export_graph(&core, "http://ex/g").unwrap();
+        let nt = eg_rdf::mapping::to_ntriples(&exported).unwrap();
+        let reparsed = eg_rdf::mapping::parse_ntriples(&nt).unwrap();
+        assert_eq!(
+            eg_rdf::mapping::triple_set_key(&reparsed),
+            eg_rdf::mapping::triple_set_key(&triples),
+            "PUT→GET preserves the graph's triple set"
+        );
+    }
+
+    /// POST merges into an existing graph (no clear): the prior triple survives and the
+    /// posted triple is added.
+    #[test]
+    fn gsp_post_merges() {
+        let core = GraphCore::new();
+        let seed = parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .")
+            .unwrap();
+        eg_rdf::update::insert_triples(&core, &seed).unwrap();
+        // POST = merge: no clear.
+        let add =
+            parse_rdf_body("text/turtle", "<http://ex/c> <http://ex/q> <http://ex/d> .").unwrap();
+        eg_rdf::update::insert_triples(&core, &add).unwrap();
+        let exported = export_graph(&core, "http://ex/g").unwrap();
+        assert_eq!(exported.len(), 2, "both the seeded and posted triples are present");
+    }
+
+    /// DELETE empties the graph: after a clear, the export is empty.
+    #[test]
+    fn gsp_delete_empties() {
+        let core = GraphCore::new();
+        let t = parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .")
+            .unwrap();
+        eg_rdf::update::insert_triples(&core, &t).unwrap();
+        assert_eq!(export_graph(&core, "g").unwrap().len(), 1);
+        core.clear();
+        assert!(export_graph(&core, "g").unwrap().is_empty(), "DELETE empties the graph");
+    }
+
+    /// GET content-negotiation: Turtle when accepted, N-Triples by default, and each
+    /// serializer emits its own syntax.
+    #[test]
+    fn gsp_get_content_negotiation() {
+        assert_eq!(choose_ct("text/turtle", None, GRAPH_FORMS), "text/turtle");
+        assert_eq!(choose_ct("", None, GRAPH_FORMS), "application/n-triples");
+        let core = GraphCore::new();
+        let t = parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .")
+            .unwrap();
+        eg_rdf::update::insert_triples(&core, &t).unwrap();
+        let exported = export_graph(&core, "g").unwrap();
+        let ttl = eg_rdf::mapping::to_turtle(&exported).unwrap();
+        let nt = eg_rdf::mapping::to_ntriples(&exported).unwrap();
+        assert!(nt.contains("<http://ex/a> <http://ex/p> <http://ex/b> ."));
+        assert!(ttl.contains("http://ex/a"), "turtle serializer emits the subject");
     }
 
     /// The SSRF guard: allowlist required, internal-address resolutions refused, and an
