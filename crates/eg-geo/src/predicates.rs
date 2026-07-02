@@ -521,6 +521,27 @@ mod tests {
         assert!(!within(&outside, &square()));
     }
 
+    /// CONCEPT:EG-155: `boundaries_intersect` is true when two polygons' rings share a
+    /// point (a boundary-tangential inner square, and an edge-abutting neighbour), and
+    /// false for a strictly-interior square (whose ring never meets the container's) — the
+    /// exact cell that separates tangential from non-tangential part relations. (Uses the
+    /// `poly` fixture helper defined later in this test module.)
+    #[test]
+    fn eg155_boundaries_intersect_tangential_vs_interior() {
+        let big = poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]);
+        // Corner square shares two edges with `big`'s boundary.
+        let corner = poly(&[(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0), (0.0, 0.0)]);
+        assert!(boundaries_intersect(&big, &corner));
+        // Edge-abutting neighbour touches along x=10.
+        let abut = poly(&[(10.0, 0.0), (12.0, 0.0), (12.0, 10.0), (10.0, 10.0), (10.0, 0.0)]);
+        assert!(boundaries_intersect(&big, &abut));
+        // Strictly-interior square: rings never meet.
+        let inner = poly(&[(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0), (2.0, 2.0)]);
+        assert!(!boundaries_intersect(&big, &inner));
+        // A point has an empty boundary ⇒ never boundary-intersects.
+        assert!(!boundaries_intersect(&big, &Geometry::Point(Point::new(5.0, 5.0))));
+    }
+
     #[test]
     fn intersects_point_polygon_and_segments() {
         // point inside
