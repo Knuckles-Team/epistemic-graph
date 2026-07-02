@@ -53,33 +53,62 @@ only `use` crates to its left; a cycle will not compile, which is the enforcemen
 ```mermaid
 flowchart LR
     EGT["eg-types<br/>protocol, wire DTOs, ACL"]
-    EGANN["eg-ann<br/>IVF-PQ + OPQ + SQ8 vector index"]
-    EGCORE["eg-core<br/>GraphCore, registry, isolation, read-through, cold-tier"]
-    EGCOMPUTE["eg-compute<br/>algorithms, finance, datascience, reasoning, ast"]
-    EGPLAN["eg-plan<br/>unified RowSet planner + ops"]
-    EGQUERY["eg-query<br/>DataFusion SQL + Cypher"]
-    EGRDF["eg-rdf<br/>RDF / SPARQL / OWL"]
-    EGTSDB["eg-tsdb<br/>time-series"]
+    EGANN["eg-ann<br/>IVF-PQ + OPQ + SQ8 + exact/recall"]
+    EGGEO["eg-geo<br/>geometry · R-tree · CRS · routing (GIS)"]
+    EGSTREAM["eg-stream<br/>windowed events + CEP NFA"]
+    EGKV["eg-kvcache<br/>tiered hot/warm/cold KV-block cache"]
     EGTEXT["eg-text<br/>Tantivy BM25"]
     EGWASM["eg-wasm<br/>WASM UDF sandbox"]
-    EGGQL["eg-graphql<br/>GraphQL read"]
-    FACADE["epistemic-graph<br/>facade + Tokio server + embedded"]
+    EGCORE["eg-core<br/>GraphCore · registry · broker · agent-memory · task queue"]
+    EGCOMPUTE["eg-compute<br/>algorithms, finance, datascience, reasoning, ast"]
+    EGQUERY["eg-query<br/>DataFusion SQL + Cypher"]
+    EGTSDB["eg-tsdb<br/>time-series + VRL pipelines"]
+    EGTENSOR["eg-tensor<br/>N-D array store + ops"]
+    EGRDF["eg-rdf<br/>RDF / SPARQL / OWL / GeoSPARQL"]
+    EGSHACL["eg-shacl<br/>SHACL Core validation"]
+    EGSHEX["eg-shex<br/>ShEx shape validation"]
+    EGPLAN["eg-plan<br/>unified RowSet planner + ops"]
+    EGGQL["eg-graphql<br/>GraphQL + Apollo Federation"]
+    FACADE["epistemic-graph<br/>facade + Tokio server + wire adapters + observability + embedded"]
 
-    EGT --> EGANN --> EGCORE --> EGCOMPUTE --> FACADE
-    EGCORE --> EGPLAN --> FACADE
-    EGPLAN --> EGQUERY --> FACADE
-    EGPLAN --> EGRDF --> FACADE
-    EGPLAN --> EGTSDB --> FACADE
-    EGPLAN --> EGTEXT --> FACADE
-    EGPLAN --> EGWASM --> FACADE
+    EGT --> EGANN --> EGCORE
+    EGT --> EGCORE
+    EGCORE --> EGCOMPUTE --> EGQUERY
+    EGCOMPUTE --> EGTSDB --> EGTENSOR
+    EGGEO --> EGRDF
+    EGCORE --> EGRDF --> EGSHACL
+    EGRDF --> EGSHEX
     EGCORE --> EGGQL --> FACADE
+    EGCOMPUTE --> EGPLAN
+    EGCORE --> EGPLAN
+    EGQUERY --> EGPLAN
+    EGRDF --> EGPLAN
+    EGTSDB --> EGPLAN
+    EGTENSOR --> EGPLAN
+    EGTEXT --> EGPLAN
+    EGWASM --> EGPLAN
+    EGGEO --> EGPLAN
+    EGSTREAM --> EGPLAN
+    EGPLAN --> FACADE
+    EGSHACL --> FACADE
+    EGSHEX --> FACADE
+    EGKV --> FACADE
 ```
 
 The facade re-exports `eg-{types,core,compute}` under the historical `crate::` paths and adds the
-server-side modules (dispatch, handlers, persistence, raft, embedded). Server dispatch is a thin
-routing table: each `Method` routes to a `handlers::<domain>::try_handle` and the write side-effects
-(in-flight gauge, dirty mark, WAL enqueue, CDC emit) stay centralized in the shell so every write
-handler gets durability + reactivity for free.
+server-side modules (dispatch, handlers, persistence, raft, embedded, **the multi-wire adapters**, and
+**the observability listener**). Server dispatch is a thin routing table: each `Method` routes to a
+`handlers::<domain>::try_handle` and the write side-effects (in-flight gauge, dirty mark, WAL enqueue,
+CDC emit) stay centralized in the shell so every write handler gets durability + reactivity for free.
+
+Six leaf/modality crates were added this cycle: **eg-geo** (GIS — geometry, R-tree, CRS, routing;
+CONCEPT:EG-083/255-267/155), **eg-tensor** (N-D arrays; CONCEPT:EG-085), **eg-stream** (windowed CEP;
+CONCEPT:EG-088), **eg-shacl** / **eg-shex** (RDF shape validation; CONCEPT:EG-132/133), and
+**eg-kvcache** (LLM KV-block tiering; CONCEPT:EG-185/186/187). The **message broker** (CONCEPT:EG-275
+family) and **agent-memory** primitives (CONCEPT:EG-099/220/221/222) live in `eg-core`; the
+**observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:EG-160-165/172/243) lives in
+`eg-tsdb` + the facade's `obs` listener. See [subsystems](architecture/subsystems.md) for how they
+compose on the one substrate.
 
 ---
 

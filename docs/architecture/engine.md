@@ -15,16 +15,26 @@ For the entry-level map see [the overview](../overview.md); for build tiers see
 flowchart TB
     AGENT["AI agent fleet (agent-utilities, graph-os, MCP)"]
     PSQL["psql / BI tools / ORMs"]
-    PEER["Peer epistemic-graph engines (federation / Raft)"]
+    DBCLI["Neo4j / Redis / MySQL / MSSQL / SQLite drivers"]
+    MSG["AMQP / MQTT / STOMP pub-sub clients"]
+    OBSAG["Log / metric / trace agents (OTLP · Elastic _bulk · Prometheus · Grafana)"]
+    S3CLI["S3 clients (aws-cli / boto)"]
+    LLM["vLLM / LMCache KV-block clients"]
+    PEER["Peer epistemic-graph engines (federation / Raft / super-cluster)"]
     EXT["External Postgres / MySQL / HTTP-JSON sources"]
 
-    ENGINE["epistemic-graph<br/>unified data and compute engine<br/>(graph + vector + SQL + RDF/OWL + TSDB + BLOB + text)"]
+    ENGINE["epistemic-graph<br/>unified data · compute · messaging · observability engine<br/>(graph + vector + SQL + RDF/OWL + TSDB + BLOB + text + GIS + tensor + stream + broker + KV-cache)"]
 
     AGENT -->|"MessagePack / UDS / TCP, HMAC"| ENGINE
-    PSQL -->|"Postgres wire protocol, SCRAM"| ENGINE
+    PSQL -->|"Postgres wire, SCRAM"| ENGINE
+    DBCLI -->|"Bolt · RESP · MySQL · TDS wire"| ENGINE
+    MSG -->|"broker wire protocols"| ENGINE
+    OBSAG -->|"OTLP/HTTP · PromQL · federated _search"| ENGINE
+    S3CLI -->|"S3 REST, SigV4-lite"| ENGINE
+    LLM -->|"KV-block GET/PUT by token-hash"| ENGINE
     ENGINE <-->|"Raft replication + cross-shard 2PC"| PEER
     ENGINE -->|"ForeignScan federation"| EXT
-    ENGINE -->|"federated read"| PEER
+    ENGINE -->|"federated / super-cluster read"| PEER
 ```
 
 ## Container view (C4 level 2)
@@ -32,6 +42,18 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Process["epistemic-graph-server (one Rust process)"]
+        subgraph Wire["Wire adapters (EG-074 WireProtocol / WireSession — one exec path)"]
+            NATIVE["native MessagePack (UDS/TCP, HMAC)"]
+            PGW["pgwire"]
+            SQLITEW["sqlite"]
+            MYSQLW["mysql"]
+            MSSQLW["mssql"]
+            BOLTW["bolt (Neo4j)"]
+            REDISW["redis (RESP)"]
+            S3W["s3 REST"]
+            BROKERW["amqp · mqtt · stomp"]
+            OBSW["obs listener: OTLP · _bulk · PromQL · traces · _search"]
+        end
         TRANSPORT["Transport + admission control<br/>(framed MessagePack, HMAC, BUSY shedding)"]
         SECURITY["Security layer<br/>(RLS GraphView filter, audit chain, AEAD-at-rest)"]
         DISPATCH["Dispatch + per-domain handlers"]
@@ -39,13 +61,23 @@ flowchart TB
 
         subgraph Cores["Storage and compute core"]
             GRAPHCORE["GraphCore (eg-core): petgraph + ledger + result cache + index manager"]
-            ANN["Vector ANN (eg-ann)"]
+            ANN["Vector ANN + exact/recall (eg-ann)"]
             QUERY["SQL + Cypher (eg-query / DataFusion)"]
-            RDFOWL["RDF / SPARQL / OWL (eg-rdf)"]
-            TSDB["Time-series (eg-tsdb)"]
+            RDFOWL["RDF / SPARQL / OWL / SHACL / ShEx (eg-rdf / eg-shacl / eg-shex)"]
+            TSDB["Time-series + VRL (eg-tsdb)"]
             TEXT["Full-text (eg-text)"]
             BLOBC["BLOB CAS (blob / blob-s3)"]
             WASM["WASM UDF (eg-wasm)"]
+            GEO["GIS (eg-geo)"]
+            TENSOR["Tensor (eg-tensor)"]
+            STREAM["Event/CEP (eg-stream)"]
+        end
+
+        subgraph Subsys["New cross-cutting subsystems"]
+            BROKER["Message broker (eg-core/broker):<br/>exchanges · queues · streams · DLQ · TTL"]
+            OBS["Observability: logs · PromQL metrics · traces · federated search"]
+            MEM["Agent-memory: summary tier · consolidation · decay"]
+            KVC["KV-cache tiering (eg-kvcache): hot/warm/cold + shared backend"]
         end
 
         subgraph Durable["Durability and distribution"]
@@ -56,13 +88,24 @@ flowchart TB
         end
     end
 
+    NATIVE --> TRANSPORT
+    PGW & SQLITEW & MYSQLW & MSSQLW & BOLTW & REDISW & S3W --> DISPATCH
+    BROKERW --> BROKER
+    OBSW --> OBS
     TRANSPORT --> SECURITY --> DISPATCH
     DISPATCH --> PLANNER --> GRAPHCORE
     DISPATCH --> GRAPHCORE
-    GRAPHCORE --> ANN & QUERY & RDFOWL & TSDB & TEXT & BLOBC & WASM
+    GRAPHCORE --> ANN & QUERY & RDFOWL & TSDB & TEXT & BLOBC & WASM & GEO & TENSOR & STREAM
+    DISPATCH --> BROKER & OBS & MEM & KVC
+    BROKER --> GRAPHCORE
+    MEM --> GRAPHCORE
+    OBS --> TSDB
+    OBS --> TEXT
+    KVC --> REDB
     GRAPHCORE --> COAL --> REDB
     REDB <--> RAFT
     GRAPHCORE --> CDC
+    CDC --> STREAM
 ```
 
 ---
@@ -359,6 +402,7 @@ is heavy, so it ships in `node`/`cluster`/`full` — never `pi`.
 
 ## Related references
 
+- [Subsystems (C4 container level)](subsystems.md) — the broker, observability, GIS, tensor, stream, KV-cache, agent-memory, and multi-wire subsystems and how they compose on the one substrate.
 - [Tiers & binaries](tiers.md) — which features ship in which binary, and the prebuilt sizes.
 - [Engine modes](../engine-modes.md) — remote / shared-local / autostart resolution + the auto-bundle.
 - [Deployment](../deployment.md) — Docker / wheel / single-node / HA recipes.
