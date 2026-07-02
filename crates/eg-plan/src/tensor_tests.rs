@@ -11,9 +11,10 @@
 
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::{GraphCore, GraphView};
-use eg_tensor::{Buffer, Tensor};
+use eg_tensor::{content_hash, Buffer, Tensor, TensorStore};
 use eg_types::wire::{TensorElementwiseOp, TensorOpKind, TensorReduceKind};
 use serde_json::json;
+use std::sync::Mutex;
 
 use crate::algebra::{Op, Plan};
 use crate::exec::PlanCtx;
@@ -50,6 +51,22 @@ fn run(plan: &Plan, view: &GraphView) -> Vec<String> {
     let mut ids = plan.execute(&c).unwrap().ids();
     ids.sort();
     ids
+}
+
+/// Run `plan` with a CAS write-back store attached (CONCEPT:EG-304), returning the
+/// surviving ids (sorted) so a caller can assert BOTH the RowSet and the store contents.
+fn run_with_store(plan: &Plan, view: &GraphView, store: &Mutex<TensorStore>) -> Vec<String> {
+    let sem = SemanticStore::new();
+    let c = PlanCtx::new(view, &sem).with_tensor_store(store);
+    let mut ids = plan.execute(&c).unwrap().ids();
+    ids.sort();
+    ids
+}
+
+/// The exact 2×3 F32 tensor every `Frame` node in [`frames`] carries — so a test can
+/// recompute a derived tensor and address it in the CAS.
+fn frame_tensor() -> Tensor {
+    Tensor::new(vec![2, 3], Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])).unwrap()
 }
 
 #[test]
@@ -119,6 +136,87 @@ fn tensor_op_reduce_and_elementwise_pass_through() {
         Op::Limit { k: 10 },
     ]);
     assert_eq!(run(&plan, &view), vec!["F1", "F2", "F3"]);
+}
+
+/// CONCEPT:EG-304 — a `TensorOp`'s derived tensor is WRITTEN BACK into the attached
+/// content-addressed store and is RETRIEVABLE by its content hash: the executor persists
+/// the reduce result to the CAS, and the recomputed derived tensor round-trips out under
+/// the SAME deterministic hash.
+#[test]
+fn tensor_op_cas_write_back_persists_derived_tensor_eg304() {
+    let view = frames();
+    let store = Mutex::new(TensorStore::new());
+    // Mean over axis 1 of the shared 2×3 frame tensor → a rank-1 derived tensor.
+    let plan = Plan::new(vec![
+        Op::TensorScan {
+            layer: "Frame".into(),
+        },
+        Op::TensorOp {
+            kind: TensorOpKind::Reduce {
+                axis: 1,
+                kind: TensorReduceKind::Mean,
+            },
+        },
+    ]);
+    // The RowSet is unchanged by the write-back — all three frames survive the reduce.
+    assert_eq!(run_with_store(&plan, &view, &store), vec!["F1", "F2", "F3"]);
+
+    // The derived tensor is now a durable CAS blob addressable by its content hash.
+    let derived = frame_tensor().reduce(1, eg_tensor::ReduceKind::Mean).unwrap();
+    let hash = content_hash(&derived.to_blob());
+    let store = store.into_inner().unwrap();
+    assert!(store.contains(&hash), "derived tensor not written back to CAS");
+    assert_eq!(
+        store.get(&hash),
+        Some(derived),
+        "CAS blob differs from the derived tensor"
+    );
+}
+
+/// CONCEPT:EG-304 — identical derived tensors DEDUP: all three frames carry the same
+/// tensor, so the reduce yields three identical results that content-address to ONE blob.
+#[test]
+fn tensor_op_cas_dedups_identical_derived_tensors_eg304() {
+    let view = frames();
+    let store = Mutex::new(TensorStore::new());
+    let plan = Plan::new(vec![
+        Op::TensorScan {
+            layer: "Frame".into(),
+        },
+        Op::TensorOp {
+            kind: TensorOpKind::Reduce {
+                axis: 1,
+                kind: TensorReduceKind::Sum,
+            },
+        },
+    ]);
+    assert_eq!(run_with_store(&plan, &view, &store), vec!["F1", "F2", "F3"]);
+    // Three rows, one distinct derived tensor → exactly one dedup'd blob.
+    assert_eq!(store.into_inner().unwrap().len(), 1, "identical results must dedup");
+}
+
+/// CONCEPT:EG-304 — a `None` store ctx is UNCHANGED: the executor validates the op and
+/// keeps the same rows exactly as before, with no write-back and no panic.
+#[test]
+fn tensor_op_no_store_ctx_unchanged_eg304() {
+    let view = frames();
+    let plan = Plan::new(vec![
+        Op::TensorScan {
+            layer: "Frame".into(),
+        },
+        Op::TensorOp {
+            kind: TensorOpKind::Reduce {
+                axis: 1,
+                kind: TensorReduceKind::Mean,
+            },
+        },
+    ]);
+    // Default (no-store) ctx → same surviving rows as the store-attached run.
+    let without = run(&plan, &view);
+    let store = Mutex::new(TensorStore::new());
+    let with = run_with_store(&plan, &view, &store);
+    assert_eq!(without, with, "write-back must not change which rows survive");
+    assert_eq!(without, vec!["F1", "F2", "F3"]);
 }
 
 #[test]
