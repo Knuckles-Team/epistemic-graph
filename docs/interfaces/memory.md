@@ -9,7 +9,9 @@ preserving operations. (Localized maintenance, not global reorganization, per ar
 
 > Status snapshot: the summary tier (EG-220), consolidation (EG-221), maintenance decay/reinforcement
 > (EG-222), LeanRAG retrieval (EG-195), trajectory memory (EG-099), and the scene-graph world model
-> (EG-087) are shipped. See the [capability matrix](../capabilities.md).
+> (EG-087) are shipped — and Program B **exposes them over the wire** (additive `Method`s + dispatch + WAL
+> replay), so AU/MCP drive them remotely rather than in-process only (EG-318). See the
+> [capability matrix](../capabilities.md).
 
 ## Hierarchical summary tier (EG-220)
 
@@ -56,6 +58,16 @@ Episodic trajectory memory for agents/robotics: an ordered `:Trajectory` of
 
 The substrate for policy learning + replay; composes with the scene states (EG-087) and the memory tiers
 (EG-220/221).
+
+## Driving it over the wire (EG-318)
+
+The memory / scene / trajectory primitives were originally **in-process** eg-core library calls. Program B
+adds an additive **wire surface** so agent-utilities / MCP drive them **remotely** over the same
+MessagePack transport as any other op: new `Method`s (CreateSummary / Consolidate / Maintain / SceneObject /
+Trajectory operations), their dispatch handlers, and **WAL replay** for the new mutations (so they are
+durable + replicated + crash-recoverable like every other write). This is what lets the agent-utilities
+memory loop schedule summarize / consolidate / decay, scene-object, and trajectory ops against a **remote**
+engine — no in-process embedding required.
 
 ## Scene-graph / 3D world model (EG-087)
 

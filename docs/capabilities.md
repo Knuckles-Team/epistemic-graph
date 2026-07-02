@@ -27,7 +27,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `CREATE FUNCTION … LANGUAGE sql` (scalar + table UDFs, durable catalog) | ✅ | `query` | CONCEPT:EG-118; PL/pgSQL control-flow is a documented follow-up |
 | Columnar (struct-of-arrays) segments + SQL window frames (`ROW_NUMBER`/`RANK`/`DENSE_RANK`/`LAG`/`LEAD`/`OVER(PARTITION BY … ROWS/RANGE …)`) | ✅ | `query` | CONCEPT:EG-089 |
 | DML on arbitrary user tables (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `COPY`) | ✅ | `query` | durable redb `TableStore` (EG-018/EG-020); `run_insert_table`/`run_update_table`/`run_delete_table` |
-| `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-018); JOINable to the graph; `ALTER` beyond ADD COLUMN 🔶 → Program B (see `workspace/plans`) |
+| `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-018); JOINable to the graph |
+| `ALTER TABLE` beyond ADD COLUMN — `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN TYPE` (data migration), `DROP CONSTRAINT` | ✅ | `query` | durable user-table catalog rewrite (CONCEPT:EG-310) |
 
 ### Postgres wire (`pgwire`, also pulled by `cluster`)
 
@@ -51,10 +52,10 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `CREATE EXTENSION vector/pg_age/timescaledb/pg_search` + durable extension catalog | ✅ | eg-query classify + pgwire (CONCEPT:EG-102) |
 | PostgreSQL array (`int[]`/`text[]`, `ANY`/`ALL`/`unnest`/`array_agg`/`@>`/`&&`) + range types + common scalar functions (`string_agg`/`split_part`/`regexp_replace`/`to_char`/`date_trunc`/`generate_series`) | ✅ | DataFusion UDF/UDTF registration (CONCEPT:EG-104) |
 | **pgvector**: `vector(n)` type + `<->` (L2) / `<=>` (cosine) / `<#>` (neg-inner) operators, pgwire type OID | ✅ | CONCEPT:EG-115 |
-| **pgvector** index pushdown: `ORDER BY emb <-> $1 LIMIT k` → eg-ann index; `CREATE INDEX … USING hnsw/ivfflat` | ✅ | CONCEPT:EG-116 |
+| **pgvector** index pushdown: `ORDER BY emb <-> $1 LIMIT k` → eg-ann index; `CREATE INDEX … USING hnsw/ivfflat` | ✅ | CONCEPT:EG-116; **real ANN top-k** pushed to the eg-ann HNSW/IVF index + exact re-rank (brute-force only as the no-index path) (CONCEPT:EG-313) |
 | **Apache AGE**: `SELECT * FROM cypher('graph', $$ MATCH … RETURN … $$) AS (a agtype)` routed to the eg-query cypher engine | ✅ | CONCEPT:EG-114 |
 | **TimescaleDB**: `create_hypertable()`, `time_bucket()` gap-fill, `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates | ✅ | lowered onto eg-tsdb + `Op::Window` (CONCEPT:EG-117) |
-| **ParadeDB**: `@@@` BM25 search operator + `score()`/`snippet()` `paradedb.*` functions | ✅ | lowered onto eg-text BM25 (CONCEPT:EG-119) |
+| **ParadeDB**: `@@@` BM25 search operator + `score()`/`snippet()` `paradedb.*` functions | ✅ | lowered onto eg-text BM25 (CONCEPT:EG-119); **real BM25 relevance scoring + highlighted snippets** (CONCEPT:EG-311, replacing the placeholder `1.0`) |
 
 ## SPARQL (`eg-rdf`)
 
@@ -85,7 +86,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Serialization matrix: JSON-LD 1.1 (expansion/compaction), TriG, N-Quads, RDF/XML | ✅ | CONCEPT:EG-136 / EG-137 / EG-131 (alongside Turtle/N-Triples) |
 | SHACL validation (node/property shapes, cardinality/datatype/pattern/`sh:in`/logical + SPARQL constraints → `sh:ValidationReport`) | ✅ | pure-Rust `eg-shacl`, `Method::ShaclValidate` (CONCEPT:EG-132) |
 | ShEx (Shape Expressions) validation | ✅ | `Method::ShexValidate` (CONCEPT:EG-133) |
-| ICV integrity-constraint validation (Stardog-style, closed-world/UNA; guard mode rejects violating writes; also runs over the OWL-reasoned view) | ✅ | CONCEPT:EG-146 |
+| ICV integrity-constraint validation (Stardog-style, closed-world/UNA; guard mode rejects violating writes; also runs over the OWL-reasoned view) | ✅ | CONCEPT:EG-146; wired into the **commit/write path** — a guard evaluates the change set and REJECTS a violating transaction, configurable enforce/warn (CONCEPT:EG-300) |
 
 ## OWL reasoning (`eg-rdf/owl`)
 
@@ -115,7 +116,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Variable-length hop combined with fixed hops + path-variable binding | ✅ | relaxes the single-hop guard (CONCEPT:EG-063) |
 | `UNWIND expr AS var` | ✅ | composes with WITH/MATCH pipeline (CONCEPT:EG-141) |
 | `CALL { subquery }` + `CALL proc(args) YIELD …` procedure framework | ✅ | invocation registry → native/WASM procedures (CONCEPT:EG-142) |
-| APOC-equivalent + GDS surface via `CALL gds.*` (PageRank, WCC/SCC, Louvain, betweenness/degree centrality, Dijkstra, node similarity) | ✅ | pure-Rust eg-compute (CONCEPT:EG-143 / EG-144) |
+| APOC-equivalent + GDS surface via `CALL gds.*` (PageRank, WCC/SCC, Louvain, betweenness/degree centrality, Dijkstra, node similarity) | ✅ | pure-Rust eg-compute (CONCEPT:EG-143 / EG-144); `CALL gds.<algo>(…) YIELD …` projects the live graph into the eg-compute adjacency + streams results as Cypher rows (CONCEPT:EG-298) |
 
 ## GraphQL (`eg-graphql`)
 
@@ -133,6 +134,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
 | IVF-PQ index (coarse quantizer + 8-bit PQ codes) | ✅ | `ivfpq.rs` `train` |
+| HNSW index (hierarchical-navigable-small-world graph, higher recall-per-probe than IVF-PQ) | ✅ | insert/search/serde-persist, tuned by the EG-297 recall harness (CONCEPT:EG-301) |
 | OPQ learned rotation (polar/SVD update) | ✅ | `ivfpq.rs` rotation update |
 | SQ8 refine re-rank tier | ✅ | `ivfpq.rs` over-fetch + SQ8 re-rank (recall ≥ 0.95 in tests) |
 | Persistent index — reopen WITHOUT rebuild (mmap codes, O(N) posting rebuild) | ✅ | `persist.rs` `open` |
@@ -140,7 +142,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Warm-on-start (index built off the query path) | ✅ | `warm()` / `ensure_index` |
 | Hybrid metadata pre-filter (kNN with an `allow(id)` predicate) | ✅ | `ivfpq.rs` `search_filtered` (EG-070); tested DURING the ADC probe, not post-filter |
 | Exact/flat kNN index (ground-truth) + ANN-candidate re-rank + recall@k/precision self-eval harness | ✅ | brute-force exact + hybrid refinement (CONCEPT:EG-297) |
-| Cross-shard kNN merge | 🔶 → Program B | the `merge_topk` gather LEAF primitive ships + is tested (CONCEPT:EG-069); the full scatter across per-shard eg-ann indexes is not yet wired — Program B (see `workspace/plans`) |
+| Cross-shard kNN scatter-gather (fan a kNN query across per-shard eg-ann indexes → deterministic global top-k) | ✅ | server-layer scatter over per-shard indexes merged via the `merge_topk` leaf (CONCEPT:EG-319, completing EG-069) |
 
 ## Time-series (`eg-tsdb`)
 
@@ -184,13 +186,13 @@ for per-wire connect+query recipes and the full env-var/port table.
 | Postgres wire (psql / BI / ORM) | ✅ | `pgwire` | `src/server/pgwire`; `EPISTEMIC_GRAPH_PGWIRE_ADDR` (KG-2.189) |
 | MySQL / MariaDB wire (hand-rolled handshake v10 + `mysql_native_password`) | ✅ | `mysql-wire` | `src/server/mysql_wire`; `EPISTEMIC_GRAPH_MYSQL_ADDR` (EG-076) |
 | MSSQL TDS wire (hand-rolled TDS) | ✅ | `mssql-wire` | `src/server/mssql_wire`; `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-077) |
-| SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O 🔶 → Program B (see `workspace/plans`) |
+| SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O 🔶 forward roadmap (see [roadmap](roadmap.md)) |
 | Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `src/server/bolt_wire`; `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159) |
 | AMQP 0.9.1 broker wire (exchanges/queues over the KG-2.303 work-queue) | ✅ | `amqp-wire` (impl `broker`) | `src/server/amqp_wire`; `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
 | MQTT 3.1.1/5.0 broker wire (CONNECT/PUBLISH/SUBSCRIBE, QoS 0/1) | ✅ | `mqtt-wire` (impl `broker`) | `src/server/mqtt_wire`; `EPISTEMIC_GRAPH_MQTT_ADDR` (EG-281) |
 | STOMP 1.2 broker wire (CONNECT/SEND/SUBSCRIBE/ACK) | ✅ | `stomp-wire` (impl `broker`) | `src/server/stomp_wire`; `EPISTEMIC_GRAPH_STOMP_ADDR` (EG-282) |
-| Redis RESP2/RESP3 wire (GET/SET/DEL/EXPIRE/INCR, HSET/HGET, LPUSH/LRANGE, SADD/SMEMBERS, ZADD/ZRANGE, scan) over the KV surface | ✅ | `redis-wire` | `src/server/redis_wire`; `EPISTEMIC_GRAPH_REDIS_ADDR` (EG-174) |
-| S3-compatible REST (bucket + object PUT/GET/DELETE/HEAD/List, SigV4-lite) over the blob CAS | ✅ | `s3-api` | `src/server/s3` (EG-176) |
+| Redis RESP2/RESP3 wire (GET/SET/DEL/EXPIRE/INCR, HSET/HGET, LPUSH/LRANGE, SADD/SMEMBERS, ZADD/ZRANGE, scan) over the KV surface | ✅ | `redis-wire` | `src/server/redis_wire`; `EPISTEMIC_GRAPH_REDIS_ADDR` (EG-174); **pub/sub** (`SUBSCRIBE`/`PSUBSCRIBE`/`PUBLISH`/`UNSUBSCRIBE`) + `MULTI`/`EXEC` transactions (CONCEPT:EG-307) |
+| S3-compatible REST (bucket + object PUT/GET/DELETE/HEAD/List, SigV4-lite) over the blob CAS | ✅ | `s3-api` | `src/server/s3` (EG-176); **multipart upload** (Create/Upload-Part/Complete/Abort) + **range GET** (CONCEPT:EG-307) |
 | GraphQL SSE subscription carrier | ✅ | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR`; real CDC push over WS/SSE (CONCEPT:EG-064) |
 
 ## Message broker (`broker` — surpasses RabbitMQ)
@@ -207,6 +209,7 @@ Built on the KG-2.303 native engine task queue (`ClaimNext`): durable exchanges/
 | Consumer groups + per-consumer QoS/prefetch + fair round-robin + visibility leases | ✅ | CONCEPT:EG-280 |
 | Replayable append-log streams (Kafka/RabbitMQ-Streams: retained ordered offset log, read-from-offset, retention by size/age) | ✅ | CONCEPT:EG-283 |
 | Publisher confirms (monotonic delivery-tag) + consumer manual ack/nack-with-requeue (at-least-once) | ✅ | CONCEPT:EG-284 |
+| Exactly-once (idempotent-producer dedup by producer-id + sequence) + stream/confirm/ack over the AMQP `confirm.select` + MQTT 5 wire frames | ✅ | effectively-exactly-once on top of at-least-once (CONCEPT:EG-314) |
 
 ## Observability endpoints (`obs` listener, CONCEPT:EG-160/172/163)
 
@@ -218,10 +221,11 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Log ingest (OTLP/HTTP, Elasticsearch `_bulk`/`_doc`, JSON-lines, syslog) + Parquet-on-CAS segments | ✅ | `obs` | `src/server/obs` (EG-160/161) |
 | Log search + query API (DataFusion over Parquet segments ∪ hot tsdb ∪ eg-text BM25; O2/ES `/_search`) | ✅ | `obs` | CONCEPT:EG-162 |
 | VRL-style ingest pipelines (parse/json-extract, filter/drop, set/rename/remove, coerce, route-to-stream; cross-modal graph enrichment) | ✅ | `obs` | pure-Rust DSL → staged executor (CONCEPT:EG-165) |
-| PromQL + Prometheus HTTP query API (`/api/v1/query[_range]`, `/api/v1/labels`) | ✅ | `promql` | `src/server/promql` + `eg-tsdb/promql` (EG-172) |
+| PromQL + Prometheus HTTP query API (`/api/v1/query[_range]`, `/api/v1/labels`) | ✅ | `promql` | `src/server/promql` + `eg-tsdb/promql` (EG-172); extended fn set — `_over_time` family, `delta`/`idelta`/`deriv`, `topk`/`bottomk`/`quantile`, `label_replace`/`label_join`, `clamp*` (CONCEPT:EG-302) |
 | Distributed traces (OTLP-JSON `POST /v1/traces`, `/api/traces` search, service-dependency graph) | ✅ | `traces` | `src/server/traces` (EG-163) |
-| Super-cluster federated search (fan a read out to peer instances, merge/dedup/re-rank, per-peer timeout + partial-result tolerance) | ✅ | `federation`/`cluster` | `/federated` HTTP entry (CONCEPT:EG-243) |
+| Super-cluster federated search (fan a read out to peer instances, merge/dedup/re-rank, per-peer timeout + partial-result tolerance) | ✅ | `federation`/`cluster` | `/federated` HTTP entry (CONCEPT:EG-243); **typed SQL + SPARQL result fusion** — schema-aware column union + typed dedup/merge, not just hashed-key union (CONCEPT:EG-309) |
 | OpenTelemetry span export + slow-query log | ✅ | `otel` | CONCEPT:EG-091 |
+| OTel export (OTLP metrics + traces push to an external collector) + Prometheus remote-write receiver — the engine emits its own telemetry, not just ingests | ✅ | `otel-export` | protobuf (`prost`) dep behind the feature, out of `pi` (CONCEPT:EG-316) |
 | Prometheus `/metrics` exposition (engine's own counters/gauges) | ✅ | `metrics` (default) | `--metrics-addr` / `GRAPH_SERVICE_METRICS_ADDR`, default `127.0.0.1:9101` |
 
 ## Unified planner & UQL (`eg-plan`)
@@ -237,7 +241,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | UQL text DSL → `wire::Plan` (dependency-free parser) | ✅ | `eg-plan/src/uql` (KG-2.214) |
 | `SpatialScan` / `Pred::SpatialWithin`/`SpatialDWithin` | ✅ | `geo` feature (EG-083); eg-geo executor + leaf crate |
 | `TensorScan` / `TensorOp`, `Cep` event-stream match | ✅ | `tensor` (EG-085) / `stream` (EG-088) |
-| Natural-language → query (`Method::NlQuery`, `/nl` route) | ✅ | `nl-query` (CONCEPT:EG-078/080); complete LLM-optional NL→UQL seam — inert (clear "not configured" error, never a panic) until an OpenAI-compatible endpoint is set; AU-provider integration tracked in Program B |
+| Natural-language → query (`Method::NlQuery`, `/nl` route) | ✅ | `nl-query` (CONCEPT:EG-078/080); complete LLM-optional NL→UQL seam — inert (clear "not configured" error, never a panic) until an OpenAI-compatible endpoint is set; AU-provider integration tracked on the agent-utilities side |
 
 ## Spatial / GIS (`geo` + `geosparql`)
 
@@ -246,13 +250,14 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | CRS registry + affine/Helmert reprojection | ✅ | `eg-geo` (EG-262) |
 | Durable STR-packed R-tree spatial index | ✅ | `eg-geo` (EG-263) |
 | GeoJSON / WKB / GPX / WKT I/O | ✅ | `eg-geo` (EG-262/264, `geo-io`) |
+| ESRI Shapefile (.shp/.dbf/.shx) / KML/KMZ / GeoParquet I/O | ✅ | round-trips geometries + attributes, completing the map-data ingest/export matrix (CONCEPT:EG-306) |
 | `Op::SpatialScan` + `SpatialWithin`/`SpatialDWithin` predicates in a UnifiedQuery | ✅ | `geo` feature (EG-083) |
 | DE-9IM topological relations (contains/covers/touches/crosses/overlaps/equals/disjoint) | ✅ | `eg-geo/predicates.rs` (CONCEPT:EG-258) |
 | Constructive geometry algebra (buffer, convex hull, union/intersection/difference, simplify, centroid) | ✅ | `Op::SpatialOp` (CONCEPT:EG-259) |
 | Geodesic ops (Haversine/Vincenty distance + geodesic area; CRS tag selects planar vs geodesic) | ✅ | CONCEPT:EG-256 |
 | Full geometry model (Multi*/GeometryCollection + polygon holes + EWKT) | ✅ | CONCEPT:EG-257 |
 | Map tiling: XYZ/TMS addressing + Mapbox Vector Tiles (MVT) clipped to a tile | ✅ | web-map render (CONCEPT:EG-265) |
-| Weighted routing (Dijkstra/A* geo-heuristic) + isochrones + nearest-neighbour/2-opt TSP | ✅ | logistics primitives (CONCEPT:EG-266) |
+| Weighted routing (Dijkstra/A* geo-heuristic) + isochrones + nearest-neighbour/2-opt TSP | ✅ | logistics primitives (CONCEPT:EG-266); turn-restriction penalties + time-window/time-dependent edge weights (CONCEPT:EG-312) |
 | Map-based task tracking (`:GeoTask` location/status/service-area; within-bbox/polygon, nearest-N, along-route, nearest-resource assignment) | ✅ | field-ops layer (CONCEPT:EG-267) |
 | OGC GeoSPARQL `geo:`/`geof:` vocabulary + spatial FILTER functions over SPARQL | ✅ | `geosparql` feature (EG-261); reuses eg-geo (no GEOS/PROJ) |
 | RCC8 + Egenhofer topological relation families over GeoSPARQL | ✅ | lowered onto DE-9IM (CONCEPT:EG-155) |
@@ -267,15 +272,16 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Episodic→semantic consolidation primitive (localized, provenance + bitemporal preserving, importance-weighted) | ✅ | `graph.rs` `consolidate` (CONCEPT:EG-221); tested |
 | Memory maintenance: `reinforce`/`decay`/`evict_below`/`forget` (importance + access-count + last-access) | ✅ | deterministic, caller-supplied now (CONCEPT:EG-222) |
 | LeanRAG hierarchical retrieval (vector-retrieve at summary level → drill down SUMMARIZES/CONSOLIDATES edges) | ✅ | bottom-up aggregation + top-down traversal (CONCEPT:EG-195) |
-| Natural-language → query (`Method::NlQuery`, `/nl`, `nl_query()` UDF) | ✅ | `nl-query` (CONCEPT:EG-078/080); complete LLM-optional seam, inert until an OpenAI-compatible endpoint is set; AU-provider integration tracked in Program B |
+| Natural-language → query (`Method::NlQuery`, `/nl`, `nl_query()` UDF) | ✅ | `nl-query` (CONCEPT:EG-078/080); complete LLM-optional seam, inert until an OpenAI-compatible endpoint is set; AU-provider integration tracked on the agent-utilities side |
 | Uncertainty-distribution-valued properties (Gaussian/Beta/Categorical/empirical) | ✅ | `graph.rs` `Distribution` accessors + Bayesian update/sampling (CONCEPT:EG-086) |
+| Memory/scene/trajectory driven over the wire (additive `Method`s: CreateSummary/Consolidate/Maintain/SceneObject/Trajectory + dispatch + WAL replay) | ✅ | AU/MCP drive them remotely, no longer in-process only (CONCEPT:EG-318, exposing EG-087/099/220/221/222) |
 
 ## New data modalities (`eg-core` + leaf crates)
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
-| Document/JSON deep indexing: JSONPath + durable inverted path-index; PG `->`/`->>`/`@>`/`jsonb_path_query` + Mongo `$match` → `Pred::JsonPath` | ✅ | selectivity via the path index (CONCEPT:EG-084) |
-| Array/tensor store: dense/chunked N-D arrays CAS-backed + `Op::TensorScan`/`Op::TensorOp` (slice/reduce/elementwise) | ✅ | pure-Rust `eg-tensor`, feature `tensor` (CONCEPT:EG-085) |
+| Document/JSON deep indexing: JSONPath + durable inverted path-index; PG `->`/`->>`/`@>`/`jsonb_path_query` + Mongo `$match` → `Pred::JsonPath` | ✅ | selectivity via the path index (CONCEPT:EG-084); the inverted path-index **persists to redb + rehydrates at boot** and feeds planner cost `Stats` for selectivity (CONCEPT:EG-308) |
+| Array/tensor store: dense/chunked N-D arrays CAS-backed + `Op::TensorScan`/`Op::TensorOp` (slice/reduce/elementwise) | ✅ | pure-Rust `eg-tensor`, feature `tensor` (CONCEPT:EG-085); derived tensors from `Op::TensorOp`/`Op::TensorScan` **write back** into the content-addressed store on the exec path — durable + dedup-shared (CONCEPT:EG-304) |
 | Scene-graph / 3D world model: `:SceneObject` pose + transform hierarchy + spatial relations + bounding volumes | ✅ | robotics/AR/urban-3D substrate (CONCEPT:EG-087) |
 | Event-stream + CEP: windowed high-velocity ingest + `Op::Cep` bounded-NFA (sequence/within/absence) over sliding/tumbling windows | ✅ | `eg-stream`, feature `stream` (CONCEPT:EG-088) |
 
@@ -290,7 +296,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
-| Tiered hot/warm/cold KV-block cache (LRU + importance/recency; RAM → compressed-RAM → redb/blob; auto promote/demote) | ✅ | survives OOM by offloading (CONCEPT:EG-185) |
+| Tiered hot/warm/cold KV-block cache (LRU + importance/recency; RAM → compressed-RAM → redb/blob; auto promote/demote) | ✅ | survives OOM by offloading (CONCEPT:EG-185); warm tier uses real **zstd** (optional lz4) compression, not RLE (CONCEPT:EG-315) |
 | Shared multi-instance KV backend (content-addressed, dedup, ref-count; lookup/publish by token-hash) | ✅ | `SharedKvBackend` (CONCEPT:EG-186) |
 | HTTP endpoint (GET/PUT/EXISTS a block by token-hash + stats) + vLLM/LMCache remote-backend connector contract | ✅ | gated feature, out of pi (CONCEPT:EG-187) |
 
@@ -298,15 +304,34 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
-| R2RML-style `:TriplesMap` mappings expose a foreign/relational source as a VIRTUAL RDF graph; SPARQL rewrites to `ForeignScan` (no materialization) | ✅ | completes Phase Q (CONCEPT:EG-101) |
+| R2RML-style `:TriplesMap` mappings expose a foreign/relational source as a VIRTUAL RDF graph; SPARQL rewrites to `ForeignScan` (no materialization) | ✅ | completes Phase Q (CONCEPT:EG-101); parses standard **R2RML Turtle** documents (`rr:TriplesMap`/`rr:logicalTable`/`rr:subjectMap`/`rr:predicateObjectMap`/`rr:template`/`rr:column`) into the VirtualGraph model (CONCEPT:EG-305) |
 | `Op::ForeignScan` resolution against a named `ForeignSource` registry (another graph / SQL table / remote endpoint) | ✅ | CONCEPT:EG-073 |
 
 ## Enterprise: security, backup, DR
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
-| RBAC-at-scale: durable roles + role hierarchy + resource/action grants over per-agent RLS + ACL + hash-chained audit | ✅ | `AgentRole` in eg-types::acl, `security` tier (CONCEPT:EG-092) |
+| RBAC-at-scale: durable roles + role hierarchy + resource/action grants over per-agent RLS + ACL + hash-chained audit | ✅ | `AgentRole` in eg-types::acl, `security` tier (CONCEPT:EG-092); roles/grants + agent identities **persist to redb + reload at boot** (write-through on `RbacAdmin` mutations), so policy survives restart (CONCEPT:EG-303) |
 | Online backup / restore + PITR (`Method::Backup`/`Restore`, MVCC-snapshot verbatim bundle preserving encryption + audit chain) | ✅ | redb-only; clean "not available" on non-redb (CONCEPT:EG-090) |
+
+## Lakehouse interop (eg-lake — LTAP)
+
+Databricks-LTAP-interoperable: external lakehouse engines read the engine's own tables as open formats with
+**zero ETL**. Gated `lake` (arrow/parquet + delta/iceberg deps), out of `pi`. See
+[lakehouse-ltap](architecture/lakehouse-ltap.md).
+
+| Operation | Status | Evidence |
+|-----------|:------:|----------|
+| Parquet-on-object-store materialization of engine tables / columnar segments | ✅ | async columnar transcode → Parquet in the blob CAS / S3 (CONCEPT:EG-317) |
+| Delta transaction log (`_delta_log`) so Delta / Databricks / delta-rs readers see a consistent version | ✅ | CONCEPT:EG-317 |
+| Iceberg-REST catalog + Iceberg snapshot metadata (Trino / Spark catalog resolution) | ✅ | CONCEPT:EG-317; the Iceberg **Avro manifest** writer is a documented stub (forward roadmap) |
+| LSN-style as-of / time-travel snapshots (reusing versioned snapshots + `Op::AsOf`) | ✅ | a lake snapshot pins an exact engine LSN (CONCEPT:EG-317) |
+
+## Request scheduling & QoS
+
+| Operation | Status | Evidence |
+|-----------|:------:|----------|
+| Real-time QoS/SLO scheduler — per-tenant/priority admission + deadline scheduling + backpressure so latency-critical requests meet SLOs under load | ✅ | server/transport (CONCEPT:EG-320); complements the reserved read-admission lane (EG-044) |
 
 ## Durability & distribution
 
@@ -318,7 +343,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Cross-shard 2PC (presumed-abort, crash-recoverable) | ✅ | `src/raft/cross_shard_txn.rs` |
 | Multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `src/raft/multi.rs` `MultiRaft`/`GroupRouter` (KG-2.266/267/268); `reshard.rs` online ownership move |
 | Parallel-commit + read-only-participant fast path + non-blocking (Raft-replicated decision) commit | ✅ | parallel prepare + empty-write-set skip (CONCEPT:EG-081) and the Paxos-Commit-lite Raft-replicated commit decision (CONCEPT:EG-082) over the working 2PC |
-| Full Calvin deterministic-ordering commit | 🗺 → Program B | a global sequencer / deterministic total order (chosen against for now — Paxos-Commit-lite is the tractable subset); Program B (see `workspace/plans`) |
+| Full Calvin deterministic-ordering commit | 🗺 | a global sequencer / deterministic total order (chosen against for now — Paxos-Commit-lite is the tractable subset); still forward roadmap (see [roadmap](roadmap.md)) |
 | Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), OFF by default, never in `pi` |
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
