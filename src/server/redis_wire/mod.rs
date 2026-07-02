@@ -29,15 +29,29 @@
 //! `EXPIRE`/`TTL`, `INCR`/`DECR`, `MGET`/`MSET`, `HSET`/`HGET`/`HGETALL`/`HDEL`,
 //! `LPUSH`/`RPUSH`/`LRANGE`/`LLEN`, `SADD`/`SMEMBERS`/`SREM`,
 //! `ZADD`/`ZRANGE`/`ZSCORE`, `SCAN`, `TYPE`, plus `AUTH`/`SELECT`/`QUIT`/`CONFIG`/
-//! `CLIENT` niceties. DEFERRED: pub/sub, transactions (`MULTI`/`EXEC`), Lua
-//! scripting, streams, and cluster commands.
+//! `CLIENT` niceties.
+//!
+//! ## Pub/sub + transactions (CONCEPT:EG-307)
+//!
+//! LANDED (EG-307): the publish/subscribe surface — `SUBSCRIBE`/`UNSUBSCRIBE`,
+//! `PSUBSCRIBE`/`PUNSUBSCRIBE` (glob-pattern channels), and `PUBLISH`, backed by a
+//! per-listener [`PubSub`] registry (an mpsc channel per connection; the connection
+//! driver `select!`s between the socket and its subscriber mailbox so published
+//! messages are pushed out as they arrive). Plus `MULTI`/`EXEC`/`DISCARD`
+//! transactions: commands after `MULTI` are queued (`+QUEUED`) and executed
+//! back-to-back on `EXEC` (no other connection interleaves), returning the array of
+//! replies; `DISCARD` drops the queue; a malformed queued command aborts the whole
+//! transaction with `EXECABORT`. DEFERRED: Lua scripting, streams, `WATCH`
+//! optimistic locking (parsed/no-op), and cluster commands.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
 use crate::server::kv::KvStore;
@@ -655,6 +669,174 @@ fn glob_match(pat: &str, text: &str) -> bool {
     pi == p.len()
 }
 
+// ── pub/sub registry (CONCEPT:EG-307) ────────────────────────────────────────────
+
+/// One message delivered to a subscriber's mailbox (CONCEPT:EG-307). A `Channel`
+/// message is rendered as a RESP `message` push; a `Pattern` message (from a glob
+/// `PSUBSCRIBE`) as a `pmessage` push carrying the originating pattern.
+#[derive(Clone, Debug)]
+enum PubMessage {
+    Channel {
+        channel: String,
+        payload: Vec<u8>,
+    },
+    Pattern {
+        pattern: String,
+        channel: String,
+        payload: Vec<u8>,
+    },
+}
+
+impl PubMessage {
+    /// Render this delivery as the RESP push frame Redis clients expect.
+    fn to_resp(&self) -> Resp {
+        match self {
+            PubMessage::Channel { channel, payload } => Resp::Push(vec![
+                Resp::bulk_str("message"),
+                Resp::bulk_str(channel.clone().into_bytes()),
+                Resp::Bulk(Some(payload.clone())),
+            ]),
+            PubMessage::Pattern {
+                pattern,
+                channel,
+                payload,
+            } => Resp::Push(vec![
+                Resp::bulk_str("pmessage"),
+                Resp::bulk_str(pattern.clone().into_bytes()),
+                Resp::bulk_str(channel.clone().into_bytes()),
+                Resp::Bulk(Some(payload.clone())),
+            ]),
+        }
+    }
+}
+
+#[derive(Default)]
+struct PubSubInner {
+    next_id: u64,
+    /// conn-id → the mailbox sender for that connection.
+    conns: HashMap<u64, mpsc::UnboundedSender<PubMessage>>,
+    /// exact channel → the set of conn-ids subscribed to it.
+    channels: HashMap<String, HashSet<u64>>,
+    /// glob pattern → the set of conn-ids subscribed to it.
+    patterns: HashMap<String, HashSet<u64>>,
+}
+
+/// The per-listener publish/subscribe registry (CONCEPT:EG-307). Shared (via `Arc`)
+/// across every connection the listener accepts; each connection registers an
+/// unbounded mpsc mailbox on connect and drops it on disconnect. `PUBLISH` fans a
+/// payload out to every exact-channel subscriber plus every glob-pattern subscriber
+/// whose pattern matches, returning the delivery count. All state lives under one
+/// `parking_lot::Mutex` — the sends are non-blocking (unbounded), so the lock is
+/// never held across an `.await`.
+#[derive(Default)]
+pub struct PubSub {
+    inner: Mutex<PubSubInner>,
+}
+
+impl PubSub {
+    /// Register a fresh connection mailbox, returning its unique connection id.
+    fn register(&self, tx: mpsc::UnboundedSender<PubMessage>) -> u64 {
+        let mut g = self.inner.lock();
+        g.next_id += 1;
+        let id = g.next_id;
+        g.conns.insert(id, tx);
+        id
+    }
+
+    /// Drop a connection: remove its mailbox and prune it from every channel /
+    /// pattern subscription (garbage-collecting now-empty entries).
+    fn unregister(&self, id: u64) {
+        let mut g = self.inner.lock();
+        g.conns.remove(&id);
+        g.channels.retain(|_, ids| {
+            ids.remove(&id);
+            !ids.is_empty()
+        });
+        g.patterns.retain(|_, ids| {
+            ids.remove(&id);
+            !ids.is_empty()
+        });
+    }
+
+    fn subscribe(&self, id: u64, channel: &str) {
+        self.inner
+            .lock()
+            .channels
+            .entry(channel.to_string())
+            .or_default()
+            .insert(id);
+    }
+
+    fn unsubscribe(&self, id: u64, channel: &str) {
+        let mut g = self.inner.lock();
+        if let Some(ids) = g.channels.get_mut(channel) {
+            ids.remove(&id);
+            if ids.is_empty() {
+                g.channels.remove(channel);
+            }
+        }
+    }
+
+    fn psubscribe(&self, id: u64, pattern: &str) {
+        self.inner
+            .lock()
+            .patterns
+            .entry(pattern.to_string())
+            .or_default()
+            .insert(id);
+    }
+
+    fn punsubscribe(&self, id: u64, pattern: &str) {
+        let mut g = self.inner.lock();
+        if let Some(ids) = g.patterns.get_mut(pattern) {
+            ids.remove(&id);
+            if ids.is_empty() {
+                g.patterns.remove(pattern);
+            }
+        }
+    }
+
+    /// Fan `payload` out to every exact subscriber of `channel` and every pattern
+    /// subscriber whose glob matches it. Returns the number of deliveries (the
+    /// integer `PUBLISH` replies with). A dropped receiver (a connection that has
+    /// gone away but not yet unregistered) simply isn't counted.
+    fn publish(&self, channel: &str, payload: &[u8]) -> i64 {
+        let g = self.inner.lock();
+        let mut count = 0i64;
+        if let Some(ids) = g.channels.get(channel) {
+            for id in ids {
+                if let Some(tx) = g.conns.get(id) {
+                    let msg = PubMessage::Channel {
+                        channel: channel.to_string(),
+                        payload: payload.to_vec(),
+                    };
+                    if tx.send(msg).is_ok() {
+                        count += 1;
+                    }
+                }
+            }
+        }
+        for (pat, ids) in g.patterns.iter() {
+            if !glob_match(pat, channel) {
+                continue;
+            }
+            for id in ids {
+                if let Some(tx) = g.conns.get(id) {
+                    let msg = PubMessage::Pattern {
+                        pattern: pat.clone(),
+                        channel: channel.to_string(),
+                        payload: payload.to_vec(),
+                    };
+                    if tx.send(msg).is_ok() {
+                        count += 1;
+                    }
+                }
+            }
+        }
+        count
+    }
+}
+
 // ── RESP2 / RESP3 codec (CONCEPT:EG-174) ─────────────────────────────────────────
 
 /// A RESP reply value. Version-aware: [`encode`](Resp::encode) renders the RESP3
@@ -670,6 +852,10 @@ enum Resp {
     Array(Option<Vec<Resp>>),
     Map(Vec<(Resp, Resp)>),
     Set(Vec<Resp>),
+    /// A RESP3 push message (`>`, used for pub/sub delivery + subscribe confirms,
+    /// CONCEPT:EG-307). Downgrades to a plain array (`*`) on RESP2 — the RESP2
+    /// wire has no distinct push type, exactly how real Redis behaves.
+    Push(Vec<Resp>),
     Double(f64),
     Bool(bool),
     Null,
@@ -745,6 +931,14 @@ impl Resp {
             }
             Resp::Set(items) => {
                 out.push(if proto >= 3 { b'~' } else { b'*' });
+                out.extend_from_slice(items.len().to_string().as_bytes());
+                out.extend_from_slice(b"\r\n");
+                for it in items {
+                    it.encode(proto, out);
+                }
+            }
+            Resp::Push(items) => {
+                out.push(if proto >= 3 { b'>' } else { b'*' });
                 out.extend_from_slice(items.len().to_string().as_bytes());
                 out.extend_from_slice(b"\r\n");
                 for it in items {
@@ -872,11 +1066,48 @@ fn parse_array_command(buf: &[u8]) -> CommandParse {
 
 // ── command dispatch (CONCEPT:EG-174) ─────────────────────────────────────────────
 
-/// Per-connection mutable state threaded through command execution.
+/// Per-connection mutable state threaded through command execution. Carries the
+/// RESP version + auth flag, the pub/sub subscription sets, and the `MULTI`
+/// transaction queue (CONCEPT:EG-174 core; CONCEPT:EG-307 pub/sub + transactions).
 struct ConnState {
     proto: u8,
     authed: bool,
     quit: bool,
+    /// This connection's unique id in the [`PubSub`] registry (0 until registered;
+    /// the pure-`execute` unit tests never register, which is fine).
+    id: u64,
+    /// Channels this connection is `SUBSCRIBE`d to (CONCEPT:EG-307).
+    sub_channels: HashSet<String>,
+    /// Glob patterns this connection is `PSUBSCRIBE`d to (CONCEPT:EG-307).
+    sub_patterns: HashSet<String>,
+    /// `true` between `MULTI` and `EXEC`/`DISCARD`: commands are queued not run.
+    in_multi: bool,
+    /// The queued commands awaiting `EXEC` (CONCEPT:EG-307).
+    queued: Vec<Vec<Vec<u8>>>,
+    /// Set when a queued command was malformed → `EXEC` aborts with `EXECABORT`.
+    multi_dirty: bool,
+}
+
+impl ConnState {
+    fn new(proto: u8, authed: bool) -> Self {
+        ConnState {
+            proto,
+            authed,
+            quit: false,
+            id: 0,
+            sub_channels: HashSet::new(),
+            sub_patterns: HashSet::new(),
+            in_multi: false,
+            queued: Vec::new(),
+            multi_dirty: false,
+        }
+    }
+
+    /// Total live subscriptions (channels + patterns) — the count Redis echoes in
+    /// every subscribe/unsubscribe confirmation.
+    fn sub_count(&self) -> i64 {
+        (self.sub_channels.len() + self.sub_patterns.len()) as i64
+    }
 }
 
 /// Uppercase an argument for case-insensitive command / option matching.
@@ -1246,6 +1477,284 @@ fn parse_num<T: std::str::FromStr>(arg: Option<&Vec<u8>>) -> Result<T, String> {
         .ok_or_else(|| "ERR value is not an integer or out of range".to_string())
 }
 
+// ── pub/sub + transaction dispatch (CONCEPT:EG-307) ───────────────────────────────
+
+/// Commands that are ALWAYS run immediately, never queued, even inside a `MULTI`
+/// block (they steer the transaction / session itself).
+fn is_multi_control(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        "MULTI" | "EXEC" | "DISCARD" | "WATCH" | "UNWATCH" | "RESET" | "QUIT"
+    )
+}
+
+/// Is `cmd` a command this shim recognizes? Used at queue time so an unknown
+/// command taints the transaction and `EXEC` returns `EXECABORT` (Redis semantics).
+fn is_known_command(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        "PING"
+            | "ECHO"
+            | "SET"
+            | "GET"
+            | "DEL"
+            | "EXISTS"
+            | "EXPIRE"
+            | "TTL"
+            | "INCR"
+            | "DECR"
+            | "MGET"
+            | "MSET"
+            | "HSET"
+            | "HGET"
+            | "HGETALL"
+            | "HDEL"
+            | "LPUSH"
+            | "RPUSH"
+            | "LRANGE"
+            | "LLEN"
+            | "SADD"
+            | "SMEMBERS"
+            | "SREM"
+            | "ZADD"
+            | "ZRANGE"
+            | "ZSCORE"
+            | "SCAN"
+            | "TYPE"
+            | "PUBLISH"
+    )
+}
+
+/// Commands permitted while a RESP2 connection is in subscriber mode. Everything
+/// else is refused with the exact Redis error until the client unsubscribes.
+fn allowed_in_subscribe(cmd: &str) -> bool {
+    matches!(
+        cmd,
+        "SUBSCRIBE"
+            | "UNSUBSCRIBE"
+            | "PSUBSCRIBE"
+            | "PUNSUBSCRIBE"
+            | "PING"
+            | "QUIT"
+            | "RESET"
+            | "HELLO"
+    )
+}
+
+/// Top-level command dispatch used by the connection driver (CONCEPT:EG-307).
+/// Unlike [`execute`] (one reply) this returns a VECTOR of replies — subscribe /
+/// unsubscribe emit one confirmation per channel — and threads the [`PubSub`]
+/// registry plus the connection's transaction/subscription state. Non-pub/sub,
+/// non-transaction commands delegate to [`execute`] for their single reply.
+fn dispatch(
+    store: &RedisStore,
+    pubsub: &PubSub,
+    args: &[Vec<u8>],
+    conn: &mut ConnState,
+    password: Option<&str>,
+) -> Vec<Resp> {
+    if args.is_empty() {
+        return vec![Resp::Error("ERR empty command".into())];
+    }
+    let cmd = upper(&args[0]);
+
+    // Queue everything (except control verbs) while inside MULTI.
+    if conn.in_multi && !is_multi_control(&cmd) {
+        if !is_known_command(&cmd) && !allowed_in_subscribe(&cmd) {
+            conn.multi_dirty = true;
+            return vec![Resp::Error(format!(
+                "ERR unknown command '{}'",
+                cmd.to_ascii_lowercase()
+            ))];
+        }
+        // SUBSCRIBE-family commands are not allowed inside a transaction.
+        if matches!(
+            cmd.as_str(),
+            "SUBSCRIBE" | "UNSUBSCRIBE" | "PSUBSCRIBE" | "PUNSUBSCRIBE"
+        ) {
+            conn.multi_dirty = true;
+            return vec![Resp::Error(format!(
+                "ERR {} is not allowed in transactions",
+                cmd
+            ))];
+        }
+        conn.queued.push(args.to_vec());
+        return vec![Resp::Simple("QUEUED".into())];
+    }
+
+    // Enforce the RESP2 subscriber-mode command gate.
+    if conn.proto < 3
+        && (!conn.sub_channels.is_empty() || !conn.sub_patterns.is_empty())
+        && !allowed_in_subscribe(&cmd)
+    {
+        return vec![Resp::Error(format!(
+            "ERR Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+            cmd.to_ascii_lowercase()
+        ))];
+    }
+
+    match cmd.as_str() {
+        "MULTI" => {
+            if conn.in_multi {
+                vec![Resp::Error("ERR MULTI calls can not be nested".into())]
+            } else {
+                conn.in_multi = true;
+                conn.queued.clear();
+                conn.multi_dirty = false;
+                vec![Resp::Simple("OK".into())]
+            }
+        }
+        "DISCARD" => {
+            if !conn.in_multi {
+                vec![Resp::Error("ERR DISCARD without MULTI".into())]
+            } else {
+                conn.in_multi = false;
+                conn.queued.clear();
+                conn.multi_dirty = false;
+                vec![Resp::Simple("OK".into())]
+            }
+        }
+        "EXEC" => exec_transaction(store, conn, password),
+        "SUBSCRIBE" | "PSUBSCRIBE" => {
+            if password.is_some() && !conn.authed {
+                return vec![Resp::Error("NOAUTH Authentication required.".into())];
+            }
+            subscribe(pubsub, conn, &args[1..], cmd == "PSUBSCRIBE")
+        }
+        "UNSUBSCRIBE" | "PUNSUBSCRIBE" => {
+            unsubscribe(pubsub, conn, &args[1..], cmd == "PUNSUBSCRIBE")
+        }
+        "PUBLISH" => {
+            if password.is_some() && !conn.authed {
+                return vec![Resp::Error("NOAUTH Authentication required.".into())];
+            }
+            match (args.get(1), args.get(2)) {
+                (Some(chan), Some(payload)) => {
+                    let channel = String::from_utf8_lossy(chan).into_owned();
+                    vec![Resp::Int(pubsub.publish(&channel, payload))]
+                }
+                _ => vec![Resp::Error(
+                    "ERR wrong number of arguments for 'publish'".into(),
+                )],
+            }
+        }
+        // WATCH/UNWATCH: accepted as no-ops (no optimistic locking yet, EG-307).
+        "WATCH" | "UNWATCH" => vec![Resp::Simple("OK".into())],
+        "RESET" => {
+            for c in conn.sub_channels.drain().collect::<Vec<_>>() {
+                pubsub.unsubscribe(conn.id, &c);
+            }
+            for p in conn.sub_patterns.drain().collect::<Vec<_>>() {
+                pubsub.punsubscribe(conn.id, &p);
+            }
+            conn.in_multi = false;
+            conn.queued.clear();
+            conn.multi_dirty = false;
+            conn.proto = 2;
+            vec![Resp::Simple("RESET".into())]
+        }
+        _ => vec![execute(store, args, conn, password)],
+    }
+}
+
+/// Execute a queued `MULTI` transaction atomically (CONCEPT:EG-307): run every
+/// queued command in order with no other connection interleaving, returning the
+/// array of their replies. A prior malformed queued command aborts with
+/// `EXECABORT`; `EXEC` outside a transaction is an error.
+fn exec_transaction(store: &RedisStore, conn: &mut ConnState, password: Option<&str>) -> Vec<Resp> {
+    if !conn.in_multi {
+        return vec![Resp::Error("ERR EXEC without MULTI".into())];
+    }
+    conn.in_multi = false;
+    let queued = std::mem::take(&mut conn.queued);
+    if std::mem::take(&mut conn.multi_dirty) {
+        return vec![Resp::Error(
+            "EXECABORT Transaction discarded because of previous errors.".into(),
+        )];
+    }
+    let mut results = Vec::with_capacity(queued.len());
+    for qargs in queued {
+        results.push(execute(store, &qargs, conn, password));
+    }
+    vec![Resp::Array(Some(results))]
+}
+
+/// `SUBSCRIBE` / `PSUBSCRIBE` (CONCEPT:EG-307): add each channel/pattern to the
+/// registry + the connection's set, emitting one confirmation push per channel with
+/// the running total subscription count.
+fn subscribe(pubsub: &PubSub, conn: &mut ConnState, chans: &[Vec<u8>], pattern: bool) -> Vec<Resp> {
+    let kind = if pattern { "psubscribe" } else { "subscribe" };
+    if chans.is_empty() {
+        return vec![Resp::Error(format!(
+            "ERR wrong number of arguments for '{kind}'"
+        ))];
+    }
+    let mut out = Vec::with_capacity(chans.len());
+    for c in chans {
+        let name = String::from_utf8_lossy(c).into_owned();
+        if pattern {
+            if conn.sub_patterns.insert(name.clone()) {
+                pubsub.psubscribe(conn.id, &name);
+            }
+        } else if conn.sub_channels.insert(name.clone()) {
+            pubsub.subscribe(conn.id, &name);
+        }
+        out.push(Resp::Push(vec![
+            Resp::bulk_str(kind),
+            Resp::bulk_str(name.into_bytes()),
+            Resp::Int(conn.sub_count()),
+        ]));
+    }
+    out
+}
+
+/// `UNSUBSCRIBE` / `PUNSUBSCRIBE` (CONCEPT:EG-307): drop the named channels (or ALL
+/// of this kind when none are named), one confirmation push each. Unsubscribing from
+/// nothing still emits a single null-channel confirmation, matching Redis.
+fn unsubscribe(
+    pubsub: &PubSub,
+    conn: &mut ConnState,
+    chans: &[Vec<u8>],
+    pattern: bool,
+) -> Vec<Resp> {
+    let kind = if pattern { "punsubscribe" } else { "unsubscribe" };
+    let targets: Vec<String> = if chans.is_empty() {
+        if pattern {
+            conn.sub_patterns.iter().cloned().collect()
+        } else {
+            conn.sub_channels.iter().cloned().collect()
+        }
+    } else {
+        chans
+            .iter()
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect()
+    };
+    if targets.is_empty() {
+        return vec![Resp::Push(vec![
+            Resp::bulk_str(kind),
+            Resp::Null,
+            Resp::Int(conn.sub_count()),
+        ])];
+    }
+    let mut out = Vec::with_capacity(targets.len());
+    for name in targets {
+        if pattern {
+            conn.sub_patterns.remove(&name);
+            pubsub.punsubscribe(conn.id, &name);
+        } else {
+            conn.sub_channels.remove(&name);
+            pubsub.unsubscribe(conn.id, &name);
+        }
+        out.push(Resp::Push(vec![
+            Resp::bulk_str(kind),
+            Resp::bulk_str(name.into_bytes()),
+            Resp::Int(conn.sub_count()),
+        ]));
+    }
+    out
+}
+
 // ── the per-connection driver + listener ──────────────────────────────────────────
 
 /// Drive ONE Redis connection: parse commands from the socket, execute, reply,
@@ -1254,34 +1763,72 @@ fn parse_num<T: std::str::FromStr>(arg: Option<&Vec<u8>>) -> Result<T, String> {
 async fn handle_connection<S>(
     s: &mut S,
     store: Arc<RedisStore>,
+    pubsub: Arc<PubSub>,
     password: Option<String>,
 ) -> std::io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut conn = ConnState {
-        proto: 2,
-        authed: password.is_none(),
-        quit: false,
-    };
+    let mut conn = ConnState::new(2, password.is_none());
+    // Register this connection's pub/sub mailbox so PUBLISH can reach it (EG-307).
+    let (tx, mut rx) = mpsc::unbounded_channel::<PubMessage>();
+    conn.id = pubsub.register(tx);
+    let result = drive_connection(s, &store, &pubsub, &mut conn, &mut rx, password).await;
+    // Always release the registry slot + all subscriptions on the way out.
+    pubsub.unregister(conn.id);
+    result
+}
+
+/// The inner connection loop (split out so [`handle_connection`] can guarantee the
+/// [`PubSub`] unregister runs on every exit path). `select!`s between the socket and
+/// this connection's subscriber mailbox: buffered client commands are executed
+/// first, then it awaits either more bytes or a published message to push out
+/// (CONCEPT:EG-307).
+async fn drive_connection<S>(
+    s: &mut S,
+    store: &Arc<RedisStore>,
+    pubsub: &Arc<PubSub>,
+    conn: &mut ConnState,
+    rx: &mut mpsc::UnboundedReceiver<PubMessage>,
+    password: Option<String>,
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let mut buf: Vec<u8> = Vec::new();
     let mut tmp = [0u8; 8192];
     loop {
-        // Try to carve a complete command out of what we already have.
-        let parsed = match try_parse_command(&buf) {
-            Ok(Some(v)) => Some(v),
-            Ok(None) => None,
-            Err(e) => {
-                let mut out = Vec::new();
-                Resp::Error(e).encode(conn.proto, &mut out);
-                s.write_all(&out).await?;
+        // Drain and execute every complete command already in the buffer.
+        loop {
+            let (args, consumed) = match try_parse_command(&buf) {
+                Ok(Some(v)) => v,
+                Ok(None) => break,
+                Err(e) => {
+                    let mut out = Vec::new();
+                    Resp::Error(e).encode(conn.proto, &mut out);
+                    s.write_all(&out).await?;
+                    return Ok(());
+                }
+            };
+            buf.drain(..consumed);
+            if args.is_empty() {
+                continue;
+            }
+            let replies = dispatch(store, pubsub, &args, conn, password.as_deref());
+            let mut out = Vec::new();
+            for reply in &replies {
+                reply.encode(conn.proto, &mut out);
+            }
+            s.write_all(&out).await?;
+            if conn.quit {
+                let _ = s.shutdown().await;
                 return Ok(());
             }
-        };
-        let (args, consumed) = match parsed {
-            Some(v) => v,
-            None => {
-                let n = s.read(&mut tmp).await?;
+        }
+        // Nothing more to parse: wait for either new bytes or a published message.
+        tokio::select! {
+            read = s.read(&mut tmp) => {
+                let n = read?;
                 if n == 0 {
                     return Ok(()); // client closed
                 }
@@ -1289,20 +1836,17 @@ where
                 if buf.len() > 512 * 1024 * 1024 {
                     return Ok(()); // runaway request guard
                 }
-                continue;
             }
-        };
-        buf.drain(..consumed);
-        if args.is_empty() {
-            continue;
-        }
-        let reply = execute(&store, &args, &mut conn, password.as_deref());
-        let mut out = Vec::new();
-        reply.encode(conn.proto, &mut out);
-        s.write_all(&out).await?;
-        if conn.quit {
-            let _ = s.shutdown().await;
-            return Ok(());
+            msg = rx.recv() => {
+                match msg {
+                    Some(m) => {
+                        let mut out = Vec::new();
+                        m.to_resp().encode(conn.proto, &mut out);
+                        s.write_all(&out).await?;
+                    }
+                    None => return Ok(()), // mailbox closed (shouldn't happen)
+                }
+            }
         }
     }
 }
@@ -1328,6 +1872,9 @@ pub async fn serve_with_store(
     password: Option<String>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
+    // One pub/sub registry per listener, shared across every accepted connection
+    // (CONCEPT:EG-307).
+    let pubsub = Arc::new(PubSub::default());
     tracing::info!(
         "redis-wire: serving Redis RESP protocol on {} (durable={}, auth={})",
         addr,
@@ -1337,9 +1884,10 @@ pub async fn serve_with_store(
     loop {
         let (mut socket, peer) = listener.accept().await?;
         let store = store.clone();
+        let pubsub = pubsub.clone();
         let password = password.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(&mut socket, store, password).await {
+            if let Err(e) = handle_connection(&mut socket, store, pubsub, password).await {
                 tracing::debug!("redis-wire connection from {peer} ended: {e}");
             }
         });
@@ -1360,11 +1908,7 @@ mod tests {
     }
 
     fn conn3() -> ConnState {
-        ConnState {
-            proto: 3,
-            authed: true,
-            quit: false,
-        }
+        ConnState::new(3, true)
     }
 
     fn a(parts: &[&str]) -> Vec<Vec<u8>> {
@@ -1590,11 +2134,7 @@ mod tests {
     #[test]
     fn eg174_auth_gate_and_hello_upgrade() {
         let store = mem_store();
-        let mut c = ConnState {
-            proto: 2,
-            authed: false,
-            quit: false,
-        };
+        let mut c = ConnState::new(2, false);
         // Data command before AUTH → NOAUTH.
         match execute(&store, &a(&["GET", "k"]), &mut c, Some("secret")) {
             Resp::Error(e) => assert!(e.starts_with("NOAUTH"), "{e}"),
@@ -1655,5 +2195,224 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(read_reply(&mut s).await, b"$5\r\nhello\r\n");
+    }
+
+    // ── pub/sub + transactions (CONCEPT:EG-307) ──────────────────────────────────
+
+    fn ps() -> PubSub {
+        PubSub::default()
+    }
+
+    /// Read a reply, but fail (rather than hang forever) if none arrives.
+    async fn read_reply_timeout(stream: &mut TcpStream) -> Vec<u8> {
+        tokio::time::timeout(std::time::Duration::from_secs(3), read_reply(stream))
+            .await
+            .expect("timed out waiting for a reply")
+    }
+
+    /// Bind `serve_with_store` on an ephemeral port and return the address.
+    async fn spawn_listener() -> String {
+        let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = probe.local_addr().unwrap().to_string();
+        drop(probe);
+        let serve_addr = addr.clone();
+        tokio::spawn(async move {
+            let _ = serve_with_store(&serve_addr, mem_store(), None).await;
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        addr
+    }
+
+    #[test]
+    fn eg307_publish_with_no_subscribers_returns_zero() {
+        let store = mem_store();
+        let pubsub = ps();
+        let mut c = conn3();
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["PUBLISH", "ch", "hi"]), &mut c, None),
+            vec![Resp::Int(0)]
+        );
+    }
+
+    #[test]
+    fn eg307_subscribe_confirm_and_count() {
+        let store = mem_store();
+        let pubsub = ps();
+        let mut c = conn3();
+        c.id = pubsub.register(mpsc::unbounded_channel().0);
+        let replies = dispatch(
+            &store,
+            &pubsub,
+            &a(&["SUBSCRIBE", "a", "b"]),
+            &mut c,
+            None,
+        );
+        // One confirmation per channel, with a running total count.
+        assert_eq!(
+            replies,
+            vec![
+                Resp::Push(vec![
+                    Resp::bulk_str("subscribe"),
+                    Resp::bulk_str("a"),
+                    Resp::Int(1)
+                ]),
+                Resp::Push(vec![
+                    Resp::bulk_str("subscribe"),
+                    Resp::bulk_str("b"),
+                    Resp::Int(2)
+                ]),
+            ]
+        );
+        // UNSUBSCRIBE with no args drops all, count falls back to 0.
+        let un = dispatch(&store, &pubsub, &a(&["UNSUBSCRIBE"]), &mut c, None);
+        assert_eq!(un.len(), 2);
+        assert!(c.sub_channels.is_empty());
+    }
+
+    #[tokio::test]
+    async fn eg307_publish_subscribe_delivery_over_tcp() {
+        let addr = spawn_listener().await;
+        // Subscriber connection.
+        let mut sub = TcpStream::connect(&addr).await.unwrap();
+        sub.write_all(b"*2\r\n$9\r\nSUBSCRIBE\r\n$4\r\nnews\r\n")
+            .await
+            .unwrap();
+        // The subscribe confirmation proves the registration landed.
+        let confirm = read_reply_timeout(&mut sub).await;
+        let confirm = String::from_utf8_lossy(&confirm);
+        assert!(confirm.contains("subscribe"), "{confirm}");
+
+        // Publisher connection.
+        let mut pubc = TcpStream::connect(&addr).await.unwrap();
+        pubc.write_all(b"*3\r\n$7\r\nPUBLISH\r\n$4\r\nnews\r\n$5\r\nhello\r\n")
+            .await
+            .unwrap();
+        // PUBLISH reports exactly one receiver.
+        assert_eq!(read_reply_timeout(&mut pubc).await, b":1\r\n");
+
+        // The subscriber is pushed the message frame.
+        let msg = read_reply_timeout(&mut sub).await;
+        let msg = String::from_utf8_lossy(&msg);
+        assert!(msg.contains("message"), "{msg}");
+        assert!(msg.contains("news"), "{msg}");
+        assert!(msg.contains("hello"), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn eg307_psubscribe_glob_delivery_over_tcp() {
+        let addr = spawn_listener().await;
+        let mut sub = TcpStream::connect(&addr).await.unwrap();
+        // PSUBSCRIBE news.* — a glob pattern.
+        sub.write_all(b"*2\r\n$10\r\nPSUBSCRIBE\r\n$6\r\nnews.*\r\n")
+            .await
+            .unwrap();
+        let confirm = read_reply_timeout(&mut sub).await;
+        assert!(String::from_utf8_lossy(&confirm).contains("psubscribe"));
+
+        let mut pubc = TcpStream::connect(&addr).await.unwrap();
+        // Publish to news.tech — matches the glob.
+        pubc.write_all(b"*3\r\n$7\r\nPUBLISH\r\n$9\r\nnews.tech\r\n$2\r\nhi\r\n")
+            .await
+            .unwrap();
+        assert_eq!(read_reply_timeout(&mut pubc).await, b":1\r\n");
+
+        let msg = read_reply_timeout(&mut sub).await;
+        let msg = String::from_utf8_lossy(&msg);
+        // A pattern delivery carries the pattern AND the concrete channel.
+        assert!(msg.contains("pmessage"), "{msg}");
+        assert!(msg.contains("news.*"), "{msg}");
+        assert!(msg.contains("news.tech"), "{msg}");
+        assert!(msg.contains("hi"), "{msg}");
+
+        // A non-matching publish must NOT be delivered (0 receivers).
+        pubc.write_all(b"*3\r\n$7\r\nPUBLISH\r\n$4\r\nchat\r\n$1\r\nx\r\n")
+            .await
+            .unwrap();
+        assert_eq!(read_reply_timeout(&mut pubc).await, b":0\r\n");
+    }
+
+    #[test]
+    fn eg307_multi_exec_atomic() {
+        let store = mem_store();
+        let pubsub = ps();
+        let mut c = conn3();
+        // MULTI opens the transaction.
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["MULTI"]), &mut c, None),
+            vec![Resp::Simple("OK".into())]
+        );
+        // Commands queue rather than execute.
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["SET", "k", "1"]), &mut c, None),
+            vec![Resp::Simple("QUEUED".into())]
+        );
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["INCR", "k"]), &mut c, None),
+            vec![Resp::Simple("QUEUED".into())]
+        );
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["GET", "k"]), &mut c, None),
+            vec![Resp::Simple("QUEUED".into())]
+        );
+        // Nothing ran yet.
+        assert!(c.in_multi);
+        // EXEC runs them back-to-back, replies as one array.
+        let out = dispatch(&store, &pubsub, &a(&["EXEC"]), &mut c, None);
+        assert_eq!(
+            out,
+            vec![Resp::Array(Some(vec![
+                Resp::Simple("OK".into()),
+                Resp::Int(2),
+                Resp::Bulk(Some(b"2".to_vec())),
+            ]))]
+        );
+        assert!(!c.in_multi);
+        // State really changed.
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["GET", "k"]), &mut c, None),
+            vec![Resp::Bulk(Some(b"2".to_vec()))]
+        );
+    }
+
+    #[test]
+    fn eg307_discard_clears_queue() {
+        let store = mem_store();
+        let pubsub = ps();
+        let mut c = conn3();
+        dispatch(&store, &pubsub, &a(&["MULTI"]), &mut c, None);
+        dispatch(&store, &pubsub, &a(&["SET", "k", "99"]), &mut c, None);
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["DISCARD"]), &mut c, None),
+            vec![Resp::Simple("OK".into())]
+        );
+        assert!(!c.in_multi);
+        // The queued SET never ran.
+        assert_eq!(
+            dispatch(&store, &pubsub, &a(&["GET", "k"]), &mut c, None),
+            vec![Resp::Bulk(None)]
+        );
+        // EXEC / DISCARD outside a transaction are errors.
+        assert!(matches!(
+            dispatch(&store, &pubsub, &a(&["EXEC"]), &mut c, None).as_slice(),
+            [Resp::Error(_)]
+        ));
+    }
+
+    #[test]
+    fn eg307_multi_aborts_on_bad_command() {
+        let store = mem_store();
+        let pubsub = ps();
+        let mut c = conn3();
+        dispatch(&store, &pubsub, &a(&["MULTI"]), &mut c, None);
+        // An unknown command taints the transaction.
+        assert!(matches!(
+            dispatch(&store, &pubsub, &a(&["BOGUS", "x"]), &mut c, None).as_slice(),
+            [Resp::Error(_)]
+        ));
+        // EXEC then aborts with EXECABORT.
+        match dispatch(&store, &pubsub, &a(&["EXEC"]), &mut c, None).as_slice() {
+            [Resp::Error(e)] => assert!(e.starts_with("EXECABORT"), "{e}"),
+            other => panic!("expected EXECABORT, got {other:?}"),
+        }
     }
 }
