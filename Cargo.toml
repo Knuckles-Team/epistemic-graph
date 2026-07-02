@@ -465,7 +465,7 @@ node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", 
 # multi-Raft groups). The sibling tracks each extended `cluster`; this unions them so
 # the cluster tier links raft AND pgwire AND the distributed-compute coordinator (and
 # transitively datafusion via `query`).
-cluster = ["node", "raft", "pgwire", "compute-dist", "nonblocking"]
+cluster = ["node", "raft", "pgwire", "compute-dist", "nonblocking", "sqlite-wire"]
 # `pi-max` = the genuinely-Pi-3-friendly MAXIMAL build: every PURE-RUST feature that
 # fits a Pi WITHOUT a C toolchain and WITHOUT DataFusion. It is `pi` (server + graph +
 # algorithms + redb + cypher + ann + rdf + sparql + owl + streaming + result-cache +
