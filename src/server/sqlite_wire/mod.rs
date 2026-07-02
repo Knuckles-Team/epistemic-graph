@@ -251,7 +251,7 @@ mod tests {
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
             channels: ChannelManager::new(),
-            auth_secret: "sqlite-wire-test".to_string(),
+            auth_secret: "sqlite-wire-test".to_string(), // # sanitizer:ignore
             #[cfg(feature = "kv")]
             kv: None,
             persist_dir: None,
