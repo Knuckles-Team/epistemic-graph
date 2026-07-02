@@ -33,6 +33,19 @@
 pub mod search;
 pub mod segment;
 
+/// CONCEPT:EG-316 — the observability EGRESS half: OTLP/HTTP-JSON export of the engine's
+/// OWN Prometheus metrics + its stored distributed-trace spans to an external
+/// OpenTelemetry collector (closing the loop the engine already ingests). Behind the
+/// `otel-export` feature.
+#[cfg(feature = "otel-export")]
+pub mod otel_export;
+
+/// CONCEPT:EG-316 — the Prometheus `remote_write` receiver: land snappy-compressed
+/// protobuf `WriteRequest` POSTs (`/api/v1/write`) into the durable eg-tsdb SeriesStore
+/// so an external Prometheus can PUSH to the engine. Behind the `otel-export` feature.
+#[cfg(feature = "otel-export")]
+pub mod remote_write;
+
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -631,6 +644,11 @@ struct HttpRequest {
     target: String,
     content_type: String,
     body: String,
+    /// CONCEPT:EG-316 — the ORIGINAL (un-lossy-UTF-8'd) request bytes, kept for the
+    /// Prometheus `remote_write` receiver whose body is snappy-compressed BINARY (the
+    /// `body` String would corrupt it). Only populated/read under `otel-export`.
+    #[cfg(feature = "otel-export")]
+    body_bytes: Vec<u8>,
 }
 
 /// Read one HTTP/1.1 request: headers to the blank line, then `Content-Length` body.
@@ -685,6 +703,8 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
         target,
         content_type,
         body: String::from_utf8_lossy(&body).to_string(),
+        #[cfg(feature = "otel-export")]
+        body_bytes: body,
     })
 }
 
@@ -755,6 +775,16 @@ async fn handle(state: &Arc<ObsState>, req: HttpRequest) -> (&'static str, &'sta
         || path == "/api/services/dependencies"
     {
         return crate::server::traces::handle(state, &req.method, path, query, &req.body).await;
+    }
+
+    // CONCEPT:EG-316 — the Prometheus `remote_write` receiver (`POST /api/v1/write`):
+    // decode the snappy-compressed protobuf WriteRequest from the RAW body bytes (the
+    // lossy-UTF-8 `body` String would corrupt the binary) and land its samples in the
+    // durable eg-tsdb SeriesStore. Gated on `otel-export`; absent the feature this path
+    // falls through to the unknown-ingest 404.
+    #[cfg(feature = "otel-export")]
+    if path == "/api/v1/write" {
+        return remote_write::handle(state, &req.method, &req.body_bytes).await;
     }
 
     if req.method != "POST" {
