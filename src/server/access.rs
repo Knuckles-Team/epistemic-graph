@@ -71,6 +71,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::ApplyMultisigMutation { .. }
             | Method::ParseRepository { .. }
             | Method::DeleteGraph { .. }
+            | Method::ClaimNext { .. }
     )
 }
 
