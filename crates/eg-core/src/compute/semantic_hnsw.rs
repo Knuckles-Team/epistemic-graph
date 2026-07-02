@@ -195,6 +195,28 @@ impl SemanticStore {
         self.hnsw_query(query_embedding, n_results, &idx)
     }
 
+    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-070). hnsw_rs has no
+    /// native candidate pre-filter, so this backend realises the predicate by
+    /// over-fetching a wider band and post-filtering — still correct, just without the
+    /// push-down win the `ann` (IVF-PQ) backend gets from `search_filtered`. The
+    /// signature matches the `ann` backend so the planner calls it identically.
+    pub fn semantic_search_filtered(
+        &self,
+        query_embedding: &[f32],
+        n_results: usize,
+        allow: impl Fn(&str) -> bool + Sync,
+    ) -> Vec<(String, f32)> {
+        if n_results == 0 {
+            return Vec::new();
+        }
+        let want = (n_results * 4).max(n_results + 32);
+        self.semantic_search(query_embedding, want)
+            .into_iter()
+            .filter(|(id, _)| allow(id.as_str()))
+            .take(n_results)
+            .collect()
+    }
+
     /// Ensure the HNSW index reflects the current embeddings (double-checked).
     fn ensure_index(&self) {
         {
