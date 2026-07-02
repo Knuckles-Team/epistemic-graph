@@ -175,6 +175,12 @@ pub fn load_triples(
                     entry.insert(pred, literal_to_cell(lit));
                 }
             }
+            // RDF-star (CONCEPT:EG-130): quoted-triple objects are NOT persisted through
+            // the LPG node/edge store in this increment (documented follow-up). They
+            // round-trip natively via the parse/serialize path; skip here rather than
+            // fabricate a node/edge that export could not reverse.
+            #[cfg(feature = "sparql-star")]
+            Term::Triple(_) => {}
             obj => {
                 let o_id = term_node_id(obj).expect("non-literal object");
                 iris.intern(&o_id);
@@ -542,6 +548,17 @@ fn canonical_term(t: &Term) -> String {
             }
             format!("{parts:?}")
         }
+        // RDF-star (CONCEPT:EG-130): a quoted-triple object contributes a canonical,
+        // recursively-normalized `<<s p o>>` key so the round-trip set comparison is
+        // meaningful (not collapsed to a placeholder).
+        #[cfg(feature = "sparql-star")]
+        Term::Triple(t) => {
+            let s = match &t.subject {
+                Subject::NamedNode(n) => format!("<{}>", n.as_str()),
+                Subject::BlankNode(_) => "_:b".to_string(),
+            };
+            format!("<<{s} <{}> {}>>", t.predicate.as_str(), canonical_term(&t.object))
+        }
         #[allow(unreachable_patterns)]
         _ => "?".to_string(),
     }
@@ -837,5 +854,44 @@ ex:x ex:tag "a" , "b" , "c" .
             triple_set_key(&quads_as_triples(&quads)),
             "JSON-LD must round-trip the triple set"
         );
+    }
+
+    // ── EG-130: RDF-star / SPARQL-star (RDF 1.2) ────────────────────────────
+
+    /// EG-130: a quoted triple `<< s p o >>` parses (RDF 1.2 reifying-triple-term form:
+    /// a base triple + an `rdf:reifies` triple whose OBJECT is a first-class
+    /// `Term::Triple`) and round-trips through N-Triples-star, set-equal.
+    #[cfg(feature = "sparql-star")]
+    #[test]
+    fn eg130_quoted_triple_round_trips() {
+        let ttl = "@prefix ex: <http://example.org/> .\nex:s ex:p << ex:a ex:b ex:c >> .";
+        let parsed = parse_turtle(ttl).expect("parse quoted-triple term");
+        assert!(
+            parsed.iter().any(|t| matches!(&t.object, Term::Triple(_))),
+            "a first-class quoted-triple term must be present"
+        );
+        let nt = to_ntriples(&parsed).unwrap();
+        let reparsed = parse_ntriples(&nt).unwrap();
+        assert_eq!(
+            triple_set_key(&parsed),
+            triple_set_key(&reparsed),
+            "the quoted triple must round-trip through N-Triples-star"
+        );
+    }
+
+    /// EG-130: the annotation syntax `{| p o |}` parses (RDF 1.2) and its quoted triple
+    /// term round-trips.
+    #[cfg(feature = "sparql-star")]
+    #[test]
+    fn eg130_annotation_syntax_round_trips() {
+        let ttl =
+            "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c {| ex:certainty 0.9 |} .";
+        let parsed = parse_turtle(ttl).expect("parse annotation syntax");
+        assert!(
+            parsed.iter().any(|t| matches!(&t.object, Term::Triple(_))),
+            "annotation desugars to a quoted-triple term"
+        );
+        let reparsed = parse_ntriples(&to_ntriples(&parsed).unwrap()).unwrap();
+        assert_eq!(triple_set_key(&parsed), triple_set_key(&reparsed));
     }
 }
