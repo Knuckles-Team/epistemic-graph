@@ -69,7 +69,8 @@ flowchart LR
     EGSHEX["eg-shex<br/>ShEx shape validation"]
     EGPLAN["eg-plan<br/>unified RowSet planner + ops"]
     EGGQL["eg-graphql<br/>GraphQL + Apollo Federation"]
-    FACADE["epistemic-graph<br/>facade + Tokio server + wire adapters + observability + embedded"]
+    EGLAKE["eg-lake<br/>LTAP: Parquet · Delta · Iceberg · LSN as-of"]
+    FACADE["epistemic-graph<br/>facade + Tokio server + wire adapters + observability + LTAP egress + QoS scheduler + embedded"]
 
     EGT --> EGANN --> EGCORE
     EGT --> EGCORE
@@ -93,6 +94,8 @@ flowchart LR
     EGSHACL --> FACADE
     EGSHEX --> FACADE
     EGKV --> FACADE
+    EGQUERY --> EGLAKE --> FACADE
+    EGTSDB --> EGLAKE
 ```
 
 The facade re-exports `eg-{types,core,compute}` under the historical `crate::` paths and adds the
@@ -101,14 +104,18 @@ server-side modules (dispatch, handlers, persistence, raft, embedded, **the mult
 `handlers::<domain>::try_handle` and the write side-effects (in-flight gauge, dirty mark, WAL enqueue,
 CDC emit) stay centralized in the shell so every write handler gets durability + reactivity for free.
 
-Six leaf/modality crates were added this cycle: **eg-geo** (GIS — geometry, R-tree, CRS, routing;
+Six leaf/modality crates were added in the 2.2.0 cycle: **eg-geo** (GIS — geometry, R-tree, CRS, routing;
 CONCEPT:EG-083/255-267/155), **eg-tensor** (N-D arrays; CONCEPT:EG-085), **eg-stream** (windowed CEP;
 CONCEPT:EG-088), **eg-shacl** / **eg-shex** (RDF shape validation; CONCEPT:EG-132/133), and
 **eg-kvcache** (LLM KV-block tiering; CONCEPT:EG-185/186/187). The **message broker** (CONCEPT:EG-275
 family) and **agent-memory** primitives (CONCEPT:EG-099/220/221/222) live in `eg-core`; the
 **observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:EG-160-165/172/243) lives in
-`eg-tsdb` + the facade's `obs` listener. See [subsystems](architecture/subsystems.md) for how they
-compose on the one substrate.
+`eg-tsdb` + the facade's `obs` listener. **Program B** (waves B-1..B-6, CONCEPT:EG-298..320) then added a
+seventh leaf crate — **eg-lake** (LTAP lakehouse interop: Parquet + Delta + Iceberg + LSN as-of;
+CONCEPT:EG-317, see [lakehouse-ltap](architecture/lakehouse-ltap.md)) — plus the facade's **OTel egress**
+(OTLP export + Prometheus remote-write; EG-316) and **QoS/SLO scheduler** (EG-320), and exposed the
+agent-memory/scene/trajectory primitives over the wire (EG-318). See
+[subsystems](architecture/subsystems.md) for how they compose on the one substrate.
 
 ---
 

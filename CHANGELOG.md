@@ -8,6 +8,97 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [Unreleased — Program B]
+
+> **Minor, additive, backward-compatible.** Program B (waves B-1..B-6) turns the previously-deferred
+> roadmap tail from stubs into real implementations and pushes a fresh batch of "master of all databases"
+> depth: an **LTAP lakehouse-interop tier** (Databricks-interoperable), real pgvector ANN pushdown,
+> GDS-over-Cypher, real ParadeDB BM25 ranking, exactly-once broker delivery, OTel/remote-write egress,
+> a QoS/SLO scheduler, durable RBAC/JSONPath, `ALTER TABLE`, R2RML, Shapefile/KML, routing
+> turn-restrictions, an HNSW index, real KV-cache compression, the memory/scene/trajectory wire surface,
+> and cross-shard kNN. Every feature stays behind its own Cargo feature + opt-in listener/env; a
+> default/`pi`/`node`/`full` build that sets no new address is byte-for-byte the prior engine. All feature
+> work is merged + tested on `feat/program-b`; all pre-commit gates green. See
+> [`docs/roadmap.md`](docs/roadmap.md#shipped-in-program-b) for the per-item status and
+> [`docs/concepts.md`](docs/concepts.md) for the authoritative `CONCEPT:EG-*` definitions.
+
+### Added
+
+- **LTAP lakehouse interop (`CONCEPT:EG-317`)** — a new async columnar-materialization crate **`eg-lake`**
+  transcodes engine table/columnar data → **Parquet-on-object-store** with **Delta** + **Iceberg**
+  transaction logs, an **Iceberg-REST catalog**, and **LSN-style as-of snapshots** (reusing the versioned
+  snapshots + `Op::AsOf`), so external lakehouse engines (Databricks / Spark / Trino / DuckDB) read our
+  tables with **zero ETL** — making epistemic-graph an **LTAP** (lakehouse-transactional-analytical) superset.
+  `arrow`/`parquet` + delta/iceberg deps behind a `lake` feature; out of `pi`. (The Iceberg Avro **manifest**
+  writer is still a stub — the Delta path + Iceberg-REST catalog are the complete surfaces; see
+  [`docs/architecture/lakehouse-ltap.md`](docs/architecture/lakehouse-ltap.md).)
+- **Real pgvector ANN pushdown (`CONCEPT:EG-313`)** — `ORDER BY col <-> $1 LIMIT k` now pushes down to the
+  eg-ann **HNSW/IVF** index for a real top-k (with an exact re-rank tier) whenever a matching
+  `CREATE INDEX … USING hnsw/ivfflat` (EG-116) exists, replacing the brute-force fallback (which stays as the
+  no-index path). eg-query/pgwire + eg-ann.
+- **HNSW vector index (`CONCEPT:EG-301`)** — a hierarchical-navigable-small-world graph index in eg-ann for
+  higher recall-per-probe than IVF-PQ, with insert/search/serde-persist, tuned by the EG-297 recall harness.
+- **Cross-shard kNN scatter-gather (`CONCEPT:EG-319`)** — a vector kNN query scatters across per-shard
+  eg-ann indexes and merges to a deterministic global top-k via the existing `merge_topk` leaf (EG-069),
+  for cluster-wide vector search. eg-ann + server (raft/router).
+- **GDS over Cypher `CALL gds.*` (`CONCEPT:EG-298`)** — the EG-144 graph-data-science library
+  (PageRank/Louvain/WCC/SCC/betweenness/Dijkstra/similarity) is wired into the Cypher surface as
+  `CALL gds.<algo>(…) YIELD …`, projecting the current graph into the eg-compute adjacency and streaming
+  results as Cypher rows. eg-query/cypher.
+- **Real ParadeDB BM25 ranking + snippets (`CONCEPT:EG-311`)** — real BM25 relevance scoring + highlighted
+  snippets via the eg-text index behind the EG-119 `@@@` / `paradedb.score()` / `paradedb.snippet()` surface
+  (previously a placeholder `1.0`). eg-text (+ minimal eg-query lowering).
+- **`ALTER TABLE` beyond `ADD COLUMN` (`CONCEPT:EG-310`)** — `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`,
+  `ALTER COLUMN … TYPE` (with data migration), and `DROP CONSTRAINT` on the durable user-table catalog
+  (EG-018). eg-query/tables.
+- **Live CEP standing-query subscription (`CONCEPT:EG-299`)** — a server surface (Method + subscription
+  stream) over the EG-088 live-CEP standing-query engine: register a CEP pattern, subscribe, and receive
+  pushed matches fed by the EG-064 CDC broadcast bus. server + eg-stream.
+- **Broker exactly-once + AMQP/MQTT frame exposure (`CONCEPT:EG-314`)** — idempotent-producer dedup
+  (producer id + sequence → drop duplicate publishes) for effectively-exactly-once delivery, plus the
+  EG-283/284 stream/confirm/ack ops exposed over the **AMQP** `confirm.select` and **MQTT 5** wire frames
+  (previously reachable only via engine Methods). eg-core/broker + amqp_wire/mqtt_wire.
+- **Redis pub/sub + S3 multipart completeness (`CONCEPT:EG-307`)** — Redis
+  `SUBSCRIBE`/`PSUBSCRIBE`/`PUBLISH`/`UNSUBSCRIBE` pub-sub + `MULTI`/`EXEC` transactions on the RESP wire
+  (EG-174), and S3 **multipart upload** (Create/Upload-Part/Complete/Abort) + **range GET** on the S3
+  surface (EG-176). server/redis_wire + server/s3.
+- **ICV write-path enforcement (`CONCEPT:EG-300`)** — EG-146 integrity-constraint-validation wired into the
+  commit/write path: a guard evaluates the proposed change set against registered SHACL-as-constraints and
+  **rejects** a transaction that would introduce a violation (constraint-enforced transactions), configurable
+  enforce/warn. eg-rdf/eg-shacl + commit hook.
+- **OBDA full R2RML Turtle parse (`CONCEPT:EG-305`)** — standard R2RML mapping documents in Turtle
+  (`rr:TriplesMap`/`rr:logicalTable`/`rr:subjectMap`/`rr:predicateObjectMap`/`rr:template`/`rr:column`) parse
+  into the EG-101 VirtualGraph model, so a real R2RML file drives an OBDA virtual graph. eg-rdf.
+- **Geospatial format I/O: Shapefile/KML/GeoParquet (`CONCEPT:EG-306`)** — a reader/writer for ESRI
+  **Shapefile** (.shp/.dbf/.shx), **KML/KMZ**, and **GeoParquet**, round-tripping eg-geo geometries +
+  attributes and completing the map-data ingest/export matrix alongside GeoJSON/WKB/GPX (EG-264). eg-geo.
+- **Routing turn-restrictions + time-windows (`CONCEPT:EG-312`)** — EG-266 routing extended with
+  turn-restriction penalties (via edge/turn cost) and **time-window / time-dependent** edge weights (cost as
+  a function of departure time) for realistic logistics routing. eg-geo.
+- **PromQL extended function set (`CONCEPT:EG-302`)** — the EG-172 PromQL evaluator gains the `_over_time`
+  family (sum/avg/min/max/count/stddev/quantile), `delta`/`idelta`/`deriv`, `topk`/`bottomk`/`quantile`,
+  `label_replace`/`label_join`, and `clamp*`. eg-tsdb.
+- **OTel export + Prometheus remote-write + OTLP (`CONCEPT:EG-316`)** — the engine exports its **own**
+  metrics/traces to an external OTel collector (OTLP push) and accepts a **Prometheus remote-write**
+  receiver, closing the observability loop (the engine ingests **and** emits). Adds a protobuf (`prost`) dep
+  behind an `otel-export` feature; out of `pi`. server/obs.
+- **Real KV warm-tier compression (`CONCEPT:EG-315`)** — the eg-kvcache warm tier's RLE fallback is replaced
+  with real **zstd** (optional lz4) compression behind a feature, for effective RAM offload of KV blocks.
+  eg-kvcache; out of `pi`.
+- **Memory/scene/trajectory wire-Op + MCP surface (`CONCEPT:EG-318`)** — the eg-core agent-memory +
+  scene-graph + trajectory library APIs (EG-087/099/220/221/222) are exposed over the wire as additive
+  `Method`s (CreateSummary/Consolidate/Maintain/SceneObject/Trajectory ops) + dispatch handlers + WAL replay,
+  so AU/MCP can drive them remotely (previously in-process only). eg-core + protocol/dispatch.
+- **Real-time QoS/SLO scheduler (`CONCEPT:EG-320`)** — a QoS/SLO-aware request scheduler in the
+  server/transport: per-tenant/priority admission + deadline scheduling + backpressure so latency-critical
+  requests meet SLOs under load. server.
+- **Durable persistence hardening (`CONCEPT:EG-303`/`304`/`308`/`309`)** — RBAC roles/grants + agent
+  identities persist to redb and reload at boot (EG-303, previously in-memory); derived tensors from
+  `Op::TensorOp`/`Op::TensorScan` write **back** into the EG-085 content-addressed tensor store on the exec
+  path (EG-304, durable + dedup-shared); the EG-084 inverted JSONPath index persists to redb + rehydrates at
+  boot and feeds planner cost `Stats` (EG-308); and EG-243 federated search gains **typed** SQL + SPARQL
+  result fusion (schema-aware column union + typed dedup/merge, not just hashed-key union) (EG-309).
+
 ## [2.2.0] - 2026-07-02
 
 > **Minor, additive, backward-compatible.** The "Universal-DB parity" session (waves 18–22,

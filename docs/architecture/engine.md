@@ -20,18 +20,22 @@ flowchart TB
     OBSAG["Log / metric / trace agents (OTLP · Elastic _bulk · Prometheus · Grafana)"]
     S3CLI["S3 clients (aws-cli / boto)"]
     LLM["vLLM / LMCache KV-block clients"]
+    LAKE["Lakehouse engines (Databricks · Spark · Trino · DuckDB)"]
+    OTELC["External OTel collector / Prometheus (remote-write)"]
     PEER["Peer epistemic-graph engines (federation / Raft / super-cluster)"]
     EXT["External Postgres / MySQL / HTTP-JSON sources"]
 
-    ENGINE["epistemic-graph<br/>unified data · compute · messaging · observability engine<br/>(graph + vector + SQL + RDF/OWL + TSDB + BLOB + text + GIS + tensor + stream + broker + KV-cache)"]
+    ENGINE["epistemic-graph<br/>unified data · compute · messaging · observability · lakehouse engine<br/>(graph + vector + SQL + RDF/OWL + TSDB + BLOB + text + GIS + tensor + stream + broker + KV-cache + LTAP)"]
 
     AGENT -->|"MessagePack / UDS / TCP, HMAC"| ENGINE
     PSQL -->|"Postgres wire, SCRAM"| ENGINE
     DBCLI -->|"Bolt · RESP · MySQL · TDS wire"| ENGINE
-    MSG -->|"broker wire protocols"| ENGINE
+    MSG -->|"broker wire protocols (exactly-once)"| ENGINE
     OBSAG -->|"OTLP/HTTP · PromQL · federated _search"| ENGINE
-    S3CLI -->|"S3 REST, SigV4-lite"| ENGINE
+    S3CLI -->|"S3 REST, SigV4-lite, multipart"| ENGINE
     LLM -->|"KV-block GET/PUT by token-hash"| ENGINE
+    ENGINE -->|"Parquet + Delta + Iceberg-REST, zero ETL (EG-317)"| LAKE
+    ENGINE -->|"OTLP export + Prometheus remote-write (EG-316)"| OTELC
     ENGINE <-->|"Raft replication + cross-shard 2PC"| PEER
     ENGINE -->|"ForeignScan federation"| EXT
     ENGINE -->|"federated / super-cluster read"| PEER
@@ -55,13 +59,14 @@ flowchart TB
             OBSW["obs listener: OTLP · _bulk · PromQL · traces · _search"]
         end
         TRANSPORT["Transport + admission control<br/>(framed MessagePack, HMAC, BUSY shedding)"]
-        SECURITY["Security layer<br/>(RLS GraphView filter, audit chain, AEAD-at-rest)"]
+        QOS["QoS/SLO scheduler (EG-320):<br/>per-tenant/priority admission · deadline · backpressure"]
+        SECURITY["Security layer<br/>(RLS GraphView filter, audit chain, AEAD-at-rest, durable RBAC)"]
         DISPATCH["Dispatch + per-domain handlers"]
         PLANNER["Unified RowSet planner (eg-plan)"]
 
         subgraph Cores["Storage and compute core"]
             GRAPHCORE["GraphCore (eg-core): petgraph + ledger + result cache + index manager"]
-            ANN["Vector ANN + exact/recall (eg-ann)"]
+            ANN["Vector ANN: IVF-PQ + HNSW + exact/recall + cross-shard scatter (eg-ann)"]
             QUERY["SQL + Cypher (eg-query / DataFusion)"]
             RDFOWL["RDF / SPARQL / OWL / SHACL / ShEx (eg-rdf / eg-shacl / eg-shex)"]
             TSDB["Time-series + VRL (eg-tsdb)"]
@@ -74,10 +79,11 @@ flowchart TB
         end
 
         subgraph Subsys["New cross-cutting subsystems"]
-            BROKER["Message broker (eg-core/broker):<br/>exchanges · queues · streams · DLQ · TTL"]
-            OBS["Observability: logs · PromQL metrics · traces · federated search"]
-            MEM["Agent-memory: summary tier · consolidation · decay"]
-            KVC["KV-cache tiering (eg-kvcache): hot/warm/cold + shared backend"]
+            BROKER["Message broker (eg-core/broker):<br/>exchanges · queues · streams · DLQ · TTL · exactly-once"]
+            OBS["Observability: logs · PromQL (extended) metrics · traces · federated search · OTel/remote-write egress"]
+            MEM["Agent-memory: summary · consolidation · decay · scene · trajectory (wire-Op surface, EG-318)"]
+            KVC["KV-cache tiering (eg-kvcache): hot/warm(zstd)/cold + shared backend"]
+            LAKE["LTAP lakehouse (eg-lake): Parquet · Delta · Iceberg-REST · LSN as-of"]
         end
 
         subgraph Durable["Durability and distribution"]
@@ -92,16 +98,18 @@ flowchart TB
     PGW & SQLITEW & MYSQLW & MSSQLW & BOLTW & REDISW & S3W --> DISPATCH
     BROKERW --> BROKER
     OBSW --> OBS
-    TRANSPORT --> SECURITY --> DISPATCH
+    TRANSPORT --> QOS --> SECURITY --> DISPATCH
     DISPATCH --> PLANNER --> GRAPHCORE
     DISPATCH --> GRAPHCORE
     GRAPHCORE --> ANN & QUERY & RDFOWL & TSDB & TEXT & BLOBC & WASM & GEO & TENSOR & STREAM
-    DISPATCH --> BROKER & OBS & MEM & KVC
+    DISPATCH --> BROKER & OBS & MEM & KVC & LAKE
     BROKER --> GRAPHCORE
     MEM --> GRAPHCORE
     OBS --> TSDB
     OBS --> TEXT
     KVC --> REDB
+    LAKE --> QUERY
+    LAKE --> BLOBC
     GRAPHCORE --> COAL --> REDB
     REDB <--> RAFT
     GRAPHCORE --> CDC
@@ -402,7 +410,8 @@ is heavy, so it ships in `node`/`cluster`/`full` — never `pi`.
 
 ## Related references
 
-- [Subsystems (C4 container level)](subsystems.md) — the broker, observability, GIS, tensor, stream, KV-cache, agent-memory, and multi-wire subsystems and how they compose on the one substrate.
+- [Subsystems (C4 container level)](subsystems.md) — the broker, observability, GIS, tensor, stream, KV-cache, agent-memory, LTAP lakehouse, and multi-wire subsystems and how they compose on the one substrate.
+- [Lakehouse LTAP interop (EG-317)](lakehouse-ltap.md) — the eg-lake Parquet/Delta/Iceberg egress tier that makes the engine Databricks-interoperable with zero ETL.
 - [Tiers & binaries](tiers.md) — which features ship in which binary, and the prebuilt sizes.
 - [Engine modes](../engine-modes.md) — remote / shared-local / autostart resolution + the auto-bundle.
 - [Deployment](../deployment.md) — Docker / wheel / single-node / HA recipes.
