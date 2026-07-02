@@ -40,7 +40,7 @@ use redb::{
 };
 use serde_json::Value;
 
-use super::schema::{Cell, Column, StoredFunction, TableSchema};
+use super::schema::{Cell, Column, ColumnType, StoredFunction, TableSchema};
 
 /// Catalog system table: `table_name -> MessagePack(TableSchema)`.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_catalog__");
@@ -88,6 +88,39 @@ pub enum TxnOp {
     AddColumn {
         table: String,
         column: Column,
+    },
+    /// CONCEPT:EG-310 — `ALTER TABLE … DROP COLUMN`: drop a column from the schema and
+    /// its cell from every stored row.
+    DropColumn {
+        table: String,
+        column: String,
+        if_exists: bool,
+    },
+    /// CONCEPT:EG-310 — `ALTER TABLE … RENAME COLUMN a TO b` (rows are positional; no
+    /// per-row migration needed).
+    RenameColumn {
+        table: String,
+        from: String,
+        to: String,
+    },
+    /// CONCEPT:EG-310 — `ALTER TABLE … RENAME TO newtable`: rename the catalog entry,
+    /// sequence, and every stored row's key.
+    RenameTable {
+        table: String,
+        new_name: String,
+    },
+    /// CONCEPT:EG-310 — `ALTER TABLE … ALTER COLUMN col TYPE newtype`: change the column
+    /// type, best-effort coercing every stored cell (reject on an incompatible value).
+    AlterColumnType {
+        table: String,
+        column: String,
+        new_type: ColumnType,
+    },
+    /// CONCEPT:EG-310 — `ALTER TABLE … DROP CONSTRAINT name`: drop a named constraint.
+    DropConstraint {
+        table: String,
+        constraint: String,
+        if_exists: bool,
     },
     Insert {
         table: String,
@@ -175,6 +208,66 @@ impl TableStore {
     pub fn add_column(&self, table: &str, column: Column) -> Result<(), String> {
         let wtx = self.begin()?;
         add_column_in(&wtx, table, &column)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// CONCEPT:EG-310 — `ALTER TABLE DROP COLUMN`: remove `column` from the schema and
+    /// drop its cell from every stored row, atomically in one write txn. Errors if the
+    /// column (or table) does not exist unless `if_exists`.
+    pub fn drop_column(&self, table: &str, column: &str, if_exists: bool) -> Result<(), String> {
+        let wtx = self.begin()?;
+        drop_column_in(&wtx, table, column, if_exists)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// CONCEPT:EG-310 — `ALTER TABLE RENAME COLUMN a TO b`: rename a column in place.
+    /// Stored rows are positional so they need no migration. Errors if `from` is absent
+    /// or `to` already exists.
+    pub fn rename_column(&self, table: &str, from: &str, to: &str) -> Result<(), String> {
+        let wtx = self.begin()?;
+        rename_column_in(&wtx, table, from, to)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// CONCEPT:EG-310 — `ALTER TABLE RENAME TO newtable`: move the table's catalog entry,
+    /// sequence, and every stored row's key to `new_name`, atomically. Errors if the
+    /// table is absent or `new_name` already exists.
+    pub fn rename_table(&self, table: &str, new_name: &str) -> Result<(), String> {
+        let wtx = self.begin()?;
+        rename_table_in(&wtx, table, new_name)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// CONCEPT:EG-310 — `ALTER TABLE ALTER COLUMN col TYPE newtype`: change a column's
+    /// declared type and best-effort coerce every stored cell to it, atomically. A cell
+    /// that cannot be coerced aborts (and rolls back) the whole change.
+    pub fn alter_column_type(
+        &self,
+        table: &str,
+        column: &str,
+        new_type: ColumnType,
+    ) -> Result<(), String> {
+        let wtx = self.begin()?;
+        alter_column_type_in(&wtx, table, column, new_type)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// CONCEPT:EG-310 — `ALTER TABLE DROP CONSTRAINT name`: drop the named constraint
+    /// (matched against Postgres's synthesized names — `<table>_pkey`, `<table>_<col>_key`,
+    /// `<table>_<col>_check`). Errors if no such constraint exists unless `if_exists`.
+    pub fn drop_constraint(
+        &self,
+        table: &str,
+        constraint: &str,
+        if_exists: bool,
+    ) -> Result<(), String> {
+        let wtx = self.begin()?;
+        drop_constraint_in(&wtx, table, constraint, if_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -598,6 +691,34 @@ impl TableStore {
                 TxnOp::AddColumn { table, column } => {
                     add_column_in(&wtx, table, column)?;
                 }
+                // CONCEPT:EG-310 — ALTER TABLE ops staged into a multi-statement txn.
+                TxnOp::DropColumn {
+                    table,
+                    column,
+                    if_exists,
+                } => {
+                    drop_column_in(&wtx, table, column, *if_exists)?;
+                }
+                TxnOp::RenameColumn { table, from, to } => {
+                    rename_column_in(&wtx, table, from, to)?;
+                }
+                TxnOp::RenameTable { table, new_name } => {
+                    rename_table_in(&wtx, table, new_name)?;
+                }
+                TxnOp::AlterColumnType {
+                    table,
+                    column,
+                    new_type,
+                } => {
+                    alter_column_type_in(&wtx, table, column, *new_type)?;
+                }
+                TxnOp::DropConstraint {
+                    table,
+                    constraint,
+                    if_exists,
+                } => {
+                    drop_constraint_in(&wtx, table, constraint, *if_exists)?;
+                }
                 TxnOp::Insert {
                     table,
                     col_order,
@@ -715,10 +836,316 @@ fn add_column_in(wtx: &WriteTransaction, table: &str, column: &Column) -> Result
         ));
     }
     schema.columns.push(column.clone());
-    let blob = rmp_serde::to_vec_named(&schema).map_err(|e| format!("encode schema: {e}"))?;
+    put_schema_in(wtx, &schema)
+}
+
+/// Persist a (possibly renamed) schema back into the catalog under its `name` key.
+/// The single place an ALTER rewrites the catalog entry (CONCEPT:EG-310).
+fn put_schema_in(wtx: &WriteTransaction, schema: &TableSchema) -> Result<(), String> {
+    let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
     let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
-    cat.insert(table, blob.as_slice()).map_err(map_err)?;
+    cat.insert(schema.name.as_str(), blob.as_slice())
+        .map_err(map_err)?;
     Ok(())
+}
+
+/// Rewrite every stored row of `table` through `f` (which mutates the row's `Vec<Cell>`
+/// in place), inside the open write txn — the atomic row-migration primitive shared by
+/// DROP COLUMN and ALTER COLUMN TYPE (CONCEPT:EG-310). An error from `f` on ANY row
+/// propagates so the whole ALTER rolls back (the txn drops without commit).
+fn migrate_rows_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    mut f: impl FnMut(&mut Vec<Cell>) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    // Decode every (rowid, cells) first; the range borrow ends before we mutate.
+    let mut items: Vec<(u64, Vec<Cell>)> = Vec::new();
+    for r in rows_t
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (k, v) = r.map_err(map_err)?;
+        let cells: Vec<Cell> =
+            rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+        items.push((k.value().1, cells));
+    }
+    for (rowid, mut cells) in items {
+        f(&mut cells)?;
+        let blob = rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
+        rows_t
+            .insert((table, rowid), blob.as_slice())
+            .map_err(map_err)?;
+    }
+    Ok(())
+}
+
+/// CONCEPT:EG-310 — `DROP COLUMN`: remove `column` from the schema and drop its cell
+/// from every stored row (positional splice at the column's index). Refuses to drop the
+/// only column of a table. `if_exists` turns an absent-column error into a no-op.
+fn drop_column_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    column: &str,
+    if_exists: bool,
+) -> Result<(), String> {
+    let mut schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    let idx = match schema.column_index(column) {
+        Some(i) => i,
+        None => {
+            if if_exists {
+                return Ok(());
+            }
+            return Err(format!(
+                "column `{column}` does not exist in table `{table}`"
+            ));
+        }
+    };
+    if schema.columns.len() == 1 {
+        return Err(format!(
+            "cannot drop the only column `{column}` of table `{table}`"
+        ));
+    }
+    schema.columns.remove(idx);
+    put_schema_in(wtx, &schema)?;
+    // Splice the dropped cell out of each stored row (rows may be short if written before
+    // a later ADD COLUMN — guard the index).
+    migrate_rows_in(wtx, table, |cells| {
+        if idx < cells.len() {
+            cells.remove(idx);
+        }
+        Ok(())
+    })
+}
+
+/// CONCEPT:EG-310 — `RENAME COLUMN a TO b`: rename in the schema only (rows are
+/// positional). Errors if `from` is absent or `to` already exists.
+fn rename_column_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    let mut schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    if from != to && schema.column(to).is_some() {
+        return Err(format!("column `{to}` already exists in table `{table}`"));
+    }
+    let idx = schema
+        .column_index(from)
+        .ok_or_else(|| format!("column `{from}` does not exist in table `{table}`"))?;
+    schema.columns[idx].name = to.to_string();
+    put_schema_in(wtx, &schema)
+}
+
+/// CONCEPT:EG-310 — `RENAME TO newtable`: move the catalog entry, the sequence, and
+/// every stored row's key from `table` to `new_name`. Errors if the table is absent or
+/// `new_name` already exists.
+fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Result<(), String> {
+    if table == new_name {
+        return Ok(());
+    }
+    let mut schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    if get_schema_in(wtx, new_name)?.is_some() {
+        return Err(format!("table `{new_name}` already exists"));
+    }
+    // Catalog: drop the old key, write the schema under the new name.
+    schema.name = new_name.to_string();
+    {
+        let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
+        cat.remove(table).map_err(map_err)?;
+    }
+    put_schema_in(wtx, &schema)?;
+    // Sequence: carry the rowid allocator forward so SERIAL ids never collide/reuse.
+    {
+        let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
+        let val = seq.get(table).map_err(map_err)?.map(|g| g.value());
+        seq.remove(table).map_err(map_err)?;
+        if let Some(v) = val {
+            seq.insert(new_name, v).map_err(map_err)?;
+        }
+    }
+    // Rows: re-key each (table, rowid) → (new_name, rowid).
+    {
+        let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
+        let mut items: Vec<(u64, Vec<u8>)> = Vec::new();
+        for r in rows
+            .range((table, 0u64)..=(table, u64::MAX))
+            .map_err(map_err)?
+        {
+            let (k, v) = r.map_err(map_err)?;
+            items.push((k.value().1, v.value().to_vec()));
+        }
+        for (rowid, blob) in &items {
+            rows.remove((table, *rowid)).map_err(map_err)?;
+            rows.insert((new_name, *rowid), blob.as_slice())
+                .map_err(map_err)?;
+        }
+    }
+    Ok(())
+}
+
+/// CONCEPT:EG-310 — `ALTER COLUMN col TYPE newtype`: best-effort coerce every stored
+/// cell at the column's index to `new_type`, then record the new type. A cell that
+/// cannot be coerced returns `Err` so the whole ALTER rolls back (no partial migration).
+fn alter_column_type_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    column: &str,
+    new_type: ColumnType,
+) -> Result<(), String> {
+    let mut schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    let idx = schema
+        .column_index(column)
+        .ok_or_else(|| format!("column `{column}` does not exist in table `{table}`"))?;
+    let nullable = schema.columns[idx].nullable;
+    // Migrate rows FIRST so an incompatible value aborts before the schema is touched.
+    migrate_rows_in(wtx, table, |cells| {
+        if let Some(cell) = cells.get_mut(idx) {
+            *cell = coerce_cell(cell, new_type, nullable)
+                .map_err(|e| format!("cannot ALTER COLUMN `{column}` TYPE: {e}"))?;
+        }
+        Ok(())
+    })?;
+    schema.columns[idx].ty = new_type;
+    put_schema_in(wtx, &schema)
+}
+
+/// CONCEPT:EG-310 — `DROP CONSTRAINT name`: this catalog stores constraints per column
+/// (PK / UNIQUE / CHECK) without user-visible names, so a dropped constraint is matched
+/// against Postgres's synthesized names — `<table>_pkey`, `<table>_<col>_key`,
+/// `<table>_<col>_check` — and the matching column flag is cleared. Errors if nothing
+/// matches unless `if_exists`.
+fn drop_constraint_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    constraint: &str,
+    if_exists: bool,
+) -> Result<(), String> {
+    let mut schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    let mut matched = false;
+    if constraint == format!("{table}_pkey") {
+        for c in &mut schema.columns {
+            if c.primary_key {
+                c.primary_key = false;
+                c.unique = false;
+                matched = true;
+            }
+        }
+    }
+    if !matched {
+        for c in &mut schema.columns {
+            if constraint == format!("{table}_{}_key", c.name) && c.is_unique() {
+                c.unique = false;
+                c.primary_key = false;
+                matched = true;
+            } else if constraint == format!("{table}_{}_check", c.name) && c.check.is_some() {
+                c.check = None;
+                matched = true;
+            }
+        }
+    }
+    if !matched {
+        if if_exists {
+            return Ok(());
+        }
+        return Err(format!(
+            "constraint `{constraint}` does not exist on table `{table}`"
+        ));
+    }
+    put_schema_in(wtx, &schema)
+}
+
+/// Best-effort coerce an already-stored [`Cell`] to `ty` for an `ALTER COLUMN … TYPE`
+/// migration (CONCEPT:EG-310). A cell already of the target shape is kept verbatim; a
+/// NULL passes through subject to `nullable`; otherwise the value is rendered into a
+/// JSON value tuned for the target and run through the SAME [`Cell::coerce`] the write
+/// path uses — so an incompatible value (e.g. `'abc'` → int) is rejected identically.
+fn coerce_cell(old: &Cell, ty: ColumnType, nullable: bool) -> Result<Cell, String> {
+    if matches!(old, Cell::Null) {
+        return Cell::coerce(&Value::Null, ty, nullable);
+    }
+    if cell_matches_type(old, ty) {
+        return Ok(old.clone());
+    }
+    let v = coercion_value(old, ty);
+    Cell::coerce(&v, ty, nullable)
+}
+
+/// Whether `cell`'s stored shape already matches `ty` (so an ALTER TYPE is a no-op for
+/// that cell). `Int`/`BigInt` share `Cell::Int`; `Float`/`Double` share `Cell::Float`.
+fn cell_matches_type(cell: &Cell, ty: ColumnType) -> bool {
+    matches!(
+        (cell, ty),
+        (Cell::Int(_), ColumnType::Int | ColumnType::BigInt)
+            | (Cell::Timestamp(_), ColumnType::Timestamp)
+            | (Cell::Float(_), ColumnType::Float | ColumnType::Double)
+            | (Cell::Text(_), ColumnType::Text)
+            | (Cell::Bool(_), ColumnType::Bool)
+            | (Cell::Bytes(_), ColumnType::Bytes)
+            | (Cell::Json(_), ColumnType::Json)
+            | (Cell::Vector(_), ColumnType::Vector(_))
+    )
+}
+
+/// Render `old` into a JSON value best-tuned for coercion into `ty` (CONCEPT:EG-310):
+/// numeric text is parsed into a JSON number, integral floats become integers, booleans
+/// map to 0/1, etc. Anything that cannot be represented falls back to the cell's plain
+/// JSON form, so the downstream [`Cell::coerce`] produces a precise rejection error.
+fn coercion_value(old: &Cell, ty: ColumnType) -> Value {
+    let json_f64 = |f: f64| {
+        serde_json::Number::from_f64(f)
+            .map(Value::Number)
+            .unwrap_or(Value::Null)
+    };
+    match ty {
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => match old {
+            Cell::Int(i) | Cell::Timestamp(i) => Value::Number((*i).into()),
+            Cell::Float(f) if f.fract() == 0.0 && f.is_finite() => Value::Number((*f as i64).into()),
+            Cell::Bool(b) => Value::Number((*b as i64).into()),
+            Cell::Text(s) => s
+                .trim()
+                .parse::<i64>()
+                .map(|n| Value::Number(n.into()))
+                .unwrap_or_else(|_| Value::String(s.clone())),
+            other => other.to_json(),
+        },
+        ColumnType::Float | ColumnType::Double => match old {
+            Cell::Int(i) | Cell::Timestamp(i) => json_f64(*i as f64),
+            Cell::Float(f) => json_f64(*f),
+            Cell::Text(s) => s
+                .trim()
+                .parse::<f64>()
+                .map(json_f64)
+                .unwrap_or_else(|_| Value::String(s.clone())),
+            other => other.to_json(),
+        },
+        ColumnType::Bool => match old {
+            Cell::Bool(b) => Value::Bool(*b),
+            Cell::Int(i) => Value::Bool(*i != 0),
+            Cell::Text(s) => parse_bool_text(s)
+                .map(Value::Bool)
+                .unwrap_or_else(|| Value::String(s.clone())),
+            other => other.to_json(),
+        },
+        // Text / Json / Bytes / Vector reuse the cell's plain JSON form; `Cell::coerce`
+        // renders a scalar into text, parses a string into bytes, etc.
+        _ => old.to_json(),
+    }
+}
+
+/// Parse the common SQL/Postgres textual boolean spellings for an ALTER-TYPE migration
+/// (CONCEPT:EG-310). Returns `None` for an unrecognized spelling (→ rejected downstream).
+fn parse_bool_text(s: &str) -> Option<bool> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "true" | "t" | "yes" | "y" | "on" | "1" => Some(true),
+        "false" | "f" | "no" | "n" | "off" | "0" => Some(false),
+        _ => None,
+    }
 }
 
 /// Read+advance the per-table sequence (the `SERIAL`/rowid allocator) by `count`,

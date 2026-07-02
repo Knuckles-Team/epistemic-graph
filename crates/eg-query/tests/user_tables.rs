@@ -48,9 +48,29 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             None
         }
         StatementKind::AlterTable(plan) => {
-            store
-                .add_column(&plan.name, to_store_column(&plan.add_column))
-                .unwrap();
+            // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — mirror the facade.
+            use eg_query::AlterTableAction as A;
+            match plan.action {
+                A::AddColumn(col) => store.add_column(&plan.name, to_store_column(&col)).unwrap(),
+                A::DropColumn { column, if_exists } => {
+                    store.drop_column(&plan.name, &column, if_exists).unwrap()
+                }
+                A::RenameColumn { from, to } => {
+                    store.rename_column(&plan.name, &from, &to).unwrap()
+                }
+                A::RenameTable { new_name } => {
+                    store.rename_table(&plan.name, &new_name).unwrap()
+                }
+                A::AlterColumnType { column, new_type } => store
+                    .alter_column_type(&plan.name, &column, ColumnType::parse(&new_type).unwrap())
+                    .unwrap(),
+                A::DropConstraint {
+                    constraint,
+                    if_exists,
+                } => store
+                    .drop_constraint(&plan.name, &constraint, if_exists)
+                    .unwrap(),
+            }
             None
         }
         StatementKind::InsertTable(ins) => {
