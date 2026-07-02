@@ -952,6 +952,56 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── MQTT 3.1.1 wire-protocol listener (CONCEPT:EG-281) ────────────────
+    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+    // the binary is built `--features mqtt-wire` AND EPISTEMIC_GRAPH_MQTT_ADDR is set.
+    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
+    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // `127.0.0.1:1883` (the MQTT default), a bare port binds loopback:port, a full addr
+    // verbatim. A native hand-rolled MQTT server mapping CONNECT/PUBLISH/SUBSCRIBE onto
+    // the `broker` topic exchange (KG-2.303 queue) via dispatch, so an MQTT client
+    // pub/subs directly against the engine.
+    #[cfg(feature = "mqtt-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::mqtt_wire::MQTT_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:1883",
+    ) {
+        let mqtt_state = state.clone();
+        info!("mqtt-wire: serving MQTT 3.1.1 wire protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::mqtt_wire::serve(&addr, mqtt_state).await {
+                tracing::error!("mqtt-wire server error: {}", e);
+            }
+        });
+    }
+
+    // ── STOMP 1.2 wire-protocol listener (CONCEPT:EG-282) ─────────────────
+    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+    // the binary is built `--features stomp-wire` AND EPISTEMIC_GRAPH_STOMP_ADDR is set.
+    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
+    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // `127.0.0.1:61613` (the STOMP default), a bare port binds loopback:port, a full addr
+    // verbatim. A native hand-rolled STOMP text-frame server mapping SEND/SUBSCRIBE onto
+    // the `broker` primitives (destinations → exchange + per-subscription queues) via
+    // dispatch, so a STOMP client pub/subs directly against the engine.
+    #[cfg(feature = "stomp-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::stomp_wire::STOMP_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:61613",
+    ) {
+        let stomp_state = state.clone();
+        info!("stomp-wire: serving STOMP 1.2 wire protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::stomp_wire::serve(&addr, stomp_state).await {
+                tracing::error!("stomp-wire server error: {}", e);
+            }
+        });
+    }
+
     // ── S3-compatible object-storage REST surface (CONCEPT:EG-176) ────────
     // Opt-in AND feature-gated, mirroring the obs listener: it starts ONLY when the
     // binary is built `--features s3-api` AND EPISTEMIC_GRAPH_S3_ADDR is set. With the
