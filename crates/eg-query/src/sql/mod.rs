@@ -17,9 +17,10 @@ mod udfs;
 
 pub use classify::{
     classify, infer_param_sites, returning_columns, schema_probe_sql, AlterTablePlan, ColumnDef,
-    CopyFormat, CopyPlan, CreateTablePlan, DeleteNodes, DeleteTable, DropTablePlan, InsertNode,
-    InsertNodes, InsertSelect, InsertTable, ParamLiteralType, ParamSite, StatementKind,
-    TableWhereEq, UpdateNodes, UpdateTable, WhereEq,
+    CopyFormat, CopyPlan, CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin,
+    DeleteTable, DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect,
+    InsertSelect, InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite,
+    StatementKind, TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 pub use exec::{
     exec_sql, exec_sql_cached, exec_sql_typed, exec_sql_typed_with_tables, PgColType, QueryResult,
