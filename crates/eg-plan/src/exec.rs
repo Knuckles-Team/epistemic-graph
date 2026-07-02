@@ -185,6 +185,16 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "geo")]
         Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx.view, layer, *bbox)),
 
+        // SOURCE (tensor, CONCEPT:EG-085) — seed the RowSet with the `layer`'s
+        // tensor-bearing nodes; TRANSFORM (tensor) — apply the eg-tensor op to each
+        // row's stored tensor. Gated behind `tensor`; the variants only exist when
+        // eg-types/tensor is on (pulled by eg-plan/tensor), so a non-tensor build has
+        // neither the variants nor these arms (the geo/ForeignScan gating precedent).
+        #[cfg(feature = "tensor")]
+        Op::TensorScan { layer } => Ok(tensor_scan(ctx.view, layer)),
+        #[cfg(feature = "tensor")]
+        Op::TensorOp { kind } => Ok(tensor_op(ctx.view, input, kind)),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
 }
@@ -738,6 +748,99 @@ fn row_geometry(view: &GraphView, id: &str, column: &str) -> Option<eg_geo::Geom
 fn geometry_from_value(v: &serde_json::Value) -> Option<eg_geo::Geometry> {
     let wkt = v.get("geometry").or_else(|| v.get("geom"))?.as_str()?;
     eg_geo::parse_wkt(wkt).ok()
+}
+
+// ── the tensor leg — eg-tensor N-D arrays over the GraphView blobs (EG-085) ──────
+
+/// SOURCE (tensor): every node in `layer` (matched on the `type` property, exactly as
+/// [`scan_label`]) that carries a valid dense N-D array in the conventional `tensor`
+/// property (CONCEPT:EG-085). A dep-free view scan, mirroring `spatial_scan` — the
+/// matching ids seed the RowSet; the tensor itself is read per-row by [`tensor_op`].
+/// (Content-addressing the tensor bytes in the blob CAS — `ChunkStore` + EG-071 — is a
+/// documented follow-up; v1 reads the tensor as a typed node property off the live
+/// snapshot.)
+#[cfg(feature = "tensor")]
+fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
+    let mut ids: Vec<String> = Vec::new();
+    for (id, blob) in view.node_properties.iter() {
+        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+            continue;
+        };
+        if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
+            continue;
+        }
+        if tensor_from_value(&v).is_some() {
+            ids.push(id.clone());
+        }
+    }
+    RowSet::from_ids(ids)
+}
+
+/// TRANSFORM (tensor): apply the eg-tensor op `kind` (slice/reduce/elementwise) to each
+/// row's stored tensor (CONCEPT:EG-085). Rows whose tensor is missing/invalid or where
+/// the op fails (e.g. a slice out of bounds) are DROPPED — order- and score-preserving
+/// via [`RowSet::intersect_keep_order`], exactly as the spatial `Filter` leg drops rows
+/// with no geometry. The transformed tensor is computed to validate the op per row; a
+/// v1 executor does NOT persist the result back to the blob CAS — writing derived
+/// tensors as new content-addressed blobs is the documented follow-up.
+#[cfg(feature = "tensor")]
+fn tensor_op(view: &GraphView, input: RowSet, kind: &eg_types::wire::TensorOpKind) -> RowSet {
+    let keep: HashSet<&str> = input
+        .rows()
+        .iter()
+        .filter(|r| {
+            row_tensor(view, &r.id).is_some_and(|t| apply_tensor_op(&t, kind).is_ok())
+        })
+        .map(|r| r.id.as_str())
+        .collect();
+    input.intersect_keep_order(&keep)
+}
+
+/// Read node `id`'s tensor from the conventional `tensor` property of its blob
+/// (CONCEPT:EG-085), decoding the typed serde form.
+#[cfg(feature = "tensor")]
+fn row_tensor(view: &GraphView, id: &str) -> Option<eg_tensor::Tensor> {
+    let blob = view.node_properties.get(id)?;
+    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    tensor_from_value(&v)
+}
+
+/// Read a tensor from a node's decoded blob via the conventional `tensor` property.
+#[cfg(feature = "tensor")]
+fn tensor_from_value(v: &serde_json::Value) -> Option<eg_tensor::Tensor> {
+    serde_json::from_value::<eg_tensor::Tensor>(v.get("tensor")?.clone()).ok()
+}
+
+/// Map the pure-serde wire `TensorOpKind` (eg-types) to the eg-tensor op and run it.
+/// The wire enums are defined in eg-types (Pi-safe, no eg-tensor dep); this seam turns
+/// them into the real N-D array math behind the `tensor` gate.
+#[cfg(feature = "tensor")]
+fn apply_tensor_op(
+    t: &eg_tensor::Tensor,
+    kind: &eg_types::wire::TensorOpKind,
+) -> Result<eg_tensor::Tensor, String> {
+    use eg_types::wire::{TensorElementwiseOp, TensorOpKind, TensorReduceKind};
+    match kind {
+        TensorOpKind::Slice { ranges } => t.slice(ranges),
+        TensorOpKind::Reduce { axis, kind } => {
+            let k = match kind {
+                TensorReduceKind::Sum => eg_tensor::ReduceKind::Sum,
+                TensorReduceKind::Mean => eg_tensor::ReduceKind::Mean,
+                TensorReduceKind::Max => eg_tensor::ReduceKind::Max,
+                TensorReduceKind::Min => eg_tensor::ReduceKind::Min,
+            };
+            t.reduce(*axis, k)
+        }
+        TensorOpKind::Elementwise { op, scalar } => {
+            let o = match op {
+                TensorElementwiseOp::Add => eg_tensor::ElementwiseOp::Add,
+                TensorElementwiseOp::Sub => eg_tensor::ElementwiseOp::Sub,
+                TensorElementwiseOp::Mul => eg_tensor::ElementwiseOp::Mul,
+                TensorElementwiseOp::Div => eg_tensor::ElementwiseOp::Div,
+            };
+            Ok(t.elementwise(o, *scalar))
+        }
+    }
 }
 
 // ── the relational FILTER leg — real DataFusion via eg-query ────────────────────
