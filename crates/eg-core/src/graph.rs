@@ -905,6 +905,58 @@ impl GraphCore {
         self.txn().remove_node(node_id);
     }
 
+    // ── Distribution-valued properties (CONCEPT:EG-086) ──────────────────
+    //
+    // A `Distribution` is just a tagged JSON object, so it round-trips through
+    // the existing arbitrary-JSON property map with NO schema change — these
+    // are typed convenience accessors over that convention, generalizing the
+    // scalar `confidence` field into a full uncertainty distribution.
+
+    /// Read a distribution-valued property `key` off `node_id` (CONCEPT:EG-086).
+    /// Returns `None` if the node is absent, its blob is undecodable, the key is
+    /// missing, or the stored JSON is not a valid `Distribution`.
+    pub fn get_distribution(
+        &self,
+        node_id: &str,
+        key: &str,
+    ) -> Option<eg_types::Distribution> {
+        let bytes = self.get_node_properties(node_id)?;
+        let val = rmp_serde::from_slice::<serde_json::Value>(&bytes).ok()?;
+        let field = val.as_object()?.get(key)?.clone();
+        serde_json::from_value(field).ok()
+    }
+
+    /// Store `dist` as the property `key` on `node_id` (CONCEPT:EG-086), merging
+    /// into the node's existing properties (other keys preserved). Creates the
+    /// node with a single-key object if it does not yet exist. Returns whether
+    /// the property was written (only fails if the value cannot be serialized).
+    pub fn set_distribution(
+        &self,
+        node_id: &str,
+        key: &str,
+        dist: &eg_types::Distribution,
+    ) -> bool {
+        let dist_val = match serde_json::to_value(dist) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        // Merge into the current blob (or start a fresh object).
+        let mut obj = match self.get_node_properties(node_id) {
+            Some(bytes) => match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+                Ok(serde_json::Value::Object(o)) => o,
+                _ => serde_json::Map::new(),
+            },
+            None => serde_json::Map::new(),
+        };
+        obj.insert(key.to_string(), dist_val);
+        let reenc = match rmp_serde::to_vec_named(&serde_json::Value::Object(obj)) {
+            Ok(b) => b,
+            Err(_) => return false,
+        };
+        self.add_node(node_id.to_string(), reenc);
+        true
+    }
+
     /// One-shot serializable gated remove (CONCEPT:EG-045). See
     /// [`GraphTxn::remove_node_if`]; the decode → predicate re-check → remove runs
     /// under ONE topology write guard.
@@ -2657,6 +2709,46 @@ mod tests {
             Some(&serde_json::json!(9))
         );
         assert!(!core.has_node("n9"), "live core untouched by overlay");
+    }
+
+    // ── Distribution-valued properties (CONCEPT:EG-086) ──────────────────
+
+    #[test]
+    fn distribution_property_roundtrips() {
+        let core = GraphCore::new();
+        core.add_node("m1".into(), props(serde_json::json!({"type": "Measurement"})));
+        let dist = eg_types::Distribution::Gaussian {
+            mean: 3.5,
+            std: 0.75,
+        };
+        assert!(core.set_distribution("m1", "reading", &dist));
+        let back = core.get_distribution("m1", "reading").expect("stored dist");
+        assert_eq!(back, dist);
+        // Set merges — the pre-existing `type` key survives.
+        let blob = core.get_node_properties("m1").unwrap();
+        let obj = rmp_serde::from_slice::<serde_json::Value>(&blob).unwrap();
+        assert_eq!(
+            obj.get("type"),
+            Some(&serde_json::json!("Measurement")),
+            "existing properties must be preserved on set_distribution"
+        );
+    }
+
+    #[test]
+    fn distribution_property_missing_and_bad_return_none() {
+        let core = GraphCore::new();
+        // Absent node.
+        assert!(core.get_distribution("ghost", "reading").is_none());
+        // Present node, absent key.
+        core.add_node("m2".into(), props(serde_json::json!({"x": 1})));
+        assert!(core.get_distribution("m2", "reading").is_none());
+        // set on a not-yet-existing node creates it.
+        let d = eg_types::Distribution::Beta {
+            alpha: 2.0,
+            beta: 5.0,
+        };
+        assert!(core.set_distribution("m3", "belief", &d));
+        assert_eq!(core.get_distribution("m3", "belief"), Some(d));
     }
 
     #[test]
