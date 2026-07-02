@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-wasm", "crates/eg-graphql"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql"]
 
 [package]
 name = "epistemic-graph"
@@ -353,6 +353,15 @@ rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb", "eg-plan?/rdf-redb"]
 # links NO C/native dep (regex rides eg-rdf's sparql stack) — so it folds into
 # node/full alongside rdf/sparql. Kept OUT of `pi`.
 shacl = ["rdf", "dep:eg-shacl"]
+# ShEx (Shape Expressions) Core validation (CONCEPT:EG-133) — the pure-Rust eg-shex
+# engine, the complement to `shacl`. IMPLIES `rdf` (it validates focus nodes of an RDF
+# data graph against a ShExJ schema); the `Method::ShexValidate` handler is gated on this
+# feature. Pure Rust — links NO C/native dep (regex rides eg-rdf's sparql stack,
+# serde_json is workspace-wide) — so it CAN fold into node/full alongside rdf/sparql/shacl.
+# DELIBERATELY NOT folded into `node`/`full` here: the orchestrator folds `shex` into the
+# tier lines at merge time (avoids a tier-line merge conflict with concurrent waves). Kept
+# OUT of `pi`.
+shex = ["rdf", "dep:eg-shex"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
 # build links no openraft (matching the tier intent — replication is cluster-only).
@@ -437,6 +446,10 @@ eg-rdf = { path = "crates/eg-rdf", optional = true }
 # Optional pure-Rust SHACL Core validator (feature `shacl`, CONCEPT:EG-132). Sits above
 # eg-rdf (reuses its oxrdf term/graph model); pulled only when `shacl` is on.
 eg-shacl = { path = "crates/eg-shacl", optional = true }
+# Optional pure-Rust ShEx Core validator (feature `shex`, CONCEPT:EG-133). The complement
+# to eg-shacl; sits above eg-rdf (reuses its oxrdf term/graph model); pulled only when
+# `shex` is on.
+eg-shex = { path = "crates/eg-shex", optional = true }
 # Optional native GraphQL read surface (feature `graphql`, CONCEPT:KG-2.235). Pure-Rust
 # (schema-from-graph + hand-written parser/resolver, NO async-graphql), pulled only when
 # enabled so a default/pi build links none of it.
