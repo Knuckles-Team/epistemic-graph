@@ -8,6 +8,31 @@
 //! `betweenness()` table functions plus `var`/`cvar` aggregates (feature `finance`)
 //! bring graph + finance kernels into SQL.
 //!
+//! ## Postgres arrays, ranges & common functions (CONCEPT:EG-104)
+//! Rounds out the Postgres drop-in surface ORMs/BI tools emit:
+//!   * **Arrays** — DataFusion's native `List` support (enabled via the crate's
+//!     `nested_expressions` feature) covers `array[…]` literals, `unnest`, `array_agg`,
+//!     `array_length`, the `||` concat, `array_has`/`array_has_all`/`array_has_any`, and
+//!     `= ANY(array)`. No engine array reimplementation — we register the feature + test
+//!     it. The pg containment/overlap *operators* map to functions: `@>` ⇒
+//!     `array_has_all`, `&&` ⇒ `array_has_any` (the `@>` token itself stays bound to
+//!     JSONB containment on node columns, CONCEPT:EG-084). `> ALL(array)` is **not**
+//!     supported by DataFusion 43's SQL planner (deferred).
+//!   * **Scalar/aggregate functions** — most are already in DataFusion 43
+//!     (`split_part`, `regexp_replace`/`regexp_match`, `date_trunc`, `date_part`,
+//!     `to_timestamp`, `coalesce`, `nullif`, `string_agg`, `array_agg`, `concat`,
+//!     `substr`, …); EG-104 ADDS `greatest`/`least` (absent in 43) and desugars
+//!     `EXTRACT(f FROM x)` → `date_part('f', x)` (no ExprPlanner lowers `EXTRACT` in this
+//!     build). `to_char` is native for date/time/duration; numeric `to_char(numeric,fmt)`
+//!     is **deferred** (overriding the name would drop the native temporal variants).
+//!   * **`generate_series(start, stop[, step])`** — a table function (integer series /
+//!     calendar spine), registered here because the lean DataFusion build ships none.
+//!   * **Range types** — a PRAGMATIC subset (full pg range OIDs/multiranges are heavier
+//!     than DataFusion's type system): a range is its canonical text `[lo,hi)` with
+//!     `int4range`/`tsrange` constructors and `range_contains`/`range_overlaps`/
+//!     `range_contains_range` (`@>`)/`range_contained_by` (`<@`) predicate UDFs over a
+//!     discrete i64 interval. Sub-second `tsrange` precision and `numrange` are deferred.
+//!
 //! ## SQL window functions (CONCEPT:EG-089)
 //! `<fn>() OVER (PARTITION BY … ORDER BY … <ROWS|RANGE frame>)` is DataFusion-backed:
 //! DataFusion 43 provides the window operator + the full function set natively
