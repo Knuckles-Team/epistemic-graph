@@ -807,6 +807,30 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) ──────────
+    // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
+    // `--features mysql-wire` AND EPISTEMIC_GRAPH_MYSQL_ADDR is set. With the feature
+    // off, or on but unset, this is a no-op and the engine runs exactly as today.
+    // Deploy-configurable (CONCEPT:EG-022): a bare enable token binds the safe localhost
+    // default `127.0.0.1:3306`, a bare port binds loopback:port, a full addr verbatim.
+    // The hand-rolled MySQL protocol reuses the SAME `WireSession` execute→classify→exec
+    // core as pgwire (CONCEPT:EG-074), so a MySQL driver/ORM runs SQL over `nodes`/`edges`.
+    #[cfg(feature = "mysql-wire")]
+    if let Some(addr) = resolve_listener_addr(
+        std::env::var(epistemic_graph::server::mysql_wire::MYSQL_ADDR_ENV)
+            .ok()
+            .as_deref(),
+        "127.0.0.1:3306",
+    ) {
+        let my_state = state.clone();
+        info!("mysql-wire: serving MySQL/MariaDB wire protocol on {}", addr);
+        tokio::spawn(async move {
+            if let Err(e) = epistemic_graph::server::mysql_wire::serve(&addr, my_state).await {
+                tracing::error!("mysql-wire server error: {}", e);
+            }
+        });
+    }
+
     // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
