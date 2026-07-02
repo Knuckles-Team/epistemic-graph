@@ -51,6 +51,11 @@ const SEQ: TableDefinition<&str, u64> = TableDefinition::new("__sql_seq__");
 /// View catalog (CONCEPT:EG-072): `view_name -> SELECT text`. A read-only named query
 /// mirrored beside the user-table catalog; expanded during SQL context build.
 const VIEWS: TableDefinition<&str, &str> = TableDefinition::new("__sql_views__");
+/// Extension catalog (CONCEPT:EG-102): `extension_name -> ""`. Records the extensions a
+/// client has `CREATE EXTENSION`-enabled (pgvector, AGE, TimescaleDB, pg_search), so a
+/// setup script's enablement is durable across a restart. The value is unused today (a
+/// per-extension version/schema is a follow-up); the KEY presence is the enablement.
+const EXTENSIONS: TableDefinition<&str, &str> = TableDefinition::new("__sql_extensions__");
 
 /// The action an `ON CONFLICT` clause takes for a user-table insert (CONCEPT:EG-048).
 /// The store-level mirror of `classify::OnConflictAction` (kept here so the store has
@@ -394,6 +399,76 @@ impl TableStore {
             .collect::<Result<_, _>>()
             .map_err(map_err)?;
         out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
+    // ── extension catalog (CONCEPT:EG-102) ────────────────────────────────────
+
+    /// `CREATE EXTENSION [IF NOT EXISTS] name`: record `name` as enabled. `Ok(true)`
+    /// when newly enabled, `Ok(false)` when it was already enabled (idempotent — no
+    /// error even without `IF NOT EXISTS`, matching Postgres' `CREATE EXTENSION`
+    /// which errors only on a genuine re-create; the wire shim treats an existing
+    /// extension as a benign success so a re-run setup script proceeds).
+    pub fn create_extension(&self, name: &str, _if_not_exists: bool) -> Result<bool, String> {
+        let wtx = self.begin()?;
+        let created = {
+            let mut exts = wtx.open_table(EXTENSIONS).map_err(map_err)?;
+            let existed = exts.get(name).map_err(map_err)?.is_some();
+            if !existed {
+                exts.insert(name, "").map_err(map_err)?;
+            }
+            !existed
+        };
+        wtx.commit().map_err(map_err)?;
+        Ok(created)
+    }
+
+    /// `DROP EXTENSION [IF EXISTS] name`: remove the catalog entry. `Ok(true)` when an
+    /// extension was removed, `Ok(false)` when absent and `if_exists` was set (else Err).
+    pub fn drop_extension(&self, name: &str, if_exists: bool) -> Result<bool, String> {
+        let wtx = self.begin()?;
+        let existed = {
+            let mut exts = wtx.open_table(EXTENSIONS).map_err(map_err)?;
+            let existed = exts.get(name).map_err(map_err)?.is_some();
+            if !existed {
+                if if_exists {
+                    drop(exts);
+                    wtx.commit().map_err(map_err)?;
+                    return Ok(false);
+                }
+                return Err(format!("extension `{name}` does not exist"));
+            }
+            exts.remove(name).map_err(map_err)?;
+            existed
+        };
+        wtx.commit().map_err(map_err)?;
+        Ok(existed)
+    }
+
+    /// Whether extension `name` is currently enabled.
+    pub fn has_extension(&self, name: &str) -> Result<bool, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let exts = match rtx.open_table(EXTENSIONS) {
+            Ok(t) => t,
+            Err(_) => return Ok(false),
+        };
+        Ok(exts.get(name).map_err(map_err)?.is_some())
+    }
+
+    /// Every enabled extension name (sorted for determinism).
+    pub fn list_extensions(&self) -> Result<Vec<String>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let exts = match rtx.open_table(EXTENSIONS) {
+            Ok(t) => t,
+            Err(_) => return Ok(Vec::new()),
+        };
+        let mut out: Vec<String> = exts
+            .iter()
+            .map_err(map_err)?
+            .map(|r| r.map(|(k, _)| k.value().to_string()))
+            .collect::<Result<_, _>>()
+            .map_err(map_err)?;
+        out.sort();
         Ok(out)
     }
 

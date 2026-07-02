@@ -390,6 +390,12 @@ fn pg_type(t: PgColType) -> Type {
         PgColType::Float8 => Type::FLOAT8,
         PgColType::Bool => Type::BOOL,
         PgColType::Text => Type::TEXT,
+        // CONCEPT:EG-115 — pgvector `vector`. pgvector's own OID is dynamically assigned
+        // by the extension, so we report the stable, always-present float4-array OID
+        // (`_float4` = 1021, "float-array-ish"): a client without the vector type
+        // registered still resolves a sane type, and the value is sent as the pgvector
+        // text form `[1,2,3]` (see `encode_cell`), which pgvector clients parse.
+        PgColType::Vector => Type::FLOAT4_ARRAY,
     }
 }
 
@@ -442,6 +448,23 @@ fn encode_cell(
             None => encoder.encode_field(&cell.to_string()),
         },
         PgColType::Text => match cell {
+            Value::String(s) => encoder.encode_field(&s.as_str()),
+            other => encoder.encode_field(&other.to_string()),
+        },
+        // CONCEPT:EG-115 — render a vector (a JSON array of numbers) as the pgvector
+        // text literal `[1,2,3]`; a non-array value falls back to its JSON text.
+        PgColType::Vector => match cell {
+            Value::Array(items) => {
+                let parts: Vec<String> = items
+                    .iter()
+                    .map(|v| match v {
+                        Value::Number(n) => n.to_string(),
+                        Value::Null => "0".to_string(),
+                        other => other.to_string(),
+                    })
+                    .collect();
+                encoder.encode_field(&format!("[{}]", parts.join(",")))
+            }
             Value::String(s) => encoder.encode_field(&s.as_str()),
             other => encoder.encode_field(&other.to_string()),
         },
@@ -923,6 +946,14 @@ impl EngineBackend {
             // CONCEPT:EG-072 — CREATE/DROP VIEW over the durable view catalog.
             StatementKind::CreateView(plan) => self.run_create_view(plan).await,
             StatementKind::DropView(plan) => self.run_drop_view(plan).await,
+            // CONCEPT:EG-102 — CREATE/DROP EXTENSION over the durable extension catalog.
+            StatementKind::CreateExtension {
+                name,
+                if_not_exists,
+            } => self.run_create_extension(name, if_not_exists).await,
+            StatementKind::DropExtension { name, if_exists } => {
+                self.run_drop_extension(name, if_exists).await
+            }
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
             // Transaction-control statements are handled above.
             StatementKind::Begin | StatementKind::Commit | StatementKind::Rollback => {
@@ -1117,6 +1148,32 @@ impl EngineBackend {
             .map_err(|e| user_err(format!("drop view task failed: {e}")))?
             .map_err(user_err)?;
         Ok(Response::Execution(Tag::new("DROP VIEW")))
+    }
+
+    /// CONCEPT:EG-102 — `CREATE EXTENSION [IF NOT EXISTS] name`: record the enablement
+    /// in the durable extension catalog (commit-before-ack) so a client's setup script
+    /// proceeds; the extension's concrete surface lands in its own later item.
+    async fn run_create_extension(
+        &self,
+        name: String,
+        if_not_exists: bool,
+    ) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.create_extension(&name, if_not_exists))
+            .await
+            .map_err(|e| user_err(format!("create extension task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("CREATE EXTENSION")))
+    }
+
+    /// CONCEPT:EG-102 — `DROP EXTENSION [IF EXISTS] name`.
+    async fn run_drop_extension(&self, name: String, if_exists: bool) -> PgWireResult<Response> {
+        let store = user_table_store()?;
+        tokio::task::spawn_blocking(move || store.drop_extension(&name, if_exists))
+            .await
+            .map_err(|e| user_err(format!("drop extension task failed: {e}")))?
+            .map_err(user_err)?;
+        Ok(Response::Execution(Tag::new("DROP EXTENSION")))
     }
 
     /// A scalar cell coerced to the string node-id form the engine stores.
@@ -2437,7 +2494,9 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
             other => return Err(format!("invalid boolean `{other}`")),
         },
         ColumnType::Json => serde_json::from_str(s).unwrap_or(Value::String(s.to_string())),
-        ColumnType::Text | ColumnType::Bytes => Value::String(s.to_string()),
+        // CONCEPT:EG-115 — a vector arrives as pgvector text `[1,2,3]`; pass it through
+        // as a string so the store's `Cell::coerce` parses + dimension-checks it.
+        ColumnType::Text | ColumnType::Bytes | ColumnType::Vector(_) => Value::String(s.to_string()),
     };
     Ok(v)
 }
@@ -2541,6 +2600,13 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
             } else {
                 Value::String(s.to_string())
             }
+        }
+        // CONCEPT:EG-115 — the pgvector BINARY wire format is a distinct later item;
+        // for now a vector must be sent via TEXT/CSV COPY (or INSERT).
+        ColumnType::Vector(_) => {
+            return Err("binary COPY of a vector column is not supported (use TEXT COPY or \
+                        INSERT)"
+                .to_string())
         }
     };
     Ok(v)
