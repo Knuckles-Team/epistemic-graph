@@ -34,7 +34,8 @@
 //!   * Writes to any table other than `nodes`.
 
 use datafusion::sql::sqlparser::ast::{
-    AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator, ColumnDef as SqlColumnDef,
+    AlterColumnOperation, AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator,
+    ColumnDef as SqlColumnDef,
     ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption, CopySource, CopyTarget,
     CreateTable, Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr,
     FunctionArguments, Insert, ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction,
@@ -91,7 +92,9 @@ pub enum StatementKind {
     CreateTable(CreateTablePlan),
     /// `DROP TABLE [IF EXISTS] name` — remove a user table and all its rows.
     DropTable(DropTablePlan),
-    /// `ALTER TABLE name ADD COLUMN col type` — append a column to a user table.
+    /// `ALTER TABLE name …` — a user-table schema change. `ADD COLUMN` (CONCEPT:EG-018)
+    /// plus (CONCEPT:EG-310) `DROP COLUMN`, `RENAME COLUMN a TO b`, `RENAME TO newtable`,
+    /// `ALTER COLUMN col TYPE newtype`, and `DROP CONSTRAINT`.
     AlterTable(AlterTablePlan),
     /// `CREATE VIEW name AS <select>` (CONCEPT:EG-072) — record a read-only named
     /// query in the durable view catalog; a later SELECT that references it expands
@@ -216,11 +219,37 @@ pub struct DropTablePlan {
     pub if_exists: bool,
 }
 
-/// A decoded `ALTER TABLE … ADD COLUMN` (CONCEPT:EG-018).
+/// A decoded `ALTER TABLE` on a user table (CONCEPT:EG-018 for `ADD COLUMN`;
+/// CONCEPT:EG-310 for the rest). `name` is the target table; `action` is the single
+/// operation to apply (exactly one per statement, mirroring the ADD COLUMN increment).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlterTablePlan {
     pub name: String,
-    pub add_column: ColumnDef,
+    pub action: AlterTableAction,
+}
+
+/// The specific `ALTER TABLE` operation this statement carries. `AddColumn` is the
+/// original EG-018 op; the remainder are CONCEPT:EG-310 (ALTER TABLE beyond ADD COLUMN).
+#[derive(Debug, Clone, PartialEq)]
+pub enum AlterTableAction {
+    /// `ADD COLUMN col type` — append a column to the table's schema (CONCEPT:EG-018).
+    AddColumn(ColumnDef),
+    /// `DROP [COLUMN] [IF EXISTS] col` — remove a column from the schema and drop its
+    /// cells from every stored row (CONCEPT:EG-310).
+    DropColumn { column: String, if_exists: bool },
+    /// `RENAME [COLUMN] a TO b` — rename a column in place (rows are positional, so no
+    /// per-row migration is needed) (CONCEPT:EG-310).
+    RenameColumn { from: String, to: String },
+    /// `RENAME TO newtable` — rename the table (its catalog entry, sequence, and every
+    /// stored row's key) (CONCEPT:EG-310).
+    RenameTable { new_name: String },
+    /// `ALTER [COLUMN] col [SET DATA] TYPE newtype` — change a column's declared type,
+    /// best-effort coercing every stored cell to the new type (CONCEPT:EG-310). The
+    /// `new_type` is the raw SQL type spelling; the executor resolves it to a
+    /// `tables::ColumnType`.
+    AlterColumnType { column: String, new_type: String },
+    /// `DROP CONSTRAINT [IF EXISTS] name` — drop a named table constraint (CONCEPT:EG-310).
+    DropConstraint { constraint: String, if_exists: bool },
 }
 
 /// A compound WHERE on a user table (CONCEPT:EG-045). Unlike [`WhereEq`] there is no
@@ -2186,8 +2215,10 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// Decode `ALTER TABLE name ADD COLUMN col type`. Only a single `ADD COLUMN`
-/// operation is supported in this increment; other ALTER ops are explicit follow-ups.
+/// Decode a single-operation `ALTER TABLE`. `ADD COLUMN` is CONCEPT:EG-018; the rest —
+/// `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN … TYPE`, `DROP CONSTRAINT` —
+/// are CONCEPT:EG-310. Exactly one operation per statement (mirroring the ADD COLUMN
+/// increment); a compound `ALTER TABLE … , …` is rejected.
 fn classify_alter_table(
     name: &ObjectName,
     operations: &[AlterTableOperation],
@@ -2198,17 +2229,72 @@ fn classify_alter_table(
     }
     let op = match operations {
         [one] => one,
-        _ => return Err("ALTER TABLE supports exactly one ADD COLUMN per statement".to_string()),
+        _ => return Err("ALTER TABLE supports exactly one operation per statement".to_string()),
     };
-    match op {
-        AlterTableOperation::AddColumn { column_def, .. } => Ok(AlterTablePlan {
-            name: table,
-            add_column: decode_column_def(column_def)?,
-        }),
-        other => Err(format!(
-            "ALTER TABLE supports only ADD COLUMN in this increment, got `{other}`"
-        )),
-    }
+    let action = match op {
+        AlterTableOperation::AddColumn { column_def, .. } => {
+            AlterTableAction::AddColumn(decode_column_def(column_def)?)
+        }
+        // CONCEPT:EG-310 — `DROP [COLUMN] [IF EXISTS] col`.
+        AlterTableOperation::DropColumn {
+            column_name,
+            if_exists,
+            ..
+        } => AlterTableAction::DropColumn {
+            column: column_name.value.clone(),
+            if_exists: *if_exists,
+        },
+        // CONCEPT:EG-310 — `RENAME [COLUMN] a TO b`.
+        AlterTableOperation::RenameColumn {
+            old_column_name,
+            new_column_name,
+        } => AlterTableAction::RenameColumn {
+            from: old_column_name.value.clone(),
+            to: new_column_name.value.clone(),
+        },
+        // CONCEPT:EG-310 — `RENAME TO newtable`. Reject renaming onto a reserved graph name.
+        AlterTableOperation::RenameTable { table_name } => {
+            let new_name = last_ident(table_name);
+            if is_reserved_table(&new_name) {
+                return Err(format!(
+                    "cannot rename table `{table}` onto the reserved graph table `{new_name}`"
+                ));
+            }
+            AlterTableAction::RenameTable { new_name }
+        }
+        // CONCEPT:EG-310 — `ALTER [COLUMN] col [SET DATA] TYPE newtype`; only a TYPE change
+        // is supported (SET/DROP NOT NULL / DEFAULT are follow-ups).
+        AlterTableOperation::AlterColumn { column_name, op } => match op {
+            AlterColumnOperation::SetDataType { data_type, .. } => {
+                AlterTableAction::AlterColumnType {
+                    column: column_name.value.clone(),
+                    new_type: data_type.to_string(),
+                }
+            }
+            other => {
+                return Err(format!(
+                    "ALTER TABLE ALTER COLUMN supports only `TYPE <newtype>`, got `{other}`"
+                ))
+            }
+        },
+        // CONCEPT:EG-310 — `DROP CONSTRAINT [IF EXISTS] name`.
+        AlterTableOperation::DropConstraint {
+            name, if_exists, ..
+        } => AlterTableAction::DropConstraint {
+            constraint: name.value.clone(),
+            if_exists: *if_exists,
+        },
+        other => {
+            return Err(format!(
+                "ALTER TABLE supports ADD/DROP/RENAME COLUMN, RENAME TO, ALTER COLUMN … TYPE, \
+                 and DROP CONSTRAINT, got `{other}`"
+            ))
+        }
+    };
+    Ok(AlterTablePlan {
+        name: table,
+        action,
+    })
 }
 
 /// Decode a WHERE clause into the single simple-equality predicate the wire DML
@@ -3188,7 +3274,78 @@ mod tests {
             panic!("expected AlterTable");
         };
         assert_eq!(a.name, "prices");
-        assert_eq!(a.add_column.name, "currency");
+        let AlterTableAction::AddColumn(col) = a.action else {
+            panic!("expected AddColumn");
+        };
+        assert_eq!(col.name, "currency");
+    }
+
+    /// CONCEPT:EG-310 — the new ALTER TABLE ops classify into the right actions.
+    #[test]
+    fn eg310_alter_table_actions_decode() {
+        let decode = |sql: &str| match classify(sql).unwrap() {
+            StatementKind::AlterTable(a) => a,
+            other => panic!("expected AlterTable, got {other:?}"),
+        };
+
+        let a = decode("ALTER TABLE prices DROP COLUMN currency");
+        assert_eq!(a.name, "prices");
+        assert_eq!(
+            a.action,
+            AlterTableAction::DropColumn {
+                column: "currency".into(),
+                if_exists: false
+            }
+        );
+
+        let a = decode("ALTER TABLE prices DROP COLUMN IF EXISTS currency");
+        assert_eq!(
+            a.action,
+            AlterTableAction::DropColumn {
+                column: "currency".into(),
+                if_exists: true
+            }
+        );
+
+        let a = decode("ALTER TABLE prices RENAME COLUMN currency TO ccy");
+        assert_eq!(
+            a.action,
+            AlterTableAction::RenameColumn {
+                from: "currency".into(),
+                to: "ccy".into()
+            }
+        );
+
+        let a = decode("ALTER TABLE prices RENAME TO quotes");
+        assert_eq!(
+            a.action,
+            AlterTableAction::RenameTable {
+                new_name: "quotes".into()
+            }
+        );
+
+        let a = decode("ALTER TABLE prices ALTER COLUMN amount TYPE BIGINT");
+        let AlterTableAction::AlterColumnType { column, new_type } = a.action else {
+            panic!("expected AlterColumnType");
+        };
+        assert_eq!(column, "amount");
+        assert_eq!(new_type.to_ascii_uppercase(), "BIGINT");
+
+        let a = decode("ALTER TABLE prices DROP CONSTRAINT prices_pkey");
+        assert_eq!(
+            a.action,
+            AlterTableAction::DropConstraint {
+                constraint: "prices_pkey".into(),
+                if_exists: false
+            }
+        );
+    }
+
+    /// CONCEPT:EG-310 — ALTER on a reserved graph table (and renaming onto one) is refused.
+    #[test]
+    fn eg310_alter_table_rejects_reserved() {
+        assert!(classify("ALTER TABLE nodes DROP COLUMN x").is_err());
+        assert!(classify("ALTER TABLE prices RENAME TO nodes").is_err());
     }
 
     #[test]
