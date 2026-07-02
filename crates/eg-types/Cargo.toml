@@ -90,6 +90,13 @@ security = []
 # transport (the remote-engine client + the rustls HTTP client) lives in eg-plan behind
 # its own gate; this only adds wire variants.
 federation = ["query"]
+# Spatial / geospatial modality (CONCEPT:EG-083): gates the `Op::SpatialScan` SOURCE op
+# + the `Pred::SpatialWithin`/`SpatialDWithin` predicates of the cross-modal plan AST.
+# They live inside the `query`-gated `Op`/`Pred` enums, so this implies `query`. PURE
+# serde — the geometry model + planar predicates + the packed Hilbert R-tree live in the
+# eg-geo crate, and the executor in eg-plan, both behind their own `geo` gates; this only
+# adds three enum variants (Pi-safe wire data, no dep).
+geo = ["query"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

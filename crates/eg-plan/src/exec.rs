@@ -107,25 +107,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
     match op {
         Op::Scan { label } => Ok(scan_label(ctx.view, label)),
 
-        Op::Filter { preds } => {
-            // Predicate pushdown across the modality boundary: when the input is
-            // already a candidate set (from a prior TRAVERSE/RANK), restrict the
-            // relational scan to those ids (`id IN (...)`) instead of the whole graph.
-            let restrict: Option<Vec<String>> = if input.is_empty() {
-                None
-            } else {
-                Some(input.ids())
-            };
-            let passed = sql_filter_ids(ctx.view, preds, restrict.as_deref())?;
-            // Preserve the input's order (so a vector-first plan stays ranked); if
-            // there was no input (Filter is the source), the SQL order is the order.
-            if input.is_empty() {
-                Ok(RowSet::from_ids(passed))
-            } else {
-                let passed_set: HashSet<&str> = passed.iter().map(String::as_str).collect();
-                Ok(input.intersect_keep_order(&passed_set))
-            }
-        }
+        Op::Filter { preds } => filter_op(ctx, preds, input),
 
         Op::Traverse { rel, min, max } => {
             let reached = bfs_reached(ctx.view, &input.ids(), rel, *min, *max);
@@ -195,6 +177,13 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // `federation`-gated `ForeignScan` above (the foreign-execution track is
         // separate). Passes the rows through, exactly as today.
         Op::Foreign { .. } => Ok(input),
+
+        // SOURCE (spatial, CONCEPT:EG-083) — an eg-geo packed-Hilbert-R-tree bbox scan
+        // over the layer's geometries. Gated behind `geo`; the variant only exists when
+        // eg-types/geo is on (pulled by eg-plan/geo), so a non-geo build has neither the
+        // variant nor this arm (the ForeignScan gating precedent).
+        #[cfg(feature = "geo")]
+        Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx.view, layer, *bbox)),
 
         Op::Limit { k } => Ok(input.limit(*k)),
     }
@@ -624,6 +613,133 @@ fn sort_by_score_desc(mut scored: Vec<(String, f32)>) -> Vec<(String, f32)> {
     scored
 }
 
+// ── the FILTER op — relational (DataFusion) + spatial (eg-geo) preds ─────────────
+
+/// Execute a `Filter` op. Relational preds (`Eq`/`GtNum`/`LtNum`) run through real
+/// DataFusion (`sql_filter_ids`), preserving the input order + candidate-set pushdown.
+/// Spatial preds (`SpatialWithin`/`SpatialDWithin`, CONCEPT:EG-083) are split OUT and
+/// applied per-row by eg-geo against each row's stored geometry — DataFusion has no
+/// spatial. A non-geo build has no spatial Pred variants, so every pred is relational
+/// and this is byte-for-byte the original SQL path.
+fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, String> {
+    // Partition spatial preds from relational preds (a non-geo build has no spatial
+    // variants, so `relational` is simply every pred).
+    #[cfg(feature = "geo")]
+    let (relational, spatial): (Vec<Pred>, Vec<Pred>) = preds
+        .iter()
+        .cloned()
+        .partition(|p| !matches!(p, Pred::SpatialWithin { .. } | Pred::SpatialDWithin { .. }));
+    #[cfg(not(feature = "geo"))]
+    let relational: Vec<Pred> = preds.to_vec();
+
+    // Predicate pushdown across the modality boundary: when the input is already a
+    // candidate set (from a prior TRAVERSE/RANK), restrict the relational scan to those
+    // ids (`id IN (...)`) instead of the whole graph.
+    let restrict: Option<Vec<String>> = if input.is_empty() {
+        None
+    } else {
+        Some(input.ids())
+    };
+    let passed = sql_filter_ids(ctx.view, &relational, restrict.as_deref())?;
+    // Preserve the input's order (so a vector-first plan stays ranked); if there was no
+    // input (Filter is the source), the SQL order is the order.
+    #[cfg_attr(not(feature = "geo"), allow(unused_mut))]
+    let mut out = if input.is_empty() {
+        RowSet::from_ids(passed)
+    } else {
+        let passed_set: HashSet<&str> = passed.iter().map(String::as_str).collect();
+        input.intersect_keep_order(&passed_set)
+    };
+
+    // Apply each spatial predicate against the stored per-row geometry (order-preserving).
+    #[cfg(feature = "geo")]
+    for p in &spatial {
+        out = spatial_filter(ctx.view, out, p)?;
+    }
+    Ok(out)
+}
+
+// ── the spatial leg — eg-geo geometry / R-tree over the GraphView blobs (EG-083) ─
+
+/// SOURCE (spatial): every node in `layer` (matched on the `type` property, exactly as
+/// [`scan_label`]) whose stored geometry's bounding box intersects `bbox`, found via
+/// eg-geo's packed Hilbert R-tree (CONCEPT:EG-083). Each node's geometry is read as a
+/// WKT string from a conventional `geometry` (or `geom`) property — a dep-free view
+/// scan, mirroring how `scan_label`/`as_of_filter` decode the blob. The R-tree is built
+/// over the layer's geometries and queried once; the matching ids seed the RowSet.
+/// (A durable R-tree persisted beside the shard — per the concept row — is a follow-up;
+/// v1 builds the index over the live snapshot.)
+#[cfg(feature = "geo")]
+fn spatial_scan(view: &GraphView, layer: &str, bbox: [f64; 4]) -> RowSet {
+    let mut ids: Vec<String> = Vec::new();
+    let mut boxes: Vec<(usize, eg_geo::Bbox)> = Vec::new();
+    for (id, blob) in view.node_properties.iter() {
+        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+            continue;
+        };
+        if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
+            continue;
+        }
+        let Some(bb) = geometry_from_value(&v).and_then(|g| g.bbox()) else {
+            continue;
+        };
+        let idx = ids.len();
+        ids.push(id.clone());
+        boxes.push((idx, bb));
+    }
+    let rtree = eg_geo::RTree::build(&boxes);
+    let hits = rtree.query_bbox(&eg_geo::Bbox::from_array(bbox));
+    RowSet::from_ids(hits.into_iter().map(|i| ids[i].clone()))
+}
+
+/// FILTER (spatial): keep rows whose stored geometry satisfies `pred` (CONCEPT:EG-083),
+/// reading each row's geometry as WKT from the node property named by the pred's
+/// `column`. `SpatialWithin` keeps rows whose geometry is planar-`within` the query
+/// geometry; `SpatialDWithin` keeps rows within `distance` of it. Rows with no/invalid
+/// geometry are dropped. Order- and score-preserving via [`RowSet::intersect_keep_order`].
+#[cfg(feature = "geo")]
+fn spatial_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSet, String> {
+    let (column, query_geom, max_dist): (&str, eg_geo::Geometry, Option<f64>) = match pred {
+        Pred::SpatialWithin { column, wkt } => (column, eg_geo::parse_wkt(wkt)?, None),
+        Pred::SpatialDWithin {
+            column,
+            wkt,
+            distance,
+        } => (column, eg_geo::parse_wkt(wkt)?, Some(*distance)),
+        // Relational preds never reach here (`filter_op` splits them out).
+        _ => return Ok(input),
+    };
+    let keep: HashSet<&str> = input
+        .rows()
+        .iter()
+        .filter(|r| {
+            row_geometry(view, &r.id, column).is_some_and(|g| match max_dist {
+                None => eg_geo::within(&g, &query_geom),
+                Some(d) => eg_geo::distance(&g, &query_geom) <= d,
+            })
+        })
+        .map(|r| r.id.as_str())
+        .collect();
+    Ok(input.intersect_keep_order(&keep))
+}
+
+/// Read node `id`'s geometry from the WKT string in property `column` of its blob.
+#[cfg(feature = "geo")]
+fn row_geometry(view: &GraphView, id: &str, column: &str) -> Option<eg_geo::Geometry> {
+    let blob = view.node_properties.get(id)?;
+    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let wkt = v.get(column)?.as_str()?;
+    eg_geo::parse_wkt(wkt).ok()
+}
+
+/// Read a geometry from a node's decoded blob via the conventional `geometry`/`geom`
+/// WKT property (used by the layer-wide `SpatialScan`).
+#[cfg(feature = "geo")]
+fn geometry_from_value(v: &serde_json::Value) -> Option<eg_geo::Geometry> {
+    let wkt = v.get("geometry").or_else(|| v.get("geom"))?.as_str()?;
+    eg_geo::parse_wkt(wkt).ok()
+}
+
 // ── the relational FILTER leg — real DataFusion via eg-query ────────────────────
 
 /// Compile `preds` to a SQL `WHERE` fragment. Numeric literals are emitted bare;
@@ -642,6 +758,11 @@ fn where_clause(preds: &[Pred]) -> String {
             }
             Pred::GtNum { prop, n } => format!("{prop} > {n}"),
             Pred::LtNum { prop, n } => format!("{prop} < {n}"),
+            // Spatial preds (CONCEPT:EG-083) are NOT lowered to SQL — `filter_op` splits
+            // them out and applies them per-row via eg-geo, so they never reach here.
+            // This defensive arm keeps the match exhaustive under `geo`: a no-op `1=1`.
+            #[cfg(feature = "geo")]
+            Pred::SpatialWithin { .. } | Pred::SpatialDWithin { .. } => "1=1".into(),
         })
         .collect::<Vec<_>>()
         .join(" AND ")
