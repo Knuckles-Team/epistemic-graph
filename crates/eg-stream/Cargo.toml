@@ -1,0 +1,21 @@
+[package]
+name = "eg-stream"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Pure-Rust event-stream + complex-event-processing (CEP) modality for the epistemic-graph engine (CONCEPT:EG-088) — a bounded NFA CEP engine over a time-ordered event stream with Sequence / Within / Absence operators + per-event attribute predicates, run over sliding / tumbling windows. Sync + runtime-free (NO tokio) so the engine is trivially unit-testable; the live standing-query loop fed by the EG-064 CDC bus is a documented follow-up. EG-067 `Op::Window` is the windowing primitive."
+license = "MIT"
+
+[lib]
+name = "eg_stream"
+
+# Pure-Rust, Pi-lean by design — a leaf crate like eg-ann / eg-geo / eg-tensor. The
+# ONLY dependencies are serde (the `CepPattern` / `Event` / `Match` are serializable so
+# a pattern persists / rides the wire) and serde_json (the concept row fixes an event's
+# `attrs` to a `serde_json::Map`, and per-event predicates compare `serde_json::Value`s —
+# the same value model eg-plan already decodes node blobs into). NO tokio / async / C
+# deps: the NFA engine is synchronous and runtime-free, so it folds cleanly into the
+# `stream` serving tiers (node/full), kept OUT of `pi`.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
