@@ -286,7 +286,13 @@ harness = ["raft"]
 # postgres-types) — OFF by default and kept OUT of `full` so `full` stays a lean
 # embeddable build; it ships only in the `cluster` tier. The listener only starts
 # when ALSO configured via EPISTEMIC_GRAPH_PGWIRE_ADDR.
-pgwire = ["dep:pgwire", "dep:futures", "query", "server"]
+# Wire-agnostic SQL execution core (CONCEPT:EG-074) — the multi-wire keystone. The
+# wire-NEUTRAL `classify → dispatch → exec` pipeline + session/txn state that EVERY
+# wire reuses (`WireProtocol`/`WireSession`). Pure engine (needs `query` + `server`);
+# NO pgwire/postgres-types. `pgwire` pulls it in; a future wire's feature (Phase J/Y)
+# pulls it in too. DELIBERATELY kept OUT of `node`/`full` — the orchestrator folds it.
+wire = ["query", "server"]
+pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
