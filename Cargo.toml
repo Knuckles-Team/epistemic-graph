@@ -736,9 +736,14 @@ wat = "1"
 # from an integration test (e.g. `tests/pgwire_roundtrip.rs` under `--features cluster`).
 parking_lot = "0.12"
 eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
-# Criterion harness for the write-coalescer contention bench (CONCEPT:EG-012).
-# DEV-only — never linked into the engine binary; zero release-build impact.
+# Criterion harness for the write-coalescer contention bench (CONCEPT:EG-012)
+# and the massive-scale core harness (CONCEPT:EG-096). DEV-only — never linked
+# into the engine binary; zero release-build impact.
 criterion = "0.5"
+# Native IVF-PQ index (eg-ann), pulled DIRECTLY only so the EG-096 ANN kNN
+# latency bench can name it in-process. It is ALREADY in the tree transitively
+# (eg-core/ann); this dev-only edge adds no new crate to any release build.
+eg-ann = { path = "crates/eg-ann" }
 
 # Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-012): N
 # concurrent producers fan single-op writes into ONE graph, swept across the batch
@@ -762,6 +767,17 @@ name = "redb_group_commit_bench"
 path = "benches/redb_group_commit_bench.rs"
 harness = false
 required-features = ["full"]
+
+# Massive-scale core micro-benchmark harness (CONCEPT:EG-096): in-process node/edge
+# write throughput, in-process query latency (single-hop + label lookup), and IVF-PQ
+# kNN search latency. Feature-LIGHT — builds under DEFAULT features (no server/redb),
+# so a plain `cargo bench --no-run` compiles it while the two benches above skip. Uses
+# a dep-free deterministic PRNG so no `rand` dev-dep is pulled. DEV-only; never linked
+# into the engine binary.
+[[bench]]
+name = "eg096_massive_scale_bench"
+path = "benches/eg096_massive_scale_bench.rs"
+harness = false
 
 [profile.release]
 opt-level = 3

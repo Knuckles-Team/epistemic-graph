@@ -2140,6 +2140,7 @@ dependencies = [
  "clap",
  "criterion",
  "dashmap",
+ "eg-ann",
  "eg-compute",
  "eg-core",
  "eg-graphql",
