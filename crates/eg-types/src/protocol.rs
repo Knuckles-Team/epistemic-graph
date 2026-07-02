@@ -134,10 +134,15 @@ pub enum Method {
     // variants → the dispatch "not available in this build" catch-all.
     /// Declare (idempotently upsert) an exchange. `kind` is `direct`/`topic`/`fanout`.
     #[cfg(feature = "broker")]
-    DeclareExchange { exchange: String, kind: String },
+    DeclareExchange {
+        exchange: String,
+        kind: String,
+    },
     /// Delete an exchange and all of its bindings (queues/messages untouched).
     #[cfg(feature = "broker")]
-    DeleteExchange { exchange: String },
+    DeleteExchange {
+        exchange: String,
+    },
     /// Bind `queue` to `exchange` under `routing_key` (idempotent).
     #[cfg(feature = "broker")]
     BindQueue {
@@ -230,7 +235,10 @@ pub enum Method {
     /// Acknowledge (remove) a claimed message, freeing the consumer's in-flight slot
     /// (CONCEPT:EG-280). Returns `Bool(true)` if the message existed.
     #[cfg(feature = "broker")]
-    BrokerAck { queue: String, node_id: String },
+    BrokerAck {
+        queue: String,
+        node_id: String,
+    },
     /// Reject a claimed message (CONCEPT:EG-276). If `requeue` and the delivery count
     /// is under the queue's `max_delivery_count`, the message returns to claimable;
     /// otherwise it is dead-lettered to the queue's DL target (with `x-death` metadata)
@@ -248,7 +256,9 @@ pub enum Method {
     /// across every known queue. Called periodically by the scheduler with the current
     /// clock. Returns `Count` of messages acted on.
     #[cfg(feature = "broker")]
-    SweepExpired { now_ms: u64 },
+    SweepExpired {
+        now_ms: u64,
+    },
     // ── Replayable append-log streams (CONCEPT:EG-283) ────────────────
     // A `Stream` is a Kafka-class RETAIN + read-by-offset log living ALONGSIDE the
     // EG-275 work-queue on the same control graph: messages are labeled `smsg:<stream>`
@@ -292,7 +302,10 @@ pub enum Method {
     /// `max_messages` (oldest first) and/or older than `max_age_ms`. Returns `Count`
     /// of messages removed. An undeclared / unbounded stream trims nothing.
     #[cfg(feature = "broker")]
-    StreamTrim { stream: String, now_ms: u64 },
+    StreamTrim {
+        stream: String,
+        now_ms: u64,
+    },
     /// Commit a consumer-group's read `offset` on `stream` so it can resume
     /// (CONCEPT:EG-283). Idempotent upsert; returns `String("ok")`.
     #[cfg(feature = "broker")]
@@ -304,7 +317,10 @@ pub enum Method {
     /// Read a consumer-group's committed offset on `stream` (CONCEPT:EG-283). Returns
     /// `Raw(Option<i64>)` — nil ⇒ the group has never committed. Read-only.
     #[cfg(feature = "broker")]
-    StreamCommittedOffset { stream: String, group: String },
+    StreamCommittedOffset {
+        stream: String,
+        group: String,
+    },
     // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-284) ───────
     // At-least-once on top of the EG-275 publish + claim path: a confirm allocates a
     // broker-wide monotonic delivery-tag once the message is durably enqueued (or nacks
@@ -332,7 +348,9 @@ pub enum Method {
     /// (CONCEPT:EG-284) — the tag-addressed sibling of [`BrokerAck`]. Returns
     /// `Bool(true)` if the message existed.
     #[cfg(feature = "broker")]
-    BrokerAckTag { delivery_tag: i64 },
+    BrokerAckTag {
+        delivery_tag: i64,
+    },
     /// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-284) — the
     /// tag-addressed sibling of [`BrokerReject`]. With `requeue` the message returns to
     /// claimable (at-least-once redelivery) unless its delivery budget is exhausted.

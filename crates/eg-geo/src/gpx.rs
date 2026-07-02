@@ -60,7 +60,8 @@ pub fn read_gpx(xml: &str) -> Result<Gpx, String> {
         match name {
             "trkseg" => {
                 if tag.is_close {
-                    gpx.tracks.push(LineString::new(std::mem::take(&mut cur_seg)));
+                    gpx.tracks
+                        .push(LineString::new(std::mem::take(&mut cur_seg)));
                     in_trkseg = false;
                 } else if !tag.is_self_closing {
                     in_trkseg = true;
@@ -69,7 +70,8 @@ pub fn read_gpx(xml: &str) -> Result<Gpx, String> {
             }
             "rte" => {
                 if tag.is_close {
-                    gpx.routes.push(LineString::new(std::mem::take(&mut cur_rte)));
+                    gpx.routes
+                        .push(LineString::new(std::mem::take(&mut cur_rte)));
                     in_rte = false;
                 } else if !tag.is_self_closing {
                     in_rte = true;

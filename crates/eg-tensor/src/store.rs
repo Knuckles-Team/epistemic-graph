@@ -163,10 +163,8 @@ mod tests {
             use std::sync::atomic::{AtomicU64, Ordering};
             static CTR: AtomicU64 = AtomicU64::new(0);
             let n = CTR.fetch_add(1, Ordering::Relaxed);
-            let p = std::env::temp_dir().join(format!(
-                "eg-tensor-cas-{tag}-{}-{n}",
-                std::process::id()
-            ));
+            let p = std::env::temp_dir()
+                .join(format!("eg-tensor-cas-{tag}-{}-{n}", std::process::id()));
             TmpDir(p)
         }
         fn path(&self) -> &Path {

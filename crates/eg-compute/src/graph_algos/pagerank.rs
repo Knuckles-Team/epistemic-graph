@@ -135,7 +135,10 @@ mod tests {
 
         // Mass conservation.
         let total: f64 = res.scores.iter().map(|(_, v)| v).sum();
-        assert!((total - 1.0).abs() < 1e-6, "ranks must sum to 1, got {total}");
+        assert!(
+            (total - 1.0).abs() < 1e-6,
+            "ranks must sum to 1, got {total}"
+        );
 
         // c is the highest-ranked (everyone points at it).
         assert!(m["c"] > m["a"]);
@@ -167,7 +170,8 @@ mod tests {
 
     #[test]
     fn eg144_pagerank_empty_graph() {
-        let g: AdjacencyGraph<&str> = AdjacencyGraph::from_adjacency(Vec::<(&str, Vec<(&str, f64)>)>::new());
+        let g: AdjacencyGraph<&str> =
+            AdjacencyGraph::from_adjacency(Vec::<(&str, Vec<(&str, f64)>)>::new());
         let res = pagerank(&g, &PageRankConfig::default());
         assert!(res.scores.is_empty());
         assert!(res.converged);

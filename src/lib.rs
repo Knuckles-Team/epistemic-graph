@@ -44,11 +44,11 @@ pub mod otel;
 // CONCEPT:EG-091 — slow-query log. Server-only (only the server dispatch/pgwire
 // paths execute queries).
 #[cfg(feature = "server")]
-pub mod slow_query;
-#[cfg(feature = "server")]
 pub mod persist;
 #[cfg(feature = "server")]
 pub mod persist_lock;
+#[cfg(feature = "server")]
+pub mod slow_query;
 // Pure redb durable-row machinery (CONCEPT:KG-2.216) — server-INDEPENDENT, gated on
 // `redb` ALONE so the embedded API (and the server's `redb_backend`) share ONE
 // durable format with no Tokio. Built whenever the `redb` crate is linked.

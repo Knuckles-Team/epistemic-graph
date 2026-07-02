@@ -172,10 +172,16 @@ pub fn check_write(
     }
     let after = validate_icv(shapes_graph, &projected);
 
-    let before_keys: HashMap<ViolationKey, ()> =
-        before.violations.iter().map(|v| (key(&v.result), ())).collect();
-    let after_keys: HashMap<ViolationKey, ()> =
-        after.violations.iter().map(|v| (key(&v.result), ())).collect();
+    let before_keys: HashMap<ViolationKey, ()> = before
+        .violations
+        .iter()
+        .map(|v| (key(&v.result), ()))
+        .collect();
+    let after_keys: HashMap<ViolationKey, ()> = after
+        .violations
+        .iter()
+        .map(|v| (key(&v.result), ()))
+        .collect();
 
     let introduced: Vec<IcvViolation> = after
         .violations
@@ -283,10 +289,19 @@ fn component_matches(c: &Constraint, cc: &str) -> bool {
             | (Constraint::HasValue(_), vocab::CC_HAS_VALUE)
     ) || matches!(
         (c, cc),
-        (Constraint::Range(RangeKind::MinInclusive, _), vocab::CC_MIN_INCLUSIVE)
-            | (Constraint::Range(RangeKind::MaxInclusive, _), vocab::CC_MAX_INCLUSIVE)
-            | (Constraint::Range(RangeKind::MinExclusive, _), vocab::CC_MIN_EXCLUSIVE)
-            | (Constraint::Range(RangeKind::MaxExclusive, _), vocab::CC_MAX_EXCLUSIVE)
+        (
+            Constraint::Range(RangeKind::MinInclusive, _),
+            vocab::CC_MIN_INCLUSIVE
+        ) | (
+            Constraint::Range(RangeKind::MaxInclusive, _),
+            vocab::CC_MAX_INCLUSIVE
+        ) | (
+            Constraint::Range(RangeKind::MinExclusive, _),
+            vocab::CC_MIN_EXCLUSIVE
+        ) | (
+            Constraint::Range(RangeKind::MaxExclusive, _),
+            vocab::CC_MAX_EXCLUSIVE
+        )
     )
 }
 
@@ -356,10 +371,16 @@ fn build_witness(res: &ValidationResult, registry: &HashMap<String, Shape>) -> S
             }
         }
         Some(Constraint::Datatype(dt)) => filter_witness(
-            &header(&format!("sh:datatype <{}> — wrong literal datatype", dt.as_str())),
+            &header(&format!(
+                "sh:datatype <{}> — wrong literal datatype",
+                dt.as_str()
+            )),
             focus,
             &pred,
-            &format!("!isLiteral(?value) || datatype(?value) != <{}>", dt.as_str()),
+            &format!(
+                "!isLiteral(?value) || datatype(?value) != <{}>",
+                dt.as_str()
+            ),
         ),
         Some(Constraint::Class(cls)) => format!(
             "{}SELECT ?value WHERE {{\n{}  FILTER NOT EXISTS {{ ?value a <{}> }}\n}}",
@@ -448,10 +469,7 @@ fn build_witness(res: &ValidationResult, registry: &HashMap<String, Shape>) -> S
         // Shape-based / logical / deferred: a best-effort witness that returns the
         // offending value node(s); the referenced shape names the sub-constraint.
         _ => {
-            let val = res
-                .value
-                .clone()
-                .unwrap_or_else(|| focus.clone());
+            let val = res.value.clone().unwrap_or_else(|| focus.clone());
             format!(
                 "{}SELECT ?value WHERE {{\n{}}}\n# offending value node: {val}\n# (does not satisfy component {})",
                 header("value fails the referenced constraint/shape"),

@@ -312,7 +312,9 @@ mod tests {
         let hits = idx.tasks_in_bbox(&Bbox::new(-1.0, -1.0, 6.0, 6.0));
         assert_eq!(ids(&hits), vec![1, 3, 4], "tasks inside the query box");
         // Empty region.
-        assert!(idx.tasks_in_bbox(&Bbox::new(100.0, 100.0, 200.0, 200.0)).is_empty());
+        assert!(idx
+            .tasks_in_bbox(&Bbox::new(100.0, 100.0, 200.0, 200.0))
+            .is_empty());
     }
 
     #[test]

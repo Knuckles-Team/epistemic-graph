@@ -85,7 +85,10 @@ fn text_matches(rec: &LogRecord, terms: &str) -> bool {
     let hay = text_body(rec).to_ascii_lowercase();
     terms
         .split_whitespace()
-        .map(|t| t.trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase())
+        .map(|t| {
+            t.trim_matches(|c| c == '"' || c == '\'')
+                .to_ascii_lowercase()
+        })
         .filter(|t| !t.is_empty())
         .all(|t| hay.contains(&t))
 }
@@ -142,7 +145,11 @@ impl ObsState {
         }
 
         candidates.sort_by_key(|r| r.ts);
-        let size = if q.size == 0 { DEFAULT_SEARCH_SIZE } else { q.size };
+        let size = if q.size == 0 {
+            DEFAULT_SEARCH_SIZE
+        } else {
+            q.size
+        };
         candidates.truncate(size);
         Ok(candidates)
     }
@@ -275,7 +282,9 @@ mod tests {
         assert_eq!(obs.segments_for("q").len(), 1);
 
         let res = obs
-            .search_sql("SELECT severity, count(*) AS n FROM logs GROUP BY severity ORDER BY severity")
+            .search_sql(
+                "SELECT severity, count(*) AS n FROM logs GROUP BY severity ORDER BY severity",
+            )
             .unwrap();
         assert_eq!(res.columns.len(), 2);
         assert_eq!(res.columns[0].name, "severity");
@@ -283,12 +292,7 @@ mod tests {
         let rows: Vec<(String, i64)> = res
             .rows
             .iter()
-            .map(|r| {
-                (
-                    r[0].as_str().unwrap().to_string(),
-                    r[1].as_i64().unwrap(),
-                )
-            })
+            .map(|r| (r[0].as_str().unwrap().to_string(), r[1].as_i64().unwrap()))
             .collect();
         assert_eq!(
             rows,
@@ -304,8 +308,11 @@ mod tests {
     #[test]
     fn search_sql_includes_hot_buffer() {
         let obs = ObsState::in_memory(1000).unwrap(); // nothing auto-flushes
-        obs.ingest(vec![rec(1, "h", "INFO", "hot"), rec(2, "h", "ERROR", "hot2")])
-            .unwrap();
+        obs.ingest(vec![
+            rec(1, "h", "INFO", "hot"),
+            rec(2, "h", "ERROR", "hot2"),
+        ])
+        .unwrap();
         assert!(obs.segments_for("h").is_empty(), "still buffered");
         let res = obs.search_sql("SELECT count(*) AS n FROM logs").unwrap();
         assert_eq!(res.rows[0][0].as_i64().unwrap(), 2);

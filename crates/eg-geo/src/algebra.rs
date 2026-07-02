@@ -32,7 +32,10 @@ pub fn buffer(g: &Geometry, dist: f64) -> Geometry {
     for v in g.all_vertices() {
         for i in 0..K {
             let theta = (i as f64) * std::f64::consts::TAU / (K as f64);
-            cloud.push(Point::new(v.x + dist * theta.cos(), v.y + dist * theta.sin()));
+            cloud.push(Point::new(
+                v.x + dist * theta.cos(),
+                v.y + dist * theta.sin(),
+            ));
         }
     }
     hull_geometry(convex_hull_points(cloud))
@@ -62,7 +65,10 @@ pub fn simplify(g: &Geometry, tol: f64) -> Geometry {
         LineString::new(pts)
     };
     let simp_poly = |pg: &Polygon| {
-        Polygon::with_interiors(simp_ring(&pg.exterior), pg.interiors.iter().map(simp_ring).collect())
+        Polygon::with_interiors(
+            simp_ring(&pg.exterior),
+            pg.interiors.iter().map(simp_ring).collect(),
+        )
     };
     match g {
         Geometry::Point(_) | Geometry::MultiPoint(_) => g.clone(),
@@ -125,7 +131,9 @@ pub fn centroid(g: &Geometry) -> Option<Point> {
         return None;
     }
     let n = vs.len() as f64;
-    let (sx, sy) = vs.iter().fold((0.0, 0.0), |(sx, sy), p| (sx + p.x, sy + p.y));
+    let (sx, sy) = vs
+        .iter()
+        .fold((0.0, 0.0), |(sx, sy), p| (sx + p.x, sy + p.y));
     Some(Point::new(sx / n, sy / n))
 }
 
@@ -207,19 +215,20 @@ fn convex_hull_points(mut pts: Vec<Point>) -> Vec<Point> {
     if n < 3 {
         return pts;
     }
-    let cross = |o: &Point, a: &Point, b: &Point| {
-        (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
-    };
+    let cross =
+        |o: &Point, a: &Point, b: &Point| (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
     let mut lower: Vec<Point> = Vec::new();
     for p in &pts {
-        while lower.len() >= 2 && cross(&lower[lower.len() - 2], &lower[lower.len() - 1], p) <= 0.0 {
+        while lower.len() >= 2 && cross(&lower[lower.len() - 2], &lower[lower.len() - 1], p) <= 0.0
+        {
             lower.pop();
         }
         lower.push(*p);
     }
     let mut upper: Vec<Point> = Vec::new();
     for p in pts.iter().rev() {
-        while upper.len() >= 2 && cross(&upper[upper.len() - 2], &upper[upper.len() - 1], p) <= 0.0 {
+        while upper.len() >= 2 && cross(&upper[upper.len() - 2], &upper[upper.len() - 1], p) <= 0.0
+        {
             upper.pop();
         }
         upper.push(*p);
@@ -417,7 +426,10 @@ mod tests {
         if let Geometry::Polygon(pg) = &hull {
             let ring = &pg.exterior.points;
             assert_eq!(ring.len(), 5, "square hull = 4 corners + close");
-            assert!(!ring.contains(&Point::new(2.0, 2.0)), "interior point excluded");
+            assert!(
+                !ring.contains(&Point::new(2.0, 2.0)),
+                "interior point excluded"
+            );
         } else {
             panic!("expected polygon hull, got {hull:?}");
         }
@@ -448,7 +460,11 @@ mod tests {
         ])));
         let s = simplify(&g, 0.1);
         if let Geometry::LineString(l) = &s {
-            assert!(l.points.len() < 5, "expected fewer than 5 vertices, got {}", l.points.len());
+            assert!(
+                l.points.len() < 5,
+                "expected fewer than 5 vertices, got {}",
+                l.points.len()
+            );
             assert_eq!(l.points.first(), Some(&Point::new(0.0, 0.0)));
             assert_eq!(l.points.last(), Some(&Point::new(4.0, 0.0)));
         } else {
@@ -466,9 +482,15 @@ mod tests {
             (0.0, 0.0),
         ]))));
         let c = centroid(&sq).unwrap();
-        assert!((c.x - 2.0).abs() < 1e-9 && (c.y - 2.0).abs() < 1e-9, "centroid {c:?}");
+        assert!(
+            (c.x - 2.0).abs() < 1e-9 && (c.y - 2.0).abs() < 1e-9,
+            "centroid {c:?}"
+        );
         // Point centroid is itself.
-        assert_eq!(centroid(&Geometry::Point(Point::new(7.0, 9.0))), Some(Point::new(7.0, 9.0)));
+        assert_eq!(
+            centroid(&Geometry::Point(Point::new(7.0, 9.0))),
+            Some(Point::new(7.0, 9.0))
+        );
     }
 
     #[test]
@@ -521,7 +543,10 @@ mod tests {
         // Convex union of two disjoint boxes spans both (hull bbox 0..12).
         let u = union(&a, &far);
         let ub = u.bbox().unwrap();
-        assert!((ub.minx).abs() < 1e-9 && (ub.maxx - 12.0).abs() < 1e-9, "union bbox {ub:?}");
+        assert!(
+            (ub.minx).abs() < 1e-9 && (ub.maxx - 12.0).abs() < 1e-9,
+            "union bbox {ub:?}"
+        );
         // Disjoint difference returns the subject; covered difference is empty.
         assert!(difference(&a, &far).is_some());
         let big = Geometry::Polygon(Polygon::new(LineString::new(pts(&[

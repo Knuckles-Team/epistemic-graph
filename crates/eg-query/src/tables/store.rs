@@ -338,9 +338,16 @@ impl TableStore {
     /// `CREATE [OR REPLACE] VIEW name AS <select>`: record `select_sql` in the view
     /// catalog. Errors if the name already exists and `or_replace` is false, or if a
     /// user table already claims the name (a view and a table cannot share a name).
-    pub fn create_view(&self, name: &str, select_sql: &str, or_replace: bool) -> Result<(), String> {
+    pub fn create_view(
+        &self,
+        name: &str,
+        select_sql: &str,
+        or_replace: bool,
+    ) -> Result<(), String> {
         if self.get_schema(name)?.is_some() {
-            return Err(format!("`{name}` is a table; cannot create a view with that name"));
+            return Err(format!(
+                "`{name}` is a table; cannot create a view with that name"
+            ));
         }
         let wtx = self.begin()?;
         {
@@ -535,8 +542,8 @@ impl TableStore {
         };
         match funcs.get(name).map_err(map_err)? {
             Some(v) => {
-                let f: StoredFunction =
-                    rmp_serde::from_slice(v.value()).map_err(|e| format!("decode function: {e}"))?;
+                let f: StoredFunction = rmp_serde::from_slice(v.value())
+                    .map_err(|e| format!("decode function: {e}"))?;
                 Ok(Some(f))
             }
             None => Ok(None),
@@ -913,9 +920,9 @@ fn insert_on_conflict_in(
                     .find(|(r, _)| *r == rid)
                     .expect("conflict rowid present");
                 for (col, val) in set {
-                    let idx = schema
-                        .column_index(col)
-                        .ok_or_else(|| format!("column `{col}` does not exist in table `{table}`"))?;
+                    let idx = schema.column_index(col).ok_or_else(|| {
+                        format!("column `{col}` does not exist in table `{table}`")
+                    })?;
                     let c = &schema.columns[idx];
                     slot.1[idx] = Cell::coerce(val, c.ty, c.nullable)?;
                 }
@@ -933,7 +940,9 @@ fn insert_on_conflict_in(
                 let blob =
                     rmp_serde::to_vec_named(&slot.1).map_err(|e| format!("encode row: {e}"))?;
                 let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                rows_t.insert((table, rid), blob.as_slice()).map_err(map_err)?;
+                rows_t
+                    .insert((table, rid), blob.as_slice())
+                    .map_err(map_err)?;
                 affected.push(slot.1.clone());
             }
             (None, _) => {
@@ -1503,7 +1512,11 @@ mod tests {
         let (store, _p) = TableStore::open_temp().unwrap();
         store.create_table(&constrained_schema(), false).unwrap();
         store
-            .insert_rows("items", &["sku".into(), "qty".into()], &[vec!["A".into(), 1.into()]])
+            .insert_rows(
+                "items",
+                &["sku".into(), "qty".into()],
+                &[vec!["A".into(), 1.into()]],
+            )
             .unwrap();
         let mut set = serde_json::Map::new();
         set.insert("qty".into(), 42.into());
@@ -1550,7 +1563,11 @@ mod tests {
             )
             .unwrap();
         assert_eq!(upd.len(), 1);
-        assert_eq!(upd[0][2], Cell::Float(0.9), "RETURNING sees post-update value");
+        assert_eq!(
+            upd[0][2],
+            Cell::Float(0.9),
+            "RETURNING sees post-update value"
+        );
 
         let del = store
             .delete_where_returning(
@@ -1563,7 +1580,11 @@ mod tests {
             )
             .unwrap();
         assert_eq!(del.len(), 1);
-        assert_eq!(del[0][2], Cell::Float(0.9), "RETURNING sees pre-removal row");
+        assert_eq!(
+            del[0][2],
+            Cell::Float(0.9),
+            "RETURNING sees pre-removal row"
+        );
         assert_eq!(store.scan("metrics").unwrap().len(), 0);
     }
 
@@ -1581,7 +1602,9 @@ mod tests {
         );
         // Duplicate without OR REPLACE errors; with OR REPLACE it overwrites.
         assert!(store.create_view("agents", "SELECT 1", false).is_err());
-        store.create_view("agents", "SELECT id FROM nodes", true).unwrap();
+        store
+            .create_view("agents", "SELECT id FROM nodes", true)
+            .unwrap();
         assert_eq!(store.list_views().unwrap().len(), 1);
         assert!(store.drop_view("agents", false).unwrap());
         assert!(store.get_view("agents").unwrap().is_none());

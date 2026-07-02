@@ -86,7 +86,9 @@ impl Network {
             return Err(format!("edge {from}->{to} references an unknown node"));
         }
         if weight < 0.0 || weight.is_nan() {
-            return Err(format!("edge {from}->{to} has a negative/NaN weight {weight}"));
+            return Err(format!(
+                "edge {from}->{to} has a negative/NaN weight {weight}"
+            ));
         }
         self.adjacency[from].push(Edge { to, weight });
         Ok(())
@@ -536,7 +538,10 @@ mod tests {
         let opt = two_opt(seed.clone(), &dist);
         let opt_len = tour_length(&opt, &dist);
         assert!(opt_len <= seed_len + 1e-12, "2-opt never worsens the tour");
-        assert!((opt_len - 4.0).abs() < 1e-9, "reaches the optimal perimeter tour");
+        assert!(
+            (opt_len - 4.0).abs() < 1e-9,
+            "reaches the optimal perimeter tour"
+        );
         // 2-opt on the crossing tour also untangles it to 4.0.
         let fixed = two_opt(crossing, &dist);
         assert!((tour_length(&fixed, &dist) - 4.0).abs() < 1e-9);

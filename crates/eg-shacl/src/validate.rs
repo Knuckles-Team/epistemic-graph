@@ -356,7 +356,10 @@ impl Validator<'_> {
                 }
             }
             Constraint::Xone(list) => {
-                let n = list.iter().filter(|s| self.node_conforms(s, vn, depth)).count();
+                let n = list
+                    .iter()
+                    .filter(|s| self.node_conforms(s, vn, depth))
+                    .count();
                 if n != 1 {
                     out.push(self.result(
                         shape,

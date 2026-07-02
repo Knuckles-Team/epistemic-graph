@@ -280,7 +280,10 @@ mod tests {
         assert!(!got.is_empty(), "expected some allowed hits");
 
         // 2. The exact-nearest allowed neighbour is present (self-retrieval within set).
-        assert!(got.iter().any(|r| r.id == 300), "allowed self must be found");
+        assert!(
+            got.iter().any(|r| r.id == 300),
+            "allowed self must be found"
+        );
 
         // 3. Top-k agrees with a brute force restricted to the allowed subset (recall).
         let allowed_data: Vec<(u64, &Vec<f32>)> = data

@@ -40,7 +40,7 @@ pub mod value;
 
 pub use hash::content_hash;
 pub use shared::{SharedKvBackend, SharedKvIndex, SharedStats};
-pub use tiered::{CacheStats, TieredCache, Tier};
+pub use tiered::{CacheStats, Tier, TieredCache};
 pub use value::{Block, CacheValue};
 
 #[cfg(feature = "durable")]
@@ -62,7 +62,11 @@ mod integration_tests {
         let h_a = shared.put_by_content(prefix.clone());
         let h_b = shared.put_by_content(prefix.clone());
         assert_eq!(h_a, h_b);
-        assert_eq!(shared.stats().unique_blocks, 1, "EG-186: shared prefix stored once");
+        assert_eq!(
+            shared.stats().unique_blocks,
+            1,
+            "EG-186: shared prefix stored once"
+        );
 
         // A worker's local tiered cache: pin the shared prefix, then flood it.
         let mut local: TieredCache<String, Block> = TieredCache::new(300, 300, 1_000_000);

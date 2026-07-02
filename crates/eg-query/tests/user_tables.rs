@@ -298,12 +298,9 @@ fn create_view_over_nodes_and_select_through_it() {
     assert_eq!(res.rows[0][1], Value::String("AAPL".into()));
 
     // A view can be JOINed and filtered like any relation.
-    let res2 = exec_sql_typed_with_tables(
-        &view,
-        &store,
-        "SELECT symbol FROM stocks WHERE id = 'n2'",
-    )
-    .expect("filtered view select");
+    let res2 =
+        exec_sql_typed_with_tables(&view, &store, "SELECT symbol FROM stocks WHERE id = 'n2'")
+            .expect("filtered view select");
     assert_eq!(res2.rows.len(), 1);
     assert_eq!(res2.rows[0][0], Value::String("MSFT".into()));
 
@@ -428,7 +425,10 @@ fn vector_dimension_mismatch_rejected() {
         panic!("expected InsertTable");
     };
     let err = store.insert_rows(&ins.table, &ins.columns, &ins.rows);
-    assert!(err.is_err(), "a 2-d vector into a vector(3) column must be rejected");
+    assert!(
+        err.is_err(),
+        "a 2-d vector into a vector(3) column must be rejected"
+    );
 }
 
 // ── Postgres system catalogs (CONCEPT:EG-103) ────────────────────────────────
@@ -482,9 +482,18 @@ fn pg_class_lists_tables_and_views_eg103() {
             )
         })
         .collect();
-    assert!(got.contains(&("nodes".to_string(), "r".to_string())), "{got:?}");
-    assert!(got.contains(&("edges".to_string(), "r".to_string())), "{got:?}");
-    assert!(got.contains(&("prices".to_string(), "r".to_string())), "{got:?}");
+    assert!(
+        got.contains(&("nodes".to_string(), "r".to_string())),
+        "{got:?}"
+    );
+    assert!(
+        got.contains(&("edges".to_string(), "r".to_string())),
+        "{got:?}"
+    );
+    assert!(
+        got.contains(&("prices".to_string(), "r".to_string())),
+        "{got:?}"
+    );
     assert!(
         got.contains(&("cheap".to_string(), "v".to_string())),
         "view must be relkind='v': {got:?}"
@@ -644,6 +653,9 @@ fn psql_backslash_d_style_query_eg103() {
         .map(|row| row[0].as_str().unwrap().to_string())
         .collect();
     for must in ["cheap", "edges", "nodes", "prices"] {
-        assert!(names.contains(&must.to_string()), "missing {must}: {names:?}");
+        assert!(
+            names.contains(&must.to_string()),
+            "missing {must}: {names:?}"
+        );
     }
 }

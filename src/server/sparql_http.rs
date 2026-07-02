@@ -405,8 +405,9 @@ fn run_dataset_query(ds: &Dataset, query: &str) -> Result<QueryOutcome, String> 
     #[cfg(feature = "sparql-service")]
     {
         let client = ServiceClient::from_env();
-        let svc: Option<&dyn eg_rdf::sparql::RemoteSparql> =
-            client.as_ref().map(|c| c as &dyn eg_rdf::sparql::RemoteSparql);
+        let svc: Option<&dyn eg_rdf::sparql::RemoteSparql> = client
+            .as_ref()
+            .map(|c| c as &dyn eg_rdf::sparql::RemoteSparql);
         eg_rdf::sparql::run_outcome_dataset_service(ds, query, &Projection::raw(), svc)
     }
     #[cfg(not(feature = "sparql-service"))]
@@ -470,7 +471,14 @@ impl ServiceClient {
             Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => {
                 (h, p.parse().unwrap_or(0))
             }
-            _ => (authority, if endpoint.starts_with("https://") { 443 } else { 80 }),
+            _ => (
+                authority,
+                if endpoint.starts_with("https://") {
+                    443
+                } else {
+                    80
+                },
+            ),
         };
         let host = host.trim_start_matches('[').trim_end_matches(']');
         if host.is_empty() {
@@ -562,7 +570,11 @@ fn parse_results_json(body: &str) -> Result<SparqlResult, String> {
         serde_json::from_str(body).map_err(|e| format!("parse SPARQL-results JSON: {e}"))?;
     let vars: Vec<String> = j["head"]["vars"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     let mut solutions = Vec::new();
     if let Some(bindings) = j["results"]["bindings"].as_array() {
@@ -687,7 +699,11 @@ async fn handle_graph_store(
                 s.registry.get(&graph).map(|e| e.core.clone())
             };
             let Some(core) = core else {
-                return ("404 Not Found", "text/plain", format!("no such graph: {graph}"));
+                return (
+                    "404 Not Found",
+                    "text/plain",
+                    format!("no such graph: {graph}"),
+                );
             };
             let ct = choose_ct(
                 &req.accept,
@@ -717,7 +733,13 @@ async fn handle_graph_store(
         "PUT" | "POST" => {
             let triples = match parse_rdf_body(&req.content_type, &req.body) {
                 Ok(t) => t,
-                Err(e) => return ("400 Bad Request", "text/plain", format!("parse RDF body: {e}")),
+                Err(e) => {
+                    return (
+                        "400 Bad Request",
+                        "text/plain",
+                        format!("parse RDF body: {e}"),
+                    )
+                }
             };
             let replace = req.method == "PUT";
             // Ensure the graph exists (remember whether we created it ⇒ 201 vs 204).
@@ -764,7 +786,11 @@ async fn handle_graph_store(
                 s.registry.get(&graph).map(|e| e.core.clone())
             };
             let Some(core) = core else {
-                return ("404 Not Found", "text/plain", format!("no such graph: {graph}"));
+                return (
+                    "404 Not Found",
+                    "text/plain",
+                    format!("no such graph: {graph}"),
+                );
             };
             // Empty the graph (keeps the registry entry addressable — the same semantics
             // the endpoint UPDATE `DROP`/`DropNamedGraph` op uses).
@@ -1261,8 +1287,14 @@ mod tests {
     #[test]
     fn negotiate_defaults_and_accept() {
         // Empty / */* / unknown → the per-form default (forms[0]).
-        assert_eq!(negotiate("", SELECT_FORMS), "application/sparql-results+json");
-        assert_eq!(negotiate("*/*", SELECT_FORMS), "application/sparql-results+json");
+        assert_eq!(
+            negotiate("", SELECT_FORMS),
+            "application/sparql-results+json"
+        );
+        assert_eq!(
+            negotiate("*/*", SELECT_FORMS),
+            "application/sparql-results+json"
+        );
         assert_eq!(
             negotiate("application/octet-stream", SELECT_FORMS),
             "application/sparql-results+json"
@@ -1273,7 +1305,10 @@ mod tests {
         assert_eq!(negotiate("text/turtle", GRAPH_FORMS), "text/turtle");
         // q-values choose the highest-weighted acceptable type.
         assert_eq!(
-            negotiate("text/csv;q=0.5, application/sparql-results+xml;q=0.9", SELECT_FORMS),
+            negotiate(
+                "text/csv;q=0.5, application/sparql-results+xml;q=0.9",
+                SELECT_FORMS
+            ),
             "application/sparql-results+xml"
         );
     }
@@ -1283,38 +1318,73 @@ mod tests {
     /// Accept header and the `output=`/`format=` short token, and each serializes.
     #[test]
     fn eg136_137_graph_matrix_is_negotiable_and_serializes() {
-        assert_eq!(negotiate("application/n-quads", GRAPH_FORMS), "application/n-quads");
-        assert_eq!(negotiate("application/trig", GRAPH_FORMS), "application/trig");
-        assert_eq!(negotiate("application/ld+json", GRAPH_FORMS), "application/ld+json");
-        assert_eq!(choose_ct("", Some("nq"), GRAPH_FORMS), "application/n-quads");
+        assert_eq!(
+            negotiate("application/n-quads", GRAPH_FORMS),
+            "application/n-quads"
+        );
+        assert_eq!(
+            negotiate("application/trig", GRAPH_FORMS),
+            "application/trig"
+        );
+        assert_eq!(
+            negotiate("application/ld+json", GRAPH_FORMS),
+            "application/ld+json"
+        );
+        assert_eq!(
+            choose_ct("", Some("nq"), GRAPH_FORMS),
+            "application/n-quads"
+        );
         assert_eq!(choose_ct("", Some("trig"), GRAPH_FORMS), "application/trig");
-        assert_eq!(choose_ct("", Some("jsonld"), GRAPH_FORMS), "application/ld+json");
+        assert_eq!(
+            choose_ct("", Some("jsonld"), GRAPH_FORMS),
+            "application/ld+json"
+        );
         // Default is still N-Triples (forms[0]) — matrix additions do not shift it.
         assert_eq!(negotiate("", GRAPH_FORMS), "application/n-triples");
 
-        let triples = eg_rdf::mapping::parse_turtle(
-            "@prefix ex: <http://example.org/> . ex:a ex:p ex:b .",
-        )
-        .unwrap();
-        assert!(serialize_graph("application/n-quads", &triples).unwrap().contains("ex")
-            || serialize_graph("application/n-quads", &triples).unwrap().contains("http://example.org/"));
+        let triples =
+            eg_rdf::mapping::parse_turtle("@prefix ex: <http://example.org/> . ex:a ex:p ex:b .")
+                .unwrap();
+        assert!(
+            serialize_graph("application/n-quads", &triples)
+                .unwrap()
+                .contains("ex")
+                || serialize_graph("application/n-quads", &triples)
+                    .unwrap()
+                    .contains("http://example.org/")
+        );
         assert!(serialize_graph("application/trig", &triples).is_ok());
-        assert!(serialize_graph("application/ld+json", &triples).unwrap().contains("@id"));
+        assert!(serialize_graph("application/ld+json", &triples)
+            .unwrap()
+            .contains("@id"));
         #[cfg(feature = "rdf-xml")]
         {
-            assert_eq!(negotiate("application/rdf+xml", GRAPH_FORMS), "application/rdf+xml");
-            assert_eq!(choose_ct("", Some("rdfxml"), GRAPH_FORMS), "application/rdf+xml");
-            assert!(serialize_graph("application/rdf+xml", &triples).unwrap().contains("RDF"));
+            assert_eq!(
+                negotiate("application/rdf+xml", GRAPH_FORMS),
+                "application/rdf+xml"
+            );
+            assert_eq!(
+                choose_ct("", Some("rdfxml"), GRAPH_FORMS),
+                "application/rdf+xml"
+            );
+            assert!(serialize_graph("application/rdf+xml", &triples)
+                .unwrap()
+                .contains("RDF"));
         }
     }
 
     #[test]
     fn format_override_wins_and_falls_back() {
         assert_eq!(choose_ct("", Some("csv"), SELECT_FORMS), "text/csv");
-        assert_eq!(choose_ct("text/csv", Some("xml"), SELECT_FORMS),
-            "application/sparql-results+xml");
+        assert_eq!(
+            choose_ct("text/csv", Some("xml"), SELECT_FORMS),
+            "application/sparql-results+xml"
+        );
         // An override invalid for this form is ignored → negotiate the Accept header.
-        assert_eq!(choose_ct("text/csv", Some("turtle"), SELECT_FORMS), "text/csv");
+        assert_eq!(
+            choose_ct("text/csv", Some("turtle"), SELECT_FORMS),
+            "text/csv"
+        );
         assert_eq!(choose_ct("", Some("ttl"), GRAPH_FORMS), "text/turtle");
     }
 
@@ -1347,7 +1417,8 @@ mod tests {
             boolean_body("application/sparql-results+json", true),
             "{\"head\":{},\"boolean\":true}"
         );
-        assert!(boolean_body("application/sparql-results+xml", false).contains("<boolean>false</boolean>"));
+        assert!(boolean_body("application/sparql-results+xml", false)
+            .contains("<boolean>false</boolean>"));
         assert_eq!(boolean_body("text/csv", true), "true");
     }
 
@@ -1364,7 +1435,10 @@ mod tests {
         let r = parse_results_json(body).unwrap();
         assert_eq!(r.vars, vec!["s", "b", "l"]);
         let sol = &r.solutions[0];
-        assert_eq!(sol.get("s").unwrap(), &Binding::Node("<http://x>".to_string()));
+        assert_eq!(
+            sol.get("s").unwrap(),
+            &Binding::Node("<http://x>".to_string())
+        );
         assert_eq!(sol.get("b").unwrap(), &Binding::Node("_:n1".to_string()));
         assert_eq!(sol.get("l").unwrap(), &Binding::Literal("hi".to_string()));
         // And `term_json` maps them straight back to the same JSON term kinds.
@@ -1385,7 +1459,10 @@ mod tests {
             Some("http://ex/g1".to_string())
         );
         let d = parse_form("default");
-        assert_eq!(gsp_target("/rdf-graphs/service", &d), Some(gsp_default_graph()));
+        assert_eq!(
+            gsp_target("/rdf-graphs/service", &d),
+            Some(gsp_default_graph())
+        );
         // Direct naming percent-decodes the trailing segment.
         assert_eq!(
             gsp_target("/rdf-graphs/http%3A%2F%2Fex%2Fg2", &HashMap::new()),
@@ -1402,7 +1479,10 @@ mod tests {
         let ttl = "@prefix ex: <http://ex/> . ex:a ex:p ex:b .";
         assert_eq!(parse_rdf_body("text/turtle", ttl).unwrap().len(), 1);
         let nt = "<http://ex/a> <http://ex/p> <http://ex/b> .";
-        assert_eq!(parse_rdf_body("application/n-triples", nt).unwrap().len(), 1);
+        assert_eq!(
+            parse_rdf_body("application/n-triples", nt).unwrap().len(),
+            1
+        );
         // Unknown content-type falls back to Turtle (a superset that parses N-Triples).
         assert_eq!(parse_rdf_body("", nt).unwrap().len(), 1);
     }
@@ -1437,27 +1517,34 @@ mod tests {
     #[test]
     fn gsp_post_merges() {
         let core = GraphCore::new();
-        let seed = parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .")
-            .unwrap();
+        let seed =
+            parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .").unwrap();
         eg_rdf::update::insert_triples(&core, &seed).unwrap();
         // POST = merge: no clear.
         let add =
             parse_rdf_body("text/turtle", "<http://ex/c> <http://ex/q> <http://ex/d> .").unwrap();
         eg_rdf::update::insert_triples(&core, &add).unwrap();
         let exported = export_graph(&core, "http://ex/g").unwrap();
-        assert_eq!(exported.len(), 2, "both the seeded and posted triples are present");
+        assert_eq!(
+            exported.len(),
+            2,
+            "both the seeded and posted triples are present"
+        );
     }
 
     /// DELETE empties the graph: after a clear, the export is empty.
     #[test]
     fn gsp_delete_empties() {
         let core = GraphCore::new();
-        let t = parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .")
-            .unwrap();
+        let t =
+            parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .").unwrap();
         eg_rdf::update::insert_triples(&core, &t).unwrap();
         assert_eq!(export_graph(&core, "g").unwrap().len(), 1);
         core.clear();
-        assert!(export_graph(&core, "g").unwrap().is_empty(), "DELETE empties the graph");
+        assert!(
+            export_graph(&core, "g").unwrap().is_empty(),
+            "DELETE empties the graph"
+        );
     }
 
     /// GET content-negotiation: Turtle when accepted, N-Triples by default, and each
@@ -1467,14 +1554,17 @@ mod tests {
         assert_eq!(choose_ct("text/turtle", None, GRAPH_FORMS), "text/turtle");
         assert_eq!(choose_ct("", None, GRAPH_FORMS), "application/n-triples");
         let core = GraphCore::new();
-        let t = parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .")
-            .unwrap();
+        let t =
+            parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .").unwrap();
         eg_rdf::update::insert_triples(&core, &t).unwrap();
         let exported = export_graph(&core, "g").unwrap();
         let ttl = eg_rdf::mapping::to_turtle(&exported).unwrap();
         let nt = eg_rdf::mapping::to_ntriples(&exported).unwrap();
         assert!(nt.contains("<http://ex/a> <http://ex/p> <http://ex/b> ."));
-        assert!(ttl.contains("http://ex/a"), "turtle serializer emits the subject");
+        assert!(
+            ttl.contains("http://ex/a"),
+            "turtle serializer emits the subject"
+        );
     }
 
     /// The SSRF guard: allowlist required, internal-address resolutions refused, and an

@@ -57,7 +57,8 @@ impl Tensor {
         if bytes.len() < 5 {
             return Err("tensor blob too short for header".into());
         }
-        let dtype = DType::from_tag(bytes[0]).ok_or_else(|| format!("bad dtype tag {}", bytes[0]))?;
+        let dtype =
+            DType::from_tag(bytes[0]).ok_or_else(|| format!("bad dtype tag {}", bytes[0]))?;
         let ndim = u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as usize;
         let mut off = 5;
         let need_shape = ndim.checked_mul(8).ok_or("ndim overflow")?;
@@ -82,9 +83,7 @@ impl Tensor {
 fn decode_data(dtype: DType, numel: usize, payload: &[u8]) -> Result<Buffer, String> {
     macro_rules! decode {
         ($ty:ty, $sz:expr, $variant:ident) => {{
-            let need = numel
-                .checked_mul($sz)
-                .ok_or("tensor data size overflow")?;
+            let need = numel.checked_mul($sz).ok_or("tensor data size overflow")?;
             if payload.len() != need {
                 return Err(format!(
                     "tensor data len {} != expected {} ({} elems)",
@@ -147,7 +146,7 @@ mod tests {
     fn from_blob_rejects_garbage() {
         assert!(Tensor::from_blob(&[]).is_err());
         assert!(Tensor::from_blob(&[9, 0, 0, 0, 0]).is_err()); // bad dtype tag
-        // truncated data
+                                                               // truncated data
         let mut b = Tensor::new(vec![4], Buffer::I32(vec![1, 2, 3, 4]))
             .unwrap()
             .to_blob();

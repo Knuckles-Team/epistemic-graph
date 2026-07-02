@@ -40,7 +40,9 @@ pub fn resolve_planner() -> Option<Arc<dyn NlPlanner>> {
     if let Some(p) = INJECTED.get() {
         return Some(p.clone());
     }
-    CONFIG_DEFAULT.get_or_init(build_default_from_config).clone()
+    CONFIG_DEFAULT
+        .get_or_init(build_default_from_config)
+        .clone()
 }
 
 /// LLM settings resolved from `agent-utilities`' `config.json` (+ env overrides).
@@ -81,7 +83,9 @@ fn load_or_scaffold_settings() -> NlSettings {
     // Env overrides first (highest precedence, and enough to run with NO file at all).
     let env_endpoint = std::env::var(ENDPOINT_ENV).ok().filter(|s| !s.is_empty());
     let env_model = std::env::var(MODEL_ENV).ok().filter(|s| !s.is_empty());
-    let env_key_env = std::env::var(API_KEY_ENV_ENV).ok().filter(|s| !s.is_empty());
+    let env_key_env = std::env::var(API_KEY_ENV_ENV)
+        .ok()
+        .filter(|s| !s.is_empty());
 
     let file = find_config_file();
     let from_file = file.as_ref().and_then(|p| parse_config(p));
@@ -92,12 +96,17 @@ fn load_or_scaffold_settings() -> NlSettings {
         scaffold_minimal_config();
     }
 
-    let (f_endpoint, f_model, f_key_env) = from_file.unwrap_or((String::new(), String::new(), None));
+    let (f_endpoint, f_model, f_key_env) =
+        from_file.unwrap_or((String::new(), String::new(), None));
 
     NlSettings {
         endpoint: env_endpoint.unwrap_or(f_endpoint),
         model: env_model
-            .or(if f_model.is_empty() { None } else { Some(f_model) })
+            .or(if f_model.is_empty() {
+                None
+            } else {
+                Some(f_model)
+            })
             .unwrap_or_else(|| "gpt-4o-mini".to_string()),
         api_key_env: env_key_env.or(f_key_env),
     }
@@ -167,9 +176,9 @@ fn scaffold_minimal_config() {
             "model": "gpt-4o-mini",
             "api_key_env": "OPENAI_API_KEY",
             "_comment": "epistemic-graph CONCEPT:EG-080 — set `endpoint` to an \
-OpenAI-compatible /chat/completions URL to enable the NL query surface (Method::NlQuery \
-+ /nl). `api_key_env` names the env var holding the bearer key (empty for a local \
-keyless endpoint)."
+    OpenAI-compatible /chat/completions URL to enable the NL query surface (Method::NlQuery \
+    + /nl). `api_key_env` names the env var holding the bearer key (empty for a local \
+    keyless endpoint)."
         }
     });
     if let Ok(body) = serde_json::to_string_pretty(&scaffold) {

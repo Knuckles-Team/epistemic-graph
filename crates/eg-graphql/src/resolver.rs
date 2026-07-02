@@ -322,7 +322,8 @@ fn resolve_connection(view: &GraphView, field: &Field) -> Result<Value, String> 
     // `after` / `before` carve a window out of the full ordered match set.
     let mut start = 0usize;
     if let Some(after) = &relay.after {
-        let aid = cursor_decode(after).ok_or_else(|| "GraphQL: invalid `after` cursor".to_string())?;
+        let aid =
+            cursor_decode(after).ok_or_else(|| "GraphQL: invalid `after` cursor".to_string())?;
         if let Some(pos) = ordered.iter().position(|(id, _)| *id == aid) {
             start = pos + 1;
         }
@@ -454,7 +455,9 @@ struct RelayArgs {
 }
 
 /// Split a relay field's args into the cursor args + the property-equality filters.
-fn split_relay_args(args: &[(String, GqlValue)]) -> Result<(RelayArgs, Vec<(String, Value)>), String> {
+fn split_relay_args(
+    args: &[(String, GqlValue)],
+) -> Result<(RelayArgs, Vec<(String, Value)>), String> {
     let mut r = RelayArgs::default();
     let mut filters = Vec::new();
     for (k, v) in args {

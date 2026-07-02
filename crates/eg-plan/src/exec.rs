@@ -91,10 +91,7 @@ impl<'a> PlanCtx<'a> {
     /// registry once at setup and threads it in here — the library seam that keeps the
     /// name→source binding out of the wire DTO.
     #[cfg(feature = "federation")]
-    pub fn with_foreign(
-        mut self,
-        registry: &'a crate::federation::ForeignSourceRegistry,
-    ) -> Self {
+    pub fn with_foreign(mut self, registry: &'a crate::federation::ForeignSourceRegistry) -> Self {
         self.foreign = Some(registry);
         self
     }
@@ -880,9 +877,7 @@ fn jsonpath_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSe
             row_json(view, &r.id).is_some_and(|v| match op {
                 JsonPathOp::Exists => eg_core::jsonpath::path_exists(&v, path),
                 JsonPathOp::Eq { value } => eg_core::jsonpath::path_eq(&v, path, value),
-                JsonPathOp::Contains { value } => {
-                    eg_core::jsonpath::path_contains(&v, path, value)
-                }
+                JsonPathOp::Contains { value } => eg_core::jsonpath::path_contains(&v, path, value),
             })
         })
         .map(|r| r.id.as_str())
@@ -1070,15 +1065,13 @@ fn apply_spatial_op(
         SpatialOpKind::ConvexHull => Some(eg_geo::convex_hull(g)),
         SpatialOpKind::Simplify { tolerance } => Some(eg_geo::simplify(g, *tolerance)),
         SpatialOpKind::Centroid => eg_geo::centroid(g).map(eg_geo::Geometry::Point),
-        SpatialOpKind::Union { wkt } => {
-            eg_geo::parse_wkt(wkt).ok().map(|o| eg_geo::union(g, &o))
-        }
-        SpatialOpKind::Intersection { wkt } => {
-            eg_geo::parse_wkt(wkt).ok().and_then(|o| eg_geo::intersection(g, &o))
-        }
-        SpatialOpKind::Difference { wkt } => {
-            eg_geo::parse_wkt(wkt).ok().and_then(|o| eg_geo::difference(g, &o))
-        }
+        SpatialOpKind::Union { wkt } => eg_geo::parse_wkt(wkt).ok().map(|o| eg_geo::union(g, &o)),
+        SpatialOpKind::Intersection { wkt } => eg_geo::parse_wkt(wkt)
+            .ok()
+            .and_then(|o| eg_geo::intersection(g, &o)),
+        SpatialOpKind::Difference { wkt } => eg_geo::parse_wkt(wkt)
+            .ok()
+            .and_then(|o| eg_geo::difference(g, &o)),
     }
 }
 
@@ -1157,9 +1150,7 @@ fn tensor_op(view: &GraphView, input: RowSet, kind: &eg_types::wire::TensorOpKin
     let keep: HashSet<&str> = input
         .rows()
         .iter()
-        .filter(|r| {
-            row_tensor(view, &r.id).is_some_and(|t| apply_tensor_op(&t, kind).is_ok())
-        })
+        .filter(|r| row_tensor(view, &r.id).is_some_and(|t| apply_tensor_op(&t, kind).is_ok()))
         .map(|r| r.id.as_str())
         .collect();
     input.intersect_keep_order(&keep)
@@ -1251,7 +1242,10 @@ fn row_distribution(view: &GraphView, id: &str) -> Option<eg_types::Distribution
 /// Returns `None` when the query does not apply (unsupported conjugate pair) so the
 /// caller drops the row.
 #[cfg(feature = "probabilistic")]
-fn eval_prob_query(dist: &eg_types::Distribution, query: &eg_types::wire::ProbQuery) -> Option<f64> {
+fn eval_prob_query(
+    dist: &eg_types::Distribution,
+    query: &eg_types::wire::ProbQuery,
+) -> Option<f64> {
     use eg_types::wire::{ProbEvidenceSpec, ProbQuery};
     match query {
         ProbQuery::Expectation => Some(dist.mean()),

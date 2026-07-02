@@ -217,8 +217,8 @@ mod tests {
     #[test]
     fn eg297_mean_average_precision_over_pairs() {
         let pairs = vec![
-            (vec![1u64, 2], vec![1u64, 2]),  // AP = 1.0
-            (vec![9u64, 1], vec![1u64, 2]),  // relevant{1,2}; hit rank2 → (1/2)/2 = 0.25
+            (vec![1u64, 2], vec![1u64, 2]), // AP = 1.0
+            (vec![9u64, 1], vec![1u64, 2]), // relevant{1,2}; hit rank2 → (1/2)/2 = 0.25
         ];
         let m = mean_average_precision(&pairs, 2);
         assert!((m - (1.0 + 0.25) / 2.0).abs() < 1e-9, "map={m}");
@@ -240,7 +240,9 @@ mod tests {
         (0..n)
             .map(|_| {
                 let c = &centers[rng.gen_range(0..ncl)];
-                (0..dim).map(|j| c[j] + (rng.gen::<f32>() - 0.5) * 0.2).collect()
+                (0..dim)
+                    .map(|j| c[j] + (rng.gen::<f32>() - 0.5) * 0.2)
+                    .collect()
             })
             .collect()
     }
@@ -273,7 +275,9 @@ mod tests {
         truth.add(&items);
 
         let mut qrng = ChaCha8Rng::seed_from_u64(101);
-        let queries: Vec<Vec<f32>> = (0..30).map(|_| data[qrng.gen_range(0..n)].clone()).collect();
+        let queries: Vec<Vec<f32>> = (0..30)
+            .map(|_| data[qrng.gen_range(0..n)].clone())
+            .collect();
 
         let sp = SearchParams {
             nprobe: 32, // probe every cell → recall is bounded by PQ/refine, not IVF
@@ -283,7 +287,11 @@ mod tests {
         let rep = evaluate_recall(&ann, &truth, &queries, 10, sp, Metric::L2);
         assert_eq!(rep.k, 10);
         assert_eq!(rep.n_queries, 30);
-        assert!(rep.mean_recall <= 1.0 && rep.mean_recall >= 0.85, "mean_recall={}", rep.mean_recall);
+        assert!(
+            rep.mean_recall <= 1.0 && rep.mean_recall >= 0.85,
+            "mean_recall={}",
+            rep.mean_recall
+        );
         assert!(rep.min_recall <= rep.mean_recall + 1e-9);
         assert!(rep.mean_average_precision > 0.0 && rep.mean_average_precision <= 1.0);
         assert!(rep.mean_precision >= 0.0 && rep.mean_precision <= 1.0);
@@ -316,7 +324,9 @@ mod tests {
         truth.add(&items);
 
         let mut qrng = ChaCha8Rng::seed_from_u64(202);
-        let queries: Vec<Vec<f32>> = (0..40).map(|_| data[qrng.gen_range(0..n)].clone()).collect();
+        let queries: Vec<Vec<f32>> = (0..40)
+            .map(|_| data[qrng.gen_range(0..n)].clone())
+            .collect();
         let starved = SearchParams {
             nprobe: 1,
             refine: true,

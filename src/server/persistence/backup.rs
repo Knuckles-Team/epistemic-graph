@@ -220,35 +220,45 @@ pub(crate) fn copy_snapshot_verbatim(
     if let Ok(t) = rtx.open_table(GRAPH_META) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_meta.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_meta
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             counts.graphs += 1;
         }
     }
     if let Ok(t) = rtx.open_table(NODES) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_nodes.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_nodes
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             counts.nodes += 1;
         }
     }
     if let Ok(t) = rtx.open_table(EDGES) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_edges.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_edges
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             counts.edges += 1;
         }
     }
     if let Ok(t) = rtx.open_table(LEDGER) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_ledger.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_ledger
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             counts.ledger += 1;
         }
     }
     if let Ok(t) = rtx.open_table(SEMANTIC) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_semantic.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_semantic
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             counts.semantic += 1;
         }
     }
@@ -256,7 +266,9 @@ pub(crate) fn copy_snapshot_verbatim(
     if let Ok(t) = rtx.open_table(AUDIT) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_audit.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_audit
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             counts.audit += 1;
         }
     }
@@ -285,28 +297,36 @@ fn copy_global_verbatim(
     if let Ok(t) = rtx.open_table(RAFT_LOG) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_raft_log.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_raft_log
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             count += 1;
         }
     }
     if let Ok(t) = rtx.open_table(RAFT_META) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_raft_meta.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_raft_meta
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             count += 1;
         }
     }
     if let Ok(t) = rtx.open_table(XSHARD_PREPARE) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_xprep.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_xprep
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             count += 1;
         }
     }
     if let Ok(t) = rtx.open_table(XSHARD_DECISION) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_xdec.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_xdec
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             count += 1;
         }
     }
@@ -314,7 +334,9 @@ fn copy_global_verbatim(
     if let Ok(t) = rtx.open_table(MATVIEWS) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
-            d_matviews.insert(k.value(), v.value()).map_err(|e| e.to_string())?;
+            d_matviews
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
             count += 1;
         }
     }
@@ -430,8 +452,9 @@ mod tests {
 
     /// Write G graphs (each with two nodes + an edge) durably through a backend.
     async fn seed(dir: &str, shards: usize, graphs: &[&str]) {
-        let backend = RedbBackend::open_with_shards(dir.to_string(), FsyncPolicy::Each, 256, shards)
-            .expect("open backend");
+        let backend =
+            RedbBackend::open_with_shards(dir.to_string(), FsyncPolicy::Each, 256, shards)
+                .expect("open backend");
         for g in graphs {
             backend
                 .register_graph(g, g, GraphType::Global)
@@ -489,8 +512,8 @@ mod tests {
         seed(&src_s, 3, &graphs).await;
 
         // ── ONLINE backup: reopen the SAME dir (K=3) and back it up while it is live ──
-        let backend =
-            RedbBackend::open_with_shards(src_s.clone(), FsyncPolicy::Each, 256, 3).expect("reopen");
+        let backend = RedbBackend::open_with_shards(src_s.clone(), FsyncPolicy::Each, 256, 3)
+            .expect("reopen");
         assert_eq!(backend.shard_count(), 3);
         let report = backend
             .backup(&bundle, "test-engine", 1_700_000_000, "nightly")
@@ -576,8 +599,8 @@ mod tests {
         let graphs = ["one", "two", "three", "four", "five", "six", "seven"];
         seed(&src_s, 1, &graphs).await;
 
-        let backend =
-            RedbBackend::open_with_shards(src_s.clone(), FsyncPolicy::Each, 256, 1).expect("reopen");
+        let backend = RedbBackend::open_with_shards(src_s.clone(), FsyncPolicy::Each, 256, 1)
+            .expect("reopen");
         let report = backend
             .backup(&bundle, "test-engine", 42, "")
             .expect("backup");

@@ -49,13 +49,11 @@ fn run(sql: &str) -> (Vec<String>, Vec<Vec<Value>>) {
 /// DENSE_RANK does not (1,1,2), and ROW_NUMBER is always distinct (1,2,3).
 #[test]
 fn eg_089_window_row_number_rank_dense_rank() {
-    let (_cols, rows) = run(
-        "SELECT id, \
+    let (_cols, rows) = run("SELECT id, \
             ROW_NUMBER() OVER (PARTITION BY part ORDER BY val, id) AS rn, \
             RANK() OVER (PARTITION BY part ORDER BY val) AS rnk, \
             DENSE_RANK() OVER (PARTITION BY part ORDER BY val) AS drnk \
-         FROM nodes ORDER BY part, val, id",
-    );
+         FROM nodes ORDER BY part, val, id");
     // Order: a:(10,20,30) then b:(100,100,300).
     let ids: Vec<&str> = rows.iter().map(|r| r[0].as_str().unwrap()).collect();
     assert_eq!(ids, vec!["n1", "n2", "n3", "n4", "n5", "n6"]);
@@ -70,13 +68,11 @@ fn eg_089_window_row_number_rank_dense_rank() {
 /// CONCEPT:EG-089 — offset functions LAG / LEAD / FIRST_VALUE over a partition.
 #[test]
 fn eg_089_window_lag_lead_first_value() {
-    let (_cols, rows) = run(
-        "SELECT id, \
+    let (_cols, rows) = run("SELECT id, \
             LAG(val, 1, -1) OVER (PARTITION BY part ORDER BY ord) AS prev, \
             LEAD(val, 1, -1) OVER (PARTITION BY part ORDER BY ord) AS next, \
             FIRST_VALUE(val) OVER (PARTITION BY part ORDER BY ord) AS firstv \
-         FROM nodes ORDER BY part, ord",
-    );
+         FROM nodes ORDER BY part, ord");
     let prev: Vec<i64> = rows.iter().map(|r| r[1].as_i64().unwrap()).collect();
     // a: [-1,10,20], b: [-1,100,100]
     assert_eq!(prev, vec![-1, 10, 20, -1, 100, 100]);
@@ -92,11 +88,9 @@ fn eg_089_window_lag_lead_first_value() {
 /// there is no ORDER BY).
 #[test]
 fn eg_089_window_sum_over_partition_by() {
-    let (_cols, rows) = run(
-        "SELECT id, part, \
+    let (_cols, rows) = run("SELECT id, part, \
             SUM(val) OVER (PARTITION BY part) AS part_total \
-         FROM nodes ORDER BY part, ord",
-    );
+         FROM nodes ORDER BY part, ord");
     let totals: Vec<i64> = rows.iter().map(|r| r[2].as_i64().unwrap()).collect();
     // a total = 60 (×3 rows), b total = 500 (×3 rows).
     assert_eq!(totals, vec![60, 60, 60, 500, 500, 500]);
@@ -106,12 +100,10 @@ fn eg_089_window_sum_over_partition_by() {
 /// current row and the one before it (`ROWS BETWEEN 1 PRECEDING AND CURRENT ROW`).
 #[test]
 fn eg_089_window_rows_between_frame() {
-    let (_cols, rows) = run(
-        "SELECT id, \
+    let (_cols, rows) = run("SELECT id, \
             SUM(val) OVER (PARTITION BY part ORDER BY ord \
                            ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS trailing2 \
-         FROM nodes ORDER BY part, ord",
-    );
+         FROM nodes ORDER BY part, ord");
     let trailing: Vec<i64> = rows.iter().map(|r| r[1].as_i64().unwrap()).collect();
     // a: [10, 10+20, 20+30] = [10,30,50]; b: [100, 100+100, 100+300] = [100,200,400].
     assert_eq!(trailing, vec![10, 30, 50, 100, 200, 400]);
@@ -122,11 +114,9 @@ fn eg_089_window_rows_between_frame() {
 /// interplay resets the accumulation at each partition boundary.
 #[test]
 fn eg_089_window_partition_order_interplay_running_sum() {
-    let (_cols, rows) = run(
-        "SELECT id, \
+    let (_cols, rows) = run("SELECT id, \
             SUM(val) OVER (PARTITION BY part ORDER BY ord) AS running \
-         FROM nodes ORDER BY part, ord",
-    );
+         FROM nodes ORDER BY part, ord");
     let running: Vec<i64> = rows.iter().map(|r| r[1].as_i64().unwrap()).collect();
     // a: [10,30,60]; b resets: [100,200,500].
     assert_eq!(running, vec![10, 30, 60, 100, 200, 500]);
@@ -137,13 +127,11 @@ fn eg_089_window_partition_order_interplay_running_sum() {
 /// `b` (two rows share val=100).
 #[test]
 fn eg_089_window_ntile_percent_rank_cume_dist() {
-    let (_cols, rows) = run(
-        "SELECT id, \
+    let (_cols, rows) = run("SELECT id, \
             NTILE(2) OVER (PARTITION BY part ORDER BY ord) AS bucket, \
             PERCENT_RANK() OVER (PARTITION BY part ORDER BY val) AS pr, \
             CUME_DIST() OVER (PARTITION BY part ORDER BY val) AS cd \
-         FROM nodes ORDER BY part, ord",
-    );
+         FROM nodes ORDER BY part, ord");
     // NTILE(2) over 3 rows → bucket sizes [2,1] per partition.
     let bucket: Vec<i64> = rows.iter().map(|r| r[1].as_i64().unwrap()).collect();
     assert_eq!(bucket, vec![1, 1, 2, 1, 1, 2]);
@@ -162,14 +150,12 @@ fn eg_089_window_ntile_percent_rank_cume_dist() {
 /// the whole partition rather than the default running frame.
 #[test]
 fn eg_089_window_last_value_nth_value_full_frame() {
-    let (_cols, rows) = run(
-        "SELECT id, \
+    let (_cols, rows) = run("SELECT id, \
             LAST_VALUE(val) OVER (PARTITION BY part ORDER BY ord \
                 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS lastv, \
             NTH_VALUE(val, 2) OVER (PARTITION BY part ORDER BY ord \
                 ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS second \
-         FROM nodes ORDER BY part, ord",
-    );
+         FROM nodes ORDER BY part, ord");
     let lastv: Vec<i64> = rows.iter().map(|r| r[1].as_i64().unwrap()).collect();
     assert_eq!(lastv, vec![30, 30, 30, 300, 300, 300]);
     let second: Vec<i64> = rows.iter().map(|r| r[2].as_i64().unwrap()).collect();
@@ -179,14 +165,12 @@ fn eg_089_window_last_value_nth_value_full_frame() {
 /// CONCEPT:EG-089 — the aggregate window functions AVG/MIN/MAX/COUNT OVER a partition.
 #[test]
 fn eg_089_window_avg_min_max_count_over_partition() {
-    let (_cols, rows) = run(
-        "SELECT id, part, \
+    let (_cols, rows) = run("SELECT id, part, \
             AVG(val) OVER (PARTITION BY part) AS a, \
             MIN(val) OVER (PARTITION BY part) AS mn, \
             MAX(val) OVER (PARTITION BY part) AS mx, \
             COUNT(val) OVER (PARTITION BY part) AS c \
-         FROM nodes ORDER BY part, ord",
-    );
+         FROM nodes ORDER BY part, ord");
     let avg: Vec<f64> = rows.iter().map(|r| r[2].as_f64().unwrap()).collect();
     assert_eq!(avg[0], 20.0); // a: (10+20+30)/3
     assert!((avg[3] - 500.0 / 3.0).abs() < 1e-9); // b: (100+100+300)/3
@@ -204,12 +188,10 @@ fn eg_089_window_avg_min_max_count_over_partition() {
 /// ROWS frame would have given 100 then 200.
 #[test]
 fn eg_089_window_range_frame_ties() {
-    let (_cols, rows) = run(
-        "SELECT id, part, val, \
+    let (_cols, rows) = run("SELECT id, part, val, \
             SUM(val) OVER (PARTITION BY part ORDER BY val \
                 RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS range_sum \
-         FROM nodes ORDER BY part, val, id",
-    );
+         FROM nodes ORDER BY part, val, id");
     let range_sum: Vec<i64> = rows.iter().map(|r| r[3].as_i64().unwrap()).collect();
     // a distinct vals: [10,30,60]; b ties at 100 → [200,200,500].
     assert_eq!(range_sum, vec![10, 30, 60, 200, 200, 500]);

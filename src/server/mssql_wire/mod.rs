@@ -95,9 +95,7 @@ fn map_col_type(t: PgColType) -> TdsType {
 /// Read ONE complete TDS message (reassembling multi-packet messages until the EOM
 /// status bit), returning `(message_type, payload)`. `Ok(None)` on a clean EOF at a
 /// message boundary (the client closed the connection).
-async fn read_message<R: AsyncRead + Unpin>(
-    r: &mut R,
-) -> std::io::Result<Option<(u8, Vec<u8>)>> {
+async fn read_message<R: AsyncRead + Unpin>(r: &mut R) -> std::io::Result<Option<(u8, Vec<u8>)>> {
     let mut payload = Vec::new();
     let mut msg_type: Option<u8> = None;
     loop {
@@ -155,7 +153,11 @@ async fn run_batch(session: &WireSession, sql: &str) -> Vec<u8> {
             for row in &result.rows {
                 out.extend(encode_row(&types, row));
             }
-            out.extend(encode_done(DONE_FINAL | DONE_COUNT, 0, result.rows.len() as u64));
+            out.extend(encode_done(
+                DONE_FINAL | DONE_COUNT,
+                0,
+                result.rows.len() as u64,
+            ));
             out
         }
         Ok(WireOutcome::Command { rows, .. }) => {
@@ -166,9 +168,7 @@ async fn run_batch(session: &WireSession, sql: &str) -> Vec<u8> {
             };
             encode_done(status, 0, rows.unwrap_or(0) as u64)
         }
-        Ok(WireOutcome::TxnStart) | Ok(WireOutcome::TxnEnd { .. }) => {
-            encode_done(DONE_FINAL, 0, 0)
-        }
+        Ok(WireOutcome::TxnStart) | Ok(WireOutcome::TxnEnd { .. }) => encode_done(DONE_FINAL, 0, 0),
         Ok(WireOutcome::CopyIn { .. }) => {
             let e = WireError {
                 code: "0A000".to_owned(),

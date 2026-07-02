@@ -17,16 +17,16 @@ pub mod compute;
 pub mod decay;
 pub mod graph;
 pub mod index;
+pub mod isolation;
 /// CONCEPT:EG-084 — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
 pub mod jsonpath;
-pub mod isolation;
 #[cfg(feature = "security")]
 pub mod rbac;
 pub mod read_through;
 pub mod registry;
+#[cfg(feature = "result-cache")]
+pub mod result_cache;
 /// CONCEPT:EG-087 — scene-graph / 3D world-model primitives (poses, transform
 /// composition, AABBs). Pure deterministic math; the `GraphCore` scene methods
 /// (`add_scene_object`, `world_transform`, spatial relations) live in `graph`.
 pub mod scene;
-#[cfg(feature = "result-cache")]
-pub mod result_cache;

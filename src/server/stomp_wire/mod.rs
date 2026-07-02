@@ -62,7 +62,8 @@ fn next_req_id() -> u64 {
 /// Serve the STOMP 1.2 wire protocol on `addr` until the listener errors (CONCEPT:EG-282).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let graph = std::env::var(STOMP_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
-    let exchange = std::env::var(STOMP_EXCHANGE_ENV).unwrap_or_else(|_| DEFAULT_EXCHANGE.to_string());
+    let exchange =
+        std::env::var(STOMP_EXCHANGE_ENV).unwrap_or_else(|_| DEFAULT_EXCHANGE.to_string());
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
         "stomp-wire: serving STOMP 1.2 on {} (broker graph '{}', exchange '{}')",
@@ -96,7 +97,11 @@ async fn accept_loop(
 
 // ── Engine bridge (identical shape to amqp-wire) ──────────────────────────
 
-async fn engine_call(state: &Arc<RwLock<ServerState>>, graph: &str, method: Method) -> ResultPayload {
+async fn engine_call(
+    state: &Arc<RwLock<ServerState>>,
+    graph: &str,
+    method: Method,
+) -> ResultPayload {
     let id = next_req_id();
     let secret = { state.read().await.auth_secret.clone() };
     let req = Request {
@@ -640,7 +645,10 @@ mod tests {
         let (parsed, consumed) = Frame::parse(&bytes).expect("a full frame");
         assert_eq!(consumed, bytes.len());
         assert_eq!(parsed.command, "SEND");
-        assert_eq!(parsed.header("destination").as_deref(), Some("/queue/orders"));
+        assert_eq!(
+            parsed.header("destination").as_deref(),
+            Some("/queue/orders")
+        );
         assert_eq!(parsed.header("content-type").as_deref(), Some("text/plain"));
         assert_eq!(parsed.body, b"hello world".to_vec());
     }
@@ -658,7 +666,10 @@ mod tests {
     fn eg282_parse_needs_full_frame_then_consumes_exactly_one() {
         let mut bytes = encode_frame(&Frame::new(
             "SUBSCRIBE",
-            vec![("id".into(), "0".into()), ("destination".into(), "/topic/a".into())],
+            vec![
+                ("id".into(), "0".into()),
+                ("destination".into(), "/topic/a".into()),
+            ],
             Vec::new(),
         ));
         // Truncated (no NUL yet) → None.
@@ -680,7 +691,11 @@ mod tests {
     #[test]
     fn eg282_leading_heartbeat_eols_are_skipped() {
         let mut bytes = vec![b'\n', b'\n']; // heart-beat newlines
-        bytes.extend_from_slice(&encode_frame(&Frame::new("DISCONNECT", Vec::new(), Vec::new())));
+        bytes.extend_from_slice(&encode_frame(&Frame::new(
+            "DISCONNECT",
+            Vec::new(),
+            Vec::new(),
+        )));
         let (f, consumed) = Frame::parse(&bytes).unwrap();
         assert_eq!(f.command, "DISCONNECT");
         assert_eq!(consumed, bytes.len());
@@ -689,7 +704,10 @@ mod tests {
     #[test]
     fn eg282_ack_mode_parse() {
         assert_eq!(AckMode::parse("client"), AckMode::Client);
-        assert_eq!(AckMode::parse("client-individual"), AckMode::ClientIndividual);
+        assert_eq!(
+            AckMode::parse("client-individual"),
+            AckMode::ClientIndividual
+        );
         assert_eq!(AckMode::parse(""), AckMode::Auto);
         assert_eq!(AckMode::parse("auto"), AckMode::Auto);
     }

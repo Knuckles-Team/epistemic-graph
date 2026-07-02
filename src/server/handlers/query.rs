@@ -265,16 +265,17 @@ pub(crate) async fn try_handle(
             #[cfg(feature = "security")]
             rls.filter_view(caller.unwrap_or(""), &mut snap);
             let semantic = core.semantic_store.read().clone();
-            let resp = match compute_off_lock(req_id, move || run_unified(plan, None, &snap, &semantic))
-                .await
-            {
-                Ok(Ok(rows)) => {
-                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
-                Err(resp) => resp,
-            };
+            let resp =
+                match compute_off_lock(req_id, move || run_unified(plan, None, &snap, &semantic))
+                    .await
+                {
+                    Ok(Ok(rows)) => {
+                        let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+                        Response::ok(req_id, ResultPayload::Raw(bytes))
+                    }
+                    Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
+                    Err(resp) => resp,
+                };
             Ok(resp)
         }
         #[cfg(feature = "graphql")]
@@ -1736,7 +1737,14 @@ mod rls_aware_cache_no_cross_agent_leak {
         let (h0, m0) = core.result_cache().stats();
         let ra1 = dispatch(
             &state,
-            req_as(20, "alice", Method::GraphQl { query: GQL.into(), variables: None }),
+            req_as(
+                20,
+                "alice",
+                Method::GraphQl {
+                    query: GQL.into(),
+                    variables: None,
+                },
+            ),
         )
         .await;
         assert!(ra1.error.is_none(), "alice GraphQL failed: {:?}", ra1.error);
@@ -1758,7 +1766,14 @@ mod rls_aware_cache_no_cross_agent_leak {
         // and recomputes BOB's filtered view.
         let rb = dispatch(
             &state,
-            req_as(21, "bob", Method::GraphQl { query: GQL.into(), variables: None }),
+            req_as(
+                21,
+                "bob",
+                Method::GraphQl {
+                    query: GQL.into(),
+                    variables: None,
+                },
+            ),
         )
         .await;
         assert!(rb.error.is_none(), "bob GraphQL failed: {:?}", rb.error);
@@ -1786,7 +1801,14 @@ mod rls_aware_cache_no_cross_agent_leak {
         // Alice repeats: HITS her own per-agent slot (caching still works under RLS).
         let ra2 = dispatch(
             &state,
-            req_as(22, "alice", Method::GraphQl { query: GQL.into(), variables: None }),
+            req_as(
+                22,
+                "alice",
+                Method::GraphQl {
+                    query: GQL.into(),
+                    variables: None,
+                },
+            ),
         )
         .await;
         let (h3, m3) = core.result_cache().stats();

@@ -297,7 +297,7 @@ fn encode_value(v: &MvtValue) -> Vec<u8> {
         }
         MvtValue::Float(f) => {
             write_tag(&mut out, 3, 0); // double_value (field 3, 64-bit) — use fixed64
-            // double_value is field 3, wire type 1 (64-bit). Correct the tag:
+                                       // double_value is field 3, wire type 1 (64-bit). Correct the tag:
             out.pop();
             out.push((3 << 3) | 1);
             out.extend_from_slice(&f.to_le_bytes());
@@ -950,9 +950,18 @@ mod tests {
         let t = Tile::new(10, 0, 0);
         let b = t.bounds();
         // A short line well inside the tile: from 1/4 to 3/4 across.
-        let p0 = Point::new(b.minx + (b.maxx - b.minx) * 0.25, b.miny + (b.maxy - b.miny) * 0.5);
-        let p1 = Point::new(b.minx + (b.maxx - b.minx) * 0.5, b.miny + (b.maxy - b.miny) * 0.5);
-        let p2 = Point::new(b.minx + (b.maxx - b.minx) * 0.75, b.miny + (b.maxy - b.miny) * 0.5);
+        let p0 = Point::new(
+            b.minx + (b.maxx - b.minx) * 0.25,
+            b.miny + (b.maxy - b.miny) * 0.5,
+        );
+        let p1 = Point::new(
+            b.minx + (b.maxx - b.minx) * 0.5,
+            b.miny + (b.maxy - b.miny) * 0.5,
+        );
+        let p2 = Point::new(
+            b.minx + (b.maxx - b.minx) * 0.75,
+            b.miny + (b.maxy - b.miny) * 0.5,
+        );
         let line = Geometry::LineString(LineString::new(vec![p0, p1, p2]));
         let layer = MvtLayer {
             name: "roads".into(),

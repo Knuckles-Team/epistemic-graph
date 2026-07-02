@@ -459,8 +459,8 @@ mod tests {
         {
             let core = registry.get("__commons__").unwrap().core.clone();
             for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-                let blob =
-                    rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank})).unwrap();
+                let blob = rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "rank": rank}))
+                    .unwrap();
                 core.add_node(id.to_string(), blob);
             }
         }
@@ -582,7 +582,9 @@ mod tests {
 
     #[derive(Debug)]
     enum QueryResult {
-        Ok { affected: u64 },
+        Ok {
+            affected: u64,
+        },
         Rows {
             columns: Vec<String>,
             rows: Vec<Vec<Option<String>>>,
@@ -611,7 +613,9 @@ mod tests {
                 continue;
             }
             let len = packets::get_lenenc_int(p, &mut pos).unwrap() as usize;
-            out.push(Some(String::from_utf8_lossy(&p[pos..pos + len]).into_owned()));
+            out.push(Some(
+                String::from_utf8_lossy(&p[pos..pos + len]).into_owned(),
+            ));
             pos += len;
         }
         out
@@ -646,12 +650,7 @@ mod tests {
 
         // 2) CREATE TABLE — a DDL command tag (uniquely named to avoid the process-wide
         //    user-table store colliding with other tests).
-        match client_query(
-            &mut c,
-            "CREATE TABLE eg076_items (id BIGINT, sku TEXT)",
-        )
-        .await
-        {
+        match client_query(&mut c, "CREATE TABLE eg076_items (id BIGINT, sku TEXT)").await {
             QueryResult::Ok { .. } => {}
             other => panic!("CREATE TABLE returned {other:?}"),
         }

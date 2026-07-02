@@ -30,9 +30,17 @@ impl StoredBlock {
     pub fn encode(bytes: &[u8]) -> Self {
         let rle = rle_encode(bytes);
         if rle.len() < bytes.len() {
-            StoredBlock { data: rle, compressed: true, orig_len: bytes.len() }
+            StoredBlock {
+                data: rle,
+                compressed: true,
+                orig_len: bytes.len(),
+            }
         } else {
-            StoredBlock { data: bytes.to_vec(), compressed: false, orig_len: bytes.len() }
+            StoredBlock {
+                data: bytes.to_vec(),
+                compressed: false,
+                orig_len: bytes.len(),
+            }
         }
     }
 
@@ -94,8 +102,15 @@ mod tests {
         block[100..110].copy_from_slice(&[7u8; 10]);
         let sb = StoredBlock::encode(&block);
         assert!(sb.compressed, "run-heavy KV page should compress");
-        assert!(sb.stored_len() < block.len(), "WARM must be smaller than the raw block");
-        assert_eq!(sb.decode(), block, "decode must reconstruct the exact block");
+        assert!(
+            sb.stored_len() < block.len(),
+            "WARM must be smaller than the raw block"
+        );
+        assert_eq!(
+            sb.decode(),
+            block,
+            "decode must reconstruct the exact block"
+        );
     }
 
     /// CONCEPT:EG-185 — incompressible data is stored RAW (never expanded) and still
@@ -105,7 +120,11 @@ mod tests {
         let block: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
         let sb = StoredBlock::encode(&block);
         assert!(!sb.compressed, "no run structure ⇒ raw fallback");
-        assert_eq!(sb.stored_len(), block.len(), "raw fallback never expands the block");
+        assert_eq!(
+            sb.stored_len(),
+            block.len(),
+            "raw fallback never expands the block"
+        );
         assert_eq!(sb.decode(), block);
     }
 

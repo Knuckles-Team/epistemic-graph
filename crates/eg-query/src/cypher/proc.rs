@@ -131,7 +131,9 @@ fn decode_obj(blob: &[u8]) -> Option<serde_json::Map<String, Value>> {
 fn distinct_labels(view: &GraphView) -> BTreeSet<String> {
     let mut set = BTreeSet::new();
     for blob in view.node_properties.values() {
-        let Some(obj) = decode_obj(blob) else { continue };
+        let Some(obj) = decode_obj(blob) else {
+            continue;
+        };
         for key in ["type", "node_type", "label"] {
             if let Some(s) = obj.get(key).and_then(|v| v.as_str()) {
                 set.insert(s.to_string());
@@ -153,7 +155,9 @@ fn distinct_rel_types(view: &GraphView) -> BTreeSet<String> {
     let mut set = BTreeSet::new();
     for blobs in view.edge_properties.values() {
         for blob in blobs {
-            let Some(obj) = decode_obj(blob) else { continue };
+            let Some(obj) = decode_obj(blob) else {
+                continue;
+            };
             if let Some(s) = obj
                 .get("relationship")
                 .or_else(|| obj.get("type"))

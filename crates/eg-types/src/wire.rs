@@ -157,9 +157,17 @@ pub enum TensorElementwiseOp {
 #[cfg(feature = "tensor")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TensorOpKind {
-    Slice { ranges: Vec<(usize, usize)> },
-    Reduce { axis: usize, kind: TensorReduceKind },
-    Elementwise { op: TensorElementwiseOp, scalar: f64 },
+    Slice {
+        ranges: Vec<(usize, usize)>,
+    },
+    Reduce {
+        axis: usize,
+        kind: TensorReduceKind,
+    },
+    Elementwise {
+        op: TensorElementwiseOp,
+        scalar: f64,
+    },
 }
 
 /// PROBABILISTIC — the evidence for a conjugate Bayesian update carried by
@@ -172,7 +180,10 @@ pub enum TensorOpKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProbEvidenceSpec {
-    Bernoulli { successes: f64, failures: f64 },
+    Bernoulli {
+        successes: f64,
+        failures: f64,
+    },
     Gaussian {
         observations: Vec<f64>,
         known_variance: f64,
@@ -217,10 +228,21 @@ pub enum ProbQuery {
 #[cfg(feature = "stream")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CepAttrPredSpec {
-    Eq { field: String, value: serde_json::Value },
-    Gt { field: String, value: f64 },
-    Lt { field: String, value: f64 },
-    Exists { field: String },
+    Eq {
+        field: String,
+        value: serde_json::Value,
+    },
+    Gt {
+        field: String,
+        value: f64,
+    },
+    Lt {
+        field: String,
+        value: f64,
+    },
+    Exists {
+        field: String,
+    },
 }
 
 /// STREAM — one event matcher: an optional event `key` + attribute predicates that ALL

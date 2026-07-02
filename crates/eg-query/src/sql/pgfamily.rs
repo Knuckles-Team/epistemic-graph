@@ -340,8 +340,8 @@ pub fn project_cypher_rows(
 
     let mut rows = Vec::with_capacity(cypher_result.rows.len());
     for raw in &cypher_result.rows {
-        let cells: Vec<Value> = rmp_serde::from_slice(raw)
-            .map_err(|e| format!("cypher(): decode row: {e}"))?;
+        let cells: Vec<Value> =
+            rmp_serde::from_slice(raw).map_err(|e| format!("cypher(): decode row: {e}"))?;
         let mut out_row = Vec::with_capacity(out_idx.len());
         for &i in &out_idx {
             let v = cells.get(i).cloned().unwrap_or(Value::Null);
@@ -648,18 +648,17 @@ pub fn parse_continuous_aggregate(sql: &str) -> Option<ContinuousAggPlan> {
 /// The last identifier of a function name (`paradedb.score` → `score`,
 /// `create_hypertable` → `create_hypertable`).
 fn last_fn_ident(f: &datafusion::sql::sqlparser::ast::Function) -> String {
-    f.name
-        .0
-        .last()
-        .map(|i| i.value.clone())
-        .unwrap_or_default()
+    f.name.0.last().map(|i| i.value.clone()).unwrap_or_default()
 }
 
 /// A function argument that is a single-quoted string literal ⇒ its contents.
 fn arg_as_string(arg: &FunctionArg) -> Option<String> {
     let expr = match arg {
         FunctionArg::Unnamed(FunctionArgExpr::Expr(e)) => e,
-        FunctionArg::Named { arg: FunctionArgExpr::Expr(e), .. } => e,
+        FunctionArg::Named {
+            arg: FunctionArgExpr::Expr(e),
+            ..
+        } => e,
         _ => return None,
     };
     match expr {
@@ -907,10 +906,9 @@ mod tests {
     // ── EG-116: pgvector CREATE INDEX + ANN pushdown ───────────────────────────
     #[test]
     fn eg116_parse_create_hnsw_index() {
-        let plan = parse_create_ann_index(
-            "CREATE INDEX ON items USING hnsw (embedding vector_l2_ops)",
-        )
-        .expect("recognized");
+        let plan =
+            parse_create_ann_index("CREATE INDEX ON items USING hnsw (embedding vector_l2_ops)")
+                .expect("recognized");
         assert_eq!(plan.table, "items");
         assert_eq!(plan.column, "embedding");
         assert_eq!(plan.method, AnnMethod::Hnsw);
@@ -964,9 +962,11 @@ mod tests {
     // ── EG-117: TimescaleDB hypertable + continuous aggregate ──────────────────
     #[test]
     fn eg117_detect_create_hypertable() {
-        let stmts =
-            Parser::parse_sql(&PostgreSqlDialect {}, "SELECT create_hypertable('conditions', 'ts')")
-                .unwrap();
+        let stmts = Parser::parse_sql(
+            &PostgreSqlDialect {},
+            "SELECT create_hypertable('conditions', 'ts')",
+        )
+        .unwrap();
         let plan = detect_create_hypertable(&stmts[0]).expect("recognized");
         assert_eq!(plan.table, "conditions");
         assert_eq!(plan.time_column, "ts");
@@ -986,7 +986,10 @@ mod tests {
         )
         .expect("recognized");
         assert_eq!(plan.name, "cagg");
-        assert!(plan.select_sql.to_ascii_lowercase().starts_with("select time_bucket"));
+        assert!(plan
+            .select_sql
+            .to_ascii_lowercase()
+            .starts_with("select time_bucket"));
         assert!(!plan.if_not_exists);
     }
 
@@ -1001,10 +1004,9 @@ mod tests {
     // ── EG-119: ParadeDB BM25 @@@ search ───────────────────────────────────────
     #[test]
     fn eg119_plan_bm25_search_filter_and_limit() {
-        let plan = plan_bm25_search(
-            "SELECT id FROM docs WHERE body @@@ 'quantum computing' LIMIT 10",
-        )
-        .expect("recognized");
+        let plan =
+            plan_bm25_search("SELECT id FROM docs WHERE body @@@ 'quantum computing' LIMIT 10")
+                .expect("recognized");
         assert_eq!(plan.table, "docs");
         assert_eq!(plan.column, "body");
         assert_eq!(plan.query, "quantum computing");
@@ -1013,10 +1015,8 @@ mod tests {
 
     #[test]
     fn eg119_plan_bm25_search_within_and() {
-        let plan = plan_bm25_search(
-            "SELECT id FROM docs WHERE lang = 'en' AND body @@@ 'rust'",
-        )
-        .expect("recognized");
+        let plan = plan_bm25_search("SELECT id FROM docs WHERE lang = 'en' AND body @@@ 'rust'")
+            .expect("recognized");
         assert_eq!(plan.column, "body");
         assert_eq!(plan.query, "rust");
         assert_eq!(plan.k, None);

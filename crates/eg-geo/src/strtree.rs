@@ -251,9 +251,7 @@ impl PartialOrd for Entry {
 impl Ord for Entry {
     fn cmp(&self, o: &Self) -> Ordering {
         // Reverse: smaller dist == "greater" so it pops first. NaN sorts last.
-        o.dist
-            .partial_cmp(&self.dist)
-            .unwrap_or(Ordering::Equal)
+        o.dist.partial_cmp(&self.dist).unwrap_or(Ordering::Equal)
     }
 }
 
@@ -438,7 +436,12 @@ mod tests {
             let qx = next() * 900.0;
             let qy = next() * 900.0;
             // Large-ish windows so some boxes are fully contained.
-            let q = Bbox::new(qx, qy, qx + next() * 200.0 + 30.0, qy + next() * 200.0 + 30.0);
+            let q = Bbox::new(
+                qx,
+                qy,
+                qx + next() * 200.0 + 30.0,
+                qy + next() * 200.0 + 30.0,
+            );
             assert_eq!(
                 sorted(t.query_contained_in(&q)),
                 brute_contained(&items, &q),

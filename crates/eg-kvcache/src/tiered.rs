@@ -140,7 +140,12 @@ where
     where
         K: 'static,
     {
-        Self::with_cold_store(hot_cap, warm_cap, cold_cap, Box::new(MemoryColdStore::new()))
+        Self::with_cold_store(
+            hot_cap,
+            warm_cap,
+            cold_cap,
+            Box::new(MemoryColdStore::new()),
+        )
     }
 
     /// A cache with an explicit COLD backing store — e.g. a durable
@@ -190,7 +195,12 @@ where
         self.hot_bytes += bytes;
         self.hot.insert(
             key,
-            HotEntry { value, score: 1.0, last: clk, bytes },
+            HotEntry {
+                value,
+                score: 1.0,
+                last: clk,
+                bytes,
+            },
         );
         self.enforce_hot();
     }
@@ -221,7 +231,11 @@ where
             let blob = self.cold_store.get(key).ok().flatten();
             let _ = self.cold_store.remove(key);
             if let Some(raw) = blob {
-                let sb = StoredBlock { data: raw, compressed: m.compressed, orig_len: m.orig_len };
+                let sb = StoredBlock {
+                    data: raw,
+                    compressed: m.compressed,
+                    orig_len: m.orig_len,
+                };
                 let value = V::from_bytes(&sb.decode());
                 self.hits += 1;
                 self.promotions += 1;
@@ -268,7 +282,11 @@ where
                 self.cold_bytes -= m.stored_len;
                 if let Some(raw) = self.cold_store.get(key).ok().flatten() {
                     let _ = self.cold_store.remove(key);
-                    let sb = StoredBlock { data: raw, compressed: m.compressed, orig_len: m.orig_len };
+                    let sb = StoredBlock {
+                        data: raw,
+                        compressed: m.compressed,
+                        orig_len: m.orig_len,
+                    };
                     let value = V::from_bytes(&sb.decode());
                     self.insert_hot(key.clone(), value, m.score, clk);
                 }
@@ -328,7 +346,15 @@ where
     fn insert_hot(&mut self, key: K, value: V, score: f64, clk: u64) {
         let bytes = value.byte_len();
         self.hot_bytes += bytes;
-        self.hot.insert(key, HotEntry { value, score, last: clk, bytes });
+        self.hot.insert(
+            key,
+            HotEntry {
+                value,
+                score,
+                last: clk,
+                bytes,
+            },
+        );
         self.enforce_hot();
     }
 
@@ -402,7 +428,14 @@ where
             let bytes = e.value.as_bytes();
             let sb = StoredBlock::encode(&bytes);
             self.warm_bytes += sb.stored_len();
-            self.warm.insert(k, WarmEntry { block: sb, score: e.score, last: e.last });
+            self.warm.insert(
+                k,
+                WarmEntry {
+                    block: sb,
+                    score: e.score,
+                    last: e.last,
+                },
+            );
             self.demotions_to_warm += 1;
         }
         self.enforce_warm();
@@ -465,7 +498,12 @@ mod tests {
     /// WARM and never cascade).
     fn page(len: usize, seed: u8) -> Block {
         (0..len)
-            .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed).wrapping_add(1))
+            .map(|i| {
+                (i as u8)
+                    .wrapping_mul(31)
+                    .wrapping_add(seed)
+                    .wrapping_add(1)
+            })
             .collect()
     }
 
@@ -484,7 +522,11 @@ mod tests {
         c.put(3, page(40, 3));
         let s = c.stats();
         assert!(s.hot_bytes <= 100, "HOT stays within its byte budget");
-        assert_eq!(s.hot_entries + s.warm_entries + s.cold_entries, 3, "no block lost");
+        assert_eq!(
+            s.hot_entries + s.warm_entries + s.cold_entries,
+            3,
+            "no block lost"
+        );
     }
 
     /// CONCEPT:EG-185 — the LRU evicts the LOWEST-SCORE block first: accessing a block
@@ -500,8 +542,16 @@ mod tests {
         }
         // A third block forces one demotion; the low-score key 2 must be the victim.
         c.put(3, page(40, 3));
-        assert_eq!(c.tier_of(&1), Some(Tier::Hot), "hot, frequently-used block stays HOT");
-        assert_eq!(c.tier_of(&2), Some(Tier::Warm), "lowest-score block demoted");
+        assert_eq!(
+            c.tier_of(&1),
+            Some(Tier::Hot),
+            "hot, frequently-used block stays HOT"
+        );
+        assert_eq!(
+            c.tier_of(&2),
+            Some(Tier::Warm),
+            "lowest-score block demoted"
+        );
     }
 
     /// CONCEPT:EG-185 — a hit in a lower tier PROMOTES the block back to HOT.
@@ -511,13 +561,21 @@ mod tests {
         c.put(1, page(40, 1));
         c.put(2, page(40, 2));
         c.put(3, page(40, 3)); // forces a demotion to WARM
-        // Find a block that got demoted, then access it and confirm it is promoted.
+                               // Find a block that got demoted, then access it and confirm it is promoted.
         let demoted = [1u64, 2, 3]
             .into_iter()
             .find(|k| c.tier_of(k) == Some(Tier::Warm))
             .expect("some block demoted to WARM");
-        assert_eq!(c.get(&demoted).unwrap(), page(40, demoted as u8), "value survives the round-trip");
-        assert_eq!(c.tier_of(&demoted), Some(Tier::Hot), "access promoted it back to HOT");
+        assert_eq!(
+            c.get(&demoted).unwrap(),
+            page(40, demoted as u8),
+            "value survives the round-trip"
+        );
+        assert_eq!(
+            c.tier_of(&demoted),
+            Some(Tier::Hot),
+            "access promoted it back to HOT"
+        );
         assert!(c.stats().promotions >= 1);
     }
 
@@ -533,11 +591,19 @@ mod tests {
         }
         let s = c.stats();
         assert_eq!(s.drops, 0, "nothing dropped while COLD has room");
-        assert_eq!(s.hot_entries + s.warm_entries + s.cold_entries, 10, "all 10 blocks retained");
+        assert_eq!(
+            s.hot_entries + s.warm_entries + s.cold_entries,
+            10,
+            "all 10 blocks retained"
+        );
         assert!(s.cold_entries > 0, "pressure pushed bytes down to COLD");
         // Every block is still retrievable (bytes were offloaded, not lost).
         for k in 0..10u64 {
-            assert_eq!(c.get(&k), Some(page(40, k as u8)), "block {k} recoverable after offload");
+            assert_eq!(
+                c.get(&k),
+                Some(page(40, k as u8)),
+                "block {k} recoverable after offload"
+            );
         }
     }
 
@@ -574,8 +640,11 @@ mod tests {
         for k in 50..100u64 {
             c.put(k, page(40, k as u8));
         }
-        assert_ne!(c.tier_of(&0), Some(Tier::Hot),
-            "after unpin the block is demoted/dropped under pressure like any other");
+        assert_ne!(
+            c.tier_of(&0),
+            Some(Tier::Hot),
+            "after unpin the block is demoted/dropped under pressure like any other"
+        );
     }
 
     /// CONCEPT:EG-185 — `evict` forcibly removes a block from all tiers (and unpins it).
@@ -596,7 +665,11 @@ mod tests {
         c.put(1, page(40, 1));
         c.put(1, page(60, 1));
         assert_eq!(c.stats().hot_entries, 1);
-        assert_eq!(c.stats().hot_bytes, 60, "byte accounting reflects the overwrite");
+        assert_eq!(
+            c.stats().hot_bytes,
+            60,
+            "byte accounting reflects the overwrite"
+        );
         assert_eq!(c.get(&1), Some(page(60, 1)));
     }
 

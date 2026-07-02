@@ -586,7 +586,11 @@ fn canonical_term(t: &Term) -> String {
                 Subject::NamedNode(n) => format!("<{}>", n.as_str()),
                 Subject::BlankNode(_) => "_:b".to_string(),
             };
-            format!("<<{s} <{}> {}>>", t.predicate.as_str(), canonical_term(&t.object))
+            format!(
+                "<<{s} <{}> {}>>",
+                t.predicate.as_str(),
+                canonical_term(&t.object)
+            )
         }
         #[allow(unreachable_patterns)]
         _ => "?".to_string(),
@@ -959,8 +963,7 @@ ex:x ex:tag "a" , "b" , "c" .
     #[cfg(feature = "sparql-star")]
     #[test]
     fn eg130_annotation_syntax_round_trips() {
-        let ttl =
-            "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c {| ex:certainty 0.9 |} .";
+        let ttl = "@prefix ex: <http://example.org/> .\nex:a ex:b ex:c {| ex:certainty 0.9 |} .";
         let parsed = parse_turtle(ttl).expect("parse annotation syntax");
         assert!(
             parsed.iter().any(|t| matches!(&t.object, Term::Triple(_))),

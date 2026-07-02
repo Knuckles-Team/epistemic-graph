@@ -107,7 +107,10 @@ pub fn resample(
                 .map(|row| row.right)
                 .collect()
         }
-        InterpMode::Nearest => grid.iter().map(|&t| nearest(points, t, tolerance)).collect(),
+        InterpMode::Nearest => grid
+            .iter()
+            .map(|&t| nearest(points, t, tolerance))
+            .collect(),
         InterpMode::Linear => grid.iter().map(|&t| linear(points, t, tolerance)).collect(),
     }
 }
@@ -265,12 +268,12 @@ mod eg098_align_tests {
         assert_eq!(
             out,
             vec![
-                None,         // before span
-                Some(0.0),    // exact
-                Some(20.0),   // 2/10 → 20
-                Some(50.0),   // 5/10 → 50
-                Some(100.0),  // exact
-                None,         // after span
+                None,        // before span
+                Some(0.0),   // exact
+                Some(20.0),  // 2/10 → 20
+                Some(50.0),  // 5/10 → 50
+                Some(100.0), // exact
+                None,        // after span
             ]
         );
     }
@@ -280,7 +283,10 @@ mod eg098_align_tests {
     fn eg098_resample_linear_tolerance_gap() {
         let pts = scalars(&[(0, 0.0), (100, 100.0)]);
         // bracket width 100 > tol 50 → gap at t=50.
-        assert_eq!(resample(&pts, &[50], InterpMode::Linear, Some(50)), vec![None]);
+        assert_eq!(
+            resample(&pts, &[50], InterpMode::Linear, Some(50)),
+            vec![None]
+        );
         // tol 150 ≥ 100 → interpolate to 50.
         assert_eq!(
             resample(&pts, &[50], InterpMode::Linear, Some(150)),
@@ -298,11 +304,11 @@ mod eg098_align_tests {
         assert_eq!(
             out,
             vec![
-                None,       // before first sample
-                Some(5.0),  // exact
-                Some(5.0),  // held forward
-                Some(9.0),  // exact
-                Some(9.0),  // held forward
+                None,      // before first sample
+                Some(5.0), // exact
+                Some(5.0), // held forward
+                Some(9.0), // exact
+                Some(9.0), // held forward
             ]
         );
     }
@@ -327,12 +333,7 @@ mod eg098_align_tests {
             InterpMode::Linear,
             None,
         );
-        let b = StreamSpec::new(
-            "mode",
-            scalars(&[(0, 1.0)]),
-            InterpMode::AsofHold,
-            None,
-        );
+        let b = StreamSpec::new("mode", scalars(&[(0, 1.0)]), InterpMode::AsofHold, None);
         let grid = uniform_grid(0, 5 * NS, NS); // 0,1,2,3,4 s
         let frame = align_multirate(&[a, b], &grid);
         assert_eq!(frame.grid.len(), 5);
@@ -368,9 +369,18 @@ mod eg098_align_tests {
     /// EG-098: empty streams degrade to all-gap columns, never panic.
     #[test]
     fn eg098_empty_streams_degrade() {
-        assert_eq!(resample(&[], &[0, 1, 2], InterpMode::Linear, None), vec![None; 3]);
-        assert_eq!(resample(&[], &[0, 1, 2], InterpMode::Nearest, None), vec![None; 3]);
-        assert_eq!(resample(&[], &[0, 1, 2], InterpMode::AsofHold, None), vec![None; 3]);
+        assert_eq!(
+            resample(&[], &[0, 1, 2], InterpMode::Linear, None),
+            vec![None; 3]
+        );
+        assert_eq!(
+            resample(&[], &[0, 1, 2], InterpMode::Nearest, None),
+            vec![None; 3]
+        );
+        assert_eq!(
+            resample(&[], &[0, 1, 2], InterpMode::AsofHold, None),
+            vec![None; 3]
+        );
         let empty = StreamSpec::new("x", vec![], InterpMode::Nearest, None);
         let frame = align_multirate(&[empty], &[0, 1]);
         assert_eq!(frame.channels[0].values, vec![None, None]);

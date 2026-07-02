@@ -196,7 +196,12 @@ mod eg098_fusion_tests {
             InterpMode::Nearest,
             None,
         );
-        let b = StreamSpec::new("gps", scalars(&[(0, 100.0)]), InterpMode::AsofHold, Some(NS));
+        let b = StreamSpec::new(
+            "gps",
+            scalars(&[(0, 100.0)]),
+            InterpMode::AsofHold,
+            Some(NS),
+        );
         let grid = vec![0, NS, 2 * NS];
         let fused = fuse_on_grid(&[a, b], &grid).unwrap();
 
@@ -278,8 +283,12 @@ mod eg098_fusion_tests {
         assert!(windowed_fusion(&[], 4 * NS, NS).unwrap().is_empty());
         // bad width/step guarded.
         let a = StreamSpec::new("x", scalars(&[(0, 1.0)]), InterpMode::Nearest, None);
-        assert!(windowed_fusion(std::slice::from_ref(&a), 0, NS).unwrap().is_empty());
-        assert!(windowed_fusion(std::slice::from_ref(&a), NS, 0).unwrap().is_empty());
+        assert!(windowed_fusion(std::slice::from_ref(&a), 0, NS)
+            .unwrap()
+            .is_empty());
+        assert!(windowed_fusion(std::slice::from_ref(&a), NS, 0)
+            .unwrap()
+            .is_empty());
         // Empty grid → [0 × 1] frame.
         let fused = fuse_on_grid(std::slice::from_ref(&a), &[]).unwrap();
         assert_eq!(fused.dims(), (0, 1));
