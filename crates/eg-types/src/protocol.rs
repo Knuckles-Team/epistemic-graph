@@ -1676,6 +1676,27 @@ pub enum Method {
         derived_only: bool,
     },
 
+    // ── SHACL Core validation (CONCEPT:EG-132) ───────────────────────────────
+    // Validate an RDF DATA graph against an RDF SHAPES graph, producing an
+    // `sh:ValidationReport` (`conforms` + a list of `sh:ValidationResult`). The
+    // engine half is the pure-Rust `eg-shacl` crate. This variant is UNCONDITIONAL in
+    // the enum (like `Backup`/`Restore`, CONCEPT:EG-090); the HANDLER is gated on the
+    // `shacl` feature — a build without it drops the handler arm and the request falls
+    // through to the dispatch "not available in this build" catch-all. The fields are
+    // inline Strings so the protocol crate (bottom of the DAG) carries no eg-shacl type;
+    // the handler parses both documents and returns a `Json` report.
+    /// Validate `data_graph` against `shapes`, both RDF Turtle documents (CONCEPT:EG-132).
+    /// An EMPTY `data_graph` validates against the LIVE RDF of the request's graph (the
+    /// same triples `GetRdf` would export). Returns a `Json` `sh:ValidationReport`.
+    /// Read-only. Handler gated `shacl` (implies `rdf`).
+    ShaclValidate {
+        /// The shapes graph as a Turtle document.
+        shapes: String,
+        /// The data graph as a Turtle document; empty ⇒ use the request's live graph.
+        #[serde(default)]
+        data_graph: String,
+    },
+
     // ── Streaming / CDC / subscriptions / reactivity (CONCEPT:KG-2.229/230) ──
     // A reactive surface over the engine's per-graph durable change record (the
     // ledger). Every durable mutation the dispatch shell records also emits an
