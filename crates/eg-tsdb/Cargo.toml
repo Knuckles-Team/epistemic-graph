@@ -34,6 +34,13 @@ arrow-seg = ["dep:arrow", "dep:datafusion", "dep:tokio", "dep:async-trait"]
 # the Prometheus HTTP API over this behind its own `promql` feature (which implies
 # `obs`); the orchestrator folds that into obs/node/full at merge time.
 promql = []
+# CONCEPT:EG-163 — distributed traces: the span model + indexed in-memory span store
+# + parent→children trace assembly + service-dependency graph (`traces` module). A
+# hand-rolled store over std collections — NO new deps (the Pi contract holds).
+# Enabling it only lights up the `traces` module; the facade wires the OTLP-JSON
+# ingest + Jaeger/OpenObserve trace-search HTTP API over this behind its own `traces`
+# sub-feature (which implies `obs`).
+traces = []
 
 [dependencies]
 # The ONE shared decay curve (CONCEPT:KG-2.211) lives in eg-core; the finance
