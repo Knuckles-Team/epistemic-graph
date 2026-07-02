@@ -2121,6 +2121,7 @@ dependencies = [
  "eg-plan",
  "eg-query",
  "eg-rdf",
+ "eg-shacl",
  "eg-tsdb",
  "eg-types",
  "eg-wasm",
