@@ -1,10 +1,14 @@
-//! The geometry value model (CONCEPT:EG-083): `Point` / `LineString` / `Polygon`
-//! behind one [`Geometry`] enum, each with an axis-aligned bounding box ([`Bbox`]).
+//! The geometry value model: single geometries `Point` / `LineString` / `Polygon`
+//! (CONCEPT:EG-083) plus the **full OGC collection model** `MultiPoint` /
+//! `MultiLineString` / `MultiPolygon` / `GeometryCollection` and polygon **interior
+//! rings (holes)** (CONCEPT:EG-257), all behind one [`Geometry`] enum, each with an
+//! axis-aligned bounding box ([`Bbox`]).
 //!
 //! Coordinates are planar `f64` `(x, y)` (longitude/latitude or a projected plane —
-//! the predicates in [`crate::predicates`] are Euclidean/planar for v1; a geodesic
-//! metric is a documented follow-up). Every type derives serde so a `Geometry`
-//! persists as a typed value in the engine's redb per-graph store.
+//! the predicates in [`crate::predicates`] are Euclidean/planar; the geodesic metrics
+//! in [`crate::geodesic`] (CONCEPT:EG-256) treat `x = lon`, `y = lat` in degrees).
+//! Every type derives serde so a `Geometry` persists as a typed value in the engine's
+//! redb per-graph store.
 
 use serde::{Deserialize, Serialize};
 
@@ -45,79 +49,202 @@ impl LineString {
     }
 }
 
-/// A polygon defined by a single exterior ring (a closed [`LineString`]). Interior
-/// rings / holes are a documented follow-up (v1 models the exterior ring only), as
-/// is multi-polygon.
+/// A polygon defined by an exterior ring (a closed [`LineString`]) plus zero or more
+/// **interior rings (holes)** (CONCEPT:EG-257). Backward-compatible: [`Polygon::new`]
+/// still takes only the exterior (holes default empty); [`Polygon::with_interiors`]
+/// adds holes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Polygon {
     /// The exterior ring. Conventionally closed (first == last coordinate); the
-    /// point-in-polygon test tolerates an unclosed ring too.
+    /// point-in-polygon test tolerates an unclosed ring too (implicit wrap edge).
     pub exterior: LineString,
+    /// Interior rings (holes). A point inside the exterior but inside any hole is
+    /// **outside** the polygon. Empty for a solid polygon.
+    #[serde(default)]
+    pub interiors: Vec<LineString>,
 }
 
 impl Polygon {
+    /// A solid polygon from just its exterior ring (no holes). Unchanged EG-083 API.
     pub fn new(exterior: LineString) -> Self {
-        Self { exterior }
+        Self {
+            exterior,
+            interiors: Vec::new(),
+        }
     }
 
-    /// Ray-casting point-in-polygon (even-odd rule). Points exactly on an edge are
-    /// treated as inside (boundary-inclusive), matching the OGC `within`/`contains`
+    /// A polygon with an exterior ring and interior rings (holes) (CONCEPT:EG-257).
+    pub fn with_interiors(exterior: LineString, interiors: Vec<LineString>) -> Self {
+        Self {
+            exterior,
+            interiors,
+        }
+    }
+
+    /// Ray-casting point-in-polygon (even-odd rule), hole-aware (CONCEPT:EG-257): a
+    /// point is inside iff it is inside the exterior ring AND not strictly inside any
+    /// interior ring. Points exactly on the exterior boundary — or on a hole boundary —
+    /// are treated as inside (boundary-inclusive), matching the OGC `within`/`contains`
     /// intent for the common case. Planar.
     pub fn contains_point(&self, p: &Point) -> bool {
-        let ring = &self.exterior.points;
-        if ring.len() < 3 {
+        // Outside the exterior (on-edge counts as inside) ⇒ not contained.
+        if !ring_contains(&self.exterior.points, p, true) {
             return false;
         }
-        // Boundary check first (inclusive).
-        for (a, b) in self.exterior.segments() {
-            if point_on_segment(p, &a, &b) {
-                return true;
+        // Strictly inside a hole ⇒ outside the polygon; on a hole edge ⇒ still inside.
+        for hole in &self.interiors {
+            if ring_contains(&hole.points, p, false) {
+                return false;
             }
         }
-        let mut inside = false;
-        let n = ring.len();
-        let mut j = n - 1;
-        for i in 0..n {
-            let pi = ring[i];
-            let pj = ring[j];
-            let intersect = ((pi.y > p.y) != (pj.y > p.y))
-                && (p.x < (pj.x - pi.x) * (p.y - pi.y) / (pj.y - pi.y) + pi.x);
-            if intersect {
-                inside = !inside;
-            }
-            j = i;
-        }
-        inside
+        true
     }
 }
 
-/// One spatial value: a point, a line, or a polygon.
+/// One spatial value: a single geometry, a homogeneous multi-geometry, or a mixed
+/// collection (CONCEPT:EG-083 for the singles, CONCEPT:EG-257 for the collections).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Geometry {
     Point(Point),
     LineString(LineString),
     Polygon(Polygon),
+    MultiPoint(Vec<Point>),
+    MultiLineString(Vec<LineString>),
+    MultiPolygon(Vec<Polygon>),
+    GeometryCollection(Vec<Geometry>),
+}
+
+/// A borrowed reference to one atomic (single) primitive of a geometry — the flattened
+/// unit the planar predicates operate on. Internal to the crate.
+pub(crate) enum Prim<'a> {
+    Point(&'a Point),
+    Line(&'a LineString),
+    Poly(&'a Polygon),
 }
 
 impl Geometry {
     /// The axis-aligned bounding box of this geometry (`None` for an empty geometry).
+    /// A multi/collection's bbox is the union of its parts' boxes (CONCEPT:EG-257).
     pub fn bbox(&self) -> Option<Bbox> {
-        let pts: &[Point] = match self {
-            Geometry::Point(p) => std::slice::from_ref(p),
-            Geometry::LineString(l) => &l.points,
-            Geometry::Polygon(pg) => &pg.exterior.points,
-        };
-        Bbox::of_points(pts)
+        match self {
+            Geometry::Point(p) => Bbox::of_points(std::slice::from_ref(p)),
+            Geometry::LineString(l) => Bbox::of_points(&l.points),
+            Geometry::Polygon(pg) => Bbox::of_points(&pg.exterior.points),
+            Geometry::MultiPoint(ps) => Bbox::of_points(ps),
+            Geometry::MultiLineString(ls) => union_bbox(ls.iter().flat_map(|l| l.points.iter())),
+            Geometry::MultiPolygon(pgs) => {
+                union_bbox(pgs.iter().flat_map(|pg| pg.exterior.points.iter()))
+            }
+            Geometry::GeometryCollection(gs) => {
+                let mut acc: Option<Bbox> = None;
+                for g in gs {
+                    if let Some(b) = g.bbox() {
+                        match &mut acc {
+                            Some(a) => a.union(&b),
+                            None => acc = Some(b),
+                        }
+                    }
+                }
+                acc
+            }
+        }
     }
 
-    /// Every vertex of the geometry (used by the vertex-set predicates).
+    /// The vertices of the FIRST (or only) ring/chain of a *single* geometry
+    /// (`Point`/`LineString`/`Polygon`-exterior). Retained for EG-083 backward
+    /// compatibility; composite geometries return an empty slice — use the internal
+    /// [`Geometry::primitives`] flattening (or [`Geometry::all_vertices`]) instead.
     pub fn points(&self) -> &[Point] {
         match self {
             Geometry::Point(p) => std::slice::from_ref(p),
             Geometry::LineString(l) => &l.points,
             Geometry::Polygon(pg) => &pg.exterior.points,
+            _ => &[],
         }
     }
+
+    /// Flatten this geometry into its atomic single primitives (recursing through multis
+    /// and collections), appending borrowed refs to `out` (CONCEPT:EG-257).
+    pub(crate) fn primitives<'a>(&'a self, out: &mut Vec<Prim<'a>>) {
+        match self {
+            Geometry::Point(p) => out.push(Prim::Point(p)),
+            Geometry::LineString(l) => out.push(Prim::Line(l)),
+            Geometry::Polygon(pg) => out.push(Prim::Poly(pg)),
+            Geometry::MultiPoint(ps) => ps.iter().for_each(|p| out.push(Prim::Point(p))),
+            Geometry::MultiLineString(ls) => ls.iter().for_each(|l| out.push(Prim::Line(l))),
+            Geometry::MultiPolygon(pgs) => pgs.iter().for_each(|pg| out.push(Prim::Poly(pg))),
+            Geometry::GeometryCollection(gs) => gs.iter().for_each(|g| g.primitives(out)),
+        }
+    }
+
+    /// Every vertex of the geometry, across all parts and (for polygons) interior rings.
+    pub fn all_vertices(&self) -> Vec<Point> {
+        let mut prims = Vec::new();
+        self.primitives(&mut prims);
+        let mut out = Vec::new();
+        for p in &prims {
+            match p {
+                Prim::Point(q) => out.push(**q),
+                Prim::Line(l) => out.extend_from_slice(&l.points),
+                Prim::Poly(pg) => {
+                    out.extend_from_slice(&pg.exterior.points);
+                    for h in &pg.interiors {
+                        out.extend_from_slice(&h.points);
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Bounding box of an iterator of points (`None` when empty).
+fn union_bbox<'a>(pts: impl Iterator<Item = &'a Point>) -> Option<Bbox> {
+    let mut acc: Option<Bbox> = None;
+    for p in pts {
+        match &mut acc {
+            Some(b) => {
+                b.minx = b.minx.min(p.x);
+                b.miny = b.miny.min(p.y);
+                b.maxx = b.maxx.max(p.x);
+                b.maxy = b.maxy.max(p.y);
+            }
+            None => acc = Some(Bbox::new(p.x, p.y, p.x, p.y)),
+        }
+    }
+    acc
+}
+
+/// Ray-cast even-odd point-in-ring over a ring treated as **closed** (implicit wrap
+/// edge). `boundary_inside` decides how an on-edge point is classified (exterior rings
+/// pass `true`; holes pass `false` so a point on a hole edge stays inside the polygon).
+/// Fewer than 3 vertices ⇒ not contained.
+fn ring_contains(ring: &[Point], p: &Point, boundary_inside: bool) -> bool {
+    let n = ring.len();
+    if n < 3 {
+        return false;
+    }
+    // Boundary check first (over the closed ring, including the wrap edge).
+    for i in 0..n {
+        let a = ring[i];
+        let b = ring[(i + 1) % n];
+        if point_on_segment(p, &a, &b) {
+            return boundary_inside;
+        }
+    }
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let pi = ring[i];
+        let pj = ring[j];
+        let intersect = ((pi.y > p.y) != (pj.y > p.y))
+            && (p.x < (pj.x - pi.x) * (p.y - pi.y) / (pj.y - pi.y) + pi.x);
+        if intersect {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
 }
 
 /// An axis-aligned bounding box `[minx, miny, maxx, maxy]`. The R-tree index and the
@@ -240,6 +367,56 @@ mod tests {
         assert!(sq.contains_point(&Point::new(2.0, 2.0))); // interior
         assert!(sq.contains_point(&Point::new(0.0, 2.0))); // on edge (inclusive)
         assert!(!sq.contains_point(&Point::new(5.0, 2.0))); // outside
+    }
+
+    #[test]
+    fn point_in_polygon_with_hole() {
+        // 10×10 square with a 4×4 hole in the middle (CONCEPT:EG-257).
+        let exterior = LineString::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(10.0, 0.0),
+            Point::new(10.0, 10.0),
+            Point::new(0.0, 10.0),
+            Point::new(0.0, 0.0),
+        ]);
+        let hole = LineString::new(vec![
+            Point::new(3.0, 3.0),
+            Point::new(7.0, 3.0),
+            Point::new(7.0, 7.0),
+            Point::new(3.0, 7.0),
+            Point::new(3.0, 3.0),
+        ]);
+        let pg = Polygon::with_interiors(exterior, vec![hole]);
+        assert!(pg.contains_point(&Point::new(1.0, 1.0))); // in the ring, outside hole
+        assert!(!pg.contains_point(&Point::new(5.0, 5.0))); // inside the hole → outside
+        assert!(pg.contains_point(&Point::new(3.0, 5.0))); // on the hole edge → inside
+        assert!(!pg.contains_point(&Point::new(11.0, 5.0))); // outside exterior
+    }
+
+    #[test]
+    fn multi_bbox_is_union_of_parts() {
+        let mp = Geometry::MultiPoint(vec![
+            Point::new(0.0, 0.0),
+            Point::new(5.0, -2.0),
+            Point::new(-1.0, 3.0),
+        ]);
+        assert_eq!(mp.bbox(), Some(Bbox::new(-1.0, -2.0, 5.0, 3.0)));
+
+        let mpoly = Geometry::MultiPolygon(vec![
+            Polygon::new(LineString::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 0.0),
+                Point::new(1.0, 1.0),
+                Point::new(0.0, 0.0),
+            ])),
+            Polygon::new(LineString::new(vec![
+                Point::new(10.0, 10.0),
+                Point::new(12.0, 10.0),
+                Point::new(12.0, 12.0),
+                Point::new(10.0, 10.0),
+            ])),
+        ]);
+        assert_eq!(mpoly.bbox(), Some(Bbox::new(0.0, 0.0, 12.0, 12.0)));
     }
 
     #[test]
