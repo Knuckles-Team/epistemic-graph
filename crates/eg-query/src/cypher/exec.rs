@@ -33,8 +33,9 @@ use super::parser;
 use super::plan::{
     AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr, NodePat,
     Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement, Test,
-    WhereExpr, WithItem, WriteOp, WriteQuery,
+    WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
+use super::proc::{registry, YieldValue};
 
 /// Implicit max rows (mirrors the SQL surface): one Response per Request, so an
 /// unbounded RETURN would buffer the whole result in one message.
@@ -129,6 +130,25 @@ fn run_stages(
                 }
                 bindings = out;
             }
+            ReadStage::Call { subquery } => {
+                let additions = subquery_additions(view, subquery, params)?;
+                let mut out: Vec<Binding> = Vec::new();
+                for b in &bindings {
+                    for add in &additions {
+                        let mut nb = b.clone();
+                        nb.extend(add.clone());
+                        out.push(nb);
+                    }
+                }
+                bindings = out;
+            }
+            ReadStage::CallProc {
+                name,
+                args,
+                yields,
+            } => {
+                bindings = run_call_proc(view, &bindings, name, args, yields, params)?;
+            }
         }
     }
     Ok(bindings)
@@ -180,6 +200,126 @@ fn bound_value(b: &Binding, var: &str) -> Option<Value> {
     } else {
         b.get(var).map(|id| Value::String(id.clone()))
     }
+}
+
+/// Run a `CALL { subquery }` (CONCEPT:EG-142) and produce the per-result-row binding
+/// additions to merge (cartesian) onto each outer row. Node-valued RETURN vars stay
+/// anchorable node bindings; scalar/property/aggregate columns become `@val@`
+/// sidecars keyed by the projected column name.
+fn subquery_additions(
+    view: &GraphView,
+    subquery: &CypherQuery,
+    params: &Params,
+) -> Result<Vec<Binding>, String> {
+    let sub_bindings = run_stages(view, &subquery.stages, params)?;
+    let ret = &subquery.ret;
+    let items: Vec<ReturnItem> = if ret.star {
+        scope_vars(&subquery.stages)
+            .into_iter()
+            .map(|v| ReturnItem {
+                expr: Expr::Var(v),
+                alias: None,
+            })
+            .collect()
+    } else {
+        ret.items.clone()
+    };
+
+    // An aggregating subquery collapses rows; run the full RETURN and expose each
+    // resulting column as a scalar sidecar.
+    if items.iter().any(|i| is_agg(&i.expr)) {
+        let qr = finalize(view, subquery, sub_bindings)?;
+        let mut out = Vec::new();
+        for row in &qr.rows {
+            let cells: Vec<Value> =
+                rmp_serde::from_slice(row).map_err(|e| format!("decode subquery row: {e}"))?;
+            let mut add = Binding::new();
+            for (i, col) in qr.columns.iter().enumerate() {
+                let v = cells.get(i).cloned().unwrap_or(Value::Null);
+                add.insert(val_key(col), serde_json::to_string(&v).unwrap_or_default());
+            }
+            out.push(add);
+        }
+        return Ok(out);
+    }
+
+    // Non-aggregating: one addition per sub-binding, preserving each var's kind.
+    let mut out = Vec::new();
+    for b in &sub_bindings {
+        let mut add = Binding::new();
+        for it in &items {
+            let name = it.column();
+            match &it.expr {
+                Expr::Var(v) => {
+                    if let Some(p) = b.get(&path_key(v)) {
+                        add.insert(path_key(&name), p.clone());
+                    } else if let Some(s) = b.get(&val_key(v)) {
+                        add.insert(val_key(&name), s.clone());
+                    } else if let Some(id) = b.get(v) {
+                        add.insert(name.clone(), id.clone());
+                    }
+                }
+                Expr::Prop(v, p) => {
+                    let val = b
+                        .get(v)
+                        .and_then(|id| node_prop(view, id, p))
+                        .unwrap_or(Value::Null);
+                    add.insert(val_key(&name), serde_json::to_string(&val).unwrap_or_default());
+                }
+                _ => {}
+            }
+        }
+        out.push(add);
+    }
+    Ok(out)
+}
+
+/// Run a `CALL proc.name(args) YIELD …` stage (CONCEPT:EG-142): resolve the args,
+/// consult the procedure registry, and bind each yielded column onto every incoming
+/// row × procedure result row. A `Node` yield binds an anchorable node id; a `Scalar`
+/// yield binds a `@val@` sidecar under the (aliased) column name.
+fn run_call_proc(
+    view: &GraphView,
+    bindings: &[Binding],
+    name: &str,
+    args: &[PropVal],
+    yields: &[YieldItem],
+    params: &Params,
+) -> Result<Vec<Binding>, String> {
+    let reg = registry();
+    let proc = reg
+        .get(&name.to_ascii_lowercase())
+        .ok_or_else(|| format!("unknown procedure `{name}`"))?;
+    let mut out = Vec::new();
+    for b in bindings {
+        let argv: Vec<Value> = args
+            .iter()
+            .map(|pv| resolve_prop_val(b, params, pv))
+            .collect::<Result<_, _>>()?;
+        let rows = proc.call(&argv, view)?;
+        for row in rows {
+            let mut nb = b.clone();
+            for y in yields {
+                let out_name = y.alias.clone().unwrap_or_else(|| y.col.clone());
+                match row.iter().find(|(c, _)| *c == y.col) {
+                    Some((_, YieldValue::Node(id))) => {
+                        nb.insert(out_name, id.clone());
+                    }
+                    Some((_, YieldValue::Scalar(v))) => {
+                        nb.insert(val_key(&out_name), serde_json::to_string(v).unwrap_or_default());
+                    }
+                    None => {
+                        return Err(format!(
+                            "procedure `{name}` does not yield column `{}`",
+                            y.col
+                        ))
+                    }
+                }
+            }
+            out.push(nb);
+        }
+    }
+    Ok(out)
 }
 
 /// Resolve a linear MATCH `pattern` into var→node-id bindings, applying `where`.
@@ -452,6 +592,22 @@ fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
                     .collect();
             }
             ReadStage::Unwind { var, .. } => push(var, &mut scope),
+            ReadStage::CallProc { yields, .. } => {
+                for y in yields {
+                    push(&y.alias.clone().unwrap_or_else(|| y.col.clone()), &mut scope);
+                }
+            }
+            ReadStage::Call { subquery } => {
+                if subquery.ret.star {
+                    for v in scope_vars(&subquery.stages) {
+                        push(&v, &mut scope);
+                    }
+                } else {
+                    for it in &subquery.ret.items {
+                        push(&it.column(), &mut scope);
+                    }
+                }
+            }
         }
     }
     scope
@@ -1611,6 +1767,40 @@ mod tests {
         let c = cells_of(&qr, 0);
         assert_eq!(c[0], Value::Number(60.into()));
         assert_eq!(c[1], Value::Number(3.into()));
+    }
+
+    // ── CALL subquery + procedures (CONCEPT:EG-142 / EG-143) ────────────────────
+
+    #[test]
+    fn call_subquery_joins_rows() {
+        let v = fixture();
+        // Subquery returns the 3 Person ids; the outer just forwards them.
+        let qr = exec_cypher(&v, "CALL { MATCH (a:Person) RETURN a } RETURN a").unwrap();
+        assert_eq!(ids(&qr, 0), vec!["alice", "bob", "carol"]);
+    }
+
+    #[test]
+    fn call_subquery_with_aggregate_scalar() {
+        let v = fixture();
+        let qr =
+            exec_cypher(&v, "CALL { MATCH (a:Person) RETURN count(a) AS c } RETURN c").unwrap();
+        assert_eq!(qr.columns, vec!["c"]);
+        assert_eq!(cells_of(&qr, 0)[0], Value::Number(3.into()));
+    }
+
+    #[test]
+    fn call_db_labels_builtin() {
+        let v = fixture();
+        let qr = exec_cypher(&v, "CALL db.labels() YIELD label RETURN label").unwrap();
+        assert_eq!(qr.columns, vec!["label"]);
+        assert_eq!(ids(&qr, 0), vec!["Doc", "Person"]);
+    }
+
+    #[test]
+    fn unknown_procedure_errors() {
+        let v = fixture();
+        let err = exec_cypher(&v, "CALL no.such.proc() YIELD x RETURN x").unwrap_err();
+        assert!(err.contains("unknown procedure"), "{err}");
     }
 
     // ── write path (CONCEPT:EG-020 / EG-061) ───────────────────────────────────

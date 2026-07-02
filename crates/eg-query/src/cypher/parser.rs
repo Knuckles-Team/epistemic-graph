@@ -35,7 +35,7 @@ use serde_json::Value;
 use super::plan::{
     AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr, NodePat,
     OrderKey, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement,
-    Test, WhereExpr, WithItem, WriteOp, WriteQuery,
+    Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -776,6 +776,9 @@ impl Parser {
         if self.peek_keyword("UNWIND") {
             return self.parse_unwind();
         }
+        if self.peek_keyword("CALL") {
+            return self.parse_call();
+        }
         if self.peek_keyword("WITH") {
             self.eat_keyword("WITH")?;
             let mut items = vec![self.parse_with_item()?];
@@ -854,6 +857,106 @@ impl Parser {
             Some(Tok::Ident(_)) => Ok(ListExpr::Ref(self.ident()?)),
             other => Err(format!("expected a list expression for UNWIND, found {other:?}")),
         }
+    }
+
+    /// `CALL { subquery }` or `CALL proc.name(args) YIELD …` (CONCEPT:EG-142).
+    fn parse_call(&mut self) -> Result<ReadStage, String> {
+        self.eat_keyword("CALL")?;
+        if matches!(self.peek(), Some(Tok::LBrace)) {
+            let subquery = self.parse_subquery()?;
+            return Ok(ReadStage::Call {
+                subquery: Box::new(subquery),
+            });
+        }
+        let name = self.parse_proc_name()?;
+        let args = self.parse_arg_list()?;
+        self.eat_keyword("YIELD")?;
+        let yields = self.parse_yield_items()?;
+        Ok(ReadStage::CallProc { name, args, yields })
+    }
+
+    /// A dotted procedure name (`gds.pageRank`, `apoc.coll.sum`) (CONCEPT:EG-142).
+    fn parse_proc_name(&mut self) -> Result<String, String> {
+        let mut name = self.ident()?;
+        while matches!(self.peek(), Some(Tok::Dot)) {
+            self.next();
+            name.push('.');
+            name.push_str(&self.ident()?);
+        }
+        Ok(name)
+    }
+
+    /// `( arg, … )` — the parenthesized argument list of a procedure call. Each arg is
+    /// a literal, a `$param`, a bound-var reference, or an inline `[…]` list literal.
+    fn parse_arg_list(&mut self) -> Result<Vec<PropVal>, String> {
+        self.expect(&Tok::LParen)?;
+        let mut args = Vec::new();
+        if !matches!(self.peek(), Some(Tok::RParen)) {
+            args.push(self.parse_arg()?);
+            while matches!(self.peek(), Some(Tok::Comma)) {
+                self.next();
+                args.push(self.parse_arg()?);
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(args)
+    }
+
+    /// One procedure argument (CONCEPT:EG-142): an inline `[…]` list literal (of
+    /// literals) folds to a `PropVal::Lit(Value::Array)`; otherwise a [`PropVal`].
+    fn parse_arg(&mut self) -> Result<PropVal, String> {
+        if matches!(self.peek(), Some(Tok::LBracket)) {
+            self.next();
+            let mut items: Vec<Value> = Vec::new();
+            if !matches!(self.peek(), Some(Tok::RBracket)) {
+                items.push(self.parse_literal()?);
+                while matches!(self.peek(), Some(Tok::Comma)) {
+                    self.next();
+                    items.push(self.parse_literal()?);
+                }
+            }
+            self.expect(&Tok::RBracket)?;
+            return Ok(PropVal::Lit(Value::Array(items)));
+        }
+        self.parse_prop_val()
+    }
+
+    /// `YIELD col [AS alias], …` (CONCEPT:EG-142).
+    fn parse_yield_items(&mut self) -> Result<Vec<YieldItem>, String> {
+        let mut items = vec![self.parse_yield_item()?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            items.push(self.parse_yield_item()?);
+        }
+        Ok(items)
+    }
+
+    fn parse_yield_item(&mut self) -> Result<YieldItem, String> {
+        let col = self.ident()?;
+        let alias = if self.peek_keyword("AS") {
+            self.eat_keyword("AS")?;
+            Some(self.ident()?)
+        } else {
+            None
+        };
+        Ok(YieldItem { col, alias })
+    }
+
+    /// `{ <read stages> RETURN <spec> }` — the body of a `CALL { … }` subquery
+    /// (CONCEPT:EG-142). Reads only; terminated by the matching `}`.
+    fn parse_subquery(&mut self) -> Result<CypherQuery, String> {
+        self.expect(&Tok::LBrace)?;
+        let mut stages = vec![self.parse_read_stage()?];
+        loop {
+            if self.peek_keyword("RETURN") {
+                break;
+            }
+            stages.push(self.parse_read_stage()?);
+        }
+        self.eat_keyword("RETURN")?;
+        let ret = self.parse_return_spec()?;
+        self.expect(&Tok::RBrace)?;
+        Ok(CypherQuery { stages, ret })
     }
 
     /// A leading `p =` path-variable binding (CONCEPT:EG-063): an identifier directly
@@ -1209,6 +1312,42 @@ mod tests {
                 assert!(matches!(&props[0].1, PropVal::Ref(r) if r == "x"));
             }
             _ => panic!("expected MATCH"),
+        }
+    }
+
+    #[test]
+    fn parses_call_subquery() {
+        // CONCEPT:EG-142
+        let q = parse("CALL { MATCH (a:Person) RETURN a } RETURN a").unwrap();
+        assert!(matches!(&q.stages[0], ReadStage::Call { .. }));
+    }
+
+    #[test]
+    fn parses_call_proc_yield() {
+        // CONCEPT:EG-142/EG-143
+        let q = parse("CALL gds.pageRank() YIELD node, score RETURN node, score").unwrap();
+        match &q.stages[0] {
+            ReadStage::CallProc { name, args, yields } => {
+                assert_eq!(name, "gds.pageRank");
+                assert!(args.is_empty());
+                assert_eq!(yields.len(), 2);
+                assert_eq!(yields[0].col, "node");
+            }
+            _ => panic!("expected CALL proc"),
+        }
+    }
+
+    #[test]
+    fn parses_call_proc_with_list_arg_and_alias() {
+        // CONCEPT:EG-142/EG-143
+        let q = parse("CALL apoc.coll.sum([1, 2, 3]) YIELD value AS s RETURN s").unwrap();
+        match &q.stages[0] {
+            ReadStage::CallProc { name, args, yields } => {
+                assert_eq!(name, "apoc.coll.sum");
+                assert!(matches!(&args[0], PropVal::Lit(Value::Array(a)) if a.len() == 3));
+                assert_eq!(yields[0].alias.as_deref(), Some("s"));
+            }
+            _ => panic!("expected CALL proc"),
         }
     }
 
