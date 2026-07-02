@@ -170,6 +170,12 @@ pub mod nl;
 // other federation surfaces link — NO new HTTP dep, kept OUT of the Pi tier).
 #[cfg(feature = "federation-search")]
 pub mod federation;
+// Real-time QoS / SLO-aware admission scheduler (CONCEPT:EG-320). An additive, opt-in
+// gate (enabled by `EPISTEMIC_GRAPH_QOS`) the transport runs BEFORE the baseline
+// admission: priority-class preemption + per-tenant fair-share + hard quotas +
+// deadline-aware ordering + typed backpressure. With QoS unconfigured the transport never
+// touches it and the baseline path is byte-for-byte unchanged.
+pub mod qos;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged
