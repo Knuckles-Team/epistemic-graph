@@ -40,62 +40,90 @@ def _urlsafe_sha256(data: bytes) -> str:
     return "sha256=" + base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
-def _find_kernel_so(numeric_whl: Path) -> tuple[str, bytes]:
-    """Return (arcname, bytes) of the compiled kernel extension in the kernel wheel.
+def _find_kernel_so(numeric_whl: Path) -> tuple[bytes, int]:
+    """Return (bytes, unix_mode) of the compiled kernel extension in the kernel wheel.
 
     maturin names the pyo3 extension ``numeric.abi3.so`` inside a top-level
     ``numeric`` package. We take the raw ``.so`` (it is the ``numeric`` extension
     module — ``PyInit_numeric``) and re-home it at ``epistemic_graph/numeric``, so
     ``import epistemic_graph.numeric`` dlopens it directly (no package shim needed).
+
+    We also lift its unix mode (the high 16 bits of the zip ``external_attr``) so the
+    re-homed ``.so`` keeps sane permissions in the rewritten wheel.
     """
     with zipfile.ZipFile(numeric_whl) as z:
         candidates = [
-            n
-            for n in z.namelist()
-            if n.endswith(".so") and "dist-info" not in n and "/" in n
+            zi
+            for zi in z.infolist()
+            if zi.filename.endswith(".so")
+            and "dist-info" not in zi.filename
+            and "/" in zi.filename
         ]
         if not candidates:
             raise SystemExit(f"no compiled .so found in {numeric_whl}")
         # Prefer the numeric extension module itself.
-        arc = next(
-            (c for c in candidates if c.rsplit("/", 1)[-1].startswith("numeric")),
+        zi = next(
+            (
+                c
+                for c in candidates
+                if c.filename.rsplit("/", 1)[-1].startswith("numeric")
+            ),
             candidates[0],
         )
-        return arc, z.read(arc)
+        mode = (zi.external_attr >> 16) & 0o7777
+        return z.read(zi.filename), (mode or 0o755)
 
 
 def inject(server_whl: Path, numeric_whl: Path) -> None:
-    _, so_bytes = _find_kernel_so(numeric_whl)
+    so_bytes, so_mode = _find_kernel_so(numeric_whl)
 
+    # Read every entry AS ZipInfo (not just name->bytes) so we can faithfully copy
+    # each file's unix mode (external_attr high 16 bits), compression, and timestamp
+    # into the rewritten wheel. Dropping external_attr is what previously stripped the
+    # 0755 executable bit off ``*.data/scripts/epistemic-graph-server`` — pip then
+    # installed a non-executable console binary and ``epistemic-graph-server --help``
+    # died with "Permission denied" (CONCEPT:EG-346 CI smoke).
     with zipfile.ZipFile(server_whl) as z:
-        names = z.namelist()
-        record_name = next(
-            (n for n in names if n.endswith(".dist-info/RECORD")), None
+        infos = z.infolist()
+        record_info = next(
+            (zi for zi in infos if zi.filename.endswith(".dist-info/RECORD")), None
         )
-        if record_name is None:
+        if record_info is None:
             raise SystemExit(f"no RECORD in {server_whl}")
-        if TARGET in names:
+        if TARGET in {zi.filename for zi in infos}:
             raise SystemExit(f"{TARGET} already present in {server_whl}")
-        payload = {n: z.read(n) for n in names}
+        # Preserve the ZipInfo objects verbatim; read their bytes now.
+        entries: list[tuple[zipfile.ZipInfo, bytes]] = [
+            (zi, z.read(zi.filename)) for zi in infos
+        ]
 
     # Rebuild RECORD: keep every existing line except add our .so, recompute nothing
     # else (existing hashes are still valid — we only append one file).
-    record_text = payload[record_name].decode()
-    record_lines = [ln for ln in record_text.splitlines() if ln.strip()]
+    record_bytes = next(data for zi, data in entries if zi is record_info)
+    record_lines = [ln for ln in record_bytes.decode().splitlines() if ln.strip()]
     record_lines.append(f"{TARGET},{_urlsafe_sha256(so_bytes)},{len(so_bytes)}")
-    payload[record_name] = ("\n".join(record_lines) + "\n").encode()
-    payload[TARGET] = so_bytes
+    new_record = ("\n".join(record_lines) + "\n").encode()
+
+    # ZipInfo for the injected .so: carry the kernel's own unix mode (0755) so the
+    # re-homed extension is readable/loadable and consistent with maturin's output.
+    so_info = zipfile.ZipInfo(TARGET)
+    so_info.compress_type = zipfile.ZIP_DEFLATED
+    so_info.external_attr = (so_mode & 0o7777) << 16
 
     tmp = server_whl.with_suffix(".whl.tmp")
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
-        # RECORD must be written last per the wheel spec.
-        for name, data in payload.items():
-            if name == record_name:
+        # Copy every existing entry with its original ZipInfo (modes preserved).
+        # RECORD must be written LAST per the wheel spec, so skip it here.
+        for zi, data in entries:
+            if zi is record_info:
                 continue
-            z.writestr(name, data)
-        z.writestr(record_name, payload[record_name])
+            z.writestr(zi, data)
+        # Inject the kernel .so (before RECORD).
+        z.writestr(so_info, so_bytes)
+        # Finally the updated RECORD, reusing its original ZipInfo (mode preserved).
+        z.writestr(record_info, new_record)
     tmp.replace(server_whl)
-    print(f"OK: injected {TARGET} into {server_whl.name}")
+    print(f"OK: injected {TARGET} (mode {so_mode:04o}) into {server_whl.name}")
 
 
 def main() -> int:
