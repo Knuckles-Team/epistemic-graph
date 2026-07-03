@@ -282,20 +282,30 @@ jobs:
     # the folded-in numeric kernel) + the sdist. The old `eg-numeric` publish legs are
     # gone — their re-upload of an existing `eg-numeric==0.1.0` used to abort the whole
     # `twine upload dist/*` batch and starve the epistemic-graph upload.
-    needs: [wheels, wheels-pi, wheels-full-tiny, sdist]
+    # Only the node-tier wheels + sdist publish to PyPI. The pi/pi-max/full-tiny tier
+    # wheels share the SAME filename (epistemic_graph-<ver>-py3-none-<platform>) as node,
+    # so they cannot coexist on PyPI — and only the node wheel carries the folded numeric
+    # kernel. They stay CI artifacts for direct/edge install; PyPI ships node (the complete
+    # single-node DB) + the sdist.
+    needs: [wheels, sdist]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT publish.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
     steps:
-      # Only the epistemic-graph wheels remain under the `wheel-*` glob (node / pi /
-      # pi-max / full-tiny) — there is no `wheel-numeric-*` artifact anymore.
+      # Download ONLY the node-tier wheels (x86_64 + aarch64) — they carry the folded
+      # numeric kernel. Pulling only node guarantees the kernel-bearing wheel is what
+      # lands on PyPI (the tier wheels share filenames, so a glob could otherwise win a
+      # kernel-less wheel).
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheel-*
+          name: wheel-linux-x86_64
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-aarch64
+          path: dist
       - uses: actions/download-artifact@v4
         with:
           name: sdist
