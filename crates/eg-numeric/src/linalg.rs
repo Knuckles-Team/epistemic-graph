@@ -148,6 +148,45 @@ pub fn eigh(a: ArrayView2<f64>) -> Result<(Array1<f64>, Array2<f64>)> {
     Ok((w, v))
 }
 
+/// Partial symmetric eigensolver (CONCEPT:EG-356) — the `k` smallest-**magnitude**
+/// eigenpairs of a symmetric matrix, matching
+/// `scipy.sparse.linalg.eigsh(A, k, which="SM")`. For a graph Laplacian (PSD) this
+/// is the `k` lowest eigenvalues (the Fiedler / spectral-embedding directions),
+/// which is exactly what `spectral_navigator.py` consumes.
+///
+/// **First-cut implementation (documented O(n³)):** densify + a full `faer`
+/// self-adjoint eigendecomposition, then select the `k` eigenpairs of smallest
+/// `|λ|` and return them sorted **ascending by algebraic eigenvalue** (scipy
+/// returns `eigsh` results in ascending order). A sparse Lanczos iteration is the
+/// follow-up for large sparse Laplacians; for the current problem sizes the dense
+/// path is correct and matches scipy within tolerance. Eigenvector **sign** is
+/// arbitrary (as in scipy/LAPACK): compare up to sign / by subspace.
+pub fn eigsh_smallest(a: ArrayView2<f64>, k: usize) -> Result<(Array1<f64>, Array2<f64>)> {
+    let n = require_square(a, "eigsh")?;
+    if k == 0 {
+        return Err(NumericError::shape("eigsh: k must be >= 1"));
+    }
+    if k > n {
+        return Err(NumericError::shape(
+            "eigsh: k must be <= n (the matrix order)",
+        ));
+    }
+    let (w, v) = eigh(a)?; // ascending algebraic order, eigenvectors as columns
+                           // pick the k indices of smallest |eigenvalue|
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&i, &j| {
+        w[i].abs()
+            .partial_cmp(&w[j].abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut sel: Vec<usize> = order.into_iter().take(k).collect();
+    // scipy returns the selected pairs in ascending algebraic-eigenvalue order
+    sel.sort_by(|&i, &j| w[i].partial_cmp(&w[j]).unwrap_or(std::cmp::Ordering::Equal));
+    let wk = Array1::from_shape_fn(k, |t| w[sel[t]]);
+    let vk = Array2::from_shape_fn((n, k), |(r, t)| v[[r, sel[t]]]);
+    Ok((wk, vk))
+}
+
 /// numpy `linalg.pinv(A)` — Moore-Penrose pseudoinverse via SVD.
 pub fn pinv(a: ArrayView2<f64>) -> Result<Array2<f64>> {
     let af = nd_to_faer(a);
