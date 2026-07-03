@@ -1089,3 +1089,137 @@ async fn wire_txn_set_graph_rejected_while_open() {
     );
     client.simple_query("ROLLBACK").await.expect("ROLLBACK");
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// FEATURE-GAP SEAM SPECS (ignored executable specs) — the audit's cross-modal
+// write→read seams that are NOT yet built. Each is written to the INTENDED
+// contract and `#[ignore]`d with the precise missing seam, so it flips green when
+// the seam lands. They COMPILE against the real tokio-postgres client path.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// FEATURE-GAP (CONCEPT:EG-364): inside an open transaction, an UPDATE's staged write
+/// is visible to a same-connection *SQL* read (read-your-own-writes — proven by
+/// `wire_txn_rollback_discards_and_ryow`), but a CROSS-MODAL / UQL read is NOT: the
+/// unified read path resolves `core.analysis_snapshot_versioned()` (the last COMMITTED
+/// snapshot, src/server/handlers/query.rs:104), so it cannot see the txn's staged
+/// buffer. This spec asserts the intended in-txn RYOW for a cross-modal read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "seam not built: in-txn cross-modal (UnifiedQuery/UQL) read reads the \
+COMMITTED snapshot (analysis_snapshot_versioned, src/server/handlers/query.rs:104) and \
+cannot see same-txn staged writes; needs (1) a txn-scoped PlanCtx overlaying the staged \
+write buffer in src/server/txn.rs and (2) a UQL-over-pgwire entrypoint (there is no wire \
+syntax to issue a unified read today). CONCEPT:EG-364"]
+async fn wire_txn_update_then_cross_modal_read() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    client.simple_query("BEGIN").await.expect("BEGIN");
+
+    // Stage a write inside the txn (not yet committed).
+    client
+        .execute("UPDATE nodes SET rank = $1 WHERE id = $2", &[&99i64, &"n1"])
+        .await
+        .expect("staged in-txn UPDATE");
+
+    // GREEN today: a plain-SQL RYOW read sees the staged write (buffered write path).
+    let sql_ryow = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE rank = 99")
+            .await
+            .expect("plain-SQL RYOW inside txn"),
+    );
+    assert_eq!(
+        sql_ryow,
+        vec!["n1".to_string()],
+        "plain SQL RYOW works today"
+    );
+
+    // THE GAP: a CROSS-MODAL / UQL read issued over the wire must ALSO reflect the
+    // staged write. There is no UQL-over-pgwire entrypoint yet, so this errors today;
+    // when the seam lands it returns `n1` from a unified filter→rank over the staged row.
+    let unified = simple_ids(
+        client
+            .simple_query("UQL MATCH (:Agent) WHERE rank = 99 |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5")
+            .await
+            .expect("in-txn cross-modal/UQL read over the wire"),
+    );
+    assert_eq!(
+        unified,
+        vec!["n1".to_string()],
+        "the cross-modal read must see the same-txn staged UPDATE (read-your-own-writes)"
+    );
+
+    client.simple_query("COMMIT").await.expect("COMMIT");
+}
+
+/// FEATURE-GAP (CONCEPT:EG-365): a single transaction that stages FIVE modalities —
+/// graph nodes, vector embeddings, timeseries points, an OWL/SPARQL axiom UPDATE, and a
+/// CONSTRUCT-materialized triple — then a UQL join reads across all five atomically.
+/// Today the staged-txn write set (src/server/txn.rs) is graph+vector+blob ONLY: no tsdb
+/// staging, no OWL-update-in-txn, no CONSTRUCT-in-txn; and the planner has no proven
+/// tsdb / reason-mid-pipeline reach. This spec is the intended contract.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "seam not built: a mixed FIVE-modality staged transaction (graph+vector+\
+timeseries+OWL-update+CONSTRUCT) is not supported — src/server/txn.rs stages only \
+graph+vector+blob (no tsdb / OWL-update / CONSTRUCT staging), and the planner has no \
+proven timeseries or reason-mid-pipeline leg to join them in one UQL read. CONCEPT:EG-365"]
+async fn wire_txn_mixed_five_modality_commit() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    client.simple_query("BEGIN").await.expect("BEGIN");
+
+    // (1) graph node.
+    client
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('mm1', 'Sensor', 7)")
+        .await
+        .expect("stage graph node");
+    // (2) vector embedding for the new node (a wire verb the seam must add).
+    client
+        .simple_query("SET EMBEDDING FOR 'mm1' = '[1.0, 0.0, 0.0]'")
+        .await
+        .expect("stage vector embedding");
+    // (3) timeseries point (tsdb staging the seam must add to txn.rs).
+    client
+        .simple_query("INSERT INTO series (id, ts, value) VALUES ('mm1', 1000, 42.0)")
+        .await
+        .expect("stage timeseries point");
+    // (4) OWL/SPARQL axiom UPDATE (OWL-update-in-txn the seam must add).
+    client
+        .simple_query(
+            "SPARQL UPDATE INSERT DATA { <http://ex/Sensor> \
+             <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://ex/Device> }",
+        )
+        .await
+        .expect("stage OWL axiom update");
+    // (5) CONSTRUCT-materialized triple (CONSTRUCT-in-txn the seam must add).
+    client
+        .simple_query(
+            "SPARQL CONSTRUCT { ?s <http://ex/kind> <http://ex/Device> } \
+             WHERE { ?s a <http://ex/Sensor> }",
+        )
+        .await
+        .expect("stage CONSTRUCT materialization");
+
+    client.simple_query("COMMIT").await.expect("COMMIT");
+
+    // A UQL join reads across all five modalities of the just-committed txn: the new
+    // Sensor node (graph), ranked by its embedding (vector), windowed over its series
+    // (timeseries), constrained to inferred Devices (OWL), including the CONSTRUCT'd fact.
+    let joined = simple_ids(
+        client
+            .simple_query(
+                "UQL REASON <http://ex/Device> |> RANK BY ~[1.0,0.0,0.0] \
+                 |> WINDOW 60 |> LIMIT 5",
+            )
+            .await
+            .expect("cross-modal UQL join over the committed five-modality txn"),
+    );
+    assert_eq!(
+        joined,
+        vec!["mm1".to_string()],
+        "the five staged modalities join in one UQL read over the committed txn"
+    );
+}
