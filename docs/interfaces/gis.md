@@ -82,3 +82,7 @@ nearest resource — the field-ops / urban-planning task layer over the spatial 
   [sparql](sparql.md#geosparql--spatial-sparql-eg-261155-feature-geosparql).
 - **UQL**: `Op::SpatialScan` / `Op::SpatialOp` are first-class planner ops, so a spatial filter composes
   with `Traverse`/`Rank`/`Filter` in one [UQL](../uql.md) pipeline.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [SPARQL & RDF](sparql.md) · [Agent Memory](memory.md) · [SQL & pgwire](sql.md) · [Connecting (per-wire guide)](connecting.md).

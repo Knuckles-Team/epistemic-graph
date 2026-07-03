@@ -66,3 +66,7 @@ surface (logs + PromQL + traces) — see [observability](observability.md).
 `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates, lowered onto this
 time-series store + `Op::Window` — see [sql](sql.md#postgres-extensions--create-extension-eg-102).
 </content>
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [Observability](observability.md) · [Messaging & Broker](messaging.md) · [Connecting (per-wire guide)](connecting.md).

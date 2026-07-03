@@ -54,10 +54,13 @@ flowchart LR
   the engine's own object tier.
 - **Delta transaction log.** Each materialization appends to a Delta `_delta_log` (add/remove file actions +
   schema), so a Delta reader (Databricks / `delta-rs` / Spark) sees a consistent table version.
-- **Iceberg logs + REST catalog.** Iceberg table metadata + snapshot lineage is emitted, and an
-  **Iceberg-REST catalog** endpoint lets a Trino/Spark catalog resolve the table by name. *(The Iceberg Avro
-  **manifest** writer is currently a **stub** — the Delta path and the Iceberg-REST catalog are the complete,
-  reader-ready surfaces; full Avro manifest emission is on the forward roadmap.)*
+- **Iceberg logs + REST catalog + real Avro manifest.** Iceberg table metadata + snapshot lineage is
+  emitted, an **Iceberg-REST catalog** endpoint lets a Trino/Spark catalog resolve the table by name, and a
+  spec-compliant **Iceberg v2 Avro manifest + manifest-list writer** (EG-333/EG-334, `iceberg_avro.rs`,
+  behind `lake` via pure-Rust `apache-avro`) is shipped — a committed snapshot's `metadata.json` references
+  real Avro that Spark/Trino/DuckDB follow, with per-column stats (`value_counts`/`null_value_counts`/
+  `lower_bounds`/`upper_bounds`, keyed by field-id) gathered at materialize time for predicate pushdown /
+  file skipping (EG-350). Partition `field_summary` is null by design (the spec is unpartitioned).
 - **LSN-style as-of snapshots.** Materialization reuses the engine's versioned snapshots + `Op::AsOf`
   (bi-temporal, KG-2.249/2.250) so a lake snapshot corresponds to a durable engine LSN — an external reader
   can pin a **time-travel** read that matches an exact engine version, not a fuzzy nightly dump.
@@ -89,3 +92,7 @@ byte-for-byte the prior engine.
 See the [capability matrix](../capabilities.md#lakehouse-interop-eg-lake-ltap) row and
 [concepts](../concepts.md) `CONCEPT:EG-317` for the authoritative definition, and
 [subsystems](subsystems.md#lakehouse-interop-eg-lake-ltap-eg-317) for how it composes on the one store.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](../interfaces/sql.md) · [Analytics Program](analytics_program.md) · [Key-value & Blob](../interfaces/kv_blob.md) · [Cluster Deployment](cluster_deployment.md).

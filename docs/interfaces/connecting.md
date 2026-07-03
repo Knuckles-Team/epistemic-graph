@@ -186,7 +186,7 @@ aws --endpoint-url http://127.0.0.1:9000 s3 ls s3://docs
 
 - **Auth**: SigV4-lite keyed by `EPISTEMIC_GRAPH_S3_ACCESS_KEY` / `…_S3_SECRET_KEY`.
 - Objects are stored content-addressed in the same dedup'd, refcount-GC'd blob store as the
-  native blob surface (see [kv-blob](kv-blob.md)).
+  native blob surface (see [kv-blob](kv_blob.md)).
 
 ## RabbitMQ — AMQP 0.9.1 client (`amqp-wire` / `broker`)
 
@@ -397,3 +397,7 @@ tiers, backup/PITR, and RBAC.
 
 ---
 *CONCEPT:EG-095 — comprehensive interface + operations documentation.*
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [SPARQL & RDF](sparql.md) · [Cypher & Bolt](cypher.md) · [Messaging & Broker](messaging.md) · [Key-value & Blob](kv_blob.md) · [Client Drivers](clients.md).

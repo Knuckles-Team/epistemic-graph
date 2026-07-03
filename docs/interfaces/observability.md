@@ -140,3 +140,14 @@ Program B closes the observability loop — the engine both **ingests** other sy
 
 This complements the pull-based `/metrics` exposition (a scrape) with push-based egress + remote-write
 ingest.
+
+!!! note "Deferred — live dashboards UI (🗺)"
+    The **query side** ships (PromQL, log `_search`, trace search, service-map, federated fan-out). A
+    Grafana-style **dashboard front-end** over those APIs is not built — today you point an existing
+    Grafana/Prometheus/OTel front-end at the listeners. See the [forward roadmap](../roadmap.md).
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Time-series](timeseries.md) ·
+[Messaging & Broker](messaging.md) · [Connecting (per-wire guide)](connecting.md) ·
+[Operations Runbook](../operations/runbook.md).

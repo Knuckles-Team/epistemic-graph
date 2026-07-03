@@ -17,7 +17,7 @@ epistemic-graph speaks SQL two ways:
 > (`pg_catalog`/`information_schema`, arrays/ranges, pgvector with **real ANN pushdown** (EG-313), AGE
 > `cypher()`, TimescaleDB, ParadeDB with **real BM25** (EG-311)) light up via `CREATE EXTENSION`. The same
 > tables are also readable as an open **Parquet + Delta + Iceberg** lakehouse with zero ETL — see
-> [lakehouse-ltap](../architecture/lakehouse-ltap.md) (EG-317). See the
+> [lakehouse-ltap](../architecture/lakehouse_ltap.md) (EG-317). See the
 > [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
 
 ## The tables
@@ -181,3 +181,7 @@ psql -h 127.0.0.1 -p 5433 -U agent -d epistemic
 - **Protocols**: both simple and extended/prepared (`$N` parameters) are implemented.
 - **Connection switch**: `SET graph = '<name>'` selects the graph for the session.
 </content>
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Connecting (per-wire guide)](connecting.md) · [Cypher & Bolt](cypher.md) · [Vector / ANN](vector.md) · [Time-series](timeseries.md) · [Lakehouse LTAP](../architecture/lakehouse_ltap.md) · [Analytics Program](../architecture/analytics_program.md).

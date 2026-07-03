@@ -13,8 +13,8 @@ theme:
     logo: material/graph-outline
   favicon: https://raw.githubusercontent.com/squidfunk/mkdocs-material/master/material/templates/assets/images/favicon.png
   features:
-    - navigation.tabs
-    - navigation.tabs.sticky
+    # Presentation mirrors agent-utilities' mkdocs (sections + top, no tabs) so
+    # navigating both sites feels consistent.
     - navigation.sections
     - navigation.top
     - navigation.tracking
@@ -85,53 +85,59 @@ extra:
       link: https://pypi.org/project/epistemic-graph/
 
 nav:
+  # Nav is ordered topologically: what the engine IS -> how you query it ->
+  # advanced analytics -> how it distributes/scales -> how you run it -> reference.
   - Home: index.md
-  - Engine:
-      - Technical Overview: overview.md
-      - Capabilities & Parity Matrix: capabilities.md
-      - Universal-DB Parity Roadmap: roadmap.md
+  - Capabilities & Parity Matrix: capabilities.md
+  - Technical Overview: overview.md
+  - Foundations:
       - Master-of-all Engine: architecture/engine.md
       - Subsystems (C4 Containers): architecture/subsystems.md
-      - Lakehouse LTAP Interop (EG-317): architecture/lakehouse-ltap.md
-      - Distribution / Robotics / GPU (EG-3.x): architecture/distribution-robotics-gpu.md
-      - Analytics Program (one kernel, two surfaces): architecture/analytics-program.md
-      - Numeric Kernel (EG-321): architecture/numeric-kernel.md
-      - UQL & Unified Planner: uql.md
+      - Unified Planner & UQL: uql.md
       - Tiers & Binaries: architecture/tiers.md
-      - Engine Modes: engine-modes.md
+      - Engine Modes: engine_modes.md
       - Service Mode: service_mode.md
-  - Interfaces:
+      - Transport Boundary (ADR): transport_boundary_adr.md
+  - Query Surfaces & Interfaces:
       - Connecting (per-wire guide): interfaces/connecting.md
       - SQL & pgwire: interfaces/sql.md
       - SPARQL & RDF: interfaces/sparql.md
-      - Cypher: interfaces/cypher.md
+      - Cypher & Bolt: interfaces/cypher.md
       - GraphQL: interfaces/graphql.md
       - Vector / ANN: interfaces/vector.md
       - Time-series: interfaces/timeseries.md
-      - Key-value & Blob: interfaces/kv-blob.md
+      - Key-value & Blob: interfaces/kv_blob.md
       - Messaging & Broker: interfaces/messaging.md
       - Observability (logs/metrics/traces): interfaces/observability.md
       - GIS / Spatial: interfaces/gis.md
       - KV-cache (vLLM/LMCache): interfaces/kvcache.md
-      - Client Drivers (Python/JS/Go): interfaces/clients.md
       - Agent Memory: interfaces/memory.md
       - Ontology Lifecycle: interfaces/ontology.md
+      - Client Drivers (Python/JS/Go): interfaces/clients.md
+  - Analytics & Advanced Capabilities:
+      - Analytics Program (one kernel, two surfaces): architecture/analytics_program.md
+      - Analytics in UQL (EG-353): analytics_in_uql.md
+      - Numeric Kernel (EG-321): architecture/numeric_kernel.md
+      - Lakehouse LTAP Interop (EG-317): architecture/lakehouse_ltap.md
+      - Distribution / Robotics / GPU (EG-3.x): architecture/distribution_robotics_gpu.md
+  - Distribution & Scaling:
+      - Engine Scaling Program (M1/M2/M3): architecture/scaling_program.md
+      - Multi-Raft Cluster Status (M2): architecture/m2_raft_status.md
+      - Catalog-driven Resharding (M3): architecture/m3_resharding.md
+      - Cluster Deployment: architecture/cluster_deployment.md
+      - Per-Graph Write Coalescer: architecture/write_coalescer.md
+      - Reserved Read-Admission Lane (EG-044): architecture/reserved_read_lane.md
+      - Index Manager: architecture/index_manager.md
+      - Correctness Harness: architecture/correctness_harness.md
   - Deploy & Operate:
+      - Standalone Deployment (just the engine): standalone_deployment.md
+      - DBeaver / psql Quickstart: dbeaver_quickstart.md
+      - Deployment Topology (components): deployment_topology.md
       - Operations Runbook: operations/runbook.md
       - Deployment (database): deployment.md
-      - Cost Model & Capacity: cost-model.md
-      - Binary Promotion (deploy): deploy/binary-promotion.md
-      - Rust Compute Guide: RUST_COMPUTE_GUIDE.md
-  - Architecture:
-      - Engine Scaling Program (M1/M2/M3): architecture/scaling-program.md
-      - Reserved Read-Admission Lane (EG-044): architecture/reserved-read-lane.md
-      - Transport Boundary (ADR): transport_boundary_adr.md
-      - Per-Graph Write Coalescer: architecture/write-coalescer.md
-      - Multi-Raft Cluster Status (M2): architecture/m2-raft-status.md
-      - Catalog-driven Resharding (M3): architecture/m3-resharding.md
-      - Cluster Deployment: architecture/cluster-deployment.md
-      - Index Manager: architecture/index-manager.md
-      - Correctness Harness: architecture/correctness-harness.md
+      - Cost Model & Capacity: cost_model.md
+      - Binary Promotion (deploy): deploy/binary_promotion.md
+      - Rust Compute Guide: rust_compute_guide.md
   - Performance:
       - Transport Benchmarks: benchmarks.md
   - Reference:

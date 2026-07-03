@@ -88,4 +88,4 @@ CDC, the result cache, the cold-tier seam, and the per-tenant cost budget — is
 Pi-safe**, so even the smallest binary is a durable, reasoning, vector-searchable engine.
 
 See [Deployment](../deployment.md) for the `cargo build` / `maturin` / Docker recipes per tier and
-[the cost model](../cost-model.md) for mapping a workload to RAM and shard count.
+[the cost model](../cost_model.md) for mapping a workload to RAM and shard count.

@@ -82,3 +82,7 @@ three front the same broker, cross-protocol pub/sub works by topic. See
 ---
 *The broker is the Phase-Y modality over the KG-2.303 native engine task queue — messages are durable,
 replicated engine state, not a bolt-on daemon.*
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Key-value & Blob](kv_blob.md) · [Observability](observability.md) · [Time-series](timeseries.md) · [Connecting (per-wire guide)](connecting.md).

@@ -71,3 +71,7 @@ The Cypher executor shares its edge-matching and snapshot model with the
 [GraphQL](graphql.md) resolver — the two produce byte-equal results for equivalent reads. For cross-modal
 queries that mix graph traversal with vector/text/SQL, use [UQL](../uql.md).
 </content>
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [SPARQL & RDF](sparql.md) · [GraphQL](graphql.md) · [Vector / ANN](vector.md) · [Connecting (per-wire guide)](connecting.md).
