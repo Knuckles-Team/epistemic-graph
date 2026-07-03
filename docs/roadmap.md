@@ -109,7 +109,7 @@ the authoritative `CONCEPT:EG-*` definitions.
   backup/restore (EG-090), and NL→query (EG-080). A FULL Python surface (`client.broker`/`.rbac`/`.admin` +
   `query.nl_query`) plus THIN generated-from-the-Method-list JS (`clients/js`) and Go (`clients/go`) bindings over
   the same framed-MessagePack transport; Pi-contract preserved (no heavy deps). See
-  [`interfaces/clients.md`](interfaces/clients.md) (EG-3.1).
+  [`interfaces/clients.md`](interfaces/clients.md) (EG-328).
 
 ---
 

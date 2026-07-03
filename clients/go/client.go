@@ -1,4 +1,4 @@
-// Package epgthin is a DELIBERATELY THIN Go client (CONCEPT:EG-3.1) for the
+// Package epgthin is a DELIBERATELY THIN Go client (CONCEPT:EG-328) for the
 // epistemic-graph Program-B engine Methods that had no client surface: the native
 // broker + append-log streams (EG-275..284/314), RBAC admin (EG-092), online
 // backup/restore (EG-090), and NL->query (EG-080).

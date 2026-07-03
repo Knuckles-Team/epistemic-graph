@@ -1,4 +1,4 @@
-# epistemic-graph — thin Go client (CONCEPT:EG-3.1)
+# epistemic-graph — thin Go client (CONCEPT:EG-328)
 
 A **deliberately thin** Go client for the Program-B engine `Method`s that had no client
 surface. It is **not a full SDK** — the canonical, full-featured client is the Python one

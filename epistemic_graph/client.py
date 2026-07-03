@@ -2252,7 +2252,7 @@ class QueryClient:
     async def nl_query(
         self, text: str, graph: str | None = None
     ) -> list[dict[str, Any]]:
-        """CONCEPT:EG-3.1 — Natural-language → executable query → rows (EG-078/EG-080).
+        """CONCEPT:EG-328 — Natural-language → executable query → rows (EG-078/EG-080).
 
         Send free-text ``text`` to the engine's ``Method::NlQuery``: the configured/injected
         ``NlPlanner`` (an OpenAI-compatible endpoint, e.g. agent-utilities' LLM, set via
@@ -2995,7 +2995,7 @@ def _as_bytes(value: Any) -> Any:
 
 
 class BrokerClient:
-    """CONCEPT:EG-3.1 — Native message-broker + streams namespace (EG-275..284/314).
+    """CONCEPT:EG-328 — Native message-broker + streams namespace (EG-275..284/314).
 
     A thin, typed binding over the engine's RabbitMQ/Kafka-class broker built on the
     KG-2.303 work-queue: exchange/queue admin + routed publish + consumer-group
@@ -3334,7 +3334,7 @@ class BrokerClient:
 
 
 class RbacClient:
-    """CONCEPT:EG-3.1 — RBAC policy administration namespace (EG-092).
+    """CONCEPT:EG-328 — RBAC policy administration namespace (EG-092).
 
     A thin binding over ``Method::RbacAdmin`` (an admin/governance op, not a
     graph call): manage durable roles + a role hierarchy + resource/action grants that
@@ -3411,7 +3411,7 @@ class RbacClient:
 
 
 class AdminClient:
-    """CONCEPT:EG-3.1 — Ops / maintenance namespace: online backup + restore (EG-090).
+    """CONCEPT:EG-328 — Ops / maintenance namespace: online backup + restore (EG-090).
 
     A thin binding over the ``Method::Backup`` / ``Method::Restore`` admin RPCs.
     :meth:`backup` takes an ONLINE consistent snapshot (per-shard ``begin_read()`` MVCC,
@@ -3529,7 +3529,7 @@ class EpistemicGraphClient:
         self.rdf = RdfClient(self)
         self.streaming = StreamingClient(self)
         self.blob = BlobClient(self)
-        # CONCEPT:EG-3.1 — B1.7 multi-lang client drivers: broker/streams (EG-275..284/314),
+        # CONCEPT:EG-328 — B1.7 multi-lang client drivers: broker/streams (EG-275..284/314),
         # RBAC admin (EG-092), backup/restore (EG-090). NlQuery (EG-080) lives on `query`.
         self.broker = BrokerClient(self)
         self.rbac = RbacClient(self)
@@ -3941,7 +3941,7 @@ class SyncEpistemicGraphClient:
         self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
         self.streaming = self._SyncWrapper(self._client.streaming, self._loop)
         self.blob = self._SyncWrapper(self._client.blob, self._loop)
-        # CONCEPT:EG-3.1 — B1.7 broker/streams + RBAC + backup namespaces.
+        # CONCEPT:EG-328 — B1.7 broker/streams + RBAC + backup namespaces.
         self.broker = self._SyncWrapper(self._client.broker, self._loop)
         self.rbac = self._SyncWrapper(self._client.rbac, self._loop)
         self.admin = self._SyncWrapper(self._client.admin, self._loop)

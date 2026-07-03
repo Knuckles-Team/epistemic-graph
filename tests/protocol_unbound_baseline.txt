@@ -47,7 +47,7 @@ RunRules
 
 # --- Wave 18-22 engine ops served via wire adapters / HTTP surfaces, not the thin Python client ---
 # NOTE: broker/streams (EG-275..284/314), NL->query (EG-080), RBAC admin (EG-092), and
-# backup/restore (EG-090) were BOUND by B1.7 (CONCEPT:EG-3.1) into the thin Python client
+# backup/restore (EG-090) were BOUND by B1.7 (CONCEPT:EG-328) into the thin Python client
 # (client.broker.* / client.query.nl_query / client.rbac.* / client.admin.*), so they are
 # NO LONGER listed here — they now have a Python sender. See docs/interfaces/clients.md.
 

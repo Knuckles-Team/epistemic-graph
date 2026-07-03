@@ -1,4 +1,4 @@
-"""B1.7 multi-language client drivers — Python bindings (CONCEPT:EG-3.1).
+"""B1.7 multi-language client drivers — Python bindings (CONCEPT:EG-328).
 
 Covers the thin Python surface added for the Program-B engine `Method`s that had no
 client binding: the native broker + append-log streams (EG-275..284/314), RBAC admin
