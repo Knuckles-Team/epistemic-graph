@@ -11,7 +11,9 @@
 //!    a Parquet file's bytes an external engine reads directly.
 //! 2. **Table log** — a fully-written, read-consistent **Delta** `_delta_log`
 //!    ([`delta`], pure JSON) AND an Iceberg `metadata.json` ([`iceberg`], real
-//!    metadata + a documented Avro-manifest stub) over those Parquet files.
+//!    metadata) whose snapshot references **real Avro manifests** written by
+//!    [`iceberg_avro`] (CONCEPT:EG-333/EG-334, behind the `lake` feature) over those
+//!    Parquet files.
 //! 3. **LSN as-of snapshot** ([`snapshot`]) — projects the engine's versioned
 //!    snapshots / `Op::AsOf` (CONCEPT:KG-2.249/2.250) onto a monotonic LSN and pins
 //!    the file set valid as of it, so an external read is a consistent point-in-time.
@@ -21,8 +23,10 @@
 //! ## What is real vs. stub (per CONCEPT:EG-317)
 //! * **Delta** is implemented FULLY and read-consistently (JSON log, replayable to the
 //!   live file set).
-//! * **Iceberg** `metadata.json` is real (format-version 2); its manifest layer is a
-//!   documented JSON **stub** (the spec mandates Avro — a follow-up dep).
+//! * **Iceberg** `metadata.json` is real (format-version 2); its manifest layer is now
+//!   real spec-compliant **Avro** ([`iceberg_avro`], CONCEPT:EG-333/EG-334) behind the
+//!   `lake` feature — per-column stats + partition bounds are the one documented
+//!   omission (eg-lake tracks only per-file counts and is unpartitioned).
 //! * The **catalog** is contents + response shapes, not an HTTP server.
 //!
 //! ## The engine-side seam (documented, intentionally NOT in this leaf)
@@ -44,6 +48,12 @@ pub mod snapshot;
 
 #[cfg(feature = "lake")]
 pub mod parquet_io;
+
+// Real Iceberg v2 Avro manifest / manifest-list writer (CONCEPT:EG-333/EG-334) — needs
+// the `apache-avro` codec, so it lives behind the same `lake` gate as the Parquet
+// transcode and stays OUT of the Pi build.
+#[cfg(feature = "lake")]
+pub mod iceberg_avro;
 
 pub use schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
 pub use snapshot::{FileEntry, Lsn, SnapshotLog};
@@ -147,6 +157,17 @@ impl LakeTable {
             &self.location,
             timestamp_ms,
         )
+    }
+
+    /// Materialize the real Iceberg **Avro** manifest + manifest-list for the current
+    /// snapshot (CONCEPT:EG-333/EG-334). The returned byte blobs land at the exact
+    /// object-store paths [`Self::iceberg`]'s `metadata.json` references, so a committed
+    /// snapshot resolves to a real Avro manifest chain a stock Iceberg reader follows.
+    /// The caller persists both blobs to the blob/S3 backend. Only with the `lake`
+    /// feature (needs the Avro codec).
+    #[cfg(feature = "lake")]
+    pub fn iceberg_manifests(&self) -> Result<iceberg_avro::IcebergManifests, String> {
+        iceberg_avro::build_iceberg_manifests(&self.schema, &self.snapshot, &self.location)
     }
 
     /// Register this table's current Iceberg metadata into a REST catalog
