@@ -442,6 +442,116 @@ mod temporal_tests {
             })
         ));
     }
+
+    /// Read a node's `confidence` off a snapshot blob (the decayed belief value).
+    fn confidence(view: &eg_core::graph::GraphView, id: &str) -> Option<f64> {
+        let blob = view.node_properties.get(id)?;
+        let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+        v.get("confidence").and_then(|c| c.as_f64())
+    }
+
+    /// Bitemporal cross-modal seam (CONCEPT:EG-360): the memory/confidence model
+    /// (Ebbinghaus decay, CONCEPT:KG-2.211) and the bitemporal `AS OF` filter
+    /// (CONCEPT:KG-2.250) are the SAME temporal substrate — a decay sweep re-weights
+    /// belief while `AsOf{Valid}` re-selects liveness, and an in-between UPDATE flips a
+    /// validity window. This pins BOTH signals at two instants: confidence VALUES after
+    /// the sweep, and liveness at each `AS OF` timestamp before and after the update.
+    #[test]
+    fn as_of_after_decay_and_update() {
+        // half_life = 100 (unit-agnostic). now = 1000. `last_access` sets each fact's age.
+        let hl = 100.0_f64;
+        let now = 1000_u64;
+        let core = GraphCore::new();
+        // e1 valid [100,200); age 100 (1 half-life) → conf 1.0 → 0.5.
+        core.add_node(
+            "e1".into(),
+            blob(json!({"type":"Event","valid_from":100,"valid_until":200,
+                        "confidence":1.0,"last_access":now-100})),
+        );
+        // e2 valid [150,∞); age 0 → conf stays 1.0.
+        core.add_node(
+            "e2".into(),
+            blob(json!({"type":"Event","valid_from":150,
+                        "confidence":1.0,"last_access":now})),
+        );
+        // e3 valid [300,400); age 200 (2 half-lives) → conf 0.8 → 0.2.
+        core.add_node(
+            "e3".into(),
+            blob(json!({"type":"Event","valid_from":300,"valid_until":400,
+                        "confidence":0.8,"last_access":now-200})),
+        );
+
+        // ── DECAY SWEEP: re-weight belief on the Ebbinghaus curve (no prune). ──
+        let stats = core.decay_sweep(now, hl, 0.0, false);
+        assert_eq!(
+            stats.nodes_decayed, 2,
+            "e1 and e3 decayed; e2 (age 0) unchanged"
+        );
+        let decayed = core.analysis_snapshot();
+        assert!(
+            (confidence(&decayed, "e1").unwrap() - 0.5).abs() < 1e-9,
+            "e1 → half"
+        );
+        assert!(
+            (confidence(&decayed, "e2").unwrap() - 1.0).abs() < 1e-9,
+            "e2 unchanged"
+        );
+        assert!(
+            (confidence(&decayed, "e3").unwrap() - 0.2).abs() < 1e-9,
+            "e3 → quarter"
+        );
+
+        // ── AS OF the PRE-UPDATE state at two instants (liveness, valid axis). ──
+        let sem = SemanticStore::new();
+        let as_of = |view: &eg_core::graph::GraphView, ts: f64| -> Vec<String> {
+            let ctx = PlanCtx::new(view, &sem);
+            let mut ids = Plan::new(vec![
+                Op::Scan {
+                    label: "Event".into(),
+                },
+                Op::AsOf {
+                    ts,
+                    axis: TimeAxis::Valid,
+                },
+            ])
+            .execute(&ctx)
+            .unwrap()
+            .ids();
+            ids.sort();
+            ids
+        };
+        assert_eq!(
+            as_of(&decayed, 175.0),
+            vec!["e1".to_string(), "e2".to_string()]
+        );
+        assert_eq!(
+            as_of(&decayed, 350.0),
+            vec!["e2".to_string(), "e3".to_string()]
+        );
+
+        // ── UPDATE one fact: close e2's validity window at 200 (belief preserved). ──
+        // Re-add with the same decayed confidence so the update touches ONLY the window.
+        let e2_conf = confidence(&decayed, "e2").unwrap();
+        core.add_node(
+            "e2".into(),
+            blob(json!({"type":"Event","valid_from":150,"valid_until":200,
+                        "confidence":e2_conf,"last_access":now})),
+        );
+        let updated = core.analysis_snapshot();
+
+        // Confidence is unchanged by the window update; liveness flips at ts=350.
+        assert!(
+            (confidence(&updated, "e2").unwrap() - 1.0).abs() < 1e-9,
+            "e2 belief preserved"
+        );
+        // @175: e2 is still live (150..200 covers 175) → {e1,e2}.
+        assert_eq!(
+            as_of(&updated, 175.0),
+            vec!["e1".to_string(), "e2".to_string()]
+        );
+        // @350: e2's window now ends at 200 → only e3 survives.
+        assert_eq!(as_of(&updated, 350.0), vec!["e3".to_string()]);
+    }
 }
 
 /// Graph-native reranker proofs (CONCEPT:KG-2.254) — node-distance + mentions.
