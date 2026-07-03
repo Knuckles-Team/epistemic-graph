@@ -21,6 +21,10 @@ pub mod error;
 pub mod linalg;
 pub mod random;
 pub mod reductions;
+// scipy.stats-parity ops (CONCEPT:EG-357/EG-358). Gated behind `analytics` (pulled
+// by `python`) so a `pi`/`default` engine build linking the rlib pulls no statrs.
+#[cfg(feature = "analytics")]
+pub mod stats;
 
 pub use error::{NumericError, Result};
 
@@ -34,8 +38,11 @@ pub use error::{NumericError, Result};
 // pyo3-0.22-macro-emitted cfg(gil-refs). Scope-allow them to this module.
 #[allow(clippy::useless_conversion, clippy::type_complexity, unexpected_cfgs)]
 mod py {
-    use crate::{cluster, elementwise, linalg, random, reductions};
-    use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+    use crate::{cluster, elementwise, linalg, random, reductions, stats};
+    use ndarray::{ArrayD, ArrayViewD, Axis, IxDyn};
+    use numpy::{
+        IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn,
+    };
     use pyo3::create_exception;
     use pyo3::exceptions::{PyException, PyValueError};
     use pyo3::prelude::*;
@@ -49,44 +56,284 @@ mod py {
         }
     }
 
-    // ---- reductions / stats ----
+    // ---- N-D / integer extraction + axis dispatch (CONCEPT:EG-355) ----
+
+    /// Coerce any array-like to an owned `ArrayD<f64>`. Native float64/float32 and
+    /// int64/int32 arrays are extracted zero-copy-ish (cast for the narrower/int
+    /// dtypes); anything else (lists, other dtypes) is coerced through the numpy
+    /// container substrate (`np.asarray(x, float64)`) — the shim never imports
+    /// numpy itself, but the kernel privately uses it as its container substrate.
+    fn to_f64_dyn(a: &Bound<'_, PyAny>) -> PyResult<ArrayD<f64>> {
+        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<f64>>() {
+            return Ok(arr.as_array().to_owned());
+        }
+        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<i64>>() {
+            return Ok(arr.as_array().mapv(|v| v as f64));
+        }
+        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<i32>>() {
+            return Ok(arr.as_array().mapv(|v| v as f64));
+        }
+        if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<f32>>() {
+            return Ok(arr.as_array().mapv(|v| v as f64));
+        }
+        let np = a.py().import_bound("numpy")?;
+        let f64ty = np.getattr("float64")?;
+        let coerced = np.getattr("asarray")?.call1((a, f64ty))?;
+        let arr: PyReadonlyArrayDyn<f64> = coerced.extract()?;
+        Ok(arr.as_array().to_owned())
+    }
+
+    /// Normalize a possibly-negative numpy axis to `Some(usize)` (or `None`).
+    fn norm_axis(axis: Option<isize>, ndim: usize) -> PyResult<Option<usize>> {
+        match axis {
+            None => Ok(None),
+            Some(k) => {
+                let n = ndim as isize;
+                let kk = if k < 0 { k + n } else { k };
+                if kk < 0 || kk >= n {
+                    return Err(PyValueError::new_err(format!(
+                        "axis {k} is out of bounds for array of dimension {ndim}"
+                    )));
+                }
+                Ok(Some(kk as usize))
+            }
+        }
+    }
+
+    /// Finish a float-valued reduction: a Python scalar for `axis=None`
+    /// (keepdims=False), else a numpy array (keepdims inserts the collapsed axis).
+    fn finish_f64(
+        py: Python<'_>,
+        a: ArrayD<f64>,
+        axis: Option<usize>,
+        keepdims: bool,
+        flat: impl Fn(ArrayViewD<f64>) -> crate::Result<f64>,
+        axisfn: impl Fn(ArrayViewD<f64>, usize) -> crate::Result<ArrayD<f64>>,
+    ) -> PyResult<PyObject> {
+        match axis {
+            None => {
+                let s = flat(a.view()).map_err(map_err)?;
+                if keepdims {
+                    let shape: Vec<usize> = a.shape().iter().map(|_| 1).collect();
+                    let arr = ArrayD::from_elem(IxDyn(&shape), s);
+                    Ok(arr.into_pyarray_bound(py).into_any().unbind())
+                } else {
+                    Ok(s.into_py(py))
+                }
+            }
+            Some(ax) => {
+                let mut out = axisfn(a.view(), ax).map_err(map_err)?;
+                if keepdims {
+                    out = out.insert_axis(Axis(ax));
+                }
+                Ok(out.into_pyarray_bound(py).into_any().unbind())
+            }
+        }
+    }
+
+    /// Finish an integer-index reduction (argmin/argmax).
+    fn finish_i64(
+        py: Python<'_>,
+        a: ArrayD<f64>,
+        axis: Option<usize>,
+        keepdims: bool,
+        flat: impl Fn(ArrayViewD<f64>) -> crate::Result<usize>,
+        axisfn: impl Fn(ArrayViewD<f64>, usize) -> crate::Result<ArrayD<i64>>,
+    ) -> PyResult<PyObject> {
+        match axis {
+            None => {
+                let s = flat(a.view()).map_err(map_err)? as i64;
+                if keepdims {
+                    let shape: Vec<usize> = a.shape().iter().map(|_| 1).collect();
+                    let arr = ArrayD::from_elem(IxDyn(&shape), s);
+                    Ok(arr.into_pyarray_bound(py).into_any().unbind())
+                } else {
+                    Ok(s.into_py(py))
+                }
+            }
+            Some(ax) => {
+                let mut out = axisfn(a.view(), ax).map_err(map_err)?;
+                if keepdims {
+                    out = out.insert_axis(Axis(ax));
+                }
+                Ok(out.into_pyarray_bound(py).into_any().unbind())
+            }
+        }
+    }
+
+    // ---- reductions / stats (axis / keepdims / integer arrays — CONCEPT:EG-355) ----
     #[pyfunction]
-    fn sum(a: PyReadonlyArray1<f64>) -> f64 {
-        reductions::sum(a.as_array())
+    #[pyo3(signature = (a, axis=None, keepdims=false))]
+    fn sum(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_f64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            |v| Ok(reductions::sum_all(v)),
+            reductions::sum_axis,
+        )
     }
     #[pyfunction]
-    fn prod(a: PyReadonlyArray1<f64>) -> f64 {
-        reductions::prod(a.as_array())
+    #[pyo3(signature = (a, axis=None, keepdims=false))]
+    fn prod(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_f64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            |v| Ok(reductions::prod_all(v)),
+            reductions::prod_axis,
+        )
     }
     #[pyfunction]
-    fn mean(a: PyReadonlyArray1<f64>) -> f64 {
-        reductions::mean(a.as_array())
+    #[pyo3(signature = (a, axis=None, keepdims=false))]
+    fn mean(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_f64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            |v| Ok(reductions::mean_all(v)),
+            reductions::mean_axis,
+        )
     }
     #[pyfunction]
-    #[pyo3(signature = (a, ddof=0))]
-    fn var(a: PyReadonlyArray1<f64>, ddof: usize) -> f64 {
-        reductions::var(a.as_array(), ddof)
+    #[pyo3(signature = (a, axis=None, ddof=0, keepdims=false))]
+    fn var(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        ddof: usize,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_f64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            |v| Ok(reductions::var_all(v, ddof)),
+            |v, k| reductions::var_axis(v, k, ddof),
+        )
     }
     #[pyfunction(name = "std")]
-    #[pyo3(signature = (a, ddof=0))]
-    fn std_(a: PyReadonlyArray1<f64>, ddof: usize) -> f64 {
-        reductions::std(a.as_array(), ddof)
+    #[pyo3(signature = (a, axis=None, ddof=0, keepdims=false))]
+    fn std_(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        ddof: usize,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_f64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            |v| Ok(reductions::std_all(v, ddof)),
+            |v, k| reductions::std_axis(v, k, ddof),
+        )
     }
     #[pyfunction]
-    fn amin(a: PyReadonlyArray1<f64>) -> PyResult<f64> {
-        reductions::min(a.as_array()).map_err(map_err)
+    #[pyo3(signature = (a, axis=None, keepdims=false))]
+    fn amin(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_f64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            reductions::min_all,
+            reductions::min_axis,
+        )
     }
     #[pyfunction]
-    fn amax(a: PyReadonlyArray1<f64>) -> PyResult<f64> {
-        reductions::max(a.as_array()).map_err(map_err)
+    #[pyo3(signature = (a, axis=None, keepdims=false))]
+    fn amax(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_f64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            reductions::max_all,
+            reductions::max_axis,
+        )
     }
     #[pyfunction]
-    fn argmin(a: PyReadonlyArray1<f64>) -> PyResult<usize> {
-        reductions::argmin(a.as_array()).map_err(map_err)
+    #[pyo3(signature = (a, axis=None, keepdims=false))]
+    fn argmin(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_i64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            reductions::argmin_all,
+            reductions::argmin_axis,
+        )
     }
     #[pyfunction]
-    fn argmax(a: PyReadonlyArray1<f64>) -> PyResult<usize> {
-        reductions::argmax(a.as_array()).map_err(map_err)
+    #[pyo3(signature = (a, axis=None, keepdims=false))]
+    fn argmax(
+        py: Python<'_>,
+        a: &Bound<'_, PyAny>,
+        axis: Option<isize>,
+        keepdims: bool,
+    ) -> PyResult<PyObject> {
+        let arr = to_f64_dyn(a)?;
+        let ax = norm_axis(axis, arr.ndim())?;
+        finish_i64(
+            py,
+            arr,
+            ax,
+            keepdims,
+            reductions::argmax_all,
+            reductions::argmax_axis,
+        )
     }
     #[pyfunction]
     fn argsort(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<i64>> {
@@ -260,6 +507,23 @@ mod py {
             v.into_pyarray_bound(py).unbind(),
         ))
     }
+    /// `scipy.sparse.linalg.eigsh(A, k, which="SM")` — the k smallest-magnitude
+    /// symmetric eigenpairs (CONCEPT:EG-356). Dense first cut (O(n^3)).
+    #[pyfunction]
+    fn eigsh(
+        py: Python<'_>,
+        a: PyReadonlyArray2<f64>,
+        k: usize,
+    ) -> PyResult<(Py<PyArray1<f64>>, Py<PyArray2<f64>>)> {
+        let av = a.as_array();
+        let (w, v) = py
+            .allow_threads(|| linalg::eigsh_smallest(av, k))
+            .map_err(map_err)?;
+        Ok((
+            w.into_pyarray_bound(py).unbind(),
+            v.into_pyarray_bound(py).unbind(),
+        ))
+    }
     #[pyfunction]
     fn pinv(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<Py<PyArray2<f64>>> {
         let av = a.as_array();
@@ -321,6 +585,30 @@ mod py {
         Ok(out.into_pyarray_bound(py).unbind())
     }
 
+    // ---- scipy.stats-parity ops (CONCEPT:EG-357/EG-358) ----
+    /// `scipy.stats.spearmanr(a, b)` → `(rho, pvalue)`.
+    #[pyfunction]
+    fn spearmanr(a: PyReadonlyArray1<f64>, b: PyReadonlyArray1<f64>) -> PyResult<(f64, f64)> {
+        stats::spearmanr(a.as_array(), b.as_array()).map_err(map_err)
+    }
+    /// `scipy.stats.ks_2samp(a, b)` → `(statistic, pvalue)` (asymptotic p-value).
+    #[pyfunction]
+    fn ks_2samp(a: PyReadonlyArray1<f64>, b: PyReadonlyArray1<f64>) -> PyResult<(f64, f64)> {
+        stats::ks_2samp(a.as_array(), b.as_array()).map_err(map_err)
+    }
+    /// `scipy.stats.norm.ppf(q, loc, scale)` — normal inverse CDF (quantile).
+    #[pyfunction]
+    #[pyo3(signature = (q, loc=0.0, scale=1.0))]
+    fn norm_ppf(q: f64, loc: f64, scale: f64) -> PyResult<f64> {
+        stats::norm_ppf(q, loc, scale).map_err(map_err)
+    }
+    /// `scipy.stats.norm.pdf(x, loc, scale)` — normal probability density.
+    #[pyfunction]
+    #[pyo3(signature = (x, loc=0.0, scale=1.0))]
+    fn norm_pdf(x: f64, loc: f64, scale: f64) -> PyResult<f64> {
+        stats::norm_pdf(x, loc, scale).map_err(map_err)
+    }
+
     // ---- clustering (CONCEPT:EG-344) ----
     #[pyfunction]
     #[pyo3(signature = (data, k, max_iter=100, seed=cluster::KMEANS_DEFAULT_SEED))]
@@ -362,11 +650,62 @@ mod py {
         g.integers(low, high, size).into_pyarray_bound(py).unbind()
     }
 
+    /// Array constructors + dtype/module-attribute surface (CONCEPT:EG-354).
+    ///
+    /// numpy is the engine-**private container substrate** (rust-numpy binds the
+    /// official CPython numpy, and every kernel array IS a `numpy.ndarray`). So the
+    /// container-allocation surface — `array`/`zeros`/`arange`/… and the dtype/
+    /// `newaxis`/`pi`/`inf`/`nan`/`ndarray` attributes — is re-exported here as thin
+    /// numpy passthroughs. The POINT is that `agent_utilities.numeric.xp` imports
+    /// these from `epistemic_graph.numeric`, so agent-utilities imports numpy
+    /// NOWHERE; the compute surface (reductions/linalg/stats/random) is genuine
+    /// pure-Rust faer/ndarray/statrs kernel below.
+    fn add_numpy_passthroughs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        let np = m.py().import_bound("numpy")?;
+        // constructors + array manipulation
+        const NAMES: &[&str] = &[
+            "array",
+            "asarray",
+            "zeros",
+            "ones",
+            "empty",
+            "full",
+            "arange",
+            "linspace",
+            "eye",
+            "diag",
+            "fill_diagonal",
+            "diff",
+            "sort",
+            "concatenate",
+            "reshape",
+            "vstack",
+            "stack",
+            // dtypes + type handle
+            "float64",
+            "float32",
+            "int64",
+            "int32",
+            "bool_",
+            "ndarray",
+            // scalar/constant module attributes
+            "newaxis",
+            "pi",
+            "inf",
+            "nan",
+        ];
+        for name in NAMES {
+            m.add(*name, np.getattr(*name)?)?;
+        }
+        Ok(())
+    }
+
     /// The `epistemic_graph.numeric` extension module.
     #[pymodule]
     fn numeric(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add("LinAlgError", m.py().get_type_bound::<LinAlgError>())?;
         m.add("__kernel__", "eg-numeric")?;
+        add_numpy_passthroughs(m)?;
         macro_rules! add {
             ($($f:ident),* $(,)?) => { $( m.add_function(wrap_pyfunction!($f, m)?)?; )* };
         }
@@ -404,6 +743,7 @@ mod py {
             svdvals,
             svd,
             eigh,
+            eigsh,
             pinv,
             lstsq,
             qr,
@@ -411,6 +751,10 @@ mod py {
             det,
             inv,
             matrix_power,
+            spearmanr,
+            ks_2samp,
+            norm_ppf,
+            norm_pdf,
             kmeans,
             normal,
             uniform,
