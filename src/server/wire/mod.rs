@@ -1994,7 +1994,7 @@ impl WireSession {
         let fname = crate::persist::sanitize(graph);
         if redb_authoritative {
             // ONE WriteTransaction for the whole group (atomic durable commit).
-            if let Err(e) = p.commit_crossmodal(&fname, &durable, &[], &[]).await {
+            if let Err(e) = p.commit_crossmodal(&fname, &durable, &[], &[], &[]).await {
                 tracing::error!(
                     "pgwire redb authoritative: durable GROUP commit FAILED for graph '{}': {} — \
                      returning error (transaction not acked)",
