@@ -117,3 +117,7 @@ methods above. `SERVICE` fan-out obeys the `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW
 Loaded ontologies are reasoned over by the OWL 2 EL⁺/RL engine — see the
 [ontology lifecycle guide](ontology.md).
 </content>
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Ontology lifecycle](ontology.md) · [Cypher & Bolt](cypher.md) · [GraphQL](graphql.md) · [GIS / Spatial](gis.md) · [Connecting (per-wire guide)](connecting.md).

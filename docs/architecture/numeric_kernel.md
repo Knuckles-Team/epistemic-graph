@@ -1,6 +1,6 @@
 # Numeric kernel — one kernel, two surfaces (CONCEPT:EG-321)
 
-> **P1 of the Analytics Program** (`plans/epistemic-graph-analytics-program.md`,
+> **P1 of the Analytics Program** (`plans/epistemic-graph-analytics_program.md`,
 > design `reports/epistemic-graph-numeric-kernel-handoff.md`). A slim, **BLAS/LAPACK-free**
 > Rust numeric kernel that serves **both** Python-side array math (replacing numpy in
 > agent-utilities) **and** — in later phases — in-database analytics over engine-resident
@@ -289,3 +289,7 @@ text `row_to_vector` decodes — so the **vector modality is a resident graph pr
 `AVG(reading)` aggregate; the `JOIN` fuses them and the kernel UDAFs analyze the joined rows.
 The cross-modal `covariance(x, avg_reading)` is the sharpest "impossible in numpy" moment: two
 different modalities correlated in a single expression over the joined result set.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Analytics Program](analytics_program.md) · [Vector / ANN](../interfaces/vector.md) · [Distribution / Robotics / GPU](distribution_robotics_gpu.md).

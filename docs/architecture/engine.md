@@ -393,7 +393,7 @@ Cold-tenant hibernation drops the in-RAM state while the durable redb rows + rea
 intact (extended by the cold-tier object-store seam for whole-graph offload). The per-tenant memory
 budget (CONCEPT:KG-2.234) drives this automatically: a tenant over its byte budget has its coldest
 graphs evicted (durability-gated LRU) then hibernated, with a global ceiling + fair per-tenant caps so
-one hot tenant cannot starve others. See [the cost model](../cost-model.md).
+one hot tenant cannot starve others. See [the cost model](../cost_model.md).
 
 ---
 
@@ -411,8 +411,8 @@ is heavy, so it ships in `node`/`cluster`/`full` — never `pi`.
 ## Related references
 
 - [Subsystems (C4 container level)](subsystems.md) — the broker, observability, GIS, tensor, stream, KV-cache, agent-memory, LTAP lakehouse, and multi-wire subsystems and how they compose on the one substrate.
-- [Lakehouse LTAP interop (EG-317)](lakehouse-ltap.md) — the eg-lake Parquet/Delta/Iceberg egress tier that makes the engine Databricks-interoperable with zero ETL.
+- [Lakehouse LTAP interop (EG-317)](lakehouse_ltap.md) — the eg-lake Parquet/Delta/Iceberg egress tier that makes the engine Databricks-interoperable with zero ETL.
 - [Tiers & binaries](tiers.md) — which features ship in which binary, and the prebuilt sizes.
-- [Engine modes](../engine-modes.md) — remote / shared-local / autostart resolution + the auto-bundle.
+- [Engine modes](../engine_modes.md) — remote / shared-local / autostart resolution + the auto-bundle.
 - [Deployment](../deployment.md) — Docker / wheel / single-node / HA recipes.
-- [Write coalescer](write-coalescer.md) · [Index manager](index-manager.md) · [Correctness harness](correctness-harness.md).
+- [Write coalescer](write_coalescer.md) · [Index manager](index_manager.md) · [Correctness harness](correctness_harness.md).

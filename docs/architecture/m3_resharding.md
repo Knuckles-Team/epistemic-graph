@@ -287,3 +287,7 @@ surface; (b) teach EG-030's verbatim copy the `blob.redb` tables so blobs ride r
 
 Ground every change in `reports/epistemic-graph-master-engine-gaps-2026-06-23.md` (Wave 4/5
 P0s) and the EG-026 sharding contract in [`engine.md`](engine.md).
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Cluster Deployment](cluster_deployment.md) · [Per-Graph Write Coalescer](write_coalescer.md).

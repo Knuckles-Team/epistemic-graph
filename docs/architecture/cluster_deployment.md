@@ -4,7 +4,7 @@
 > the fleet's 4 nodes, and how to convert the **live single-node R510 engine** (which
 > already holds the authoritative redb data) into the SEED of that cluster **without
 > data loss**. Built on openraft **0.10** (the v2 split-storage API + native graceful
-> `trigger().transfer_leader()` — see `m2-raft-status.md`).
+> `trigger().transfer_leader()` — see `m2_raft_status.md`).
 >
 > **This document is a runbook. It does NOT perform the live cutover.** The operator
 > runs the steps below by hand, with a verified backup in place.
@@ -190,3 +190,7 @@ confirm there before declaring the cluster production-live:
 2. **Membership admin entrypoint:** expose `MultiRaft::add_group_member` /
    `remove_group_member` on an ops surface so §2c can be driven without a bespoke
    binary. The methods exist (`src/raft/multi.rs`); they just need a caller.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Deployment (database)](../deployment.md) · [Operations Runbook](../operations/runbook.md).

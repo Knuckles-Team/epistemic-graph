@@ -169,7 +169,7 @@ warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-que
 > `=0.10.0-alpha.26`, the line that carries `transfer_leader`) and migrated the whole
 > `src/raft/` API surface to the **v2 split-storage** model. The cooperative
 > yield-then-claim leader balancing (KG-2.270) is **replaced** by the native graceful
-> handoff. See `docs/architecture/cluster-deployment.md` for the multi-node deploy.
+> handoff. See `docs/architecture/cluster_deployment.md` for the multi-node deploy.
 
 - **Storage = v2 split traits.** openraft 0.10 removed the combined `RaftStorage` + the
   `Adaptor`. `EgStore` now implements **`RaftLogStorage`** (+ super-trait
@@ -205,3 +205,7 @@ warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-que
 - **Both:** true cross-host soak (leadership actually rebalancing across machines,
   heartbeat-frame reduction under load) needs multi-node hardware; the in-process
   harness proves correctness, not the distributed performance win.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Catalog-driven Resharding](m3_resharding.md) · [Cluster Deployment](cluster_deployment.md) · [Distribution / Robotics / GPU](distribution_robotics_gpu.md).

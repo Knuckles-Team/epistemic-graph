@@ -6,7 +6,9 @@ pure-Rust (no horned-owl, no whelk-rs) and adds two things most triple-stores do
 weighting** and **Ebbinghaus time-decay** of derived facts.
 
 > Status snapshot: EL⁺ + RL classification, consistency, incremental materialization, confidence
-> weighting, time-decay, and distributed reasoning are supported. OWL-DL and SWRL are roadmap. See the
+> weighting, time-decay, distributed reasoning, the **OWL-DL tableau** (cardinality, `allValuesFrom`,
+> `owl-dl` feature), **SWRL user rules** (`swrlb:` built-ins) and `rdfs:range` completion are all
+> **supported** (EG-058/059/060) — the EL/RL fast path stays the default. See the
 > [capability matrix](../capabilities.md#owl-reasoning-eg-rdfowl).
 
 ## The lifecycle
@@ -66,10 +68,11 @@ honest about how strong and how fresh each inference is.
 
 ## Scope
 
-- **Supported envelope**: OWL 2 EL⁺ + RL. `owl:Restriction` is `someValuesFrom`-only.
-- **Roadmap**: OWL-DL (tableau — cardinality, `allValuesFrom`, nominals, negation) and SWRL user rules.
-  `rdfs:range` is parsed but not yet enforced in completion. See the
-  [roadmap](../roadmap.md#owl-toward-full-dl-reasoner-parity).
+- **Default envelope**: OWL 2 EL⁺ + RL forward-chaining (the fast path). `rdfs:range` is enforced in
+  completion (EG-058).
+- **Full DL**: the `owl-dl` feature adds a pure-Rust DL **tableau** (cardinality, `allValuesFrom`,
+  nominals, negation) run consistency → classification → instance, plus **SWRL** user rules with the
+  `swrlb:` built-in library (EG-059/060). These are opt-in beyond the EL/RL default.
 
 ## Tier note
 
@@ -77,3 +80,7 @@ The lean **pi** tier carries SPARQL `SELECT` + OWL reasoning via the `Method::Ow
 SQL-backed `Op::Reason` planner op needs `owl-plan` (which pulls DataFusion) and lands in the **node**
 tier. See [tiers & binaries](../architecture/tiers.md).
 </content>
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [SPARQL & RDF](sparql.md) · [Cypher & Bolt](cypher.md) · [Agent Memory](memory.md) · [Master-of-all Engine](../architecture/engine.md).

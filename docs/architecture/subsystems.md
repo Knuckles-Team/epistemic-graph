@@ -226,7 +226,7 @@ and **Iceberg** snapshot metadata, and serving an **Iceberg-REST catalog** so ex
 the engine's versioned snapshots + `Op::AsOf` for **LSN-style as-of / time-travel** reads that pin an exact
 engine version. The write path is unchanged — this is an additive projection, not a second store. *(The
 Iceberg **Avro manifest** writer is currently a stub; the Delta path + Iceberg-REST catalog are the
-complete reader-ready surfaces.)* Deep dive: [lakehouse-ltap](lakehouse-ltap.md).
+complete reader-ready surfaces.)* Deep dive: [lakehouse-ltap](lakehouse_ltap.md).
 
 ## QoS/SLO scheduler (server, EG-320)
 

@@ -24,7 +24,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `ON CONFLICT (cols) DO NOTHING/DO UPDATE` upsert + user-table `RETURNING` | ✅ | `query` | reuses unique/PK validation (CONCEPT:EG-048) |
 | Mixed-store wire transactions (`BEGIN`/`COMMIT`/`ROLLBACK`, `TransactionStatus` `T`/`E`/`I`) | ✅ | `pgwire` | `GraphTxnBuffer` + user-table ops, read-your-own-writes overlay; documented non-2PC user-table window (CONCEPT:EG-049) |
 | `CREATE VIEW` / `DROP VIEW` (durable catalog, expanded in `build_ctx`) | ✅ | `query` | CONCEPT:EG-072 |
-| `CREATE FUNCTION … LANGUAGE sql` (scalar + table UDFs, durable catalog) | ✅ | `query` | CONCEPT:EG-118; PL/pgSQL control-flow is a documented follow-up |
+| `CREATE FUNCTION … LANGUAGE sql` (scalar + table UDFs, durable catalog) | ✅ | `query` | CONCEPT:EG-118 |
+| `CREATE FUNCTION … LANGUAGE plpgsql` procedural bodies (`DECLARE`/`IF`/`LOOP`/`WHILE`/`FOR`/`RETURN`/`RAISE`/`SELECT … INTO`) | ✅ | `query` | pure interpreter, `crates/eg-query/src/sql/plpgsql.rs` (CONCEPT:EG-340/EG-341); set-returning `RETURN NEXT/QUERY`, cursors, exception handlers + DML-in-body are documented out of scope |
 | Columnar (struct-of-arrays) segments + SQL window frames (`ROW_NUMBER`/`RANK`/`DENSE_RANK`/`LAG`/`LEAD`/`OVER(PARTITION BY … ROWS/RANGE …)`) | ✅ | `query` | CONCEPT:EG-089 |
 | DML on arbitrary user tables (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `COPY`) | ✅ | `query` | durable redb `TableStore` (EG-018/EG-020); `run_insert_table`/`run_update_table`/`run_delete_table` |
 | `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-018); JOINable to the graph |
@@ -187,7 +188,8 @@ for per-wire connect+query recipes and the full env-var/port table.
 | Postgres wire (psql / BI / ORM) | ✅ | `pgwire` | `src/server/pgwire`; `EPISTEMIC_GRAPH_PGWIRE_ADDR` (KG-2.189) |
 | MySQL / MariaDB wire (hand-rolled handshake v10 + `mysql_native_password`) | ✅ | `mysql-wire` | `src/server/mysql_wire`; `EPISTEMIC_GRAPH_MYSQL_ADDR` (EG-076) |
 | MSSQL TDS wire (hand-rolled TDS) | ✅ | `mssql-wire` | `src/server/mssql_wire`; `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-077) |
-| SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075); `.db` file I/O 🔶 forward roadmap (see [roadmap](roadmap.md)) |
+| SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075) |
+| On-disk `sqlite3` `.db` file import/export (`Method::ImportSqliteFile`/`ExportSqliteFile`) | ✅ | `sqlite-file` | pulls `rusqlite` (bundled C sqlite3), folded into `full`/`node`, OUT of `pi` (CONCEPT:EG-331/EG-332) |
 | Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `src/server/bolt_wire`; `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159) |
 | AMQP 0.9.1 broker wire (exchanges/queues over the KG-2.303 work-queue) | ✅ | `amqp-wire` (impl `broker`) | `src/server/amqp_wire`; `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
 | MQTT 3.1.1/5.0 broker wire (CONNECT/PUBLISH/SUBSCRIBE, QoS 0/1) | ✅ | `mqtt-wire` (impl `broker`) | `src/server/mqtt_wire`; `EPISTEMIC_GRAPH_MQTT_ADDR` (EG-281) |
@@ -258,6 +260,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Geodesic ops (Haversine/Vincenty distance + geodesic area; CRS tag selects planar vs geodesic) | ✅ | CONCEPT:EG-256 |
 | Full geometry model (Multi*/GeometryCollection + polygon holes + EWKT) | ✅ | CONCEPT:EG-257 |
 | Map tiling: XYZ/TMS addressing + Mapbox Vector Tiles (MVT) clipped to a tile | ✅ | web-map render (CONCEPT:EG-265) |
+| Raster tile pyramids (georeferenced coverage grid → XYZ raster tiles + full pyramid, dependency-free PNG codec) | ✅ | `crates/eg-geo/src/raster.rs` (CONCEPT:EG-338/EG-339); no `image`/`png`/`flate2` — Pi contract holds |
 | Weighted routing (Dijkstra/A* geo-heuristic) + isochrones + nearest-neighbour/2-opt TSP | ✅ | logistics primitives (CONCEPT:EG-266); turn-restriction penalties + time-window/time-dependent edge weights (CONCEPT:EG-312) |
 | Map-based task tracking (`:GeoTask` location/status/service-area; within-bbox/polygon, nearest-N, along-route, nearest-resource assignment) | ✅ | field-ops layer (CONCEPT:EG-267) |
 | OGC GeoSPARQL `geo:`/`geof:` vocabulary + spatial FILTER functions over SPARQL | ✅ | `geosparql` feature (EG-261); reuses eg-geo (no GEOS/PROJ) |
@@ -320,14 +323,14 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 
 Databricks-LTAP-interoperable: external lakehouse engines read the engine's own tables as open formats with
 **zero ETL**. Gated `lake` (arrow/parquet + delta/iceberg deps), out of `pi`. See
-[lakehouse-ltap](architecture/lakehouse-ltap.md).
+[lakehouse-ltap](architecture/lakehouse_ltap.md).
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
 | Parquet-on-object-store materialization of engine tables / columnar segments | ✅ | async columnar transcode → Parquet in the blob CAS / S3 (CONCEPT:EG-317) |
 | Delta transaction log (`_delta_log`) so Delta / Databricks / delta-rs readers see a consistent version | ✅ | CONCEPT:EG-317 |
 | Iceberg-REST catalog + Iceberg snapshot metadata (Trino / Spark catalog resolution) | ✅ | CONCEPT:EG-317 |
-| Real Iceberg v2 **Avro** manifest + manifest-list writer (Spark/Trino/DuckDB read the tables) | ✅ | CONCEPT:EG-333/EG-334; `crates/eg-lake/src/iceberg_avro.rs`, `lake` feature (pure-Rust `apache-avro`); per-column stats + partition field-summary bounds are a documented omission |
+| Real Iceberg v2 **Avro** manifest + manifest-list writer (Spark/Trino/DuckDB read the tables) | ✅ | CONCEPT:EG-333/EG-334; `crates/eg-lake/src/iceberg_avro.rs`, `lake` feature (pure-Rust `apache-avro`); per-column stats (`value_counts`/`null_value_counts`/`lower_bounds`/`upper_bounds` by field-id) for predicate pushdown / file skipping (EG-350); partition `field_summary` null by design (unpartitioned spec) |
 | LSN-style as-of / time-travel snapshots (reusing versioned snapshots + `Op::AsOf`) | ✅ | a lake snapshot pins an exact engine LSN (CONCEPT:EG-317) |
 
 ## Request scheduling & QoS
@@ -339,7 +342,7 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 ## Analytics / numeric kernel (`eg-numeric` — feature `numeric`, in `full`, out of `pi`)
 
 The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
-(CONCEPT:EG-321). See [numeric-kernel.md](architecture/numeric-kernel.md).
+(CONCEPT:EG-321). See [numeric_kernel.md](architecture/numeric_kernel.md).
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
