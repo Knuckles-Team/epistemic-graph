@@ -20,7 +20,14 @@ default = []
 # src/, epistemic_graph/, and the top-level Cargo.toml/pyproject.toml, never
 # crates/; and this crate keeps pyo3 out of any engine-linked build). Only the
 # wheel build (maturin) turns this on.
-python = ["dep:pyo3", "dep:numpy"]
+python = ["dep:pyo3", "dep:numpy", "analytics"]
+# Analytics stats ops (CONCEPT:EG-357/EG-358): spearmanr / ks_2samp / normal
+# ppf+pdf. Pulls `statrs` for the distribution CDFs (Student-t, Normal). Kept OUT
+# of `default` so an engine `pi`/`node`/`full` build that links the eg-numeric rlib
+# for Surface B does NOT pull statrs unless it opts in — the Pi-contract holds
+# (`cargo tree --features pi` links no statrs). `python` implies it so the Surface-A
+# wheel carries the scipy-parity stats ops.
+analytics = ["dep:statrs"]
 
 [dependencies]
 # arrays / reductions / element-wise / broadcasting — numpy-shaped, mature.
@@ -38,3 +45,6 @@ rand_chacha = "0.3"
 # Surface-A only (feature `python`): zero-copy numpy interop + GIL release.
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"], optional = true }
 numpy = { version = "0.22", optional = true }
+# Analytics only (feature `analytics`): distribution CDFs/quantiles for the
+# scipy-parity stats ops (Student-t p-value, Normal ppf/pdf). Pure Rust, no BLAS.
+statrs = { version = "0.18", optional = true }
