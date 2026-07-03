@@ -14,9 +14,12 @@ for build commands, wheel recipes, and Docker, see [Deployment](../deployment.md
 ## Feature containment
 
 Each larger tier is a strict superset of the one below it (except `pi-max`, which is a pure-Rust
-sideways maximal of `pi`, and `full`, which is the contains-all single-node build). Raft + pgwire +
+sideways maximal of `pi`, and `full`, which is the contains-all single-node build). Raft +
 distributed compute are **cluster-only**, so a `pi` / `node` / `full` build links no openraft and (for
-`pi` / `pi-max`) no DataFusion — the Pi contract.
+`pi` / `pi-max`) no DataFusion — the Pi contract. **`pgwire`** (the Postgres wire SQL listener) is now
+folded into `node` / `full` / `cluster` (CONCEPT:EG-352 — it is pure-Rust over the SQL path `node`
+already carries, so a `node` build is a COMPLETE Postgres-wire single-node DB); it stays OUT of
+`pi` / `pi-max` because it implies DataFusion + pulls `_ring`.
 
 ```mermaid
 flowchart TB
@@ -27,13 +30,13 @@ flowchart TB
         PMF["pi + tsdb + blob + security (RLS / audit / ChaCha20 encryption-at-rest)"]
     end
     subgraph node["node — single durable server"]
-        NF["pi + DataFusion SQL + graphql + Tantivy text + wasm-udf + finance + datascience + ast + tsdb + blob + security + federation + federation-sql + owl-plan"]
+        NF["pi + DataFusion SQL + graphql + Tantivy text + wasm-udf + finance + datascience + ast + tsdb + blob + security + federation + federation-sql + owl-plan + pgwire (Postgres wire SQL)"]
     end
     subgraph full["full (~58.67 MB) — contains-all single-node"]
-        FF["every single-node feature, size-optimized (NO raft / pgwire)"]
+        FF["every single-node feature, size-optimized (incl. pgwire; NO raft)"]
     end
     subgraph cluster["cluster — HA / multi-node"]
-        CF["node + raft replication + pgwire + compute-dist (distributed Pregel + cross-shard 2PC)"]
+        CF["node (incl. pgwire) + raft replication + compute-dist (distributed Pregel + cross-shard 2PC) + extra wire protocols"]
     end
 
     pi --> pimax
@@ -51,13 +54,13 @@ compiles** (the long LTO / C-dep build is a build-host concern only). The `relea
 (`opt-level = "z"`, fat LTO, one codegen unit, `strip`, `panic = "unwind"` kept — a panic stays
 recoverable) produces these sizes:
 
-| Binary | Approx. size | DataFusion? | Tantivy? | Raft / pgwire? | Notes |
-|--------|--------------|:-----------:|:--------:|:--------------:|-------|
-| **pi** | ~6.46 MB | no | no | no | lean durable edge; ships native RDF/SPARQL/OWL + ANN + Cypher, all pure-Rust |
-| **pi-max** | ~6.96 MB | no | no | no | every pure-Rust feature that fits a Pi-3 without a C toolchain (+tsdb/blob/security) |
-| **node** | single-node | **yes** | **yes** | no | adds SQL/GraphQL/text/wasm-udf/federation + finance/datascience/ast |
-| **cluster** | HA | yes | yes | **yes** | adds Raft replication, pg-wire SQL, distributed compute, cross-shard 2PC |
-| **full** | ~58.67 MB | yes | yes | no | the "contains-all smallest": every single-node feature in one size-optimized binary |
+| Binary | Approx. size | DataFusion? | Tantivy? | pgwire? | Raft? | Notes |
+|--------|--------------|:-----------:|:--------:|:-------:|:-----:|-------|
+| **pi** | ~6.46 MB | no | no | no | no | lean durable edge; ships native RDF/SPARQL/OWL + ANN + Cypher, all pure-Rust |
+| **pi-max** | ~6.96 MB | no | no | no | no | every pure-Rust feature that fits a Pi-3 without a C toolchain (+tsdb/blob/security) |
+| **node** | single-node | **yes** | **yes** | **yes** | no | adds SQL/GraphQL/text/wasm-udf/federation + **pg-wire SQL** + finance/datascience/ast — a COMPLETE single-node DB |
+| **cluster** | HA | yes | yes | yes | **yes** | node (incl. pg-wire) + Raft replication, distributed compute, cross-shard 2PC, extra wire protocols |
+| **full** | ~58.67 MB | yes | yes | **yes** | no | the "contains-all smallest": every single-node feature (incl. pg-wire) in one size-optimized binary |
 
 The genuinely-Pi-3-friendly maximal build is **`pi-max`** — it links **no** DataFusion, Tantivy/zstd,
 openraft, pgwire, ring/openssl, or any C-toolchain dependency (asserted by `cargo tree` in CI), while
@@ -72,7 +75,7 @@ set. Reach for a heavier tier only when you need:
 
 | You need… | Tier | Why it is not in `pi` |
 |-----------|------|-----------------------|
-| SQL `SELECT` / cross-modal `Filter` / pg-wire | `node` (+ `cluster` for pg-wire) | DataFusion + Arrow are heavy |
+| SQL `SELECT` / cross-modal `Filter` / pg-wire (Postgres clients) | `node` | DataFusion + Arrow are heavy; `node` now carries pg-wire (EG-352) |
 | BM25 full-text + RRF hybrid | `node` | Tantivy pulls a C `zstd-sys` build |
 | WASM UDFs | `node` | wasmtime + cranelift are heavy |
 | Query federation (remote / HTTP / external SQL) | `node` | a rustls/sqlx TLS stack |

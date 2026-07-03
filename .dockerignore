@@ -1,0 +1,21 @@
+# The release image (docker/Dockerfile) INSTALLS THE PUBLISHED WHEEL via `uv` — it
+# does NOT compile from source, so it needs (almost) NOTHING from the build context.
+# Excluding the heavy build/VCS/artifact dirs keeps the buildx context tiny and the
+# multi-arch build fast. A local pre-publish sanity build points EG_INSTALL_SPEC at a
+# wheel under the context (e.g. ./wheels), which is NOT excluded here.
+target/
+.git/
+.github/
+crates/
+src/
+docs/
+tests/
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
