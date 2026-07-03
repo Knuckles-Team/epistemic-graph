@@ -89,6 +89,35 @@ jobs:
       - name: Protocol parity (Python client ⇄ Rust Method enum)
         run: python -m pytest tests/test_protocol_parity.py --noconftest -q
 
+  numeric-parity:
+    # CONCEPT:EG-346 — the numpy-parity gate for the compiled eg-numeric kernel.
+    # Builds the Surface-A pyo3 wheel (`epistemic_graph.numeric` / `numeric`) with
+    # maturin, installs it, then asserts EVERY kernel op == its numpy reference
+    # (np.allclose) across the op-surface incl. edge cases (nan/inf, singular
+    # matrix, empty). FAILS if the Rust kernel diverges from numpy — the standing
+    # guarantee that lets agent-utilities run its `xp` shim kernel-LIVE (KG-2.315)
+    # instead of on the numpy fallback. Python 3.12 is inside pyo3-0.22's native
+    # support window, so no PYO3_USE_ABI3_FORWARD_COMPATIBILITY shim is needed here
+    # (that flag is only required on interpreters newer than pyo3's max, e.g. 3.14).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: numeric-parity
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install maturin + parity deps
+        run: pip install 'maturin>=1,<2' numpy pytest
+      - name: Build eg-numeric Surface-A wheel (feature python)
+        run: maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
+      - name: Install the wheel
+        run: pip install --no-index --find-links target/wheels eg-numeric
+      - name: numpy-parity gate (compiled kernel vs numpy)
+        run: python -m pytest crates/eg-numeric/tests/test_kernel_parity.py --noconftest -q
+
   feature-matrix:
     # Build-only across the feature combinations we ship, to guard feature-gate
     # bitrot — including the per-crate builds that prove the DAG boundaries hold
