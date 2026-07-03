@@ -1,4 +1,4 @@
-# epistemic-graph — thin JS/Node client (CONCEPT:EG-3.1)
+# epistemic-graph — thin JS/Node client (CONCEPT:EG-328)
 
 A **deliberately thin** Node client for the Program-B engine `Method`s that had no
 client surface. It is **not a full SDK** — the canonical, full-featured client is the

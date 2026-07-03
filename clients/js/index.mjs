@@ -1,4 +1,4 @@
-// CONCEPT:EG-3.1 — Thin JS/Node client for the Program-B engine Methods (B1.7).
+// CONCEPT:EG-328 — Thin JS/Node client for the Program-B engine Methods (B1.7).
 //
 // This is a DELIBERATELY THIN binding, NOT a full SDK. It covers ONLY the new wire
 // `Method`s that had no client surface — the broker + append-log streams
