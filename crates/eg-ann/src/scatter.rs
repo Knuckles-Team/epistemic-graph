@@ -272,7 +272,11 @@ mod tests {
         let shards = shard_corpus(&data, dim, 4);
 
         let out = scatter_knn(&shards, query, 1000, 1);
-        assert_eq!(out.results.len(), data.len(), "k>total must return all points");
+        assert_eq!(
+            out.results.len(),
+            data.len(),
+            "k>total must return all points"
+        );
         assert_eq!(out.shards_answered, 4);
 
         // Globally sorted nearest-first with id tiebreak.

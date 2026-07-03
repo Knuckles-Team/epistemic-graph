@@ -437,7 +437,10 @@ pub fn is_typed_lang(lang: &str) -> bool {
 /// (CONCEPT:EG-309). Reads the name list from `field` (`"columns"` / `"vars"`) and the
 /// values from `"cells"`; a missing/oddly-shaped payload yields empty vecs so the row is
 /// merged as an empty tuple rather than crashing the fusion.
-fn extract_schema_cells(data: &serde_json::Value, field: &str) -> (Vec<String>, Vec<serde_json::Value>) {
+fn extract_schema_cells(
+    data: &serde_json::Value,
+    field: &str,
+) -> (Vec<String>, Vec<serde_json::Value>) {
     let names = data
         .get(field)
         .and_then(|v| v.as_array())
@@ -1213,11 +1216,18 @@ mod tests {
             )]),
         };
         let merged = merge_partials_typed(vec![local, peer], "sql");
-        assert_eq!(merged.rows.len(), 1, "aligned + typed-equal rows dedup to one");
+        assert_eq!(
+            merged.rows.len(),
+            1,
+            "aligned + typed-equal rows dedup to one"
+        );
         assert!(!merged.metadata.partial);
         assert_eq!(merged.metadata.contributing_sources, 2);
         // The union schema is stable (first-seen: name, age) and both cells are projected.
-        assert_eq!(fused_schema(&merged.rows[0], "columns"), vec!["name", "age"]);
+        assert_eq!(
+            fused_schema(&merged.rows[0], "columns"),
+            vec!["name", "age"]
+        );
         assert_eq!(
             merged.rows[0].data["cells"],
             serde_json::json!(["alice", 30])

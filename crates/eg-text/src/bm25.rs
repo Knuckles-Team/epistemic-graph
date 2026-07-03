@@ -311,8 +311,14 @@ mod tests {
     fn eg311_snippet_highlights_matched_terms() {
         let doc = "Graph Databases store Nodes and Edges efficiently for traversal";
         let snip = bm25_snippet("nodes edges", doc, 200);
-        assert!(snip.contains("<b>Nodes</b>"), "matched term bolded (cased): {snip}");
-        assert!(snip.contains("<b>Edges</b>"), "second matched term bolded: {snip}");
+        assert!(
+            snip.contains("<b>Nodes</b>"),
+            "matched term bolded (cased): {snip}"
+        );
+        assert!(
+            snip.contains("<b>Edges</b>"),
+            "second matched term bolded: {snip}"
+        );
         assert!(
             !snip.contains("<b>store</b>"),
             "non-matching word must not be bolded: {snip}"
@@ -326,7 +332,10 @@ mod tests {
         let doc = "aaa bbb ccc ddd eee fff ggg hhh iii jjj needle kkk lll mmm nnn ooo ppp";
         let snip = bm25_snippet("needle", doc, 24);
         assert!(snip.contains("<b>needle</b>"), "match highlighted: {snip}");
-        assert!(snip.starts_with('…'), "left-truncated window marked: {snip}");
+        assert!(
+            snip.starts_with('…'),
+            "left-truncated window marked: {snip}"
+        );
         assert!(
             snip.chars().count() <= 24 + 2 /* ellipses */ + "<b></b>".len(),
             "window bounded near maxlen: {snip:?}"
@@ -343,7 +352,10 @@ mod tests {
     fn eg311_snippet_no_match_returns_plain_head() {
         let doc = "the quick brown fox jumps over the lazy dog";
         let snip = bm25_snippet("astronomy", doc, 100);
-        assert!(!snip.contains("<b>"), "no highlight when nothing matches: {snip}");
+        assert!(
+            !snip.contains("<b>"),
+            "no highlight when nothing matches: {snip}"
+        );
         assert!(snip.starts_with("the quick"), "returns head of doc: {snip}");
     }
 

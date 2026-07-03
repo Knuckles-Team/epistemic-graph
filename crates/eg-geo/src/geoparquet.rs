@@ -146,21 +146,18 @@ impl GeoParquetMetadata {
                         .collect()
                 })
                 .unwrap_or_default();
-            let bbox = cv
-                .get("bbox")
-                .and_then(Value::as_array)
-                .and_then(|a| {
-                    if a.len() >= 4 {
-                        Some(Bbox::new(
-                            a[0].as_f64()?,
-                            a[1].as_f64()?,
-                            a[2].as_f64()?,
-                            a[3].as_f64()?,
-                        ))
-                    } else {
-                        None
-                    }
-                });
+            let bbox = cv.get("bbox").and_then(Value::as_array).and_then(|a| {
+                if a.len() >= 4 {
+                    Some(Bbox::new(
+                        a[0].as_f64()?,
+                        a[1].as_f64()?,
+                        a[2].as_f64()?,
+                        a[3].as_f64()?,
+                    ))
+                } else {
+                    None
+                }
+            });
             let crs = cv.get("crs").cloned();
             columns.push((
                 name.clone(),
@@ -181,8 +178,8 @@ impl GeoParquetMetadata {
 
     /// Parse the GeoParquet `"geo"` metadata from its JSON *string* (CONCEPT:EG-306).
     pub fn from_json_string(s: &str) -> Result<Self, String> {
-        let v: Value =
-            serde_json::from_str(s).map_err(|e| format!("GeoParquet: invalid metadata JSON: {e}"))?;
+        let v: Value = serde_json::from_str(s)
+            .map_err(|e| format!("GeoParquet: invalid metadata JSON: {e}"))?;
         Self::from_json(&v)
     }
 }
@@ -192,10 +189,7 @@ impl GeoParquetMetadata {
 /// Encode a geometry column as per-row WKB blobs (CONCEPT:EG-306) — the exact bytes a
 /// GeoParquet writer places in the geometry column. `None` rows become `None` (a null cell).
 pub fn encode_wkb_column(geoms: &[Option<Geometry>]) -> Vec<Option<Vec<u8>>> {
-    geoms
-        .iter()
-        .map(|g| g.as_ref().map(to_wkb))
-        .collect()
+    geoms.iter().map(|g| g.as_ref().map(to_wkb)).collect()
 }
 
 /// Decode a WKB geometry column back into geometries (CONCEPT:EG-306). `None` cells (nulls)
@@ -278,8 +272,7 @@ mod tests {
 
     #[test]
     fn eg306_geoparquet_metadata_json_round_trip() {
-        let mut meta =
-            GeoParquetMetadata::single_wkb_column("geometry", vec!["Polygon".into()]);
+        let mut meta = GeoParquetMetadata::single_wkb_column("geometry", vec!["Polygon".into()]);
         // Attach a bbox + a CRS to exercise the optional fields.
         if let Some((_, col)) = meta.columns.first_mut() {
             col.bbox = Some(Bbox::new(-10.0, -5.0, 10.0, 5.0));
@@ -291,7 +284,10 @@ mod tests {
         assert_eq!(back.version, "1.0.0");
         assert_eq!(back.primary_column, "geometry");
         assert_eq!(back.columns[0].1.encoding, ENCODING_WKB);
-        assert_eq!(back.columns[0].1.bbox, Some(Bbox::new(-10.0, -5.0, 10.0, 5.0)));
+        assert_eq!(
+            back.columns[0].1.bbox,
+            Some(Bbox::new(-10.0, -5.0, 10.0, 5.0))
+        );
     }
 
     #[test]

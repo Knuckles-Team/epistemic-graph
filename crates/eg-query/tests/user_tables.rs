@@ -58,9 +58,7 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
                 A::RenameColumn { from, to } => {
                     store.rename_column(&plan.name, &from, &to).unwrap()
                 }
-                A::RenameTable { new_name } => {
-                    store.rename_table(&plan.name, &new_name).unwrap()
-                }
+                A::RenameTable { new_name } => store.rename_table(&plan.name, &new_name).unwrap(),
                 A::AlterColumnType { column, new_type } => store
                     .alter_column_type(&plan.name, &column, ColumnType::parse(&new_type).unwrap())
                     .unwrap(),
@@ -500,7 +498,10 @@ fn eg313_hnsw_pushdown_matches_brute_force_l2() {
         .unwrap();
         let want = brute_nearest_ids(q, k, n, "<->");
         let got: Vec<Value> = pushed.rows.into_iter().map(|r| r[0].clone()).collect();
-        assert_eq!(got, want, "EG-313 hnsw pushdown top-{k} must equal brute force");
+        assert_eq!(
+            got, want,
+            "EG-313 hnsw pushdown top-{k} must equal brute force"
+        );
     }
 }
 
@@ -528,7 +529,10 @@ fn eg313_ivfflat_pushdown_matches_brute_force_l2() {
         .unwrap();
         let want = brute_nearest_ids(q, k, n, "<->");
         let got: Vec<Value> = pushed.rows.into_iter().map(|r| r[0].clone()).collect();
-        assert_eq!(got, want, "EG-313 ivfflat pushdown top-{k} must equal brute force");
+        assert_eq!(
+            got, want,
+            "EG-313 ivfflat pushdown top-{k} must equal brute force"
+        );
     }
 }
 
@@ -555,7 +559,10 @@ fn eg313_cosine_pushdown_matches_brute_force() {
     .unwrap();
     let want = brute_nearest_ids(q, 3, n, "<=>");
     let got: Vec<Value> = pushed.rows.into_iter().map(|r| r[0].clone()).collect();
-    assert_eq!(got, want, "EG-313 cosine pushdown top-3 must equal brute force");
+    assert_eq!(
+        got, want,
+        "EG-313 cosine pushdown top-3 must equal brute force"
+    );
 }
 
 /// No registered index ⇒ the exec path keeps the EG-115 brute-force fallback and still
@@ -862,7 +869,11 @@ fn psql_backslash_d_style_query_eg103() {
 fn eg310_drop_column_removes_schema_and_cells() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price DOUBLE, note TEXT)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (symbol TEXT, price DOUBLE, note TEXT)",
+    );
     run(
         &store,
         &view,
@@ -880,7 +891,12 @@ fn eg310_drop_column_removes_schema_and_cells() {
         assert_eq!(row.len(), 2);
     }
     // Surviving columns still read their original values.
-    let res = run(&store, &view, "SELECT symbol, note FROM prices ORDER BY symbol").unwrap();
+    let res = run(
+        &store,
+        &view,
+        "SELECT symbol, note FROM prices ORDER BY symbol",
+    )
+    .unwrap();
     assert_eq!(res.rows.len(), 2);
     assert_eq!(res.rows[0][0], json!("AAPL"));
     assert_eq!(res.rows[0][1], json!("x"));
@@ -894,10 +910,22 @@ fn eg310_drop_column_removes_schema_and_cells() {
 fn eg310_rename_column_preserves_values() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price DOUBLE)");
-    run(&store, &view, "INSERT INTO prices (symbol, price) VALUES ('AAPL', 9.9)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (symbol TEXT, price DOUBLE)",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO prices (symbol, price) VALUES ('AAPL', 9.9)",
+    );
 
-    run(&store, &view, "ALTER TABLE prices RENAME COLUMN price TO amount");
+    run(
+        &store,
+        &view,
+        "ALTER TABLE prices RENAME COLUMN price TO amount",
+    );
 
     let schema = store.get_schema("prices").unwrap().unwrap();
     assert!(schema.column("price").is_none());
@@ -913,8 +941,16 @@ fn eg310_rename_column_preserves_values() {
 fn eg310_rename_table_moves_rows() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE prices (id SERIAL PRIMARY KEY, symbol TEXT)");
-    run(&store, &view, "INSERT INTO prices (symbol) VALUES ('AAPL'), ('MSFT')");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (id SERIAL PRIMARY KEY, symbol TEXT)",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO prices (symbol) VALUES ('AAPL'), ('MSFT')",
+    );
 
     run(&store, &view, "ALTER TABLE prices RENAME TO quotes");
 
@@ -939,20 +975,37 @@ fn eg310_alter_column_type_coerces_rows() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
     run(&store, &view, "CREATE TABLE t (a TEXT, b INT, c INT)");
-    run(&store, &view, "INSERT INTO t (a, b, c) VALUES ('42', 5, 7), ('100', 9, 11)");
+    run(
+        &store,
+        &view,
+        "INSERT INTO t (a, b, c) VALUES ('42', 5, 7), ('100', 9, 11)",
+    );
 
     // numeric text → bigint
     run(&store, &view, "ALTER TABLE t ALTER COLUMN a TYPE BIGINT");
     // int → double
-    run(&store, &view, "ALTER TABLE t ALTER COLUMN b TYPE DOUBLE PRECISION");
+    run(
+        &store,
+        &view,
+        "ALTER TABLE t ALTER COLUMN b TYPE DOUBLE PRECISION",
+    );
     // int → text
     run(&store, &view, "ALTER TABLE t ALTER COLUMN c TYPE TEXT");
 
-    assert_eq!(store.get_schema("t").unwrap().unwrap().column("a").unwrap().ty, ColumnType::BigInt);
+    assert_eq!(
+        store
+            .get_schema("t")
+            .unwrap()
+            .unwrap()
+            .column("a")
+            .unwrap()
+            .ty,
+        ColumnType::BigInt
+    );
     let res = run(&store, &view, "SELECT a, b, c FROM t ORDER BY a").unwrap();
-    assert_eq!(res.rows[0][0], json!(42));   // '42' -> 42 (int)
-    assert_eq!(res.rows[0][1], json!(5.0));  // 5 -> 5.0 (double)
-    assert_eq!(res.rows[0][2], json!("7"));  // 7 -> "7" (text)
+    assert_eq!(res.rows[0][0], json!(42)); // '42' -> 42 (int)
+    assert_eq!(res.rows[0][1], json!(5.0)); // 5 -> 5.0 (double)
+    assert_eq!(res.rows[0][2], json!("7")); // 7 -> "7" (text)
     assert_eq!(res.rows[1][0], json!(100));
 }
 
@@ -969,7 +1022,16 @@ fn eg310_alter_column_type_rejects_incompatible() {
     assert!(err.is_err(), "expected rejection coercing 'abc' -> int");
 
     // Rolled back: column still TEXT and the value is intact.
-    assert_eq!(store.get_schema("t").unwrap().unwrap().column("a").unwrap().ty, ColumnType::Text);
+    assert_eq!(
+        store
+            .get_schema("t")
+            .unwrap()
+            .unwrap()
+            .column("a")
+            .unwrap()
+            .ty,
+        ColumnType::Text
+    );
     let res = run(&store, &view, "SELECT a FROM t").unwrap();
     assert_eq!(res.rows[0][0], json!("abc"));
 }
@@ -986,9 +1048,11 @@ fn eg310_reject_nonexistent() {
     assert!(store.drop_column("t", "nope", true).is_ok()); // IF EXISTS no-op
     assert!(store.rename_column("t", "nope", "x").is_err());
     assert!(store.rename_column("nope", "a", "x").is_err()); // missing table
-    assert!(store.alter_column_type("t", "nope", ColumnType::Text).is_err());
+    assert!(store
+        .alter_column_type("t", "nope", ColumnType::Text)
+        .is_err());
     assert!(store.rename_table("nope", "x").is_err()); // missing source
-    // Dropping the only column is refused.
+                                                       // Dropping the only column is refused.
     assert!(store.drop_column("t", "a", false).is_err());
 }
 
@@ -1011,10 +1075,20 @@ fn eg310_reject_collisions() {
 fn eg310_drop_constraint_relaxes_uniqueness() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE u (id INT PRIMARY KEY, email TEXT)");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE u (id INT PRIMARY KEY, email TEXT)",
+    );
     run(&store, &view, "INSERT INTO u (id, email) VALUES (1, 'a@x')");
     // Duplicate PK rejected while the constraint stands.
-    assert!(store.insert_rows("u", &["id".into(), "email".into()], &[vec![json!(1), json!("b@x")]]).is_err());
+    assert!(store
+        .insert_rows(
+            "u",
+            &["id".into(), "email".into()],
+            &[vec![json!(1), json!("b@x")]]
+        )
+        .is_err());
 
     // Drop the PK constraint (synthesized name `u_pkey`), then the dup id inserts.
     run(&store, &view, "ALTER TABLE u DROP CONSTRAINT u_pkey");
@@ -1033,11 +1107,27 @@ fn eg310_drop_constraint_relaxes_uniqueness() {
 fn eg310_persists_across_reopen() {
     let (store, path) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
-    run(&store, &view, "CREATE TABLE prices (symbol TEXT, price INT, note TEXT)");
-    run(&store, &view, "INSERT INTO prices (symbol, price, note) VALUES ('AAPL', 42, 'x')");
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (symbol TEXT, price INT, note TEXT)",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO prices (symbol, price, note) VALUES ('AAPL', 42, 'x')",
+    );
     run(&store, &view, "ALTER TABLE prices DROP COLUMN note");
-    run(&store, &view, "ALTER TABLE prices RENAME COLUMN price TO amount");
-    run(&store, &view, "ALTER TABLE prices ALTER COLUMN amount TYPE TEXT");
+    run(
+        &store,
+        &view,
+        "ALTER TABLE prices RENAME COLUMN price TO amount",
+    );
+    run(
+        &store,
+        &view,
+        "ALTER TABLE prices ALTER COLUMN amount TYPE TEXT",
+    );
     run(&store, &view, "ALTER TABLE prices RENAME TO quotes");
 
     // Reopen the SAME redb file (drop every handle first).

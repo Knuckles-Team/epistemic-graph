@@ -108,7 +108,9 @@ impl IcebergRestCatalog {
     /// `GET /v1/namespaces/{ns}/tables/{t}` (LoadTable) response body, or `None` if the
     /// table is not registered (CONCEPT:EG-317).
     pub fn load_table(&self, namespace: &str, name: &str) -> Option<Value> {
-        let entry = self.tables.get(&(namespace.to_string(), name.to_string()))?;
+        let entry = self
+            .tables
+            .get(&(namespace.to_string(), name.to_string()))?;
         let metadata: Value = entry
             .metadata_json
             .as_deref()

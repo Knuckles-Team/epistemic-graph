@@ -47,12 +47,11 @@ use tokio::sync::RwLock;
 
 use eg_query::{
     AlterTableAction, AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan,
-    CopyFormat, CopyPlan,
-    CreateFunctionPlan, CreateTablePlan, CreateViewPlan, CypherCallPlan, DeleteNodes,
-    DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
-    InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflictAction, PgColType,
-    StatementKind, TableSchema, TableStore, TableTxn, TxnOp, TypedColumn, TypedQueryResult,
-    UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, CypherCallPlan,
+    DeleteNodes, DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan,
+    HypertablePlan, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflictAction,
+    PgColType, StatementKind, TableSchema, TableStore, TableTxn, TxnOp, TypedColumn,
+    TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 
 use crate::isolation::AccessLevel;

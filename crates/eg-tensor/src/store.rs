@@ -282,7 +282,11 @@ mod tests {
         // Durability: the derived blob round-trips across a restart under the same hash.
         store.persist(dir.path()).unwrap();
         let loaded = TensorStore::load(dir.path()).unwrap();
-        assert_eq!(loaded.get(&hash), Some(derived), "derived blob lost on restart");
+        assert_eq!(
+            loaded.get(&hash),
+            Some(derived),
+            "derived blob lost on restart"
+        );
     }
 
     /// CONCEPT:EG-304 — identical derived tensors DEDUP: writing the SAME `TensorOp`
@@ -296,6 +300,10 @@ mod tests {
         let h3 = store.put(&derived_tensor());
         assert_eq!(h1, h2);
         assert_eq!(h2, h3);
-        assert_eq!(store.len(), 1, "identical derived tensors must dedup to one blob");
+        assert_eq!(
+            store.len(),
+            1,
+            "identical derived tensors must dedup to one blob"
+        );
     }
 }

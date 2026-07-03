@@ -318,9 +318,7 @@ pub fn execute_guarded(
 
 /// Snapshot every graph of a store to RDF triples: the default graph (key `None`) plus
 /// each named graph. Reuses the same lossless export the whole-graph copy path uses.
-fn snapshot_store(
-    store: &dyn GraphStore,
-) -> Result<HashMap<Option<String>, Vec<Triple>>, String> {
+fn snapshot_store(store: &dyn GraphStore) -> Result<HashMap<Option<String>, Vec<Triple>>, String> {
     let mut out: HashMap<Option<String>, Vec<Triple>> = HashMap::new();
     if let Some(core) = store.core(None) {
         out.insert(None, export_graph_triples(&core, "")?);

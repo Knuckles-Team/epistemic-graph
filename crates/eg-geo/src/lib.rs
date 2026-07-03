@@ -71,9 +71,9 @@ pub mod crs;
 pub mod geodesic;
 #[cfg(feature = "geo-io")]
 pub mod geojson;
+pub mod geometry;
 #[cfg(feature = "geo-io")]
 pub mod geoparquet;
-pub mod geometry;
 pub mod geotask;
 pub mod gpx;
 pub mod kml;
