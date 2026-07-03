@@ -215,6 +215,67 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
+  # ── eg-numeric Surface-A kernel wheels (CONCEPT:EG-346 wheel / EG-351 publish leg).
+  #    The slim, BLAS/LAPACK-free numeric kernel (`crates/eg-numeric`, pyo3 feature
+  #    `python` → the `epistemic_graph.numeric` extension) shipped as its OWN wheel so
+  #    downstreams (agent-utilities' `numeric.xp` shim) can HARD-DEPEND on the kernel and
+  #    fully drop numpy — the one blocker to the numpy-drop. Built for linux x86_64 +
+  #    aarch64 and uploaded as `wheel-numeric-*` so the tag-gated `publish-pypi` leg ships
+  #    it to PyPI ALONGSIDE `epistemic-graph`. This is a SEPARATE maturin target from the
+  #    main `bindings="bin"` server wheel (it is a pyo3 cdylib), so the Pi/no-pyo3 contract
+  #    on the engine is untouched. PUBLISHING stays tag-gated (see publish-pypi's `if:`).
+  wheels-numeric:
+    name: wheel eg-numeric ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+          - name: linux-aarch64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # zig gives reproducible glibc-pinned linux cross-builds (linux-aarch64 on an x86
+      # host). The pyo3 `python` feature is the ONLY feature this wheel needs.
+      - name: Build eg-numeric wheel (${{ matrix.name }})
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: '2_28'
+          args: >-
+            --release
+            --out dist
+            -m crates/eg-numeric/Cargo.toml
+            --features python
+          sccache: 'true'
+      - name: Upload eg-numeric wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-numeric-${{ matrix.name }}
+          path: dist/*.whl
+
+  # ── eg-numeric sdist (pip fallback for platforms without a prebuilt wheel).
+  sdist-numeric:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist -m crates/eg-numeric/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist-numeric
+          path: dist/*.tar.gz
+
   # ── Multi-arch Docker DB image (BUILD + healthcheck-style smoke; no push)
   docker-image:
     runs-on: ubuntu-latest
@@ -246,7 +307,9 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    needs: [wheels, wheels-pi, wheels-full-tiny, sdist]
+    # eg-numeric (wheels-numeric + sdist-numeric) publishes ALONGSIDE epistemic-graph so a
+    # `v*` tag ships both distributions in one release (CONCEPT:EG-351).
+    needs: [wheels, wheels-pi, wheels-full-tiny, sdist, wheels-numeric, sdist-numeric]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT publish.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -255,6 +318,8 @@ jobs:
       contents: read
       id-token: write   # PyPI trusted publishing (OIDC)
     steps:
+      # The `wheel-*` glob also picks up the `wheel-numeric-*` artifacts, so both the
+      # epistemic-graph and eg-numeric wheels land in dist/ for the single publish.
       - uses: actions/download-artifact@v4
         with:
           pattern: wheel-*
@@ -263,6 +328,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: sdist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist-numeric
           path: dist
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
