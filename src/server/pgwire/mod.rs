@@ -120,6 +120,14 @@ fn outcome_to_response(outcome: WireOutcome, format: Option<&Format>) -> Respons
         WireOutcome::Rows(result) => Response::Query(query_response(result, format)),
         WireOutcome::Command { tag, rows } => {
             let mut t = Tag::new(tag);
+            // libpq compatibility: the `INSERT` CommandComplete tag carries a leading
+            // always-zero oid field — `INSERT 0 <n>` (the oid of the inserted row, 0
+            // since we never insert into a table WITH oids). UPDATE/DELETE/SELECT have
+            // no oid field and render as `<verb> <n>`. Emitting `INSERT <n>` without the
+            // oid makes libpq clients (psql, DBeaver) log a malformed-tag warning.
+            if tag == "INSERT" {
+                t = t.with_oid(0);
+            }
             if let Some(n) = rows {
                 t = t.with_rows(n);
             }
@@ -1416,5 +1424,52 @@ mod copy_tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0][0], serde_json::json!("AAPL"));
         assert_eq!(rows[1][1], serde_json::json!(2));
+    }
+}
+
+#[cfg(test)]
+mod tag_tests {
+    //! CommandComplete tag framing (libpq compatibility): INSERT must carry the
+    //! always-zero oid field (`INSERT 0 <n>`), while UPDATE/DELETE/SELECT are
+    //! `<verb> <n>` with no oid field.
+    use super::*;
+    use pgwire::messages::response::CommandComplete;
+
+    /// Render the CommandComplete tag string a client would see for a given outcome.
+    fn tag_string(outcome: WireOutcome) -> String {
+        match outcome_to_response(outcome, None) {
+            Response::Execution(tag) => CommandComplete::from(tag).tag,
+            other => panic!("expected Response::Execution, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn insert_tag_has_leading_zero_oid() {
+        // libpq expects `INSERT 0 <n>` — the leading 0 is the always-zero oid field.
+        assert_eq!(
+            tag_string(WireOutcome::command_rows("INSERT", 2)),
+            "INSERT 0 2"
+        );
+        assert_eq!(
+            tag_string(WireOutcome::command_rows("INSERT", 0)),
+            "INSERT 0 0"
+        );
+    }
+
+    #[test]
+    fn update_delete_select_tags_have_no_oid() {
+        // Non-INSERT verbs are `<verb> <n>` — no oid field.
+        assert_eq!(
+            tag_string(WireOutcome::command_rows("UPDATE", 3)),
+            "UPDATE 3"
+        );
+        assert_eq!(
+            tag_string(WireOutcome::command_rows("DELETE", 1)),
+            "DELETE 1"
+        );
+        assert_eq!(
+            tag_string(WireOutcome::command_rows("SELECT", 5)),
+            "SELECT 5"
+        );
     }
 }
