@@ -8,6 +8,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-03
+
+> **Minor, additive.** Closes the remaining *deferred/follow-on* items from the 2.4.0 roadmap tail,
+> publishes the `eg-numeric` kernel wheel to PyPI (unblocking a numpy-free agent-utilities), and fixes
+> the release pipeline so the PyPI publish no longer stalls on best-effort macOS/windows runners.
+
+### Fixed
+- **CI publish gating** — dropped the best-effort macOS/windows wheel legs from the gating `wheels`
+  matrix so `publish-pypi` fires on the always-available `ubuntu-latest` legs (they no longer block the
+  release when a macOS runner is unavailable). macOS/Windows users install the sdist.
+
+### Added — deferred follow-ons closed
+- **EG-348** — Calvin OLLP recon-staleness **restart**: a txn whose reconnaissance-predicted read/write
+  set changes before lock acquisition is deterministically re-sequenced + re-reconnoitred and re-run,
+  closing the last EG-342 gap (bounded retry; all nodes make the same restart decision).
+- **EG-349** — ROS2 **rmw topic/type name mangling** (`rt/<topic>`, `<pkg>::msg::dds_::<Msg>_`, CDR-LE
+  encapsulation) so the EG-347 native DDS leg is discoverable by a live `ros2` daemon.
+- **EG-350** — Iceberg **per-column stats** (the deferred EG-333 follow-on): value/null/nan counts, typed
+  min/max bounds and Parquet column sizes in the Avro manifest, for external predicate pushdown / file skipping.
+- **EG-351** — **eg-numeric PyPI publish leg** (the kernel wheel now ships to the index on a `v*` tag,
+  unblocking a numpy-free agent-utilities) + a **GPU-gated CUDA parity test** that asserts the cudarc kernels
+  == the CPU ground truth where a GPU is present and skips cleanly in CI.
+
 ### Added — lakehouse interop
 - **EG-350** — Iceberg **per-column stats** (the deferred EG-333 follow-on). The LTAP tier gathers per-column `value_count`/`null_count`/`nan_count`, typed min/max bounds and Parquet `column_size` as each data file is materialized (`materialize_with_column_stats`), carries them on `FileEntry.column_stats`, and the Avro manifest writer emits the six spec stats maps (`column_sizes`/`value_counts`/`null_value_counts`/`nan_value_counts`/`lower_bounds`/`upper_bounds`, keyed by field-id, bounds in single-value binary) so external readers (Spark/Trino/DuckDB) do predicate pushdown / file skipping. Partition `field_summary` stays null by design — the spec is unpartitioned. Same `lake` gate; `pi`/`full` still link no `apache-avro` (`cargo tree` = 0).
 
