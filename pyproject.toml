@@ -60,8 +60,19 @@ full = []
 lmcache = [
     "httpx>=0.24.0",
 ]
+# CONCEPT:EG-346 — the numeric kernel extra. The compiled faer/ndarray Surface-A
+# kernel (`crates/eg-numeric`, built `--features python`) is FOLDED INTO this wheel as
+# package data `epistemic_graph/numeric.abi3.so` by the release build
+# (`scripts/inject_numeric_kernel.py`), so there is ONE published package — no separate
+# `eg-numeric` on PyPI. The `.so` is self-contained (pure-Rust, BLAS/LAPACK-free); this
+# extra only pulls `numpy` for the zero-copy interop the kernel uses at its boundary.
+# `pip install epistemic-graph[numeric]` therefore makes `import epistemic_graph.numeric`
+# work — the module the `agent_utilities.numeric` `xp` shim binds (CONCEPT:KG-2.315).
+numeric = [
+    "numpy>=1.22.0",
+]
 all = [
-    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full,lmcache]",
+    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full,lmcache,numeric]",
 ]
 
 # Pre-bundled agent skills for operating the engine (the AI-native database):
