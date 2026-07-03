@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-03
+
+> **Minor, additive.** Closes the analytics-kernel axis and the remaining "master of all databases"
+> roadmap tail. All new capability is feature-gated per the Pi-contract (a `pi`/`full` build links no
+> new heavy dep — asserted by `cargo tree`). Also fixes two test-isolation bugs that were red/hanging CI.
+
+### Fixed
+- **Blob CAS test deadlock** — a manifest test issued a raw `begin_write` while the group-commit batch
+  txn was open (redb single-writer), hanging `Test (facade full)` for hours. Flush-first, as the API does.
+- **Process-RSS memory tests** — `bounded_memory_*` assert whole-process RSS; moved to `#[ignore]` +
+  a serial isolated CI step so the parallel harness no longer pollutes the measurement.
+
+### Added — analytics (Surface B, in-DB numeric)
+- **EG-329/330** — Surface-B numeric SQL UDFs (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) + in-engine `BatchL2Normalize`.
+- **EG-335/336** — `pca`/`svd` column→matrix UDAFs (faer-backed).
+- **EG-344/345** — `kmeans` UDAF + **cross-modal join→analytics in-engine** (graph⋈vector⋈timeseries → pca/kmeans/covariance; impossible in numpy — no data layer).
+- **EG-346** — `eg-numeric` pyo3 Surface-A wheel + a `numeric-parity` CI gate asserting the compiled kernel == numpy (np.allclose) op-for-op.
+
+### Added — database parity tail
+- **EG-331/332** — on-disk `sqlite3` `.db` file import/export (gated `sqlite-file`, out of `pi`/`default`).
+- **EG-333/334** — real Iceberg v2 Avro manifest + manifest-list writer (LTAP tier; pure-Rust `apache-avro`).
+- **EG-337** — Python LMCache/vLLM remote-backend driver for the EG-187 KV-cache endpoint.
+- **EG-338/339** — raster tile pyramids (hand-rolled zero-dep PNG codec; Web-Mercator XYZ).
+- **EG-340/341** — PL/pgSQL procedural interpreter (`DECLARE`/`IF`/`LOOP`/`WHILE`/`FOR`/`RETURN`/`RAISE`/`SELECT INTO`).
+- **EG-342/343** — Calvin OLLP reconnaissance + `GlobalSeq`-ordered read-lock manager (serializable) + multi-node sequencer epoch fan-in (raft tier).
+- **EG-347** — native DDS/RTPS ROS2 transport seam via pure-Rust `rustdds` (real RTPS loopback; `ros2-dds` in `full-extras` only).
+
 ## [Unreleased — Program B]
 
 > **Minor, additive, backward-compatible.** Program B (waves B-1..B-6) turns the previously-deferred
