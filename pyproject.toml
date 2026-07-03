@@ -100,8 +100,11 @@ include = ["epistemic_graph/skills/**/*"]
 # the ONE code-parsing implementation (agent-utilities delegates and ships no Python
 # tree-sitter wheels). NOTE: the previous default `["server", "ast-extended"]`
 # OMITTED redb/cypher/ann/etc., so the shipped binary was NOT a usable tiny DB —
-# `node` fixes that. `node` stays SINGLE-NODE (no raft/pgwire); those are the
-# `cluster` tier and are built explicitly (see the Pi recipe note below).
+# `node` fixes that. `node` stays SINGLE-NODE (no raft) but DOES carry `pgwire`
+# (CONCEPT:EG-352) — pgwire is pure-Rust over the SQL path node already links, so the
+# default wheel is a COMPLETE Postgres-wire-capable single-node DB. Raft/compute-dist
+# (+ the other wire protocols) are the `cluster` tier, built explicitly (see the Pi
+# recipe note below).
 features = ["node", "ast-extended"]
 
 # ── Building a leaner Pi-3 tier wheel ──
