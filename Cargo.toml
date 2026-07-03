@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric"]
 # EG-185/186: fold eg-kvcache into node/full (the tiered + shared KV-cache leaf crate,
 # a sibling of eg-ann/eg-tensor). Added as a workspace member only; the tier aggregate
 # feature lists (node/full) and the path-dep + server-endpoint wiring are folded in by
@@ -91,6 +91,17 @@ ast = ["eg-compute/ast"]
 ast-extended = ["eg-compute/ast-extended"]
 datascience = ["eg-compute/datascience", "eg-types/datascience"]
 reasoning = ["eg-compute/reasoning"]
+# CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
+# BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
+# analytics — the Python-extension FFI layer is behind eg-numeric's OWN `python`
+# feature (OFF here), so a `numeric` engine build pulls faer/ndarray but NO Python
+# FFI (the Plan-01 no-Python-extension-in-engine contract + its `scripts/`
+# CI gate stay green). Folded into `full` only;
+# kept OUT of `pi`/`pi-max`/`node` and the size-optimized `release-tiny` profile so
+# faer/ndarray never bloat the lean Raspberry-Pi tier (verified: `cargo tree --features
+# pi` links no eg-numeric/faer/ndarray). Surface A (the Python wheel) is a SEPARATE
+# maturin build of eg-numeric with `--features python`; see crates/eg-numeric.
+numeric = ["dep:eg-numeric"]
 # Native eg-ann IVF-PQ + OPQ + SQ8-refine vector index (CONCEPT:KG-2.207) as the
 # SemanticStore backend, replacing the rebuild-on-load hnsw_rs index. Pure-Rust,
 # CPU integer-table serving (no GPU/native-ML/faiss in the tree) so it is Pi-lean
@@ -616,7 +627,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "numeric"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -665,6 +676,12 @@ eg-core = { path = "crates/eg-core" }
 # the heavy finance/datascience/ast/reasoning code + deps are gated behind the
 # facade features that pass through to eg-compute's matching features.
 eg-compute = { path = "crates/eg-compute" }
+# CONCEPT:EG-321 — Analytics-Program numeric kernel (feature `numeric`, in `full`,
+# out of `pi`). Links only the PURE rlib (faer + ndarray, NO Python-extension FFI —
+# that layer is behind eg-numeric's OWN `python` feature, off here) for Surface B
+# in-database analytics. Referenced only under `#[cfg(feature = "numeric")]`, so a
+# default/pi build links no eg-numeric/faer/ndarray (asserted by `cargo tree --features pi`).
+eg-numeric = { path = "crates/eg-numeric", optional = true }
 # Optional SQL query surface (feature `query`); pulls DataFusion only when enabled.
 eg-query = { path = "crates/eg-query", optional = true }
 # Optional unified cross-modal planner (feature `query`, CONCEPT:KG-2.208/209). Its
