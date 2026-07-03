@@ -200,13 +200,24 @@ fn function_persists_in_catalog_across_reopen_eg118() {
 // ── classify-level parsing (no execution) ──────────────────────────────────────
 
 #[test]
-fn classify_rejects_non_sql_language_eg118() {
-    // A procedural PL/pgSQL body is a documented follow-up — rejected with a precise
-    // error, never silently accepted (CONCEPT:EG-118).
-    let err =
+fn classify_accepts_plpgsql_language_eg340() {
+    // A procedural PL/pgSQL body is now accepted and validated at CREATE time
+    // (CONCEPT:EG-340) — the interpreter runs it on a bare call (see `plpgsql.rs`).
+    let k =
         classify("CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql")
-            .unwrap_err();
+            .unwrap();
+    match k {
+        StatementKind::CreateFunction(p) => assert!(p.func.is_plpgsql()),
+        other => panic!("expected CreateFunction, got {other:?}"),
+    }
+    // An unknown language is still rejected precisely.
+    let err = classify("CREATE FUNCTION g() RETURNS int AS $$ x $$ LANGUAGE python").unwrap_err();
     assert!(err.contains("LANGUAGE"), "unexpected error: {err}");
+    // A malformed plpgsql body fails at CREATE, not on first call.
+    let err =
+        classify("CREATE FUNCTION h() RETURNS int AS $$ BEGIN RETURN 1 END $$ LANGUAGE plpgsql")
+            .unwrap_err();
+    assert!(err.contains("plpgsql body"), "unexpected error: {err}");
 }
 
 #[test]
