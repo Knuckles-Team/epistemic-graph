@@ -117,6 +117,9 @@ nav:
       - Agent Memory: interfaces/memory.md
       - Ontology Lifecycle: interfaces/ontology.md
   - Deploy & Operate:
+      - Standalone Deployment (just the engine): standalone_deployment.md
+      - DBeaver / psql Quickstart: dbeaver_quickstart.md
+      - Deployment Topology (components): deployment_topology.md
       - Operations Runbook: operations/runbook.md
       - Deployment (database): deployment.md
       - Cost Model & Capacity: cost-model.md
