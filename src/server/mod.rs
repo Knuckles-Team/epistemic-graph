@@ -182,9 +182,19 @@ pub mod replica;
 // CDC events ↔ ROS2 topics by talking `rosbridge_suite` JSON-over-WebSocket to a
 // `rosbridge_server` — NO CycloneDDS/rmw/DDS C stack, just a pure-Rust tokio-tungstenite
 // client. Behind the `ros2-bridge` cargo feature; kept OUT of the Pi tier (a slim build
-// links no tokio-tungstenite).
-#[cfg(feature = "ros2-bridge")]
+// links no tokio-tungstenite). Also compiled behind `ros2-dds` (CONCEPT:EG-347), which
+// reuses this module's PURE CDC↔ROS2 message mapping (`cdc_to_publish`/`publish_to_method`)
+// as the shared shaping for the native DDS leg — only the tungstenite driver
+// (`run_ros2_bridge`) is `ros2-bridge`-specific.
+#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
 pub mod ros2_bridge;
+// Native DDS/RTPS ROS2 transport seam (CONCEPT:EG-347): the `DdsTransport` trait that
+// unifies the EG-325 rosbridge-WebSocket leg and a NATIVE DDS/RTPS leg behind ONE
+// interface, plus the pure-Rust `rustdds`-backed `NativeDdsTransport` impl (feature
+// `ros2-dds`). Kept OUT of pi/default/node/full — only the opt-in `full-extras` bundle
+// (a default/pi/full build links no rustdds).
+#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
+pub mod dds;
 // Real-time QoS / SLO-aware admission scheduler (CONCEPT:EG-320). An additive, opt-in
 // gate (enabled by `EPISTEMIC_GRAPH_QOS`) the transport runs BEFORE the baseline
 // admission: priority-class preemption + per-tenant fair-share + hard quotas +

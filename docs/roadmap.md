@@ -20,7 +20,7 @@ epistemic-graph converges many modalities under one durable engine and one plann
 
 | Item | Status | Notes |
 |------|:------:|-------|
-| **ROS2 real DDS/RTPS wire** | 🗺 | The rosbridge-WebSocket JSON bridge now ships (EG-325 — engine CDC ↔ ROS2 topics via `rosbridge_server`, no DDS C stack). A NATIVE DDS/RTPS wire (CycloneDDS/rmw) remains a documented optional leg (needs the CycloneDDS C toolchain, so it is not folded into the workspace `--all-features` build). |
+| **ROS2 real DDS/RTPS wire** | ✅ | The rosbridge-WebSocket JSON bridge ships (EG-325 — engine CDC ↔ ROS2 topics via `rosbridge_server`, no DDS C stack). **EG-347** adds the transport SEAM (`src/server/dds.rs`, the `DdsTransport` trait unifying the WS bridge and a native DDS leg behind ONE interface) **plus a real, CI-buildable native DDS/RTPS leg** behind the `ros2-dds` feature via the **pure-Rust `rustdds`** crate (native Rust DDS + RTPS — mio/pnet/speedy/cdr-encoding, **no CycloneDDS/rmw/C toolchain**), exercised by a real RTPS loopback pub/sub test. Kept OUT of `pi`/`default`/`node`/`full` — only the `full-extras` bundle (a `pi`/`full` build links no rustdds). The alternative **CycloneDDS-C-backed `rmw` leg** stays a documented, toolchain-gated future option (it cannot be CI-built without the C toolchain); full `rmw` topic-name/type-hash mangling for zero-config live-`ros2` interop is a follow-on. |
 | **Admin console UI** | 🗺 | A browser admin surface (tenants, shards, RBAC, backup/PITR). The engine exposes the APIs; the UI is unbuilt. |
 | **Live dashboards UI** | 🗺 | A Grafana-style dashboard front-end over the PromQL/logs/traces query APIs (EG-172/302/162/163). The query side ships; the UI does not. |
 | **Python LMCache connector (driver)** | ✅ | Shipped: `epistemic_graph.kvcache` (CONCEPT:EG-337) — a `pip`-installable vLLM/LMCache remote-backend driver for the EG-187 KV-cache endpoint. `RemoteKVConnector` (`get`/`put`/`contains`/`exists`/`stats` over `/kv/<hash>` + `/kv/stats`, bearer-token) + `RemoteKVL2Connector` (LMCache `native_plugin` L2 adapter). Stdlib-only import; `httpx` behind the `[lmcache]` extra. |
@@ -59,6 +59,13 @@ Pi tier (the heavy deps stay optional).
 - **ROS2 bridge over rosbridge-WebSocket** — engine CDC events ↔ ROS2 topics via the standard
   `rosbridge_suite` JSON-over-WebSocket protocol to a `rosbridge_server` (advertise/subscribe/publish/
   unsubscribe), with NO CycloneDDS/rmw/DDS C stack — a pure-Rust `tokio-tungstenite` client (EG-325).
+- **Native DDS/RTPS transport seam + leg** — the `DdsTransport` trait (`src/server/dds.rs`, EG-347)
+  puts the WS bridge and a native DDS/RTPS transport behind ONE interface, so the CDC↔ROS2 path targets
+  EITHER (both put the identical `std_msgs/String` payload on the wire via the shared EG-325 shaping).
+  The native leg (`ros2-dds` feature) speaks real RTPS via the pure-Rust `rustdds` crate — NO
+  CycloneDDS/rmw/C toolchain, so it actually builds in CI and is covered by a real RTPS loopback
+  pub/sub test. Kept OUT of pi/default/node/full (only `full-extras`). The CycloneDDS-C `rmw` leg
+  stays a toolchain-gated future option.
 
 ### GPU
 - **GPU-accelerated distance/tensor** — a `DistanceBackend`/`TensorBackend` dispatch seam (EG-326) with
