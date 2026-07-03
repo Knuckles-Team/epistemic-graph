@@ -151,8 +151,8 @@ fn eg_317_lsn_as_of_snapshot_is_consistent() {
     assert!(table.snapshot.files_as_of(Lsn(0)).is_empty());
 }
 
-/// CONCEPT:EG-317 — the Iceberg metadata.json is real & parseable; the manifest is a
-/// documented JSON stub.
+/// CONCEPT:EG-317 — the Iceberg metadata.json is real & parseable and references the
+/// real Avro manifest paths (the Avro itself is round-tripped in the EG-333 test).
 #[test]
 fn eg_317_iceberg_metadata_written_and_parseable() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
@@ -164,10 +164,143 @@ fn eg_317_iceberg_metadata_written_and_parseable() {
     assert_eq!(meta["current-snapshot-id"], 42);
     assert_eq!(meta["schemas"][0]["fields"].as_array().unwrap().len(), 5);
     assert_eq!(meta["snapshots"][0]["summary"]["total-records"], "3");
-    // The manifest is the documented Avro stub.
+    // The metadata references the real Avro manifest-list path; the JSON preview mirrors
+    // the entries (the real Avro is asserted in eg_333_iceberg_avro_manifest_roundtrip).
     let man: serde_json::Value = serde_json::from_str(&ib.manifest_json).unwrap();
-    assert!(man["_stub"].as_str().unwrap().contains("Avro"));
+    assert!(man["manifest_list"]
+        .as_str()
+        .unwrap()
+        .ends_with("-manifest-list.avro"));
+    assert!(man["manifest_file"].as_str().unwrap().ends_with("-m0.avro"));
     assert_eq!(man["entries"].as_array().unwrap().len(), 1);
+}
+
+/// CONCEPT:EG-333/EG-334 — the Iceberg **Avro** manifest + manifest-list are written as
+/// real Avro containers, parse back, reference each other, and the manifest entries
+/// match the live data files. Also asserts the `metadata.json` snapshot's `manifest-list`
+/// points at the exact manifest-list path we materialized.
+#[cfg(feature = "lake")]
+#[test]
+fn eg_333_iceberg_avro_manifest_roundtrip() {
+    use apache_avro::types::Value as AvroValue;
+    use eg_lake::iceberg_avro::read_avro_records;
+
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(41));
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(42));
+
+    let m = table.iceberg_manifests().expect("build avro manifests");
+    assert_eq!(m.snapshot_id, 42);
+    assert_eq!(m.added_files, 2);
+    assert_eq!(m.added_rows, 7);
+    assert!(m.manifest_path.ends_with("-m0.avro"));
+    assert!(m.manifest_list_path.ends_with("-manifest-list.avro"));
+
+    // Both blobs are real Avro containers (magic "Obj\x01").
+    assert_eq!(&m.manifest_avro[..4], b"Obj\x01", "not an avro manifest");
+    assert_eq!(
+        &m.manifest_list_avro[..4],
+        b"Obj\x01",
+        "not an avro manifest-list"
+    );
+
+    // metadata.json's snapshot references the exact manifest-list path we wrote.
+    let ib = table.iceberg(1_700_000_000_000);
+    let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
+    assert_eq!(
+        meta["snapshots"][0]["manifest-list"].as_str().unwrap(),
+        m.manifest_list_path
+    );
+
+    // Manifest list parses to one manifest_file record pointing at our manifest.
+    let list = read_avro_records(&m.manifest_list_avro).expect("read manifest list");
+    assert_eq!(list.len(), 1);
+    let fields = match &list[0] {
+        AvroValue::Record(f) => f,
+        other => panic!("expected record, got {other:?}"),
+    };
+    let get = |name: &str| fields.iter().find(|(k, _)| k == name).map(|(_, v)| v);
+    match get("manifest_path").unwrap() {
+        AvroValue::String(s) => assert_eq!(s, &m.manifest_path),
+        other => panic!("manifest_path not a string: {other:?}"),
+    }
+    assert!(matches!(
+        get("added_files_count").unwrap(),
+        AvroValue::Int(2)
+    ));
+    assert!(matches!(
+        get("added_rows_count").unwrap(),
+        AvroValue::Long(7)
+    ));
+    assert!(matches!(get("content").unwrap(), AvroValue::Int(0)));
+
+    // Manifest parses to one entry per live data file, matching path/rows/size.
+    let entries = read_avro_records(&m.manifest_avro).expect("read manifest");
+    assert_eq!(entries.len(), 2);
+    let mut seen: Vec<(String, i64, i64)> = Vec::new();
+    for e in &entries {
+        let ef = match e {
+            AvroValue::Record(f) => f,
+            other => panic!("entry not a record: {other:?}"),
+        };
+        // status == ADDED (1)
+        let status = ef
+            .iter()
+            .find(|(k, _)| k == "status")
+            .map(|(_, v)| v)
+            .unwrap();
+        assert!(matches!(status, AvroValue::Int(1)), "status must be ADDED");
+        let data_file = ef
+            .iter()
+            .find(|(k, _)| k == "data_file")
+            .map(|(_, v)| v)
+            .unwrap();
+        let dff = match data_file {
+            AvroValue::Record(f) => f,
+            other => panic!("data_file not a record: {other:?}"),
+        };
+        let dget = |name: &str| dff.iter().find(|(k, _)| k == name).map(|(_, v)| v).unwrap();
+        // content == DATA (0), format PARQUET
+        assert!(matches!(dget("content"), AvroValue::Int(0)));
+        match dget("file_format") {
+            AvroValue::String(s) => assert_eq!(s, "PARQUET"),
+            other => panic!("file_format: {other:?}"),
+        }
+        let path = match dget("file_path") {
+            AvroValue::String(s) => s.clone(),
+            other => panic!("file_path: {other:?}"),
+        };
+        let rows = match dget("record_count") {
+            AvroValue::Long(n) => *n,
+            other => panic!("record_count: {other:?}"),
+        };
+        let size = match dget("file_size_in_bytes") {
+            AvroValue::Long(n) => *n,
+            other => panic!("file_size_in_bytes: {other:?}"),
+        };
+        seen.push((path, rows, size));
+    }
+    seen.sort();
+    assert_eq!(
+        seen,
+        vec![
+            ("s3://lake/quotes/data/part-0.parquet".to_string(), 3, 512),
+            ("s3://lake/quotes/data/part-1.parquet".to_string(), 4, 640),
+        ]
+    );
+
+    // The manifest embeds the required Iceberg metadata (format-version 2, data content).
+    let reader = apache_avro::Reader::new(&m.manifest_avro[..]).expect("open manifest");
+    let md = reader.user_metadata();
+    assert_eq!(
+        md.get("format-version").map(|v| v.as_slice()),
+        Some(&b"2"[..])
+    );
+    assert_eq!(md.get("content").map(|v| v.as_slice()), Some(&b"data"[..]));
+    assert!(
+        md.contains_key("schema"),
+        "manifest must embed the iceberg schema"
+    );
 }
 
 /// CONCEPT:EG-317 — the Iceberg-REST catalog lists and loads a registered table.

@@ -6,16 +6,18 @@
 //! format-version 2, a typed schema, a partition spec, a sort order, and a snapshot
 //! whose `manifest-list` locates the data files.
 //!
-//! ## What is a stub (documented, per CONCEPT:EG-317)
+//! ## Metadata (here) vs. the real Avro manifests (CONCEPT:EG-333/EG-334)
 //! The manifest-list and manifest files themselves are, in the Iceberg spec, **Avro**
-//! containers. Emitting real Avro would pull an Avro codec dep; to keep `eg-lake`
-//! lean, [`build_iceberg`] emits a JSON *representation* of the manifest entries
-//! ([`IcebergTable::manifest_json`]) alongside the real `metadata.json`. So the
-//! `metadata.json` is spec-correct and machine-parseable, but a stock Iceberg reader
-//! that follows `manifest-list` will look for an Avro file — that half is a STUB. The
-//! read-consistent, fully-external-readable format in this crate is **Delta**
-//! (`crate::delta`); Iceberg here gives the metadata/catalog seam plus a clearly
-//! marked manifest stub. Real Avro manifests are a documented follow-up.
+//! containers. This module owns the pure-JSON `metadata.json` (format-version 2) plus
+//! a convenience JSON *preview* of the manifest entries ([`IcebergTable::manifest_json`],
+//! handy for tests / debugging and dependency-free). The **real, spec-compliant Avro
+//! manifest + manifest-list writer** lives in [`crate::iceberg_avro`] behind the `lake`
+//! feature (it needs the `apache-avro` codec dep) — the `metadata.json` written here
+//! points its `manifest-list` at the exact object-store path
+//! ([`manifest_list_path`]) that [`crate::iceberg_avro::build_iceberg_manifests`]
+//! materializes, so a committed snapshot resolves to a real Avro manifest chain a stock
+//! Iceberg reader (Spark/Trino/DuckDB) follows. Delta (`crate::delta`) remains a second,
+//! fully-external-readable format; Iceberg now has both metadata AND real manifests.
 
 use serde_json::{json, Value};
 
@@ -27,16 +29,33 @@ use crate::snapshot::{Lsn, SnapshotLog};
 pub struct IcebergTable {
     /// The spec-correct `metadata.json` content (format-version 2).
     pub metadata_json: String,
-    /// A JSON *representation* of the manifest entries (data files). NOTE: the Iceberg
-    /// spec mandates Avro here — this is a documented STUB (see module docs).
+    /// A JSON *preview* of the manifest entries (data files) — dependency-free and
+    /// handy for tests/debugging. The spec-mandated **Avro** manifest is written by
+    /// [`crate::iceberg_avro`] (CONCEPT:EG-333) at [`manifest_file_path`]; this preview
+    /// mirrors its entries.
     pub manifest_json: String,
     /// Where the metadata.json should live (object-store-relative).
     pub metadata_location: String,
 }
 
+/// Object-store path of the Iceberg **manifest list** Avro file for a snapshot
+/// (CONCEPT:EG-334). Shared by [`build_iceberg`] (which references it from the
+/// snapshot's `manifest-list`) and [`crate::iceberg_avro`] (which writes it), so the
+/// metadata always resolves to the real Avro file.
+pub fn manifest_list_path(location: &str, snapshot_id: i64) -> String {
+    format!("{location}/metadata/snap-{snapshot_id}-manifest-list.avro")
+}
+
+/// Object-store path of the Iceberg **manifest** Avro file for a snapshot
+/// (CONCEPT:EG-333) — the single data manifest the manifest list points at.
+pub fn manifest_file_path(location: &str, snapshot_id: i64) -> String {
+    format!("{location}/metadata/snap-{snapshot_id}-m0.avro")
+}
+
 /// The Iceberg typed schema for a [`LakeSchema`] with 1-based field ids
-/// (CONCEPT:EG-317).
-fn iceberg_schema(schema: &LakeSchema) -> Value {
+/// (CONCEPT:EG-317). `pub(crate)` so the Avro manifest writer embeds the identical
+/// schema JSON in the manifest file's metadata (CONCEPT:EG-333).
+pub(crate) fn iceberg_schema(schema: &LakeSchema) -> Value {
     let fields: Vec<Value> = schema
         .fields
         .iter()
@@ -71,7 +90,7 @@ pub fn build_iceberg(
     let snapshot_id: i64 = lsn.value() as i64;
     let last_column_id = schema.len() as i64;
 
-    let manifest_list = format!("{location}/metadata/snap-{snapshot_id}-manifest-list.avro");
+    let manifest_list = manifest_list_path(location, snapshot_id);
     let metadata_location = format!("{location}/metadata/v{snapshot_id}.metadata.json");
 
     // Data-file entries live as of the current LSN — the manifest content (stubbed to
@@ -98,8 +117,9 @@ pub fn build_iceberg(
         .collect();
 
     let manifest_json = json!({
-        "_stub": "JSON representation; the Iceberg spec mandates Avro (CONCEPT:EG-317)",
+        "_note": "JSON preview; the real Avro manifest is written by iceberg_avro (CONCEPT:EG-333)",
         "manifest_list": manifest_list,
+        "manifest_file": manifest_file_path(location, snapshot_id),
         "schema-id": 0,
         "snapshot-id": snapshot_id,
         "entries": data_files,
