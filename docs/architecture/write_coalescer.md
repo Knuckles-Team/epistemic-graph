@@ -136,3 +136,7 @@ reduction (the contention property), not a fixed wall-clock multiple.
 - `src/server/state.rs` — `ServerState.write_coalescer` field.
 - `src/server/dispatch.rs` — `try_coalesce_write` fast path in `dispatch_graph_op`.
 - `src/metrics.rs` — `write_batch_committed` + the two counters.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Reserved Read-Admission Lane](reserved_read_lane.md) · [Index Manager](index_manager.md) · [Master-of-all Engine](engine.md).

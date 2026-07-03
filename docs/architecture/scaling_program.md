@@ -72,7 +72,7 @@ into "K writers, batched fsyncs, parallel cores":
 - **Per-graph write coalescer** (`CONCEPT:KG-2.182`) — N concurrent single-op writes
   to ONE hot graph batch onto a lazily-created per-graph writer and apply under **one**
   `topo.write()` per batch, collapsing N lock acquisitions into ⌈N/batch⌉. Default ON,
-  auto-sized from cpu count. → [`write-coalescer.md`](write-coalescer.md).
+  auto-sized from cpu count. → [`write_coalescer.md`](write_coalescer.md).
 - **Adaptive group-commit micro-linger** (`CONCEPT:EG-024`) — when the `eg-redb-writer`
   is about to commit a *shallow* batch it spends ONE bounded `recv_timeout(linger)`
   (default 1 ms) letting concurrent in-flight authoritative writers fold into the SAME
@@ -154,7 +154,7 @@ keep **interactive** traffic alive while ingestion runs flat-out:
   back-pressured (`BUSY`, retry), but a **read** falls back to a dedicated
   `read_admission` semaphore writes can never acquire, bypassing the per-graph cap. Only
   a genuine read flood that also fills the small reserved lane is shed. →
-  **[reserved-read-lane.md](reserved-read-lane.md)** (full page).
+  **[reserved_read_lane.md](reserved_read_lane.md)** (full page).
 - **Pooled / multiplexed engine connections** (`CONCEPT:EG-037`, roadmap E) —
   client-side: the Python `ConnectionPool` / `ShardRouter` auto-size to the box
   (`2*cpu` clamped 8..64) and fan independent ops across N connections; the engine
@@ -167,7 +167,7 @@ keep **interactive** traffic alive while ingestion runs flat-out:
 - **Parallel cross-shard read fan-out** (`CONCEPT:EG-042`) — a cross-shard read
   (`load_all`/`load_into`) fans each shard's dump concurrently off its OWN `begin_read()`
   MVCC snapshot on the blocking pool (K reads on K cores), never touching a writer
-  thread. → [`m3-resharding.md`](m3-resharding.md).
+  thread. → [`m3_resharding.md`](m3_resharding.md).
 
 ---
 
@@ -200,7 +200,7 @@ byte-for-byte the single-node path.
 Validate the cluster mechanism (formation / replication / failover / native transfer /
 durable log) on throwaway loopback nodes with `scripts/validate-raft-cluster.sh`. The
 DONE-vs-REMAINING handoff (incl. what still needs real multi-node hardware) is
-**[m2-raft-status.md](m2-raft-status.md)**; the deploy recipe is `cluster-deployment.md`.
+**[m2_raft_status.md](m2_raft_status.md)**; the deploy recipe is `cluster_deployment.md`.
 
 ---
 
@@ -209,7 +209,7 @@ DONE-vs-REMAINING handoff (incl. what still needs real multi-node hardware) is
 The "horizontal scale spine": distribute tenants across the K durable shards (and,
 behind M2, across nodes), reshard online, and offload cold tenants — so 100M graphs can
 share an engine without all being resident. Full handoff:
-**[m3-resharding.md](m3-resharding.md)**.
+**[m3_resharding.md](m3_resharding.md)**.
 
 | Capability | Concept | One-liner |
 |------------|---------|-----------|
@@ -290,9 +290,9 @@ flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/mai
 
 - **Transport / admission + responsiveness:** `python3 scripts/bench_transport.py`
   (measured baseline: `AddNode` p50 ≈ 0.187 ms over UDS) and the
-  `transport::tests` reserved-lane suite (see [reserved-read-lane.md](reserved-read-lane.md)).
+  `transport::tests` reserved-lane suite (see [reserved_read_lane.md](reserved_read_lane.md)).
 - **Write coalescer:** `write_coalescer::tests::bench_inline_vs_coalesced` (57.5× fewer
-  lock acquisitions under a pipelined firehose — see [write-coalescer.md](write-coalescer.md)).
+  lock acquisitions under a pipelined firehose — see [write_coalescer.md](write_coalescer.md)).
 - **Cluster:** `scripts/validate-raft-cluster.sh` on loopback nodes (formation /
   replication / failover / native transfer / durable log).
 - **Prometheus:** watch `epistemic_graph_read_reserved_admitted_total`,
@@ -307,9 +307,13 @@ flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/mai
 - [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md) — canonical "Durability model" section (the source of
   truth for M1/M2 mechanics + the Environment Variables table).
 - [engine.md](engine.md) — the master-of-all engine deep reference (C4 views, all modalities).
-- [write-coalescer.md](write-coalescer.md) — `CONCEPT:KG-2.182` in depth.
-- [reserved-read-lane.md](reserved-read-lane.md) — `CONCEPT:EG-044` in depth.
-- [m2-raft-status.md](m2-raft-status.md) — M2 DONE-vs-REMAINING handoff.
-- [m3-resharding.md](m3-resharding.md) — M3 DONE-vs-REMAINING handoff.
+- [write_coalescer.md](write_coalescer.md) — `CONCEPT:KG-2.182` in depth.
+- [reserved_read_lane.md](reserved_read_lane.md) — `CONCEPT:EG-044` in depth.
+- [m2_raft_status.md](m2_raft_status.md) — M2 DONE-vs-REMAINING handoff.
+- [m3_resharding.md](m3_resharding.md) — M3 DONE-vs-REMAINING handoff.
 - [tiers.md](tiers.md) — feature-composition map + prebuilt binary sizes.
 - [concepts.md](../concepts.md) — the concept registry.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Catalog-driven Resharding](m3_resharding.md) · [Cluster Deployment](cluster_deployment.md) · [Per-Graph Write Coalescer](write_coalescer.md).
