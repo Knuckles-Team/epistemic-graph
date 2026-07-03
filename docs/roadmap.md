@@ -103,6 +103,20 @@ the authoritative `CONCEPT:EG-*` definitions.
   wire as additive `Method`s + dispatch + WAL replay (EG-318).
 - **Real-time QoS/SLO scheduler** — per-tenant/priority admission + deadline scheduling + backpressure (EG-320).
 
+### Analytics program — numeric kernel (one kernel, two surfaces)
+- **P1 (this release) — numeric kernel + Python shim** — `crates/eg-numeric` (faer + ndarray, BLAS/LAPACK-free):
+  the curated numpy op-surface (reductions/stats, element-wise, the linalg-6 + LinAlgError, random) as a pure Rust
+  rlib, exposed on **Surface A** (Python extension `epistemic_graph.numeric`, feature `python`) and consumed by
+  `agent_utilities.numeric.xp` (KG-2.311); gated behind a `numeric` cargo feature (in `full`, out of `pi`); parity-proven
+  `np.allclose` vs numpy incl. nan/inf/singular/empty edge cases (EG-321). **Done.**
+- **P2–P3 — migrate the 598 numpy sites** — swap the 32 light-op files then the 6 linalg files in agent-utilities from
+  numpy to the `xp` shim. 🗺
+- **P4 — Surface B engine operators** — DataFusion SQL UDFs/UDAFs (`pca`/`covariance`/`zscore`/`svd`), graph/vector/
+  timeseries analytics + cross-modal joins → PCA/cluster **in-engine** over resident data (compute-near-data, no FFI). 🗺
+- **P5 — drop numpy/scipy** from agent-utilities; the `eg-numeric` wheel is the dep. 🗺
+
+See [`architecture/numeric-kernel.md`](architecture/numeric-kernel.md).
+
 ---
 
 ## Shipped in 2.2.0
