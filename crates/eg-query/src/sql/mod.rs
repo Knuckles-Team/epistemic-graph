@@ -55,6 +55,11 @@ mod exec;
 /// inline a scalar function body as a scalar subquery, expand a table function as a
 /// parameterized-view subquery in `FROM`; reuses the SQL exec path (no new evaluator).
 mod funcs;
+/// CONCEPT:EG-329 — Analytics-Program Surface-B numeric SQL operators (`cosine_sim`,
+/// `l2_normalize`, `zscore`, `covariance`) backed by the `eg-numeric` kernel. Feature
+/// `numeric` (out of `pi`); no pyo3 in the engine build.
+#[cfg(feature = "numeric")]
+mod numeric;
 /// Postgres-family extension parity (CONCEPT:EG-114/116/117/119): AGE `cypher()`,
 /// pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
 /// ParadeDB `@@@` BM25 — the pure parse/plan/project layer.

@@ -25,6 +25,14 @@ cypher = ["dep:petgraph"]
 # Gated (and implies `sql`) so a no-finance build skips them AND keeps nalgebra out
 # of the default tree (CONCEPT:KG-2.184).
 finance = ["sql", "eg-compute/finance"]
+# CONCEPT:EG-329 — Analytics-Program Surface-B numeric SQL operators. Registers the
+# eg-numeric-backed DataFusion UDFs/UDAFs (`cosine_sim`, `l2_normalize`, `zscore`,
+# `covariance`) so analytics run in-engine over resident columns (compute-near-data,
+# no fetch-to-Python). Implies `sql` (the only place UDFs compile) and pulls the pure
+# faer/ndarray kernel rlib — NO pyo3 (eg-numeric's `python` feature stays off), so the
+# Pi-contract holds (numeric is out of `pi`; `cargo tree --features pi` links neither
+# eg-numeric nor faer).
+numeric = ["sql", "dep:eg-numeric", "dep:ndarray"]
 
 [dependencies]
 eg-types = { path = "../eg-types" }
@@ -40,6 +48,13 @@ eg-text = { path = "../eg-text", optional = true }
 # sole place the exec pushdown compiles). eg-ann's DEFAULT build links no heavy/GPU
 # deps (pure-Rust, Pi-lean), so this stays out of a `cypher`-only eg-query build.
 eg-ann = { path = "../eg-ann", optional = true }
+# CONCEPT:EG-329 — the pure BLAS/LAPACK-free numeric kernel (faer + ndarray) behind the
+# Surface-B SQL UDFs. OPTIONAL, only under `numeric`; the engine links it WITHOUT pyo3
+# (eg-numeric's `python` feature stays off), preserving the Pi-contract (out of `pi`).
+eg-numeric = { path = "../eg-numeric", optional = true }
+# CONCEPT:EG-329 — marshal Arrow columns into `ndarray` views the kernel consumes.
+# Only under `numeric`; already in the tree via eg-numeric, so no new heavy dep.
+ndarray = { version = "0.16", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"

@@ -422,6 +422,18 @@ mod tests {
     }
 
     #[test]
+    fn batch_l2_normalize_units() {
+        // [3,4] → [0.6,0.8]; a zero vector is returned unchanged (safe divide).
+        let out = linalg::batch_l2_normalize(&[vec![3.0, 4.0], vec![0.0, 0.0]]);
+        assert!((out[0][0] - 0.6).abs() < 1e-12);
+        assert!((out[0][1] - 0.8).abs() < 1e-12);
+        assert_eq!(out[1], vec![0.0, 0.0]);
+        // A unit vector's L2 norm is 1.
+        let n = linalg::norm(ndarray::ArrayView1::from(&out[0]));
+        assert!((n - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
     fn singular_solve_errors() {
         let a = array![[1.0, 2.0], [2.0, 4.0]];
         let b = array![1.0, 2.0];
