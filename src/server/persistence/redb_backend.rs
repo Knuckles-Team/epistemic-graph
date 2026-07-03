@@ -85,6 +85,18 @@ pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinitio
 #[allow(unused_imports)]
 pub(crate) use eg_tsdb::store::{SERIES_CHUNKS, SERIES_META};
 
+/// Boxed payload of a [`Cmd::CrossModalCommit`] (CONCEPT:KG-2.225 + EG-360). Holds ONE
+/// graph's full multi-modal write-set — graph methods (incl. lowered OWL-axiom /
+/// SPARQL-CONSTRUCT triples), vector upserts, blob-refs, and time-series measurement
+/// batches — all of which land in ONE `WriteTransaction`.
+pub(crate) struct CrossModalPayload {
+    pub(crate) graph: String,
+    pub(crate) methods: Vec<Method>,
+    pub(crate) vectors: Vec<(String, Vec<f32>)>,
+    pub(crate) blob_refs: Vec<(String, String)>,
+    pub(crate) measurements: Vec<crate::MeasurementBatch>,
+}
+
 /// One write command handed to the off-reactor thread. A `Mutation` carries the
 /// graph file-name + the applied method; the thread translates it into row writes
 /// inside the current group-commit transaction.
@@ -198,10 +210,10 @@ pub(crate) enum Cmd {
     /// awaiting its durable fsync (commit-before-ack). On any error nothing lands: the
     /// dropped transaction discards every modality (no partial cross-modal commit).
     CrossModalCommit {
-        graph: String,
-        methods: Vec<Method>,
-        vectors: Vec<(String, Vec<f32>)>,
-        blob_refs: Vec<(String, String)>,
+        /// The multi-modal write-set, BOXED so the (now five-field) cross-modal payload
+        /// does not bloat every `Cmd` variant — keeping `Cmd` (and the
+        /// `SendError<Cmd>` the writer-channel sends return) small (CONCEPT:EG-360).
+        payload: Box<CrossModalPayload>,
         done: oneshot::Sender<Result<(), String>>,
     },
     Shutdown {
@@ -1350,13 +1362,17 @@ impl PersistenceBackend for RedbBackend {
         methods: &[Method],
         vectors: &[(String, Vec<f32>)],
         blob_refs: &[(String, String)],
+        measurements: &[crate::MeasurementBatch],
     ) -> Result<(), String> {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::CrossModalCommit {
-            graph: graph_fname.to_string(),
-            methods: methods.to_vec(),
-            vectors: vectors.to_vec(),
-            blob_refs: blob_refs.to_vec(),
+            payload: Box::new(CrossModalPayload {
+                graph: graph_fname.to_string(),
+                methods: methods.to_vec(),
+                vectors: vectors.to_vec(),
+                blob_refs: blob_refs.to_vec(),
+                measurements: measurements.to_vec(),
+            }),
             done,
         };
         // CONCEPT:EG-032 — same routing-epoch quiesce as `record_durable` when a catalog
@@ -2107,13 +2123,14 @@ fn handle_cmd(
             let _ = reply.send(res);
             false
         }
-        Cmd::CrossModalCommit {
-            graph,
-            methods,
-            vectors,
-            blob_refs,
-            done,
-        } => {
+        Cmd::CrossModalCommit { payload, done } => {
+            let CrossModalPayload {
+                graph,
+                methods,
+                vectors,
+                blob_refs,
+                measurements,
+            } = *payload;
             // Flush pending first so this cross-modal txn observes the latest durable
             // state (its vector read-modify-write of the SEMANTIC blob must start from
             // the committed store), then land ALL modalities in ONE WriteTransaction.
@@ -2124,6 +2141,7 @@ fn handle_cmd(
                 &methods,
                 &vectors,
                 &blob_refs,
+                &measurements,
                 crypto,
                 // Shares the writer's persistent tail cache (CONCEPT:EG-025).
                 #[cfg(feature = "security")]
@@ -3951,6 +3969,7 @@ mod tests {
             _m: &[Method],
             _v: &[(String, Vec<f32>)],
             _b: &[(String, String)],
+            _meas: &[crate::MeasurementBatch],
         ) -> Result<(), String> {
             // Simulate a mid-way durable failure: NOTHING is written to redb.
             Err("injected durable commit failure".to_string())
@@ -4011,6 +4030,278 @@ mod tests {
             assert!(!durable_node, "node never landed durably");
         }
         backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Extended cross-modal ACID: 5 modalities in ONE wtx (CONCEPT:EG-360/361/362) ──
+
+    /// A data-independent CONSTRUCT that yields exactly one triple
+    /// `<urn:a> <urn:p> <urn:b>` via an inline VALUES row (needs no committed data), so
+    /// its staged lowering is a deterministic node+node+edge write.
+    #[cfg(all(feature = "tsdb", feature = "sparql"))]
+    const CONSTRUCT_Q: &str =
+        "CONSTRUCT { ?x <urn:p> ?y } WHERE { VALUES (?x ?y) { (<urn:a> <urn:b>) } }";
+
+    /// Encode a `Vec<(i64, Vec<f64>)>` measurement batch to the wire blob.
+    #[cfg(all(feature = "tsdb", feature = "sparql"))]
+    fn meas_points(pts: &[(i64, Vec<f64>)]) -> Vec<u8> {
+        rmp_serde::to_vec(&pts.to_vec()).unwrap()
+    }
+
+    /// Stage all FIVE modalities into a fresh txn: graph node + embedding + blob-ref +
+    /// time-series measurement + SPARQL CONSTRUCT triple. Returns the txn id.
+    #[cfg(all(feature = "tsdb", feature = "sparql"))]
+    async fn stage_five_modalities(
+        state: &Arc<RwLock<ServerState>>,
+        graph: &str,
+        node: &str,
+        digest: &str,
+        series: &str,
+        points: &[(i64, Vec<f64>)],
+    ) -> String {
+        let begin = txn_handle(
+            state,
+            1,
+            None,
+            Method::BeginTxn {
+                graph: Some(graph.to_string()),
+                isolation: None,
+            },
+        )
+        .await
+        .unwrap();
+        let txn_id = match begin.result {
+            Some(ResultPayload::String(id)) => id,
+            other => panic!("BeginTxn id, got {other:?}"),
+        };
+        let ok = |r: Response| assert_eq!(as_bool(r), Some(true));
+        ok(txn_handle(
+            state,
+            2,
+            None,
+            Method::TxnAddNode {
+                txn_id: txn_id.clone(),
+                node_id: node.to_string(),
+                properties_msgpack: props(serde_json::json!({"type": "Media"})),
+                graph: None,
+            },
+        )
+        .await
+        .unwrap());
+        ok(txn_handle(
+            state,
+            3,
+            None,
+            Method::TxnAddEmbedding {
+                txn_id: txn_id.clone(),
+                node_id: node.to_string(),
+                embedding: vec![0.1, 0.2, 0.3],
+                graph: None,
+            },
+        )
+        .await
+        .unwrap());
+        ok(txn_handle(
+            state,
+            4,
+            None,
+            Method::TxnBlobRef {
+                txn_id: txn_id.clone(),
+                node_id: node.to_string(),
+                digest: digest.to_string(),
+                graph: None,
+            },
+        )
+        .await
+        .unwrap());
+        ok(txn_handle(
+            state,
+            5,
+            None,
+            Method::TxnAddMeasurement {
+                txn_id: txn_id.clone(),
+                series: series.to_string(),
+                points: meas_points(points),
+                graph: None,
+            },
+        )
+        .await
+        .unwrap());
+        ok(txn_handle(
+            state,
+            6,
+            None,
+            Method::TxnConstruct {
+                txn_id: txn_id.clone(),
+                sparql: CONSTRUCT_Q.to_string(),
+                graph: None,
+            },
+        )
+        .await
+        .unwrap());
+        txn_id
+    }
+
+    /// CAPSTONE: one txn stages node + embedding + blob-ref + measurement + CONSTRUCT
+    /// triple; `Commit` lands ALL FIVE atomically in ONE redb `WriteTransaction`; every
+    /// modality is durably present after a full backend reload (CONCEPT:EG-360/361/362).
+    #[cfg(all(feature = "tsdb", feature = "sparql"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn five_modality_atomic_commit() {
+        use eg_tsdb::store::SeriesStore;
+
+        let dir = cm_dir("five");
+        let points = vec![
+            (1_000_000_000i64, vec![10.0]),
+            (2_000_000_000i64, vec![20.0]),
+        ];
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let state = new_state_auth(Some(dir.clone()), true);
+        {
+            let mut s = state.write().await;
+            let _ = s.registry.create_graph("media", GraphType::Global, None);
+            s.persistence = Some(backend.clone());
+        }
+
+        let txn_id =
+            stage_five_modalities(&state, "media", "m1", "sha256:abc", "sensor", &points).await;
+        // Nothing applied before commit.
+        {
+            let s = state.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(!core.has_node("m1"), "no apply before commit");
+            assert!(!core.has_node("<urn:a>"), "no CONSTRUCT node before commit");
+            assert_eq!(
+                core.semantic_store.read().len(),
+                0,
+                "no vector before commit"
+            );
+        }
+
+        assert_eq!(
+            as_bool(
+                txn_handle(&state, 7, None, Method::Commit { txn_id })
+                    .await
+                    .unwrap()
+            ),
+            Some(true),
+            "five-modality commit"
+        );
+
+        // In-memory: graph modalities all present (node + vector + blob + CONSTRUCT edge).
+        {
+            let s = state.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(core.has_node("m1"), "node landed");
+            assert_eq!(core.semantic_store.read().len(), 1, "vector landed");
+            assert!(
+                core.has_node("<urn:a>") && core.has_node("<urn:b>"),
+                "CONSTRUCT nodes landed"
+            );
+            let blob = core.get_node_properties("m1").unwrap();
+            let p: serde_json::Map<String, serde_json::Value> =
+                rmp_serde::from_slice(&blob).unwrap();
+            assert_eq!(
+                p.get("__blob__").and_then(|v| v.as_str()),
+                Some("sha256:abc")
+            );
+        }
+        backend.shutdown();
+        drop(backend);
+
+        // Measurements are durable IN graph.redb's SERIES tables (same wtx, not series.redb).
+        {
+            let series_db =
+                SeriesStore::open(std::path::Path::new(&dir).join("graph.redb").as_path()).unwrap();
+            let meta = series_db.meta("sensor").unwrap().expect("series durable");
+            assert_eq!(meta.count, 2, "both measurement points durable");
+            let scanned = series_db.scan_all("sensor").unwrap();
+            assert_eq!(scanned.len(), 2, "measurement points readable post-reload");
+            assert_eq!(scanned[0].values, vec![10.0]);
+            assert_eq!(scanned[1].values, vec![20.0]);
+        }
+
+        // Reload the graph tier: node + vector + blob-ref + CONSTRUCT triple all durable.
+        let backend2: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let state2 = new_state_auth(Some(dir.clone()), true);
+        backend2.load_all(&state2).await.unwrap();
+        {
+            let s = state2.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(core.has_node("m1"), "node durable");
+            assert_eq!(core.semantic_store.read().len(), 1, "vector durable");
+            assert!(
+                core.has_node("<urn:a>") && core.has_node("<urn:b>"),
+                "CONSTRUCT nodes durable"
+            );
+            let blob = core.get_node_properties("m1").unwrap();
+            let p: serde_json::Map<String, serde_json::Value> =
+                rmp_serde::from_slice(&blob).unwrap();
+            assert_eq!(
+                p.get("__blob__").and_then(|v| v.as_str()),
+                Some("sha256:abc"),
+                "blob durable"
+            );
+        }
+        backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ATOMICITY: a five-modality txn whose durable commit FAILS mid-way (the always-fails
+    /// backend, injected AFTER the measurement is staged) lands NONE of the five — no node,
+    /// no vector, no CONSTRUCT triple in-memory, and NO series durable (CONCEPT:EG-360).
+    #[cfg(all(feature = "tsdb", feature = "sparql"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn five_modality_rolls_back_all_on_failure() {
+        use eg_tsdb::store::SeriesStore;
+
+        let dir = cm_dir("five-rollback");
+        let points = vec![(1_000_000_000i64, vec![10.0])];
+        let inner = Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(FailingBackend {
+            inner: inner.clone(),
+        });
+        let state = new_state_auth(Some(dir.clone()), true);
+        {
+            let mut s = state.write().await;
+            let _ = s.registry.create_graph("media", GraphType::Global, None);
+            s.persistence = Some(backend.clone());
+        }
+
+        let txn_id =
+            stage_five_modalities(&state, "media", "m1", "sha256:def", "sensor", &points).await;
+
+        // COMMIT must FAIL (the durable barrier errored) → error Response, no ack.
+        let resp = txn_handle(&state, 7, None, Method::Commit { txn_id })
+            .await
+            .unwrap();
+        assert!(resp.error.is_some(), "commit surfaces the durable failure");
+        assert!(resp.result.is_none(), "no Bool ack on a failed commit");
+
+        // NO PARTIAL COMMIT: none of the graph modalities applied in-memory.
+        {
+            let s = state.read().await;
+            let core = s.registry.get("media").unwrap().core.clone();
+            assert!(!core.has_node("m1"), "node rolled back");
+            assert!(!core.has_node("<urn:a>"), "CONSTRUCT triple rolled back");
+            assert_eq!(core.semantic_store.read().len(), 0, "vector rolled back");
+        }
+
+        inner.shutdown();
+        drop(inner);
+        drop(backend);
+
+        // And the measurement never landed durably either (the wtx never committed).
+        {
+            let series_db =
+                SeriesStore::open(std::path::Path::new(&dir).join("graph.redb").as_path()).unwrap();
+            assert!(
+                series_db.meta("sensor").unwrap().is_none(),
+                "series never landed durably"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
