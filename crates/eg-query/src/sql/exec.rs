@@ -63,7 +63,8 @@ fn register_pg_common(ctx: &SessionContext) {
 #[cfg(feature = "numeric")]
 fn register_numeric(ctx: &SessionContext) {
     use super::numeric::{
-        cosine_sim_udf, covariance_udaf, l2_normalize_udf, pca_udaf, svd_udaf, zscore_udf,
+        cosine_sim_udf, covariance_udaf, kmeans_udaf, l2_normalize_udf, pca_udaf, svd_udaf,
+        zscore_udf,
     };
     ctx.register_udf(cosine_sim_udf());
     ctx.register_udf(l2_normalize_udf());
@@ -73,6 +74,8 @@ fn register_numeric(ctx: &SessionContext) {
     // top-k principal-component directions of the aggregated vector column).
     ctx.register_udaf(svd_udaf());
     ctx.register_udaf(pca_udaf());
+    // CONCEPT:EG-344 kmeans — the clustering half; one cluster label per aggregated row.
+    ctx.register_udaf(kmeans_udaf());
 }
 
 /// Implicit max rows guarded into the result. Transport is one Response per
@@ -893,12 +896,13 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
                     .collect(),
             )
         }
-        // ── analytics numeric lists (CONCEPT:EG-336 svd / EG-335 pca): a `List<Float64>`
-        // (singular values) or a nested `List<List<Float64>>` (principal-component vectors)
-        // cell → JSON array(s) of numbers, so in-engine linear-algebra results deserialize
+        // ── analytics numeric lists (CONCEPT:EG-336 svd / EG-335 pca / EG-344 kmeans): a
+        // `List<Float64>` (singular values), a nested `List<List<Float64>>` (principal-
+        // component vectors), or a `List<Int64>` (kmeans cluster labels) cell → JSON
+        // array(s) of numbers, so in-engine linear-algebra/clustering results deserialize
         // STRUCTURALLY for a client rather than degrading to an Arrow text blob. Recurses
-        // through `cell_to_json` so each leaf hits the `Float64` number arm. ──
-        List(field) if matches!(field.data_type(), Float64 | List(_)) => {
+        // through `cell_to_json` so each leaf hits the `Float64`/`Int64` number arm. ──
+        List(field) if matches!(field.data_type(), Float64 | Int64 | List(_)) => {
             use arrow::array::ListArray;
             let child = col
                 .as_any()

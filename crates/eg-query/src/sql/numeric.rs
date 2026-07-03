@@ -388,7 +388,8 @@ pub(crate) fn covariance_udaf() -> AggregateUDF {
 // `ndarray::Array2` and calls the kernel. State is the flat buffer as a `List<Float64>`
 // plus `dim` (+ `k` for pca) as `Int64`, so partial-aggregate merge is lossless.
 
-/// Which faer kernel a [`MatrixAcc`] runs at `evaluate()` over the marshalled matrix.
+/// Which faer/eg-numeric kernel a [`MatrixAcc`] runs at `evaluate()` over the marshalled
+/// matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MatrixOp {
     /// `svd` — singular values (descending) as `List<Float64>` (CONCEPT:EG-336).
@@ -396,6 +397,17 @@ enum MatrixOp {
     /// `pca` — top-`k` principal-component directions as `List<List<Float64>>`
     /// (CONCEPT:EG-335).
     Pca,
+    /// `kmeans` — a hard cluster label (`0..k`) per aggregated ROW, in ingestion order, as
+    /// `List<Int64>` (CONCEPT:EG-344). Takes `k` as the 2nd argument, like `pca`.
+    Kmeans,
+}
+
+impl MatrixOp {
+    /// True for the operators that read a `k` (component/cluster count) from a 2nd argument
+    /// column and carry it through the partial-aggregate state.
+    fn takes_k(self) -> bool {
+        matches!(self, MatrixOp::Pca | MatrixOp::Kmeans)
+    }
 }
 
 /// Accumulator buffering a column of equal-length vectors row-major into a flat `Vec<f64>`
@@ -450,8 +462,8 @@ impl Accumulator for MatrixAcc {
                 self.push_row(&v);
             }
         }
-        // pca: the 2nd argument is the (constant) component count `k`.
-        if self.op == MatrixOp::Pca && self.k.is_none() && values.len() > 1 {
+        // pca/kmeans: the 2nd argument is the (constant) component/cluster count `k`.
+        if self.op.takes_k() && self.k.is_none() && values.len() > 1 {
             let ks = arrow::compute::cast(values[1].as_ref(), &DataType::Int64)
                 .ok()
                 .and_then(|a| a.as_any().downcast_ref::<Int64Array>().cloned());
@@ -502,7 +514,7 @@ impl Accumulator for MatrixAcc {
                 }
             }
         }
-        if self.op == MatrixOp::Pca && self.k.is_none() && states.len() > 2 {
+        if self.op.takes_k() && self.k.is_none() && states.len() > 2 {
             if let Some(ks) = states[2].as_any().downcast_ref::<Int64Array>() {
                 for i in 0..ks.len() {
                     if !ks.is_null(i) {
@@ -524,7 +536,7 @@ impl Accumulator for MatrixAcc {
         let flat = ScalarValue::List(ScalarValue::new_list_nullable(&scalars, &DataType::Float64));
         let dim = ScalarValue::Int64(self.dim.map(|d| d as i64));
         let mut out = vec![flat, dim];
-        if self.op == MatrixOp::Pca {
+        if self.op.takes_k() {
             out.push(ScalarValue::Int64(self.k.map(|k| k as i64)));
         }
         Ok(out)
@@ -534,6 +546,7 @@ impl Accumulator for MatrixAcc {
         match self.op {
             MatrixOp::Svd => Ok(svd_result(self.matrix().as_ref())),
             MatrixOp::Pca => Ok(pca_result(self.matrix().as_ref(), self.k.unwrap_or(0))),
+            MatrixOp::Kmeans => Ok(kmeans_result(self.matrix().as_ref(), self.k.unwrap_or(0))),
         }
     }
 
@@ -612,6 +625,28 @@ fn pca_result(m: Option<&Array2<f64>>, k: usize) -> ScalarValue {
     ScalarValue::List(ScalarValue::new_list_nullable(&components, &child_ty))
 }
 
+/// `evaluate` for `kmeans` — a hard cluster label (`0..k`) per aggregated ROW, in ingestion
+/// order, as a `List<Int64>` scalar (CONCEPT:EG-344). Backed by the pure-Rust
+/// [`eg_numeric::cluster::kmeans_labels`] (Lloyd + k-means++, seeded for determinism). A
+/// NULL list on an empty/degenerate matrix or `k == 0` (kernel Shape error), matching the
+/// other column→matrix operators' undecodable-operand handling.
+fn kmeans_result(m: Option<&Array2<f64>>, k: usize) -> ScalarValue {
+    let null = || ScalarValue::new_null_list(DataType::Int64, true, 1);
+    let Some(m) = m else { return null() };
+    let (n, d) = m.dim();
+    if n == 0 || d == 0 || k == 0 {
+        return null();
+    }
+    let Ok(labels) = eg_numeric::cluster::kmeans_labels(m.view(), k) else {
+        return null();
+    };
+    let scalars: Vec<ScalarValue> = labels
+        .into_iter()
+        .map(|c| ScalarValue::Int64(Some(c as i64)))
+        .collect();
+    ScalarValue::List(ScalarValue::new_list_nullable(&scalars, &DataType::Int64))
+}
+
 /// Shared `AggregateUDFImpl` for the two column→matrix operators. `Signature::any` accepts
 /// the vector operand in any of `row_to_vector`'s forms (List / text) without coercion —
 /// the same flexibility `cosine_sim` relies on.
@@ -638,6 +673,8 @@ impl AggregateUDFImpl for MatrixAggUdf {
             MatrixOp::Svd => float_list,
             // List<List<Float64>>: k principal-component vectors.
             MatrixOp::Pca => DataType::List(Arc::new(Field::new("item", float_list, true))),
+            // List<Int64>: one cluster label per aggregated row.
+            MatrixOp::Kmeans => DataType::List(Arc::new(Field::new("item", DataType::Int64, true))),
         })
     }
     fn accumulator(&self, _: AccumulatorArgs) -> DfResult<Box<dyn Accumulator>> {
@@ -649,7 +686,7 @@ impl AggregateUDFImpl for MatrixAggUdf {
             Field::new(format!("{}__flat", args.name), float_list, true),
             Field::new(format!("{}__dim", args.name), DataType::Int64, true),
         ];
-        if self.op == MatrixOp::Pca {
+        if self.op.takes_k() {
             fields.push(Field::new(
                 format!("{}__k", args.name),
                 DataType::Int64,
@@ -676,6 +713,18 @@ pub(crate) fn pca_udaf() -> AggregateUDF {
     AggregateUDF::new_from_impl(MatrixAggUdf {
         op: MatrixOp::Pca,
         name: "pca",
+        signature: Signature::any(2, Volatility::Immutable),
+    })
+}
+
+/// `kmeans(vec_col, k) -> List<Int64>` — a hard cluster label per aggregated ROW, in
+/// ingestion order (CONCEPT:EG-344). The clustering half of the cross-modal analytics
+/// differentiator (CONCEPT:EG-345): the vector column is marshalled into an `n×d` matrix
+/// and clustered IN-ENGINE by the pure-Rust `eg_numeric::cluster` kernel.
+pub(crate) fn kmeans_udaf() -> AggregateUDF {
+    AggregateUDF::new_from_impl(MatrixAggUdf {
+        op: MatrixOp::Kmeans,
+        name: "kmeans",
         signature: Signature::any(2, Volatility::Immutable),
     })
 }
