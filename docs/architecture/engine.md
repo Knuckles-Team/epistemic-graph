@@ -120,7 +120,7 @@ flowchart TB
 
 ## Durability: redb-authoritative (the default)
 
-Built with the `redb` feature — folded into `pi` / `pi-max` / `node` / `cluster` / `full` — the persist
+Built with the `redb` feature — in the one main build (and the `cluster` layer) — the persist
 dir is the **authoritative source of truth** in authoritative mode (default whenever a persist dir is
 set). Three rules make "authoritative" safe:
 
@@ -222,7 +222,7 @@ planner as the `SparqlBgp` and `Reason` source ops.
 
 ## Security & the RLS request path
 
-Three pure-Rust security primitives (the `security` feature, in `node`/`pi-max`/`cluster`/`full`) make
+Three pure-Rust security primitives (the `security` feature, in the one main build) make
 the engine multi-tenant-safe: **per-agent Row-Level Security**, **encryption-at-rest**, and a
 **hash-chained audit log**. The critical property: RLS filters the `GraphView` *before* any query
 surface sees it, so **no query language can exfiltrate a forbidden row**.
@@ -320,8 +320,8 @@ flowchart LR
     LOCAL --> JOIN --> LIM
 ```
 
-The HTTP/SQL clients are pure-Rust rustls stacks (no openssl) and are **kept out of the `pi` tier** —
-a default/pi build links no ureq/rustls/sqlx. Federation ships in `node`/`cluster`/`full`.
+The HTTP/SQL clients are pure-Rust rustls stacks (no openssl) and are **in the one main build** —
+a minimal server build links no ureq/rustls/sqlx. Federation is in the one main build.
 
 ---
 
@@ -404,7 +404,7 @@ a RowSet: wasmtime with fuel-metering (an infinite loop is fuel-killed, never a 
 cap, and **no host capabilities** (a module importing fs/net is rejected). `RegisterUdf{id, wasm}`
 compiles + caches it; `RunUdf{id, input}` runs it off-reactor; and the `Op::Udf{id}` plan op runs a
 registered UDF as a `RowSet -> RowSet` transform inside a unified query. The wasmtime/cranelift runtime
-is heavy, so it ships in `node`/`cluster`/`full` — never `pi`.
+is heavy, but pure-Rust, so it ships in the one main build.
 
 ---
 

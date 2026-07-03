@@ -23,7 +23,7 @@ to the optional orchestrator and UIs, see the
 
 ## What you get
 
-The published default wheel is the **`node` tier** — a *complete single-node DB*:
+The published wheel is the **one main build** — a *complete single-node DB*:
 durable redb-authoritative store + Cypher + DataFusion **SQL** + vector ANN +
 time-series + full-text + the **Postgres wire listener** (`pgwire`), with no Raft
 (single node). That is everything a SQL/graph client needs. (For in-engine-Raft HA,
@@ -129,7 +129,7 @@ metrics ports. No other services.
 # 1. an auth secret is mandatory
 export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
 
-# 2. up (builds the node-tier image from docker/Dockerfile the first time)
+# 2. up (builds the main image from docker/Dockerfile the first time)
 docker compose -f docker/compose.standalone.yml up -d
 
 # 3. it's a database — connect with any Postgres client

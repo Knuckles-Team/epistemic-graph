@@ -13,82 +13,65 @@ connection configuration, the configuration surface, and the database architectu
 
 ---
 
-## Deployment tiers (cargo feature flags)
+## One build + two opt-in layers (cargo feature flags)
 
-> This section is the **build-recipe** view of the tiers. For the conceptual
-> **feature-composition map** (which features each tier contains, why the Pi contract
-> partitions them, and the prebuilt binary sizes) see
-> [Tiers & binaries](architecture/tiers.md).
+> This section is the **build-recipe** view. For the conceptual **feature-composition
+> map** (what the main build contains and the two opt-in layers) see
+> [One build, opt-in layers](architecture/tiers.md).
 
-The server binary is built for one tier; pick the smallest that fits. Build from source
-with `cargo build --no-default-features --features <tier>` or `maturin build ... --features
-<tier>,ast-extended`. The **release Docker image installs the published `node`-tier wheel
-via `uv`** (no cargo compile — see [`docker/Dockerfile`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/Dockerfile)); build the `cluster` tier from source for
-in-engine-Raft HA.
+There is **one build** (CONCEPT:EG-359): `cargo build` (== `--features full`) is the
+full-featured engine — all MAIN features that compile without an external GPU/robotics
+toolchain. The **release Docker image installs the published main wheel via `uv`** (no
+cargo compile — see [`docker/Dockerfile`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/Dockerfile)). Two opt-in layers stack on top, built explicitly
+from source (they are NOT published wheels):
 
-| Tier | `--features` | Includes | Use when |
-|------|--------------|----------|----------|
-| **pi** | `pi,ast-extended` | redb-authoritative store + cypher + ann + rdf/sparql/owl (no DataFusion/pgwire/raft/Tantivy) | Raspberry Pi / edge, ultra-lean single node |
-| **pi-max** | `pi-max,ast-extended` | pi + tsdb + blob + security (RLS/audit/encryption-at-rest) — **all pure-Rust, still NO DataFusion / Tantivy / pgwire / C-toolchain** | Pi-3 "everything that needs no C compiler and no DataFusion" |
-| **node** (default wheel) | `node,ast-extended` | pi + DataFusion SQL + ANN vectors + tsdb + Tantivy text + **pgwire** (Postgres wire SQL) — a COMPLETE single-node DB (no raft) | Single-node server / SQL clients |
-| **full** | `full,ast-extended` | **contains-all single-node**: query/cypher/graphql + redb + ann + tsdb + blob + text + sparql/rdf/owl/owl-plan + streaming + wasm-udf + security + federation + **pgwire** + result-cache + cold-tier + cost (NO raft) | Workstation / "one binary, every feature" |
-| **cluster** | `cluster,ast-extended` | node (incl. **pgwire**) + **Raft replication** + distributed compute + the extra wire protocols (mysql/mssql/bolt/redis/…) | HA / multi-node / cross-node SQL clients |
+| Build | `--features` | Adds on top of the main build | Use when |
+|-------|--------------|-------------------------------|----------|
+| **main** (default wheel) | *(none)* / `full,ast-extended` | — the full single-node DB: query/DataFusion + cypher + graphql + redb + ann + tsdb + blob + kv + text + sparql/rdf/owl/owl-plan + streaming + wasm-udf + security + federation + the whole wire family (**pgwire**/mysql/mssql/sqlite/bolt/redis/amqp/mqtt/stomp) + obs + result-cache + cold-tier + cost | Any single-node deployment, Pi 4+ to workstation |
+| **cluster** | `cluster,ast-extended` | **Raft replication** + `compute-dist` (distributed Pregel + cross-shard 2PC) + `nonblocking` commit | HA / multi-node |
+| **full-extras** | `full-extras,ast-extended` | real **CUDA** backends + **ROS2** bridge/DDS | GPU / robotics hosts |
 
-All tiers include the `redb` feature, so the **persist dir is the authoritative source of
-truth** and a committed write survives `kill -9` (commit-before-ack).
+The main build includes `redb`, so the **persist dir is the authoritative source of
+truth** and a committed write survives `kill -9` (commit-before-ack). It targets
+**Raspberry Pi 4+** (not Pi 3).
 
-### Size-optimized "contains-all smallest" build (`release-tiny` profile)
+### Size-optimized build (`release-tiny` profile)
 
-For a pre-packaged binary a Pi can deploy without ever compiling, build the `full`
-tier with the size-optimized `release-tiny` cargo profile (added to the workspace
-`Cargo.toml`). It inherits `release` but uses `opt-level = "z"`, fat LTO, one codegen
-unit, `strip = true`, and `panic = "unwind"` (kept — this is a DB; unwind keeps a
+For a smaller binary, build with the size-optimized `release-tiny` cargo profile (in the
+workspace `Cargo.toml`). It inherits `release` but uses `opt-level = "z"`, fat LTO, one
+codegen unit, `strip = true`, and `panic = "unwind"` (kept — this is a DB; unwind keeps a
 panic recoverable rather than aborting the process). The default `release` profile is
 untouched, so normal builds are unaffected.
 
 ```bash
-# smallest all-features binary (the "contains-all smallest")
-cargo build --profile release-tiny --features full
-# the genuinely-Pi-3-friendly maximal build (pure-Rust, no C / no DataFusion)
-cargo build --profile release-tiny --features pi-max
+# the main build, smallest binary
+cargo build --profile release-tiny
 ```
 
-Because the CI matrix cross-builds wheels per platform/arch (`.github/workflows/release-build.yml`),
-the Pi pulls a prebuilt wheel and **never compiles** — the C-dep / long LTO build is a
-build-host concern only.
+Because the CI matrix cross-builds the wheel per platform/arch (`.github/workflows/release-build.yml`),
+the target host pulls a prebuilt wheel and **never compiles** — the C-dep / long LTO build
+is a build-host concern only.
 
-### Wheel packaging recipes (prebuilt, no Pi-side compile)
+### Wheel packaging recipes (prebuilt, no target-side compile)
 
-`maturin` forwards `--profile` to cargo, so the size-optimized wheels are a one-liner.
-`--no-default-features` is required so maturin does NOT union the `[tool.maturin]`
-default (`node,ast-extended`) on top of the selected tier.
+`maturin` forwards `--profile` to cargo. `--no-default-features` keeps the selected layer
+as the exact feature set (so the `[tool.maturin]` default is not unioned on top).
 
 ```bash
-# default wheel (node tier, normal release) — unchanged
+# THE published wheel — the one main build
 maturin build --release
 
-# contains-all smallest wheel (every single-node feature, size-optimized)
-maturin build --profile release-tiny --no-default-features --features full,ast-extended
+# HA layer wheel (built from source, not published to PyPI)
+maturin build --release --no-default-features --features cluster,ast-extended
 
-# Pi-3-friendly maximal wheel (pure-Rust, no DataFusion / Tantivy / C)
-maturin build --profile release-tiny --no-default-features --features pi-max,ast-extended
-
-# ultra-lean Pi wheel
-maturin build --profile release-tiny --no-default-features --features pi,ast-extended
+# GPU/robotics layer wheel (built from source, not published to PyPI)
+maturin build --release --no-default-features --features full-extras,ast-extended
 ```
 
-The CI legs that produce these (publish-gated on a `v*` tag, exactly like the
-default wheel) are `wheels-pi` (matrix `pi`/`pi-max`) and `wheels-full-tiny`
-(`full` + `release-tiny`, linux x86_64/aarch64) in `release-build.yml`.
-
-> **Naming caveat.** All tiers share one package version + platform tag, so the raw
-> `.whl` filenames are identical across tiers (e.g. `full` vs `pi-max` on aarch64).
-> The CI uploads them as distinctly-NAMED artifacts (`wheel-…-full-tiny`,
-> `wheel-…-pi-max`), but **do not publish two different tiers to the same PyPI
-> index** under the same version — pick ONE tier as the PyPI default (the `node`
-> wheel) and distribute the tier variants out-of-band (a release-asset attachment or
-> a private index), or bump a local version suffix per tier. This is unchanged from
-> the pre-existing `pi` vs `node` overlap.
+The CI `wheels` job builds the ONE main wheel per platform (linux x86_64 + aarch64) and
+publishes it (publish-gated on a `v*` tag). With the tiers collapsed there is exactly ONE
+wheel filename per platform, so the old cross-tier `.whl` filename collision — every tier
+shared `epistemic_graph-<ver>-py3-none-<platform>`, so only one could publish — is gone.
 
 ---
 
