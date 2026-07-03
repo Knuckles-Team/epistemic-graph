@@ -108,20 +108,32 @@ jobs:
           python scripts/inject_numeric_kernel.py "$(ls dist/epistemic_graph-*.whl)" "$(ls numdist/*.whl)"
 
       # Smoke test: install the wheel, run the server `--help`, AND prove the folded-in
-      # kernel imports (`epistemic_graph.numeric`). Skipped for the cross-only leg
-      # (linux-aarch64 on an x86 host) where the binary can't execute on the runner.
-      - name: Smoke test (server --help + import epistemic_graph.numeric)
+      # kernel imports AND computes (`epistemic_graph.numeric`). Skipped for the
+      # cross-only leg (linux-aarch64 on an x86 host) where the binary can't execute on
+      # the runner. Two independent regressions this asserts (both were real):
+      #   1) the server console binary must stay EXECUTABLE — the numeric inject repacks
+      #      the wheel zip and MUST preserve the 0755 mode on
+      #      `*.data/scripts/epistemic-graph-server`; dropping the exec bit made pip
+      #      install a non-runnable binary that died with "Permission denied".
+      #   2) the folded-in kernel must import AND compute from the INSTALLED wheel.
+      - name: Smoke test (server --help + import epistemic_graph.numeric + compute)
         if: ${{ matrix.name != 'linux-aarch64' && matrix.experimental != true }}
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install "$(ls dist/epistemic_graph-*.whl)"
+          # Install the folded wheel WITH the `numeric` extra so numpy is present for the
+          # kernel's zero-copy interop — lets the smoke assert a REAL compute, not just an
+          # import. (pip supports the `<wheel>[extra]` spec.)
+          pip install "$(ls dist/epistemic_graph-*.whl)[numeric]"
+          # (1) The binary must be executable (inject must preserve 0755) — fails loud
+          #     with "Permission denied" otherwise.
           epistemic-graph-server --help
-          # Verify the folded-in kernel LOADS from the installed wheel. Just the import
-          # (the `.so` resolves) — the numpy-parity CI gate (rust-ci.yml) is what asserts
-          # kernel correctness; `__kernel__` is a maturin-packaging-sensitive attribute, so
-          # we don't gate the wheel build on it.
-          python -c "import epistemic_graph.numeric as n; print('numeric kernel loads OK:', n.__file__)"
+          # (2) Import + compute the kernel FROM THE INSTALLED WHEEL. Run from a neutral
+          #     dir ($RUNNER_TEMP) — the repo checkout root holds the `epistemic_graph/`
+          #     SOURCE package (no compiled `.so`), and cwd is on sys.path for `python -c`,
+          #     so importing at the repo root would shadow the wheel and always fail.
+          cd "${RUNNER_TEMP:-/tmp}"
+          python -c "import numpy as np, epistemic_graph.numeric as n; a=np.array([1.,2.,3.,4.]); assert n.sum(a)==10.0 and n.mean(a)==2.5, (n.sum(a), n.mean(a)); print('numeric kernel OK:', n.__file__, '| sum=', n.sum(a), 'mean=', n.mean(a), 'std=', n.std(a))"
 
       - name: Upload wheel artifact
         if: ${{ matrix.experimental != true }}
