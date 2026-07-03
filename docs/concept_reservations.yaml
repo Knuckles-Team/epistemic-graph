@@ -1,0 +1,4 @@
+# Concept-ID reservation ledger — one reservation per line (merge=union safe).
+# Managed by agent_utilities.governance.concept_allocator; see
+# docs/concept_coordination.md. Reserve via `agent-utilities concept reserve`.
+- {id: EG-328, namespace: EG-3, session: 'RW710:3584495', reserved_at: '2026-07-03T02:39:29.034048+00:00', expires_at: '2026-07-04T02:39:29.034048+00:00', status: reserved, design_doc: B1.7 multi-language client drivers (broker/streams/NL/RBAC/backup)}
