@@ -598,18 +598,14 @@ pub(crate) async fn try_handle(
             // Option<String> — nil ⇒ the trajectory was absent (no partial write).
             Response::ok(req_id, ResultPayload::raw(&step_id))
         }
-        Method::DiscountedReturn { traj_id, gamma } => {
-            Response::ok(
-                req_id,
-                ResultPayload::Float(core.discounted_return(&traj_id, gamma)),
-            )
-        }
-        Method::BestTrajectory { traj_ids, gamma } => {
-            Response::ok(
-                req_id,
-                ResultPayload::raw(&core.best_trajectory(&traj_ids, gamma)),
-            )
-        }
+        Method::DiscountedReturn { traj_id, gamma } => Response::ok(
+            req_id,
+            ResultPayload::Float(core.discounted_return(&traj_id, gamma)),
+        ),
+        Method::BestTrajectory { traj_ids, gamma } => Response::ok(
+            req_id,
+            ResultPayload::raw(&core.best_trajectory(&traj_ids, gamma)),
+        ),
         Method::GetNodePropertiesBatch { node_ids } => {
             if node_ids.len() > MAX_BATCH_IDS {
                 return Response::err(

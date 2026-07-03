@@ -699,7 +699,8 @@ impl TableStore {
         let wtx = self.begin()?;
         {
             let mut idxs = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
-            idxs.insert(key.as_str(), bytes.as_slice()).map_err(map_err)?;
+            idxs.insert(key.as_str(), bytes.as_slice())
+                .map_err(map_err)?;
         }
         wtx.commit().map_err(map_err)?;
         Ok(())
@@ -1194,7 +1195,9 @@ fn coercion_value(old: &Cell, ty: ColumnType) -> Value {
     match ty {
         ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => match old {
             Cell::Int(i) | Cell::Timestamp(i) => Value::Number((*i).into()),
-            Cell::Float(f) if f.fract() == 0.0 && f.is_finite() => Value::Number((*f as i64).into()),
+            Cell::Float(f) if f.fract() == 0.0 && f.is_finite() => {
+                Value::Number((*f as i64).into())
+            }
             Cell::Bool(b) => Value::Number((*b as i64).into()),
             Cell::Text(s) => s
                 .trim()

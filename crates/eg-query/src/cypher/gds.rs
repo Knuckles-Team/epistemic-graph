@@ -125,9 +125,7 @@ impl<'a> Config<'a> {
     }
 
     fn string(&self, key: &str) -> Option<String> {
-        self.get(key)
-            .and_then(Value::as_str)
-            .map(str::to_string)
+        self.get(key).and_then(Value::as_str).map(str::to_string)
     }
 }
 
@@ -469,7 +467,10 @@ mod tests {
         let cfg = Config::of(&args);
         assert!((cfg.f64("dampingFactor", 0.85) - 0.5).abs() < 1e-12);
         assert_eq!(cfg.usize("maxIterations", 20), 7);
-        assert_eq!(cfg.string("relationshipWeightProperty").as_deref(), Some("weight"));
+        assert_eq!(
+            cfg.string("relationshipWeightProperty").as_deref(),
+            Some("weight")
+        );
         // Absent keys fall back to the supplied GDS default.
         assert!((cfg.f64("tolerance", 1e-7) - 1e-7).abs() < 1e-20);
     }

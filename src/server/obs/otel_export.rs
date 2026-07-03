@@ -159,11 +159,8 @@ pub fn otlp_metrics_json(metrics_text: &str, now_unix_nano: i64) -> String {
     let metrics: Vec<serde_json::Value> = samples
         .iter()
         .map(|s| {
-            let attrs: Vec<serde_json::Value> = s
-                .labels
-                .iter()
-                .map(|(k, v)| otlp_str_attr(k, v))
-                .collect();
+            let attrs: Vec<serde_json::Value> =
+                s.labels.iter().map(|(k, v)| otlp_str_attr(k, v)).collect();
             let point = serde_json::json!({
                 "attributes": attrs,
                 "asDouble": s.value,
@@ -228,11 +225,8 @@ fn span_to_otlp(sp: &Span) -> serde_json::Value {
         .events
         .iter()
         .map(|e| {
-            let ev_attrs: Vec<serde_json::Value> = e
-                .attrs
-                .iter()
-                .map(|(k, v)| otlp_str_attr(k, v))
-                .collect();
+            let ev_attrs: Vec<serde_json::Value> =
+                e.attrs.iter().map(|(k, v)| otlp_str_attr(k, v)).collect();
             serde_json::json!({
                 "timeUnixNano": e.ts.to_string(),
                 "name": e.name,
@@ -271,10 +265,8 @@ pub fn otlp_traces_json(spans: &[Span]) -> String {
     let resource_spans: Vec<serde_json::Value> = order
         .iter()
         .map(|svc| {
-            let spans_json: Vec<serde_json::Value> = by_service[svc]
-                .iter()
-                .map(|sp| span_to_otlp(sp))
-                .collect();
+            let spans_json: Vec<serde_json::Value> =
+                by_service[svc].iter().map(|sp| span_to_otlp(sp)).collect();
             serde_json::json!({
                 "resource": { "attributes": [otlp_str_attr("service.name", svc)] },
                 "scopeSpans": [{

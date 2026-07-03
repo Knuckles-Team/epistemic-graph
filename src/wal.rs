@@ -815,11 +815,8 @@ mod tests {
         let live = GraphCore::new();
         live.add_node("e1".into(), props(serde_json::json!({"type": "Episodic"})));
         live.add_node("e2".into(), props(serde_json::json!({"type": "Episodic"})));
-        let sum_id = live.create_summary_node(
-            1,
-            &["e1".into(), "e2".into()],
-            serde_json::Map::new(),
-        );
+        let sum_id =
+            live.create_summary_node(1, &["e1".into(), "e2".into()], serde_json::Map::new());
         let pose = serde_json::json!({"translation": {"x": 1.0, "y": 2.0, "z": 3.0}});
         let obj_id = {
             let p = eg_core::scene::Pose::from_json(&pose).unwrap();
@@ -871,7 +868,10 @@ mod tests {
         ];
         // Every mutating variant MUST be logged.
         for m in &ops[2..] {
-            assert!(is_durable_mutation(m), "EG-318 mutation must be durable: {m:?}");
+            assert!(
+                is_durable_mutation(m),
+                "EG-318 mutation must be durable: {m:?}"
+            );
         }
 
         let dir = std::env::temp_dir().join(format!("eg-wal-eg318-{}", std::process::id()));
@@ -901,9 +901,8 @@ mod tests {
         // Trajectory discounted return reproduced (2.0 + 0.5*4.0 = 4.0 at gamma=0.5).
         assert!((replayed.discounted_return(&traj_id, 0.5) - 4.0).abs() < 1e-9);
         assert!(
-            (replayed.discounted_return(&traj_id, 0.5)
-                - live.discounted_return(&traj_id, 0.5))
-            .abs()
+            (replayed.discounted_return(&traj_id, 0.5) - live.discounted_return(&traj_id, 0.5))
+                .abs()
                 < 1e-9
         );
         let _ = std::fs::remove_dir_all(&dir);

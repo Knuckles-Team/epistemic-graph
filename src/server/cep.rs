@@ -299,7 +299,10 @@ pub async fn try_handle(
             let spec: CepPatternSpec = match rmp_serde::from_slice(&pattern_msgpack) {
                 Ok(s) => s,
                 Err(e) => {
-                    return Ok(Response::err(req_id, format!("invalid pattern_msgpack: {e}")))
+                    return Ok(Response::err(
+                        req_id,
+                        format!("invalid pattern_msgpack: {e}"),
+                    ))
                 }
             };
             let surface = match surface_of(state, req_id).await {
@@ -373,7 +376,11 @@ mod tests {
     #[tokio::test]
     async fn eg299_register_feed_poll_pushes_match() {
         let surface = CepSurface::new();
-        let sub = surface.register(&alert_pattern(), Window::Sliding { size: 0 }, DEFAULT_MATCH_BUFFER);
+        let sub = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
         assert_eq!(surface.sub_count(), 1);
 
         // A non-Alert change → no match.
@@ -392,8 +399,16 @@ mod tests {
     async fn eg299_multiple_subscribers_each_get_the_match() {
         let surface = CepSurface::new();
         // Two INDEPENDENT standing queries on the same pattern — each is fanned the event.
-        let a = surface.register(&alert_pattern(), Window::Sliding { size: 0 }, DEFAULT_MATCH_BUFFER);
-        let b = surface.register(&alert_pattern(), Window::Sliding { size: 0 }, DEFAULT_MATCH_BUFFER);
+        let a = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
+        let b = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
         assert_ne!(a, b);
         assert_eq!(surface.sub_count(), 2);
 
@@ -408,7 +423,11 @@ mod tests {
     #[tokio::test]
     async fn eg299_unsubscribe_drops_the_query() {
         let surface = CepSurface::new();
-        let sub = surface.register(&alert_pattern(), Window::Sliding { size: 0 }, DEFAULT_MATCH_BUFFER);
+        let sub = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
         assert!(surface.unsubscribe(sub), "existing sub removed");
         assert_eq!(surface.sub_count(), 0);
         assert!(!surface.unsubscribe(sub), "second remove is a no-op");
@@ -419,7 +438,11 @@ mod tests {
     #[tokio::test]
     async fn eg299_poll_empty_returns_promptly() {
         let surface = CepSurface::new();
-        let sub = surface.register(&alert_pattern(), Window::Sliding { size: 0 }, DEFAULT_MATCH_BUFFER);
+        let sub = surface.register(
+            &alert_pattern(),
+            Window::Sliding { size: 0 },
+            DEFAULT_MATCH_BUFFER,
+        );
         // Nothing fed → an empty, non-error poll (zero timeout ⇒ immediate).
         let matches = surface.poll(sub, 0).await.expect("known sub");
         assert!(matches.is_empty());

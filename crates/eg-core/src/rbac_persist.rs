@@ -166,7 +166,9 @@ impl RbacStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::acl::{AgentRole, Grant, GrantEffect, RbacAction, ResourceContext, ResourceSelector, Role};
+    use crate::acl::{
+        AgentRole, Grant, GrantEffect, RbacAction, ResourceContext, ResourceSelector, Role,
+    };
 
     /// A unique temp dir per test invocation (no external dev-dep needed).
     fn tmp_dir(tag: &str) -> std::path::PathBuf {

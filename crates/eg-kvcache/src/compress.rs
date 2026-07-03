@@ -285,7 +285,11 @@ mod tests {
     fn eg315_warm_zstd_roundtrip_ratio_below_one() {
         let block = compressible(8192);
         let sb = StoredBlock::encode_with(Codec::Zstd, &block);
-        assert_eq!(sb.codec, Codec::Zstd, "compressible data keeps the zstd form");
+        assert_eq!(
+            sb.codec,
+            Codec::Zstd,
+            "compressible data keeps the zstd form"
+        );
         assert!(
             sb.stored_len() < block.len(),
             "zstd WARM ratio must be < 1 on compressible data (got {} >= {})",

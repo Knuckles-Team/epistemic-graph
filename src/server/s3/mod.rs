@@ -301,11 +301,7 @@ impl S3Store {
     fn list_parts(&self, upload_id: &str) -> Result<Vec<(u32, PartInfo)>, String> {
         let uploads = self.uploads.lock();
         let up = uploads.get(upload_id).ok_or("NoSuchUpload")?;
-        Ok(up
-            .parts
-            .iter()
-            .map(|(n, p)| (*n, p.clone()))
-            .collect())
+        Ok(up.parts.iter().map(|(n, p)| (*n, p.clone())).collect())
     }
 
     /// Complete a multipart upload: concatenate the parts (ascending part number)
@@ -650,9 +646,7 @@ fn handle_multipart(
             }
         }
         "POST" => match store.complete_multipart(upload_id) {
-            Ok((b, k, etag)) => {
-                S3Response::xml("200 OK", complete_multipart_xml(&b, &k, &etag))
-            }
+            Ok((b, k, etag)) => S3Response::xml("200 OK", complete_multipart_xml(&b, &k, &etag)),
             Err(e) if e == "NoSuchUpload" => no_such(),
             Err(e) => internal(&e),
         },
@@ -664,10 +658,7 @@ fn handle_multipart(
             }
         }
         "GET" => match store.list_parts(upload_id) {
-            Ok(parts) => S3Response::xml(
-                "200 OK",
-                list_parts_xml(bucket, key, upload_id, &parts),
-            ),
+            Ok(parts) => S3Response::xml("200 OK", list_parts_xml(bucket, key, upload_id, &parts)),
             Err(e) if e == "NoSuchUpload" => no_such(),
             Err(e) => internal(&e),
         },
@@ -758,7 +749,8 @@ fn range_response(meta: ObjectMeta, bytes: Vec<u8>, range: &str) -> S3Response {
                 "InvalidRange",
                 "The requested range is not satisfiable",
             );
-            r.headers.push(("Content-Range".into(), format!("bytes */{total}")));
+            r.headers
+                .push(("Content-Range".into(), format!("bytes */{total}")));
             r
         }
     }
@@ -1195,7 +1187,12 @@ mod tests {
         let init = handle(
             &store,
             &none,
-            &req("POST", "/b/big.txt?uploads", b"", &[("content-type", "text/plain")]),
+            &req(
+                "POST",
+                "/b/big.txt?uploads",
+                b"",
+                &[("content-type", "text/plain")],
+            ),
         );
         assert_eq!(init.status, "200 OK");
         let xml = String::from_utf8(init.body).unwrap();

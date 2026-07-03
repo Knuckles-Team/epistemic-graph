@@ -515,8 +515,7 @@ mod tests {
         c.extend_from_slice(&SHP_POLYGON.to_le_bytes());
         // bbox from all points
         let all: Vec<Point> = rings.iter().flatten().copied().collect();
-        let (mut minx, mut miny, mut maxx, mut maxy) =
-            (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        let (mut minx, mut miny, mut maxx, mut maxy) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
         for p in &all {
             minx = minx.min(p.x);
             miny = miny.min(p.y);
@@ -580,7 +579,10 @@ mod tests {
     #[test]
     fn eg306_shapefile_reads_points_with_dbf_attributes() {
         // Two Point records + a two-field .dbf (Character NAME, Numeric POP).
-        let shp = build_shp(&[point_content(2.3522, 48.8566), point_content(-0.1278, 51.5074)]);
+        let shp = build_shp(&[
+            point_content(2.3522, 48.8566),
+            point_content(-0.1278, 51.5074),
+        ]);
         let dbf = build_dbf(
             &[("NAME", 'C', 10), ("POP", 'N', 8)],
             &[
@@ -594,8 +596,14 @@ mod tests {
             recs[0].geometry,
             Some(Geometry::Point(Point::new(2.3522, 48.8566)))
         );
-        assert_eq!(recs[0].attr("NAME"), Some(&DbfValue::Character("Paris".into())));
-        assert_eq!(recs[0].attr("POP"), Some(&DbfValue::Numeric(Some(2_161_000.0))));
+        assert_eq!(
+            recs[0].attr("NAME"),
+            Some(&DbfValue::Character("Paris".into()))
+        );
+        assert_eq!(
+            recs[0].attr("POP"),
+            Some(&DbfValue::Numeric(Some(2_161_000.0)))
+        );
         assert_eq!(
             recs[1].geometry,
             Some(Geometry::Point(Point::new(-0.1278, 51.5074)))

@@ -131,7 +131,9 @@ impl PathIndex {
             .map(|(path, vals)| {
                 (
                     path.clone(),
-                    vals.iter().map(|(v, ids)| (v.clone(), ids.clone())).collect(),
+                    vals.iter()
+                        .map(|(v, ids)| (v.clone(), ids.clone()))
+                        .collect(),
                 )
             })
             .collect();
@@ -157,7 +159,9 @@ impl PathIndex {
             .map(|(path, vals)| {
                 (
                     path.clone(),
-                    vals.iter().map(|(v, ids)| (v.clone(), ids.clone())).collect(),
+                    vals.iter()
+                        .map(|(v, ids)| (v.clone(), ids.clone()))
+                        .collect(),
                 )
             })
             .collect();
@@ -2564,10 +2568,7 @@ impl GraphCore {
     /// behaves exactly as before — the path-index is fully in-memory.
     ///
     /// [`rehydrate_path_index`]: GraphCore::rehydrate_path_index
-    pub fn set_path_index_store(
-        &self,
-        store: Arc<dyn crate::path_persist::PathIndexPersistence>,
-    ) {
+    pub fn set_path_index_store(&self, store: Arc<dyn crate::path_persist::PathIndexPersistence>) {
         *self.path_index_store.write() = Some(store);
     }
 
@@ -5026,7 +5027,11 @@ mod tests {
         // store could NOT produce these ids.
         let mut rust2 = core2.nodes_by_json_path("$.meta.lang", "rust").unwrap();
         rust2.sort();
-        assert_eq!(rust2, vec!["n1", "n3"], "rehydrated index answers the filter");
+        assert_eq!(
+            rust2,
+            vec!["n1", "n3"],
+            "rehydrated index answers the filter"
+        );
         let mut tags2 = core2.nodes_with_json_path("$.tags").unwrap();
         tags2.sort();
         assert_eq!(tags2, vec!["n1", "n2"]);
@@ -5051,7 +5056,10 @@ mod tests {
         );
         let v0 = core.version();
         let snap0 = store.load().unwrap();
-        assert_eq!(snap0.stamp, v0, "snapshot is stamped with the build version");
+        assert_eq!(
+            snap0.stamp, v0,
+            "snapshot is stamped with the build version"
+        );
 
         // Mutate: add n5 as rust. mark_dirty drops the in-memory index (and the
         // persisted copy is now stale until the next rebuild).
@@ -5065,7 +5073,11 @@ mod tests {
         // The next query rebuilds AND re-persists at the new version.
         let mut rust = core.nodes_by_json_path("$.meta.lang", "rust").unwrap();
         rust.sort();
-        assert_eq!(rust, vec!["n1", "n3", "n5"], "rebuilt index reflects the add");
+        assert_eq!(
+            rust,
+            vec!["n1", "n3", "n5"],
+            "rebuilt index reflects the add"
+        );
         let snap1 = store.load().unwrap();
         assert_eq!(
             snap1.by_value["$.meta.lang"]["rust"],
@@ -5084,11 +5096,15 @@ mod tests {
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph(); // 3 nodes: n1/n3 rust, n2 go; n1/n2 have tags
-        // Equality: 2 of 3 nodes match `$.meta.lang = rust`.
-        let sel_rust = core.json_path_selectivity("$.meta.lang", Some("rust")).unwrap();
+                                 // Equality: 2 of 3 nodes match `$.meta.lang = rust`.
+        let sel_rust = core
+            .json_path_selectivity("$.meta.lang", Some("rust"))
+            .unwrap();
         assert!((sel_rust - 2.0 / 3.0).abs() < 1e-9, "got {sel_rust}");
         // Equality: 1 of 3 match `go`.
-        let sel_go = core.json_path_selectivity("$.meta.lang", Some("go")).unwrap();
+        let sel_go = core
+            .json_path_selectivity("$.meta.lang", Some("go"))
+            .unwrap();
         assert!((sel_go - 1.0 / 3.0).abs() < 1e-9, "got {sel_go}");
         // Existence: 2 of 3 have `$.tags`.
         let sel_tags = core.json_path_selectivity("$.tags", None).unwrap();
@@ -5101,7 +5117,9 @@ mod tests {
         // planner falls back to its default estimate (same bound as the count methods).
         std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS", "1");
         let capped = json_graph();
-        assert!(capped.json_path_selectivity("$.meta.lang", Some("rust")).is_some());
+        assert!(capped
+            .json_path_selectivity("$.meta.lang", Some("rust"))
+            .is_some());
         assert!(capped.json_path_selectivity("$.meta.year", None).is_none());
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
     }
@@ -5115,7 +5133,11 @@ mod tests {
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph();
-        assert_eq!(core.rehydrate_path_index(), 0, "no store -> nothing to adopt");
+        assert_eq!(
+            core.rehydrate_path_index(),
+            0,
+            "no store -> nothing to adopt"
+        );
         let mut rust = core.nodes_by_json_path("$.meta.lang", "rust").unwrap();
         rust.sort();
         assert_eq!(rust, vec!["n1", "n3"], "unchanged EG-084 behavior");

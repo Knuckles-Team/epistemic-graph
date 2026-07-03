@@ -284,9 +284,7 @@ impl ObjectMap {
     /// The foreign columns this object map references (added to `out`).
     fn columns_into(&self, out: &mut BTreeSet<String>) {
         match self {
-            ObjectMap::Column(c)
-            | ObjectMap::TypedColumn(c, _)
-            | ObjectMap::LangColumn(c, _) => {
+            ObjectMap::Column(c) | ObjectMap::TypedColumn(c, _) | ObjectMap::LangColumn(c, _) => {
                 out.insert(c.clone());
             }
             ObjectMap::Template(t) => template_columns_into(t, out),
@@ -987,8 +985,7 @@ pub fn parse_r2rml_turtle(doc: &str) -> Result<VirtualGraph, String> {
 
     let mut vg = VirtualGraph::new();
     for tm_key in &tm_keys {
-        vg.triples_maps
-            .push(parse_triples_map(&index, tm_key)?);
+        vg.triples_maps.push(parse_triples_map(&index, tm_key)?);
     }
     Ok(vg)
 }
@@ -1032,8 +1029,7 @@ fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, Strin
                 if subject_class.is_none() {
                     subject_class = Some(iri);
                 } else {
-                    extra_class_poms
-                        .push((RDF_TYPE_IRI.to_string(), ObjectMap::ConstantIri(iri)));
+                    extra_class_poms.push((RDF_TYPE_IRI.to_string(), ObjectMap::ConstantIri(iri)));
                 }
             }
         }
@@ -1629,9 +1625,11 @@ mod tests {
             .any(|(p, o)| p == RDF_TYPE_IRI
                 && matches!(o, ObjectMap::ConstantIri(i) if i == "http://example.org/Agent")));
         // The rr:object constant shortcut → ConstantIri.
-        assert!(tm.predicate_object_maps.iter().any(|(p, o)| p
-            == "http://example.org/kind"
-            && matches!(o, ObjectMap::ConstantIri(i) if i == "http://example.org/Human")));
+        assert!(tm
+            .predicate_object_maps
+            .iter()
+            .any(|(p, o)| p == "http://example.org/kind"
+                && matches!(o, ObjectMap::ConstantIri(i) if i == "http://example.org/Human")));
 
         // Every person is both ex:Person and ex:Agent.
         let reg = people_registry();
@@ -1648,8 +1646,8 @@ mod tests {
     /// CONCEPT:EG-305 — a document with no triples map is a clean, cited error.
     #[test]
     fn eg305_r2rml_empty_document_errors() {
-        let err = parse_r2rml_turtle("@prefix ex: <http://example.org/> . ex:a ex:b ex:c .")
-            .unwrap_err();
+        let err =
+            parse_r2rml_turtle("@prefix ex: <http://example.org/> . ex:a ex:b ex:c .").unwrap_err();
         assert!(err.contains("no rr:TriplesMap"));
         assert!(err.contains("CONCEPT:EG-305"));
     }

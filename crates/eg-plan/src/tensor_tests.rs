@@ -162,10 +162,15 @@ fn tensor_op_cas_write_back_persists_derived_tensor_eg304() {
     assert_eq!(run_with_store(&plan, &view, &store), vec!["F1", "F2", "F3"]);
 
     // The derived tensor is now a durable CAS blob addressable by its content hash.
-    let derived = frame_tensor().reduce(1, eg_tensor::ReduceKind::Mean).unwrap();
+    let derived = frame_tensor()
+        .reduce(1, eg_tensor::ReduceKind::Mean)
+        .unwrap();
     let hash = content_hash(&derived.to_blob());
     let store = store.into_inner().unwrap();
-    assert!(store.contains(&hash), "derived tensor not written back to CAS");
+    assert!(
+        store.contains(&hash),
+        "derived tensor not written back to CAS"
+    );
     assert_eq!(
         store.get(&hash),
         Some(derived),
@@ -192,7 +197,11 @@ fn tensor_op_cas_dedups_identical_derived_tensors_eg304() {
     ]);
     assert_eq!(run_with_store(&plan, &view, &store), vec!["F1", "F2", "F3"]);
     // Three rows, one distinct derived tensor → exactly one dedup'd blob.
-    assert_eq!(store.into_inner().unwrap().len(), 1, "identical results must dedup");
+    assert_eq!(
+        store.into_inner().unwrap().len(),
+        1,
+        "identical results must dedup"
+    );
 }
 
 /// CONCEPT:EG-304 — a `None` store ctx is UNCHANGED: the executor validates the op and
@@ -215,7 +224,10 @@ fn tensor_op_no_store_ctx_unchanged_eg304() {
     let without = run(&plan, &view);
     let store = Mutex::new(TensorStore::new());
     let with = run_with_store(&plan, &view, &store);
-    assert_eq!(without, with, "write-back must not change which rows survive");
+    assert_eq!(
+        without, with,
+        "write-back must not change which rows survive"
+    );
     assert_eq!(without, vec!["F1", "F2", "F3"]);
 }
 

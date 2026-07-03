@@ -90,9 +90,7 @@ pub fn decode_write_request(body: &[u8]) -> Result<WriteRequest, String> {
 /// inverse of [`decode_write_request`], used by producers (and the tests).
 pub fn encode_write_request(req: &WriteRequest) -> Vec<u8> {
     let raw = prost::Message::encode_to_vec(req);
-    snap::raw::Encoder::new()
-        .compress_vec(&raw)
-        .unwrap_or(raw)
+    snap::raw::Encoder::new().compress_vec(&raw).unwrap_or(raw)
 }
 
 /// Encode a Prometheus label set into the canonical `SeriesStore`/PromQL series id
@@ -192,10 +190,7 @@ pub async fn handle(
                 (
                     "200 OK",
                     "application/json",
-                    format!(
-                        "{{\"series\":{},\"samples\":{}}}",
-                        o.series, o.samples
-                    ),
+                    format!("{{\"series\":{},\"samples\":{}}}", o.series, o.samples),
                 )
             }
         }

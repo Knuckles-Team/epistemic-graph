@@ -406,7 +406,6 @@ pub enum Method {
     // entry reproduces byte-identical state (`wal::apply`). Non-security /
     // non-broker builds are unaffected: a build that never issues these sees no
     // behavioral change.
-
     /// CONCEPT:EG-318/EG-220 — create (or UPSERT) a hierarchical summary node at
     /// abstraction `level`, linked to each of `child_ids` via a `SUMMARIZES`
     /// provenance edge. `props_msgpack` is a MessagePack-encoded JSON object (the

@@ -423,7 +423,10 @@ mod tests {
         let h = tiny();
         // Squared-L2 from origin: 10→0, 20→1, 50→5, 30→4, 40→25. Nearest 3: 10,20,30.
         let res = h.search(&[0.0, 0.0], 3, 16);
-        assert_eq!(res.iter().map(|r| r.id).collect::<Vec<_>>(), vec![10, 20, 30]);
+        assert_eq!(
+            res.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![10, 20, 30]
+        );
         assert_eq!(res[0].distance, 0.0);
         assert_eq!(res[1].distance, 1.0);
         assert_eq!(res[2].distance, 4.0);
@@ -537,7 +540,10 @@ mod tests {
             sum += recall_at_k(&got, &truth, 10);
         }
         let recall = sum / nq as f64;
-        assert!(recall >= 0.9, "cosine HNSW recall@10 = {recall:.4} must be >= 0.9");
+        assert!(
+            recall >= 0.9,
+            "cosine HNSW recall@10 = {recall:.4} must be >= 0.9"
+        );
     }
 
     #[test]
@@ -558,7 +564,10 @@ mod tests {
         assert_eq!(back.max_level, hnsw.max_level);
         assert_eq!(back.entry_point, hnsw.entry_point);
         let after = back.search(&q, 10, 64);
-        assert_eq!(before, after, "search must be identical after a serde round-trip");
+        assert_eq!(
+            before, after,
+            "search must be identical after a serde round-trip"
+        );
     }
 
     #[test]

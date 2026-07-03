@@ -66,11 +66,10 @@ mod udfs;
 pub use classify::{
     classify, infer_param_sites, json_pred_from_expr, mongo_match_to_preds, returning_columns,
     schema_probe_sql, AlterTableAction, AlterTablePlan, ColumnDef, CopyFormat, CopyPlan,
-    CreateFunctionPlan,
-    CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable, DropFunctionPlan,
-    DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
-    InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite, StatementKind,
-    TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable,
+    DropFunctionPlan, DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect,
+    InsertSelect, InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite,
+    StatementKind, TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 pub use exec::{
     exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed, exec_sql_typed_with_tables,
