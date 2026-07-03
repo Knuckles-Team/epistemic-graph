@@ -7,7 +7,7 @@ proved *correctness-tests-passing ≠ scale/fault-proven*; this harness exists s
 distributed work must survive injected faults, not just pass happy-path unit tests.
 
 It is **test/dev-only** — gated behind the `harness` cargo feature (which pulls
-`raft`). A production build (`cargo build`, `--features pi|node|cluster|full`) links
+`raft`). A production build (`cargo build`, `--features full`, `--features cluster`) links
 **nothing** from it, and the one production-code touch (a partition gate in the Raft
 network) is `#[cfg(any(test, feature = "harness"))]`, so the production network path
 is byte-for-byte unchanged.
@@ -97,8 +97,8 @@ cargo run --features harness --bin nemesis -- --nodes 3 --rounds 20 --seed 42
 
 ## Production-isolation guarantee
 
-`cargo tree -e features --features pi -i openraft` etc. and the harness feature being
-absent from every tier bundle keep the harness out of shipped builds. The one
+`cargo tree -e features -i openraft` (default build) etc. and the harness feature being
+absent from the main/`cluster` builds keep the harness out of shipped builds. The one
 production-source touch — `GroupNetworkClient::round_trip`'s partition check — is
 `#[cfg(any(test, feature = "harness"))]`; in a production build it is not compiled, so
 the Raft network path is unchanged.

@@ -107,44 +107,33 @@ strip = true
 # Ship the pre-bundled operations skills (SKILL.md + any refs) as package data so the
 # entry-point above resolves them in an installed wheel, not just an editable checkout.
 include = ["epistemic_graph/skills/**/*"]
-# DEFAULT WHEEL = the `node` tier bundle (CONCEPT:KG-2.223 — the auto-bundled
-# engine). The shipped binary is a MAX-FUNCTIONALITY single-process tiny DB:
-# durable redb-authoritative store + cypher + SQL (query/DataFusion) + ann + tsdb +
-# blob + the full compute domains (finance/datascience/reasoning/ast). It also adds
-# `ast-extended` so the `ParseFiles`/`ParseFile` ops compile the full grammar tier
-# (python/js/ts/go/rust/java/c/cpp/c#/ruby/php/bash/scala/lua) — making the engine
-# the ONE code-parsing implementation (agent-utilities delegates and ships no Python
-# tree-sitter wheels). NOTE: the previous default `["server", "ast-extended"]`
-# OMITTED redb/cypher/ann/etc., so the shipped binary was NOT a usable tiny DB —
-# `node` fixes that. `node` stays SINGLE-NODE (no raft) but DOES carry `pgwire`
-# (CONCEPT:EG-352) — pgwire is pure-Rust over the SQL path node already links, so the
-# default wheel is a COMPLETE Postgres-wire-capable single-node DB. Raft/compute-dist
-# (+ the other wire protocols) are the `cluster` tier, built explicitly (see the Pi
-# recipe note below).
-features = ["node", "ast-extended"]
+# THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-359 — tiers
+# collapsed). `full` = every MAIN feature that builds without an external GPU/robotics
+# toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql
+# + ann + tsdb + blob + the full compute domains (finance/datascience/reasoning/ast) +
+# the security stack + the whole hand-rolled wire family (pgwire/mysql/mssql/sqlite/bolt/
+# redis/amqp/mqtt/stomp). It also adds `ast-extended` so the `ParseFiles`/`ParseFile` ops
+# compile the full grammar tier (python/js/ts/go/rust/java/c/cpp/c#/ruby/php/bash/scala/
+# lua) — making the engine the ONE code-parsing implementation (agent-utilities delegates
+# and ships no Python tree-sitter wheels). This is `default`, so `cargo build` and this
+# wheel are the SAME build. It targets Raspberry Pi 4+ (NOT Pi 3). There is no longer a
+# pi/pi-max/node tier distinction, so there is exactly ONE wheel filename per platform —
+# the old collision (every tier shared the same filename) is gone.
+features = ["full", "ast-extended"]
 
-# ── Building a leaner Pi-3 tier wheel ──
-# The `node` default carries SQL/DataFusion + tsdb + blob + the compute domains —
-# great for a workstation/server, heavier than a Raspberry-Pi-3 wants. For the Pi
-# tier, build a lean wheel from the `pi` bundle (graph + algorithms + redb + cypher
-# + ann — durable, native RDF/SPARQL once Lane-W lands, NO DataFusion / Tantivy /
-# openraft, the Pi contract):
+# ── Opt-in build LAYERS (not published as separate wheels) ──
+# The two heavier layers stack ON TOP of the main build and are built explicitly:
 #
-#     maturin build --release --no-default-features --features pi,ast-extended
+#   # HA / multi-node (adds openraft replication + distributed compute):
+#   maturin build --release --no-default-features --features cluster,ast-extended
 #
-# (Drop `ast-extended` for the very leanest build with no tree-sitter grammars.)
-# `--no-default-features` is required so maturin does NOT union `node` on top of
-# `pi` via the `[tool.maturin] features` default above — the pi recipe must be the
-# ONLY feature set selected, or the resulting wheel would re-link DataFusion and
-# break the Pi contract.
+#   # GPU / robotics (adds the real CUDA + ROS2 bridge/DDS backends):
+#   maturin build --release --no-default-features --features full-extras,ast-extended
 #
-# ── Size-optimized "contains-all smallest" + pi-max wheels ──
-# maturin forwards `--profile` to cargo, so build the size-optimized binary (the
-# `[profile.release-tiny]` in Cargo.toml: opt-level z + fat LTO + strip, panic=unwind)
-# with `--profile release-tiny`. The Pi never compiles — CI cross-builds these wheels
-# (`.github/workflows/release-build.yml`: `wheels-full-tiny`, `wheels-pi` matrix).
+# `--no-default-features` keeps the selected layer as the exact feature set (the
+# `[tool.maturin] features` default above is not unioned on top). Both layers are a
+# strict superset of `full`, so they remain full-featured single-node DBs plus their
+# extra capability. Neither is published to PyPI — PyPI ships the one main wheel + sdist.
 #
-#   # contains-all smallest (every single-node feature, smallest binary)
-#   maturin build --profile release-tiny --no-default-features --features full,ast-extended
-#   # Pi-3 maximal: pure-Rust, NO DataFusion / Tantivy / C (pi + tsdb + blob + security)
-#   maturin build --profile release-tiny --no-default-features --features pi-max,ast-extended
+# `--profile release-tiny` (opt-level z + fat LTO + strip) still works for a smaller
+# binary if wanted; the release CI builds the standard `--release` main wheel.
