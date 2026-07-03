@@ -1,70 +1,76 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1
 # ─────────────────────────────────────────────────────────────────────────────
 # Production server image for the epistemic-graph DB engine (CONCEPT:OS-5.64).
 #
-# This builds a REAL standalone database server — the `cluster`-tier
-# `epistemic-graph-server` binary (durable redb-authoritative store + cypher +
-# SQL/DataFusion + ann + tsdb + blob + the compute domains + raft + pgwire), NOT
-# the dev/pytest runner (that lives in docker/Dockerfile.test). The binary is the
-# whole product: pure Rust, no Python, no PyO3.
+# This image INSTALLS THE PREBUILT `node`-tier wheel — it does NOT compile Rust.
+# The wheel (maturin `bindings = "bin"`) ships the `epistemic-graph-server` binary,
+# which IS the whole product: pure Rust, no Python runtime code, no PyO3. The `node`
+# tier is a COMPLETE single-node DB — durable redb-authoritative store + cypher +
+# SQL/DataFusion + GraphQL + ann + tsdb + blob + text + the compute domains + the
+# Postgres-wire listener (pgwire, CONCEPT:KG-2.189 / EG-352) — with NO raft (single
+# node). The published default wheel is exactly this `node` tier (pyproject
+# `[tool.maturin] features = ["node", "ast-extended"]`).
 #
-# MULTI-ARCH: built with `docker buildx` for linux/amd64 + linux/arm64. The build
-# stage compiles natively for each platform leg (TARGETPLATFORM), so no cross
-# linker is needed inside the image build.
+# Following the agents/* fleet standard, the package is pulled from PyPI with `uv`
+# (`uv pip install --system`). `uv` auto-selects the per-platform manylinux wheel,
+# so a single `docker buildx --platform linux/amd64,linux/arm64` build is multi-arch
+# clean with NO per-arch wheel juggling. The build is a seconds-long download+install
+# instead of a ~25-min/arch `cargo build --release`.
 #
 #   docker buildx build --platform linux/amd64,linux/arm64 \
 #       -t <registry>/epistemic-graph:<tag> -f docker/Dockerfile .
+#
+# Pre-publish / local sanity: install a locally-built wheel instead of PyPI by
+# pointing EG_INSTALL_SPEC at a path under the build context (bind-mounted at /ctx
+# during the install), e.g. with a wheel in ./wheels of the build context:
+#   docker build -f docker/Dockerfile \
+#       --build-arg EG_INSTALL_SPEC=/ctx/wheels/epistemic_graph-2.5.0-...whl .
+# (The DEFAULT image always installs the published PyPI package.)
+#
+# For an in-engine-Raft HA cluster the deployed binary needs the `cluster` tier
+# (raft + compute-dist + the extra wire protocols), which is NOT published as the
+# default wheel — build that variant from source (see docs/deployment.md). The
+# DEFAULT image here is the fast, prebuilt single-node `node` wheel.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Stage 1: build the server binary ─────────────────────────────────────────
-# rust:slim is multi-arch (amd64+arm64). Pin to TARGETPLATFORM so each buildx leg
-# compiles natively for its arch.
-# rust:1-slim tracks the latest stable 1.x (needs edition2024 for transitive deps
-# like anndists; do NOT pin to an old minor that predates it).
-FROM --platform=$TARGETPLATFORM rust:1-slim-bookworm AS build
+FROM python:3.11-slim AS runtime
 
-# Build the cluster tier by default; override at build time for a leaner image:
-#   --build-arg EG_FEATURES="node,ast-extended"  (single-node, no raft/pgwire)
-#   --build-arg EG_FEATURES="pi,ast-extended"    (Raspberry-Pi-lean, no DataFusion)
-ARG EG_FEATURES="cluster,ast-extended"
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        pkg-config \
-        libssl-dev \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src
-
-# Copy manifests + sources. (Cargo's incremental cache mount below does the real
-# dependency caching; copying crates/src is enough for a clean, reproducible build.)
-COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates
-COPY src ./src
-
-# Build the release server binary. `--no-default-features` so the feature set is
-# EXACTLY EG_FEATURES (mirrors the maturin pi-recipe discipline — never union the
-# default tier on top). `--locked` pins Cargo.lock for reproducibility.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    cargo build --release --locked --no-default-features --features "${EG_FEATURES}" \
-    && cp /src/target/release/epistemic-graph-server /usr/local/bin/epistemic-graph-server \
-    && strip /usr/local/bin/epistemic-graph-server || true
-
-# ── Stage 2: minimal runtime ─────────────────────────────────────────────────
-# debian-slim (multi-arch) carries the glibc/openssl the dynamically-linked binary
-# needs, plus a shell for the entrypoint + nc for the healthcheck.
-FROM --platform=$TARGETPLATFORM debian:bookworm-slim AS runtime
+# uv: the fleet-standard fast installer (agents/* COPY it from the published image).
+COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /bin/
 
 LABEL org.opencontainers.image.title="epistemic-graph" \
-      org.opencontainers.image.description="Durable Rust-native epistemic graph DB engine (cluster tier)" \
+      org.opencontainers.image.description="Durable Rust-native epistemic graph DB engine (node tier — pgwire-capable single-node)" \
       org.opencontainers.image.source="https://github.com/Knuckles-Team/epistemic-graph"
 
+# The published node-tier package + its minimum version. CI passes the exact just-
+# published version via --build-arg EG_VERSION=<tag without v>. Override EG_INSTALL_SPEC
+# to point at a local wheel for a pre-publish sanity build (see header).
+ARG EG_VERSION=2.2.0
+ARG EG_INSTALL_SPEC="epistemic-graph>=${EG_VERSION}"
+
+ENV UV_SYSTEM_PYTHON=1 \
+    UV_HTTP_TIMEOUT=3600 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1 \
+    GRAPH_SERVICE_PERSIST_DIR=/var/lib/epistemic-graph/data \
+    GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100 \
+    GRAPH_SERVICE_METRICS_ADDR=0.0.0.0:9101
+
+# Runtime libs only: glibc/openssl for the dynamically-linked binary + nc for the
+# healthcheck. No build-essential, no rust — nothing compiles here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         libssl3 \
         netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
+
+# Install the prebuilt wheel — seconds, no compile. uv selects the manylinux wheel
+# matching this buildx platform leg. `--prerelease=allow` matches the fleet standard.
+# Smoke the binary in-build so a broken install fails the image build.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,target=/ctx \
+    uv pip install --system --upgrade --break-system-packages --prerelease=allow ${EG_INSTALL_SPEC} \
+    && epistemic-graph-server --help >/dev/null
 
 # Non-root user — the engine never needs root; the persist dir is owned by it.
 RUN groupadd --system --gid 10001 epistemic \
@@ -73,13 +79,8 @@ RUN groupadd --system --gid 10001 epistemic \
     && mkdir -p /var/lib/epistemic-graph/data \
     && chown -R epistemic:epistemic /var/lib/epistemic-graph
 
-COPY --from=build /usr/local/bin/epistemic-graph-server /usr/local/bin/epistemic-graph-server
-
 # Durable persist dir (the redb-authoritative source of truth) — VOLUME so it
 # survives container recreation and can be backed by a named/host volume.
-ENV GRAPH_SERVICE_PERSIST_DIR=/var/lib/epistemic-graph/data \
-    GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100 \
-    GRAPH_SERVICE_METRICS_ADDR=0.0.0.0:9101
 VOLUME ["/var/lib/epistemic-graph/data"]
 
 # RPC (9100) for clients; metrics (9101) for Prometheus.
@@ -92,10 +93,11 @@ HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
 USER epistemic
 WORKDIR /var/lib/epistemic-graph
 
-# TCP is the remote transport (env-driven so a bare `docker run` with the env set
-# is a working single-node DB); the engine also opens its per-platform UDS for
-# local clients. An auth secret MUST be supplied via GRAPH_SERVICE_AUTH_SECRET or
-# the server refuses to start. Extra args after the image name are forwarded ("$@").
+# TCP is the remote transport (env-driven so a bare `docker run` with the env set is
+# a working single-node DB); the engine also opens its per-platform UDS for local
+# clients. An auth secret MUST be supplied via GRAPH_SERVICE_AUTH_SECRET or the
+# server refuses to start. Set EPISTEMIC_GRAPH_PGWIRE_ADDR (e.g. 0.0.0.0:5433) to
+# expose the Postgres-wire listener. Extra args after the image name are forwarded.
 ENTRYPOINT ["/bin/sh", "-c", "exec epistemic-graph-server --tcp-addr \"${GRAPH_SERVICE_TCP_ADDR}\" --persist-dir \"${GRAPH_SERVICE_PERSIST_DIR}\" --metrics-addr \"${GRAPH_SERVICE_METRICS_ADDR}\" \"$@\"", "--"]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -108,16 +110,16 @@ ENTRYPOINT ["/bin/sh", "-c", "exec epistemic-graph-server --tcp-addr \"${GRAPH_S
 #     -v eg-data:/var/lib/epistemic-graph/data \
 #     <registry>/epistemic-graph:<tag>
 #
-# RUN — enterprise / remote (expose RPC to the cluster network; raft HA):
+# RUN — with the Postgres-wire listener (psql / BI tools / ORMs):
 #
-#   docker run -d --name eg-node-1 \
-#     -e GRAPH_SERVICE_AUTH_SECRET="$SECRET" \
-#     -e EPISTEMIC_GRAPH_RAFT_NODE_ID=1 \
-#     -e EPISTEMIC_GRAPH_RAFT_PEERS="1@eg-node-1:9200,2@eg-node-2:9200,3@eg-node-3:9200" \
-#     -p 9100:9100 -p 9101:9101 \
-#     -v eg-data-1:/var/lib/epistemic-graph/data \
+#   docker run -d --name epistemic-graph \
+#     -e GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)" \
+#     -e EPISTEMIC_GRAPH_PGWIRE_ADDR=0.0.0.0:5433 \
+#     -p 127.0.0.1:9100:9100 -p 127.0.0.1:5433:5433 \
+#     -v eg-data:/var/lib/epistemic-graph/data \
 #     <registry>/epistemic-graph:<tag>
 #
-# (Repeat per node with the matching RAFT_NODE_ID; the cluster tier replicates the
-#  authoritative redb store via openraft — CONCEPT:KG-2.188.)
+# (The node-tier wheel is a COMPLETE single-node DB incl. the Postgres wire shim.
+#  For in-engine-Raft HA replication — CONCEPT:KG-2.188 — build the `cluster` tier
+#  from source; see docs/deployment.md.)
 # ─────────────────────────────────────────────────────────────────────────────
