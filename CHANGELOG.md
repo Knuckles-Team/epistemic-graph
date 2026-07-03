@@ -8,6 +8,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-07-03
+
+> **Minor, additive.** Completes the `eg-numeric` Surface-A kernel so `agent-utilities` can drop
+> its numpy/scipy dependency on the hot path, and fixes the published wheel so the injected kernel
+> binary stays executable/importable.
+
+### Added — numeric kernel surface (Surface-A completion)
+- **EG-354** — array constructors + dtype/module-attr surface re-exported from
+  `epistemic_graph.numeric`: `array`/`asarray`/`zeros`/`ones`/`empty`/`full`/`arange`/`linspace`/
+  `eye`/`diag`/`fill_diagonal`/`diff`/`sort`/`concatenate`/`reshape`/`vstack`/`stack` plus
+  `float64`/`float32`/`int64`/`ndarray`/`newaxis`/`pi`/`inf`/`nan`. numpy is the engine-private
+  container substrate; the `agent_utilities` `xp` shim imports containers from the kernel, not numpy.
+- **EG-355** — axis/keepdims/integer-array reductions: `sum`/`prod`/`mean`/`std`/`var`/`amin`/
+  `amax`/`argmin`/`argmax` now accept `axis` (`int|None`) + `keepdims` and coerce `int64`/`int32`/
+  `float32` input, closing the bare-1D-float64 gap so e.g. `np.mean(m, axis=1)` routes through the kernel.
+- **EG-356** — `eigsh_smallest`: partial symmetric eigensolver returning the k smallest-magnitude
+  eigenpairs of a dense Laplacian (faer selfadjoint eig + k-select), matching
+  `scipy.sparse.linalg.eigsh(L, k, which="SM")`; used by `spectral_navigator`.
+- **EG-357** — `spearmanr` (rank-transform + Pearson + Student-t two-sided p) and `ks_2samp`
+  (two-sample Kolmogorov-Smirnov D + asymptotic p via the Kolmogorov Q series) — the `scipy.stats`
+  ops `agent-utilities` needs (analytics feature; `statrs` for the t p-value).
+- **EG-358** — normal-distribution `ppf` (inverse CDF) + `pdf` via `statrs` (analytics feature, out of
+  the pi/default tier) — replaces `scipy.stats.norm.ppf`/`pdf`.
+
+numpy/scipy parity verified (13/13).
+
+### Fixed
+- **EG-346** — the numeric-kernel wheel-packaging step (`scripts/inject_numeric_kernel.py`) now
+  preserves the zip `external_attr` unix mode when injecting the kernel `.so` into the node wheel, so
+  the server binary stays `0755` (executable) and the published wheel is installable/importable. The
+  release workflow's strict kernel smoke test was restored, running under `$RUNNER_TEMP` to avoid
+  source-directory shadowing of the installed package.
+
 ## [2.6.0] - 2026-07-03
 
 > **Minor, additive.** Reclaims two orphaned-branch capabilities as finished, validated code, and
