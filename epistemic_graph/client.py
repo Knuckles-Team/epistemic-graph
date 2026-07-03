@@ -440,6 +440,33 @@ class GraphOperationsClient:
             {"query_embedding": query_embedding, "n_results": n_results},
         )
 
+    async def discover(
+        self,
+        keywords: list[str],
+        query_embedding: list[float],
+        k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """One-round-trip hybrid discovery (CONCEPT:KG-2.132).
+
+        Ranks nodes by BOTH lexical keyword overlap (over ``name``/``description``/
+        ``type``) AND semantic similarity to ``query_embedding``, returning the
+        top-``k`` hydrated with their human-readable text::
+
+            [{"id", "name", "description", "type", "score"}, ...]
+
+        Complements :meth:`semantic_search` (which returns bare ``(id, score)``
+        pairs): Discover folds the keyword signal into the ranking and hydrates the
+        result text in a single call, so a router/orchestrator gets a ready-to-read
+        shortlist with no N+1 metadata fetch. ``keywords`` is the caller's
+        de-duplicated token set; ``query_embedding`` may be empty (embedder/vLLM
+        unavailable), degrading to a bounded keyword-only scan. Gate on
+        :meth:`supports` (``"Discover"``) against an engine built before this op.
+        """
+        return await self._client._send(
+            "Discover",
+            {"keywords": keywords, "query_embedding": query_embedding, "k": k},
+        )
+
     async def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """CONCEPT:EG-010 — embedding-free lexical classification gate.
 
