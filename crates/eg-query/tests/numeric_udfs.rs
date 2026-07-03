@@ -242,6 +242,67 @@ fn pca_two_components_are_orthonormal_and_ordered() {
     );
 }
 
+// ── kmeans (CONCEPT:EG-344) — column→matrix clustering UDAF ──────────────────
+//
+// `kmeans(vec_col, k)` aggregates a COLUMN OF VECTORS into an `n×d` matrix and returns one
+// cluster label per row (ingestion order) as a `List<Int64>`. Two well-separated blobs are
+// clustered in-engine and the label partition asserted.
+
+#[test]
+fn kmeans_two_blobs_partition() {
+    // Rows 1-3 hug (0,0); rows 4-6 hug (10,10). k=2 must split them 3/3.
+    let snap = graph().analysis_snapshot();
+    let r = exec_sql(
+        &snap,
+        "SELECT kmeans(v, 2) AS c FROM (VALUES \
+           ('[0,0]'), ('[0.1,-0.1]'), ('[-0.1,0.2]'), \
+           ('[10,10]'), ('[10.1,9.9]'), ('[9.8,10.2]')) AS t(v)",
+    )
+    .unwrap();
+    let v = rows(&r);
+    let labels: Vec<i64> = v[0][0]
+        .as_array()
+        .expect("kmeans → JSON array of Int64 labels")
+        .iter()
+        .map(|x| x.as_i64().unwrap())
+        .collect();
+    assert_eq!(labels.len(), 6, "{labels:?}");
+    // Exactly two clusters, balanced 3/3.
+    let mut sorted = labels.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), 2, "expected 2 clusters: {labels:?}");
+    // The two blobs land in different clusters; each blob is internally consistent.
+    assert_eq!(labels[0], labels[1]);
+    assert_eq!(labels[1], labels[2]);
+    assert_eq!(labels[3], labels[4]);
+    assert_eq!(labels[4], labels[5]);
+    assert_ne!(labels[0], labels[3], "blobs must differ: {labels:?}");
+}
+
+#[test]
+fn kmeans_deterministic() {
+    // Same data + same (default) seed → identical labels across runs (reproducible).
+    let snap = graph().analysis_snapshot();
+    let sql = "SELECT kmeans(v, 2) AS c FROM (VALUES \
+        ('[1,1]'), ('[1.2,0.9]'), ('[8,8]'), ('[8.1,7.8]'), ('[4,9]')) AS t(v)";
+    let a = rows(&exec_sql(&snap, sql).unwrap());
+    let b = rows(&exec_sql(&snap, sql).unwrap());
+    assert_eq!(a, b, "kmeans must be deterministic given the default seed");
+}
+
+#[test]
+fn kmeans_empty_is_null() {
+    let snap = graph().analysis_snapshot();
+    let r = exec_sql(
+        &snap,
+        "SELECT kmeans(json_get_f64(props, 'missing_vec'), 2) AS c FROM nodes WHERE 1 = 0",
+    )
+    .unwrap();
+    let v = rows(&r);
+    assert_eq!(v[0][0], json!(null));
+}
+
 #[test]
 fn svd_empty_is_null() {
     // No rows → NULL list (never an error).
