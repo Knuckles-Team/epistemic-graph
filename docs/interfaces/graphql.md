@@ -73,3 +73,7 @@ send hash-only requests), query **depth + complexity/cost** analysis with config
 queries are rejected before execution), field/node count caps, and an **introspection on/off** toggle.
 These protect the federated subgraph.
 </content>
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Cypher & Bolt](cypher.md) · [SPARQL & RDF](sparql.md) · [SQL & pgwire](sql.md) · [Connecting (per-wire guide)](connecting.md).

@@ -5,7 +5,7 @@
 > firehose. The engine stays responsive while it ingests 24/7.
 
 This page is the deep reference for `CONCEPT:EG-044`. For where it sits in the
-broader scaling story see the **[Engine Scaling Program](scaling-program.md)**
+broader scaling story see the **[Engine Scaling Program](scaling_program.md)**
 (the responsiveness layer); for the MVCC read path it relies on see
 [`engine.md`](engine.md) and `CONCEPT:EG-027`.
 
@@ -233,3 +233,7 @@ ecosystem ingests continuously. Tuning guidance:
   themselves exhaust the box.
 - **It is harmless on a Pi.** The lane floors at 8; reads hold a slot only for a
   snapshot, so the reservation costs almost nothing when idle.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Per-Graph Write Coalescer](write_coalescer.md) · [Engine Scaling Program](scaling_program.md) · [Cost Model & Capacity](../cost_model.md) · [Operations Runbook](../operations/runbook.md).
