@@ -46,66 +46,44 @@ KvCas
 RunRules
 
 # --- Wave 18-22 engine ops served via wire adapters / HTTP surfaces, not the thin Python client ---
-# Backup/Restore (CONCEPT:EG-090): ops/maintenance surface, not a client call.
-Backup
-Restore
-# Native message broker + streams (CONCEPT:EG-275..284): reached via the AMQP/MQTT/STOMP
-# wire adapters + graph_bus, not the Python client. Exchange/queue/publish/consume/ack + streams.
-DeclareExchange
-DeleteExchange
-DeclareQueue
-BindQueue
-UnbindQueue
-Publish
-PublishEx
-PublishConfirmed
-BrokerConsume
-BrokerAck
-BrokerReject
-BrokerAckTag
-BrokerNackTag
-SweepExpired
-StreamDeclare
-StreamPublish
-StreamRead
-StreamTrim
-StreamCommitOffset
-StreamCommittedOffset
-# NL->query (CONCEPT:EG-080): served via the /nl HTTP route, not the client.
-NlQuery
-# RBAC admin (CONCEPT:EG-092): admin/governance op, not a client call.
-RbacAdmin
+# NOTE: broker/streams (EG-275..284/314), NL->query (EG-080), RBAC admin (EG-092), and
+# backup/restore (EG-090) were BOUND by B1.7 (CONCEPT:EG-328) into the thin Python client
+# (client.broker.* / client.query.nl_query / client.rbac.* / client.admin.*), so they are
+# NO LONGER listed here — they now have a Python sender. See docs/interfaces/clients.md.
+
 # SHACL/ShEx validation (CONCEPT:EG-132/133): reached via the RDF/SPARQL surface.
 ShaclValidate
 ShexValidate
-# Scene-graph / trajectory / agent-memory wire-Ops (CONCEPT:EG-318): the eg-core
-# agent-memory + scene-graph + trajectory library APIs exposed over the wire as
-# additive Methods for AU/MCP to drive remotely. They are issued via the MCP/agent
-# surface, not the thin nodes/edges/graph Python client — baselined until a Python
-# memory/scene/trajectory sub-client is added. (Pre-existing Program-B drift.)
+
+# --- EG-318 agent-memory / scene-graph / trajectory + CEP wire ops (deferred to B3.16 / B3.14) ---
+# These expose eg-core LIBRARY primitives over the wire (hierarchical summaries EG-220,
+# episodic->semantic consolidation EG-221, decay/reinforce/evict maintenance EG-222, the 3D
+# scene-graph EG-087, action/policy trajectory memory EG-099) plus the live-CEP subscription
+# surface. They landed in Program B as engine Methods but have NO Python consumer yet — B1.7's
+# scope was broker/streams/NL/RBAC/backup. Per the Wire-First rule (no speculative binding), they
+# are baselined here until their MCP/wire surface + a live caller land (roadmap B3.16 / B3.14);
+# bind them in client.py then. Agent-memory / summaries (EG-220/221/222):
 CreateSummaryNode
-SummaryChildren
 SummariesAtLevel
+SummaryChildren
 Consolidate
-Maintain
 DecayMemories
 DecayNode
-Reinforce
 EvictBelow
+Maintain
+Reinforce
+# 3D scene-graph (EG-087):
 AddSceneObject
 SetPose
 Reparent
 SceneChildren
 WorldTransform
+# Action/policy trajectory memory (EG-099):
 StartTrajectory
 AppendStep
-DiscountedReturn
 BestTrajectory
-# Live CEP standing-query subscription surface (CONCEPT:EG-299): register/subscribe/poll
-# a CEP pattern, pushed matches fed by the CDC bus — driven via the streaming/MCP surface.
+DiscountedReturn
+# Live complex-event-processing subscription surface (B3.14):
 CepSubscribe
 CepUnsubscribe
 CepPoll
-# Idempotent-producer publish for exactly-once broker delivery (CONCEPT:EG-314): issued
-# over the AMQP/MQTT wire frames, not the thin client.
-PublishIdempotent
