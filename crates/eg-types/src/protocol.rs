@@ -1004,6 +1004,22 @@ pub enum Method {
         query_embedding: Vec<f32>,
         n_results: usize,
     },
+    /// CONCEPT:KG-2.132 — one-round-trip hybrid discovery. Given the caller's
+    /// de-duplicated `keywords` plus a `query_embedding`, dense-retrieve candidate
+    /// nodes via the HNSW index (the same batch primitive as `SemanticSearch`),
+    /// then re-rank each by BOTH its semantic similarity AND lexical keyword
+    /// overlap over its `name`/`description`/`type`, returning the top-`k` with
+    /// their human-readable text as `[{id,name,description,type,score}, …]`.
+    /// Complements `SemanticSearch` (which returns bare `(id, score)`): Discover
+    /// folds the keyword signal in and hydrates the result text in one call, so a
+    /// router/orchestrator gets a ready-to-read shortlist without an N+1 metadata
+    /// fetch. An empty `query_embedding` (embedder/vLLM unavailable) degrades to a
+    /// bounded keyword-only scan.
+    Discover {
+        keywords: Vec<String>,
+        query_embedding: Vec<f32>,
+        k: usize,
+    },
     /// CONCEPT:EG-010 — embedding-free lexical classification gate: which
     /// capability-node terms (Tool/Skill/MCPServer names+synonyms) appear in the
     /// query. The "free" tier between structural routing and `SemanticSearch`.
