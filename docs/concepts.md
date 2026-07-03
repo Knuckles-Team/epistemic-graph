@@ -303,3 +303,9 @@ These concepts are actively realized by the compiled Rust/Python Epistemic Graph
 \n## CONCEPT:KG-2.22\nGraph Network Protocols
 \n## CONCEPT:KG-2.22\nData Science Primitives
 \n## CONCEPT:KG-2.21\nAST Ingestion Pipeline
+| `CONCEPT:EG-365` | Cross-modal SEAM regression: planner mid-pipeline composition proofs (Reason→Traverse→Rank == reasoner∘BFS∘kNN oracle; SensorFuse→Rank / TensorScan→Rank downstream composition; reason-seeded cost reorder plan-shape) | epistemic-graph |
+| `CONCEPT:EG-366` | Bitemporal SEAM: decay-sweep (Ebbinghaus) re-weights confidence while `AsOf{Valid}` re-selects liveness and an in-between UPDATE flips a validity window — asserts confidence values + liveness at two instants | epistemic-graph |
+| `CONCEPT:EG-367` | Vector⇄reasoning cross-txn write→read consistency: a freshly written node (embedding + reasoner-subsumed type) is BOTH ANN-ranked AND reasoner-included by the next `[Reason|>Rank]` plan; an embedding UPDATE is reflected by the next ANN pass | epistemic-graph |
+| `CONCEPT:EG-368` | SPARQL-UPDATE→reasoning cross-txn visibility: a `DELETE/INSERT WHERE` re-parenting a TBox axiom is visible to the very next OWL EL⁺ classification | epistemic-graph |
+| `CONCEPT:EG-369` | Cache-coherence SEAM: the version-keyed SQL result cache HITS at the old version and MISSES + returns fresh rows after a version-bumping write; cache ON == cache OFF byte-identical | epistemic-graph |
+| `CONCEPT:EG-370` | Served E2E cross-modal SEAM: `add(embedding+type)→reason→discover` returns the fresh node; a SPARQL-style axiom UPDATE is visible to BOTH `owl_reason` AND hybrid `discover` | epistemic-graph |
