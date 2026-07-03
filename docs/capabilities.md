@@ -350,7 +350,8 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 | Surface A — Python extension `epistemic_graph.numeric` (zero-copy rust-numpy + `allow_threads`) → `agent_utilities.numeric.xp` | ✅ | feature `python` (separate maturin build); consumed by KG-2.311 shim |
 | Surface B — SQL analytics UDFs/UDAFs over the kernel: `cosine_sim`/`l2_normalize`/`zscore` scalars + `covariance` UDAF (in-engine over resident columns) | ✅ | CONCEPT:EG-329; `crates/eg-query/src/sql/numeric.rs`; `crates/eg-query/tests/numeric_udfs.rs` |
 | Surface B — kernel-backed batch vector op via the client/Method path (`BatchL2Normalize`) | ✅ | CONCEPT:EG-330; `src/server/handlers/graph_ops.rs`; `client.batch_l2_normalize()` |
-| Surface B — `pca(col,k)`/`svd(matrix)` SQL UDFs, graph-algo/timeseries unification, cross-modal joins → PCA/cluster in-engine | 🗺 | next P4 increment (column→matrix marshalling; faer SVD kernel already present) |
+| Surface B — `svd(vec_col)`/`pca(vec_col,k)` column→matrix SQL UDAFs (aggregate a vector column into a dense matrix → faer `svdvals`/`eigh`; singular values / top-k principal-component directions) | ✅ | CONCEPT:EG-336/EG-335; `crates/eg-query/src/sql/numeric.rs`; `crates/eg-query/tests/numeric_udfs.rs` |
+| Surface B — graph-algo/timeseries unification, cross-modal joins → PCA/cluster in-engine | 🗺 | next P4 increment |
 
 ## Durability & distribution
 

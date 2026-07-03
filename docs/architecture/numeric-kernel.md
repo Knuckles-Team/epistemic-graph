@@ -111,7 +111,7 @@ and runs against the compiled kernel when present, else the numpy fallback.
 - **P5:** drop numpy/scipy from agent-utilities; the `eg-numeric` wheel is the dep. The
   `xp` shim stays so future backend swaps remain mechanical.
 
-## Surface B — in-database analytics operators (P4, CONCEPT:EG-329/EG-330)
+## Surface B — in-database analytics operators (P4, CONCEPT:EG-329/EG-330/EG-335/EG-336)
 
 The pure kernel rlib is wired into the engine's query surface so analytics run **where the
 data lives** — no fetch-to-Python, no FFI. Two reach paths:
@@ -127,12 +127,14 @@ flowchart TD
       U2["l2_normalize(v) → List&lt;Float32&gt;  (scalar)"]
       U3["zscore(col) → Float64  (scalar-over-batch)"]
       U4["covariance(a,b) → Float64  (UDAF)"]
+      U5["svd(vec_col) → List&lt;Float64&gt;  (UDAF, col→matrix)"]
+      U6["pca(vec_col,k) → List&lt;List&lt;Float64&gt;&gt;  (UDAF, col→matrix)"]
     end
     subgraph rpc["Surface B / Method  (src/server/handlers)"]
       M1["BatchL2Normalize { vectors }"]
     end
-    SQL["SELECT zscore(price) …\nSELECT cosine_sim(a.emb,b.emb) …"] --> U1 & U2 & U3 & U4
-    U1 & U2 & U3 & U4 --> kernel
+    SQL["SELECT zscore(price) …\nSELECT svd(emb) …\nSELECT pca(emb,3) …"] --> U1 & U2 & U3 & U4 & U5 & U6
+    U1 & U2 & U3 & U4 & U5 & U6 --> kernel
     client["client.batch_l2_normalize(vectors)"] --> M1 --> kernel
     kernel --> pi{{"Pi-contract: numeric ∉ pi\n→ no eg-numeric/faer in the pi tree"}}
 ```
@@ -147,12 +149,25 @@ implemented in `crates/eg-query/src/sql/numeric.rs`):
 | `l2_normalize(v)` | scalar → `List<Float32>` | `linalg::norm` | unit vector `v/‖v‖` (pgvector type — feeds `cosine_sim`/ANN in-query); zero-norm returned unchanged. |
 | `zscore(col)` | scalar-over-batch → `Float64` | `reductions::mean`/`std` | standardize `(x-mean)/std` (population `ddof=0`) over the materialized batch. Exact for the engine's single-partition MemTable/`NodesTableProvider` (one batch/table); a global two-pass is the `(x-avg(x) OVER())/stddev(x) OVER()` window form. |
 | `covariance(a, b)` | UDAF → `Float64` | `reductions::mean` | sample covariance `Σ(aᵢ-ā)(bᵢ-b̄)/(n-1)`; buffers aligned non-null pairs, merge state = two `List<Float64>` columns. |
+| `svd(vec_col)` (EG-336) | UDAF → `List<Float64>` | `linalg::svdvals` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix (each row = one matrix row; same operand forms as `cosine_sim` — a `List<Float{32,64}>` column or `'[..]'` text) and returns its singular values (descending). |
+| `pca(vec_col, k)` (EG-335) | UDAF → `List<List<Float64>>` | `reductions::mean` + `linalg::eigh` | **column→matrix**: mean-centers the `n×d` matrix, eigendecomposes the `d×d` sample covariance (`ddof=1`), and returns the top-`k` principal-component DIRECTIONS as `k` unit vectors of length `d`, **descending by explained variance** (sign arbitrary; `k` clamped to `d`; projected coords = `X_centered·componentsᵀ` downstream). |
 
-Example — standardize a price column and rank rows by similarity, all in-engine:
+**Column→matrix marshalling** (the deferred-in-P4 bridge, `svd`/`pca`): both are UDAFs whose
+`Accumulator` (`MatrixAcc`) decodes each ingested row via `row_to_vector` (the same operand
+forms `cosine_sim` accepts) and buffers it row-major into a flat `Vec<f64>` + fixed `dim`
+(ragged rows skipped, NULL-safe); `evaluate()` reshapes to a dense `ndarray::Array2` and runs
+the faer kernel. Partial-aggregate state is the flat buffer as a `List<Float64>` plus `dim`
+(and `k` for `pca`) as `Int64`, so multi-phase grouping merges losslessly. The `List<Float64>`
+/ `List<List<Float64>>` results render as structural JSON arrays via `cell_to_json`
+(alongside the pgvector `List<Float32>` path).
+
+Example — standardize a price column, rank rows by similarity, and reduce embeddings, all in-engine:
 
 ```sql
 SELECT id, zscore(price) AS z FROM nodes ORDER BY z DESC;
 SELECT a.id, cosine_sim(a.emb, b.emb) AS sim FROM nodes a JOIN nodes b ON a.id <> b.id;
+SELECT svd(emb) AS singular_values FROM nodes;        -- singular values of the emb matrix
+SELECT pca(emb, 3) AS top3_components FROM nodes;     -- top-3 principal-component directions
 ```
 
 **Batch Method** — `Method::BatchL2Normalize { vectors }` (`src/server/handlers/graph_ops.rs`,
@@ -167,10 +182,8 @@ stays OUT of `pi`/`node`/`pi-max`/`release-tiny`, and eg-numeric's pyo3 (`python
 off in every engine build, so a `numeric` engine links faer/ndarray but **no Python extension**.
 Verified: `cargo tree --no-default-features --features pi` links **no** eg-numeric/faer/ndarray.
 
-**Deferred (next P4 increment):** `pca(col, k)` / `svd(matrix)` SQL UDFs — these need a
-column→`ndarray::Array2` marshalling step (a set of vector columns, or a
-`List<List<Float64>>` matrix argument, pivoted into a dense matrix) that is materially more
-work than the scalar/aggregate marshalling here; the faer SVD/eigh kernels
-(`linalg::svd`/`eigh`) are already present and parity-validated, so this is purely the
-columnar↔matrix bridge. Also deferred: graph-algo/timeseries unification under the one
-kernel and cross-modal joins → PCA/cluster in-engine (later P4).
+**Shipped this increment:** `svd(vec_col)` (EG-336) / `pca(vec_col, k)` (EG-335) — the
+column→`ndarray::Array2` marshalling UDAFs above; the faer SVD/eigh kernels
+(`linalg::svdvals`/`eigh`) drive them, so this closed the columnar↔matrix bridge.
+**Still deferred (later P4):** graph-algo/timeseries unification under the one kernel and
+cross-modal joins → PCA/cluster in-engine.
