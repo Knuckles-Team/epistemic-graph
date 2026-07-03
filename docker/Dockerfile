@@ -42,11 +42,21 @@ LABEL org.opencontainers.image.title="epistemic-graph" \
       org.opencontainers.image.description="Durable Rust-native epistemic graph DB engine (node tier — pgwire-capable single-node)" \
       org.opencontainers.image.source="https://github.com/Knuckles-Team/epistemic-graph"
 
-# The published node-tier package + its minimum version. CI passes the exact just-
-# published version via --build-arg EG_VERSION=<tag without v>. Override EG_INSTALL_SPEC
-# to point at a local wheel for a pre-publish sanity build (see header).
-ARG EG_VERSION=2.2.0
+# The node-tier package + its minimum version. CI passes the exact release version via
+# --build-arg EG_VERSION=<tag without v>. The PRIMARY install source is a LOCAL WHEEL
+# built in the same CI run (see EG_WHEEL_DIR / the install step below) — the image does
+# NOT round-trip through PyPI, so it can build the moment the wheels are built (no
+# dependency on publish-pypi). EG_INSTALL_SPEC is only the FALLBACK (a plain `docker
+# build` with no wheels present pulls the published package from PyPI).
+ARG EG_VERSION=2.6.0
 ARG EG_INSTALL_SPEC="epistemic-graph>=${EG_VERSION}"
+# Directory (relative to the build context) holding CI-built wheels. CI downloads the
+# `wheel-linux-x86_64` + `wheel-linux-aarch64` node-tier artifacts here; the install
+# step picks the wheel matching this buildx platform leg (TARGETARCH). For a plain
+# build this dir holds only `.gitkeep`, so the step falls back to EG_INSTALL_SPEC.
+ARG EG_WHEEL_DIR=docker/wheels
+# Provided automatically by buildx per platform leg (amd64 / arm64).
+ARG TARGETARCH
 
 ENV UV_SYSTEM_PYTHON=1 \
     UV_HTTP_TIMEOUT=3600 \
@@ -64,13 +74,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Install the prebuilt wheel — seconds, no compile. uv selects the manylinux wheel
-# matching this buildx platform leg. `--prerelease=allow` matches the fleet standard.
-# Smoke the binary in-build so a broken install fails the image build.
+# Copy any CI-built wheels into the image so a multi-arch buildx build can select the
+# per-arch wheel without a PyPI round-trip. Always present (.gitkeep) so this COPY
+# never fails on a plain build.
+COPY ${EG_WHEEL_DIR}/ /wheels/
+
+# Install the prebuilt wheel — seconds, no compile. PRIMARY: install the arch-matching
+# node-tier wheel built in THIS CI run (from /wheels). FALLBACK: if no matching wheel is
+# present (plain build), install EG_INSTALL_SPEC from PyPI. `--prerelease=allow` matches
+# the fleet standard. Smoke the binary in-build so a broken install fails the image build.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,target=/ctx \
-    uv pip install --system --upgrade --break-system-packages --prerelease=allow ${EG_INSTALL_SPEC} \
-    && epistemic-graph-server --help >/dev/null
+    set -eu; \
+    case "${TARGETARCH:-}" in \
+      amd64) WHEELARCH=x86_64 ;; \
+      arm64) WHEELARCH=aarch64 ;; \
+      *)     WHEELARCH="" ;; \
+    esac; \
+    wheel=""; \
+    if [ -n "${WHEELARCH}" ]; then \
+      wheel=$(ls /wheels/epistemic_graph-*"${WHEELARCH}"*.whl 2>/dev/null | head -n1 || true); \
+    fi; \
+    if [ -n "${wheel}" ]; then \
+      echo "Installing epistemic-graph from CI wheel artifact: ${wheel}"; \
+      uv pip install --system --upgrade --break-system-packages --prerelease=allow "${wheel}"; \
+    else \
+      echo "No local wheel for arch '${TARGETARCH:-?}' in /wheels — falling back to PyPI: ${EG_INSTALL_SPEC}"; \
+      uv pip install --system --upgrade --break-system-packages --prerelease=allow ${EG_INSTALL_SPEC}; \
+    fi; \
+    epistemic-graph-server --help >/dev/null
 
 # Non-root user — the engine never needs root; the persist dir is owned by it.
 RUN groupadd --system --gid 10001 epistemic \
