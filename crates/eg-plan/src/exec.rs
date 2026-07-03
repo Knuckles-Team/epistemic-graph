@@ -66,6 +66,17 @@ pub struct PlanCtx<'a> {
     /// so a non-tensor build's `PlanCtx` is unchanged.
     #[cfg(feature = "tensor")]
     pub tensor_store: Option<&'a std::sync::Mutex<eg_tensor::TensorStore>>,
+    /// CONCEPT:EG-363 — the native time-series [`eg_tsdb::store::SeriesStore`] backing the
+    /// `Op::TsScan` SOURCE op, so a plan can seed its RowSet from tsdb series and fuse the
+    /// time-series leg with the graph/vector/relational legs in ONE plan (tsdb-in-plan
+    /// fusion). `None` (the default) makes a `TsScan` yield no rows — the plan degrades,
+    /// never errs, exactly as an absent embedding does for `Rank` or an absent text index
+    /// for `RankText`. A server/facade owns the store and threads it in via
+    /// [`Self::with_tsdb`]; Lane A's `run_unified` reconcile calls it. Gated behind
+    /// `timeseries` (the eg-plan→eg-tsdb `redb-store` edge), so a non-timeseries build's
+    /// `PlanCtx` is unchanged.
+    #[cfg(feature = "timeseries")]
+    pub tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
 }
 
 impl<'a> PlanCtx<'a> {
@@ -84,6 +95,8 @@ impl<'a> PlanCtx<'a> {
             foreign: None,
             #[cfg(feature = "tensor")]
             tensor_store: None,
+            #[cfg(feature = "timeseries")]
+            tsdb: None,
         }
     }
 
@@ -123,6 +136,18 @@ impl<'a> PlanCtx<'a> {
         store: &'a std::sync::Mutex<eg_tensor::TensorStore>,
     ) -> Self {
         self.tensor_store = Some(store);
+        self
+    }
+
+    /// Attach a native time-series [`eg_tsdb::store::SeriesStore`] so an `Op::TsScan` op
+    /// resolves its series → `(ts, value)` rows through it (CONCEPT:EG-363). A
+    /// server/facade opens the store once at setup and threads it in here — the library
+    /// seam that keeps the store binding out of the wire DTO. Without this call a
+    /// `TsScan` yields no rows (degrade, never err), so a default ctx is byte-for-byte
+    /// the old one.
+    #[cfg(feature = "timeseries")]
+    pub fn with_tsdb(mut self, store: &'a eg_tsdb::store::SeriesStore) -> Self {
+        self.tsdb = Some(store);
         self
     }
 }
@@ -195,7 +220,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         Op::Reason {
             target_class,
             ontology,
-        } => Ok(reason_source(ctx.view, target_class, ontology)),
+        } => Ok(reason_op(ctx.view, input, target_class, ontology)),
 
         #[cfg(feature = "owl")]
         Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
@@ -291,13 +316,13 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             tolerance_ns,
         } => Ok(sensor_fuse_op(ctx.view, streams, *tolerance_ns)),
 
-        // SOURCE (time-series, CONCEPT:EG-363) — seed the RowSet from native TSDB series.
-        // LANE 0 PLACEHOLDER: the real eg-tsdb `SeriesStore` scan (`tsdb_scan_op`, plus
-        // the `PlanCtx.tsdb` field) is owned by Lane C; this minimal not-yet-wired arm
-        // only keeps the `timeseries` build exhaustive (no business logic). REPLACE in
-        // Lane C.
+        // SOURCE (time-series, CONCEPT:EG-363) — seed the RowSet from native eg-tsdb
+        // series via the `SeriesStore` attached to the ctx (`PlanCtx::with_tsdb`), so the
+        // tsdb leg fuses with the graph/vector/relational legs in ONE plan. Gated behind
+        // `timeseries` (the eg-plan→eg-tsdb `redb-store` edge); with no store attached it
+        // yields no rows (degrade, never err — the SensorFuse/Rank precedent).
         #[cfg(feature = "timeseries")]
-        Op::TsScan { .. } => Err("Op::TsScan not yet implemented (Lane C)".to_string()),
+        Op::TsScan { series, from, to } => Ok(tsdb_scan_op(ctx.tsdb, series, *from, *to)),
 
         Op::Limit { k } => Ok(input.limit(*k)),
     }
@@ -438,6 +463,26 @@ fn fuse_rrf(ctx: &PlanCtx, input: &RowSet, branches: &[Vec<Op>], k: f32) -> Resu
     let refs: Vec<&[String]> = ranked.iter().map(|v| v.as_slice()).collect();
     let fused = eg_text::rrf_fuse(&refs, k);
     Ok(RowSet::from_scored(fused))
+}
+
+/// SOURCE **or** FILTER (OWL, CONCEPT:EG-363) — dispatches on whether `input` carries
+/// rows. With an EMPTY input it is a pure SOURCE (today's behavior, unchanged): every
+/// OWL-inferred, confidence-scored member of `target_class` seeds the RowSet. With a
+/// NON-EMPTY input it acts MID-PIPELINE as a confidence-preserving FILTER: keep only the
+/// incoming rows that are ALSO inferred members, preserving the incoming order/scores via
+/// [`RowSet::intersect_keep_order`] — the SAME idiom `as_of_filter` uses. That makes
+/// `Rank → Reason → Traverse` legal: reasoning narrows a vector-ranked candidate set in
+/// the middle of a plan, not only as a leaf source. The reasoner runs identically either
+/// way; only the compose step differs, so the empty-input path is byte-for-byte the old
+/// `reason_source`.
+#[cfg(feature = "owl")]
+fn reason_op(view: &GraphView, input: RowSet, target_class: &str, ontology: &str) -> RowSet {
+    if input.is_empty() {
+        return reason_source(view, target_class, ontology);
+    }
+    let inferred = reason_source(view, target_class, ontology);
+    let keep = inferred.id_set();
+    input.intersect_keep_order(&keep)
 }
 
 /// SOURCE (OWL): the individuals the native OWL 2 reasoner INFERS to be members of
@@ -665,6 +710,45 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
             let present = row.channels.iter().filter(|c| c.is_some()).count();
             (row.ts.to_string(), present as f32)
         });
+    RowSet::from_scored(scored)
+}
+
+// ── the time-series SOURCE leg — native eg-tsdb SeriesStore scan (CONCEPT:EG-363) ─
+
+/// SOURCE (time-series): read the points of each id in `series` within the `[from, to)`
+/// window out of the native eg-tsdb [`eg_tsdb::store::SeriesStore`] and emit one row per
+/// point — `id` = the point timestamp (stringified), `score` = the point's first field
+/// value — so a downstream `Rank`/`Limit`/`Filter` fuses the time-series leg with the
+/// graph/vector/relational legs in ONE plan (tsdb-in-plan fusion, CONCEPT:EG-363).
+///
+/// Bounds are `f64` SECONDS on the wire (uniform with the other numeric plan ops); this
+/// op lowers them to the store's `i64`-nanosecond range internally, and the store's
+/// `range` is half-open `[from, to)` (t >= from && t < to), so the plan bound semantics
+/// match. `None` store (no [`PlanCtx::with_tsdb`] attached), an unknown series, or a
+/// point with no value all contribute nothing — the RowSet just stays empty/smaller:
+/// degrade, never err, exactly as `Rank` over an empty store or `SensorFuse` over no
+/// timed streams. Rows dedup by id (ts): on a ts shared across series the FIRST series'
+/// point wins ([`RowSet::from_scored`] keeps the first occurrence).
+#[cfg(feature = "timeseries")]
+fn tsdb_scan_op(
+    store: Option<&eg_tsdb::store::SeriesStore>,
+    series: &[String],
+    from: f64,
+    to: f64,
+) -> RowSet {
+    let Some(store) = store else {
+        return RowSet::new();
+    };
+    const NS_PER_S: f64 = 1e9;
+    let from_ns = (from.max(0.0) * NS_PER_S) as i64;
+    let to_ns = (to.max(0.0) * NS_PER_S) as i64;
+    let scored = series.iter().flat_map(|sid| {
+        store
+            .range(sid, from_ns, to_ns)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|p| p.values.first().map(|&v| (p.ts.to_string(), v as f32)))
+    });
     RowSet::from_scored(scored)
 }
 
