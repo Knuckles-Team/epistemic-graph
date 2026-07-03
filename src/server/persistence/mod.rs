@@ -180,23 +180,31 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
-    /// **Cross-modal ACID commit (CONCEPT:KG-2.225).** Land a graph + vector + blob-ref
-    /// + property write-set for ONE graph atomically. The redb backend overrides this
-    /// to commit ALL modalities in ONE `WriteTransaction` (commit-before-ack): on any
-    /// error nothing lands (full rollback — no partial cross-modal commit). The
-    /// default (non-redb) impl records the graph methods through the write-behind
-    /// `record` seam; vectors/blob-refs have no durable home off redb, so it errors if
-    /// any are present rather than silently dropping a modality.
+    /// **Cross-modal ACID commit (CONCEPT:KG-2.225 + EG-360).** Land a graph + vector +
+    /// blob-ref + measurement + property write-set for ONE graph atomically. The redb
+    /// backend overrides this to commit ALL modalities in ONE `WriteTransaction`
+    /// (commit-before-ack): on any error nothing lands (full rollback — no partial
+    /// cross-modal commit). The default (non-redb) impl records the graph methods
+    /// through the write-behind `record` seam; vectors/blob-refs/measurements have no
+    /// durable home off redb, so it errors if any are present rather than silently
+    /// dropping a modality (No-Legacy).
+    ///
+    /// Note (EG-360): staged OWL axioms + SPARQL CONSTRUCT triples are lowered to
+    /// graph-native `AddNode`/`AddEdge` at STAGE time and arrive folded into `methods`,
+    /// so they ride this same durable path as ordinary graph mutations; only the
+    /// genuinely non-graph modalities (vectors/blob-refs/measurements) get their own
+    /// arguments + off-redb guard.
     async fn commit_crossmodal(
         &self,
         graph_fname: &str,
         methods: &[Method],
         vectors: &[(String, Vec<f32>)],
         blob_refs: &[(String, String)],
+        measurements: &[crate::MeasurementBatch],
     ) -> Result<(), String> {
-        if !vectors.is_empty() || !blob_refs.is_empty() {
+        if !vectors.is_empty() || !blob_refs.is_empty() || !measurements.is_empty() {
             return Err(
-                "cross-modal txn (vectors / blob-refs) requires the redb persistence backend"
+                "cross-modal txn (vectors / blob-refs / measurements) requires the redb persistence backend"
                     .to_string(),
             );
         }

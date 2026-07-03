@@ -253,6 +253,53 @@ pub struct GraphTxnState {
     /// KG-2.225). Each records a durable graph-side `__blob__` link to an already-
     /// stored content-addressed blob; lands in the SAME cross-modal commit txn.
     pub(crate) blob_refs: Vec<(String, String)>,
+    /// Staged TIME-SERIES measurement batches for the DEFAULT graph (CONCEPT:EG-360 —
+    /// extended cross-modal staging). EMPTY for a txn with no measurements. When
+    /// non-empty, the commit lands each batch into the graph's SERIES tables inside the
+    /// SAME redb `WriteTransaction` as the graph/vector/blob writes, so a node and the
+    /// measurements annotating it are atomic. Exposed readably (crate-visible) so Lane A's
+    /// `run_unified_overlaid` can overlay these staged, uncommitted points into an in-txn
+    /// `TsScan` (read-your-own-writes on the tsdb modality).
+    pub(crate) measurements: Vec<StagedMeasurement>,
+    /// Staged OWL AXIOM writes, already LOWERED to graph-native `AddNode`/`AddEdge`
+    /// methods at stage time (CONCEPT:EG-361). Kept separate from `write_set` for
+    /// provenance, but applied through the SAME cross-modal wtx (`apply_method_rows`
+    /// durably + `apply_staged` in-memory) so the committed OWL axioms are visible to the
+    /// reasoner consistently with the txn's other modalities. EMPTY for a non-axiom txn.
+    pub(crate) axioms: Vec<Method>,
+    /// Staged SPARQL CONSTRUCT results, already LOWERED to graph-native `AddNode`/
+    /// `AddEdge` methods at stage time (CONCEPT:EG-362 — the CONSTRUCT is evaluated
+    /// against the committed snapshot when staged). Applied through the SAME cross-modal
+    /// wtx as `axioms`. EMPTY for a non-construct txn.
+    pub(crate) constructs: Vec<Method>,
+}
+
+/// One staged time-series measurement batch (CONCEPT:EG-360). Carries the decoded points
+/// plus the schema fields the durable SERIES tables need on FIRST write of a series
+/// (`n_fields`/`bucket_ns`/`field_names`); for an already-existing series the stored meta
+/// is authoritative and these are ignored. Decoded once at stage time so the commit path
+/// is a pure durable write.
+pub(crate) struct StagedMeasurement {
+    pub(crate) series: String,
+    pub(crate) n_fields: usize,
+    pub(crate) bucket_ns: u64,
+    pub(crate) field_names: Vec<String>,
+    /// `(ts_nanos, field_values)` points — the SAME shape `TsAppend` carries on the wire.
+    pub(crate) points: Vec<(i64, Vec<f64>)>,
+}
+
+impl StagedMeasurement {
+    /// Flatten into the persistence-layer [`crate::MeasurementBatch`] tuple threaded
+    /// through `commit_crossmodal`.
+    pub(crate) fn to_batch(&self) -> crate::MeasurementBatch {
+        (
+            self.series.clone(),
+            self.n_fields,
+            self.bucket_ns,
+            self.field_names.clone(),
+            self.points.clone(),
+        )
+    }
 }
 
 impl GraphTxnState {
@@ -288,6 +335,9 @@ impl GraphTxnState {
             extra_writes: HashMap::new(),
             vectors: Vec::new(),
             blob_refs: Vec::new(),
+            measurements: Vec::new(),
+            axioms: Vec::new(),
+            constructs: Vec::new(),
         }
     }
 
@@ -322,10 +372,47 @@ impl GraphTxnState {
         self.last_active_ms = now_ms;
     }
 
-    /// True when this txn staged a vector or blob-ref — i.e. it is a CROSS-MODAL txn
-    /// whose commit must land all modalities in ONE redb `WriteTransaction`.
+    /// Stage a TIME-SERIES measurement batch into the cross-modal write-set
+    /// (CONCEPT:EG-360). Measurements are not graph nodes, so nothing is added to the OCC
+    /// node read-set; the batch is queued to land atomically with the txn's other
+    /// modalities at commit.
+    pub(crate) fn stage_measurement(&mut self, measurement: StagedMeasurement, now_ms: u64) {
+        self.measurements.push(measurement);
+        self.last_active_ms = now_ms;
+    }
+
+    /// Stage OWL AXIOM writes, pre-lowered to `AddNode`/`AddEdge` methods (CONCEPT:EG-361).
+    /// Each method's referenced nodes are captured into the OCC read-set (so a concurrent
+    /// change to a touched node still conflicts), then the methods are queued to land in
+    /// the SAME cross-modal commit.
+    pub(crate) fn stage_axiom(&mut self, core: &GraphCore, methods: Vec<Method>, now_ms: u64) {
+        for m in &methods {
+            self.observe_method(core, m);
+        }
+        self.axioms.extend(methods);
+        self.last_active_ms = now_ms;
+    }
+
+    /// Stage SPARQL CONSTRUCT results, pre-lowered to `AddNode`/`AddEdge` methods
+    /// (CONCEPT:EG-362). Same OCC read-set capture + atomic-commit semantics as
+    /// [`Self::stage_axiom`].
+    pub(crate) fn stage_construct(&mut self, core: &GraphCore, methods: Vec<Method>, now_ms: u64) {
+        for m in &methods {
+            self.observe_method(core, m);
+        }
+        self.constructs.extend(methods);
+        self.last_active_ms = now_ms;
+    }
+
+    /// True when this txn staged any NON-graph-topology modality — a vector, blob-ref,
+    /// measurement, OWL axiom, or CONSTRUCT — i.e. it is a CROSS-MODAL txn whose commit
+    /// must land all modalities in ONE redb `WriteTransaction`.
     pub(crate) fn is_cross_modal(&self) -> bool {
-        !self.vectors.is_empty() || !self.blob_refs.is_empty()
+        !self.vectors.is_empty()
+            || !self.blob_refs.is_empty()
+            || !self.measurements.is_empty()
+            || !self.axioms.is_empty()
+            || !self.constructs.is_empty()
     }
 
     /// Stage one durable mutation against a NAMED graph that may differ from the
@@ -376,10 +463,11 @@ impl GraphTxnState {
             .or_insert_with(|| NodeFingerprint::capture(core, node_id));
     }
 
-    /// Stage one durable mutation, capturing the read-set fingerprint(s) of every
-    /// node it references. The op is NOT applied to the graph here.
-    pub(crate) fn stage(&mut self, core: &GraphCore, method: Method, now_ms: u64) {
-        match &method {
+    /// Capture the OCC read-set fingerprint(s) of every node a staged method references
+    /// (without pushing it to any write-set). Shared by [`Self::stage`] and the lowered
+    /// axiom/CONSTRUCT stagers so all paths protect the nodes they touch identically.
+    fn observe_method(&mut self, core: &GraphCore, method: &Method) {
+        match method {
             Method::AddNode { node_id, .. } | Method::RemoveNode { node_id } => {
                 self.observe(core, node_id);
             }
@@ -400,6 +488,12 @@ impl GraphTxnState {
             }
             _ => {}
         }
+    }
+
+    /// Stage one durable mutation, capturing the read-set fingerprint(s) of every
+    /// node it references. The op is NOT applied to the graph here.
+    pub(crate) fn stage(&mut self, core: &GraphCore, method: Method, now_ms: u64) {
+        self.observe_method(core, &method);
         self.write_set.push(method);
         self.last_active_ms = now_ms;
     }
