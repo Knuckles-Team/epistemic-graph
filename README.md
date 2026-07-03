@@ -99,7 +99,7 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **Postgres compat** | `pg_catalog` + `information_schema` system views (`\d`/`\dt`/`\l`) | ✅ | `pgwire` | EG-103; synthesized from live table/view/function catalogs |
 | **Postgres compat** | `CREATE EXTENSION` catalog · pgvector `vector` + `<->`/`<=>`/`<#>` + **real ANN pushdown** to HNSW/IVF + exact re-rank | ✅ | `pgwire` | EG-102/115/116; real top-k pushdown (EG-313) |
 | **Postgres compat** | AGE `cypher()` set-returning function, TimescaleDB hypertables + continuous aggregates, ParadeDB `@@@` **real BM25 ranking + snippets** | ✅ | `pgwire` | EG-114/117/119; real BM25 (EG-311) |
-| **Postgres wire** | listener, simple + extended/prepared protocol | ✅ | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR`; also pulled in by `cluster` |
+| **Postgres wire** | listener, simple + extended/prepared protocol | ✅ | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR`; folded into `node`/`full`/`cluster` (EG-352) |
 | **Postgres wire** | SCRAM-SHA-256 / trust auth, `pg_catalog` introspection | ✅ | `pgwire` | KG-2.202 / KG-2.201; pg user → engine ACL actor |
 | **SPARQL** | `SELECT` (BGP, paths, FILTER subset, OPTIONAL, UNION, GROUP/agg, BIND, DISTINCT, SLICE) | ✅ | `sparql` | spargebra parser compiled to LPG scans |
 | **SPARQL** | `ASK` / `CONSTRUCT` / `DESCRIBE` | ✅ | `sparql` | template instantiation + bounded description (gated by `rdf`, implied by `sparql`) |
@@ -255,9 +255,9 @@ A Pi **pulls a prebuilt wheel and never compiles**. Full build/wheel recipes are
 |--------|---------|-----|
 | **pi** | redb-authoritative + cypher + ann + rdf/sparql/owl + streaming + result-cache + cost — **no DataFusion SQL, no Tantivy, no Raft** | Raspberry Pi / edge, ultra-lean |
 | **pi-max** | pi + tsdb + blob + security — all pure-Rust, still no C toolchain | Pi "everything without a C compiler" |
-| **node** | pi + DataFusion SQL (`query`) + GraphQL + Tantivy text + `owl-plan` + wasm-udf + federation + finance/datascience | single durable server |
-| **cluster** | node + Raft replication + **pgwire** + distributed compute + cross-shard 2PC | multi-node HA / SQL clients |
-| **full** | every single-node feature, size-optimized (no raft/pgwire) — incl. the `numeric` kernel (Surface A), `kvcache-server`, broker, LTAP | workstation / one binary, every feature |
+| **node** (default wheel) | pi + DataFusion SQL (`query`) + GraphQL + Tantivy text + `owl-plan` + wasm-udf + federation + **pgwire** (Postgres wire SQL) + finance/datascience — a COMPLETE single-node DB | single durable server / SQL clients |
+| **cluster** | node (incl. **pgwire**) + Raft replication + distributed compute + cross-shard 2PC + the extra wire protocols | multi-node HA / cross-node SQL clients |
+| **full** | every single-node feature, size-optimized (**incl. pgwire**, no raft) — incl. the `numeric` kernel (Surface A), `kvcache-server`, broker, LTAP | workstation / one binary, every feature |
 | **full-extras** | `full` + the optional accelerator legs (`gpu-cuda` GPU distance/tensor, `ros2-bridge` robotics) | workstation with a GPU / robotics — **out of `pi`** (heavy `cudarc`/`tokio-tungstenite` deps) |
 
 > Note: the lean **pi** tier carries SPARQL `SELECT` and OWL reasoning (via the `Method::Owl*` RPCs) but

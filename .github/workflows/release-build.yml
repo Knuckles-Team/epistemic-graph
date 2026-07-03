@@ -6,10 +6,16 @@ name: Release Build (wheels + multi-arch image)
 # platform×arch, plus a multi-arch Docker DB image — and smoke-tests each leg
 # (`epistemic-graph-server --help`). Runs on every push/PR and on tags.
 #
-# PUBLISHING IS GATED. The PyPI upload and the DockerHub/registry push only run
-# on a tag (release) AND carry an explicit `if:` guard, so a normal branch push
-# (including this one) BUILDS + SMOKE-TESTS but never publishes. Publishing is a
-# separate release runbook — push a `v*` tag to trigger it.
+# The multi-arch Docker DB image INSTALLS THE PUBLISHED `node`-tier wheel from PyPI
+# via `uv` (the agents/* fleet standard — no cargo compile in the image), so it can
+# only build AFTER publish-pypi has uploaded the wheels. It is therefore tag-gated:
+# `docker-image` (build + in-image `--help` smoke) and `publish-image` (push) both
+# run on a `v*` tag only, after `publish-pypi`.
+#
+# PUBLISHING IS GATED. The PyPI upload, the image build, and the DockerHub/registry
+# push only run on a tag (release) AND carry an explicit `if:` guard, so a normal
+# branch push (including this one) BUILDS + SMOKE-TESTS the wheels but never
+# publishes and never builds the image. Push a `v*` tag to trigger the full release.
 
 on:
   push:
@@ -248,9 +254,17 @@ jobs:
           name: sdist-numeric
           path: dist/*.tar.gz
 
-  # ── Multi-arch Docker DB image (BUILD + healthcheck-style smoke; no push)
+  # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
+  #    The image INSTALLS THE PUBLISHED `node`-tier wheel from PyPI via uv (the
+  #    agents/* fleet standard) — no cargo compile — so it builds AFTER publish-pypi
+  #    has uploaded the wheels, and is therefore tag-gated like the publish jobs.
+  #    The Dockerfile's in-build `epistemic-graph-server --help` is the smoke (runs
+  #    per-arch under QEMU).
   docker-image:
+    needs: [publish-pypi]
     runs-on: ubuntu-latest
+    # GATE: tag push only — installs the just-published PyPI package.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
       packages: write
@@ -260,9 +274,11 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      - name: Derive package version from tag
+        run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
-      # BUILD multi-arch (amd64+arm64) — load=false so it just proves the build.
-      # No push here; the push step below is gated on a tag.
+      # BUILD multi-arch (amd64+arm64) — load=false so it just proves the build +
+      # the in-image `--help` smoke. No push here; the push step below pushes.
       - name: Build multi-arch image (no push)
         uses: docker/build-push-action@v6
         with:
@@ -270,6 +286,8 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: false
+          build-args: |
+            EG_VERSION=${{ env.EG_VERSION }}
           tags: epistemic-graph:ci
 
   # ─────────────────────────────────────────────────────────────────────────
@@ -312,7 +330,9 @@ jobs:
 
   publish-image:
     name: Push multi-arch image (release only)
-    needs: [docker-image, wheels]
+    # Needs docker-image (the build+smoke gate) which itself needs publish-pypi, so
+    # the pushed image installs the just-published PyPI wheel.
+    needs: [docker-image]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT push the image.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -324,6 +344,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+      - name: Derive package version from tag
+        run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
@@ -337,6 +359,8 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            EG_VERSION=${{ env.EG_VERSION }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/epistemic-graph:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/epistemic-graph:${{ github.ref_name }}

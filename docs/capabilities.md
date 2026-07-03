@@ -30,7 +30,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-018); JOINable to the graph |
 | `ALTER TABLE` beyond ADD COLUMN — `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN TYPE` (data migration), `DROP CONSTRAINT` | ✅ | `query` | durable user-table catalog rewrite (CONCEPT:EG-310) |
 
-### Postgres wire (`pgwire`, also pulled by `cluster`)
+### Postgres wire (`pgwire`, folded into `node`/`full`/`cluster` — CONCEPT:EG-352)
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|

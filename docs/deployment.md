@@ -20,16 +20,19 @@ connection configuration, the configuration surface, and the database architectu
 > partitions them, and the prebuilt binary sizes) see
 > [Tiers & binaries](architecture/tiers.md).
 
-The server binary is built for one tier; pick the smallest that fits. Build with
-`--build-arg EG_FEATURES=...` (see [`docker/Dockerfile`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/Dockerfile)).
+The server binary is built for one tier; pick the smallest that fits. Build from source
+with `cargo build --no-default-features --features <tier>` or `maturin build ... --features
+<tier>,ast-extended`. The **release Docker image installs the published `node`-tier wheel
+via `uv`** (no cargo compile — see [`docker/Dockerfile`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/Dockerfile)); build the `cluster` tier from source for
+in-engine-Raft HA.
 
-| Tier | `EG_FEATURES` | Includes | Use when |
-|------|---------------|----------|----------|
+| Tier | `--features` | Includes | Use when |
+|------|--------------|----------|----------|
 | **pi** | `pi,ast-extended` | redb-authoritative store + cypher + ann + rdf/sparql/owl (no DataFusion/pgwire/raft/Tantivy) | Raspberry Pi / edge, ultra-lean single node |
-| **pi-max** | `pi-max,ast-extended` | pi + tsdb + blob + security (RLS/audit/encryption-at-rest) — **all pure-Rust, still NO DataFusion / Tantivy / C-toolchain** | Pi-3 "everything that needs no C compiler and no DataFusion" |
-| **node** | `node,ast-extended` | pi + DataFusion SQL + ANN vectors + tsdb + Tantivy text | Single-node server |
-| **full** | `full,ast-extended` | **contains-all single-node**: query/cypher/graphql + redb + ann + tsdb + blob + text + sparql/rdf/owl/owl-plan + streaming + wasm-udf + security + federation + result-cache + cold-tier + cost (NO raft/pgwire) | Workstation / "one binary, every feature" |
-| **cluster** (default wheel via `node`) | `cluster,ast-extended` | node + **Raft replication** + **pgwire** (Postgres wire SQL) + distributed compute | HA / multi-node / SQL clients |
+| **pi-max** | `pi-max,ast-extended` | pi + tsdb + blob + security (RLS/audit/encryption-at-rest) — **all pure-Rust, still NO DataFusion / Tantivy / pgwire / C-toolchain** | Pi-3 "everything that needs no C compiler and no DataFusion" |
+| **node** (default wheel) | `node,ast-extended` | pi + DataFusion SQL + ANN vectors + tsdb + Tantivy text + **pgwire** (Postgres wire SQL) — a COMPLETE single-node DB (no raft) | Single-node server / SQL clients |
+| **full** | `full,ast-extended` | **contains-all single-node**: query/cypher/graphql + redb + ann + tsdb + blob + text + sparql/rdf/owl/owl-plan + streaming + wasm-udf + security + federation + **pgwire** + result-cache + cold-tier + cost (NO raft) | Workstation / "one binary, every feature" |
+| **cluster** | `cluster,ast-extended` | node (incl. **pgwire**) + **Raft replication** + distributed compute + the extra wire protocols (mysql/mssql/bolt/redis/…) | HA / multi-node / cross-node SQL clients |
 
 All tiers include the `redb` feature, so the **persist dir is the authoritative source of
 truth** and a committed write survives `kill -9` (commit-before-ack).

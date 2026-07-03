@@ -413,10 +413,15 @@ wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf", "e
 harness = ["raft"]
 # Postgres wire-protocol shim (CONCEPT:KG-2.189). A facade-only listener that lets
 # psql / BI tools / ORMs run SQL against a graph, reusing the eg-query DataFusion
-# path (so it IMPLIES `query`) over the Tokio server (`server`). Heavy (pgwire +
-# postgres-types) — OFF by default and kept OUT of `full` so `full` stays a lean
-# embeddable build; it ships only in the `cluster` tier. The listener only starts
-# when ALSO configured via EPISTEMIC_GRAPH_PGWIRE_ADDR.
+# path (so it IMPLIES `query`) over the Tokio server (`server`) via the wire-neutral
+# `wire` core (CONCEPT:EG-074). The `pgwire` + `futures` crates are pure-Rust, and the
+# SINGLE-NODE `node` tier already carries `query`/DataFusion (plus ring via
+# `federation`), so pgwire adds no new heavy/C dep CLASS to node — it is therefore
+# folded into node/cluster/full (CONCEPT:EG-352). A stock `node` wheel is a COMPLETE
+# pgwire-capable single-node DB (Postgres protocol, no raft). Kept OUT of bare default +
+# the lean `pi`/`pi-max` tiers: pgwire IMPLIES `query` (DataFusion) and pulls the `_ring`
+# crypto backend, both of which the Pi contract forbids, so it can never enter a Pi
+# build. The listener only starts when ALSO configured via EPISTEMIC_GRAPH_PGWIRE_ADDR.
 # Wire-agnostic SQL execution core (CONCEPT:EG-074) — the multi-wire keystone. The
 # wire-NEUTRAL `classify → dispatch → exec` pipeline + session/txn state that EVERY
 # wire reuses (`WireProtocol`/`WireSession`). Pure engine (needs `query` + `server`);
@@ -683,7 +688,9 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # build links no openraft (matching the tier intent — replication is cluster-only).
 # Consequently `compute-dist` (which NEEDS raft for cross-shard supersteps) is NOT in
 # `full` either — it ships only in `cluster`. `wasm-udf` IS folded in (node/cluster/
-# full carry the WASM UDF runtime). `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP)
+# full carry the WASM UDF runtime). `pgwire` IS folded in (CONCEPT:EG-352 — the pure-Rust
+# Postgres wire shim; `full` already carries `query`/DataFusion, so a `full` build is a
+# complete pgwire-capable single-node DB). `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP)
 # so the standard full/all build is authoritative-by-default just like pi/node/cluster.
 # Engine-level security (CONCEPT:KG-2.231, Lane O): per-agent Row-Level Security
 # (the read/plan-path view filter), encryption-at-rest for the redb durable value
@@ -695,7 +702,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "numeric", "sqlite-file"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "numeric", "sqlite-file"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -715,14 +722,17 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "shacl", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "sqlite-file"]
-# `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
-# Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
-# (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
-# multi-Raft groups). The sibling tracks each extended `cluster`; this unions them so
-# the cluster tier links raft AND pgwire AND the distributed-compute coordinator (and
-# transitively datafusion via `query`).
-cluster = ["node", "raft", "pgwire", "compute-dist", "nonblocking", "sqlite-wire", "mysql-wire", "mssql-wire", "amqp-wire", "mqtt-wire", "stomp-wire", "bolt-wire", "redis-wire"]
+# `node` is the SINGLE-NODE durable DB tier. It carries `pgwire` (CONCEPT:EG-352 /
+# KG-2.189): pgwire is pure-Rust and node already links `query`/DataFusion, so the
+# published `node` wheel is a COMPLETE Postgres-wire-capable single-node DB (no raft).
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "geo", "tensor", "stream", "shacl", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "sqlite-file"]
+# `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + distributed
+# graph compute (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which
+# needs the multi-Raft groups) + the multi-wire served surface (sqlite/mysql/mssql/amqp/
+# mqtt/stomp/bolt/redis). The Postgres wire shim (CONCEPT:KG-2.189, M8) is now inherited
+# via `node` (pgwire moved single-node-ward — it is pure-Rust over the SQL path node
+# already carries, CONCEPT:EG-352), so it is no longer listed explicitly here.
+cluster = ["node", "raft", "compute-dist", "nonblocking", "sqlite-wire", "mysql-wire", "mssql-wire", "amqp-wire", "mqtt-wire", "stomp-wire", "bolt-wire", "redis-wire"]
 # `pi-max` = the genuinely-Pi-3-friendly MAXIMAL build: every PURE-RUST feature that
 # fits a Pi WITHOUT a C toolchain and WITHOUT DataFusion. It is `pi` (server + graph +
 # algorithms + redb + cypher + ann + rdf + sparql + owl + streaming + result-cache +
