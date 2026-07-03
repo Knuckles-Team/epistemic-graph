@@ -191,6 +191,21 @@ mod stream_tests;
 #[cfg(all(test, feature = "timeseries"))]
 mod sensor_fuse_tests;
 
+// Cross-modal SEAM regression proofs (CONCEPT:EG-365): mid-pipeline composition of a
+// semantic (`Reason`), sensor (`SensorFuse`) or tensor (`TensorScan`) SOURCE op feeding
+// a downstream `Traverse`/`Rank`/reorder in ONE plan == the hand-wired oracle. Gated at
+// the module level on `query`; each proof is additionally `cfg`-gated on its modality
+// feature (`owl`/`timeseries`/`tensor`), so the module compiles under any `query` subset.
+#[cfg(all(test, feature = "query"))]
+mod cross_modal_seam_tests;
+
+// Vector ⇄ reasoning cross-txn write→read consistency (CONCEPT:EG-367): a freshly
+// written node (embedding + reasoner-subsumed type) is BOTH ANN-ranked AND
+// reasoner-included by the next `[Reason |> Rank]` plan; an embedding update is reflected
+// by the next ANN pass. Needs the OWL reasoner + the vector ranker, so it is gated on `owl`.
+#[cfg(all(test, feature = "owl"))]
+mod vector_reasoning_tests;
+
 // The probabilistic `Op::Probabilistic` executor proofs (CONCEPT:EG-086): a layer scan
 // seeds distribution-bearing nodes, then a closed-form probabilistic query (expectation /
 // marginal / conditional posterior / seeded sample) scores + ranks each row's stored
