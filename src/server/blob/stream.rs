@@ -300,7 +300,11 @@ mod tests {
     /// chunk, INDEPENDENT of the blob size — a regression that buffered the whole blob
     /// would track the file size and trip the assert. Default 256 MB; `EG_BLOB_RSS_MB`
     /// runs 1 GB+.
+    // Measures WHOLE-PROCESS RSS — meaningful only in isolation (a concurrent
+    // 256MB-blob sibling inflates the shared RSS past the bound: ~348MB vs 320).
+    // Ignored by default; the CI "memory-regression" step runs it serially.
     #[test]
+    #[ignore = "process-global RSS; run isolated via `--ignored --test-threads=1`"]
     fn bounded_memory_streams_large_blob() {
         let total_mb: u64 = std::env::var("EG_BLOB_RSS_MB")
             .ok()

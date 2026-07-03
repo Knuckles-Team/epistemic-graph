@@ -793,7 +793,12 @@ mod tests {
     /// file size and trip the assert. Default 256 MB (4× the window, enough to catch
     /// the bug per the spike — 64/256 MB passes did NOT trip the None-leak only
     /// because the assert is window-relative here); `EG_BLOB_RSS_MB` runs 1GB+.
+    // Measures WHOLE-PROCESS RSS, so it is only meaningful run in isolation: under
+    // the parallel test harness a sibling 256MB-blob test inflates the shared RSS and
+    // trips the bound (~347MB observed vs the 320 cap). Ignored by default; the CI
+    // "memory-regression" step runs it serially (`--ignored --test-threads=1`).
     #[test]
+    #[ignore = "process-global RSS; run isolated via `--ignored --test-threads=1`"]
     fn bounded_memory_large_blob_group_commit() {
         let total_mb: u64 = std::env::var("EG_BLOB_RSS_MB")
             .ok()

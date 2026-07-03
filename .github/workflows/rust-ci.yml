@@ -63,6 +63,12 @@ jobs:
         run: cargo test -p eg-types -p eg-core -p eg-compute --all-features
       - name: Test (facade full)
         run: cargo test -p epistemic-graph --features full
+      # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
+      # of the parallel run above (a concurrent sibling's 256MB blob inflates the
+      # shared RSS past the cap). Run them here in isolation — serial + ignored — so
+      # the memory-regression coverage stays in CI without the parallel pollution.
+      - name: Test (memory-regression — RSS bounds, isolated)
+        run: cargo test -p epistemic-graph --features full bounded_memory -- --ignored --test-threads=1
       - name: Test (slim server — gated-out methods return the not-built error)
         run: cargo test -p epistemic-graph --no-default-features --features server
 
