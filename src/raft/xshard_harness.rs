@@ -1345,6 +1345,199 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// EG-348: Calvin OLLP recon-staleness RESTART — a txn whose reconnaissance goes STALE
+/// between recon and lock acquisition is automatically re-sequenced (re-reconnoitered +
+/// re-submitted at a NEW `GlobalSeq`) and ultimately commits with a SERIALIZABLE result.
+///
+/// EG-342 shipped only the DETECTION half (`recon_still_valid`); this proves the wired
+/// restart loop (`acquire_ollp_with_restart`).
+///
+/// Setup — a directory `dir`→`{target}` in shardA that a lower-sequence txn MUTATES, so
+/// the OLLP txn's first recon predicts against a target that is stale by lock-acquire time:
+///   * `dir = {target: "k1"}`, `k1 = {v: "old"}`, `k2 = {v: "new"}` seeded up front.
+///   * T_writer (seq 1): exclusive write of `dir` → sets `dir = {target: "k2"}`.
+///   * T_ollp  (seq 2, OLLP): reconnoiters `dir` to discover WHICH record to read.
+///
+/// Timeline forced by the ordered lock phase (no correctness-bearing sleeps):
+///   1. T_writer registers seq 1 (exclusive on `dir`) and is granted — but holds without
+///      writing yet.
+///   2. T_ollp's driver recons `dir` (still `{target: "k1"}` — the writer has not written),
+///      predicts read-set `{dir, k1}`, registers seq 2 (shared on `dir`) and WAITS behind
+///      the writer on `dir`.
+///   3. Once the driver is waiting (`queue_depth(dir) >= 2`), T_writer writes
+///      `dir = {target: "k2"}` and RELEASES.
+///   4. T_ollp's seq-2 lock is granted; re-validation sees `dir` now `{target: "k2"}` !=
+///      the reconned `{target: "k1"}` → STALE → the driver RELEASES and RESTARTS at seq 3.
+///   5. The restart recons `dir = {target: "k2"}`, predicts `{dir, k2}`, locks (uncontended
+///      now), re-validates OK, and returns the held guard at seq 3 with `attempts == 2`.
+///   6. Deterministic execution under the fresh guard reads `k2 = {v: "new"}` and writes
+///      `r = {saw: "new"}` in shardB.
+///
+/// The SERIALIZABLE outcome: `r.saw == "new"` — the OLLP txn restarted and read the
+/// post-writer committed state (`dir`→`k2`), equivalent to running T_writer then T_ollp.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
+    use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
+    use std::collections::BTreeSet;
+
+    let dir = fresh_dir("calvinrestart");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
+    let coord = Arc::new(coord);
+
+    // Seed the directory + both candidate targets. `dir` is what the writer mutates.
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "dir",
+        serde_json::json!({ "target": "k1" }),
+    )
+    .await;
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "k1",
+        serde_json::json!({ "v": "old" }),
+    )
+    .await;
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "k2",
+        serde_json::json!({ "v": "new" }),
+    )
+    .await;
+
+    let seq = CalvinSequencer::new();
+    let lockmgr = OrderedLockManager::new();
+    let dir_key = RecordKey::new(GRAPH_A, "dir");
+
+    // ── T_writer (seq 1): register the exclusive lock on `dir` SYNCHRONOUSLY FIRST, so the
+    //    OLLP txn's later seq-2 registration is strictly in sequence order. ──────────────
+    let s1 = seq.assign();
+    let rw_writer = RwSet {
+        reads: BTreeSet::new(),
+        writes: [dir_key.clone()].into_iter().collect(),
+    };
+    let tw = lockmgr.register(s1, &rw_writer);
+
+    let (lm_w, mu_w, dk_w) = (lockmgr.clone(), multi.clone(), dir_key.clone());
+    let writer = tokio::spawn(async move {
+        let g = lm_w.granted(tw).await; // granted immediately (front, seq 1)
+                                        // Wait until the OLLP txn has registered its seq-2 shared request behind us on
+                                        // `dir` (a lock-manager fact — the recon has already read the OLD `dir`).
+        wait_until(Duration::from_secs(5), || async {
+            lm_w.queue_depth(&dk_w) >= 2
+        })
+        .await
+        .expect("ollp txn registers behind the writer on dir");
+        // NOW mutate the directory the OLLP recon depended on, then release.
+        write_node(
+            &mu_w,
+            GROUP_A,
+            GRAPH_A,
+            "dir",
+            serde_json::json!({ "target": "k2" }),
+        )
+        .await;
+        g.release();
+    });
+
+    // ── T_ollp (seq 2, restart→seq 3): drive the OLLP restart loop. ─────────────────────
+    let derive_dir = dir_key.clone();
+    let acquired = coord
+        .acquire_ollp_with_restart(
+            &seq,
+            &lockmgr,
+            std::slice::from_ref(&dir_key),
+            move |observed| {
+                // Data-dependent set discovery: the directory says WHICH record to read.
+                let dv =
+                    decode_props(observed.get(&derive_dir).cloned().flatten()).expect("dir seeded");
+                let target = dv
+                    .get("target")
+                    .and_then(|t| t.as_str())
+                    .expect("dir.target")
+                    .to_string();
+                RwSet {
+                    reads: [derive_dir.clone(), RecordKey::new(GRAPH_A, &target)]
+                        .into_iter()
+                        .collect(),
+                    writes: [RecordKey::new(GRAPH_B, "r")].into_iter().collect(),
+                }
+            },
+            5,
+        )
+        .await
+        .expect("OLLP acquisition ultimately succeeds after restart");
+
+    // The first recon went stale (dir k1→k2) → EXACTLY one restart (attempt 2 validated).
+    assert_eq!(
+        acquired.attempts, 2,
+        "stale first recon forces exactly one OLLP restart"
+    );
+    assert_eq!(
+        acquired.seq,
+        super::cross_shard_txn::GlobalSeq(3),
+        "the restart re-sequenced the txn at a fresh, higher GlobalSeq (1=writer, 2=stale, 3=valid)"
+    );
+    // The restart re-discovered the NEW target `k2` (not the stale `k1`).
+    assert!(
+        acquired
+            .rwset
+            .reads
+            .contains(&RecordKey::new(GRAPH_A, "k2")),
+        "the restarted recon discovered the post-mutation target k2"
+    );
+
+    // Deterministic execution under the held (fresh) lock: read the discovered target, write r.
+    let k2_val = decode_props(
+        coord
+            .reconnoiter(&RecordKey::new(GRAPH_A, "k2"))
+            .await
+            .unwrap(),
+    )
+    .expect("k2 present");
+    let seen = k2_val
+        .get("v")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    write_node(
+        &multi,
+        GROUP_B,
+        GRAPH_B,
+        "r",
+        serde_json::json!({ "saw": seen }),
+    )
+    .await;
+    acquired.guard.release();
+
+    writer.await.unwrap();
+
+    // SERIALIZABLE OUTCOME: the OLLP txn restarted and read the post-writer state (dir→k2).
+    let r_val = decode_props(
+        coord
+            .reconnoiter(&RecordKey::new(GRAPH_B, "r"))
+            .await
+            .unwrap(),
+    )
+    .expect("r written by the restarted OLLP txn");
+    assert_eq!(
+        r_val.get("saw").and_then(|s| s.as_str()),
+        Some("new"),
+        "the restarted OLLP txn read k2's committed value (serializable: T_writer then T_ollp)"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// EG-343: two nodes, each with its own local sequencer, fan their per-epoch input
 /// batches into ONE global total order — and DERIVE THE IDENTICAL ORDER. This is the
 /// multi-node generalization of the single EG-324 sequencer: the merge is a pure,
