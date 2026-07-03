@@ -23,7 +23,10 @@
 
 use std::sync::Arc;
 
+use tokio::sync::RwLock;
+
 use super::super::compute::compute_off_lock;
+use super::super::state::ServerState;
 use crate::graph::GraphCore;
 use crate::protocol::Method;
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
@@ -35,12 +38,18 @@ use eg_core::result_cache::ResultCache;
 /// method (or a query method whose feature is off) back to the dispatcher
 /// (routing fall-through). (CONCEPT:KG-2.19 — server dispatch convention)
 pub(crate) async fn try_handle(
+    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     core: Arc<GraphCore>,
     method: Method,
     #[cfg(feature = "security")] caller: Option<&str>,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
+    // `state` is consumed only by the `query`-gated in-txn cross-modal RYOW arms
+    // (CONCEPT:EG-359 — TxnUnifiedQuery{,Text}); keep it referenced in a
+    // cypher/graphql-only build (no `query`) so no dead-param warning fires.
+    #[cfg(not(feature = "query"))]
+    let _ = state;
     match method {
         #[cfg(feature = "query")]
         Method::Sql { query, .. } => {
@@ -220,6 +229,56 @@ pub(crate) async fn try_handle(
                 Err(resp) => resp,
             };
             Ok(resp)
+        }
+        // ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-359) ──
+        // Run the SAME unified cross-modal plan as `UnifiedQuery`, but over a
+        // snapshot OVERLAID with the open txn's staged (uncommitted) write-set +
+        // staged embeddings, so a node/edge/vector the txn itself staged is visible
+        // to THIS query before commit and invisible off-txn until commit. Reuses the
+        // EG-049 overlay generalized cross-modal (graph + semantic). No result cache
+        // on this path (staged writes don't bump `version()`), exactly like the
+        // committed SQL read path. RLS applies to the committed base snapshot.
+        #[cfg(feature = "query")]
+        Method::TxnUnifiedQuery {
+            txn_id,
+            plan,
+            reorder_filter_selectivity,
+        } => Ok(run_unified_overlaid(
+            state,
+            req_id,
+            &txn_id,
+            plan,
+            reorder_filter_selectivity,
+            #[cfg(feature = "security")]
+            caller,
+            #[cfg(feature = "security")]
+            rls,
+        )
+        .await),
+        #[cfg(feature = "query")]
+        Method::TxnUnifiedQueryText {
+            txn_id,
+            text,
+            reorder_filter_selectivity,
+        } => {
+            // UQL front-end: parse to the SAME `wire::Plan`, then run the IDENTICAL
+            // overlaid in-txn executor. A parse error is a caret-annotated Response.
+            let plan = match eg_plan::uql::parse(&text) {
+                Ok(p) => p,
+                Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+            };
+            Ok(run_unified_overlaid(
+                state,
+                req_id,
+                &txn_id,
+                plan,
+                reorder_filter_selectivity,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                rls,
+            )
+            .await)
         }
         #[cfg(feature = "nl-query")]
         Method::NlQuery { text, graph } => {
@@ -500,6 +559,131 @@ fn run_unified(
         .iter()
         .map(|r| (r.id.clone(), r.score))
         .collect())
+}
+
+/// Resolve an OPEN txn, build a snapshot OVERLAID with its staged write-set +
+/// embeddings, and run a unified cross-modal plan over it with read-your-own-writes
+/// (CONCEPT:EG-359). The overlay is built under the (brief) state read + per-txn
+/// lock, then the CPU-heavy plan runs OFF-lock on the blocking pool — the same
+/// off-lock idiom as `run_unified`. Not result-cached (staged writes don't bump
+/// `version()`). RLS filters the committed base snapshot to the caller's visible
+/// rows BEFORE the txn's own staged writes are overlaid, so the txn always reads its
+/// own writes while committed data stays isolation-scoped.
+#[cfg(feature = "query")]
+async fn run_unified_overlaid(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    plan: eg_plan::Plan,
+    reorder_filter_selectivity: Option<f64>,
+    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
+) -> Response {
+    // Resolve the txn's target core + snapshot its staged write-set/embeddings while
+    // holding only the cheap state read + per-txn lock; everything moved into the
+    // off-lock closure is OWNED, so no lock is held across the compute.
+    let (mut view, write_set, committed_semantic, vectors) = {
+        let s = state.read().await;
+        let entry = match s.open_txns.get(txn_id) {
+            Some(e) => e,
+            None => {
+                return Response::err(req_id, format!("unknown transaction '{}'", txn_id));
+            }
+        };
+        let guard = entry.value().lock();
+        let core = match s.registry.get(&guard.graph) {
+            Some(g) => g.core.clone(),
+            None => {
+                return Response::err(req_id, format!("Graph '{}' not found", guard.graph));
+            }
+        };
+        // Committed base snapshot (O(V+E) structural copy) + committed embedding store,
+        // taken at ONE point in time so the cross-modal read is snapshot-isolated.
+        #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+        let mut view = core.analysis_snapshot();
+        #[cfg(feature = "security")]
+        rls.filter_view(caller.unwrap_or(""), &mut view);
+        let committed_semantic = core.semantic_store.read().clone();
+        (
+            view,
+            guard.write_set.clone(),
+            committed_semantic,
+            guard.vectors.clone(),
+        )
+        // `guard` + `s` drop here — no lock held across the compute below.
+    };
+    // Overlay the txn's staged graph writes onto the RLS-filtered committed snapshot.
+    // (RECONCILE HOOK — Lane B/C: when run_unified gains `.with_tsdb(series_store)`
+    // (Lane C) and the txn stages MEASUREMENTS (Lane B `GraphTxnState.measurements`),
+    // overlay those staged points into the TsScan source HERE — the graph + semantic
+    // overlay below is the cross-modal template to extend for scenario-5 in-txn tsdb
+    // RYOW.)
+    overlay_write_set(&mut view, &write_set);
+    let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
+    match compute_off_lock(req_id, move || {
+        run_unified(plan, reorder_filter_selectivity, &view, &semantic)
+    })
+    .await
+    {
+        Ok(Ok(rows)) => {
+            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+        Err(resp) => resp,
+    }
+}
+
+/// Replay a txn's staged durable-mutation `write_set` onto a cloned `GraphView` as an
+/// overlay (CONCEPT:EG-359 — in-txn cross-modal RYOW). Mirrors `handlers::txn::
+/// apply_staged`, but against a view's overlay ops (no ledger/durability): so the
+/// Filter (node props) and Traverse (BFS over staged edges) legs of an in-txn unified
+/// query observe the txn's own uncommitted graph writes. Only the durable-mutation set
+/// is ever staged (the protocol restricts `Txn*` to it); any other variant is a no-op.
+#[cfg(feature = "query")]
+fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &[Method]) {
+    for m in write_set {
+        match m {
+            Method::AddNode {
+                node_id,
+                properties_msgpack,
+            } => view.overlay_add_node(node_id.clone(), properties_msgpack.clone()),
+            Method::RemoveNode { node_id } => view.overlay_remove_node(node_id),
+            Method::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+            } => {
+                view.overlay_add_edge(
+                    source_id.clone(),
+                    target_id.clone(),
+                    properties_msgpack.clone(),
+                );
+            }
+            Method::RemoveEdge {
+                source_id,
+                target_id,
+            } => view.overlay_remove_edge(source_id, target_id),
+            Method::CompareAndSetNodeFields {
+                node_id,
+                conditions_msgpack,
+                updates_msgpack,
+            } => {
+                // A decode failure is a no-op overlay (mirrors `apply_staged`).
+                if let (Ok(conditions), Ok(updates)) = (
+                    rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                        conditions_msgpack,
+                    ),
+                    rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                        updates_msgpack,
+                    ),
+                ) {
+                    view.overlay_compare_and_set_fields(node_id, &conditions, &updates);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Execute a classified `Method::Sql` WRITE (CONCEPT:EG-023). Mirrors the pgwire shim's
@@ -2136,5 +2320,323 @@ mod dispatch_write_tests {
         let (_c2, rows2) = query_result(&cy);
         assert_eq!(rows2.len(), 1);
         assert_eq!(rows2[0][0], serde_json::json!("Zed"));
+    }
+}
+
+// ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-359) ──────────
+// End-to-end dispatch tests for the `TxnUnifiedQuery{,Text}` overlay path: a txn's
+// STAGED (uncommitted) node + embedding + edge are visible to a unified cross-modal
+// query issued INSIDE that txn (RYOW), while an identical OFF-txn query sees nothing
+// until COMMIT. Drives the real `dispatch` shell, so it exercises begin → stage →
+// overlaid query → commit exactly as a client would.
+#[cfg(all(test, feature = "query"))]
+mod txn_ryow_dispatch_tests {
+    use crate::channels::ChannelManager;
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request, Response, ResultPayload};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use crate::server::dispatch;
+    use crate::server::state::ServerState;
+    use dashmap::DashMap;
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, Semaphore};
+
+    const SECRET: &str = "txn-ryow-test-secret";
+
+    fn state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: Arc::new(DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+        }))
+    }
+
+    fn req(id: u64, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        }
+    }
+
+    fn pack(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// Decode a unified-query response into its result node ids.
+    fn unified_ids(resp: &Response) -> Vec<String> {
+        assert!(
+            resp.error.is_none(),
+            "unified query error: {:?}",
+            resp.error
+        );
+        let bytes = match &resp.result {
+            Some(ResultPayload::Raw(b)) => b.clone(),
+            other => panic!("expected Raw result, got {other:?}"),
+        };
+        let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(&bytes).unwrap();
+        rows.into_iter().map(|(id, _)| id).collect()
+    }
+
+    async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
+        let r = dispatch(
+            state,
+            req(
+                id,
+                Method::BeginTxn {
+                    graph: None,
+                    isolation: None,
+                },
+            ),
+        )
+        .await;
+        match r.result {
+            Some(ResultPayload::String(s)) => s,
+            other => panic!("BeginTxn failed: {:?} / {other:?}", r.error),
+        }
+    }
+
+    async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
+        let r = dispatch(state, req(id, method)).await;
+        assert!(r.error.is_none(), "stage op {id} failed: {:?}", r.error);
+    }
+
+    // Cross-modal RYOW: staged node + embedding rank in-txn; staged edge is BFS-
+    // reachable in-txn; an identical OFF-txn query sees none of it.
+    #[tokio::test]
+    async fn in_txn_cross_modal_ryow() {
+        let state = state();
+        let txn = begin(&state, 1).await;
+        // Stage: node `sn` (Widget) + its embedding, node `tn` (Gadget), edge sn→tn.
+        ok(
+            &state,
+            2,
+            Method::TxnAddNode {
+                txn_id: txn.clone(),
+                node_id: "sn".into(),
+                properties_msgpack: pack(json!({"type": "Widget"})),
+                graph: None,
+            },
+        )
+        .await;
+        ok(
+            &state,
+            3,
+            Method::TxnAddEmbedding {
+                txn_id: txn.clone(),
+                node_id: "sn".into(),
+                embedding: vec![1.0, 0.0],
+                graph: None,
+            },
+        )
+        .await;
+        ok(
+            &state,
+            4,
+            Method::TxnAddNode {
+                txn_id: txn.clone(),
+                node_id: "tn".into(),
+                properties_msgpack: pack(json!({"type": "Gadget"})),
+                graph: None,
+            },
+        )
+        .await;
+        ok(
+            &state,
+            5,
+            Method::TxnAddEdge {
+                txn_id: txn.clone(),
+                source_id: "sn".into(),
+                target_id: "tn".into(),
+                properties_msgpack: pack(json!({"relationship": "LINKS"})),
+                graph: None,
+            },
+        )
+        .await;
+
+        // IN-TXN cross-modal (graph label Scan fused with staged-vector Rank): sees sn.
+        let vec_q = "MATCH (:Widget) |> RANK BY ~[1.0,0.0] |> LIMIT 5";
+        let in_txn = dispatch(
+            &state,
+            req(
+                6,
+                Method::TxnUnifiedQueryText {
+                    txn_id: txn.clone(),
+                    text: vec_q.into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert_eq!(
+            unified_ids(&in_txn),
+            vec!["sn".to_string()],
+            "staged node + embedding must be visible to the in-txn cross-modal query"
+        );
+
+        // IN-TXN traverse over the STAGED edge: reaches tn.
+        let trav_q = "MATCH (:Widget) |> TRAVERSE -[:LINKS]->{1,1} |> LIMIT 5";
+        let trav = dispatch(
+            &state,
+            req(
+                7,
+                Method::TxnUnifiedQueryText {
+                    txn_id: txn.clone(),
+                    text: trav_q.into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            unified_ids(&trav).contains(&"tn".to_string()),
+            "staged edge must make tn BFS-reachable in-txn"
+        );
+
+        // OFF-TXN identical query: empty — staged writes are invisible before commit.
+        let off = dispatch(
+            &state,
+            req(
+                8,
+                Method::UnifiedQueryText {
+                    text: vec_q.into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            unified_ids(&off).is_empty(),
+            "off-txn query must see none of the txn's uncommitted writes"
+        );
+    }
+
+    // The "until COMMIT" half: a graph-only txn (no vectors → commits in-memory with
+    // no persistence backend) is invisible off-txn before commit, visible after.
+    #[tokio::test]
+    async fn commit_makes_txn_writes_visible_off_txn() {
+        let state = state();
+        let txn = begin(&state, 1).await;
+        ok(
+            &state,
+            2,
+            Method::TxnAddNode {
+                txn_id: txn.clone(),
+                node_id: "cn".into(),
+                properties_msgpack: pack(json!({"type": "Committed"})),
+                graph: None,
+            },
+        )
+        .await;
+        let q = "MATCH (:Committed) |> LIMIT 5";
+
+        // Before commit: off-txn empty, in-txn sees it (RYOW).
+        let before = dispatch(
+            &state,
+            req(
+                3,
+                Method::UnifiedQueryText {
+                    text: q.into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            unified_ids(&before).is_empty(),
+            "off-txn empty before commit"
+        );
+        let in_txn = dispatch(
+            &state,
+            req(
+                4,
+                Method::TxnUnifiedQueryText {
+                    txn_id: txn.clone(),
+                    text: q.into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert_eq!(unified_ids(&in_txn), vec!["cn".to_string()], "RYOW in-txn");
+
+        // Commit, then the same OFF-txn query now sees the committed node.
+        let c = dispatch(
+            &state,
+            req(
+                5,
+                Method::Commit {
+                    txn_id: txn.clone(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            matches!(c.result, Some(ResultPayload::Bool(true))),
+            "commit must succeed: {:?}",
+            c.error
+        );
+        let after = dispatch(
+            &state,
+            req(
+                6,
+                Method::UnifiedQueryText {
+                    text: q.into(),
+                    reorder_filter_selectivity: None,
+                },
+            ),
+        )
+        .await;
+        assert_eq!(
+            unified_ids(&after),
+            vec!["cn".to_string()],
+            "committed node must be visible off-txn after commit"
+        );
     }
 }

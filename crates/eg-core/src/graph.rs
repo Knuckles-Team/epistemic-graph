@@ -534,6 +534,48 @@ impl GraphView {
             .insert(node_id.to_string(), Arc::new(reenc));
         true
     }
+
+    /// Overlay a buffered edge ADD onto this snapshot (mirrors `GraphTxn::add_edge`,
+    /// CONCEPT:EG-359 — in-txn cross-modal RYOW). Adds a petgraph edge between two
+    /// nodes that already exist in the view (an edge to a not-yet-present endpoint is
+    /// dropped, exactly like `GraphTxn::add_edge` errors on a missing endpoint), and
+    /// records its property blob under `edge_properties`. This makes a staged edge
+    /// BFS-reachable on the cloned view so the Traverse leg of an in-txn unified query
+    /// sees the txn's own uncommitted edges. Never touches the live `GraphCore`.
+    /// Returns whether the edge was added (both endpoints present).
+    pub fn overlay_add_edge(
+        &mut self,
+        source_id: String,
+        target_id: String,
+        properties_msgpack: Vec<u8>,
+    ) -> bool {
+        let (Some(&s), Some(&t)) = (self.node_map.get(&source_id), self.node_map.get(&target_id))
+        else {
+            return false;
+        };
+        self.graph
+            .add_edge(s, t, format!("{}:{}", source_id, target_id));
+        self.edge_properties
+            .entry((source_id, target_id))
+            .or_default()
+            .push(Arc::new(properties_msgpack));
+        true
+    }
+
+    /// Overlay a buffered edge REMOVE onto this snapshot (mirrors
+    /// `GraphTxn::remove_edge`, CONCEPT:EG-359): drop every petgraph edge between the
+    /// endpoints and forget their edge properties, so a staged deletion is invisible
+    /// to the in-txn Traverse leg. A no-op when either endpoint or the edge is absent.
+    pub fn overlay_remove_edge(&mut self, source_id: &str, target_id: &str) {
+        if let (Some(&s), Some(&t)) = (self.node_map.get(source_id), self.node_map.get(target_id)) {
+            // A pair may carry multiple parallel edges; drop them all.
+            while let Some(e) = self.graph.find_edge(s, t) {
+                self.graph.remove_edge(e);
+            }
+        }
+        self.edge_properties
+            .remove(&(source_id.to_string(), target_id.to_string()));
+    }
 }
 
 /// Streams a byte slice as lowercase hex DIRECTLY into a formatter (CONCEPT:EG-028).
@@ -4636,6 +4678,46 @@ mod tests {
         };
         assert!(core.set_distribution("m3", "belief", &d));
         assert_eq!(core.get_distribution("m3", "belief"), Some(d));
+    }
+
+    #[test]
+    fn overlay_add_edge_is_bfs_reachable_in_view() {
+        use petgraph::Direction::Outgoing;
+        let core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({"rank": 1})));
+        core.add_node("b".into(), props(serde_json::json!({"rank": 2})));
+        let mut view = core.analysis_snapshot();
+        // No edge yet: `b` is not an outgoing neighbor of `a`.
+        let a_idx = *view.node_map.get("a").unwrap();
+        let neighbor_ids = |v: &GraphView, idx: NodeIndex| -> Vec<String> {
+            v.graph
+                .edges_directed(idx, Outgoing)
+                .map(|e| v.graph[e.target()].clone())
+                .collect()
+        };
+        assert!(!neighbor_ids(&view, a_idx).contains(&"b".to_string()));
+        // Stage an edge a→b in the overlay only.
+        assert!(view.overlay_add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"rel": "knows"})),
+        ));
+        // The staged edge is now BFS-reachable: b is an outgoing neighbor of a.
+        assert!(neighbor_ids(&view, a_idx).contains(&"b".to_string()));
+        // Edge properties recorded on the overlaid view.
+        assert!(view
+            .edge_properties
+            .contains_key(&("a".to_string(), "b".to_string())));
+        // The live core is untouched (no committed edge).
+        assert!(core.get_edge_properties("a", "b").is_empty());
+        // An edge to a missing endpoint is dropped and reports false.
+        assert!(!view.overlay_add_edge("a".into(), "ghost".into(), props(serde_json::json!({}))));
+        // Removing the staged edge hides it again.
+        view.overlay_remove_edge("a", "b");
+        assert!(!neighbor_ids(&view, a_idx).contains(&"b".to_string()));
+        assert!(!view
+            .edge_properties
+            .contains_key(&("a".to_string(), "b".to_string())));
     }
 
     #[test]

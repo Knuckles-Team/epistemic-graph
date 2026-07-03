@@ -1017,6 +1017,7 @@ async fn dispatch_graph_op(
         // NONE of the three omit this line.
         #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
         let method = match handlers::query::try_handle(
+            state,
             req_id,
             core.clone(),
             method,
