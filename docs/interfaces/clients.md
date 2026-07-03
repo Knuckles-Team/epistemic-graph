@@ -1,4 +1,4 @@
-# Client drivers (CONCEPT:EG-3.1)
+# Client drivers (CONCEPT:EG-328)
 
 > B1.7 — thin multi-language client drivers binding the Program-B engine `Method`s that
 > had no client surface: the native message **broker** + append-log **streams**
@@ -56,7 +56,7 @@ agent-utilities' LLM); the client just carries the text.
 
 ```mermaid
 flowchart LR
-  subgraph clients["Client drivers (CONCEPT:EG-3.1)"]
+  subgraph clients["Client drivers (CONCEPT:EG-328)"]
     PY["Python (full)\nepistemic_graph/client.py\n.broker / .rbac / .admin / query.nl_query"]
     JS["JS thin\nclients/js"]
     GO["Go thin\nclients/go"]
