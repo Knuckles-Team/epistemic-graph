@@ -73,7 +73,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                     "uptime_s": uptime_s,
                     "mem_bytes": mem_bytes,
                     "version": env!("CARGO_PKG_VERSION"),
-                    "ops": ["ParseFiles", "IndexRepository", "ObserveScreen"]
+                    "ops": ["ParseFiles", "IndexRepository", "ObserveScreen", "Discover"]
                 })),
             )
         }
