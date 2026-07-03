@@ -2017,7 +2017,9 @@ pub enum Method {
     /// is REPLACED (drop-then-recreate) so the import mirrors the file. Returns a `Json`
     /// report `{"path", "imported_tables":[{"table","rows"},…]}`.
     #[cfg(feature = "sqlite-file")]
-    ImportSqliteFile { path: String },
+    ImportSqliteFile {
+        path: String,
+    },
     /// Export user tables OUT to a fresh, valid `sqlite3` `.db` file at `path` that the
     /// `sqlite3` CLI can open (CONCEPT:EG-332). `tables` empty ⇒ every user table; else
     /// exactly the named tables (each must exist). Any pre-existing file at `path` is
