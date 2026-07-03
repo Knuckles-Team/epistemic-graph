@@ -1170,3 +1170,218 @@ async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
     backend.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── EG-342: Calvin OLLP reconnaissance + ordered read-lock phase — live proof ────
+// ── EG-343: multi-node sequencer epoch fan-in — determinism proof ───────────────
+
+/// Write a single node's properties into `graph` through its owning Raft group (the
+/// deterministic-execution write primitive the Calvin OLLP tests apply under lock).
+async fn write_node(
+    multi: &Arc<MultiRaft>,
+    gid: u64,
+    graph: &str,
+    node: &str,
+    props: serde_json::Value,
+) {
+    let g = multi.group(gid).await.expect("group exists");
+    let req = super::RaftRequest {
+        graph_fname: crate::persist::sanitize(graph),
+        graph_name: graph.to_string(),
+        graph_type: GraphType::Global,
+        method: Method::AddNode {
+            node_id: node.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&props).unwrap(),
+        },
+    };
+    g.client_write(req).await.expect("client_write");
+}
+
+/// Decode a reconnaissance read's msgpack blob back to JSON (`None` ⇒ record absent).
+fn decode_props(blob: Option<Vec<u8>>) -> Option<serde_json::Value> {
+    blob.map(|b| rmp_serde::from_slice(&b).expect("decode props"))
+}
+
+/// EG-342: the OLLP reconnaissance + deterministic ordered read-lock phase gives FULL
+/// serializable isolation of CONFLICTING sequenced txns.
+///
+/// Setup: a directory node `dir`→`{target: "k"}` in shardA. Two sequenced txns share the
+/// record `k`:
+///   * T1 (seq 1): statically writes `k = {v: "v1"}` (write-set known up front).
+///   * T2 (seq 2, OLLP): its footprint is DATA-DEPENDENT — it must reconnoiter `dir` to
+///     DISCOVER that `k` is in its read-set, then read `k` and write a result `r` in
+///     shardB derived from `k`'s value.
+///
+/// The ordered lock phase registers both in sequence order and forces T2's shared lock
+/// on `k` to WAIT behind T1's exclusive write lock. So even though T2's execution task is
+/// spawned FIRST, it reads `k` only AFTER T1 has committed `v1` → `r = {saw: "v1"}`: T2
+/// observes T1's committed write per the sequence order. That is serializability
+/// equivalent to running T1 then T2 — the guarantee EG-324 deferred.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
+    use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
+    use std::collections::BTreeSet;
+
+    let dir = fresh_dir("calvinollp");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
+    let coord = Arc::new(coord);
+
+    // Seed the directory node the OLLP recon reads to discover its footprint. `dir` is
+    // NOT written by either txn, so the recon of it is stable (no restart needed).
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "dir",
+        serde_json::json!({ "target": "k" }),
+    )
+    .await;
+
+    let seq = CalvinSequencer::new();
+    let lockmgr = OrderedLockManager::new();
+
+    // ── T1 (seq 1): static write-set {shardA::k} ────────────────────────────────
+    let s1 = seq.assign();
+    let rw1 = RwSet {
+        reads: BTreeSet::new(),
+        writes: [RecordKey::new(GRAPH_A, "k")].into_iter().collect(),
+    };
+
+    // ── T2 (seq 2, OLLP): reconnoiter `dir` to DISCOVER the read of `k` ──────────
+    let s2 = seq.assign();
+    let dir_key = RecordKey::new(GRAPH_A, "dir");
+    let rw2 = coord
+        .predict_rwset(std::slice::from_ref(&dir_key), |observed| {
+            // Data-dependent set discovery: the directory tells us WHICH record to read.
+            let dir_val =
+                decode_props(observed.get(&dir_key).cloned().flatten()).expect("dir seeded");
+            let target = dir_val
+                .get("target")
+                .and_then(|t| t.as_str())
+                .expect("dir.target")
+                .to_string();
+            RwSet {
+                reads: [dir_key.clone(), RecordKey::new(GRAPH_A, target)]
+                    .into_iter()
+                    .collect(),
+                writes: [RecordKey::new(GRAPH_B, "r")].into_iter().collect(),
+            }
+        })
+        .await
+        .expect("predict rwset");
+    // The read of `k` was DYNAMICALLY discovered by the recon (not statically declared).
+    assert!(
+        rw2.reads.contains(&RecordKey::new(GRAPH_A, "k")),
+        "OLLP recon discovered the data-dependent read of `k`"
+    );
+
+    // Register BOTH in sequence order (the Calvin lock-manager invariant), THEN run the
+    // deterministic phase concurrently. `k` is the conflict record.
+    let t1 = lockmgr.register(s1, &rw1);
+    let t2 = lockmgr.register(s2, &rw2);
+
+    // Spawn T2's execution FIRST — if the lock phase did NOT order by sequence, T2 could
+    // read a missing/stale `k`. It must instead block until T1 commits.
+    let (lm2, co2, mu2) = (lockmgr.clone(), coord.clone(), multi.clone());
+    let exec_t2 = tokio::spawn(async move {
+        let guard = lm2.granted(t2).await; // waits behind T1 on `k`
+                                           // Under the held lock, read the (now committed) value of `k`.
+        let k_val = decode_props(
+            co2.reconnoiter(&RecordKey::new(GRAPH_A, "k"))
+                .await
+                .unwrap(),
+        )
+        .expect("k present once T1 committed");
+        let seen = k_val.get("v").and_then(|v| v.as_str()).unwrap().to_string();
+        write_node(
+            &mu2,
+            GROUP_B,
+            GRAPH_B,
+            "r",
+            serde_json::json!({ "saw": seen }),
+        )
+        .await;
+        guard.release();
+    });
+
+    // Give T2 a chance to run first, proving the ordering is enforced by the lock phase,
+    // not by task scheduling luck.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let (lm1, mu1) = (lockmgr.clone(), multi.clone());
+    let exec_t1 = tokio::spawn(async move {
+        let guard = lm1.granted(t1).await; // granted immediately (front, seq 1)
+        write_node(
+            &mu1,
+            GROUP_A,
+            GRAPH_A,
+            "k",
+            serde_json::json!({ "v": "v1" }),
+        )
+        .await;
+        guard.release();
+    });
+
+    exec_t1.await.unwrap();
+    exec_t2.await.unwrap();
+
+    // SERIALIZABLE OUTCOME: T2 saw T1's committed write to `k` (sequence order 1 → 2).
+    let r_val = decode_props(
+        coord
+            .reconnoiter(&RecordKey::new(GRAPH_B, "r"))
+            .await
+            .unwrap(),
+    )
+    .expect("r written by T2");
+    assert_eq!(
+        r_val.get("saw").and_then(|s| s.as_str()),
+        Some("v1"),
+        "T2 observed T1's committed write per the sequencer total order (serializable)"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// EG-343: two nodes, each with its own local sequencer, fan their per-epoch input
+/// batches into ONE global total order — and DERIVE THE IDENTICAL ORDER. This is the
+/// multi-node generalization of the single EG-324 sequencer: the merge is a pure,
+/// data-only function, so every node computes byte-identical output and can then run the
+/// vote-free deterministic execution phase without disagreeing on the order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn calvin_two_node_epoch_fan_in_derives_identical_order() {
+    use super::cross_shard_txn::{epoch_fan_in, GlobalSeq, NodeInput};
+
+    // Node 1 and node 2 each locally sequenced two txns for epoch 9. Both nodes exchange
+    // these batches (gossip/replicate) and independently run the fan-in.
+    let mut per_node: BTreeMap<u64, Vec<NodeInput>> = BTreeMap::new();
+    per_node.insert(
+        1,
+        vec![NodeInput::new(1, 1, "n1-a"), NodeInput::new(1, 2, "n1-b")],
+    );
+    per_node.insert(
+        2,
+        vec![NodeInput::new(2, 1, "n2-a"), NodeInput::new(2, 2, "n2-b")],
+    );
+
+    // Each node runs the SAME pure fan-in over the SAME batches.
+    let order_on_node_1 = epoch_fan_in(9, &per_node);
+    let order_on_node_2 = epoch_fan_in(9, &per_node);
+
+    assert_eq!(
+        order_on_node_1, order_on_node_2,
+        "both nodes derive the identical global epoch order"
+    );
+    // Deterministic round-robin interleave by (local_seq, node): a,a then b,b.
+    let ids: Vec<&str> = order_on_node_1
+        .inputs
+        .iter()
+        .map(|si| si.txn_id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["n1-a", "n2-a", "n1-b", "n2-b"]);
+    assert_eq!(order_on_node_1.inputs[0].global_seq, GlobalSeq(1));
+    assert_eq!(order_on_node_1.inputs.len(), 4);
+    assert_eq!(order_on_node_1.epoch, 9);
+}
