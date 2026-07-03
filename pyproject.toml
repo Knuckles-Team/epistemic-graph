@@ -4,7 +4,12 @@ build-backend = "maturin"
 
 [project]
 name = "epistemic-graph"
-version = "2.2.0"
+# Version is DYNAMIC — sourced from Cargo.toml `[package].version` by maturin so the
+# built wheel/sdist ALWAYS matches the release tag (which bumps Cargo.toml). A static
+# value here silently WON over Cargo.toml and shipped mis-versioned dists: e.g. a
+# v2.6.0 tag built `epistemic_graph-2.2.0` (already on PyPI) which `twine
+# --skip-existing` swallowed as a no-op — a green publish that published nothing.
+dynamic = ["version"]
 description = "Rust-based epistemic graph engine for agent-utilities"
 readme = "README.md"
 requires-python = ">=3.10"
