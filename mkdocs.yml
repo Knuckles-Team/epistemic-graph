@@ -94,7 +94,7 @@ nav:
       - Master-of-all Engine: architecture/engine.md
       - Subsystems (C4 Containers): architecture/subsystems.md
       - Unified Planner & UQL: uql.md
-      - Tiers & Binaries: architecture/tiers.md
+      - One Build, Opt-in Layers: architecture/tiers.md
       - Engine Modes: engine_modes.md
       - Service Mode: service_mode.md
       - Transport Boundary (ADR): transport_boundary_adr.md

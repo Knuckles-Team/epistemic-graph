@@ -1,2 +1,2 @@
 Placeholder so `COPY docker/wheels/` in docker/Dockerfile always succeeds.
-CI downloads the node-tier wheel artifacts here for a PyPI-free image build.
+CI downloads the main wheel artifacts here for a PyPI-free image build.
