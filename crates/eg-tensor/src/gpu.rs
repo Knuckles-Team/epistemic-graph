@@ -221,4 +221,38 @@ mod tests {
             vec![2.0, 4.0]
         );
     }
+
+    /// GPU↔CPU parity (CONCEPT:EG-351). When a CUDA device is present, the real CUDA
+    /// elementwise kernel MUST match the CPU ground truth for every op; when no device is
+    /// available `cuda::backend()` is `None` and the test SKIPS cleanly. So it is a no-op
+    /// in GPU-less CI yet auto-validates the EG-327 kernel wherever a GPU exists (e.g. the
+    /// GB10 box) without breaking CI. Only compiled under `--features gpu-cuda`. The
+    /// per-element ops are single f64 add/sub/mul/div — each IEEE-754 correctly rounded on
+    /// both devices with no accumulation — so parity is asserted BITWISE-exact.
+    #[cfg(feature = "gpu-cuda")]
+    #[test]
+    fn eg351_cuda_elementwise_matches_cpu_ground_truth() {
+        let Some(gpu) = cuda::backend() else {
+            eprintln!("SKIP eg351_cuda_elementwise: no CUDA device present (CPU-only host)");
+            return;
+        };
+        assert_eq!(gpu.name(), "cuda", "backend() returned a non-CUDA backend");
+
+        // A batch that crosses several thread blocks, with mixed-sign / fractional values.
+        let data: Vec<f64> = (0..2048).map(|i| (i as f64) * 0.37 - 380.0).collect();
+        for op in [
+            ElementwiseOp::Add,
+            ElementwiseOp::Sub,
+            ElementwiseOp::Mul,
+            ElementwiseOp::Div,
+        ] {
+            let scalar = 3.5_f64;
+            let cpu = CpuBackend.elementwise(&data, op, scalar);
+            let gpu_out = gpu.elementwise(&data, op, scalar);
+            assert_eq!(
+                cpu, gpu_out,
+                "GPU!=CPU elementwise for {op:?} (single-op f64 must be bitwise-equal)"
+            );
+        }
+    }
 }
