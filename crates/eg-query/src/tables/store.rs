@@ -2148,7 +2148,7 @@ mod tests {
     // ── function catalog (CONCEPT:EG-118) ──────────────────────────────────────
 
     fn sample_add_fn() -> StoredFunction {
-        use super::super::schema::{FunctionArg, FunctionReturns};
+        use super::super::schema::{FunctionArg, FunctionLanguage, FunctionReturns};
         StoredFunction {
             name: "add".to_string(),
             args: vec![
@@ -2163,6 +2163,7 @@ mod tests {
             ],
             returns: FunctionReturns::Scalar("int".to_string()),
             body: "SELECT a + b".to_string(),
+            language: FunctionLanguage::Sql,
         }
     }
 

@@ -20,7 +20,7 @@ pub mod schema;
 pub mod store;
 
 pub use schema::{
-    Cell, CmpOp, ColCheck, Column, ColumnType, FunctionArg, FunctionReturns, StoredFunction,
-    TableSchema,
+    Cell, CmpOp, ColCheck, Column, ColumnType, FunctionArg, FunctionLanguage, FunctionReturns,
+    StoredFunction, TableSchema,
 };
 pub use store::{ConflictAction, TableStore, TableTxn, TxnOp};
