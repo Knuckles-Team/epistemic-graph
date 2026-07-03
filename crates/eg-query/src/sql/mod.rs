@@ -64,6 +64,11 @@ mod numeric;
 /// pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
 /// ParadeDB `@@@` BM25 — the pure parse/plan/project layer.
 mod pgfamily;
+/// PL/pgSQL procedural interpreter (CONCEPT:EG-340/EG-341): parse + execute a
+/// `LANGUAGE plpgsql` body (DECLARE vars, BEGIN..END, `:=`, IF/ELSIF/ELSE, LOOP/WHILE/
+/// FOR, RETURN, RAISE, `SELECT … INTO`) against a variable environment, running embedded
+/// SQL back through the same read path. Pure Rust — no new deps (folds into `sql`).
+mod plpgsql;
 mod providers;
 mod tablefuncs;
 mod udfs;
