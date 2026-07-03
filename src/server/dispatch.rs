@@ -843,7 +843,7 @@ async fn dispatch_graph_op(
     let raft = s.raft.clone();
     #[cfg(feature = "raft")]
     let graph_type = entry.graph_type;
-    // The graph's type, captured under the registry lock for the CONCEPT:EG-3.1 replication
+    // The graph's type, captured under the registry lock for the CONCEPT:EG-322 replication
     // append below (a follower needs it to CREATE the graph on first apply).
     #[cfg(feature = "federation-search")]
     let repl_graph_type = entry.graph_type;
@@ -1126,7 +1126,7 @@ async fn dispatch_graph_op(
                 p.record(&fname, &m);
             }
             // Ship the committed mutation to any cross-region read replica
-            // (CONCEPT:EG-3.1): append it to the process-global replication log so a
+            // (CONCEPT:EG-322): append it to the process-global replication log so a
             // follower's `/replicate?since=<lsn>` pull streams it. Only records when a
             // replication log has been armed (env `EPISTEMIC_GRAPH_REPLICATE`), so a
             // non-replicated primary pays nothing.

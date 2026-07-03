@@ -174,7 +174,7 @@ impl FlatIndex {
         if k == 0 || self.ids.is_empty() {
             return Vec::new();
         }
-        // Batch-score every row on the ACTIVE distance backend (CONCEPT:EG-3.5): the
+        // Batch-score every row on the ACTIVE distance backend (CONCEPT:EG-326): the
         // GPU kernel when `gpu-cuda` is built + a device is present, else the pure-Rust
         // CPU backend — byte-for-byte identical results either way. Tombstoned rows are
         // filtered AFTER scoring (the batch is over the contiguous `vectors` buffer).
