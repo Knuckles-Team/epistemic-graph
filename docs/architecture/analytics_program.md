@@ -4,7 +4,7 @@
 > a slim, BLAS/LAPACK-free Rust numeric kernel (`crates/eg-numeric`) that serves **both**
 > Python-side array math (replacing numpy in agent-utilities) **and** — in later phases —
 > in-database analytics over engine-resident data. This page is the map; the shipped P1 kernel
-> is documented in full at **[numeric-kernel](numeric-kernel.md)**.
+> is documented in full at **[numeric-kernel](numeric_kernel.md)**.
 
 ## Thesis
 
@@ -51,11 +51,15 @@ pyo3 sits behind eg-numeric's own `python` feature, off in every engine build.
   in-engine analytics over that same columnar data → the engine is the OLAP **store AND compute**.
 - **GPU extras (`gpu-cuda`, EG-327)** accelerate exactly the kernel's hot ops
   (distance/matmul/SVD) behind the same optional `full-extras` flag —
-  see [distribution-robotics-gpu](distribution-robotics-gpu.md).
+  see [distribution-robotics-gpu](distribution_robotics_gpu.md).
 
 ## References
 
-- Shipped P1 kernel & op-surface: **[numeric-kernel](numeric-kernel.md)** (`CONCEPT:EG-321`).
+- Shipped P1 kernel & op-surface: **[numeric-kernel](numeric_kernel.md)** (`CONCEPT:EG-321`).
 - AU-side `xp` shim & migration: `agent_utilities/numeric/` (`CONCEPT:KG-2.312`) and the
   agent-utilities KV-cache-layering / numeric docs.
-- Full end-to-end program tracker: `plans/epistemic-graph-analytics-program.md` (workspace).
+- Full end-to-end program tracker: `plans/epistemic-graph-analytics_program.md` (workspace).
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Numeric Kernel](numeric_kernel.md) · [Vector / ANN](../interfaces/vector.md) · [SQL & pgwire](../interfaces/sql.md) · [Time-series](../interfaces/timeseries.md).
