@@ -8,14 +8,14 @@
 There is **no PyO3 / FFI** between a client and the engine — the boundary is
 out-of-process **framed MessagePack** over UDS/TCP. So the wire IS the API: every client
 (Python, JS, Go) hand-mirrors the serde-tagged `Method` enum in
-[`crates/eg-types/src/protocol.rs`](../../crates/eg-types/src/protocol.rs) by sending the
+[`crates/eg-types/src/protocol.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/crates/eg-types/src/protocol.rs) by sending the
 variant name + its exact param fields.
 
 ## Full vs thin, per language
 
 | Language | Location | Scope | Tested |
 |----------|----------|-------|--------|
-| **Python** | [`epistemic_graph/client.py`](../../epistemic_graph/client.py) | **Full** — the canonical client agent-utilities uses. B1.7 adds the `broker`/`rbac`/`admin` namespaces + `query.nl_query` on top of the existing graph/vector/RDF/SQL/txn/stream surfaces. | Yes — `tests/test_pb_clients.py` (fake-client wire-shape + live E2E vs the ephemeral engine) + the `tests/test_protocol_parity.py` drift gate. |
+| **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/epistemic_graph/client.py) | **Full** — the canonical client agent-utilities uses. B1.7 adds the `broker`/`rbac`/`admin` namespaces + `query.nl_query` on top of the existing graph/vector/RDF/SQL/txn/stream surfaces. | Yes — `tests/test_pb_clients.py` (fake-client wire-shape + live E2E vs the ephemeral engine) + the `tests/test_protocol_parity.py` drift gate. |
 | **JS / Node** | [`clients/js`](../../clients/js) | **Thin** — ONLY the B1.7 methods, generated-from-the-Method-list. Not a full SDK. | Reference binding (no Node CI harness yet); framing/auth mirror the verified Python transport. |
 | **Go** | [`clients/go`](../../clients/go) | **Thin** — ONLY the B1.7 methods, generated-from-the-Method-list. Not a full SDK. | Reference binding (no Go CI harness yet); framing/auth mirror the verified Python transport. |
 

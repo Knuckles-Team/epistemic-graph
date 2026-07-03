@@ -71,7 +71,7 @@ transactions.
 | **Prometheus / OpenObserve / Jaeger** (observability) | obs listener: log ingest + PromQL `/api/v1/query` (extended fn set) + OTLP traces `/v1/traces` + service-map + VRL pipelines + super-cluster federated search; the engine also **emits its own** metrics/traces (OTLP export + Prometheus remote-write) | ✅ logs · ✅ PromQL (extended, EG-302) · ✅ traces · ✅ pipelines · ✅ federated · ✅ OTel export/remote-write (EG-316) (EG-160–165/172/243) |
 | **PostGIS / GIS** (spatial) | native eg-geo: CRS/reprojection, R-tree, GeoJSON/WKB/GPX + **Shapefile/KML/GeoParquet**, XYZ/TMS + MVT tiles, routing (+ turn-restrictions/time-windows)/isochrones/TSP, map task-tracking | ✅ (EG-262–267/306/312) |
 | **Apollo GraphQL** | Apollo Federation v2 subgraph (`_service`/`_entities`, `@key`) + APQ/depth/complexity hardening + CDC subscriptions + fragments/variables/directives + relay pagination | ✅ (EG-295/296/064/065/066) |
-| **vLLM / LMCache** (LLM KV-cache) | tiered hot/warm/cold KV-block cache + shared dedup backend + HTTP endpoint (LMCache remote-backend contract) | ✅ (EG-185/186/187) |
+| **vLLM / LMCache** (LLM KV-cache) | tiered hot/warm/cold KV-block cache + shared dedup backend + HTTP endpoint (LMCache remote-backend contract) — the durable, deduplicating **L2 tier** below vLLM's GPU prefix-cache (L0) and LMCache's CPU tier (L1) | ✅ (EG-185/186/187) |
 | **Agent memory** (Zep / mem0 / LeanRAG) | bi-temporal `AsOf`, summary-node tier, episodic→semantic consolidation, decay/reinforce, LeanRAG hierarchical retrieval, scene/trajectory memory — all **drivable over the wire**, NL→query | ✅ (EG-220/221/222/195); memory/scene/trajectory wire-Op surface for AU/MCP (EG-318); NL→query is a complete LLM-optional seam (EG-078/080) |
 
 The point is **convergence, not a checkbox**: the modalities share one snapshot, one ACID transaction,
@@ -157,7 +157,7 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **Scene-graph / 3D** | `:SceneObject` pose + transform hierarchy + spatial relations (robotics/AR/urban-3D) | ✅ | (core) | EG-087 |
 | **CEP / streams** | windowed event ingest + `Op::Cep` bounded-NFA pattern match over sliding/tumbling windows | ✅ | `stream` | EG-088 |
 | **Robotics** | multimodal sensor fusion (ASOF-aligned) + action/trajectory memory | ✅ | `tensor` | EG-098/099 |
-| **KV-cache (LLM)** | tiered hot/warm/cold KV-block cache (real **zstd/lz4** warm-tier compression) + shared dedup backend + HTTP endpoint (vLLM/LMCache contract) | ✅ | `kvcache` | eg-kvcache (EG-185/186/187); real compression codec (EG-315) |
+| **KV-cache (LLM)** | tiered hot/warm/cold KV-block cache (real **zstd/lz4** warm-tier compression) + shared dedup backend + HTTP endpoint (vLLM/LMCache contract) — the durable **L2 tier** under vLLM (L0 GPU) → LMCache (L1 CPU) | ✅ | `kvcache-server` | eg-kvcache (EG-185/186/187); real compression codec (EG-315); see [kvcache interface](docs/interfaces/kvcache.md) |
 | **Agent memory** | bi-temporal `AsOf`, decay/reinforce, summary-node tier, episodic→semantic consolidation, LeanRAG retrieval, scene/trajectory — **drivable over the wire** | ✅ | (core) | `Op::AsOf` (KG-2.250); EG-220/221/222/195; wire-Op surface (EG-318) |
 | **OBDA** | R2RML virtual graphs — SPARQL over a foreign source rewrites to `ForeignScan` (no materialization); parses **R2RML Turtle** documents | ✅ | `federation` | EG-101; R2RML Turtle parse (EG-305) |
 | **RBAC** | durable roles + role hierarchy + resource/action grants over per-agent RLS (persist to redb + boot-reload) | ✅ | `security` | EG-092; durable persistence (EG-303) |
@@ -170,9 +170,15 @@ Legend: **✅ supported** (implemented & tested) · **🔶 in-progress** (partia
 | **UQL** | natural-language → query (`Method::NlQuery`, `/nl`, `nl_query()` UDF) | ✅ | `nl-query` | EG-078/080; complete LLM-optional seam — inert until an OpenAI-compatible endpoint is set; AU-provider integration tracked on the agent-utilities side |
 | **Durability** | redb-authoritative, commit-before-ack (`kill -9`-safe) | ✅ | `redb` | folded into every tier |
 | **Distribution** | openraft replication + automatic failover | ✅ | `raft` | `cluster` tier; off ⇒ byte-for-byte single-node |
-| **Distribution** | cross-shard 2PC + parallel-commit + read-only-participant + non-blocking (Raft-replicated decision) commit | ✅ | `raft` | presumed-abort 2PC (KG-2.222) + parallel prepare/empty-write-set skip (EG-081) + Paxos-Commit-lite replicated decision (EG-082); full Calvin deterministic-ordering commit 🗺 forward roadmap |
+| **Distribution** | cross-shard 2PC + parallel-commit + read-only-participant + non-blocking (Raft-replicated decision) commit | ✅ | `raft` | presumed-abort 2PC (KG-2.222) + parallel prepare/empty-write-set skip (EG-081) + Paxos-Commit-lite replicated decision (EG-082) |
+| **Distribution** | Calvin deterministic-ordering cross-shard commit (order-first, vote-free, crash-replay) | ✅ opt-in | `calvin` (⇒ `nonblocking`) | EG-324; sequencer + Raft-replicated input log + vote-free execution shipped; distributed OLLP read-lock phase + multi-node epoch fan-in documented-deferred — see [distribution-robotics-gpu](docs/architecture/distribution-robotics-gpu.md) |
 | **Distribution** | multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `raft` | `GroupRouter` + `MultiRaft` (KG-2.266/267/268); online ownership move |
+| **Distribution** | cross-region async read-replica tier (bounded-LSN log + follower pull → `wal::apply`) + capacity guardrails (circuit breaker / per-tenant quota / backpressure) | ✅ opt-in | `federation-search` | EG-322/323; off by default (`EPISTEMIC_GRAPH_REPLICATE`); complements the EG-320 QoS scheduler with absolute ceilings |
 | **Federation** | remote engine / HTTP-JSON / external SQL (`sqlx`) as a `ForeignScan` | ✅ | `federation`(`-sql`) | OFF by default; never in `pi` |
+| **Robotics** | ROS2 bridge over rosbridge-WebSocket (CDC↔topic, no DDS/C toolchain) | ✅ opt-in | `ros2-bridge` | EG-325; pure-Rust `tokio-tungstenite`; native DDS/RTPS (CycloneDDS) a documented optional leg |
+| **GPU** | GPU distance/tensor dispatch seam + real CUDA backend (NVRTC, `dynamic-loading`) | ✅ opt-in | `gpu` / `gpu-cuda` | EG-326/327; pure-Rust CPU backend is always compiled + the byte-for-byte ground truth; CUDA auto-falls-back on a GPU-less host; live-GPU kernel validation deferred (none in CI) |
+| **Numeric / analytics** | BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`: reductions/stats · element-wise · linalg via faer · seedable random) | ✅ P1 (Surface A) · 🗺 Surface B | `numeric` (in `full`) | EG-321; **P1 of the [Analytics Program](docs/architecture/analytics-program.md)** ("one kernel, two surfaces"). Surface A = in-process Python (`epistemic_graph.numeric` + the AU `xp` numpy-shim, 847 parity checks); Surface B (in-DB DataFusion UDFs/graph/vector/ts analytics) is P2–P5 follow-on. Out of `pi`/`node` — see [numeric-kernel](docs/architecture/numeric-kernel.md) |
+| **Clients** | multi-language client drivers — Python (full) · JS / Go (thin: broker/streams/RBAC/backup/NL) over framed MessagePack (no PyO3/FFI) | ✅ | (client) | EG-328; wire-parity gated (`test_protocol_parity.py`) — see [clients](docs/interfaces/clients.md) |
 
 ---
 
@@ -251,7 +257,8 @@ A Pi **pulls a prebuilt wheel and never compiles**. Full build/wheel recipes are
 | **pi-max** | pi + tsdb + blob + security — all pure-Rust, still no C toolchain | Pi "everything without a C compiler" |
 | **node** | pi + DataFusion SQL (`query`) + GraphQL + Tantivy text + `owl-plan` + wasm-udf + federation + finance/datascience | single durable server |
 | **cluster** | node + Raft replication + **pgwire** + distributed compute + cross-shard 2PC | multi-node HA / SQL clients |
-| **full** | every single-node feature, size-optimized (no raft/pgwire) | workstation / one binary, every feature |
+| **full** | every single-node feature, size-optimized (no raft/pgwire) — incl. the `numeric` kernel (Surface A), `kvcache-server`, broker, LTAP | workstation / one binary, every feature |
+| **full-extras** | `full` + the optional accelerator legs (`gpu-cuda` GPU distance/tensor, `ros2-bridge` robotics) | workstation with a GPU / robotics — **out of `pi`** (heavy `cudarc`/`tokio-tungstenite` deps) |
 
 > Note: the lean **pi** tier carries SPARQL `SELECT` and OWL reasoning (via the `Method::Owl*` RPCs) but
 > **not** the SQL-backed `Op::Reason`/`Op::SparqlBgp` planner ops — those need `owl-plan`, which pulls
@@ -289,8 +296,13 @@ For the embedded/edge story, the `embedded` feature gives a SQLite/DuckDB-style 
 - **Cross-shard 2PC.** A transaction spanning multiple Raft groups commits atomically via presumed-abort
   two-phase commit, surviving coordinator/participant crashes — with parallel-commit + read-only-participant
   fast paths (EG-081) and a non-blocking Raft-replicated commit decision (EG-082). Multi-Raft group routing +
-  online per-tenant resharding are live (`GroupRouter`/`MultiRaft`, KG-2.266/267/268; EG-032). Full Calvin
-  deterministic-ordering commit is 🗺 forward roadmap.
+  online per-tenant resharding are live (`GroupRouter`/`MultiRaft`, KG-2.266/267/268; EG-032). A third,
+  opt-in **Calvin** deterministic-ordering commit branch (EG-324, `calvin` feature) is order-first and
+  vote-free — a crashed coordinator is resolved by replaying the Raft-replicated input log (its distributed
+  OLLP read-lock phase is documented-deferred). Beyond the synchronous groups, a **cross-region async
+  read-replica tier** with capacity guardrails (EG-322/323, `federation-search`) gives a distant region a
+  local eventually-consistent read copy. See
+  [distribution-robotics-gpu](docs/architecture/distribution-robotics-gpu.md).
 - **Cross-modal ACID.** A graph mutation + a vector upsert + a blob reference land in **one** redb
   `WriteTransaction` — all modalities commit together or none do.
 
@@ -402,7 +414,11 @@ lifecycle.
 - Per-interface guides: [SQL](docs/interfaces/sql.md) · [SPARQL](docs/interfaces/sparql.md) ·
   [Cypher](docs/interfaces/cypher.md) · [GraphQL](docs/interfaces/graphql.md) ·
   [Vector](docs/interfaces/vector.md) · [Time-series](docs/interfaces/timeseries.md) ·
-  [KV & Blob](docs/interfaces/kv-blob.md) · [Ontology lifecycle](docs/interfaces/ontology.md).
+  [KV & Blob](docs/interfaces/kv-blob.md) · [KV-cache (vLLM/LMCache)](docs/interfaces/kvcache.md) ·
+  [Ontology lifecycle](docs/interfaces/ontology.md) · [Client drivers (Python/JS/Go)](docs/interfaces/clients.md).
+- New this cycle: [Numeric kernel & the Analytics Program](docs/architecture/numeric-kernel.md)
+  ([program overview](docs/architecture/analytics-program.md)) ·
+  [Distribution / Robotics / GPU tail](docs/architecture/distribution-robotics-gpu.md).
 - [UQL & the unified planner](docs/uql.md) · [Tiers & binaries](docs/architecture/tiers.md) ·
   [Deployment](docs/deployment.md) · [Engine modes](docs/engine-modes.md) · [Service Mode](docs/service_mode.md).
 

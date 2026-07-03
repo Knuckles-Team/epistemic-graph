@@ -10,6 +10,39 @@ a token-hash.
 > server + vLLM/LMCache connector (EG-187) are shipped. Pure-Rust, out of the lean `pi` tier. See the
 > [capability matrix](../capabilities.md).
 
+## Where the engine sits: the caching levels (L0 GPU → L1 CPU → L2 engine)
+
+The engine is the **L2 tier** in the layered KV-cache hierarchy vLLM and LMCache build on top of it —
+the widest, slowest, most persistent tier, and the only one that **dedups and survives everything**.
+Each level up is smaller/faster/more volatile. (The vLLM- and LMCache-side wiring is documented in
+agent-utilities' `docs/guides/kvcache-vllm-lmcache.md` and `services/vllm/AGENTS.md`; this mirrors the
+concept engine-side.)
+
+```mermaid
+flowchart TD
+    req["inference request<br/>(shared prefix)"] --> L0
+    subgraph vllm["vLLM (GPU host)"]
+      L0["L0 · GPU HBM<br/>native prefix cache<br/>(--enable-prefix-caching)<br/>⟲ lost on vLLM restart"]
+    end
+    subgraph lm["LMCache (decoupled lmcache server)"]
+      L1["L1 · CPU RAM<br/>--l1-size-gb<br/>✓ survives vLLM restart"]
+    end
+    subgraph eg["epistemic-graph (kvcache-server, this engine)"]
+      L2["L2 · durable + dedup<br/>EG-185 hot/warm/cold tiers<br/>EG-186 content-addressed dedup<br/>✓ survives server restart · persists · shared cross-instance"]
+    end
+    L0 -->|"miss / evict · offload KV (+ Mamba state) via CUDA-IPC"| L1
+    L1 -->|"miss / evict · resp or EG-187 native adapter"| L2
+    L2 -.->|"retrieve on cold GPU"| L1
+    L1 -.->|"load back into HBM"| L0
+```
+
+- **L0** = vLLM's in-process GPU prefix cache — fastest, but lost on restart and per-worker.
+- **L1** = LMCache's CPU-RAM tier — survives a vLLM restart (the cross-restart win); still per-box.
+- **L2** = **this engine** (`kvcache-server`): the durable, content-addressed, deduplicating tier that
+  survives everything and is **shared across instances** — two workers that PUT the same token-hash
+  store the bytes **once**. LMCache reaches it either via the built-in `resp` Redis wire or the
+  engine-native EG-187 HTTP adapter (dedup + live `/kv/stats`).
+
 ## The tiered store (EG-185, crate `eg-kvcache`)
 
 A tiered key→block cache with automatic promotion/demotion (paging) on access + capacity pressure:
