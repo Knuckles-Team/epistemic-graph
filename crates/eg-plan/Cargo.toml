@@ -58,15 +58,18 @@ federation = [
     "dep:sha2",
     "dep:hex",
 ]
-# Time-series WINDOW execution (CONCEPT:EG-067): wire eg-tsdb's native windowed-
-# aggregate primitives (`time_bucket`/`aggregate`) behind `Op::Window`, replacing the
-# pass-through seam. Pulls eg-tsdb's query primitives — eg-core/eg-compute only, NO
-# DataFusion and NO redb (eg-tsdb's `query` module compiles with its default features),
-# so the dep stays lean. IMPLIES `query` (the op lives inside the `query`-gated `Op`
-# enum, beside the AsOf time leg). OFF by default and folded by the facade into node/
-# cluster/full but NEVER `pi` — the Pi contract: a `pi` build links no eg-tsdb. Without
-# it `Op::Window` stays the RowSet-preserving marker it lowers from (the plan still runs).
-timeseries = ["query", "dep:eg-tsdb", "eg-types/timeseries"]
+# Time-series WINDOW execution (CONCEPT:EG-067) + native TSDB SOURCE scan (CONCEPT:EG-363):
+# wire eg-tsdb's native windowed-aggregate primitives (`time_bucket`/`aggregate`) behind
+# `Op::Window`/`Op::SensorFuse`, and its durable `SeriesStore` behind `Op::TsScan` — the
+# tsdb-in-plan SOURCE that seeds a RowSet from stored series (Gap 3). Pulls eg-tsdb's query
+# primitives (eg-core/eg-compute only, NO DataFusion) PLUS its `redb-store` backend, so
+# `Op::TsScan` can READ the `SeriesStore` (the store type lives behind eg-tsdb's own
+# `redb-store` feature). redb is pure-Rust (no C dep, no pyo3). IMPLIES `query` (the ops
+# live inside the `query`-gated `Op` enum, beside the AsOf time leg). OFF by default and
+# folded by the facade into node/cluster/full but NEVER `pi` — the Pi contract: a `pi` build
+# links no eg-tsdb/redb. Without it `Op::Window` stays the RowSet-preserving marker it lowers
+# from and `Op::TsScan` does not exist (the plan still runs).
+timeseries = ["query", "dep:eg-tsdb", "eg-tsdb/redb-store", "eg-types/timeseries"]
 # EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
 # running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the
@@ -186,10 +189,12 @@ eg-compute = { path = "../eg-compute", optional = true }
 # serde + serde_json only (NO tokio/async/C dep), so a default/Pi build links none of it.
 eg-stream = { path = "../eg-stream", optional = true }
 # The native time-series windowed-aggregate primitives (`time_bucket`/`aggregate`)
-# backing the `Op::Window` executor (feature `timeseries`, CONCEPT:EG-067). Optional +
-# only referenced under #[cfg(feature = "timeseries")]; its `query` primitives are
-# eg-core/eg-compute only (no DataFusion, no redb), so a default/Pi build links none of
-# it. eg-tsdb does NOT depend on eg-plan — no dependency cycle.
+# backing `Op::Window`/`Op::SensorFuse` + the durable `SeriesStore` backing `Op::TsScan`
+# (feature `timeseries`, CONCEPT:EG-067/EG-363). Optional + only referenced under
+# #[cfg(feature = "timeseries")], which turns on eg-tsdb's `redb-store` feature so the
+# `SeriesStore` read type is available. The query primitives are eg-core/eg-compute only
+# (no DataFusion); `redb-store` adds pure-Rust redb (no C dep, no pyo3). A default/Pi build
+# links none of it. eg-tsdb does NOT depend on eg-plan — no dependency cycle.
 eg-tsdb = { path = "../eg-tsdb", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

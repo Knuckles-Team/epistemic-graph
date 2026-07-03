@@ -197,3 +197,10 @@ mod sensor_fuse_tests;
 // `Distribution`, composing uncertainty with the graph/vector legs in ONE plan.
 #[cfg(all(test, feature = "probabilistic"))]
 mod probabilistic_tests;
+
+// Lane C proofs (CONCEPT:EG-363): mid-pipeline OWL `Op::Reason` (a confidence-preserving
+// FILTER, not only a leaf source — `Rank → Reason → Traverse`) + the native eg-tsdb
+// `Op::TsScan` SOURCE (tsdb-in-plan fusion), over a hand-built `PlanCtx`. Compiles when
+// EITHER feature is on; each test is additionally gated on the one it needs.
+#[cfg(all(test, any(feature = "owl", feature = "timeseries")))]
+mod tsdb_scan_tests;

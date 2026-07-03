@@ -1,0 +1,289 @@
+//! Lane C proofs (CONCEPT:EG-363) — mid-pipeline OWL reasoning + the native TSDB
+//! SOURCE op, both over a HAND-BUILT [`PlanCtx`] (no server, fully self-contained).
+//!
+//! Two headline properties:
+//!  * `reason_mid_pipeline` — `Scan/BGP → Rank → Reason<C> → Traverse` returns ONLY the
+//!    members reachable from the reasoned-AND-vector-ranked set, proving `Op::Reason`
+//!    composes as a confidence-preserving FILTER in the MIDDLE of a plan (not only as a
+//!    leaf source): the non-member the vector ranked HIGHEST is dropped by the reasoner,
+//!    so its downstream traversal target never appears.
+//!  * `tsdb_in_plan_fusion` — `TsScan(series,from,to) → Rank → Limit` seeds the RowSet
+//!    from a real `eg_tsdb::store::SeriesStore` and fuses those tsdb rows with a vector
+//!    rerank, proving the eg-tsdb-backed SOURCE op.
+//!
+//! Plus the regression that an EMPTY-input `Reason` still behaves as a pure SOURCE.
+
+// ── mid-pipeline OWL reasoning (owl) ─────────────────────────────────────────────
+
+/// TBox + individuals shared by the owl compose tests: `Article ⊑ Paper ⊑ ∃about.Topic`
+/// and `∃about.Topic ⊑ ScholarlyWork`, so p1/p2/p4 are INFERRED `ScholarlyWork` while p3
+/// (a `Topic`) is NOT — even though p3 is the vector-closest. Each individual also gets a
+/// plain `CITES` edge to a distinct target node so a downstream `Traverse` has topology.
+#[cfg(feature = "owl")]
+fn reason_compose_fixture() -> (
+    eg_core::graph::GraphView,
+    eg_core::compute::semantic::SemanticStore,
+) {
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:Paper rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] .
+[ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] rdfs:subClassOf ex:ScholarlyWork .
+ex:Article rdfs:subClassOf ex:Paper .
+
+ex:p1 a ex:Paper .
+ex:p2 a ex:Article .
+ex:p3 a ex:Topic .
+ex:p4 a ex:Paper .
+"#;
+    let core = GraphCore::new();
+    let mut iris = eg_rdf::mapping::IriStore::default();
+    eg_rdf::mapping::load_triples(
+        &core,
+        &mut iris,
+        "g",
+        eg_rdf::mapping::parse_turtle(ttl).unwrap(),
+        #[cfg(feature = "rdf-redb")]
+        None,
+    )
+    .unwrap();
+
+    // Plain target nodes + a CITES edge from each individual to its own target, so
+    // Traverse<CITES> reaches exactly the targets of the surviving (reasoned) seeds.
+    let blob = |v: serde_json::Value| rmp_serde::to_vec_named(&v).unwrap();
+    for t in ["t1", "t2", "t3", "t4"] {
+        core.add_node(t.into(), blob(json!({ "type": "Target" })));
+    }
+    let cites = || blob(json!({ "relationship": "CITES" }));
+    for (p, t) in [("p1", "t1"), ("p2", "t2"), ("p3", "t3"), ("p4", "t4")] {
+        core.add_edge(format!("<http://example.org/{p}>"), t.into(), cites())
+            .unwrap();
+    }
+
+    // Query ≈ [1,0,0,0]. p3 (NON-member Topic) is vector-CLOSEST, then p2, p1, p4.
+    let mut semantic = SemanticStore::new();
+    semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0]);
+    semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0]);
+    semantic.add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0]);
+    semantic.add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0]);
+
+    (core.analysis_snapshot(), semantic)
+}
+
+/// `BGP{?w a ?t} → Rank → Reason<ScholarlyWork> → Traverse<CITES>`: reasoning runs in the
+/// MIDDLE of the plan, filtering the vector-ranked candidate set to only inferred members
+/// BEFORE the traversal. So p3 — the vector-closest but a `Topic`, NOT a `ScholarlyWork` —
+/// is dropped by `Reason`, and its target `t3` is NEVER reached; only the members' targets
+/// (in the preserved vector-rank order p2,p1,p4) appear.
+#[cfg(feature = "owl")]
+#[test]
+fn reason_mid_pipeline() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_types::wire::{Op, Plan};
+
+    let (view, semantic) = reason_compose_fixture();
+    let plan = Plan::new(vec![
+        // Seed candidates: every typed subject (p1..p4 all have `a <type>`).
+        Op::SparqlBgp {
+            query: "SELECT ?w WHERE { ?w a ?t . }".into(),
+            var: "w".into(),
+        },
+        // Vector-rank the candidate set (p3 first — it is the closest).
+        Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        },
+        // MID-PIPELINE reasoning: keep only inferred ScholarlyWork members, in rank order.
+        Op::Reason {
+            target_class: "<http://example.org/ScholarlyWork>".into(),
+            ontology: String::new(),
+        },
+        // Traverse from the surviving seeds.
+        Op::Traverse {
+            rel: "CITES".into(),
+            min: 1,
+            max: 1,
+        },
+    ]);
+    let ctx = PlanCtx::new(&view, &semantic);
+    let reached = execute(&plan, &ctx).unwrap();
+    let ids = reached.ids();
+
+    // Only the members' targets, in the reasoned-AND-vector-ranked seed order (p2,p1,p4).
+    assert_eq!(
+        ids,
+        vec!["t2".to_string(), "t1".to_string(), "t4".to_string()],
+        "Traverse must reach only the members' targets, in preserved rank order"
+    );
+    // The vector-CLOSEST seed p3 was a non-member — Reason dropped it mid-plan, so its
+    // traversal target t3 is absent. This is the load-bearing proof of mid-pipeline compose.
+    assert!(
+        !ids.contains(&"t3".to_string()),
+        "p3 (Topic) was vector-closest but not a ScholarlyWork — Reason must filter it out"
+    );
+}
+
+/// REGRESSION: an EMPTY-input `Reason` (as a leaf SOURCE) still yields exactly the inferred
+/// member set — the mid-pipeline change must not disturb the source path.
+#[cfg(feature = "owl")]
+#[test]
+fn reason_empty_input_is_source() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_types::wire::{Op, Plan};
+
+    let (view, semantic) = reason_compose_fixture();
+    let plan = Plan::new(vec![Op::Reason {
+        target_class: "<http://example.org/ScholarlyWork>".into(),
+        ontology: String::new(),
+    }]);
+    let ctx = PlanCtx::new(&view, &semantic);
+    let out = execute(&plan, &ctx).unwrap();
+
+    let got: std::collections::HashSet<String> = out.ids().into_iter().collect();
+    let want: std::collections::HashSet<String> = [
+        "<http://example.org/p1>",
+        "<http://example.org/p2>",
+        "<http://example.org/p4>",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    assert_eq!(
+        got, want,
+        "empty-input Reason must still SOURCE all inferred members"
+    );
+    // The non-member Topic is not sourced.
+    assert!(!got.contains("<http://example.org/p3>"));
+}
+
+// ── native TSDB SOURCE scan (timeseries) ─────────────────────────────────────────
+
+/// A fresh, unique-per-invocation series-store path under the system temp dir.
+#[cfg(feature = "timeseries")]
+fn temp_store_path(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("eg_plan_{tag}_{}_{nanos}.redb", std::process::id()))
+}
+
+/// Build a one-field series with points at 1s/2s/3s carrying values 10/20/30.
+#[cfg(feature = "timeseries")]
+fn build_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
+    use eg_tsdb::point::Point;
+    use eg_tsdb::store::SeriesStore;
+
+    let store = SeriesStore::open(path).unwrap();
+    let one_s: i64 = 1_000_000_000;
+    let points = vec![
+        Point::single(one_s, 10.0),
+        Point::single(2 * one_s, 20.0),
+        Point::single(3 * one_s, 30.0),
+    ];
+    store
+        .append_batch("temp", 1, one_s as u64, &["v".to_string()], &points)
+        .unwrap();
+    store
+}
+
+/// `TsScan(temp, 0..10) → Rank → Limit`: the rows come from the eg-tsdb `SeriesStore`
+/// (id = point ts, score = value), then a vector Rank reorders them and Limit truncates —
+/// proving the tsdb SOURCE op fuses with the vector leg in ONE plan (tsdb-in-plan fusion).
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_in_plan_fusion() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+
+    let path = temp_store_path("fusion");
+    let store = build_series(&path);
+
+    // The scan emits rows keyed by ns-ts string. Embed them so 2s ranks first, then 1s,
+    // then 3s — a vector order DIFFERENT from the tsdb ts order (proving the rerank).
+    let mut semantic = SemanticStore::new();
+    semantic.add_embedding("1000000000".into(), vec![0.80, 0.60, 0.0, 0.0]); // 2nd
+    semantic.add_embedding("2000000000".into(), vec![0.99, 0.10, 0.0, 0.0]); // 1st
+    semantic.add_embedding("3000000000".into(), vec![0.10, 0.99, 0.0, 0.0]); // 3rd
+
+    // A tsdb SOURCE plan needs no graph; a bare snapshot suffices for the (unused) view.
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+
+    // Bare TsScan first: proves the SOURCE reads the store (3 rows, scores = the values).
+    let src_plan = Plan::new(vec![Op::TsScan {
+        series: vec!["temp".into()],
+        from: 0.0,
+        to: 10.0,
+    }]);
+    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+    let sourced = execute(&src_plan, &ctx).unwrap();
+    assert_eq!(
+        sourced.len(),
+        3,
+        "TsScan must source all 3 points in the window"
+    );
+    // Rows carry the stored values as scores, keyed by ts.
+    let by_id: std::collections::HashMap<&str, Option<f32>> = sourced
+        .rows()
+        .iter()
+        .map(|r| (r.id.as_str(), r.score))
+        .collect();
+    assert_eq!(by_id.get("1000000000"), Some(&Some(10.0)));
+    assert_eq!(by_id.get("2000000000"), Some(&Some(20.0)));
+    assert_eq!(by_id.get("3000000000"), Some(&Some(30.0)));
+
+    // Fused: TsScan → Rank → Limit — tsdb rows reranked by the vector leg, top-2.
+    let plan = Plan::new(vec![
+        Op::TsScan {
+            series: vec!["temp".into()],
+            from: 0.0,
+            to: 10.0,
+        },
+        Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        },
+        Op::Limit { k: 2 },
+    ]);
+    let fused = execute(&plan, &ctx).unwrap();
+    assert_eq!(
+        fused.ids(),
+        vec!["2000000000".to_string(), "1000000000".to_string()],
+        "tsdb-sourced rows must be reordered by the vector Rank, then limited"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// REGRESSION: with NO store attached to the ctx, `TsScan` yields no rows — degrade,
+/// never err (the `Rank`-over-empty-store precedent).
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_scan_without_store_is_empty() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let plan = Plan::new(vec![Op::TsScan {
+        series: vec!["temp".into()],
+        from: 0.0,
+        to: 10.0,
+    }]);
+    let ctx = PlanCtx::new(&view, &semantic); // no .with_tsdb
+    let out = execute(&plan, &ctx).unwrap();
+    assert!(
+        out.is_empty(),
+        "TsScan with no store must degrade to empty, not err"
+    );
+}
