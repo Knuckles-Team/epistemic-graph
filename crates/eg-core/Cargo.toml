@@ -29,6 +29,12 @@ ann = ["dep:eg-ann", "dep:tracing", "dep:rayon"]
 # Additionally persist the ANN codes into the engine's redb durable tier
 # (CONCEPT:KG-2.195) rather than only the mmap files.
 ann-redb = ["ann", "eg-ann/redb"]
+# GPU distance dispatch seam (CONCEPT:EG-3.5) / real CUDA backend (CONCEPT:EG-3.6) for
+# the eg-ann index. `ann-gpu` opts into the seam; `ann-gpu-cuda` pulls the real cudarc
+# backend (dynamic-loading — no CUDA toolkit to build). OUT of pi/full (facade folds it
+# into an extras bundle).
+ann-gpu = ["ann", "eg-ann/gpu"]
+ann-gpu-cuda = ["ann-gpu", "eg-ann/gpu-cuda"]
 # Engine-level security (CONCEPT:KG-2.231): per-agent Row-Level Security view filter
 # in the read/plan path (`isolation::IsolationLayer::filter_view`) + RBAC-at-scale
 # (CONCEPT:EG-092) + durable RBAC/identity persistence (CONCEPT:EG-303). The RLS/RBAC

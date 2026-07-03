@@ -362,6 +362,18 @@ compute-dist = ["raft", "eg-types/compute-dist"]
 # feature="harness"))`), so `cargo test --features harness` exercises it WITHOUT adding
 # it to `harness`'s (or any tier's) feature list.
 nonblocking = ["raft"]
+# FULL Calvin deterministic-ordering cross-shard commit (CONCEPT:EG-3.3). ADDITIVE: a
+# THIRD commit path alongside 2PC and Paxos-Commit-lite. Instead of an OCC prepare +
+# vote round, a global `CalvinSequencer` stamps each cross-shard txn with a monotone
+# total-order position, that ORDER is replicated through the Raft decision group (the
+# Calvin "input log"), and participants EXECUTE it deterministically with no vote and no
+# abort — so agreement on the order IS agreement on the outcome and a crashed coordinator
+# is resolved by any node replaying the replicated sequence. Reuses the EG-082 replicated
+# decision-graph machinery (hence `implies nonblocking`); the new code is
+# `cfg(any(feature="calvin", test, feature="harness"))`, so `cargo test --features
+# harness` exercises it. Pure-Rust, NO new dep. Deliberately OUT of every deployment tier
+# (pi/node/full/cluster/all) — opt-in per call; the default path is unchanged.
+calvin = ["nonblocking"]
 # WASM-sandboxed UDF/extension model (CONCEPT:KG-2.228): an agent pushes a safe custom
 # compute function (a WebAssembly module) the engine runs SANDBOXED over a RowSet —
 # wasmtime with fuel-metering + a hard memory limit + NO host capabilities (pure
@@ -565,6 +577,29 @@ sparql-service = ["sparql-http", "federation", "dep:ureq"]
 # SAME allowlist/internal-range guard as EG-052. HEAVY-ish (rustls/ring) → kept OUT of
 # `pi`; folded into node/full by the orchestrator (NOT edited into the tier lists here).
 federation-search = ["server", "dep:ureq"]
+# ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-3.4). Bridges engine
+# CDC events ↔ ROS2 topics by talking the standard `rosbridge_suite` JSON-over-WebSocket
+# protocol (advertise/subscribe/publish/unsubscribe) to a `rosbridge_server` — so NO
+# CycloneDDS/rmw/DDS C stack, NO `ros` toolchain, just a pure-Rust `tokio-tungstenite`
+# client. HEAVY-ish (a WebSocket stack) + robotics is NOT a Pi requirement → kept OUT of
+# `pi`/`default`/`node`; the orchestrator folds it into an extras bundle. A default/pi
+# build links NO tokio-tungstenite (asserted by `cargo tree`).
+ros2-bridge = ["server", "streaming", "dep:tokio-tungstenite", "dep:futures"]
+# GPU-accelerated distance/tensor (CONCEPT:EG-3.5 seam / EG-3.6 CUDA). `gpu` opts the
+# eg-ann distance + eg-tensor elementwise kernels into the `DistanceBackend`/`TensorBackend`
+# dispatch seam (the pure-Rust CPU backend stays the compiled-in fallback). `gpu-cuda` adds
+# the REAL cudarc-backed CUDA backends — `dynamic-loading`, so the leg BUILDS with no CUDA
+# toolkit (libcuda/libnvrtc are dlopen'd at runtime) and runs on a GPU host, else falls back
+# to CPU. HEAVY + not a Pi requirement → kept OUT of pi/default/node/full; the orchestrator
+# folds them into an extras bundle. A default/pi build links NO cudarc (Pi contract, asserted
+# by `cargo tree --features pi`).
+gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu"]
+gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda"]
+# Convenience umbrella for the heavy OPT-IN extras that require an external toolchain/GPU to
+# actually RUN (but build clean everywhere via dynamic-loading): the real CUDA backends +
+# the rosbridge ROS2 bridge. NEVER folded into pi/default/node/full — an extras-only bundle
+# for the CI extras builder / a GPU/robotics deployment.
+full-extras = ["gpu-cuda", "ros2-bridge"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
@@ -774,6 +809,10 @@ chacha20poly1305 = { version = "0.10", optional = true }
 # so a default/pi/full build links no object_store/aws crate — verified by the
 # `cargo tree -e normal | grep -iE 'aws|s3|object_store'` Pi-contract gate.
 object_store = { version = "0.11", optional = true, features = ["aws"] }
+# rosbridge-WebSocket client for the CONCEPT:EG-3.4 ROS2 bridge. No-TLS pure-Rust build
+# (ws:// to a local rosbridge_server); `connect`+`handshake` only — links NO native-tls/
+# openssl. OPTIONAL + only under `feature = "ros2-bridge"`, so pi/default/node link none.
+tokio-tungstenite = { version = "0.24", optional = true, default-features = false, features = ["connect", "handshake"] }
 # In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188 / KG-2.272). Bumped to
 # openraft 0.10 (the v2 split-storage API + NATIVE `trigger().transfer_leader()` for
 # graceful leader handoff — the M2 remainder). `serde` is required because the app

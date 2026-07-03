@@ -93,6 +93,7 @@ nav:
       - Master-of-all Engine: architecture/engine.md
       - Subsystems (C4 Containers): architecture/subsystems.md
       - Lakehouse LTAP Interop (EG-317): architecture/lakehouse-ltap.md
+      - Distribution / Robotics / GPU (EG-3.x): architecture/distribution-robotics-gpu.md
       - UQL & Unified Planner: uql.md
       - Tiers & Binaries: architecture/tiers.md
       - Engine Modes: engine-modes.md
