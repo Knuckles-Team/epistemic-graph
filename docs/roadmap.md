@@ -25,7 +25,7 @@ epistemic-graph converges many modalities under one durable engine and one plann
 | **Live dashboards UI** | 🗺 | A Grafana-style dashboard front-end over the PromQL/logs/traces query APIs (EG-172/302/162/163). The query side ships; the UI does not. |
 | **Python LMCache connector (driver)** | 🗺 | A shipped `pip`-installable vLLM/LMCache remote-backend client for the EG-187 KV-cache endpoint (the server surface + contract exist; the packaged Python connector/driver does not). |
 | **CUDA distance/tensor kernel — live GPU validation** | 🔶 | The GPU dispatch seam + real `cudarc` CUDA backend ship (EG-326/3.6): the CUDA-C kernels compile via NVRTC and launch on a device, with a CPU fallback. The kernels are correctness-matched to the CPU ground truth but await validation on real GPU hardware (none in CI); reasoning/ANN-build GPU offload beyond distance/elementwise remains open. |
-| **Full Iceberg Avro manifest** | 🔶 | The LTAP lakehouse tier (EG-317) ships the Delta path + Iceberg-REST catalog + LSN as-of; the Iceberg **Avro manifest** writer is still a stub. |
+| **Full Iceberg Avro manifest** | ✅ | The LTAP lakehouse tier (EG-317) ships a real spec-compliant Iceberg v2 **Avro** manifest + manifest-list writer (EG-333/EG-334, `crates/eg-lake/src/iceberg_avro.rs`, behind `lake` via pure-Rust `apache-avro`) — a committed snapshot's `metadata.json` now references real Avro that Spark/Trino/DuckDB follow. Documented omission: per-column stats + partition field-summary bounds (eg-lake tracks per-file counts only, unpartitioned spec). |
 | **Raster tile pyramids** | 🗺 | Raster tile pyramids beyond the shipped vector-tile (MVT) + Shapefile/KML/GeoParquet GIS I/O (EG-265/306). |
 | **PL/pgSQL procedural bodies** | 🗺 | Stored-procedure/function *procedural* execution (loops, variables, control flow) beyond the shipped SQL views + DDL. |
 | **Memory → weights distillation** | 🗺 | Distilling consolidated agent-memory (EG-220/221) into model weights (a fine-tune/LoRA export), beyond the retrieval-time context assembly (EG-195). |
@@ -83,8 +83,8 @@ the authoritative `CONCEPT:EG-*` definitions.
 
 ### Lakehouse interop (LTAP)
 - **eg-lake LTAP tier** — Parquet-on-object-store materialization + Delta transaction log + Iceberg-REST
-  catalog + LSN-style as-of snapshots, so external lakehouse engines (Databricks/Spark/Trino/DuckDB) read the
-  engine's tables with zero ETL (EG-317). *(Iceberg Avro manifest writer still a stub — see forward roadmap.)*
+  catalog + real Iceberg v2 **Avro** manifest/manifest-list writer (EG-333/EG-334) + LSN-style as-of snapshots,
+  so external lakehouse engines (Databricks/Spark/Trino/DuckDB) read the engine's tables with zero ETL (EG-317).
 
 ### Graph / Cypher
 - **GDS over Cypher** — `CALL gds.<algo>(…) YIELD …` (PageRank/Louvain/WCC/SCC/betweenness/Dijkstra/similarity)

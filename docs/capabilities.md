@@ -326,7 +326,8 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 |-----------|:------:|----------|
 | Parquet-on-object-store materialization of engine tables / columnar segments | ✅ | async columnar transcode → Parquet in the blob CAS / S3 (CONCEPT:EG-317) |
 | Delta transaction log (`_delta_log`) so Delta / Databricks / delta-rs readers see a consistent version | ✅ | CONCEPT:EG-317 |
-| Iceberg-REST catalog + Iceberg snapshot metadata (Trino / Spark catalog resolution) | ✅ | CONCEPT:EG-317; the Iceberg **Avro manifest** writer is a documented stub (forward roadmap) |
+| Iceberg-REST catalog + Iceberg snapshot metadata (Trino / Spark catalog resolution) | ✅ | CONCEPT:EG-317 |
+| Real Iceberg v2 **Avro** manifest + manifest-list writer (Spark/Trino/DuckDB read the tables) | ✅ | CONCEPT:EG-333/EG-334; `crates/eg-lake/src/iceberg_avro.rs`, `lake` feature (pure-Rust `apache-avro`); per-column stats + partition field-summary bounds are a documented omission |
 | LSN-style as-of / time-travel snapshots (reusing versioned snapshots + `Op::AsOf`) | ✅ | a lake snapshot pins an exact engine LSN (CONCEPT:EG-317) |
 
 ## Request scheduling & QoS
