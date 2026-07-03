@@ -21,8 +21,10 @@ use arrow::record_batch::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
+use parquet::format::FileMetaData;
 
 use crate::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
+use crate::snapshot::ColumnStat;
 
 /// The Arrow [`DataType`] a [`LakeType`] maps to (CONCEPT:EG-317). A UTC-zoned
 /// micro-timestamp is what Delta/Iceberg's `timestamptz` expects.
@@ -94,12 +96,10 @@ fn build_column(batch: &LakeBatch, col: usize, ty: LakeType) -> ArrayRef {
     }
 }
 
-/// Transcode a [`LakeBatch`] into one Parquet file's bytes (CONCEPT:EG-317).
-///
-/// This is the core materialization primitive — `materialize_table(rows) -> parquet
-/// bytes`. The bytes are a self-describing Parquet file (schema in the footer) that
-/// any lakehouse reader opens directly; the Delta/Iceberg log then points at it.
-pub fn materialize_batch(batch: &LakeBatch) -> Result<Vec<u8>, String> {
+/// Transcode a [`LakeBatch`] into one Parquet file's bytes AND the Parquet
+/// [`FileMetaData`] the close returns (CONCEPT:EG-317). The metadata carries the
+/// per-column-chunk compressed sizes the Iceberg `column_sizes` stat needs (EG-350).
+fn materialize_batch_meta(batch: &LakeBatch) -> Result<(Vec<u8>, FileMetaData), String> {
     let schema = Arc::new(arrow_schema(&batch.schema));
     let columns: Vec<ArrayRef> = batch
         .schema
@@ -118,8 +118,110 @@ pub fn materialize_batch(batch: &LakeBatch) -> Result<Vec<u8>, String> {
     writer
         .write(&record)
         .map_err(|e| format!("parquet write: {e}"))?;
-    writer.close().map_err(|e| format!("parquet close: {e}"))?;
-    Ok(buf)
+    let meta = writer.close().map_err(|e| format!("parquet close: {e}"))?;
+    Ok((buf, meta))
+}
+
+/// Transcode a [`LakeBatch`] into one Parquet file's bytes (CONCEPT:EG-317).
+///
+/// This is the core materialization primitive — `materialize_table(rows) -> parquet
+/// bytes`. The bytes are a self-describing Parquet file (schema in the footer) that
+/// any lakehouse reader opens directly; the Delta/Iceberg log then points at it.
+pub fn materialize_batch(batch: &LakeBatch) -> Result<Vec<u8>, String> {
+    Ok(materialize_batch_meta(batch)?.0)
+}
+
+/// Whether a cell's runtime variant matches the column's declared [`LakeType`]
+/// (CONCEPT:EG-350). A mismatching cell is materialized as null by the Parquet path
+/// ([`build_column`]), so the stats treat it as null too, staying file-exact.
+fn cell_matches(cell: &CellValue, ty: LakeType) -> bool {
+    matches!(
+        (cell, ty),
+        (CellValue::Long(_), LakeType::Long)
+            | (CellValue::Double(_), LakeType::Double)
+            | (CellValue::Bool(_), LakeType::Bool)
+            | (CellValue::String(_), LakeType::String)
+            | (CellValue::Timestamp(_), LakeType::Timestamp)
+    )
+}
+
+/// Strict `a < b` for two same-typed, non-null, non-NaN cells (CONCEPT:EG-350). Used to
+/// fold a column's min/max. String ordering is UTF-8 byte order (matches Iceberg's
+/// binary string ordering); bool orders `false < true`.
+fn cell_lt(a: &CellValue, b: &CellValue) -> bool {
+    match (a, b) {
+        (CellValue::Long(x), CellValue::Long(y)) => x < y,
+        (CellValue::Timestamp(x), CellValue::Timestamp(y)) => x < y,
+        (CellValue::Double(x), CellValue::Double(y)) => x < y,
+        (CellValue::Bool(x), CellValue::Bool(y)) => !x & y,
+        (CellValue::String(x), CellValue::String(y)) => x < y,
+        _ => false,
+    }
+}
+
+/// Compute per-column min/max/null/nan over a batch (CONCEPT:EG-350). A pure row walk —
+/// no arrow needed; bounds stay neutral [`CellValue`]s the Iceberg manifest writer later
+/// serializes to Iceberg single-value binary. `column_size` is filled from the Parquet
+/// metadata by [`materialize_with_column_stats`], so it is left `None` here.
+fn compute_column_stats(batch: &LakeBatch) -> Vec<ColumnStat> {
+    let nrows = batch.num_rows() as i64;
+    batch
+        .schema
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(c, f)| {
+            let mut null_count = 0i64;
+            let mut nan_count = 0i64;
+            let mut lower: Option<CellValue> = None;
+            let mut upper: Option<CellValue> = None;
+            for row in &batch.rows {
+                let cell = &row[c];
+                if cell.is_null() || !cell_matches(cell, f.ty) {
+                    null_count += 1;
+                    continue;
+                }
+                // NaN is excluded from bounds per the Iceberg spec; counted separately.
+                if let CellValue::Double(v) = cell {
+                    if v.is_nan() {
+                        nan_count += 1;
+                        continue;
+                    }
+                }
+                if lower.as_ref().map(|lo| cell_lt(cell, lo)).unwrap_or(true) {
+                    lower = Some(cell.clone());
+                }
+                if upper.as_ref().map(|hi| cell_lt(hi, cell)).unwrap_or(true) {
+                    upper = Some(cell.clone());
+                }
+            }
+            ColumnStat {
+                field_id: (c + 1) as i32,
+                value_count: nrows,
+                null_count,
+                nan_count,
+                column_size: None,
+                lower,
+                upper,
+            }
+        })
+        .collect()
+}
+
+/// Per-column total compressed byte size, keyed by leaf column name, read back from the
+/// Parquet [`FileMetaData`] (CONCEPT:EG-350) — the source for Iceberg `column_sizes`.
+fn column_sizes_by_name(meta: &FileMetaData) -> std::collections::HashMap<String, i64> {
+    let mut sizes: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    for rg in &meta.row_groups {
+        for col in &rg.columns {
+            if let Some(cm) = &col.meta_data {
+                if let Some(name) = cm.path_in_schema.first() {
+                    *sizes.entry(name.clone()).or_insert(0) += cm.total_compressed_size;
+                }
+            }
+        }
+    }
+    sizes
 }
 
 /// The Parquet physical footprint of a materialized batch: byte length + row count
@@ -139,6 +241,30 @@ pub fn materialize_with_stats(batch: &LakeBatch) -> Result<(Vec<u8>, ParquetStat
         num_rows: batch.num_rows() as u64,
     };
     Ok((bytes, stats))
+}
+
+/// Materialize a batch AND gather full per-column Iceberg stats (CONCEPT:EG-350).
+///
+/// Returns the Parquet bytes, the file-level [`ParquetStats`], and one [`ColumnStat`]
+/// per column carrying `value_count` / `null_count` / `nan_count` / `column_size` and
+/// typed min/max `lower`/`upper` bounds. This is the LTAP tier's stats-bearing
+/// materialize path (EG-317) — [`crate::LakeTable::materialize`] feeds the returned
+/// stats to the snapshot so the Iceberg Avro manifest (CONCEPT:EG-333) can emit the
+/// predicate-pushdown maps a Spark/Trino reader uses to skip files.
+pub fn materialize_with_column_stats(
+    batch: &LakeBatch,
+) -> Result<(Vec<u8>, ParquetStats, Vec<ColumnStat>), String> {
+    let (bytes, meta) = materialize_batch_meta(batch)?;
+    let stats = ParquetStats {
+        size_bytes: bytes.len() as u64,
+        num_rows: batch.num_rows() as u64,
+    };
+    let mut col_stats = compute_column_stats(batch);
+    let sizes = column_sizes_by_name(&meta);
+    for (c, cs) in col_stats.iter_mut().enumerate() {
+        cs.column_size = sizes.get(&batch.schema.fields[c].name).copied();
+    }
+    Ok((bytes, stats, col_stats))
 }
 
 /// Map an Arrow [`DataType`] back to a [`LakeType`] on read (CONCEPT:EG-317).
