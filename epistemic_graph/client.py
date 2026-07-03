@@ -489,9 +489,7 @@ class GraphOperationsClient:
             "BatchCosineSimilarity", {"query": query, "targets": targets}
         )
 
-    async def batch_l2_normalize(
-        self, vectors: list[list[float]]
-    ) -> list[list[float]]:
+    async def batch_l2_normalize(self, vectors: list[list[float]]) -> list[list[float]]:
         """L2-normalize a batch of vectors IN-ENGINE via the eg-numeric kernel
         (CONCEPT:EG-330, compute-near-data). Returns each row's unit vector `v/‖v‖`
         (a zero vector is returned unchanged). Requires the engine's `numeric` feature."""
