@@ -405,12 +405,16 @@ jobs:
         with:
           name: wheel-linux-aarch64
           path: docker/wheels
+      # Org-standard registry auth — the SAME secrets the reusable
+      # pipelines/.github/workflows/container_pipeline.yml (and images/*) use across
+      # the fleet: DOCKER_REGISTRY / DOCKER_USERNAME / DOCKER_PASSWORD. (Do NOT use
+      # DOCKERHUB_USERNAME/DOCKERHUB_TOKEN — those are unset in this org.)
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ${{ secrets.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Build & push multi-arch image
         uses: docker/build-push-action@v6
         with:
@@ -421,5 +425,5 @@ jobs:
           build-args: |
             EG_VERSION=${{ env.EG_VERSION }}
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/epistemic-graph:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/epistemic-graph:${{ github.ref_name }}
+            ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:latest
+            ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:${{ github.ref_name }}
