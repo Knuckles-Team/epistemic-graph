@@ -890,6 +890,13 @@ mod tests {
         let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
         let blob_digest = hex_digest(&bytes);
         {
+            // Flush the open group-commit chunk batch FIRST. `put_chunk` keeps the
+            // group's `WriteTransaction` open until `group` (32) chunks are buffered;
+            // this blob is only 3 chunks, so that txn is still open here. A raw
+            // `begin_write` below would then block forever — redb permits ONE writer
+            // at a time — which is exactly why every real `ChunkStore` method flushes
+            // before touching the db. The test bypasses the API, so it must flush too.
+            store.flush_chunks().unwrap();
             // Write the legacy bytes straight into the CAS_BLOBS table.
             let wtx = store.db.begin_write().unwrap();
             {
