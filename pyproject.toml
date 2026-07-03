@@ -48,8 +48,15 @@ datascience = []
 reasoning = []
 server = []
 full = []
+# CONCEPT:EG-337 — the Python LMCache/vLLM remote-backend driver for the EG-187
+# KV-cache endpoint (`epistemic_graph.kvcache`). The driver itself imports with
+# STDLIB ONLY (urllib), so this extra only pulls the optional httpx acceleration
+# (pooled keep-alive on the inference hot path). `pip install epistemic-graph[lmcache]`.
+lmcache = [
+    "httpx>=0.24.0",
+]
 all = [
-    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full]",
+    "epistemic-graph[test,owl,quant,finance,ast,datascience,reasoning,server,full,lmcache]",
 ]
 
 # Pre-bundled agent skills for operating the engine (the AI-native database):
