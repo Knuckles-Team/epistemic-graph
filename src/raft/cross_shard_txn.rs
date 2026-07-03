@@ -1122,8 +1122,8 @@ impl CrossShardCoordinator {
     /// mutated by a lower-sequence txn BETWEEN this recon and lock acquisition, the
     /// predicted set can be stale. Calvin handles that by re-validating the seeds after
     /// the locks are held and RE-SEQUENCING (aborting + re-submitting) a txn whose recon
-    /// no longer holds. [`recon_still_valid`] implements the detection half; the
-    /// automatic re-sequence/restart loop is the documented remaining follow-up.
+    /// no longer holds. [`recon_still_valid`] implements the detection half; the automatic
+    /// re-sequence/restart loop is [`acquire_ollp_with_restart`] (CONCEPT:EG-348).
     #[cfg(any(feature = "calvin", test, feature = "harness"))]
     pub async fn predict_rwset<F>(&self, seeds: &[RecordKey], derive: F) -> Result<RwSet, String>
     where
@@ -1153,6 +1153,99 @@ impl CrossShardCoordinator {
             }
         }
         Ok(true)
+    }
+
+    /// EG-348 (CONCEPT:EG-348): Calvin OLLP recon-staleness RESTART — the automatic
+    /// re-sequence/restart loop EG-342 documented but did not wire.
+    ///
+    /// EG-342 supplied only the DETECTION half ([`recon_still_valid`]): it can tell that a
+    /// data-dependent txn's OLLP reconnaissance went stale (a lower-sequence txn mutated a
+    /// dependency between the recon and lock acquisition, so the predicted lock-set may be
+    /// wrong), but it left the txn stuck. This closes it with the real Calvin OLLP restart:
+    /// re-run reconnaissance and RE-SUBMIT the txn at a FRESH [`GlobalSeq`], bounded by
+    /// `max_restarts`.
+    ///
+    /// Each attempt:
+    ///   1. **Recon.** Read the committed state at `seeds` and run `derive` to predict the
+    ///      full [`RwSet`] (identical to [`predict_rwset`], but the observed snapshot is
+    ///      retained for step 4).
+    ///   2. **Sequence.** Draw a fresh monotone `GlobalSeq` from `sequencer` — a restart
+    ///      takes a NEW position in the total order (the re-sequence half of OLLP restart),
+    ///      strictly ABOVE every earlier attempt, so re-registration stays monotone and the
+    ///      [`OrderedLockManager`] in-sequence-order invariant holds.
+    ///   3. **Lock.** Register the predicted set and await the ordered locks at that seq.
+    ///   4. **Re-validate under the held locks.** Re-read the seeds ([`recon_still_valid`]).
+    ///      If they still hold, return the held [`LockGuard`] + the (now-fresh) seq/rwset —
+    ///      the caller runs the deterministic-execution phase lock-free and releases. If a
+    ///      seed changed, RELEASE the wrongly-predicted locks and restart at a new seq.
+    ///
+    /// Returns the validated acquisition, or — when `max_restarts` restarts are exhausted —
+    /// a deterministic `Err` (the caller surfaces it as an abort).
+    ///
+    /// **Determinism (honest scope).** The restart DECISION is a deterministic pure
+    /// function of committed, Raft-replicated state observed UNDER the sequence-ordered
+    /// lock: every replica replaying the same ordered input log observes the identical
+    /// committed value at the point txn `seq`'s lock is granted, so every replica makes the
+    /// SAME stale/valid decision and — because `max_restarts` and the sequencer semantics
+    /// are fixed — the SAME number of restarts and the same final abort-or-commit. Within
+    /// the single-active-sequencer ordering domain (the EG-324 deployment) that is a full
+    /// determinism guarantee. NOT wired here: routing a restarted txn into a specific epoch
+    /// of the multi-node fan-in ([`epoch_fan_in`], EG-343) — the decision function is
+    /// deterministic, but the cross-node epoch PLACEMENT of a restart is the same open area
+    /// EG-343 covers; a stable-recon or single-sequencer deployment is unaffected.
+    #[cfg(any(feature = "calvin", test, feature = "harness"))]
+    pub async fn acquire_ollp_with_restart<F>(
+        &self,
+        sequencer: &CalvinSequencer,
+        lockmgr: &Arc<OrderedLockManager>,
+        seeds: &[RecordKey],
+        derive: F,
+        max_restarts: u32,
+    ) -> Result<OllpAcquired, String>
+    where
+        // `Fn` (not `FnOnce`): a restart re-runs recon, so `derive` may be called once per
+        // attempt. It must be a pure function of the observed snapshot for determinism.
+        F: Fn(&BTreeMap<RecordKey, Option<Vec<u8>>>) -> RwSet,
+    {
+        let mut attempts: u32 = 0;
+        loop {
+            attempts += 1;
+
+            // 1. RECON — read the seeds and derive the predicted set (retain the snapshot).
+            let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
+            for k in seeds {
+                observed.insert(k.clone(), self.reconnoiter(k).await?);
+            }
+            let rwset = derive(&observed);
+
+            // 2. SEQUENCE — a restart draws a NEW, strictly-higher slot in the total order.
+            let seq = sequencer.assign();
+
+            // 3. LOCK — register + await the ordered locks at that seq (in-sequence-order,
+            //    since `seq` is monotone above every prior attempt).
+            let guard = lockmgr.acquire(seq, &rwset).await;
+
+            // 4. RE-VALIDATE under the held locks. Deterministic across replicas: the
+            //    committed state read here is a function of the sequence order.
+            if self.recon_still_valid(&observed).await? {
+                return Ok(OllpAcquired {
+                    seq,
+                    rwset,
+                    attempts,
+                    guard,
+                });
+            }
+
+            // STALE — a lower-sequence txn changed a dependency after our recon. Drop the
+            // wrongly-predicted locks and restart at a fresh sequence.
+            guard.release();
+            if attempts > max_restarts {
+                return Err(format!(
+                    "EG-348: OLLP recon still stale after {attempts} attempt(s) \
+                     (max_restarts={max_restarts}); aborting"
+                ));
+            }
+        }
     }
 }
 
@@ -1398,10 +1491,38 @@ pub struct LockGuard {
     released: bool,
 }
 
+/// EG-348 (CONCEPT:EG-348): a successful OLLP acquisition after the recon-staleness restart loop
+/// ([`CrossShardCoordinator::acquire_ollp_with_restart`]). Carries the `GlobalSeq` the txn
+/// ultimately VALIDATED at (a restart bumps this past the failed attempts), its now-fresh
+/// predicted [`RwSet`], the held [`LockGuard`] the caller runs the deterministic-execution
+/// phase under (then releases), and `attempts` — total tries incl. the successful one, so
+/// `attempts > 1` iff at least one restart happened.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug)]
+pub struct OllpAcquired {
+    pub seq: GlobalSeq,
+    pub rwset: RwSet,
+    pub attempts: u32,
+    pub guard: LockGuard,
+}
+
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
 impl OrderedLockManager {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// EG-348 (test/harness): how many outstanding requests sit on `key`'s queue — used by
+    /// the restart proof to observe when a higher-sequence waiter has registered behind a
+    /// lower-sequence holder (a lock-manager fact, not a timing sleep).
+    #[cfg(any(test, feature = "harness"))]
+    pub fn queue_depth(&self, key: &RecordKey) -> usize {
+        self.records
+            .lock()
+            .unwrap()
+            .get(key)
+            .map(|q| q.entries.len())
+            .unwrap_or(0)
     }
 
     /// Register a txn's whole predicted lock-set at global sequence `seq` (CONCEPT:
