@@ -270,7 +270,7 @@ impl Tensor {
     /// Apply a scalar op to every element (dtype-preserving; computed in `f64` then
     /// narrowed). Shape is unchanged.
     pub fn elementwise(&self, op: ElementwiseOp, scalar: f64) -> Tensor {
-        // Apply the scalar op on the ACTIVE tensor backend (CONCEPT:EG-3.5): the CUDA
+        // Apply the scalar op on the ACTIVE tensor backend (CONCEPT:EG-326): the CUDA
         // kernel when `gpu-cuda` is built + a device is present, else the pure-Rust CPU
         // map — identical results either way.
         let out: Vec<f64> = crate::gpu::elementwise_dispatch(&self.data.to_f64(), op, scalar);

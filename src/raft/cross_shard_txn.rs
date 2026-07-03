@@ -851,14 +851,14 @@ impl CrossShardCoordinator {
         self.replicate_decision(decision_gid, txn_id, commit).await
     }
 
-    // ── EG-3.3: FULL CALVIN deterministic-ordering commit ───────────────────────
+    // ── EG-324: FULL CALVIN deterministic-ordering commit ───────────────────────
     // Everything below is compiled ONLY under `feature = "calvin"` (which implies
     // `nonblocking`, so the replicated-decision-graph helpers it reuses are linked)
     // OR the `test`/`harness` proof build. The DEFAULT commit path is unchanged —
     // this is opt-in per call, a THIRD commit strategy alongside 2PC
     // (`commit_cross_shard`) and Paxos-Commit-lite (`commit_cross_shard_nonblocking`).
 
-    /// FULL Calvin deterministic-ordering commit for a cross-shard txn (CONCEPT:EG-3.3).
+    /// FULL Calvin deterministic-ordering commit for a cross-shard txn (CONCEPT:EG-324).
     ///
     /// The 2PC / Paxos-Commit paths are *agreement-first*: every writing participant
     /// runs an OCC prepare and VOTES, and only a unanimous YES commits. Calvin inverts
@@ -957,7 +957,7 @@ impl CrossShardCoordinator {
         Ok((TxnOutcome::Committed, seq))
     }
 
-    /// Deterministic execution of a sequenced txn's writing slices (CONCEPT:EG-3.3):
+    /// Deterministic execution of a sequenced txn's writing slices (CONCEPT:EG-324):
     /// apply each participant group's slice through its Raft `client_write` in `GroupId`
     /// order. Pure function of the (already agreed) order — no prepare/vote/OCC. Idempotent
     /// under a recovery replay (re-applying an AddNode/AddEdge is a no-op overwrite).
@@ -984,7 +984,7 @@ impl CrossShardCoordinator {
         Ok(())
     }
 
-    /// Replicate a txn's assigned [`GlobalSeq`] through the decision group (CONCEPT:EG-3.3)
+    /// Replicate a txn's assigned [`GlobalSeq`] through the decision group (CONCEPT:EG-324)
     /// — an `AddNode(txn_id, {kind: xshard_sequence, seq})` into [`XSHARD_DECISION_GRAPH`]
     /// committed via that group's `client_write`. Returns after the entry is quorum-committed
     /// AND applied locally, so the ORDER is durable on a quorum and readable on every replica.
@@ -1018,7 +1018,7 @@ impl CrossShardCoordinator {
         Ok(())
     }
 
-    /// Learn a txn's replicated [`GlobalSeq`] from the decision graph (CONCEPT:EG-3.3):
+    /// Learn a txn's replicated [`GlobalSeq`] from the decision graph (CONCEPT:EG-324):
     /// `Some(seq)` if the order was replicated (the txn WILL commit — replay it),
     /// `None` if no sequence was replicated (a crash before sequencing — the txn never
     /// entered the input log, so it commits nowhere). Reads the replicated state machine,
@@ -1041,7 +1041,7 @@ impl CrossShardCoordinator {
         }
     }
 
-    /// Replicate a txn's ORDER WITHOUT executing it (CONCEPT:EG-3.3 harness crash window:
+    /// Replicate a txn's ORDER WITHOUT executing it (CONCEPT:EG-324 harness crash window:
     /// the order is quorum-durable in the replicated log, execute not yet done). The Calvin
     /// analog of [`decide_replicated_only`].
     #[cfg(any(test, feature = "harness"))]
@@ -1054,7 +1054,7 @@ impl CrossShardCoordinator {
         self.replicate_sequence(decision_gid, txn_id, seq).await
     }
 
-    /// Resolve an in-doubt Calvin txn by REPLAYING its replicated sequence (CONCEPT:EG-3.3).
+    /// Resolve an in-doubt Calvin txn by REPLAYING its replicated sequence (CONCEPT:EG-324).
     /// Because a sequenced txn's outcome is a deterministic function of the agreed order,
     /// any node that reads the replicated [`GlobalSeq`] can finish it WITHOUT the crashed
     /// coordinator: it re-executes the writing slices (idempotent apply) and GCs the record.
@@ -1086,12 +1086,12 @@ impl CrossShardCoordinator {
 pub const XSHARD_DECISION_GRAPH: &str = "__xshard_decisions__";
 
 /// A position in the global total order Calvin assigns to cross-shard txns
-/// (CONCEPT:EG-3.3). Monotone within one [`CalvinSequencer`]; `Ord` so a replayer can
+/// (CONCEPT:EG-324). Monotone within one [`CalvinSequencer`]; `Ord` so a replayer can
 /// sort a batch back into execution order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct GlobalSeq(pub u64);
 
-/// The global sequencer of Calvin's deterministic-ordering layer (CONCEPT:EG-3.3).
+/// The global sequencer of Calvin's deterministic-ordering layer (CONCEPT:EG-324).
 ///
 /// It hands out a strictly monotone [`GlobalSeq`] per txn — the total order every
 /// participant then executes in, with no per-txn vote. One sequencer is the single
@@ -1128,7 +1128,7 @@ impl CalvinSequencer {
     }
 }
 
-/// The deterministic total order Calvin executes a BATCH of txns in (CONCEPT:EG-3.3).
+/// The deterministic total order Calvin executes a BATCH of txns in (CONCEPT:EG-324).
 ///
 /// Returns the indices of `txns` in the canonical order EVERY node computes: ascending
 /// by `txn_id` (a stable, replay-safe key that does not depend on arrival timing, which
@@ -1154,7 +1154,7 @@ fn slice_inserts_node(slices: &[GraphSlice], node_id: &str) -> bool {
 
 #[cfg(test)]
 mod calvin_tests {
-    //! Pure unit tests for the CONCEPT:EG-3.3 Calvin deterministic-ordering layer
+    //! Pure unit tests for the CONCEPT:EG-324 Calvin deterministic-ordering layer
     //! (the sequencer + the replay-stable order kernel) — no live cluster needed. The
     //! end-to-end deterministic-execute + crash-replay-recovery proof lives in the live
     //! `xshard_harness` (`calvin_*` tests).

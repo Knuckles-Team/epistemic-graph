@@ -7,16 +7,16 @@ clean). This page documents the four subsystems and their control/data flow.
 
 | Feature | Concept | Module | Feature flag |
 |---------|---------|--------|--------------|
-| Cross-region async read-replica tier | `CONCEPT:EG-3.1` | `src/server/replica.rs` | `federation-search` |
-| Capacity guardrails (breaker/quota/backpressure) | `CONCEPT:EG-3.2` | `src/server/replica.rs` | `federation-search` |
-| Full Calvin deterministic-ordering commit | `CONCEPT:EG-3.3` | `src/raft/cross_shard_txn.rs` | `calvin` (⇒ `nonblocking`) |
-| ROS2 bridge over rosbridge-WebSocket | `CONCEPT:EG-3.4` | `src/server/ros2_bridge.rs` | `ros2-bridge` |
-| GPU distance/tensor dispatch seam | `CONCEPT:EG-3.5` | `crates/eg-ann/src/distance.rs`, `crates/eg-tensor/src/gpu.rs` | `gpu` |
-| Real CUDA distance/tensor backend | `CONCEPT:EG-3.6` | same | `gpu-cuda` |
+| Cross-region async read-replica tier | `CONCEPT:EG-322` | `src/server/replica.rs` | `federation-search` |
+| Capacity guardrails (breaker/quota/backpressure) | `CONCEPT:EG-323` | `src/server/replica.rs` | `federation-search` |
+| Full Calvin deterministic-ordering commit | `CONCEPT:EG-324` | `src/raft/cross_shard_txn.rs` | `calvin` (⇒ `nonblocking`) |
+| ROS2 bridge over rosbridge-WebSocket | `CONCEPT:EG-325` | `src/server/ros2_bridge.rs` | `ros2-bridge` |
+| GPU distance/tensor dispatch seam | `CONCEPT:EG-326` | `crates/eg-ann/src/distance.rs`, `crates/eg-tensor/src/gpu.rs` | `gpu` |
+| Real CUDA distance/tensor backend | `CONCEPT:EG-327` | same | `gpu-cuda` |
 
 ---
 
-## Cross-region async read-replica tier + guardrails (EG-3.1 / EG-3.2)
+## Cross-region async read-replica tier + guardrails (EG-322 / EG-323)
 
 Beyond the synchronous multi-Raft groups + the EG-243 federated *read*, a distant region gets
 a **local, eventually-consistent read copy** that never pays a cross-region Raft round-trip on
@@ -41,7 +41,7 @@ flowchart LR
     CB -->|open: fail fast| SKIP[skip tick]
   end
   CLIENT[Local reads] --> REG
-  subgraph Guards [EG-3.2 capacity guardrails]
+  subgraph Guards [EG-323 capacity guardrails]
     G[CapacityGuard\nper-tenant quota + backpressure]
   end
   REQ[Requests] --> G -->|Admit / Quota / Backpressure| REG
@@ -62,7 +62,7 @@ Enabled by `EPISTEMIC_GRAPH_REPLICATE=1` (primary log) + `EPISTEMIC_GRAPH_REPLIC
 
 ---
 
-## Full Calvin deterministic-ordering commit (EG-3.3)
+## Full Calvin deterministic-ordering commit (EG-324)
 
 A **third** cross-shard commit branch alongside 2PC (`commit_cross_shard`) and Paxos-Commit-lite
 (`commit_cross_shard_nonblocking`). Where those are *agreement-first* (every writing participant
@@ -97,7 +97,7 @@ weaken no shipped invariant.
 
 ---
 
-## ROS2 bridge over rosbridge-WebSocket (EG-3.4)
+## ROS2 bridge over rosbridge-WebSocket (EG-325)
 
 Joins a ROS2 graph WITHOUT a DDS stack by speaking the standard `rosbridge_suite` protocol —
 JSON messages over a WebSocket to a `rosbridge_server`. No CycloneDDS/rmw/`ros` C toolchain — a
@@ -131,7 +131,7 @@ optional leg — it needs the CycloneDDS C toolchain, so it is not folded into t
 
 ---
 
-## GPU distance/tensor dispatch seam + CUDA backend (EG-3.5 / EG-3.6)
+## GPU distance/tensor dispatch seam + CUDA backend (EG-326 / EG-327)
 
 Vector search and tensor ops are dominated by one embarrassingly-parallel kernel each (batch
 distance; elementwise map). Both are factored behind a backend trait so the compute device is

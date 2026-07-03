@@ -170,15 +170,15 @@ pub mod nl;
 // other federation surfaces link — NO new HTTP dep, kept OUT of the Pi tier).
 #[cfg(feature = "federation-search")]
 pub mod federation;
-// Cross-region async read-replica tier (CONCEPT:EG-3.1) + capacity guardrails
-// (CONCEPT:EG-3.2): a bounded LSN replication log the primary ships over `/replicate`, an
+// Cross-region async read-replica tier (CONCEPT:EG-322) + capacity guardrails
+// (CONCEPT:EG-323): a bounded LSN replication log the primary ships over `/replicate`, an
 // async follower pull-loop that applies the tail via the canonical `wal::apply` path, and
 // the pure circuit-breaker / per-tenant-quota / backpressure guards the transport + the
 // follower consult. Behind `federation-search` (reuses the same pure-Rust `ureq` stack —
 // NO new dep, kept OUT of the Pi tier).
 #[cfg(feature = "federation-search")]
 pub mod replica;
-// ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-3.4): bridges engine
+// ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-325): bridges engine
 // CDC events ↔ ROS2 topics by talking `rosbridge_suite` JSON-over-WebSocket to a
 // `rosbridge_server` — NO CycloneDDS/rmw/DDS C stack, just a pure-Rust tokio-tungstenite
 // client. Behind the `ros2-bridge` cargo feature; kept OUT of the Pi tier (a slim build

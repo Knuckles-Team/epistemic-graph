@@ -24,7 +24,7 @@
 //! N-D arrays (images / sensor frames / genomics / ML features).
 
 mod blob;
-// GPU-accelerable tensor-op dispatch seam (CONCEPT:EG-3.5 seam / EG-3.6 CUDA): the
+// GPU-accelerable tensor-op dispatch seam (CONCEPT:EG-326 seam / EG-327 CUDA): the
 // elementwise kernel behind a `TensorBackend` trait with an always-compiled CPU fallback
 // and an optional real CUDA backend (feature `gpu-cuda`, out of pi).
 pub mod gpu;

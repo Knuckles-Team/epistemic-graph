@@ -1057,7 +1057,7 @@ async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ── EG-3.3: FULL Calvin deterministic-ordering commit — live proofs ─────────────
+// ── EG-324: FULL Calvin deterministic-ordering commit — live proofs ─────────────
 
 /// (a) Calvin HAPPY PATH: a deterministic-ordering commit lands on BOTH participants
 /// with NO vote round, the ORDER is replicated (not in coordinator redb), the txn gets a
