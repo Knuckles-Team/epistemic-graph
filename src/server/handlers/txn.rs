@@ -19,6 +19,8 @@ use tokio::sync::RwLock;
 
 use super::super::access::check_graph_access;
 use super::super::state::ServerState;
+#[cfg(feature = "tsdb")]
+use super::super::txn::StagedMeasurement;
 use super::super::txn::{now_ms, parse_isolation, GraphTxnState};
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
@@ -127,6 +129,28 @@ pub(crate) async fn try_handle(
             digest,
             graph,
         } => Ok(stage_blob_ref(state, req_id, &txn_id, graph.as_deref(), node_id, digest).await),
+        // Extended cross-modal staging (CONCEPT:EG-360/361/362). Each arm is feature-gated
+        // at the FACADE (tsdb/owl/sparql); in a slim build the variant falls through to
+        // `other => Err(other)` → the dispatch "not available in this build" catch-all.
+        #[cfg(feature = "tsdb")]
+        Method::TxnAddMeasurement {
+            txn_id,
+            series,
+            points,
+            graph,
+        } => Ok(stage_measurement(state, req_id, &txn_id, graph.as_deref(), series, points).await),
+        #[cfg(feature = "owl")]
+        Method::TxnAxiom {
+            txn_id,
+            turtle,
+            graph,
+        } => Ok(stage_axiom(state, req_id, &txn_id, graph.as_deref(), turtle).await),
+        #[cfg(feature = "sparql")]
+        Method::TxnConstruct {
+            txn_id,
+            sparql,
+            graph,
+        } => Ok(stage_construct(state, req_id, &txn_id, graph.as_deref(), sparql).await),
         Method::Commit { txn_id } => Ok(commit(state, req_id, caller, &txn_id).await),
         Method::Rollback { txn_id } => Ok(rollback(state, req_id, &txn_id).await),
         other => Err(other),
@@ -327,6 +351,247 @@ async fn stage_blob_ref(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
+/// Default bucket width for a NEW cross-modal series (CONCEPT:EG-360). The Lane-0
+/// `TxnAddMeasurement` wire carries only `series` + `points` (no schema), so a
+/// brand-new series is materialized with this 1-hour partition; an EXISTING series'
+/// stored meta is authoritative and this is ignored.
+#[cfg(feature = "tsdb")]
+const DEFAULT_MEASUREMENT_BUCKET_NS: u64 = 3_600_000_000_000;
+
+/// Stage a TIME-SERIES measurement batch into the txn's cross-modal write-set
+/// (CONCEPT:EG-360). Same per-graph constraint as [`stage_vector`]: the batch targets the
+/// txn's DEFAULT graph (the one-`WriteTransaction` barrier is per-graph). The points are
+/// decoded here (the SAME `Vec<(i64, Vec<f64>)>` MessagePack shape `TsAppend` carries), so
+/// the commit path is a pure durable append. Acks `Bool(true)`.
+#[cfg(feature = "tsdb")]
+async fn stage_measurement(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    target_graph: Option<&str>,
+    series: String,
+    points_msgpack: Vec<u8>,
+) -> Response {
+    let points: Vec<(i64, Vec<f64>)> = match rmp_serde::from_slice(&points_msgpack) {
+        Ok(p) => p,
+        Err(e) => return Response::err(req_id, format!("invalid measurement points: {e}")),
+    };
+    let s = state.read().await;
+    let entry = match s.open_txns.get(txn_id) {
+        Some(e) => e,
+        None => return Response::err(req_id, format!("unknown transaction '{}'", txn_id)),
+    };
+    let default_graph = entry.value().lock().graph.clone();
+    if let Some(g) = target_graph {
+        if g != default_graph {
+            return Response::err(
+                req_id,
+                "cross-modal measurement must target the txn's default graph",
+            );
+        }
+    }
+    // Field width is inferred from the first point; an existing series' stored schema wins
+    // at commit, so this only seeds a NEW series (with generated `f0..fN` names).
+    let n_fields = points.first().map(|(_, v)| v.len()).unwrap_or(0);
+    let field_names = (0..n_fields).map(|i| format!("f{i}")).collect();
+    let measurement = StagedMeasurement {
+        series,
+        n_fields,
+        bucket_ns: DEFAULT_MEASUREMENT_BUCKET_NS,
+        field_names,
+        points,
+    };
+    entry
+        .value()
+        .lock()
+        .stage_measurement(measurement, now_ms());
+    Response::ok(req_id, ResultPayload::Bool(true))
+}
+
+/// Lower a stream of RDF triples to graph-native `AddNode`/`AddEdge` methods
+/// (CONCEPT:EG-361/362), mirroring the canonical `eg_rdf::mapping::load_triples`
+/// property-graph projection so the durable rows match the in-memory model:
+///   * literal object  → a property `{predicate: literal-cell}` on the subject node;
+///   * resource object → subject + object nodes + a typed edge `{"type": predicate}`,
+///     and (for `rdf:type`) the subject's `type` label.
+///
+/// The SAME lowered `Vec<Method>` is applied both durably (`apply_method_rows`) and
+/// in-memory (`apply_staged`), so the two are identical by construction.
+#[cfg(feature = "sparql")]
+fn triples_to_methods(triples: &[eg_rdf::oxrdf::Triple]) -> Vec<Method> {
+    use eg_rdf::oxrdf::{NamedOrBlankNode, Term};
+    const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+    type Props = serde_json::Map<String, serde_json::Value>;
+
+    let subject_id = |s: &NamedOrBlankNode| -> String {
+        match s {
+            NamedOrBlankNode::NamedNode(n) => format!("<{}>", n.as_str()),
+            NamedOrBlankNode::BlankNode(b) => format!("_:{}", b.as_str()),
+            #[allow(unreachable_patterns)]
+            other => format!("{other}"),
+        }
+    };
+
+    let mut node_props: std::collections::HashMap<String, Props> = std::collections::HashMap::new();
+    // Preserve stage order for the edges so the emitted method list is deterministic.
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    for t in triples {
+        let s_id = subject_id(&t.subject);
+        let pred = t.predicate.as_str().to_string();
+        node_props.entry(s_id.clone()).or_default();
+        match &t.object {
+            Term::Literal(lit) => {
+                node_props
+                    .entry(s_id.clone())
+                    .or_default()
+                    .entry(pred)
+                    .or_insert_with(|| eg_rdf::mapping::literal_to_cell(lit));
+            }
+            Term::NamedNode(n) => {
+                let o_id = format!("<{}>", n.as_str());
+                node_props.entry(o_id.clone()).or_default();
+                if pred == RDF_TYPE {
+                    node_props
+                        .entry(s_id.clone())
+                        .or_default()
+                        .entry("type".to_string())
+                        .or_insert_with(|| serde_json::Value::String(n.as_str().to_string()));
+                }
+                edges.push((s_id.clone(), pred, o_id));
+            }
+            Term::BlankNode(b) => {
+                let o_id = format!("_:{}", b.as_str());
+                node_props.entry(o_id.clone()).or_default();
+                edges.push((s_id.clone(), pred, o_id));
+            }
+            #[allow(unreachable_patterns)]
+            _ => {}
+        }
+    }
+
+    let mut methods = Vec::with_capacity(node_props.len() + edges.len());
+    for (id, props) in node_props {
+        let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props)).unwrap_or_default();
+        methods.push(Method::AddNode {
+            node_id: id,
+            properties_msgpack: blob,
+        });
+    }
+    for (s, p, o) in edges {
+        let blob = rmp_serde::to_vec_named(&serde_json::json!({ "type": p })).unwrap_or_default();
+        methods.push(Method::AddEdge {
+            source_id: s,
+            target_id: o,
+            properties_msgpack: blob,
+        });
+    }
+    methods
+}
+
+/// Resolve the txn's DEFAULT-graph core, enforcing that `target_graph` (if given) is the
+/// default (the cross-modal barrier is per-graph). Returns the core clone, or an error
+/// `Response` to return directly. Shared by the axiom + CONSTRUCT stagers.
+#[cfg(feature = "sparql")]
+fn resolve_txn_default_core(
+    s: &ServerState,
+    req_id: u64,
+    txn_id: &str,
+    target_graph: Option<&str>,
+    kind: &str,
+) -> Result<Arc<crate::graph::GraphCore>, Response> {
+    let entry = match s.open_txns.get(txn_id) {
+        Some(e) => e,
+        None => {
+            return Err(Response::err(
+                req_id,
+                format!("unknown transaction '{}'", txn_id),
+            ))
+        }
+    };
+    let default_graph = entry.value().lock().graph.clone();
+    if let Some(g) = target_graph {
+        if g != default_graph {
+            return Err(Response::err(
+                req_id,
+                format!("cross-modal {kind} must target the txn's default graph"),
+            ));
+        }
+    }
+    match s.registry.get(&default_graph) {
+        Some(g) => Ok(g.core.clone()),
+        None => Err(Response::err(
+            req_id,
+            format!("Graph '{}' not found", default_graph),
+        )),
+    }
+}
+
+/// Stage OWL AXIOMS (Turtle) into the txn's cross-modal write-set (CONCEPT:EG-361). The
+/// axioms are parsed + lowered to `AddNode`/`AddEdge` methods HERE (at stage time) so the
+/// commit path treats them as ordinary graph mutations riding the one cross-modal
+/// `WriteTransaction`. Acks `Bool(true)`.
+#[cfg(feature = "owl")]
+async fn stage_axiom(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    target_graph: Option<&str>,
+    turtle: String,
+) -> Response {
+    let s = state.read().await;
+    let core = match resolve_txn_default_core(&s, req_id, txn_id, target_graph, "axiom") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let triples = match eg_rdf::mapping::parse_turtle(&turtle) {
+        Ok(t) => t,
+        Err(e) => return Response::err(req_id, format!("TxnAxiom: {e}")),
+    };
+    let methods = triples_to_methods(&triples);
+    if let Some(e) = s.open_txns.get(txn_id) {
+        e.value().lock().stage_axiom(&core, methods, now_ms());
+    }
+    Response::ok(req_id, ResultPayload::Bool(true))
+}
+
+/// Stage a SPARQL CONSTRUCT into the txn's cross-modal write-set (CONCEPT:EG-362). The
+/// CONSTRUCT is evaluated NOW against the graph's committed snapshot; its produced triples
+/// are lowered to `AddNode`/`AddEdge` methods that land in the SAME cross-modal
+/// `WriteTransaction` at commit. (Read-your-own-writes over the txn's OTHER staged writes
+/// is Lane A's overlay concern; here the CONSTRUCT reads the committed store.) Acks
+/// `Bool(true)`.
+#[cfg(feature = "sparql")]
+async fn stage_construct(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    target_graph: Option<&str>,
+    sparql: String,
+) -> Response {
+    let s = state.read().await;
+    let core = match resolve_txn_default_core(&s, req_id, txn_id, target_graph, "construct") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let snap = core.analysis_snapshot();
+    let proj = eg_rdf::sparql::Projection::from_wire("", "");
+    let triples = match eg_rdf::sparql::run_outcome(&snap, &sparql, &proj) {
+        Ok(eg_rdf::sparql::QueryOutcome::Graph(t)) => t,
+        Ok(_) => {
+            return Response::err(
+                req_id,
+                "TxnConstruct requires a CONSTRUCT or DESCRIBE query",
+            )
+        }
+        Err(e) => return Response::err(req_id, format!("TxnConstruct: {e}")),
+    };
+    let methods = triples_to_methods(&triples);
+    if let Some(e) = s.open_txns.get(txn_id) {
+        e.value().lock().stage_construct(&core, methods, now_ms());
+    }
+    Response::ok(req_id, ResultPayload::Bool(true))
+}
+
 /// `Commit`: the OCC serialization point. Validate the read-set under the held
 /// topology write guard; on success apply the staged write-set atomically through
 /// ONE `GraphTxn`, drop the guard, then persist each staged method and mark dirty
@@ -448,12 +713,24 @@ async fn commit(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Commit a CROSS-MODAL single-graph transaction (CONCEPT:KG-2.225). Validates the OCC
-/// read-set, then lands the graph methods + vector upserts + blob-refs ATOMICALLY in
-/// ONE redb `WriteTransaction` (commit-before-ack) BEFORE touching the in-memory model,
-/// so a durable-commit failure applies NOTHING (no partial cross-modal commit) and the
+/// Commit a CROSS-MODAL single-graph transaction (CONCEPT:KG-2.225 + EG-360/361/362).
+/// Validates the OCC read-set, then lands EVERY staged modality ATOMICALLY in ONE redb
+/// `WriteTransaction` (commit-before-ack) BEFORE touching the in-memory model:
+///   * graph methods + vector upserts + blob-refs (CONCEPT:KG-2.225);
+///   * OWL-axiom + SPARQL-CONSTRUCT triples, lowered to `AddNode`/`AddEdge` and folded
+///     into `methods` (CONCEPT:EG-361/362);
+///   * time-series measurement batches, written into the graph's SERIES tables in the
+///     SAME transaction (CONCEPT:EG-360).
+///
+/// A durable-commit failure applies NOTHING (no partial cross-modal commit) and the
 /// in-memory state only ever reflects what is durable. On OCC conflict returns
 /// `Bool(false)` (true rollback); on durable failure returns an ERROR.
+///
+/// The graph modalities (nodes/edges/axioms/CONSTRUCT/vectors/blob-refs) are mirrored
+/// into the in-memory model after the durable commit. Measurements are DURABLE-ONLY in
+/// this lane (they live in `graph.redb`'s SERIES tables, exposed readably on
+/// `GraphTxnState.measurements`); wiring them into the served/query read path is the
+/// Lane A overlay + Lane C `TsScan` reconcile step.
 async fn commit_cross_modal(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -500,7 +777,19 @@ async fn commit_cross_modal(
     }
 
     let fname = crate::persist::sanitize(&txn.graph);
-    let methods: Vec<Method> = txn.write_set.clone();
+    // Graph-topology methods for the durable + in-memory apply: the ordinary staged
+    // write-set PLUS the OWL-axiom and SPARQL-CONSTRUCT triples already lowered to
+    // AddNode/AddEdge at stage time (CONCEPT:EG-361/362). Folding them here means they
+    // ride the SAME `apply_method_rows` / `apply_staged` path as any other mutation, so
+    // the committed axioms/CONSTRUCT triples are durable + visible atomically with the
+    // txn's other modalities.
+    let mut methods: Vec<Method> = txn.write_set.clone();
+    methods.extend(txn.axioms.iter().cloned());
+    methods.extend(txn.constructs.iter().cloned());
+    // Time-series measurement batches land into the graph's SERIES tables in the SAME
+    // WriteTransaction (CONCEPT:EG-360).
+    let measurements: Vec<crate::MeasurementBatch> =
+        txn.measurements.iter().map(|m| m.to_batch()).collect();
 
     // ── THE ATOMIC COMMIT POINT: land ALL modalities in ONE redb WriteTransaction ──
     // commit-before-ack. A failure here means NOTHING is durable AND we apply nothing
@@ -509,7 +798,13 @@ async fn commit_cross_modal(
         return Response::err(req_id, "cross-modal txn requires a persistence backend");
     };
     if let Err(e) = p
-        .commit_crossmodal(&fname, &methods, &txn.vectors, &txn.blob_refs)
+        .commit_crossmodal(
+            &fname,
+            &methods,
+            &txn.vectors,
+            &txn.blob_refs,
+            &measurements,
+        )
         .await
     {
         return Response::err(req_id, format!("cross-modal commit failed: {e}"));

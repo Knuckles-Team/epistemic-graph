@@ -245,17 +245,31 @@ pub type BlobRefRow = (String, String);
 ///   * **blob refs** → a `__blob__` reserved property on the node carrying the digest,
 ///     written into NODES, so the graph-side link to the (separately content-addressed)
 ///     blob lands in the SAME transaction as everything else.
+///   * **measurements** (CONCEPT:EG-360) → each time-series batch is appended into
+///     SERIES_CHUNKS/SERIES_META on THIS transaction via the shared eg-tsdb chunk
+///     encoding ([`eg_tsdb::store::append_batch_in_wtx`]), so the points land in the
+///     SAME `graph.redb` commit as the node/vector/blob writes (not a separate
+///     `series.redb`). `tsdb`-gated; a slim redb-only build errors on a non-empty batch.
 ///
 /// If ANY step errors, the `WriteTransaction` is DROPPED without `commit()` — redb
 /// discards every staged write, so NONE of the modalities land (a true rollback, no
 /// partial). On success the txn commits at `Durability::Immediate` (commit-before-ack:
 /// the cross-modal write is on disk before the client is told it succeeded).
+// The modality set (db + graph + methods + vectors + blob-refs + measurements + crypto
+// [+ audit tail]) is intrinsic to a one-`WriteTransaction` cross-modal commit; grouping
+// them into a struct would only relocate the same fields, so the arg count stays flat.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn commit_crossmodal(
     db: &Database,
     graph: &str,
     methods: &[Method],
     vectors: &[VectorUpsert],
     blob_refs: &[BlobRefRow],
+    // Staged time-series measurement batches (CONCEPT:EG-360). Each lands in the SAME
+    // `WriteTransaction` as the graph/vector/blob writes, into SERIES_CHUNKS/SERIES_META
+    // in THIS `graph.redb` (not a separate `series.redb`), so a measurement and the node
+    // it annotates are durable together — never one without the other.
+    measurements: &[crate::MeasurementBatch],
     crypto: DurableCrypto<'_>,
     // O(1) audit-chain tail cache (CONCEPT:EG-025), shared with the group-commit path.
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
@@ -321,6 +335,39 @@ pub(crate) fn commit_crossmodal(
             semantic
                 .insert(graph, blob.as_ref())
                 .map_err(|e| e.to_string())?;
+        }
+
+        // 4. Measurements (CONCEPT:EG-360) — append each time-series batch into
+        // SERIES_CHUNKS/SERIES_META ON THIS transaction (the shared eg-tsdb chunk
+        // encoding, via `append_batch_in_wtx`), so the points land in the SAME
+        // `graph.redb` commit as the node/vector/blob writes. redb's exclusive
+        // per-process file lock means this is the ONLY way a measurement can be atomic
+        // WITH the graph modalities: through the transaction the writer already owns.
+        #[cfg(feature = "tsdb")]
+        for (series, n_fields, bucket_ns, field_names, points) in measurements {
+            let pts: Vec<eg_tsdb::point::Point> = points
+                .iter()
+                .map(|(ts, values)| eg_tsdb::point::Point {
+                    ts: *ts,
+                    values: values.clone(),
+                })
+                .collect();
+            eg_tsdb::store::append_batch_in_wtx(
+                &wtx,
+                series,
+                *n_fields,
+                *bucket_ns,
+                field_names,
+                &pts,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        // A build without the `tsdb` feature has no SERIES tables + no eg-tsdb dep, so a
+        // measurement here has no durable home — error rather than silently drop it (the
+        // staging handler is `tsdb`-gated, so in practice this is never non-empty).
+        #[cfg(not(feature = "tsdb"))]
+        if !measurements.is_empty() {
+            return Err("time-series cross-modal commit requires the `tsdb` feature".to_string());
         }
 
         // Backfill a graph_meta identity row so authoritative load_all recovers it.
