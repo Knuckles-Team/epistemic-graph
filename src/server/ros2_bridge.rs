@@ -22,7 +22,11 @@
 //! driver ([`run_ros2_bridge`]) wires them onto a live connection.
 //!
 //! Feature-gated behind `ros2-bridge` (out of `pi`/`default`/`node`): a slim build links
-//! no `tokio-tungstenite` (Pi contract).
+//! no `tokio-tungstenite` (Pi contract). The PURE mapping here ([`cdc_to_publish`] /
+//! [`publish_to_method`] / [`RosbridgeOp`]) is ALSO compiled under `ros2-dds`
+//! (CONCEPT:EG-347): the native DDS/RTPS transport seam ([`super::dds`]) reuses this exact
+//! shaping, so the DDS leg puts the IDENTICAL `std_msgs/String` payload on the wire as the
+//! rosbridge leg. Only the tungstenite driver [`run_ros2_bridge`] is `ros2-bridge`-specific.
 
 use serde::{Deserialize, Serialize};
 
@@ -207,7 +211,11 @@ pub async fn apply_inbound(
 /// (a) forwards the graph's CDC changes as ROS2 publishes and (b) applies inbound ROS2
 /// publishes to the engine. Spawned from `main` when [`Ros2BridgeConfig::from_env`] is
 /// `Some`; a dropped connection returns so the caller can reconnect with backoff.
-#[cfg(feature = "server")]
+///
+/// Gated on `ros2-bridge` specifically (not just `server`): it is the tokio-tungstenite
+/// WebSocket driver, so a `ros2-dds`-only build (CONCEPT:EG-347) — which links no
+/// tokio-tungstenite — must not compile it. The pure CDC↔ROS2 mapping above stays shared.
+#[cfg(all(feature = "server", feature = "ros2-bridge"))]
 pub async fn run_ros2_bridge(
     state: std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
     cfg: Ros2BridgeConfig,
