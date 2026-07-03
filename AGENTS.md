@@ -383,6 +383,18 @@ graph-op handlers); only its heavy domains + their deps are feature-gated.
 The facade declares `crate-type = ["rlib"]` (no `cdylib`/pyo3; maturin
 `bindings = "bin"`).
 
+**Opt-in extras — `full-extras` (out of every deployment tier).** A separate umbrella
+for heavy legs that need an external toolchain/GPU/robotics stack to actually *run* but
+still build clean everywhere: `gpu-cuda` (real CUDA via `dynamic-loading` cudarc,
+EG-326/327), `ros2-bridge` (rosbridge-WebSocket ROS2 leg, EG-325 — pure-Rust
+`tokio-tungstenite`), and `ros2-dds` (**native DDS/RTPS ROS2 leg, EG-347** — pure-Rust
+`rustdds`, NO CycloneDDS/rmw/C toolchain, so it CI-builds; the `DdsTransport` trait in
+`src/server/dds.rs` unifies the WS + DDS legs behind one interface). NEVER folded into
+`pi`/`default`/`node`/`full` — a `pi`/`full` build links no cudarc/rustdds (asserted by
+`cargo tree`). The CycloneDDS-C-backed `rmw` ROS2 leg stays a toolchain-gated future
+option (not CI-buildable without the C toolchain). Robotics config: `ros2-dds` reads the
+DDS domain from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`).
+
 ---
 
 ## Module Structure — a Cargo workspace along the dependency DAG
