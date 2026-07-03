@@ -43,9 +43,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   encapsulation) so the EG-347 native DDS leg is discoverable by a live `ros2` daemon.
 - **EG-350** — Iceberg **per-column stats** (the deferred EG-333 follow-on): value/null/nan counts, typed
   min/max bounds and Parquet column sizes in the Avro manifest, for external predicate pushdown / file skipping.
-- **EG-351** — **eg-numeric PyPI publish leg** (the kernel wheel now ships to the index on a `v*` tag,
-  unblocking a numpy-free agent-utilities) + a **GPU-gated CUDA parity test** that asserts the cudarc kernels
-  == the CPU ground truth where a GPU is present and skips cleanly in CI.
+- **EG-351** — **numeric kernel folded into the `epistemic-graph` wheel** (`epistemic-graph[numeric]` — ONE
+  published package, the kernel `.so` injected into the node wheel as `epistemic_graph.numeric`; the separate
+  `eg-numeric` publish leg is removed, unblocking a numpy-free agent-utilities) + a **GPU-gated CUDA parity test**
+  that asserts the cudarc kernels == the CPU ground truth where a GPU is present and skips cleanly in CI.
 
 ### Added — lakehouse interop
 - **EG-350** — Iceberg **per-column stats** (the deferred EG-333 follow-on). The LTAP tier gathers per-column `value_count`/`null_count`/`nan_count`, typed min/max bounds and Parquet `column_size` as each data file is materialized (`materialize_with_column_stats`), carries them on `FileEntry.column_stats`, and the Avro manifest writer emits the six spec stats maps (`column_sizes`/`value_counts`/`null_value_counts`/`nan_value_counts`/`lower_bounds`/`upper_bounds`, keyed by field-id, bounds in single-value binary) so external readers (Spark/Trino/DuckDB) do predicate pushdown / file skipping. Partition `field_summary` stays null by design — the spec is unpartitioned. Same `lake` gate; `pi`/`full` still link no `apache-avro` (`cargo tree` = 0).
