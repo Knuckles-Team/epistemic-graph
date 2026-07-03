@@ -36,5 +36,5 @@ rand_distr = "0.4"
 rand_chacha = "0.3"
 
 # Surface-A only (feature `python`): zero-copy numpy interop + GIL release.
-pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"], optional = true }
 numpy = { version = "0.22", optional = true }
