@@ -17,13 +17,32 @@
 //!
 //! ## API (CONCEPT:EG-187)
 //!
-//! * `GET  /kv/<hash>`          → the block bytes (`200`) or `404` if absent.
+//! * `GET  /kv/<hash>`          → the block bytes (`200`) or `404` if absent (or STALE,
+//!   CONCEPT:EG-359 — a stale entry reads as absent).
 //! * `PUT  /kv/<hash>` (binary) → store the block under `<hash>` (`201 Created` on a
-//!   new block, `200 OK` on a dedup hit against an existing block).
-//! * `HEAD /kv/<hash>`          → `200` if present, `404` if absent (existence probe).
+//!   new block, `200 OK` on a dedup hit against an existing block). An optional
+//!   `X-EG-Data-Version: <n>` header (CONCEPT:EG-359) version-tags the entry so it goes
+//!   stale on a later graph write; absent ⇒ a pure content-addressed page (never
+//!   version-invalidated).
+//! * `HEAD /kv/<hash>`          → `200` if present + fresh, `404` if absent/stale.
 //! * `GET  /kv/<hash>/exists`   → `200` JSON `{"hash":…,"exists":bool}` (an
 //!   HTTP-method-agnostic existence probe for clients that cannot issue `HEAD`).
-//! * `GET  /kv/stats`           → `200` JSON occupancy + dedup stats.
+//! * `GET  /kv/stats`           → `200` JSON occupancy + dedup + `stale_retired` stats.
+//! * `GET  /kv/version`         → `200` JSON `{"tracking":bool,"version":n|null}` (the
+//!   current data version, CONCEPT:EG-359).
+//! * `PUT  /kv/version/<n>`     → advance the data version to `<n>`, retiring every
+//!   now-stale versioned entry (the hook a graph write drives, CONCEPT:EG-359).
+//!
+//! ## Data-version invalidation (CONCEPT:EG-359)
+//!
+//! A cached *derived context* (an assembled prompt / retrieved subgraph a connector
+//! stored under a token-hash) goes STALE when the underlying graph data changes. The
+//! surface mirrors `eg-core`'s version-keyed result cache (KG-2.233): a PUT may carry the
+//! `GraphCore::version()` it was derived at (`X-EG-Data-Version`), and a graph write
+//! drives `PUT /kv/version/<n>` to advance the surface's data version — atomically
+//! retiring every entry derived at an older version, so a stale entry is never served.
+//! Pure KV pages (no version header) are `Agnostic` and untouched — the EG-186 dedup path
+//! is unchanged.
 //!
 //! ## The address is the caller's token-hash (NOT a byte-hash)
 //!
@@ -47,7 +66,7 @@ use std::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use eg_kvcache::{SharedKvBackend, SharedKvIndex};
+use eg_kvcache::{DataVersion, SharedKvBackend, SharedKvIndex};
 
 /// Env var: when set (and built `--features kvcache-server`) the KV-cache HTTP listener
 /// binds this address (documented loopback default `127.0.0.1:9130`). Unset ⇒ no
@@ -56,6 +75,13 @@ pub const KVCACHE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_ADDR";
 /// Env var: the bearer token. When set, the guard is armed and anonymous access is
 /// refused; every request must present `Authorization: Bearer <token>`.
 pub const KVCACHE_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_TOKEN";
+/// Request header (CONCEPT:EG-359): the `GraphCore::version()` (KG-2.180) the PUT body was
+/// DERIVED at. When present, the stored entry is version-tagged and goes stale once the
+/// surface's current data version advances past it (a graph write drives
+/// `PUT /kv/version/<n>`). Absent ⇒ a pure content-addressed KV page
+/// ([`DataVersion::Agnostic`], never version-invalidated) — so existing connectors are
+/// unaffected.
+pub const KVCACHE_DATA_VERSION_HEADER: &str = "x-eg-data-version";
 
 /// The KV-cache backing store: the shared, content-addressed, ref-counted index behind
 /// a `Mutex` (the index needs `&mut` to `put`/`release`; the guard is held only for the
@@ -83,14 +109,35 @@ impl KvCacheStore {
         self.index.lock().unwrap().get_block(hash)
     }
 
-    /// Store `block` under `hash`. Returns `true` iff a NEW block was created (`false`
-    /// on a dedup hit against an already-present block).
-    fn put(&self, hash: &str, block: Vec<u8>) -> bool {
-        self.index.lock().unwrap().put_block(hash, block)
+    /// Store `block` under `hash`, stamped with the [`DataVersion`] it was `derived_at`
+    /// (CONCEPT:EG-359). Returns `true` iff a NEW block was created (`false` on a dedup hit
+    /// against an already-present block).
+    fn put(&self, hash: &str, block: Vec<u8>, derived_at: DataVersion) -> bool {
+        self.index
+            .lock()
+            .unwrap()
+            .put_block(hash, block, derived_at)
     }
 
     fn contains(&self, hash: &str) -> bool {
         self.index.lock().unwrap().contains(hash)
+    }
+
+    /// Advance the surface's current data version (CONCEPT:EG-359) — driven by a graph
+    /// write (`PUT /kv/version/<n>`). Retires every now-stale version-tagged entry so no
+    /// stale agent/LLM context is served after the underlying data changed.
+    fn set_data_version(&self, version: DataVersion) {
+        self.index.lock().unwrap().set_data_version(version);
+    }
+
+    /// The surface's current data version as connector-friendly JSON (CONCEPT:EG-359).
+    fn version_json(&self) -> String {
+        let v = self.index.lock().unwrap().current_version();
+        let (tracking, version) = match v {
+            DataVersion::Agnostic => (false, serde_json::Value::Null),
+            DataVersion::At(n) => (true, serde_json::json!(n)),
+        };
+        serde_json::json!({ "tracking": tracking, "version": version }).to_string()
     }
 
     fn stats_json(&self) -> String {
@@ -105,6 +152,7 @@ impl KvCacheStore {
             "dedup_hits": s.dedup_hits,
             "get_hits": s.get_hits,
             "get_misses": s.get_misses,
+            "stale_retired": s.stale_retired,
         })
         .to_string()
     }
@@ -133,6 +181,18 @@ fn authorized(auth: &Option<KvAuth>, headers: &HashMap<String, String>) -> bool 
         .map(str::trim)
         .map(|t| t == cfg.token)
         .unwrap_or(false)
+}
+
+/// Parse the `X-EG-Data-Version` header (CONCEPT:EG-359) into a [`DataVersion`]. A valid
+/// unsigned integer ⇒ [`DataVersion::At`]; absent or unparseable ⇒ [`DataVersion::Agnostic`]
+/// (a pure content-addressed KV page — the backward-compatible default that keeps existing
+/// connectors' entries out of version invalidation).
+fn parse_data_version(headers: &HashMap<String, String>) -> DataVersion {
+    headers
+        .get(KVCACHE_DATA_VERSION_HEADER)
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(DataVersion::At)
+        .unwrap_or(DataVersion::Agnostic)
 }
 
 // ── request / response + routing ──────────────────────────────────────────────────
@@ -210,6 +270,29 @@ fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvRes
         };
     }
 
+    // `GET /kv/version` → the current data version; `PUT /kv/version/<n>` advances it
+    // (CONCEPT:EG-359) — the hook a graph write drives to invalidate stale context.
+    if rest == "version" {
+        return match req.method.as_str() {
+            "GET" | "HEAD" => KvResponse::json("200 OK", store.version_json()),
+            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
+        };
+    }
+    if let Some(n) = rest.strip_prefix("version/") {
+        return match req.method.as_str() {
+            "PUT" | "POST" => match n.parse::<u64>() {
+                Ok(v) => {
+                    store.set_data_version(DataVersion::At(v));
+                    KvResponse::json("200 OK", store.version_json())
+                }
+                Err(_) => {
+                    KvResponse::error("400 Bad Request", "BadRequest", "version must be a u64")
+                }
+            },
+            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
+        };
+    }
+
     // `GET /kv/<hash>/exists` → JSON existence probe.
     if let Some(hash) = rest.strip_suffix("/exists") {
         if hash.is_empty() {
@@ -245,7 +328,11 @@ fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvRes
             }
         }
         "PUT" => {
-            let created = store.put(hash, req.body.clone());
+            // Version-tag the entry with the `X-EG-Data-Version` header if the connector
+            // supplied one (CONCEPT:EG-359); absent ⇒ a pure content-addressed page
+            // (Agnostic, never version-invalidated).
+            let derived_at = parse_data_version(&req.headers);
+            let created = store.put(hash, req.body.clone(), derived_at);
             // 201 on a brand-new block; 200 on a dedup hit (the block was already present).
             KvResponse::empty(if created { "201 Created" } else { "200 OK" })
         }
@@ -568,6 +655,98 @@ mod tests {
             &buf[sep + 4..],
             block,
             "binary block round-trips byte-for-byte over TCP"
+        );
+    }
+
+    /// CONCEPT:EG-359 — a version-tagged PUT is served while the data version holds, then
+    /// a `PUT /kv/version/<n>` (a graph write) makes the stale entry a 404 MISS; a
+    /// re-PUT at the new version serves fresh bytes. The stale context is never returned.
+    #[test]
+    fn eg359_version_bump_invalidates_derived_context_over_http() {
+        let s = store();
+        let none = None;
+        // Advance to data version 5, then cache context derived at v5.
+        assert_eq!(
+            handle(&s, &none, &req("PUT", "/kv/version/5", b"", &[])).status,
+            "200 OK"
+        );
+        let put = handle(
+            &s,
+            &none,
+            &req("PUT", "/kv/ctx", b"ctx-v5", &[("x-eg-data-version", "5")]),
+        );
+        assert_eq!(put.status, "201 Created");
+        let get = handle(&s, &none, &req("GET", "/kv/ctx", b"", &[]));
+        assert_eq!(get.status, "200 OK");
+        assert_eq!(get.body, b"ctx-v5");
+
+        // A graph write bumps the surface's data version ⇒ v5 context is stale ⇒ 404.
+        assert_eq!(
+            handle(&s, &none, &req("PUT", "/kv/version/6", b"", &[])).status,
+            "200 OK"
+        );
+        assert_eq!(
+            handle(&s, &none, &req("GET", "/kv/ctx", b"", &[])).status,
+            "404 Not Found",
+            "stale context must not be served"
+        );
+        assert_eq!(
+            handle(&s, &none, &req("HEAD", "/kv/ctx", b"", &[])).status,
+            "404 Not Found"
+        );
+        let ex = handle(&s, &none, &req("GET", "/kv/ctx/exists", b"", &[]));
+        assert!(String::from_utf8_lossy(&ex.body).contains("\"exists\":false"));
+
+        // Re-cache the freshly-derived context at v6 ⇒ served again.
+        let put = handle(
+            &s,
+            &none,
+            &req("PUT", "/kv/ctx", b"ctx-v6", &[("x-eg-data-version", "6")]),
+        );
+        assert_eq!(put.status, "201 Created");
+        let get = handle(&s, &none, &req("GET", "/kv/ctx", b"", &[]));
+        assert_eq!(get.body, b"ctx-v6", "fresh context served");
+    }
+
+    /// CONCEPT:EG-359 — a PUT WITHOUT the version header is a pure content-addressed page
+    /// (Agnostic) that survives version bumps, so existing connectors are unaffected.
+    #[test]
+    fn eg359_unversioned_put_is_agnostic_and_survives_bumps() {
+        let s = store();
+        let none = None;
+        assert_eq!(
+            handle(&s, &none, &req("PUT", "/kv/page", b"kv-bytes", &[])).status,
+            "201 Created"
+        );
+        handle(&s, &none, &req("PUT", "/kv/version/1", b"", &[]));
+        handle(&s, &none, &req("PUT", "/kv/version/2", b"", &[]));
+        let get = handle(&s, &none, &req("GET", "/kv/page", b"", &[]));
+        assert_eq!(
+            get.status, "200 OK",
+            "agnostic page immune to version bumps"
+        );
+        assert_eq!(get.body, b"kv-bytes");
+    }
+
+    /// CONCEPT:EG-359 — `GET /kv/version` reports tracking state, and a bad version path
+    /// is a 400.
+    #[test]
+    fn eg359_version_endpoint_reports_and_validates() {
+        let s = store();
+        let none = None;
+        // Initially agnostic (tracking inactive).
+        let v = handle(&s, &none, &req("GET", "/kv/version", b"", &[]));
+        assert!(String::from_utf8_lossy(&v.body).contains("\"tracking\":false"));
+        // Set + read back.
+        handle(&s, &none, &req("PUT", "/kv/version/9", b"", &[]));
+        let v = handle(&s, &none, &req("GET", "/kv/version", b"", &[]));
+        let j: serde_json::Value = serde_json::from_slice(&v.body).unwrap();
+        assert_eq!(j["tracking"], true);
+        assert_eq!(j["version"], 9);
+        // Non-numeric version ⇒ 400.
+        assert_eq!(
+            handle(&s, &none, &req("PUT", "/kv/version/oops", b"", &[])).status,
+            "400 Bad Request"
         );
     }
 }

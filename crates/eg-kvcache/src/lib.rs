@@ -40,12 +40,14 @@ pub mod hash;
 pub mod shared;
 pub mod tiered;
 pub mod value;
+pub mod version;
 
 pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
 pub use shared::{SharedKvBackend, SharedKvIndex, SharedStats};
 pub use tiered::{CacheStats, Tier, TieredCache};
 pub use value::{Block, CacheValue};
+pub use version::DataVersion;
 
 #[cfg(feature = "durable")]
 pub use cold::{ColdKey, RedbColdStore};

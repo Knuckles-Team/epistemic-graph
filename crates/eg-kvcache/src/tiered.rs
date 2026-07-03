@@ -27,6 +27,7 @@ use std::hash::Hash;
 use crate::cold::{ColdStore, MemoryColdStore};
 use crate::compress::{Codec, StoredBlock};
 use crate::value::CacheValue;
+use crate::version::DataVersion;
 
 /// A HOT-tier resident: the raw value plus its score / recency / size.
 struct HotEntry<V> {
@@ -94,6 +95,10 @@ pub struct CacheStats {
     pub demotions_to_cold: u64,
     /// Lifetime blocks dropped (fell out of the COLD budget, or a cold write failed).
     pub drops: u64,
+    /// Lifetime entries RETIRED as stale by a data-version bump (CONCEPT:EG-359) — either
+    /// eagerly on [`TieredCache::set_data_version`] or lazily on a [`TieredCache::get`] of
+    /// a now-stale key. The invalidation proof counter.
+    pub invalidations: u64,
 }
 
 /// A three-tier, byte-budgeted, score-driven KV-cache store (CONCEPT:EG-185).
@@ -112,6 +117,16 @@ where
     cold_meta: HashMap<K, ColdMeta>,
     cold_store: Box<dyn ColdStore<K>>,
     pinned: HashSet<K>,
+
+    /// The [`DataVersion`] each resident key was derived at (CONCEPT:EG-359), layered
+    /// ON TOP of the tier maps so the tiering/dedup/LRU/pinning machinery is untouched.
+    /// A key absent here (or mapped to [`DataVersion::Agnostic`]) is a pure KV page that
+    /// never goes stale — so a cache used purely for content-addressed pages (`put`, never
+    /// `set_data_version`) is unaffected and zero-cost.
+    versions: HashMap<K, DataVersion>,
+    /// The cache's current data version; [`DataVersion::Agnostic`] until a
+    /// [`TieredCache::set_data_version`] call (tracking inactive = nothing stale).
+    current_version: DataVersion,
 
     hot_cap: usize,
     warm_cap: usize,
@@ -134,6 +149,7 @@ where
     demotions_to_warm: u64,
     demotions_to_cold: u64,
     drops: u64,
+    invalidations: u64,
 }
 
 impl<K, V> TieredCache<K, V>
@@ -170,6 +186,8 @@ where
             cold_meta: HashMap::new(),
             cold_store,
             pinned: HashSet::new(),
+            versions: HashMap::new(),
+            current_version: DataVersion::Agnostic,
             hot_cap,
             warm_cap,
             cold_cap,
@@ -184,6 +202,7 @@ where
             demotions_to_warm: 0,
             demotions_to_cold: 0,
             drops: 0,
+            invalidations: 0,
         }
     }
 
@@ -210,14 +229,27 @@ where
         self.clock
     }
 
-    /// Insert / overwrite a block. It lands in HOT with a fresh score; byte pressure is
-    /// then resolved by cascading demotion (CONCEPT:EG-185).
+    /// Insert / overwrite a block as a version-[`Agnostic`](DataVersion::Agnostic) pure KV
+    /// page (never version-invalidated). It lands in HOT with a fresh score; byte pressure
+    /// is then resolved by cascading demotion (CONCEPT:EG-185). Use
+    /// [`put_versioned`](Self::put_versioned) for DERIVED context that must go stale on a
+    /// graph write.
     pub fn put(&mut self, key: K, value: V) {
+        self.put_versioned(key, value, DataVersion::Agnostic);
+    }
+
+    /// Insert / overwrite a block stamped with the [`DataVersion`] it was `derived_at`
+    /// (CONCEPT:EG-359). Once the cache's current version moves past it (via
+    /// [`set_data_version`](Self::set_data_version)) the entry is retired / misses. Tiering
+    /// is otherwise identical to [`put`](Self::put) — the version is layered on top and
+    /// does not affect scoring / demotion.
+    pub fn put_versioned(&mut self, key: K, value: V, derived_at: DataVersion) {
         // Drop any prior copy in every tier so accounting stays exact.
         self.remove_resident(&key);
         let clk = self.tick();
         let bytes = value.byte_len();
         self.hot_bytes += bytes;
+        self.versions.insert(key.clone(), derived_at);
         self.hot.insert(
             key,
             HotEntry {
@@ -230,9 +262,55 @@ where
         self.enforce_hot();
     }
 
+    /// The cache's current data version (CONCEPT:EG-359).
+    pub fn current_version(&self) -> DataVersion {
+        self.current_version
+    }
+
+    /// Advance the cache's current data version (CONCEPT:EG-359) — the hook a graph write
+    /// drives (a committed write bumps `GraphCore::version()`, KG-2.180, then calls this).
+    /// EAGERLY retires every version-tagged entry now stale (across ALL tiers, freeing its
+    /// bytes — pinned or not, because staleness is a correctness concern that overrides the
+    /// keep-hot pin contract), mirroring `ResultCache`'s atomic version-bump retire
+    /// (KG-2.233). [`DataVersion::Agnostic`] pure KV pages are untouched.
+    pub fn set_data_version(&mut self, version: DataVersion) {
+        self.current_version = version;
+        let stale: Vec<K> = self
+            .versions
+            .iter()
+            .filter(|(_, v)| !v.is_fresh(version))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in stale {
+            self.remove_resident(&k);
+            self.versions.remove(&k);
+            self.invalidations += 1;
+        }
+    }
+
+    /// Whether `key` is resident but STALE for the current data version (CONCEPT:EG-359).
+    fn is_stale(&self, key: &K) -> bool {
+        self.versions
+            .get(key)
+            .map(|v| !v.is_fresh(self.current_version))
+            .unwrap_or(false)
+    }
+
     /// Look a block up. On a hit it is promoted toward HOT and its score bumped; on a
     /// miss returns `None`. Requires `&mut self` because a hit mutates tiers / scores.
+    ///
+    /// A resident-but-STALE entry (derived at an older data version, CONCEPT:EG-359) is
+    /// treated as a MISS and retired here (the lazy backstop to
+    /// [`set_data_version`](Self::set_data_version)'s eager sweep) so stale LLM/agent
+    /// context is never served.
     pub fn get(&mut self, key: &K) -> Option<V> {
+        if self.is_stale(key) {
+            self.remove_resident(key);
+            self.versions.remove(key);
+            self.invalidations += 1;
+            self.misses += 1;
+            return None;
+        }
         let clk = self.tick();
         if let Some(e) = self.hot.get_mut(key) {
             e.score += 1.0;
@@ -272,15 +350,23 @@ where
         None
     }
 
-    /// Whether `key` is resident in ANY tier.
+    /// Whether `key` is resident in ANY tier AND still fresh for the current data version
+    /// (a stale entry reads as absent, CONCEPT:EG-359).
     pub fn contains(&self, key: &K) -> bool {
+        if self.is_stale(key) {
+            return false;
+        }
         self.hot.contains_key(key)
             || self.warm.contains_key(key)
             || self.cold_meta.contains_key(key)
     }
 
-    /// Which tier `key` currently lives in, if resident.
+    /// Which tier `key` currently lives in, if resident and fresh. A stale entry
+    /// (CONCEPT:EG-359) reports `None`.
     pub fn tier_of(&self, key: &K) -> Option<Tier> {
+        if self.is_stale(key) {
+            return None;
+        }
         if self.hot.contains_key(key) {
             Some(Tier::Hot)
         } else if self.warm.contains_key(key) {
@@ -330,9 +416,11 @@ where
         self.pinned.contains(key)
     }
 
-    /// Forcibly remove `key` from every tier (and unpin it). Returns whether it existed.
+    /// Forcibly remove `key` from every tier (and unpin it, and drop its version stamp).
+    /// Returns whether it existed.
     pub fn evict(&mut self, key: &K) -> bool {
         self.pinned.remove(key);
+        self.versions.remove(key);
         self.remove_resident(key)
     }
 
@@ -352,6 +440,7 @@ where
             demotions_to_warm: self.demotions_to_warm,
             demotions_to_cold: self.demotions_to_cold,
             drops: self.drops,
+            invalidations: self.invalidations,
         }
     }
 
@@ -492,6 +581,7 @@ where
                 }
                 Err(_) => {
                     // Cold device rejected the write — the block is dropped.
+                    self.versions.remove(&k); // it left the cache entirely (EG-359)
                     self.drops += 1;
                 }
             }
@@ -507,6 +597,7 @@ where
             let m = self.cold_meta.remove(&k).expect("lowest_cold key present");
             self.cold_bytes -= m.stored_len;
             let _ = self.cold_store.remove(&k);
+            self.versions.remove(&k); // it left the cache entirely (EG-359)
             self.drops += 1;
         }
     }
@@ -809,5 +900,77 @@ mod tests {
         for k in 0..10u64 {
             assert_eq!(c.get(&k), Some(page(40, k as u8)), "block {k} recoverable");
         }
+    }
+
+    /// CONCEPT:EG-359 — a versioned (derived-context) block is served while the data
+    /// version holds, then MISSES after a `set_data_version` bump, whatever tier it sits
+    /// in. Eager retire frees it and the invalidation counter records it.
+    #[test]
+    fn eg359_version_bump_invalidates_across_tiers() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        c.set_data_version(DataVersion::At(0));
+        c.put_versioned(1, page(40, 1), DataVersion::At(0));
+        assert_eq!(c.get(&1), Some(page(40, 1)));
+        // A graph write bumps the version ⇒ the entry is stale ⇒ retired + miss.
+        c.set_data_version(DataVersion::At(1));
+        assert_eq!(c.get(&1), None, "stale block is a miss");
+        assert!(!c.contains(&1));
+        assert_eq!(c.tier_of(&1), None);
+        assert_eq!(c.stats().invalidations, 1);
+        assert!(c.is_empty(), "stale block retired, cache empty");
+        // Re-derive at the new version ⇒ served again (fresh content).
+        c.put_versioned(1, page(60, 1), DataVersion::At(1));
+        assert_eq!(c.get(&1), Some(page(60, 1)));
+    }
+
+    /// CONCEPT:EG-359 — the lazy backstop: even WITHOUT calling `set_data_version` to
+    /// eagerly sweep, a `get` of a key whose stamp is behind the current version misses
+    /// (belt-and-suspenders). Here we bump first (eager) then confirm a fresh put at the
+    /// new version survives — proving no false invalidation of current-version data.
+    #[test]
+    fn eg359_no_false_invalidation_on_stable_version() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        c.set_data_version(DataVersion::At(3));
+        c.put_versioned(1, page(40, 1), DataVersion::At(3));
+        // Version STABLE across many reads ⇒ every read HITs, nothing invalidated.
+        for _ in 0..5 {
+            assert_eq!(c.get(&1), Some(page(40, 1)));
+        }
+        assert_eq!(
+            c.stats().invalidations,
+            0,
+            "stable version ⇒ no invalidation"
+        );
+    }
+
+    /// CONCEPT:EG-359 — `put` (version-agnostic pure KV pages) is immune to version bumps,
+    /// so all existing tiering behaviour is preserved when versioning is unused.
+    #[test]
+    fn eg359_agnostic_puts_survive_version_bumps() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        c.put(1, page(40, 1)); // Agnostic
+        c.set_data_version(DataVersion::At(0));
+        c.set_data_version(DataVersion::At(99));
+        assert_eq!(c.get(&1), Some(page(40, 1)), "pure KV page immune");
+        assert_eq!(c.stats().invalidations, 0);
+    }
+
+    /// CONCEPT:EG-359 — a stale versioned block that has cascaded down to COLD is still
+    /// correctly invalidated (retired from the cold tier + its cold blob removed).
+    #[test]
+    fn eg359_invalidates_a_block_sitting_in_cold() {
+        // Tiny HOT/WARM so a versioned block cascades to COLD; generous COLD keeps it.
+        let mut c: TieredCache<u64, Block> = TieredCache::new(50, 30, 1_000_000);
+        c.set_data_version(DataVersion::At(0));
+        c.put_versioned(1, page(40, 1), DataVersion::At(0));
+        // Flood with agnostic pages to push key 1 down the tiers.
+        for k in 10..30u64 {
+            c.put(k, page(40, k as u8));
+        }
+        assert!(c.contains(&1), "still resident (offloaded, not dropped)");
+        // Bump the version ⇒ key 1 retired wherever it landed.
+        c.set_data_version(DataVersion::At(1));
+        assert_eq!(c.get(&1), None, "stale cold block invalidated");
+        assert!(c.stats().invalidations >= 1);
     }
 }
