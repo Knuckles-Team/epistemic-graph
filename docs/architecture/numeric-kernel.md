@@ -111,7 +111,7 @@ and runs against the compiled kernel when present, else the numpy fallback.
 - **P5:** drop numpy/scipy from agent-utilities; the `eg-numeric` wheel is the dep. The
   `xp` shim stays so future backend swaps remain mechanical.
 
-## Surface B — in-database analytics operators (P4, CONCEPT:EG-329/EG-330/EG-335/EG-336)
+## Surface B — in-database analytics operators (P4, CONCEPT:EG-329/EG-330/EG-335/EG-336/EG-344/EG-345)
 
 The pure kernel rlib is wired into the engine's query surface so analytics run **where the
 data lives** — no fetch-to-Python, no FFI. Two reach paths:
@@ -129,12 +129,13 @@ flowchart TD
       U4["covariance(a,b) → Float64  (UDAF)"]
       U5["svd(vec_col) → List&lt;Float64&gt;  (UDAF, col→matrix)"]
       U6["pca(vec_col,k) → List&lt;List&lt;Float64&gt;&gt;  (UDAF, col→matrix)"]
+      U7["kmeans(vec_col,k) → List&lt;Int64&gt;  (UDAF, col→matrix)"]
     end
     subgraph rpc["Surface B / Method  (src/server/handlers)"]
       M1["BatchL2Normalize { vectors }"]
     end
-    SQL["SELECT zscore(price) …\nSELECT svd(emb) …\nSELECT pca(emb,3) …"] --> U1 & U2 & U3 & U4 & U5 & U6
-    U1 & U2 & U3 & U4 & U5 & U6 --> kernel
+    SQL["SELECT zscore(price) …\nSELECT svd(emb) …\nSELECT pca(emb,3) …\nSELECT kmeans(emb,2) …"] --> U1 & U2 & U3 & U4 & U5 & U6 & U7
+    U1 & U2 & U3 & U4 & U5 & U6 & U7 --> kernel
     client["client.batch_l2_normalize(vectors)"] --> M1 --> kernel
     kernel --> pi{{"Pi-contract: numeric ∉ pi\n→ no eg-numeric/faer in the pi tree"}}
 ```
@@ -151,15 +152,17 @@ implemented in `crates/eg-query/src/sql/numeric.rs`):
 | `covariance(a, b)` | UDAF → `Float64` | `reductions::mean` | sample covariance `Σ(aᵢ-ā)(bᵢ-b̄)/(n-1)`; buffers aligned non-null pairs, merge state = two `List<Float64>` columns. |
 | `svd(vec_col)` (EG-336) | UDAF → `List<Float64>` | `linalg::svdvals` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix (each row = one matrix row; same operand forms as `cosine_sim` — a `List<Float{32,64}>` column or `'[..]'` text) and returns its singular values (descending). |
 | `pca(vec_col, k)` (EG-335) | UDAF → `List<List<Float64>>` | `reductions::mean` + `linalg::eigh` | **column→matrix**: mean-centers the `n×d` matrix, eigendecomposes the `d×d` sample covariance (`ddof=1`), and returns the top-`k` principal-component DIRECTIONS as `k` unit vectors of length `d`, **descending by explained variance** (sign arbitrary; `k` clamped to `d`; projected coords = `X_centered·componentsᵀ` downstream). |
+| `kmeans(vec_col, k)` (EG-344) | UDAF → `List<Int64>` | `cluster::kmeans_labels` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix and returns **one hard cluster label (`0..k`) per row, in ingestion order**. Pure-Rust Lloyd + k-means++ (`eg-numeric`'s ChaCha20 RNG, seeded → deterministic; **no linfa/BLAS**); `k` clamped to `n`, empty clusters re-seeded to the farthest point. |
 
-**Column→matrix marshalling** (the deferred-in-P4 bridge, `svd`/`pca`): both are UDAFs whose
-`Accumulator` (`MatrixAcc`) decodes each ingested row via `row_to_vector` (the same operand
-forms `cosine_sim` accepts) and buffers it row-major into a flat `Vec<f64>` + fixed `dim`
-(ragged rows skipped, NULL-safe); `evaluate()` reshapes to a dense `ndarray::Array2` and runs
-the faer kernel. Partial-aggregate state is the flat buffer as a `List<Float64>` plus `dim`
-(and `k` for `pca`) as `Int64`, so multi-phase grouping merges losslessly. The `List<Float64>`
-/ `List<List<Float64>>` results render as structural JSON arrays via `cell_to_json`
-(alongside the pgvector `List<Float32>` path).
+**Column→matrix marshalling** (the deferred-in-P4 bridge, `svd`/`pca`/`kmeans`): all three
+are UDAFs whose `Accumulator` (`MatrixAcc`) decodes each ingested row via `row_to_vector` (the
+same operand forms `cosine_sim` accepts) and buffers it row-major into a flat `Vec<f64>` +
+fixed `dim` (ragged rows skipped, NULL-safe); `evaluate()` reshapes to a dense
+`ndarray::Array2` and runs the kernel (faer for `svd`/`pca`, the `cluster` k-means for
+`kmeans`). Partial-aggregate state is the flat buffer as a `List<Float64>` plus `dim` (and `k`
+for `pca`/`kmeans`, via `MatrixOp::takes_k`) as `Int64`, so multi-phase grouping merges
+losslessly. The `List<Float64>` / `List<List<Float64>>` / `List<Int64>` results render as
+structural JSON arrays via `cell_to_json` (alongside the pgvector `List<Float32>` path).
 
 Example — standardize a price column, rank rows by similarity, and reduce embeddings, all in-engine:
 
@@ -168,6 +171,7 @@ SELECT id, zscore(price) AS z FROM nodes ORDER BY z DESC;
 SELECT a.id, cosine_sim(a.emb, b.emb) AS sim FROM nodes a JOIN nodes b ON a.id <> b.id;
 SELECT svd(emb) AS singular_values FROM nodes;        -- singular values of the emb matrix
 SELECT pca(emb, 3) AS top3_components FROM nodes;     -- top-3 principal-component directions
+SELECT kmeans(emb, 4) AS cluster_labels FROM nodes;  -- 4-way clustering, one label per row
 ```
 
 **Batch Method** — `Method::BatchL2Normalize { vectors }` (`src/server/handlers/graph_ops.rs`,
@@ -182,8 +186,63 @@ stays OUT of `pi`/`node`/`pi-max`/`release-tiny`, and eg-numeric's pyo3 (`python
 off in every engine build, so a `numeric` engine links faer/ndarray but **no Python extension**.
 Verified: `cargo tree --no-default-features --features pi` links **no** eg-numeric/faer/ndarray.
 
-**Shipped this increment:** `svd(vec_col)` (EG-336) / `pca(vec_col, k)` (EG-335) — the
-column→`ndarray::Array2` marshalling UDAFs above; the faer SVD/eigh kernels
-(`linalg::svdvals`/`eigh`) drive them, so this closed the columnar↔matrix bridge.
-**Still deferred (later P4):** graph-algo/timeseries unification under the one kernel and
-cross-modal joins → PCA/cluster in-engine.
+**Shipped this increment:** `kmeans(vec_col, k)` (EG-344) — the clustering column→matrix UDAF,
+backed by a new pure-Rust `eg-numeric::cluster` k-means kernel (Lloyd + k-means++, NO linfa) —
+and **cross-modal join→analytics** (EG-345, below). Prior increment: `svd`/`pca` (EG-336/335).
+**Still deferred (later P4):** graph-algo/timeseries unification under the one kernel (native
+`Method` surfaces beyond SQL).
+
+---
+
+## The differentiator — cross-modal join → PCA/cluster in-engine (CONCEPT:EG-345)
+
+This is the capability that lets epistemic-graph **surpass numpy**: **join graph + vector +
+timeseries, then run PCA / k-means / covariance over the JOINED result set IN-ENGINE.** numpy
+has *no data layer* — to do this it must first fetch each modality into a separate array and
+align them by hand in Python. Here the join and the analytics are **one SQL statement over
+resident data**, computed where the data lives (compute-near-data, no FFI, no round-trip).
+
+```mermaid
+flowchart LR
+    subgraph engine["epistemic-graph engine — one SQL surface"]
+      direction TB
+      G["graph / relational<br/>nodes(id, x, emb)"]
+      V["vector<br/>emb = per-node embedding"]
+      T["timeseries<br/>readings(nid, ts, reading)"]
+      G -. "emb prop" .-> V
+      T --> AGG["ts: AVG(reading) per node<br/>(timeseries reduction)"]
+      G --> JOIN["JOIN nodes ⋈ ts  ON id = nid"]
+      AGG --> JOIN
+      JOIN --> AN["analytics over the joined rows<br/>kmeans(emb,k) · pca(emb,k) · covariance(x, avg_reading)"]
+    end
+    AN --> R["result (in-engine)<br/>clusters · components · cross-modal cov"]
+```
+
+**One query, three modalities** (from `crates/eg-query/tests/cross_modal_analytics.rs`, the
+proof test — synthetic data with hand-computed answers):
+
+```sql
+WITH readings(nid, ts, reading) AS (VALUES         -- ── timeseries modality ──
+    ('n1',1,1.0),('n1',2,3.0), ('n2',1,3.0),('n2',2,5.0), ('n3',1,5.0),('n3',2,7.0),
+    ('n4',1,7.0),('n4',2,9.0), ('n5',1,9.0),('n5',2,11.0),('n6',1,11.0),('n6',2,13.0)),
+     ts AS (SELECT nid, avg(reading) AS avg_reading FROM readings GROUP BY nid)
+SELECT kmeans(json_get(n.props, 'emb'), 2)                        AS clusters,   -- vector
+       covariance(json_get_f64(n.props, 'x'), t.avg_reading)      AS xcov        -- graph×ts
+FROM nodes n JOIN ts t ON n.id = t.nid;                           -- ── graph ⋈ timeseries ──
+```
+
+The six nodes form two communities (embeddings near `[10,10]` / `[-10,-10]`, all on the line
+`y = x`); each `avg_reading = 2·x` by construction. The in-engine result:
+
+| column | value | why |
+|--------|-------|-----|
+| `clusters` | `[0,0,0,1,1,1]` (2 balanced clusters of 3) | k-means over the joined `emb` vectors recovers the two communities |
+| `xcov` | `7.0` | `cov(x, 2·x) = 2·var_sample(1..6) = 2·3.5` — a statistic spanning the **graph** scalar `x` and the **timeseries** aggregate `avg_reading`, aligned by the join |
+| `pca(emb,1)` | `±[1/√2, 1/√2]` | all variance lies on the `y=x` diagonal, so PC1 is the diagonal direction |
+
+`json_get(props,'emb')` recovers each node's embedding (a JSON-array prop) as the pgvector
+text `row_to_vector` decodes — so the **vector modality is a resident graph property**, the
+**graph modality** is the `nodes` table, and the **timeseries modality** is the per-node
+`AVG(reading)` aggregate; the `JOIN` fuses them and the kernel UDAFs analyze the joined rows.
+The cross-modal `covariance(x, avg_reading)` is the sharpest "impossible in numpy" moment: two
+different modalities correlated in a single expression over the joined result set.

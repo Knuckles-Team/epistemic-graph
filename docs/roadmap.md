@@ -148,8 +148,12 @@ the authoritative `CONCEPT:EG-*` definitions.
   (`SELECT zscore(price) FROM …`, `SELECT cosine_sim(a.emb, b.emb) …` run in-engine), plus the `BatchL2Normalize` engine
   Method (EG-329/EG-330), all behind the `numeric` feature (in `full`, out of `pi`). **Also shipped:** the
   `svd(vec_col)`/`pca(vec_col,k)` column→matrix UDAFs (EG-336/EG-335 — a row-buffering accumulator marshals a column of
-  vectors into a dense `ndarray::Array2`, then faer `svdvals`/`eigh`). **Deferred (next P4 increment):**
-  graph-algo/timeseries unification under the kernel and cross-modal joins → PCA/cluster in-engine. ▶ 🗺
+  vectors into a dense `ndarray::Array2`, then faer `svdvals`/`eigh`), plus `kmeans(vec_col,k)` (EG-344 — the same
+  column→matrix accumulator driving a new pure-Rust `eg-numeric::cluster` Lloyd + k-means++ kernel, **no linfa/BLAS**;
+  one `List<Int64>` cluster label per row). **The differentiator — shipped (EG-345):** *cross-modal join → analytics
+  in-engine* — one SQL statement joins graph ⋈ vector ⋈ timeseries and runs `pca`/`kmeans`/`covariance` over the joined
+  result set (**impossible in numpy** — no data layer), E2E-proven in `crates/eg-query/tests/cross_modal_analytics.rs`.
+  **Deferred (next P4 increment):** graph-algo/timeseries unification under the kernel via native `Method` surfaces. ▶ ✅
 - **P5 — drop numpy/scipy** from agent-utilities; the `eg-numeric` wheel is the dep. 🗺
 
 See [`architecture/numeric-kernel.md`](architecture/numeric-kernel.md).

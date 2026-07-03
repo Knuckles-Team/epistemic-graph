@@ -30,7 +30,9 @@ in Python → Surface A. Never round-trip transient data into the DB just to com
 | **P2–P3** | mechanical `import numpy as np` → `from agent_utilities.numeric import xp as np` migration (light-op files, then linalg files) | 🗺 follow-on |
 | **P4** | **Surface B** — DataFusion SQL UDFs/UDAFs over the kernel (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) + the `BatchL2Normalize` engine Method, all behind `numeric` (out of `pi`) | ▶ **first increment shipped** (`CONCEPT:EG-329`/`EG-330`) |
 | **P4 (cont.)** | `svd(vec_col)` / `pca(vec_col,k)` column→matrix UDAFs (`MatrixAcc` row-buffering accumulator → dense `ndarray::Array2` → faer `svdvals`/`eigh`; results render as JSON arrays) | ✅ **shipped** (`CONCEPT:EG-336`/`EG-335`) |
-| **P4 (next)** | graph/timeseries unification under the kernel, cross-modal join → PCA/cluster in-engine | 🗺 follow-on |
+| **P4 (cont.)** | `kmeans(vec_col,k)` column→matrix clustering UDAF (new pure-Rust `eg-numeric::cluster` Lloyd + k-means++ kernel, **no linfa/BLAS**; one `List<Int64>` label per row) | ✅ **shipped** (`CONCEPT:EG-344`) |
+| **P4 — the differentiator** | **cross-modal join → PCA/cluster in-engine** — join graph ⋈ vector ⋈ timeseries, then `pca`/`kmeans`/`covariance` over the joined result set in-engine (**impossible in numpy** — no data layer). E2E-proven in `crates/eg-query/tests/cross_modal_analytics.rs` | ✅ **shipped** (`CONCEPT:EG-345`) |
+| **P4 (next)** | graph/timeseries unification under the kernel via native `Method` surfaces (beyond SQL) | 🗺 follow-on |
 | **P5** | drop numpy/scipy from agent-utilities; the `eg-numeric` wheel is the dep (the `xp` shim stays so future backend swaps remain mechanical) | 🗺 follow-on |
 
 > **Release policy.** P1 ships in the current release. **P2–P5 + full Surface B** proceed as a
