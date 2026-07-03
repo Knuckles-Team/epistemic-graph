@@ -146,9 +146,10 @@ the authoritative `CONCEPT:EG-*` definitions.
 - **P4 — Surface B engine operators** — DataFusion SQL UDFs/UDAFs over the kernel + kernel-backed batch vector ops.
   **In progress:** `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + `covariance` UDAF registered on the SQL surface
   (`SELECT zscore(price) FROM …`, `SELECT cosine_sim(a.emb, b.emb) …` run in-engine), plus the `BatchL2Normalize` engine
-  Method (EG-329/EG-330), all behind the `numeric` feature (in `full`, out of `pi`). **Deferred (next P4 increment):**
-  `pca(col,k)`/`svd(matrix)` (the column→matrix marshalling bridge), graph-algo/timeseries unification under the kernel,
-  and cross-modal joins → PCA/cluster in-engine. ▶ 🗺
+  Method (EG-329/EG-330), all behind the `numeric` feature (in `full`, out of `pi`). **Also shipped:** the
+  `svd(vec_col)`/`pca(vec_col,k)` column→matrix UDAFs (EG-336/EG-335 — a row-buffering accumulator marshals a column of
+  vectors into a dense `ndarray::Array2`, then faer `svdvals`/`eigh`). **Deferred (next P4 increment):**
+  graph-algo/timeseries unification under the kernel and cross-modal joins → PCA/cluster in-engine. ▶ 🗺
 - **P5 — drop numpy/scipy** from agent-utilities; the `eg-numeric` wheel is the dep. 🗺
 
 See [`architecture/numeric-kernel.md`](architecture/numeric-kernel.md).
