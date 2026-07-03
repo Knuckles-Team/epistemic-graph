@@ -1,0 +1,59 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# STANDALONE epistemic-graph — one durable DB, NOTHING else.
+#
+# This compose runs ONLY the epistemic-graph engine (the published `node`-tier
+# wheel baked into docker/Dockerfile). NO agent-utilities, NO KG hub, NO other
+# services. It is a complete single-node database you can point psql / DBeaver /
+# any Postgres driver at over the Postgres wire protocol.
+#
+#   # 1. an auth secret is mandatory (the RPC transport refuses to start without one)
+#   export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
+#
+#   # 2. bring it up
+#   docker compose -f docker/compose.standalone.yml up -d
+#
+#   # 3. connect a Postgres client (see docs/dbeaver_quickstart.md for the password)
+#   #    pgwire user 'agent', password = hex(HMAC-SHA256($SECRET, "pgwire:agent"))
+#   psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
+#
+# Published ports (all bound to 127.0.0.1 — bind a routable host explicitly and put
+# TLS at the edge before exposing beyond localhost):
+#   5433  Postgres wire (psql / DBeaver / BI / ORMs)
+#   9100  MessagePack RPC (native epistemic_graph client — optional)
+#   9101  Prometheus /metrics
+#
+# The durable redb-authoritative store lives in the named volume `eg-standalone-data`
+# and survives `docker compose down` (it is removed only by `down -v`).
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  epistemic-graph:
+    image: ${EG_IMAGE:-epistemic-graph:local}
+    # Build the node-tier image locally from the repo. Comment `build` out and set
+    # EG_IMAGE=<registry>/epistemic-graph:<tag> to pull a prebuilt multi-arch image.
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      # REQUIRED — HMAC-SHA256 secret for the RPC transport. The server refuses to
+      # start without it. `openssl rand -hex 32` is a good value.
+      - GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET:?set a secret, e.g. openssl rand -hex 32}
+      # Turn ON the Postgres wire listener inside the container (0.0.0.0 so the
+      # published port reaches it). Unset ⇒ no pgwire listener.
+      - EPISTEMIC_GRAPH_PGWIRE_ADDR=0.0.0.0:5433
+      # pgwire auth. DEFAULT (unset) = scram because a secret is set above; the
+      # per-user password is hex(HMAC-SHA256(secret, "pgwire:"+user)). Set to
+      # `trust` for a password-less DEV instance (localhost only!).
+      - EPISTEMIC_GRAPH_PGWIRE_AUTH=${EPISTEMIC_GRAPH_PGWIRE_AUTH:-scram}
+      # Default graph a fresh pgwire connection binds when the libpq `database`
+      # param is unset (any client can `SET graph = '<name>'` per session).
+      - EPISTEMIC_GRAPH_PGWIRE_GRAPH=${EPISTEMIC_GRAPH_PGWIRE_GRAPH:-__commons__}
+    ports:
+      - "127.0.0.1:5433:5433"   # Postgres wire (psql / DBeaver / drivers)
+      - "127.0.0.1:9100:9100"   # MessagePack RPC (native client — optional)
+      - "127.0.0.1:9101:9101"   # Prometheus /metrics
+    volumes:
+      - eg-standalone-data:/var/lib/epistemic-graph/data
+    restart: unless-stopped
+
+volumes:
+  eg-standalone-data:
