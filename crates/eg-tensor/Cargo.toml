@@ -22,6 +22,19 @@ serde = { version = "1.0", features = ["derive"] }
 # (NO redb/Arrow), so it stays pure-Rust/Pi-lean; eg-tensor supplies the tensor-frame
 # half. eg-tsdb does NOT depend on eg-tensor, so there is no cycle.
 eg-tsdb = { path = "../eg-tsdb", default-features = false }
+# GPU-accelerated tensor ops (CONCEPT:EG-327). OPTIONAL, only under `gpu-cuda`.
+# `dynamic-loading` → builds with NO CUDA toolkit; a default/pi build links none of it.
+cudarc = { version = "0.17", optional = true, default-features = false, features = ["driver", "nvrtc", "dynamic-loading", "cuda-12060"] }
+
+[features]
+default = []
+# Tensor-op GPU DISPATCH SEAM (CONCEPT:EG-326): compiles the `TensorBackend` trait +
+# backend selection; the pure-Rust CPU backend is always the compiled-in fallback. No
+# accelerator dep on its own.
+gpu = []
+# REAL CUDA tensor-op backend (CONCEPT:EG-327): pulls `cudarc` (dynamic-loading) and runs
+# the elementwise kernel on a GPU when present, else CPU fallback at runtime. Implies `gpu`.
+gpu-cuda = ["gpu", "dep:cudarc"]
 
 [dev-dependencies]
 # The serde round-trip test proves a `Tensor` survives the typed-property codec (the

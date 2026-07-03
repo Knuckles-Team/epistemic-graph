@@ -1056,3 +1056,117 @@ async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
     backend.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── EG-324: FULL Calvin deterministic-ordering commit — live proofs ─────────────
+
+/// (a) Calvin HAPPY PATH: a deterministic-ordering commit lands on BOTH participants
+/// with NO vote round, the ORDER is replicated (not in coordinator redb), the txn gets a
+/// monotone global sequence, and the replicated sequence node is GC'd after resolution.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
+    use super::cross_shard_txn::{CalvinSequencer, GlobalSeq};
+    let dir = fresh_dir("calvinhappy");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+    add_decision_group(&multi).await;
+    let seq = CalvinSequencer::new();
+
+    let txn = two_shard_txn("t-calvin-happy", "ca1", "cb1");
+    let (outcome, gs) = coord
+        .commit_cross_shard_calvin(&txn, &seq, GROUP_D)
+        .await
+        .expect("calvin commit");
+    assert_eq!(outcome, TxnOutcome::Committed);
+    assert_eq!(gs, GlobalSeq(1), "first sequenced txn draws slot 1");
+
+    // BOTH graphs committed deterministically — all-or-nothing landed everywhere.
+    assert_eq!(node_count(&state, GRAPH_A).await, 1, "shardA committed");
+    assert_eq!(node_count(&state, GRAPH_B).await, 1, "shardB committed");
+
+    let redb = backend.as_redb().unwrap();
+    // Calvin NEVER runs a prepare/vote round and NEVER writes the coordinator-private
+    // redb decision — the ORDER lived only in the replicated log.
+    assert_eq!(
+        redb.xshard_decision_get("t-calvin-happy").unwrap(),
+        None,
+        "calvin writes no coordinator-private redb decision"
+    );
+    assert!(
+        redb.xshard_scan_prepares().unwrap().is_empty(),
+        "calvin runs no prepare round"
+    );
+    // The replicated sequence node is GC'd after the txn resolved.
+    assert_eq!(
+        coord.learn_sequence("t-calvin-happy").await.unwrap(),
+        None,
+        "replicated sequence GC'd after commit"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// (b) THE CALVIN RECOVERY WIN: replicate the ORDER, then DROP the coordinator before it
+/// executes. A DIFFERENT resolver — a fresh coordinator over the SAME live groups (the
+/// in-process analog of a surviving replica) — reads the replicated sequence and REPLAYS
+/// the txn deterministically to completion. Progress happens WITHOUT the original
+/// coordinator and WITHOUT any vote: agreement on the order was agreement on the outcome.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
+    use super::cross_shard_txn::CalvinSequencer;
+    let dir = fresh_dir("calvinreplay");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+    add_decision_group(&multi).await;
+    let seq = CalvinSequencer::new();
+
+    let txn_id = "t-calvin-replay";
+    let txn = two_shard_txn(txn_id, "cra", "crb");
+    // Draw the order + REPLICATE it, but do NOT execute — the crash window (order durable,
+    // apply not yet done).
+    let gs = seq.assign();
+    coord
+        .sequence_replicated_only(txn_id, GROUP_D, gs)
+        .await
+        .expect("replicate order");
+
+    // The order is readable from the REPLICATED state, and is NOT in coordinator redb.
+    assert_eq!(
+        coord.learn_sequence(txn_id).await.unwrap(),
+        Some(gs),
+        "order readable from the replicated log"
+    );
+    let redb = backend.as_redb().unwrap();
+    assert_eq!(
+        redb.xshard_decision_get(txn_id).unwrap(),
+        None,
+        "calvin keeps no coordinator-private redb decision"
+    );
+    // Nothing executed yet (crash is before execute).
+    assert_eq!(node_count(&state, GRAPH_A).await, 0);
+    assert_eq!(node_count(&state, GRAPH_B).await, 0);
+
+    // CRASH THE COORDINATOR: a DIFFERENT resolver over the same live groups replays the
+    // replicated order to completion — no vote, no original coordinator.
+    drop(coord);
+    let resolver = CrossShardCoordinator::new(multi.clone(), backend.clone());
+    let replayed = resolver
+        .recover_sequenced(&txn, GROUP_D)
+        .await
+        .expect("resolver replays the replicated order");
+    assert_eq!(replayed, Some(gs), "resolved from the replicated sequence");
+    assert_eq!(node_count(&state, GRAPH_A).await, 1, "replayed onto A");
+    assert_eq!(node_count(&state, GRAPH_B).await, 1, "replayed onto B");
+    assert_eq!(
+        resolver.learn_sequence(txn_id).await.unwrap(),
+        None,
+        "replicated sequence GC'd after replay"
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
