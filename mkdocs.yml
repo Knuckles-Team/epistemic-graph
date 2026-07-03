@@ -116,6 +116,7 @@ nav:
       - Client Drivers (Python/JS/Go): interfaces/clients.md
   - Analytics & Advanced Capabilities:
       - Analytics Program (one kernel, two surfaces): architecture/analytics_program.md
+      - Analytics in UQL (EG-353): analytics_in_uql.md
       - Numeric Kernel (EG-321): architecture/numeric_kernel.md
       - Lakehouse LTAP Interop (EG-317): architecture/lakehouse_ltap.md
       - Distribution / Robotics / GPU (EG-3.x): architecture/distribution_robotics_gpu.md
