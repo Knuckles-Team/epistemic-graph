@@ -291,6 +291,14 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             tolerance_ns,
         } => Ok(sensor_fuse_op(ctx.view, streams, *tolerance_ns)),
 
+        // SOURCE (time-series, CONCEPT:EG-363) — seed the RowSet from native TSDB series.
+        // LANE 0 PLACEHOLDER: the real eg-tsdb `SeriesStore` scan (`tsdb_scan_op`, plus
+        // the `PlanCtx.tsdb` field) is owned by Lane C; this minimal not-yet-wired arm
+        // only keeps the `timeseries` build exhaustive (no business logic). REPLACE in
+        // Lane C.
+        #[cfg(feature = "timeseries")]
+        Op::TsScan { .. } => Err("Op::TsScan not yet implemented (Lane C)".to_string()),
+
         Op::Limit { k } => Ok(input.limit(*k)),
     }
 }
