@@ -15,6 +15,7 @@
 //! The pure kernel (`reductions`, `elementwise`, `linalg`, `random`) is
 //! parity-tested `np.allclose` vs numpy in `agent_utilities` and in-crate tests.
 
+pub mod cluster;
 pub mod elementwise;
 pub mod error;
 pub mod linalg;
@@ -33,7 +34,7 @@ pub use error::{NumericError, Result};
 // pyo3-0.22-macro-emitted cfg(gil-refs). Scope-allow them to this module.
 #[allow(clippy::useless_conversion, clippy::type_complexity, unexpected_cfgs)]
 mod py {
-    use crate::{elementwise, linalg, random, reductions};
+    use crate::{cluster, elementwise, linalg, random, reductions};
     use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
     use pyo3::create_exception;
     use pyo3::exceptions::{PyException, PyValueError};
@@ -320,6 +321,27 @@ mod py {
         Ok(out.into_pyarray_bound(py).unbind())
     }
 
+    // ---- clustering (CONCEPT:EG-344) ----
+    #[pyfunction]
+    #[pyo3(signature = (data, k, max_iter=100, seed=cluster::KMEANS_DEFAULT_SEED))]
+    fn kmeans(
+        py: Python<'_>,
+        data: PyReadonlyArray2<f64>,
+        k: usize,
+        max_iter: usize,
+        seed: u64,
+    ) -> PyResult<(Py<PyArray1<i64>>, Py<PyArray2<f64>>)> {
+        let av = data.as_array();
+        let res = py
+            .allow_threads(|| cluster::kmeans(av, k, max_iter, seed))
+            .map_err(map_err)?;
+        let labels: Vec<i64> = res.labels.into_iter().map(|c| c as i64).collect();
+        Ok((
+            labels.into_pyarray_bound(py).unbind(),
+            res.centroids.into_pyarray_bound(py).unbind(),
+        ))
+    }
+
     // ---- random ----
     #[pyfunction]
     #[pyo3(signature = (loc, scale, size, seed))]
@@ -389,6 +411,7 @@ mod py {
             det,
             inv,
             matrix_power,
+            kmeans,
             normal,
             uniform,
             integers
