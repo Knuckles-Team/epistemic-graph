@@ -6,11 +6,12 @@ name: Release Build (wheels + multi-arch image)
 # platform×arch, plus a multi-arch Docker DB image — and smoke-tests each leg
 # (`epistemic-graph-server --help`). Runs on every push/PR and on tags.
 #
-# The multi-arch Docker DB image INSTALLS THE PUBLISHED `node`-tier wheel from PyPI
-# via `uv` (the agents/* fleet standard — no cargo compile in the image), so it can
-# only build AFTER publish-pypi has uploaded the wheels. It is therefore tag-gated:
-# `docker-image` (build + in-image `--help` smoke) and `publish-image` (push) both
-# run on a `v*` tag only, after `publish-pypi`.
+# The multi-arch Docker DB image INSTALLS THE `node`-tier WHEEL BUILT IN THIS SAME RUN
+# (the `wheel-linux-*` artifacts, selected per-arch by the Dockerfile) via `uv` — no
+# cargo compile in the image AND no PyPI round-trip. It therefore depends only on the
+# `wheels` job, NOT on `publish-pypi`, so a broken/late PyPI publish can no longer break
+# the image build. It is still tag-gated: `docker-image` (build + in-image `--help`
+# smoke) and `publish-image` (push) both run on a `v*` tag only.
 #
 # PUBLISHING IS GATED. The PyPI upload, the image build, and the DockerHub/registry
 # push only run on a tag (release) AND carry an explicit `if:` guard, so a normal
@@ -260,15 +261,15 @@ jobs:
           path: dist/*.tar.gz
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
-  #    The image INSTALLS THE PUBLISHED `node`-tier wheel from PyPI via uv (the
-  #    agents/* fleet standard) — no cargo compile — so it builds AFTER publish-pypi
-  #    has uploaded the wheels, and is therefore tag-gated like the publish jobs.
-  #    The Dockerfile's in-build `epistemic-graph-server --help` is the smoke (runs
-  #    per-arch under QEMU).
+  #    The image INSTALLS THE `node`-tier WHEEL BUILT IN THIS SAME RUN (downloaded
+  #    from the `wheel-linux-*` artifacts into docker/wheels/, selected per-arch by the
+  #    Dockerfile) — NO PyPI round-trip — so it depends only on `wheels`, NOT on
+  #    publish-pypi. The Dockerfile's in-build `epistemic-graph-server --help` is the
+  #    smoke (runs per-arch under QEMU).
   docker-image:
-    needs: [publish-pypi]
+    needs: [wheels]
     runs-on: ubuntu-latest
-    # GATE: tag push only — installs the just-published PyPI package.
+    # GATE: tag push only (keeps CI cost down; the wheels themselves build on every push).
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
@@ -281,6 +282,22 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      # Pull the node-tier wheels built in THIS run into the build context so the
+      # Dockerfile installs the local wheel (no PyPI). Both arches land in docker/wheels/;
+      # the Dockerfile picks the one matching each buildx platform leg (TARGETARCH).
+      - name: Download node-tier wheel (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-x86_64
+          path: docker/wheels
+      - name: Download node-tier wheel (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-aarch64
+          path: docker/wheels
+      - name: List wheels in build context
+        run: ls -la docker/wheels
 
       # BUILD multi-arch (amd64+arm64) — load=false so it just proves the build +
       # the in-image `--help` smoke. No push here; the push step below pushes.
@@ -330,23 +347,55 @@ jobs:
         with:
           python-version: '3.12'
       # Token-based upload — the SAME mechanism the rest of the fleet publishes with
-      # (agents/*, agent-webui) via the org `PYPI_API_TOKEN`. epistemic-graph MUST
-      # publish; eg-numeric is best-effort so a first-time new-package registration
-      # can never block the engine release (its sdist still lets pip build from source).
+      # (agents/*, agent-webui) via the org `PYPI_API_TOKEN`. ONE robust upload of
+      # EVERYTHING in dist/ (epistemic-graph AND eg-numeric, every wheel + sdist),
+      # matching agent-webui's `twine upload dist/*`. A single `dist/*` avoids the
+      # previous failure mode where a per-name glob (`dist/epistemic_graph-*`) combined
+      # with `--skip-existing` could silently no-op if a dist was mis-named/mis-versioned
+      # and the step would still pass green having published nothing.
       - name: Publish to PyPI (token)
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           python -m pip install --upgrade twine
-          twine upload --skip-existing --verbose dist/epistemic_graph-*
-          twine upload --skip-existing --verbose dist/eg_numeric-* \
-            || echo "::warning::eg-numeric upload skipped (new package registration / token scope) — non-fatal; sdist covers install"
+          echo "Distributions to upload:"
+          ls -1 dist/
+          twine upload --skip-existing --verbose dist/*
+
+      # HONEST VERIFICATION — CI must go RED if the release did NOT actually land on
+      # PyPI. `--skip-existing` (and any token-scope / name mismatch) can make the
+      # upload step pass without publishing the tag version; this step asserts the
+      # exact tag version is now queryable on PyPI, retrying for CDN propagation lag.
+      # VER is derived from the tag (`vX.Y.Z` -> `X.Y.Z`); it MUST equal the built
+      # wheel/sdist version (Cargo.toml, sourced via pyproject `dynamic = ["version"]`).
+      # If epistemic-graph is owned by a different PyPI account than PYPI_API_TOKEN,
+      # the upload is skipped/denied and THIS step fails loudly (correct) — the token
+      # must be granted maintainer access to the `epistemic-graph` project.
+      - name: Verify epistemic-graph ${{ github.ref_name }} is published on PyPI
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          echo "Asserting epistemic-graph==${VER} is live on PyPI…"
+          url="https://pypi.org/pypi/epistemic-graph/${VER}/json"
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "OK: epistemic-graph ${VER} is published (PyPI returned 200)."
+              exit 0
+            fi
+            echo "Attempt ${i}: PyPI returned HTTP ${code} for ${VER} — retrying in 20s (CDN lag)…"
+            sleep 20
+          done
+          echo "::error::epistemic-graph ${VER} did NOT publish to PyPI (never returned 200)."
+          echo "::error::The upload was a no-op (already-existing/mis-versioned dist) OR the PYPI_API_TOKEN"
+          echo "::error::lacks maintainer rights on the 'epistemic-graph' project. Grant the token access"
+          echo "::error::to that PyPI project, or fix the built version, then re-run this release."
+          exit 1
 
   publish-image:
     name: Push multi-arch image (release only)
-    # Needs docker-image (the build+smoke gate) which itself needs publish-pypi, so
-    # the pushed image installs the just-published PyPI wheel.
+    # Needs docker-image (the build+smoke gate). Like docker-image, the pushed image
+    # installs the wheel built in THIS run (from docker/wheels/), NOT a PyPI package.
     needs: [docker-image]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT push the image.
@@ -361,6 +410,18 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      # Pull the same node-tier wheels into the context so the pushed image is built
+      # from the CI artifact (no PyPI round-trip), matching docker-image.
+      - name: Download node-tier wheel (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-x86_64
+          path: docker/wheels
+      - name: Download node-tier wheel (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-aarch64
+          path: docker/wheels
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
