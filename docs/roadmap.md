@@ -20,18 +20,50 @@ epistemic-graph converges many modalities under one durable engine and one plann
 
 | Item | Status | Notes |
 |------|:------:|-------|
-| **ROS2 / DDS bridge** | 🗺 | A robotics transport bridge (DDS/RTPS) onto the broker + tensor/stream modalities; no wire adapter yet. |
-| **GPU-accelerated compute** | 🗺 | Offloading ANN build / tensor ops / reasoning to a GPU; the pure-Rust CPU path is the only backend today. |
+| **ROS2 real DDS/RTPS wire** | 🗺 | The rosbridge-WebSocket JSON bridge now ships (EG-325 — engine CDC ↔ ROS2 topics via `rosbridge_server`, no DDS C stack). A NATIVE DDS/RTPS wire (CycloneDDS/rmw) remains a documented optional leg (needs the CycloneDDS C toolchain, so it is not folded into the workspace `--all-features` build). |
 | **Admin console UI** | 🗺 | A browser admin surface (tenants, shards, RBAC, backup/PITR). The engine exposes the APIs; the UI is unbuilt. |
 | **Live dashboards UI** | 🗺 | A Grafana-style dashboard front-end over the PromQL/logs/traces query APIs (EG-172/302/162/163). The query side ships; the UI does not. |
 | **Python LMCache connector (driver)** | 🗺 | A shipped `pip`-installable vLLM/LMCache remote-backend client for the EG-187 KV-cache endpoint (the server surface + contract exist; the packaged Python connector/driver does not). |
-| **Cross-region async replica** | 🗺 | Asynchronous (non-Raft) cross-region follower replication, beyond the synchronous multi-Raft groups + super-cluster federated *read* (EG-243). |
+| **CUDA distance/tensor kernel — live GPU validation** | 🔶 | The GPU dispatch seam + real `cudarc` CUDA backend ship (EG-326/3.6): the CUDA-C kernels compile via NVRTC and launch on a device, with a CPU fallback. The kernels are correctness-matched to the CPU ground truth but await validation on real GPU hardware (none in CI); reasoning/ANN-build GPU offload beyond distance/elementwise remains open. |
 | **Full Iceberg Avro manifest** | 🔶 | The LTAP lakehouse tier (EG-317) ships the Delta path + Iceberg-REST catalog + LSN as-of; the Iceberg **Avro manifest** writer is still a stub. |
 | **Raster tile pyramids** | 🗺 | Raster tile pyramids beyond the shipped vector-tile (MVT) + Shapefile/KML/GeoParquet GIS I/O (EG-265/306). |
 | **PL/pgSQL procedural bodies** | 🗺 | Stored-procedure/function *procedural* execution (loops, variables, control flow) beyond the shipped SQL views + DDL. |
 | **Memory → weights distillation** | 🗺 | Distilling consolidated agent-memory (EG-220/221) into model weights (a fine-tune/LoRA export), beyond the retrieval-time context assembly (EG-195). |
-| **Full Calvin deterministic-ordering commit** | 🗺 | A global sequencer / deterministic total order for cross-shard commit. Parallel-commit + read-only-participant + a non-blocking Paxos-Commit-lite Raft-replicated decision already ship (EG-081/082); full Calvin remains open. |
+| **Calvin distributed read-lock (OLLP)** | 🗺 | The Calvin global-sequencer total order + deterministic vote-free execution + crash-replay recovery ship (EG-324). The distributed OLLP *reconnaissance*/read-lock phase (full serializable isolation of conflicting sequenced txns across nodes) + a multi-node sequencer epoch fan-in remain open. |
 | **SQLite `.db` file I/O** | 🔶 | The SQLite-dialect NDJSON-over-TCP wire ships (EG-075); reading/writing an on-disk `sqlite3` `.db` file is a documented follow-up. |
+
+---
+
+## Shipped in Program B — remaining engine tail (EG-3.x)
+
+The last engine features of Program B, closing the distribution / robotics / GPU tail. Each
+lands with tests + a [`docs/concepts.md`](concepts.md) entry and is feature-gated OUT of the
+Pi tier (the heavy deps stay optional).
+
+### Distribution
+- **Cross-region async read-replica tier** — a bounded monotone-LSN replication log the primary
+  serves over `/replicate?since=<lsn>` + an async follower pull-loop that applies the tail via the
+  canonical `wal::apply` path, so a distant region gets a local eventually-consistent read copy
+  with bounded staleness (EG-322). Beyond the synchronous multi-Raft groups + EG-243 federated read.
+- **Capacity guardrails** — a per-target circuit breaker (Closed→Open→HalfOpen), a per-tenant hard
+  concurrency quota, and global-high-water backpressure fronting the replica/transport paths (EG-323).
+  Complements the EG-320 QoS scheduler with absolute ceilings + fail-fast.
+- **Full Calvin deterministic-ordering commit** — a global sequencer total order + Raft-replicated
+  input log + vote-free deterministic execution + crash-replay recovery, a third cross-shard commit
+  branch opt-in alongside 2PC + Paxos-Commit-lite (EG-324). *(Distributed OLLP read-lock phase +
+  multi-node sequencer fan-in remain — see forward roadmap.)*
+
+### Robotics
+- **ROS2 bridge over rosbridge-WebSocket** — engine CDC events ↔ ROS2 topics via the standard
+  `rosbridge_suite` JSON-over-WebSocket protocol to a `rosbridge_server` (advertise/subscribe/publish/
+  unsubscribe), with NO CycloneDDS/rmw/DDS C stack — a pure-Rust `tokio-tungstenite` client (EG-325).
+
+### GPU
+- **GPU-accelerated distance/tensor** — a `DistanceBackend`/`TensorBackend` dispatch seam (EG-326) with
+  the pure-Rust CPU backend as the compiled-in fallback, plus a real `cudarc`-backed CUDA backend
+  (EG-327) that NVRTC-compiles the batch-distance/elementwise kernel and launches it on a device, else
+  falls back to CPU. `cudarc` is `dynamic-loading`, so the leg builds with no CUDA toolkit and a `pi`
+  build links none of it. *(Live GPU-hardware validation of the kernels remains — see forward roadmap.)*
 
 ---
 

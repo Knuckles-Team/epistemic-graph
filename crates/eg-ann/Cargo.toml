@@ -25,16 +25,27 @@ redb = { version = "4.1", optional = true }
 # Lightweight tracing spans for ANN train/add throughput (CONCEPT:EG-011). The
 # `tracing` facade is a no-op unless a subscriber is installed (zero default cost).
 tracing = "0.1"
+# GPU-accelerated distance backend (CONCEPT:EG-327). OPTIONAL + only linked under the
+# `gpu-cuda` feature. `dynamic-loading` means NO CUDA toolkit is needed to BUILD (libcuda
+# / libnvrtc are dlopen'd at runtime), so a default/pi build links none of it and even a
+# `gpu-cuda` build compiles on a host with no GPU (it then falls back to CPU at runtime).
+cudarc = { version = "0.17", optional = true, default-features = false, features = ["driver", "nvrtc", "dynamic-loading", "cuda-12060"] }
 
 [features]
 default = []
 # Persist the durable PQ codes + meta into a redb table instead of (or alongside)
 # the mmap files, reusing the engine's KG-2.195 durability tier.
 redb = ["dep:redb"]
-# GPU / training-acceleration path. GATED OUT of pi/full — serving is pure CPU
-# integer-table lookups (the spike proved this). This feature only ever changes
-# BUILD-TIME k-means training; it links no accelerator deps in the default build.
+# GPU distance DISPATCH SEAM (CONCEPT:EG-326): compiles the `DistanceBackend` trait +
+# backend selection. The pure-Rust CPU backend is ALWAYS the compiled-in fallback; this
+# marker just opts a build into the seam (and is implied by `gpu-cuda`). No accelerator
+# dep on its own — Pi-lean, but kept OUT of pi/full by the facade.
 gpu = []
+# REAL CUDA distance backend (CONCEPT:EG-327): pulls `cudarc` (dynamic-loading, so it
+# builds with NO CUDA toolkit) and runs the batch-distance kernel on a GPU when a device
+# is present, else falls back to the CPU backend at runtime. Implies `gpu`. OUT of
+# pi/default/node — an extras-only feature.
+gpu-cuda = ["gpu", "dep:cudarc"]
 
 [dev-dependencies]
 tempfile = "3.10"
