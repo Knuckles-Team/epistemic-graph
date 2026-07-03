@@ -45,8 +45,7 @@ pub(crate) async fn try_handle(req_id: u64, method: Method) -> Result<Response, 
                 Ok(s) => s,
                 Err(e) => return Ok(Response::err(req_id, e)),
             };
-            let out =
-                tokio::task::spawn_blocking(move || import_sqlite_file(&store, &path)).await;
+            let out = tokio::task::spawn_blocking(move || import_sqlite_file(&store, &path)).await;
             Ok(match out {
                 Ok(Ok(v)) => Response::ok(req_id, ResultPayload::Json(v)),
                 Ok(Err(e)) => Response::err(req_id, e),
@@ -58,10 +57,9 @@ pub(crate) async fn try_handle(req_id: u64, method: Method) -> Result<Response, 
                 Ok(s) => s,
                 Err(e) => return Ok(Response::err(req_id, e)),
             };
-            let out = tokio::task::spawn_blocking(move || {
-                export_sqlite_file(&store, &path, &tables)
-            })
-            .await;
+            let out =
+                tokio::task::spawn_blocking(move || export_sqlite_file(&store, &path, &tables))
+                    .await;
             Ok(match out {
                 Ok(Ok(v)) => Response::ok(req_id, ResultPayload::Json(v)),
                 Ok(Err(e)) => Response::err(req_id, e),
@@ -139,7 +137,12 @@ fn import_schema(conn: &Connection, table: &str) -> Result<(TableSchema, Vec<Str
     let mut names = Vec::new();
     for row in rows {
         let (name, decl) = row.map_err(|e| format!("table_info({table}): {e}"))?;
-        columns.push(Column::new(name.clone(), affinity_to_type(&decl), true, false));
+        columns.push(Column::new(
+            name.clone(),
+            affinity_to_type(&decl),
+            true,
+            false,
+        ));
         names.push(name);
     }
     if columns.is_empty() {
@@ -456,14 +459,15 @@ mod tests {
         // 4. Re-open the EXPORTED file with the sqlite library — this proves it is a
         //    valid, sqlite3-readable `.db` — and assert the rows round-tripped.
         let conn = Connection::open(&dst).unwrap();
-        let mut stmt = conn
-            .prepare("SELECT id, name, score, active FROM people ORDER BY id")
-            .unwrap();
-        let rows: Vec<(i64, String, Option<f64>, i64)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap();
+        let rows: Vec<(i64, String, Option<f64>, i64)> = {
+            let mut stmt = conn
+                .prepare("SELECT id, name, score, active FROM people ORDER BY id")
+                .unwrap();
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0], (1, "alice".to_string(), Some(9.5), 1));
         assert_eq!(rows[1].0, 2);
