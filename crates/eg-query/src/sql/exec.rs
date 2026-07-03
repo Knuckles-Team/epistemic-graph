@@ -54,6 +54,21 @@ fn register_pg_common(ctx: &SessionContext) {
     ctx.register_udtf("generate_series", Arc::new(GenerateSeriesFunc));
 }
 
+/// Register the CONCEPT:EG-329 Analytics-Program Surface-B numeric operators — the
+/// `eg-numeric`-backed `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + the
+/// `covariance` UDAF — so analytics run in-engine over resident columns
+/// (compute-near-data). Gated behind the `numeric` feature (out of `pi`); a no-numeric
+/// build links neither eg-numeric nor faer. Shared by the graph exec path and the
+/// tables-only obs path so both expose the identical operator set.
+#[cfg(feature = "numeric")]
+fn register_numeric(ctx: &SessionContext) {
+    use super::numeric::{cosine_sim_udf, covariance_udaf, l2_normalize_udf, zscore_udf};
+    ctx.register_udf(cosine_sim_udf());
+    ctx.register_udf(l2_normalize_udf());
+    ctx.register_udf(zscore_udf());
+    ctx.register_udaf(covariance_udaf());
+}
+
 /// Implicit max rows guarded into the result. Transport is one Response per
 /// Request (no streaming), so an unbounded SELECT would buffer the whole graph in
 /// one message; we cap and truncate.
@@ -117,6 +132,9 @@ pub fn exec_sql_over_tables(
         ctx.register_udf(bm25_snippet_udf());
         // CONCEPT:EG-104 — greatest/least, range fns, generate_series (obs path too).
         register_pg_common(&ctx);
+        // CONCEPT:EG-329 — Surface-B numeric operators over the obs Arrow tables too.
+        #[cfg(feature = "numeric")]
+        register_numeric(&ctx);
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
         batches_to_typed(&batches)
@@ -329,6 +347,9 @@ fn build_ctx(
     // CONCEPT:EG-104 — greatest/least, int4range/tsrange + range predicates, and the
     // generate_series table function, rounding out the Postgres common-function surface.
     register_pg_common(&ctx);
+    // CONCEPT:EG-329 — Surface-B numeric operators over the graph's resident columns.
+    #[cfg(feature = "numeric")]
+    register_numeric(&ctx);
     #[cfg(feature = "finance")]
     {
         ctx.register_udaf(super::udfs::var_udaf());

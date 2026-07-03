@@ -347,7 +347,9 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 | LAPACK-class linalg (`norm/dot/matmul/solve/svd/eigh/pinv/lstsq/qr/cholesky/det/inv/matrix_power`) — pure-Rust faer, **no system BLAS/LAPACK** | ✅ | `crates/eg-numeric/src/linalg.rs`; singular → LinAlgError (numpy parity) |
 | Random (`normal/uniform/integers`, seedable, deterministic) | ✅ | `crates/eg-numeric/src/random.rs`; distributional parity |
 | Surface A — Python extension `epistemic_graph.numeric` (zero-copy rust-numpy + `allow_threads`) → `agent_utilities.numeric.xp` | ✅ | feature `python` (separate maturin build); consumed by KG-2.311 shim |
-| Surface B — in-database analytics (DataFusion UDFs / graph / vector / timeseries over resident data) | 🗺 | rlib linkable now; operator wiring is P4 (analytics program) |
+| Surface B — SQL analytics UDFs/UDAFs over the kernel: `cosine_sim`/`l2_normalize`/`zscore` scalars + `covariance` UDAF (in-engine over resident columns) | ✅ | CONCEPT:EG-329; `crates/eg-query/src/sql/numeric.rs`; `crates/eg-query/tests/numeric_udfs.rs` |
+| Surface B — kernel-backed batch vector op via the client/Method path (`BatchL2Normalize`) | ✅ | CONCEPT:EG-330; `src/server/handlers/graph_ops.rs`; `client.batch_l2_normalize()` |
+| Surface B — `pca(col,k)`/`svd(matrix)` SQL UDFs, graph-algo/timeseries unification, cross-modal joins → PCA/cluster in-engine | 🗺 | next P4 increment (column→matrix marshalling; faer SVD kernel already present) |
 
 ## Durability & distribution
 
