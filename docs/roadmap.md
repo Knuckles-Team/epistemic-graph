@@ -103,6 +103,14 @@ the authoritative `CONCEPT:EG-*` definitions.
   wire as additive `Method`s + dispatch + WAL replay (EG-318).
 - **Real-time QoS/SLO scheduler** — per-tenant/priority admission + deadline scheduling + backpressure (EG-320).
 
+### Client drivers
+- **Multi-language client drivers (B1.7)** — thin client bindings for the Program-B engine `Method`s that had no
+  client surface: the native broker + append-log streams (EG-275..284/314), RBAC admin (EG-092), online
+  backup/restore (EG-090), and NL→query (EG-080). A FULL Python surface (`client.broker`/`.rbac`/`.admin` +
+  `query.nl_query`) plus THIN generated-from-the-Method-list JS (`clients/js`) and Go (`clients/go`) bindings over
+  the same framed-MessagePack transport; Pi-contract preserved (no heavy deps). See
+  [`interfaces/clients.md`](interfaces/clients.md) (EG-3.1).
+
 ---
 
 ## Shipped in 2.2.0
