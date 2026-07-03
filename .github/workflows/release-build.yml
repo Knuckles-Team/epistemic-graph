@@ -199,6 +199,11 @@ jobs:
   wheels-numeric:
     name: wheel eg-numeric ${{ matrix.name }}
     runs-on: ubuntu-latest
+    # The aarch64 leg cross-builds a pyo3 EXTENSION (harder than the bin-only engine
+    # wheel) and is best-effort: if it fails, publish-pypi still ships the x86_64 wheel
+    # + the always-working sdist-numeric (arm installs build eg-numeric from source).
+    # So a flaky aarch64 pyo3 cross-build never blocks the release.
+    continue-on-error: ${{ matrix.name == 'linux-aarch64' }}
     strategy:
       fail-fast: false
       matrix:
