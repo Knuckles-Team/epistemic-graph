@@ -78,3 +78,34 @@ RbacAdmin
 # SHACL/ShEx validation (CONCEPT:EG-132/133): reached via the RDF/SPARQL surface.
 ShaclValidate
 ShexValidate
+# Scene-graph / trajectory / agent-memory wire-Ops (CONCEPT:EG-318): the eg-core
+# agent-memory + scene-graph + trajectory library APIs exposed over the wire as
+# additive Methods for AU/MCP to drive remotely. They are issued via the MCP/agent
+# surface, not the thin nodes/edges/graph Python client — baselined until a Python
+# memory/scene/trajectory sub-client is added. (Pre-existing Program-B drift.)
+CreateSummaryNode
+SummaryChildren
+SummariesAtLevel
+Consolidate
+Maintain
+DecayMemories
+DecayNode
+Reinforce
+EvictBelow
+AddSceneObject
+SetPose
+Reparent
+SceneChildren
+WorldTransform
+StartTrajectory
+AppendStep
+DiscountedReturn
+BestTrajectory
+# Live CEP standing-query subscription surface (CONCEPT:EG-299): register/subscribe/poll
+# a CEP pattern, pushed matches fed by the CDC bus — driven via the streaming/MCP surface.
+CepSubscribe
+CepUnsubscribe
+CepPoll
+# Idempotent-producer publish for exactly-once broker delivery (CONCEPT:EG-314): issued
+# over the AMQP/MQTT wire frames, not the thin client.
+PublishIdempotent

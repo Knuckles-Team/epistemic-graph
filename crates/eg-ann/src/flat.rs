@@ -171,14 +171,19 @@ impl FlatIndex {
     /// against.
     pub fn search(&self, query: &[f32], k: usize, metric: Metric) -> Vec<SearchResult> {
         assert_eq!(query.len(), self.dim, "query length must equal dim");
-        if k == 0 {
+        if k == 0 || self.ids.is_empty() {
             return Vec::new();
         }
+        // Batch-score every row on the ACTIVE distance backend (CONCEPT:EG-3.5): the
+        // GPU kernel when `gpu-cuda` is built + a device is present, else the pure-Rust
+        // CPU backend — byte-for-byte identical results either way. Tombstoned rows are
+        // filtered AFTER scoring (the batch is over the contiguous `vectors` buffer).
+        let dists = crate::distance::batch_distances(query, &self.vectors, self.dim, metric);
         let mut scored: Vec<SearchResult> = (0..self.ids.len())
             .filter(|&i| self.deleted[i] == 0)
             .map(|i| SearchResult {
                 id: self.ids[i],
-                distance: metric.distance(query, self.row(i)),
+                distance: dists[i],
             })
             .collect();
         sort_nearest_first(&mut scored);

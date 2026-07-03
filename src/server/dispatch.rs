@@ -843,6 +843,10 @@ async fn dispatch_graph_op(
     let raft = s.raft.clone();
     #[cfg(feature = "raft")]
     let graph_type = entry.graph_type;
+    // The graph's type, captured under the registry lock for the CONCEPT:EG-3.1 replication
+    // append below (a follower needs it to CREATE the graph on first apply).
+    #[cfg(feature = "federation-search")]
+    let repl_graph_type = entry.graph_type;
     // Cold-tenant access tracking (CONCEPT:EG-040, R6): clone the tracker under the same
     // registry lock so this graph's access recency is recorded after the lock is released
     // (a `touch` is one cheap map upsert, off the graph lock). The periodic cold-offload
@@ -1121,6 +1125,15 @@ async fn dispatch_graph_op(
             } else {
                 p.record(&fname, &m);
             }
+            // Ship the committed mutation to any cross-region read replica
+            // (CONCEPT:EG-3.1): append it to the process-global replication log so a
+            // follower's `/replicate?since=<lsn>` pull streams it. Only records when a
+            // replication log has been armed (env `EPISTEMIC_GRAPH_REPLICATE`), so a
+            // non-replicated primary pays nothing.
+            #[cfg(feature = "federation-search")]
+            if let Some(log) = crate::server::replica::global_log() {
+                log.append(graph_name, &fname, repl_graph_type, m.clone());
+            }
         }
     }
 
@@ -1373,7 +1386,12 @@ mod eg318_dispatch_tests {
         };
         let children = dispatch(
             &state,
-            req(2, Method::SummaryChildren { node_id: sid.clone() }),
+            req(
+                2,
+                Method::SummaryChildren {
+                    node_id: sid.clone(),
+                },
+            ),
         )
         .await;
         match children.result {

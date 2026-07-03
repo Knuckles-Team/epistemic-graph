@@ -143,6 +143,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Hybrid metadata pre-filter (kNN with an `allow(id)` predicate) | ✅ | `ivfpq.rs` `search_filtered` (EG-070); tested DURING the ADC probe, not post-filter |
 | Exact/flat kNN index (ground-truth) + ANN-candidate re-rank + recall@k/precision self-eval harness | ✅ | brute-force exact + hybrid refinement (CONCEPT:EG-297) |
 | Cross-shard kNN scatter-gather (fan a kNN query across per-shard eg-ann indexes → deterministic global top-k) | ✅ | server-layer scatter over per-shard indexes merged via the `merge_topk` leaf (CONCEPT:EG-319, completing EG-069) |
+| GPU-accelerated batch distance (`DistanceBackend` seam + real CUDA backend; CPU fallback) | ✅ | `crates/eg-ann/src/distance.rs` — `FlatIndex::search` routes through `batch_distances`; pure-Rust CPU backend always compiled-in, `cudarc` NVRTC kernel behind `gpu-cuda` (dynamic-loading, out of `pi`) (CONCEPT:EG-3.5/3.6) |
 
 ## Time-series (`eg-tsdb`)
 
@@ -291,6 +292,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 |-----------|:------:|----------|
 | Multimodal sensor fusion (camera/LiDAR/audio/tactile aligned via ASOF backward-join) → `Op::SensorFuse` | ✅ | composes EG-085 + EG-088 + tsdb ASOF (CONCEPT:EG-098) |
 | Action/policy/trajectory memory (`:Trajectory` of `:Step{state,action,reward,next,t}`, discounted return, best/worst retrieval) | ✅ | policy-learning/replay substrate (CONCEPT:EG-099) |
+| ROS2 bridge — engine CDC events ↔ ROS2 topics over the standard rosbridge-WebSocket JSON protocol (NO DDS C stack) | ✅ | `src/server/ros2_bridge.rs`, pure-Rust `tokio-tungstenite` client to a `rosbridge_server` (CONCEPT:EG-3.4); feature `ros2-bridge`, out of `pi`. A native DDS/RTPS wire is a documented optional leg |
 
 ## LLM KV-cache (`eg-kvcache` — vs vLLM / LMCache)
 
@@ -343,7 +345,8 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 | Cross-shard 2PC (presumed-abort, crash-recoverable) | ✅ | `src/raft/cross_shard_txn.rs` |
 | Multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `src/raft/multi.rs` `MultiRaft`/`GroupRouter` (KG-2.266/267/268); `reshard.rs` online ownership move |
 | Parallel-commit + read-only-participant fast path + non-blocking (Raft-replicated decision) commit | ✅ | parallel prepare + empty-write-set skip (CONCEPT:EG-081) and the Paxos-Commit-lite Raft-replicated commit decision (CONCEPT:EG-082) over the working 2PC |
-| Full Calvin deterministic-ordering commit | 🗺 | a global sequencer / deterministic total order (chosen against for now — Paxos-Commit-lite is the tractable subset); still forward roadmap (see [roadmap](roadmap.md)) |
+| Full Calvin deterministic-ordering commit | ✅ | a global `CalvinSequencer` total order + Raft-replicated input log + vote-free deterministic execution + crash-replay recovery — a third commit branch opt-in via `calvin` alongside 2PC + Paxos-Commit-lite (CONCEPT:EG-3.3). OLLP distributed read-lock + multi-node sequencer fan-in remain (see [roadmap](roadmap.md)) |
+| Cross-region async read-replica tier + capacity guardrails | ✅ | bounded-LSN replication log + `/replicate` serve + async follower apply (CONCEPT:EG-3.1); circuit-breaker + per-tenant quota + backpressure guards (CONCEPT:EG-3.2). `federation-search`, out of `pi` |
 | Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), OFF by default, never in `pi` |
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
