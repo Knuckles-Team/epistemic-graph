@@ -98,3 +98,7 @@ entries from that baseline (they now have Python senders) and baselined the rema
 un-bound EG-318 memory/scene/trajectory + CEP ops (deferred to roadmap B3.16 / B3.14).
 The JS/Go thin clients are generated from the same `Method` list by hand and kept in sync
 by review against `protocol.rs`.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Connecting (per-wire guide)](connecting.md) · [SQL & pgwire](sql.md) · [Messaging & Broker](messaging.md) · [KV-cache (vLLM/LMCache)](kvcache.md).

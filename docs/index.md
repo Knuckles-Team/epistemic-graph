@@ -59,7 +59,7 @@ See the [subsystems reference](architecture/subsystems.md) for how each composes
   always-on graph algorithms.
 - **Per-interface guides** — [SQL](interfaces/sql.md) · [SPARQL](interfaces/sparql.md) ·
   [Cypher](interfaces/cypher.md) · [GraphQL](interfaces/graphql.md) · [Vector](interfaces/vector.md) ·
-  [Time-series](interfaces/timeseries.md) · [KV & Blob](interfaces/kv-blob.md) ·
+  [Time-series](interfaces/timeseries.md) · [KV & Blob](interfaces/kv_blob.md) ·
   [Ontology lifecycle](interfaces/ontology.md).
 - **[Master-of-all engine](architecture/engine.md)** — the deep architecture: durability, cross-modal
   ACID, RDF/OWL mapping, the RLS request path, streaming/CDC, federation, multi-Raft + cross-shard 2PC,
@@ -69,28 +69,28 @@ See the [subsystems reference](architecture/subsystems.md) for how each composes
 
 - **[Tiers & binaries](architecture/tiers.md)** — the feature-composition map and the four prebuilt
   binaries (pi / pi-max / node / cluster) plus the contains-all `full` build.
-- **[Engine modes](engine-modes.md)** — the remote → shared-local → autostart resolver, the auto-bundled
+- **[Engine modes](engine_modes.md)** — the remote → shared-local → autostart resolver, the auto-bundled
   tiny engine, and the embedded in-process path.
 - **[Deployment (database)](deployment.md)** — Docker, prebuilt wheels, single-node, and HA-cluster
   recipes for every scale.
 - **[Service Mode](service_mode.md)** — the wire protocol, authentication, multi-graph management,
   isolation policy, and Prometheus metrics.
-- **[Cost model & capacity](cost-model.md)** — the per-tenant memory budget, autoscale signals, and
+- **[Cost model & capacity](cost_model.md)** — the per-tenant memory budget, autoscale signals, and
   Pi→cluster footprint planning.
 
 ## Reference
 
-- **[Rust Compute Guide](RUST_COMPUTE_GUIDE.md)** — adding a capability across protocol/server/client.
+- **[Rust Compute Guide](rust_compute_guide.md)** — adding a capability across protocol/server/client.
 - **[Transport Benchmarks](benchmarks.md)** — measured per-operation latency over MessagePack.
 - **[Concept Registry](concepts.md)** — the stable `CONCEPT` identifiers that trace the engine's ideas.
-- **[Binary promotion](deploy/binary-promotion.md)** — shipping a new engine binary into the homelab.
-- Architecture deep-dives: [Write coalescer](architecture/write-coalescer.md) ·
-  [Index manager](architecture/index-manager.md) · [Correctness harness](architecture/correctness-harness.md).
+- **[Binary promotion](deploy/binary_promotion.md)** — shipping a new engine binary into the homelab.
+- Architecture deep-dives: [Write coalescer](architecture/write_coalescer.md) ·
+  [Index manager](architecture/index_manager.md) · [Correctness harness](architecture/correctness_harness.md).
 
 ## Design principle: design for a network boundary
 
 Every out-of-process invocation crosses a process boundary — serialize, socket round-trip, deserialize.
 A call is **not** a cheap function call. **Batch, never per-element:** ship work into a single
 round-trip over data already resident in the graph (one all-pairs op, not a Python loop), and keep
-tight per-element math in-process. The [Rust Compute Guide](RUST_COMPUTE_GUIDE.md) explains how this
+tight per-element math in-process. The [Rust Compute Guide](rust_compute_guide.md) explains how this
 shapes every caller.

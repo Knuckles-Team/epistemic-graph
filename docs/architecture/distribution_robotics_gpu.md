@@ -160,3 +160,7 @@ flowchart TD
 and `cudarc` links only under `gpu-cuda`. **Deferred:** live validation of the kernels on real GPU
 hardware (none in CI) and GPU offload of reasoning / ANN *build* beyond the distance/elementwise
 kernels.
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Numeric Kernel](numeric_kernel.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Agent Memory](../interfaces/memory.md).
