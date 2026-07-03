@@ -96,7 +96,7 @@ Curated from the real audit (`grep np\.` over `agent_utilities/`) — **not** "a
 
 Every op is asserted `np.allclose` vs numpy on randomized inputs, with mandatory edge
 cases (nan/inf, singular matrices, empty arrays). P1 landed **847 parity checks, 0
-failures**. The corpus lives in agent-utilities (`tests/test_numeric_parity.py`, KG-2.311)
+failures**. The corpus lives in agent-utilities (`tests/test_numeric_parity.py`, KG-2.312)
 and runs against the compiled kernel when present, else the numpy fallback.
 
 ## Surfaces in later phases
