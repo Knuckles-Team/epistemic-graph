@@ -1,0 +1,40 @@
+[package]
+name = "eg-numeric"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Slim, BLAS/LAPACK-free numeric kernel (ndarray + faer) for the epistemic-graph analytics program — one kernel, two surfaces (pyo3 Surface A + engine Surface B). CONCEPT:EG-321."
+license = "MIT"
+
+[lib]
+name = "eg_numeric"
+# cdylib → the pyo3 Surface-A Python extension wheel; rlib → the engine links the
+# pure kernel for Surface B (in-database analytics) WITHOUT pulling pyo3.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# pyo3 Surface-A Python bindings. OFF by default so the engine can link the rlib
+# (faer + ndarray core) for Surface B WITHOUT pulling pyo3 — this preserves the
+# Plan-01 "no PyO3 in the engine" contract (scripts/check_no_pyo3.sh only scans
+# src/, epistemic_graph/, and the top-level Cargo.toml/pyproject.toml, never
+# crates/; and this crate keeps pyo3 out of any engine-linked build). Only the
+# wheel build (maturin) turns this on.
+python = ["dep:pyo3", "dep:numpy"]
+
+[dependencies]
+# arrays / reductions / element-wise / broadcasting — numpy-shaped, mature.
+ndarray = "0.16"
+# percentile / quantile (correctness > rolling our own).
+ndarray-stats = "0.6"
+# LAPACK-class linalg: svd / eigh / solve / qr / cholesky / pinv / lstsq —
+# PURE RUST, NO system BLAS/LAPACK. PoC-validated exact vs numpy.
+faer = "0.20"
+# random (default_rng / normal / randint / RandomState equivalents).
+rand = "0.8"
+rand_distr = "0.4"
+rand_chacha = "0.3"
+
+# Surface-A only (feature `python`): zero-copy numpy interop + GIL release.
+pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+numpy = { version = "0.22", optional = true }
