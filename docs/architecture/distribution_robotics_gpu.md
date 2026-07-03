@@ -1,9 +1,9 @@
 # Distribution, Robotics & GPU tail (EG-3.x)
 
 The last engine features of Program B, closing the distribution / robotics / GPU tail. Every
-one is **feature-gated OUT of the Pi tier** — the heavy deps (`cudarc`, `tokio-tungstenite`)
-are optional and a `pi`/`default` build links none of them (`cargo tree --features pi` is
-clean). This page documents the four subsystems and their control/data flow.
+one is **feature-gated into the opt-in `full-extras` layer** — the heavy deps (`cudarc`,
+`rustdds`, `tokio-tungstenite`) are optional and the main/`default` build links none of them
+(`cargo tree -i cudarc` / `-i rustdds` on the default build is empty). This page documents the four subsystems and their control/data flow.
 
 | Feature | Concept | Module | Feature flag |
 |---------|---------|--------|--------------|
@@ -156,7 +156,7 @@ flowchart TD
   `dynamic-loading` — libcuda/libnvrtc are dlopen'd at runtime — so the leg **builds with no CUDA
   toolkit** and, on a GPU-less host, `active_backend` returns the CPU backend (fully functional).
 
-**Pi contract:** the seam is pure-Rust; `gpu`/`gpu-cuda` are OUT of `pi`/`default`/`node`/`full`,
+**Invariant:** the seam is pure-Rust; `gpu`/`gpu-cuda` are OUT of the main build (`full-extras`-only),
 and `cudarc` links only under `gpu-cuda`. **Deferred:** live validation of the kernels on real GPU
 hardware (none in CI) and GPU offload of reasoning / ANN *build* beyond the distance/elementwise
 kernels.

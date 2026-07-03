@@ -48,8 +48,8 @@ enforces the absence of PyO3 in source and built wheels.
 > vocabulary is gone — the engine is now a **durable source of truth in its own
 > right** (CONCEPT:KG-2.195, "the flip").
 
-Built with the `redb` feature (folded into every deployment tier — `pi` / `pi-max` /
-`node` / `cluster` / `full`), the persist dir is the **authoritative store**: an acked
+Built with the `redb` feature (in the one main build and the `cluster` layer), the
+persist dir is the **authoritative store**: an acked
 write is fsynced to redb before the Response (commit-before-ack) and survives `kill -9`.
 The optional Postgres/pg-age, neo4j, falkordb, or ladybug backends in `agent-utilities`
 are now **mirrors** written-through for interop / BI / DR — not the system of record.

@@ -6,34 +6,33 @@ RBAC, encryption-at-rest, and how to turn each modality on. For the per-client c
 see [`interfaces/connecting.md`](../interfaces/connecting.md); for the storage internals see
 the [architecture](../architecture/engine.md) pages.
 
-## 1. Deployment tiers (feature bundles)
+## 1. One build + opt-in layers (feature bundles)
 
-The engine is one codebase built at a chosen tier. A tier is a Cargo feature bundle spanning
-the Pi↔cluster spectrum. **The Pi contract is sacred**: a `pi` build links **no DataFusion, no
-openraft, no Tantivy, no wasmtime, no native/C dep** (asserted by `cargo tree`).
+The engine is **one build** (CONCEPT:EG-371): `cargo build` (== `--features full`) is the whole
+full-featured engine — every MAIN feature that compiles without an external GPU/robotics toolchain.
+Two opt-in layers stack on top. **The invariants still hold** (asserted by `cargo tree`): the main
+build links **no openraft** (that is the `cluster` layer) and **no cudarc/rustdds** (that is the
+`full-extras` layer); it links DataFusion (SQL is a main feature now). It targets Raspberry Pi 4+.
 
-| Tier | What it is | Typical target |
-|------|-----------|----------------|
-| `pi` | Lean durable in-memory + redb, dep-free Cypher, native ANN, RDF/SPARQL/OWL (all pure-Rust), streaming, result-cache, cold-tier, cost | Raspberry-Pi / edge, "a local engine per agent" |
-| `pi-max` | `pi` + `tsdb` + `blob` + `security` — every pure-Rust, no-DataFusion feature that still fits a Pi | maximal edge node without a C toolchain |
-| `node` | `pi` + SQL/DataFusion, GraphQL, compute domains, TSDB, blob, KV, full-text, GeoSPARQL, federation, spatial/tensor/stream, WASM UDF, security, obs | single workstation / server, "one binary, most features" |
-| `full` (= `all`) | Every **single-node** feature, size-optimized. Deliberately **no** raft/pgwire | one binary, every feature, no clustering |
-| `cluster` | `node` + in-engine Raft replication (EG/KG-2.188) + `pgwire` + distributed compute + cross-shard 2PC + the SQLite/MySQL/MSSQL/**Bolt/Redis/AMQP/MQTT/STOMP** wires | multi-node HA, SQL/graph/broker clients |
+| Build | What it is | Typical target |
+|-------|-----------|----------------|
+| **main** (`default` = `full` = `all`) | The whole single-node DB: redb-authoritative + Cypher + SQL/DataFusion + GraphQL + ANN + RDF/SPARQL/OWL + TSDB + blob + KV + full-text + GeoSPARQL + federation + spatial/tensor/stream + WASM UDF + security + obs + the whole wire family (`pgwire`/`mysql`/`mssql`/`sqlite`/`bolt`/`redis`/`amqp`/`mqtt`/`stomp`) + `numeric` + `kvcache-server` + `broker` | anything single-node, Raspberry Pi 4+ → workstation |
+| **+ `cluster`** | main + in-engine Raft replication (EG/KG-2.188) + distributed compute + cross-shard 2PC | multi-node HA |
+| **+ `full-extras`** | main + `gpu-cuda` + `ros2-bridge`/`ros2-dds` | GPU / robotics |
 
 ```bash
-cargo build --release --features full        # or: pi / pi-max / node / cluster
+cargo build --release                        # the main build (== --features full)
+cargo build --release --no-default-features --features cluster,ast-extended      # HA layer
+cargo build --release --no-default-features --features full-extras,ast-extended  # GPU/ROS2 layer
 # a la carte: pick exactly the surfaces you want
-cargo build --release --features "pgwire bolt-wire promql traces security"
+cargo build --release --no-default-features --features "server pgwire bolt-wire promql traces security"
 ```
 
-**Tier folds (2.2.0).** The single-node value-add features are folded into `node` (and therefore
-`full`) by the orchestrator: `broker`, `promql`, `traces`, `s3-api`, `nl-query`, `geosparql`,
-`federation-search`, `kvcache-server` (plus `obs`, `otel`, `shacl`, `shex`). The remote **wire
-protocols** — `bolt-wire`, `redis-wire`, `amqp-wire`, `mqtt-wire`, `stomp-wire` (alongside the
-existing `sqlite-wire`/`mysql-wire`/`mssql-wire` and `pgwire`) — fold into `cluster`. You can
-always add any of them explicitly to a leaner tier. Note the broker *primitives* (`broker`) ship
-in `node`/`full`; the AMQP/MQTT/STOMP *listeners* that front them are `cluster`. See
-[tiers](../architecture/tiers.md) for the prebuilt-binary mapping.
+The whole wire family — `pgwire`, `mysql-wire`, `mssql-wire`, `sqlite-wire`, `bolt-wire`,
+`redis-wire`, `amqp-wire`, `mqtt-wire`, `stomp-wire` — plus `broker`, `obs`, `otel`, `otel-export`,
+`shacl`, `shex`, `nl-query`, `geosparql`, `federation-search`, `kvcache-server` are all part of the
+one main build now. Only `raft`/`compute-dist` (the `cluster` layer) and `gpu-cuda`/`ros2-*` (the
+`full-extras` layer) are opt-in. See [one build, opt-in layers](../architecture/tiers.md).
 
 ## 2. Core process configuration
 
@@ -152,8 +151,7 @@ the winning effect (deny-overrides, most-specific-wins).
 | Encryption-at-rest (redb value blobs) | `security` + `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | ChaCha20-Poly1305 (RustCrypto — no ring/openssl); rides the redb tier |
 | Hash-chained tamper-evident audit log | `security` | over the durable ledger (sha2/hmac) |
 
-`security` is folded into `node`/`cluster`/`full` (and `pi-max`); it is out of the lean `pi`
-tier by default.
+`security` is part of the one main build (and therefore the `cluster` layer).
 
 ## 7. Enabling each modality (feature ⇒ what lights up)
 

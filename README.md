@@ -72,13 +72,14 @@ database on its own. See the agent-utilities
   snapshot, one ACID boundary, one per-agent RLS model, one planner. → [Master-of-all engine](docs/architecture/engine.md)
 - **Durable by default.** Built redb-authoritative: the persist directory is the source of truth and an
   acked write survives `kill -9` (commit-before-ack). → [Service mode](docs/service_mode.md)
-- **Scales by configuration, not by rewrite.** The *same binary family* runs embedded in-process on a
-  Pi, as a single durable server, or as a multi-node Raft cluster with cross-shard transactions.
-  → [Tiers & binaries](docs/architecture/tiers.md) · [Cluster deployment](docs/architecture/cluster_deployment.md)
+- **Scales by configuration, not by rewrite.** The *same binary* runs embedded in-process, as a single
+  durable server, or — with the opt-in `cluster` layer — as a multi-node Raft cluster with cross-shard
+  transactions. → [One build, opt-in layers](docs/architecture/tiers.md) · [Cluster deployment](docs/architecture/cluster_deployment.md)
 - **Drop-in wire compatibility.** Existing Postgres/Neo4j/Redis/S3/AMQP/PromQL clients connect
   unmodified. → [Connecting (per-wire guide)](docs/interfaces/connecting.md)
-- **Pi-lean core.** Heavy modalities are Cargo-feature-gated; a Pi build links no DataFusion, no
-  Tantivy, no CUDA, no C toolchain. → [Tiers & binaries](docs/architecture/tiers.md)
+- **One full-featured build.** `cargo build` is the whole engine — every main feature that compiles
+  without a GPU/robotics toolchain, in one published wheel; `cluster` (HA raft) and `full-extras`
+  (GPU/ROS2) are opt-in build layers on top. Runs on Raspberry Pi 4+. → [One build, opt-in layers](docs/architecture/tiers.md)
 
 ---
 
@@ -135,7 +136,7 @@ operation-by-operation source of truth.
 
 | Surface | You can point at it… | Deep dive |
 |---------|----------------------|-----------|
-| **SQL / pgwire** | `psql`, DBeaver, JDBC/ODBC, BI tools, ORMs — DataFusion `SELECT` (joins/CTE/window), full DML, arbitrary user tables + DDL + `COPY` + `ALTER TABLE`, `CREATE FUNCTION` incl. **PL/pgSQL** bodies, `pg_catalog`/`information_schema`, pgvector/AGE/Timescale/ParadeDB compat. **pgwire ships in `node`/`full`/`cluster`.** | [SQL & pgwire](docs/interfaces/sql.md) |
+| **SQL / pgwire** | `psql`, DBeaver, JDBC/ODBC, BI tools, ORMs — DataFusion `SELECT` (joins/CTE/window), full DML, arbitrary user tables + DDL + `COPY` + `ALTER TABLE`, `CREATE FUNCTION` incl. **PL/pgSQL** bodies, `pg_catalog`/`information_schema`, pgvector/AGE/Timescale/ParadeDB compat. **pgwire is in the one main build.** | [SQL & pgwire](docs/interfaces/sql.md) |
 | **SPARQL / RDF / OWL** | Stardog/GraphDB clients — SPARQL 1.1 `SELECT`/`ASK`/`CONSTRUCT`/`DESCRIBE`/`UPDATE`, the W3C `/sparql` endpoint, OWL 2 EL⁺/RL **and** DL-tableau + SWRL, SHACL/ShEx + ICV write-path enforcement, R2RML, GeoSPARQL | [SPARQL & RDF](docs/interfaces/sparql.md) · [Ontology lifecycle](docs/interfaces/ontology.md) |
 | **Cypher / Bolt** | Neo4j drivers & `cypher-shell` — `MATCH`/writes/`WITH`/aggregation, GDS via `CALL gds.*`, native **Bolt v4.4** wire | [Cypher & Bolt](docs/interfaces/cypher.md) |
 | **GraphQL** | Apollo clients — Federation v2 subgraph, subscriptions over CDC, fragments/variables/directives, relay pagination, APQ/depth/cost hardening | [GraphQL](docs/interfaces/graphql.md) |
@@ -204,7 +205,7 @@ natural-language → query (`NlQuery`) is a complete, LLM-optional seam.
 | **Postgres compat** | `pg_catalog` + `information_schema` system views (`\d`/`\dt`/`\l`) | ✅ | `pgwire` | EG-103; synthesized from live table/view/function catalogs |
 | **Postgres compat** | `CREATE EXTENSION` catalog · pgvector `vector` + `<->`/`<=>`/`<#>` + **real ANN pushdown** to HNSW/IVF + exact re-rank | ✅ | `pgwire` | EG-102/115/116; real top-k pushdown (EG-313) |
 | **Postgres compat** | AGE `cypher()` set-returning function, TimescaleDB hypertables + continuous aggregates, ParadeDB `@@@` **real BM25 ranking + snippets** | ✅ | `pgwire` | EG-114/117/119; real BM25 (EG-311) |
-| **Postgres wire** | listener, simple + extended/prepared protocol | ✅ | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR`; folded into `node`/`full`/`cluster` (EG-352) |
+| **Postgres wire** | listener, simple + extended/prepared protocol | ✅ | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR`; in the one main build (EG-352/EG-371) |
 | **Postgres wire** | SCRAM-SHA-256 / trust auth, `pg_catalog` introspection | ✅ | `pgwire` | KG-2.202 / KG-2.201; pg user → engine ACL actor |
 | **SPARQL** | `SELECT` (BGP, paths, FILTER subset, OPTIONAL, UNION, GROUP/agg, BIND, DISTINCT, SLICE) | ✅ | `sparql` | spargebra parser compiled to LPG scans |
 | **SPARQL** | `ASK` / `CONSTRUCT` / `DESCRIBE` | ✅ | `sparql` | template instantiation + bounded description (gated by `rdf`, implied by `sparql`) |
@@ -279,10 +280,10 @@ natural-language → query (`NlQuery`) is a complete, LLM-optional seam.
 | **Distribution** | Calvin deterministic-ordering cross-shard commit (order-first, vote-free, crash-replay) | ✅ opt-in | `calvin` (⇒ `nonblocking`) | EG-324; sequencer + Raft-replicated input log + vote-free execution shipped; distributed OLLP read-lock phase + multi-node epoch fan-in documented-deferred — see [distribution-robotics-gpu](docs/architecture/distribution-robotics-gpu.md) |
 | **Distribution** | multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `raft` | `GroupRouter` + `MultiRaft` (KG-2.266/267/268); online ownership move |
 | **Distribution** | cross-region async read-replica tier (bounded-LSN log + follower pull → `wal::apply`) + capacity guardrails (circuit breaker / per-tenant quota / backpressure) | ✅ opt-in | `federation-search` | EG-322/323; off by default (`EPISTEMIC_GRAPH_REPLICATE`); complements the EG-320 QoS scheduler with absolute ceilings |
-| **Federation** | remote engine / HTTP-JSON / external SQL (`sqlx`) as a `ForeignScan` | ✅ | `federation`(`-sql`) | OFF by default; never in `pi` |
+| **Federation** | remote engine / HTTP-JSON / external SQL (`sqlx`) as a `ForeignScan` | ✅ | `federation`(`-sql`) | in the main build; activates only when a foreign source is registered |
 | **Robotics** | ROS2 bridge over rosbridge-WebSocket (CDC↔topic, no DDS/C toolchain) | ✅ opt-in | `ros2-bridge` | EG-325; pure-Rust `tokio-tungstenite`; native DDS/RTPS (CycloneDDS) a documented optional leg |
 | **GPU** | GPU distance/tensor dispatch seam + real CUDA backend (NVRTC, `dynamic-loading`) | ✅ opt-in | `gpu` / `gpu-cuda` | EG-326/327; pure-Rust CPU backend is always compiled + the byte-for-byte ground truth; CUDA auto-falls-back on a GPU-less host; live-GPU kernel validation deferred (none in CI) |
-| **Numeric / analytics** | BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`: reductions/stats · element-wise · linalg via faer · seedable random) | ✅ P1 (Surface A) · 🗺 Surface B | `pip install epistemic-graph[numeric]` (Surface A) · cargo `numeric`/`full` (Surface B) | EG-321; **P1 of the [Analytics Program](docs/architecture/analytics-program.md)** ("one kernel, two surfaces"). Surface A = in-process Python — the kernel `.so` is **folded into the one `epistemic-graph` wheel** as `epistemic_graph.numeric` (no separate `eg-numeric` package; + the AU `xp` numpy-shim, 847 parity checks); Surface B (in-DB DataFusion UDFs/graph/vector/ts analytics) is P2–P5 follow-on. Surface-B cargo feature out of `pi`/`node` — see [numeric-kernel](docs/architecture/numeric-kernel.md) |
+| **Numeric / analytics** | BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`: reductions/stats · element-wise · linalg via faer · seedable random) | ✅ P1 (Surface A) · 🗺 Surface B | `pip install epistemic-graph[numeric]` (Surface A) · cargo `numeric`/`full` (Surface B) | EG-321; **P1 of the [Analytics Program](docs/architecture/analytics-program.md)** ("one kernel, two surfaces"). Surface A = in-process Python — the kernel `.so` is **folded into the one `epistemic-graph` wheel** as `epistemic_graph.numeric` (no separate `eg-numeric` package; + the AU `xp` numpy-shim, 847 parity checks); Surface B (in-DB DataFusion UDFs/graph/vector/ts analytics) is P2–P5 follow-on. Surface-B `numeric` cargo feature is part of the main build — see [numeric-kernel](docs/architecture/numeric-kernel.md) |
 | **Clients** | multi-language client drivers — Python (full) · JS / Go (thin: broker/streams/RBAC/backup/NL) over framed MessagePack (no PyO3/FFI) | ✅ | (client) | EG-328; wire-parity gated (`test_protocol_parity.py`) — see [clients](docs/interfaces/clients.md) |
 
 ---
@@ -321,19 +322,20 @@ See [technical overview](docs/overview.md) for the crate DAG and the planner pip
 
 ---
 
-## Deployment tiers
+## One build, opt-in layers
 
-The engine ships as a small family of prebuilt, size-optimized binaries. A Pi pulls a prebuilt wheel and
-never compiles. Full map: [tiers & binaries](docs/architecture/tiers.md).
+The engine ships as **one prebuilt binary** — the full-featured build — plus two opt-in build layers.
+The target host pulls a prebuilt wheel and never compiles. Full map: [one build, opt-in layers](docs/architecture/tiers.md).
 
-| Binary | Carries | For |
-|--------|---------|-----|
-| **pi** | redb-authoritative + cypher + ann + rdf/sparql/owl + streaming — **no DataFusion, no Tantivy, no Raft** | Raspberry Pi / edge, ultra-lean |
-| **pi-max** | pi + tsdb + blob + security — all pure-Rust, no C toolchain | Pi "everything without a C compiler" |
-| **node** (default wheel) | pi + DataFusion SQL + GraphQL + Tantivy text + wasm-udf + federation + **pgwire** — a complete single-node DB | single durable server / SQL clients |
-| **cluster** | node (incl. pgwire) + Raft + cross-shard 2PC + the extra wire protocols | multi-node HA |
-| **full** | every single-node feature (incl. pgwire, the `numeric` kernel, kvcache-server, broker, LTAP), no raft | workstation / one binary, every feature |
-| **full-extras** | `full` + optional accelerator legs (`gpu-cuda`, `ros2-bridge`) | GPU / robotics — out of `pi` |
+| Build | Carries | For |
+|-------|---------|-----|
+| **main** (default wheel) | the whole single-node DB: redb-authoritative + cypher + DataFusion SQL + graphql + ann + tsdb + blob + Tantivy text + rdf/sparql/owl + wasm-udf + security + federation + the wire family (**pgwire**/mysql/mssql/sqlite/bolt/redis/amqp/mqtt/stomp) + the `numeric` kernel + kvcache-server + broker | anything single-node, Raspberry Pi 4+ to workstation |
+| **+ cluster** | main + **Raft** replication + cross-shard 2PC + distributed compute | multi-node HA |
+| **+ full-extras** | main + accelerator legs (`gpu-cuda`, `ros2-bridge`, `ros2-dds`) | GPU / robotics |
+
+`cluster` and `full-extras` are opt-in build flags layered on top of the one main build (openraft is
+cluster-only; cudarc/rustdds are full-extras-only) — they are built from source, not published as
+separate wheels.
 
 ---
 

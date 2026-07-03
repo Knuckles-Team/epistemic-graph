@@ -140,23 +140,21 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-push, manual]
-  # release-build.yml parity — build ONE representative wheel (the `node` tier, the
+  # release-build.yml parity — build the ONE main wheel (CONCEPT:EG-359: `full`, the
   # default MATURIN_FEATURES) through the real maturin bin-binding wheel path:
   #   * --locked        → catches Cargo.lock drift, the class of blocker that broke
   #                       the release wheel build (version bump w/o lock sync).
-  #   * --no-default-features --features node,ast-extended
-  #                     → only the tier bundle is selected (no `[tool.maturin]`
-  #                       feature-union), so a tier-specific compile error that the
-  #                       rust-ci feature-matrix does NOT cover (pi/node tiers are
-  #                       absent there) is caught here.
+  #   * --no-default-features --features full,ast-extended
+  #                     → exactly the main published feature set (no `[tool.maturin]`
+  #                       feature-union), matching the release `wheels` job.
   # DEBUG build (no --release): the release fat-LTO link of this binary is ~25 min,
-  # far too slow for a hook; the failures this guards against (lock drift, tier
+  # far too slow for a hook; the failures this guards against (lock drift, feature
   # compile errors, maturin config) all reproduce in a debug build, which is the
   # lightest faithful check. CI still does the full --release manylinux build.
   # HEAVY-ish → pre-push + manual.
   - id: wheel-smoke
-    name: wheel smoke — maturin build node tier, --locked (HEAVY — pre-push/manual)
-    entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then maturin build --locked --no-default-features --features node,ast-extended --out "${TMPDIR:-/tmp}/eg-wheel-smoke"; fi'
+    name: wheel smoke — maturin build main (full) wheel, --locked (HEAVY — pre-push/manual)
+    entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then maturin build --locked --no-default-features --features full,ast-extended --out "${TMPDIR:-/tmp}/eg-wheel-smoke"; fi'
     language: system
     pass_filenames: false
     always_run: true

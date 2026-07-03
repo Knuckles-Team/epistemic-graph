@@ -9,7 +9,7 @@ LMCache / prefix-cache win, but pooled across the whole fleet through one engine
 
 It is a hand-rolled HTTP/1.1 listener (`src/server/kvcache_http/`), the same
 dependency-free `tokio::net` idiom as the s3 (`EG-176`) and obs listeners — no
-axum/hyper, so the Pi contract holds. It is kept **out of `pi`** (a network listener +
+axum/hyper, so no new HTTP dep enters the tree. It is in the one main build (a network listener +
 the shared backend crate); default/pi builds link none of it.
 
 ## Endpoints
