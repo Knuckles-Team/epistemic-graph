@@ -101,36 +101,55 @@ and runs against the compiled kernel when present, else the numpy fallback. A **
 engine-side** corpus (`crates/eg-numeric/tests/test_kernel_parity.py`, CONCEPT:EG-346)
 tests the compiled kernel DIRECTLY (not the shim) and is what the CI gate runs — see below.
 
-## Building the Surface-A wheel & the kernel-live shim (CONCEPT:EG-346 / KG-2.315)
+## Packaging: ONE published package — `epistemic-graph[numeric]` (CONCEPT:EG-346 / KG-2.315)
 
-The Surface-A extension ships as an **installable pyo3 cdylib wheel**, so
+The Surface-A kernel ships as **package data folded into the single `epistemic-graph`
+wheel** — there is **NO separate `eg-numeric` package on PyPI**. `pip install
+epistemic-graph` gets the server; `pip install epistemic-graph[numeric]` additionally
+provides the compiled kernel importable as **`epistemic_graph.numeric`**, so
 `agent_utilities.numeric.xp` runs **kernel-LIVE** (`HAVE_KERNEL == True`) instead of the
-numpy fallback (KG-2.315). Build it standalone with maturin:
+numpy fallback (KG-2.315). The `[numeric]` extra only pulls `numpy` (for the kernel's
+zero-copy interop); the `.so` itself is self-contained (pure-Rust, BLAS/LAPACK-free).
+
+**How the fold works (release build).** The kernel is still a distinct maturin target — a
+pyo3 cdylib built from `crates/eg-numeric --features python` — so the engine binary stays
+pyo3-free. The `wheels` job in `.github/workflows/release-build.yml` builds the `node`
+server wheel, then builds the kernel cdylib for the same target and **injects its compiled
+`.so` into the server wheel** as `epistemic_graph/numeric.abi3.so`
+(`scripts/inject_numeric_kernel.py`, which recomputes `RECORD`). The result is one
+`epistemic_graph-<ver>` wheel carrying both the server binary and the numeric kernel.
+
+**Dev / parity build it standalone** (editable, non-publishing) with maturin — the kernel
+crate compiles fast and this is what the parity CI gate uses:
 
 ```bash
 # On CPython ≤ 3.13 (pyo3 0.22's supported range) no flag is needed.
 # On a newer interpreter (e.g. 3.14) pyo3 0.22 refuses to build unless you opt in:
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
-pip install --no-index --find-links target/wheels eg-numeric
+pip install --no-index --find-links target/wheels eg-numeric   # dev-only local wheel
 ```
 
-The `#[pymodule]` is named `numeric` with `m.add("__kernel__", "eg-numeric")`, so the
-wheel installs a top-level `numeric` package (`import numeric`); a folded product build
-homes it at `epistemic_graph.numeric`. The `xp` shim probes **both** names and checks the
-`__kernel__` marker, so either layout activates the kernel. With the wheel installed:
+The `#[pymodule]` is named `numeric` with `m.add("__kernel__", "eg-numeric")`. The folded
+product build homes the raw extension at `epistemic_graph.numeric` (the `xp` shim's primary
+probe); a standalone crate build installs it as a top-level `numeric` package. The `xp` shim
+probes **both** names and checks the `__kernel__` marker, so either layout activates the
+kernel. With the kernel present:
 
 ```python
 >>> from agent_utilities.numeric import xp, HAVE_KERNEL, KERNEL_SOURCE
 >>> HAVE_KERNEL, KERNEL_SOURCE
-(True, 'numeric')          # every routed 1-D/2-D float64 op now hits faer/ndarray
+(True, 'epistemic_graph.numeric')   # every routed 1-D/2-D float64 op now hits faer/ndarray
 ```
 
-**This is a SEPARATE wheel from the engine facade** (`bindings = "bin"` — the server
-binary, no pyo3). `scripts/check_no_pyo3.sh` guards the *facade* (`src/`,
-`epistemic_graph/`, top-level `Cargo.toml`/`pyproject.toml`) and never scans `crates/`, and
-the Pi contract holds unchanged — `cargo tree --features pi | grep -ci pyo3` = 0 (pyo3 is
-only ever pulled by eg-numeric's own `python` feature, which no engine tier enables).
+**The kernel is a SEPARATE maturin build target from the engine facade** (`bindings = "bin"`
+— the server binary, no pyo3) even though both ship in one wheel.
+`scripts/check_no_pyo3.sh` guards the *facade* (`src/`, `epistemic_graph/`, top-level
+`Cargo.toml`/`pyproject.toml`) and never scans `crates/`, and the Pi contract holds unchanged
+— `cargo tree --features pi | grep -ci pyo3` = 0 (pyo3 is only ever pulled by eg-numeric's own
+`python` feature, which no engine tier enables). The folded `.so` is named `numeric.abi3.so`,
+which the guard's `epistemic_graph/epistemic_graph*.so` / `_epistemic_graph*.so` patterns do
+not match, and it exists only in the built wheel, never in the source tree.
 
 ### numpy-parity CI gate
 
@@ -151,8 +170,9 @@ pyo3-0.22's native range, so no forward-compat flag is needed there).
   timeseries operators, re-homing KG-resident numerics (spectral_navigator, world_model)
   to compute-near-data; cross-modal joins then PCA/cluster in-engine. **First increment
   shipped — see below.**
-- **P5:** drop numpy/scipy from agent-utilities; the `eg-numeric` wheel is the dep. The
-  `xp` shim stays so future backend swaps remain mechanical.
+- **P5:** drop numpy/scipy from agent-utilities; the kernel is the dep, shipped as
+  `epistemic-graph[numeric]` (folded into the one engine wheel — no separate `eg-numeric`
+  package). The `xp` shim stays so future backend swaps remain mechanical.
 
 ## Surface B — in-database analytics operators (P4, CONCEPT:EG-329/EG-330/EG-335/EG-336/EG-344/EG-345)
 

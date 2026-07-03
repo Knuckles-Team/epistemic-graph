@@ -83,16 +83,41 @@ jobs:
           manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
           sccache: 'true'
 
-      # Smoke test: install the wheel and run the server `--help`. Skipped for the
-      # cross-only legs (linux-aarch64 on x86 host, windows-arm64) where the binary
-      # can't execute on the runner.
-      - name: Smoke test (epistemic-graph-server --help)
+      # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
+      #    Build the pyo3 cdylib kernel (`crates/eg-numeric --features python`) for the
+      #    SAME target, then inject its compiled `.so` into the server wheel as
+      #    `epistemic_graph/numeric.abi3.so`. Result: ONE published `epistemic-graph`
+      #    wheel that ships BOTH the server binary AND the numeric kernel — no separate
+      #    `eg-numeric` package on PyPI. The kernel is a distinct maturin target (a pyo3
+      #    cdylib), so the engine binary's no-pyo3 / Pi contract is untouched.
+      - name: Build eg-numeric kernel (same target)
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: >-
+            --release
+            --out numdist
+            -m crates/eg-numeric/Cargo.toml
+            --features python
+          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          sccache: 'true'
+
+      - name: Fold numeric kernel into the epistemic-graph wheel
+        shell: bash
+        run: |
+          python scripts/inject_numeric_kernel.py "$(ls dist/epistemic_graph-*.whl)" "$(ls numdist/*.whl)"
+
+      # Smoke test: install the wheel, run the server `--help`, AND prove the folded-in
+      # kernel imports (`epistemic_graph.numeric`). Skipped for the cross-only leg
+      # (linux-aarch64 on an x86 host) where the binary can't execute on the runner.
+      - name: Smoke test (server --help + import epistemic_graph.numeric)
         if: ${{ matrix.name != 'linux-aarch64' && matrix.experimental != true }}
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install dist/*.whl
+          pip install "$(ls dist/epistemic_graph-*.whl)"
           epistemic-graph-server --help
+          python -c "import epistemic_graph.numeric as n; assert n.__kernel__ == 'eg-numeric'; print('numeric kernel OK:', n.__file__)"
 
       - name: Upload wheel artifact
         if: ${{ matrix.experimental != true }}
@@ -194,71 +219,15 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  # ── eg-numeric Surface-A kernel wheels (CONCEPT:EG-346 wheel / EG-351 publish leg).
-  #    The slim, BLAS/LAPACK-free numeric kernel (`crates/eg-numeric`, pyo3 feature
-  #    `python` → the `epistemic_graph.numeric` extension) shipped as its OWN wheel so
-  #    downstreams (agent-utilities' `numeric.xp` shim) can HARD-DEPEND on the kernel and
-  #    fully drop numpy — the one blocker to the numpy-drop. Built for linux x86_64 +
-  #    aarch64 and uploaded as `wheel-numeric-*` so the tag-gated `publish-pypi` leg ships
-  #    it to PyPI ALONGSIDE `epistemic-graph`. This is a SEPARATE maturin target from the
-  #    main `bindings="bin"` server wheel (it is a pyo3 cdylib), so the Pi/no-pyo3 contract
-  #    on the engine is untouched. PUBLISHING stays tag-gated (see publish-pypi's `if:`).
-  wheels-numeric:
-    name: wheel eg-numeric ${{ matrix.name }}
-    runs-on: ubuntu-latest
-    # The aarch64 leg cross-builds a pyo3 EXTENSION (harder than the bin-only engine
-    # wheel) and is best-effort: if it fails, publish-pypi still ships the x86_64 wheel
-    # + the always-working sdist-numeric (arm installs build eg-numeric from source).
-    # So a flaky aarch64 pyo3 cross-build never blocks the release.
-    continue-on-error: ${{ matrix.name == 'linux-aarch64' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x86_64
-            target: x86_64-unknown-linux-gnu
-          - name: linux-aarch64
-            target: aarch64-unknown-linux-gnu
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      # zig gives reproducible glibc-pinned linux cross-builds (linux-aarch64 on an x86
-      # host). The pyo3 `python` feature is the ONLY feature this wheel needs.
-      - name: Build eg-numeric wheel (${{ matrix.name }})
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          manylinux: '2_28'
-          args: >-
-            --release
-            --out dist
-            -m crates/eg-numeric/Cargo.toml
-            --features python
-          sccache: 'true'
-      - name: Upload eg-numeric wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheel-numeric-${{ matrix.name }}
-          path: dist/*.whl
-
-  # ── eg-numeric sdist (pip fallback for platforms without a prebuilt wheel).
-  sdist-numeric:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist -m crates/eg-numeric/Cargo.toml
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist-numeric
-          path: dist/*.tar.gz
+  # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
+  # Surface-A pyo3 `.so` is FOLDED INTO the `epistemic-graph` node wheel in the
+  # `wheels` job above (see "Fold the eg-numeric Surface-A kernel INTO this same
+  # wheel"), so `pip install epistemic-graph[numeric]` provides
+  # `epistemic_graph.numeric` from ONE published package. The old `wheels-numeric` +
+  # `sdist-numeric` publish legs (and their re-upload of a fixed `eg-numeric==0.1.0`
+  # that aborted the whole `twine upload` batch) are removed. The EG-346 numeric-parity
+  # CI gate still builds/imports the kernel from the crate in `rust-ci.yml` — that
+  # doesn't publish.
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
   #    The image INSTALLS THE `node`-tier WHEEL BUILT IN THIS SAME RUN (downloaded
@@ -309,17 +278,19 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    # eg-numeric (wheels-numeric + sdist-numeric) publishes ALONGSIDE epistemic-graph so a
-    # `v*` tag ships both distributions in one release (CONCEPT:EG-351).
-    needs: [wheels, wheels-pi, wheels-full-tiny, sdist, wheels-numeric, sdist-numeric]
+    # ONE published package: only the epistemic-graph wheels (the `node` wheel carries
+    # the folded-in numeric kernel) + the sdist. The old `eg-numeric` publish legs are
+    # gone — their re-upload of an existing `eg-numeric==0.1.0` used to abort the whole
+    # `twine upload dist/*` batch and starve the epistemic-graph upload.
+    needs: [wheels, wheels-pi, wheels-full-tiny, sdist]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT publish.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
     steps:
-      # The `wheel-*` glob also picks up the `wheel-numeric-*` artifacts, so both the
-      # epistemic-graph and eg-numeric wheels land in dist/ for the single publish.
+      # Only the epistemic-graph wheels remain under the `wheel-*` glob (node / pi /
+      # pi-max / full-tiny) — there is no `wheel-numeric-*` artifact anymore.
       - uses: actions/download-artifact@v4
         with:
           pattern: wheel-*
@@ -329,19 +300,15 @@ jobs:
         with:
           name: sdist
           path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: sdist-numeric
-          path: dist
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       # Token-based upload — the SAME mechanism the rest of the fleet publishes with
       # (agents/*, agent-webui) via the org `PYPI_API_TOKEN`. ONE robust upload of
-      # EVERYTHING in dist/ (epistemic-graph AND eg-numeric, every wheel + sdist),
-      # matching agent-webui's `twine upload dist/*`. A single `dist/*` avoids the
-      # previous failure mode where a per-name glob (`dist/epistemic_graph-*`) combined
-      # with `--skip-existing` could silently no-op if a dist was mis-named/mis-versioned
+      # EVERYTHING in dist/ (every epistemic-graph wheel + sdist), matching
+      # agent-webui's `twine upload dist/*`. A single `dist/*` avoids the previous
+      # failure mode where a per-name glob (`dist/epistemic_graph-*`) combined with
+      # `--skip-existing` could silently no-op if a dist was mis-named/mis-versioned
       # and the step would still pass green having published nothing.
       - name: Publish to PyPI (token)
         env:
