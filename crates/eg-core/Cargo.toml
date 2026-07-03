@@ -29,7 +29,7 @@ ann = ["dep:eg-ann", "dep:tracing", "dep:rayon"]
 # Additionally persist the ANN codes into the engine's redb durable tier
 # (CONCEPT:KG-2.195) rather than only the mmap files.
 ann-redb = ["ann", "eg-ann/redb"]
-# GPU distance dispatch seam (CONCEPT:EG-3.5) / real CUDA backend (CONCEPT:EG-3.6) for
+# GPU distance dispatch seam (CONCEPT:EG-326) / real CUDA backend (CONCEPT:EG-327) for
 # the eg-ann index. `ann-gpu` opts into the seam; `ann-gpu-cuda` pulls the real cudarc
 # backend (dynamic-loading — no CUDA toolkit to build). OUT of pi/full (facade folds it
 # into an extras bundle).

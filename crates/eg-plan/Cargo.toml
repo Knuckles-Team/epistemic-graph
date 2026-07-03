@@ -94,7 +94,7 @@ geo = ["query", "dep:eg-geo", "eg-types/geo"]
 # folds it into node/full but NEVER `pi`. A default/Pi build (neither feature) links no
 # eg-tensor and drops the tensor arms.
 tensor = ["query", "dep:eg-tensor", "eg-types/tensor"]
-# GPU tensor-op dispatch seam (CONCEPT:EG-3.5) / real CUDA backend (CONCEPT:EG-3.6) for
+# GPU tensor-op dispatch seam (CONCEPT:EG-326) / real CUDA backend (CONCEPT:EG-327) for
 # eg-tensor. `tensor-gpu` opts into the seam; `tensor-gpu-cuda` pulls the real cudarc
 # backend (dynamic-loading — no CUDA toolkit to build). OUT of pi/full.
 tensor-gpu = ["tensor", "eg-tensor/gpu"]
