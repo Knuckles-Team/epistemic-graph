@@ -30,7 +30,7 @@ epistemic-graph converges many modalities under one durable engine and one plann
 | **PL/pgSQL procedural bodies** | 🗺 | Stored-procedure/function *procedural* execution (loops, variables, control flow) beyond the shipped SQL views + DDL. |
 | **Memory → weights distillation** | 🗺 | Distilling consolidated agent-memory (EG-220/221) into model weights (a fine-tune/LoRA export), beyond the retrieval-time context assembly (EG-195). |
 | **Calvin distributed read-lock (OLLP)** | 🗺 | The Calvin global-sequencer total order + deterministic vote-free execution + crash-replay recovery ship (EG-324). The distributed OLLP *reconnaissance*/read-lock phase (full serializable isolation of conflicting sequenced txns across nodes) + a multi-node sequencer epoch fan-in remain open. |
-| **SQLite `.db` file I/O** | 🔶 | The SQLite-dialect NDJSON-over-TCP wire ships (EG-075); reading/writing an on-disk `sqlite3` `.db` file is a documented follow-up. |
+| **SQLite `.db` file I/O** | ✅ | The SQLite-dialect NDJSON-over-TCP wire ships (EG-075); reading/writing an on-disk `sqlite3` `.db` file now SHIPS too (EG-331 import / EG-332 export — `Method::ImportSqliteFile`/`ExportSqliteFile` over the user-table store). Behind the `sqlite-file` feature: it pulls `rusqlite` with the bundled C sqlite3 (no pure-Rust SQLite-file writer exists), so it is kept OUT of `pi`/`default` and folded into `full`/`node` — the Pi contract holds (`cargo tree --features pi` links no rusqlite/libsqlite3-sys). |
 
 ---
 

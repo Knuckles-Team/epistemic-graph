@@ -432,9 +432,23 @@ pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
 # `WireProtocol`/`WireSession` core (CONCEPT:EG-074) — NO reimplemented SQL. PURE-RUST:
 # links NO C sqlite (no rusqlite/bundled), so it stays out of the Pi contract's forbidden
 # set. Needs `wire` (which implies `query` + `server`). DEFINED here but DELIBERATELY kept
-# OUT of node/full/cluster — the orchestrator folds it (`.db` file export/import is a
-# documented pure-Rust follow-up, NOT a C dep).
+# OUT of node/full/cluster — the orchestrator folds it. (`.db` file export/import is the
+# SEPARATE `sqlite-file` feature below — a gated C leg, kept out of pi.)
 sqlite-wire = ["wire"]
+# SQLite `.db` FILE import/export (CONCEPT:EG-331/EG-332) — reading/writing a real
+# on-disk `sqlite3` `.db` file (the documented EG-075 follow-up), DISTINCT from the
+# `sqlite-wire` NDJSON dialect surface above. Import reads a `.db`'s tables+rows into
+# the engine's user-table store (the SAME `eg_query::TableStore` the `Method::Sql`
+# DDL/DML + pgwire paths write); export writes selected user tables OUT to a valid
+# `.db` a `sqlite3` CLI can open. Producing a spec-correct SQLite b-tree file WITHOUT
+# a C dependency is infeasible (a pure-Rust writer would have to reimplement the page
+# format — the documented blocker in `src/server/sqlite_wire/mod.rs`), so this ONE
+# feature pulls `rusqlite` with the BUNDLED C sqlite3 (libsqlite3-sys). It is therefore
+# kept OUT of `pi`/`default` — the Pi contract holds: `cargo tree --features pi` links
+# NO rusqlite/libsqlite3-sys — and folded ONLY into `full`/`node` (which already carry
+# C deps via `text`→zstd-sys). Needs `query` (the TableStore) + `server` (the dispatch
+# handler); `eg-types/sqlite-file` gates the two `Method` variants onto the wire.
+sqlite-file = ["query", "server", "dep:rusqlite", "eg-types/sqlite-file"]
 # MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
 # adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
 # `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
@@ -668,7 +682,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "numeric"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "numeric", "sqlite-file"]
 all = ["full"]
 
 # ── Pi ↔ Cluster deployment tier bundles ──
@@ -688,7 +702,7 @@ all = ["full"]
 #     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
 #   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
 pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "shacl", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker"]
+node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "geo", "tensor", "stream", "shacl", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "sqlite-file"]
 # `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + the
 # Postgres wire shim (CONCEPT:KG-2.189, M8) + distributed graph compute
 # (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which needs the
@@ -827,6 +841,14 @@ redb = { version = "4.1", optional = true }
 # or any C crate (the Pi contract holds for the crypto path); optional + only
 # referenced under #[cfg(feature = "security")].
 chacha20poly1305 = { version = "0.10", optional = true }
+# SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:EG-331/EG-332). The
+# `bundled` feature compiles the vendored C sqlite3 amalgamation (libsqlite3-sys) — the
+# ONLY C-linked leg gated behind `sqlite-file`, which is kept OUT of `pi`/`default` so
+# the Pi contract holds (`cargo tree --features pi` links no rusqlite/libsqlite3-sys).
+# A pure-Rust SQLite-file writer producing a `sqlite3`-CLI-readable `.db` is infeasible
+# (it would reimplement the b-tree page format), so the C sqlite is used ONLY in the
+# non-Pi `full`/`node` tiers. Referenced only under `#[cfg(feature = "sqlite-file")]`.
+rusqlite = { version = "0.32", optional = true, features = ["bundled"] }
 # S3/MinIO object-store chunk backend (feature `blob-s3`, CONCEPT:KG-2.206). The
 # ONLY dep that pulls an object-store/AWS SDK, gated behind `blob-s3` (NOT `blob`),
 # so a default/pi/full build links no object_store/aws crate — verified by the
