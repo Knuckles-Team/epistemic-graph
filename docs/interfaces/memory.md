@@ -77,7 +77,15 @@ spatial relationships (`on`/`in`/`near`/`supports`), and bounding volumes — th
 robotics / AR / urban-3D world models. Composes (read-only) with the [GIS](gis.md) geo types and the tensor
 store.
 
+!!! note "Deferred — memory → weights distillation (🗺)"
+    Distilling consolidated agent-memory (EG-220/221) into **model weights** (a fine-tune / LoRA export),
+    beyond the shipped retrieval-time context assembly (EG-195), is designed but not started. See the
+    [forward roadmap](../roadmap.md).
+
 ---
 *These primitives live in `eg-core` — durable, replicated engine state. The agent-utilities memory loop
 drives the *policy* (when to summarize / consolidate / decay); the engine guarantees the *mechanics* are
 fast, deterministic, and provenance-preserving.*
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Ontology lifecycle](ontology.md) ·
+[Vector / ANN](vector.md) · [GIS / Spatial](gis.md) · [Client Drivers](clients.md).

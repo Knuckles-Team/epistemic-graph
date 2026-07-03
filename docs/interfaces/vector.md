@@ -90,3 +90,7 @@ neg-inner `<#>`), pushed down to the ANN index by `CREATE INDEX … USING hnsw/i
 (HNSW/IVF) with an exact re-rank tier, not the brute-force fallback (EG-115/116/313) — see
 [sql](sql.md#postgres-extensions--create-extension-eg-102).
 </content>
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [Agent Memory](memory.md) · [Numeric Kernel](../architecture/numeric_kernel.md) · [Analytics Program](../architecture/analytics_program.md) · [Connecting (per-wire guide)](connecting.md).

@@ -95,4 +95,8 @@ curl -s http://127.0.0.1:9130/kv/stats
 The server shapes the **LMCache remote-backend** contract, so an external vLLM/LMCache instance points its
 remote KV backend at this endpoint to fetch/store blocks (OOM-offload + cross-instance reuse). For the wire
 contract, block key derivation, and the connector adapter, see the architecture note:
-[kvcache-remote-backend](../architecture/kvcache-remote-backend.md).
+[kvcache-remote-backend](../architecture/kvcache_remote_backend.md).
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [KV-cache remote backend](../architecture/kvcache_remote_backend.md) · [Key-value & Blob](kv_blob.md) · [Client Drivers](clients.md) · [Connecting (per-wire guide)](connecting.md).
