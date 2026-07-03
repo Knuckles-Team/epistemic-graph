@@ -151,12 +151,16 @@
 //! Calvin deterministic ordering.
 
 use std::collections::BTreeMap;
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use super::multi::MultiRaft;
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+use super::NodeId;
 use super::{GroupId, RaftRequest};
 use crate::protocol::{GraphType, Method};
 use crate::server::persistence::redb_backend::RedbBackend;
@@ -1076,6 +1080,80 @@ impl CrossShardCoordinator {
             .await?;
         Ok(Some(seq))
     }
+
+    // ── EG-342: Calvin OLLP reconnaissance / read-set prediction ────────────────
+    //
+    // Calvin's deterministic execution needs the FULL read/write set of every txn up
+    // front (so the ordered lock phase can be laid out before execution). For a txn
+    // whose access set is STATIC that set is just its slices. For a txn whose set is
+    // DATA-DEPENDENT (e.g. "read a directory node, then write the record it points at")
+    // the set cannot be known without touching the database first — so Calvin runs an
+    // OLLP (Optimistic Lock Location Prediction) *reconnaissance* pass: it reads the
+    // current committed state at the seed records to PREDICT the actual set, then locks
+    // that predicted set in sequence order. `reconnoiter` is the recon read primitive;
+    // `predict_rwset` is the OLLP set-discovery driver over it.
+
+    /// EG-342: an OLLP *reconnaissance read* — the CURRENT committed value of a record
+    /// from its live group state (no lock, no write). This is the primitive Calvin uses
+    /// both (a) to DISCOVER a data-dependent txn's read/write set before locking and
+    /// (b) as the in-execution read once the ordered locks are held (under a held lock
+    /// it observes the committed writes of every lower-sequence conflicting txn, which
+    /// is where the serializable-per-sequence-order guarantee comes from).
+    #[cfg(any(feature = "calvin", test, feature = "harness"))]
+    pub async fn reconnoiter(&self, key: &RecordKey) -> Result<Option<Vec<u8>>, String> {
+        let state = self.multi.app_state();
+        let s = state.read().await;
+        Ok(match s.registry.get(&key.graph) {
+            Some(e) => e.core.get_node_properties(&key.node),
+            // A graph/record that does not exist yet reads as absent (the recon simply
+            // predicts against the empty state — the standard OCC-style optimistic read).
+            None => None,
+        })
+    }
+
+    /// EG-342: OLLP read-set prediction. Reconnoiter each `seed` record (the statically
+    /// known reads a txn must consult to decide the rest of its footprint), hand the
+    /// observed bytes to `derive`, and return the full predicted [`RwSet`] — the reads
+    /// and writes the ordered lock phase will acquire. `derive` is the txn's own
+    /// data-dependent set-discovery logic (application code, exactly as in real Calvin);
+    /// the engine supplies the consistent recon snapshot it runs against.
+    ///
+    /// **Honest scope.** The prediction is OPTIMISTIC: if a seed a txn depended on is
+    /// mutated by a lower-sequence txn BETWEEN this recon and lock acquisition, the
+    /// predicted set can be stale. Calvin handles that by re-validating the seeds after
+    /// the locks are held and RE-SEQUENCING (aborting + re-submitting) a txn whose recon
+    /// no longer holds. [`recon_still_valid`] implements the detection half; the
+    /// automatic re-sequence/restart loop is the documented remaining follow-up.
+    #[cfg(any(feature = "calvin", test, feature = "harness"))]
+    pub async fn predict_rwset<F>(&self, seeds: &[RecordKey], derive: F) -> Result<RwSet, String>
+    where
+        F: FnOnce(&BTreeMap<RecordKey, Option<Vec<u8>>>) -> RwSet,
+    {
+        let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
+        for k in seeds {
+            let bytes = self.reconnoiter(k).await?;
+            observed.insert(k.clone(), bytes);
+        }
+        Ok(derive(&observed))
+    }
+
+    /// EG-342: re-validate an OLLP prediction — under the acquired ordered locks, re-read
+    /// each seed and compare against the value the recon observed. `true` ⇒ the prediction
+    /// still holds and deterministic execution may proceed lock-free; `false` ⇒ a
+    /// lower-sequence txn changed a dependency, so the predicted lock-set may be wrong and
+    /// the txn must be re-sequenced (the honest OLLP restart boundary).
+    #[cfg(any(feature = "calvin", test, feature = "harness"))]
+    pub async fn recon_still_valid(
+        &self,
+        observed: &BTreeMap<RecordKey, Option<Vec<u8>>>,
+    ) -> Result<bool, String> {
+        for (k, seen) in observed {
+            if self.reconnoiter(k).await?.as_deref() != seen.as_deref() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
 }
 
 /// The dedicated graph that holds Raft-replicated cross-shard commit decisions
@@ -1152,6 +1230,391 @@ fn slice_inserts_node(slices: &[GraphSlice], node_id: &str) -> bool {
     })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-342: the deterministic ORDERED READ-LOCK phase (Calvin OLLP lock manager)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A single lockable record — a `(graph, node)` pair — the granularity Calvin's OLLP
+/// lock phase acquires read/write locks at (CONCEPT:EG-342). `Ord`+`Hash` so it keys
+/// the lock manager's per-record queues and the deterministic [`RwSet`] sets.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct RecordKey {
+    pub graph: String,
+    pub node: String,
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl RecordKey {
+    pub fn new(graph: impl Into<String>, node: impl Into<String>) -> Self {
+        Self {
+            graph: graph.into(),
+            node: node.into(),
+        }
+    }
+}
+
+/// The mode a record is locked in during the OLLP phase (CONCEPT:EG-342): `Shared` for
+/// a read (co-grantable with other reads), `Exclusive` for a write (mutually exclusive
+/// with every other holder).
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockMode {
+    Shared,
+    Exclusive,
+}
+
+/// A txn's predicted read/write set (CONCEPT:EG-342) — the output of the OLLP
+/// reconnaissance ([`CrossShardCoordinator::predict_rwset`]) and the input to the
+/// ordered lock phase. A record in BOTH sets is locked `Exclusive` (the write subsumes
+/// the read).
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RwSet {
+    pub reads: BTreeSet<RecordKey>,
+    pub writes: BTreeSet<RecordKey>,
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl RwSet {
+    /// The per-record lock modes this set requests: every read `Shared`, every write
+    /// `Exclusive` (a written record is Exclusive even if also read — the write wins).
+    fn lock_requests(&self) -> BTreeMap<RecordKey, LockMode> {
+        let mut reqs: BTreeMap<RecordKey, LockMode> = BTreeMap::new();
+        for r in &self.reads {
+            reqs.insert(r.clone(), LockMode::Shared);
+        }
+        for w in &self.writes {
+            reqs.insert(w.clone(), LockMode::Exclusive);
+        }
+        reqs
+    }
+}
+
+/// One outstanding lock request on a record, tagged with its owning txn's global
+/// sequence (CONCEPT:EG-342). Ordered by `seq` inside a record's queue.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Clone, Copy)]
+struct LockEntry {
+    seq: GlobalSeq,
+    mode: LockMode,
+    granted: bool,
+}
+
+/// A record's lock queue: outstanding requests kept ASCENDING by `seq` (CONCEPT:EG-342).
+/// Grants flow strictly in sequence order, which is what makes conflicting sequenced
+/// txns serialize in the sequencer's total order.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Default)]
+struct RecordQueue {
+    entries: Vec<LockEntry>,
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl RecordQueue {
+    /// Grant every front request that is now grantable (CONCEPT:EG-342). A request is
+    /// grantable iff EVERY strictly-lower-sequence request on the record is already
+    /// granted AND `Shared`, and — for an `Exclusive` request — it sits at the very
+    /// front (no lower-sequence request outstanding at all). Scanning front→back and
+    /// stopping at the first non-grantable entry co-grants a run of shared readers while
+    /// keeping a writer strictly behind every lower-sequence holder. Returns whether any
+    /// entry transitioned to granted.
+    fn grant_front(&mut self) -> bool {
+        let mut changed = false;
+        for i in 0..self.entries.len() {
+            if self.entries[i].granted {
+                continue;
+            }
+            let earlier_all_granted_shared = self.entries[..i]
+                .iter()
+                .all(|d| d.granted && d.mode == LockMode::Shared);
+            let ok =
+                earlier_all_granted_shared && (i == 0 || self.entries[i].mode == LockMode::Shared);
+            if ok {
+                self.entries[i].granted = true;
+                changed = true;
+            } else {
+                // Nothing after `i` can be grantable either (it has strictly more
+                // lower-sequence predecessors), so stop.
+                break;
+            }
+        }
+        changed
+    }
+}
+
+/// The deterministic ORDERED read/write lock manager of Calvin's OLLP phase
+/// (CONCEPT:EG-342).
+///
+/// Locks are keyed by [`RecordKey`] and granted STRICTLY in the global-sequence order
+/// the [`CalvinSequencer`] (EG-324) / [`epoch_fan_in`] (EG-343) assign. A txn
+/// [`register`](OrderedLockManager::register)s its whole predicted [`RwSet`] at once
+/// (all its records enter their queues sorted by the txn's `seq`), then awaits until
+/// every one of its requests is granted. Because a request only ever waits on
+/// STRICTLY-lower-sequence requests (on every record, ordering is by `seq`, identical
+/// across records), the wait-for graph is a DAG oriented by `seq` → **deadlock-free**,
+/// and any two CONFLICTING sequenced txns are forced into the sequence order on the
+/// records they share → **serializable, equivalent to executing them one-at-a-time in
+/// sequence order**. The subsequent deterministic-execution phase then runs lock-free.
+///
+/// **Required discipline (Calvin's invariant, honestly stated).** Registration MUST
+/// happen in sequence order — the sequencing layer / epoch scheduler feeds the ordered
+/// input log to `register` in `seq` order (the real Calvin lock-manager reads the
+/// ordered batch and requests locks txn-by-txn). Registering out of order would let a
+/// higher-sequence txn be granted before a lower one arrives. The manager enforces the
+/// per-record ORDER (by `seq`) but relies on the driver for in-order SUBMISSION;
+/// [`OrderedLockManager::admit_batch`] wraps that discipline for a whole epoch batch.
+///
+/// The wake mechanism is a single manager-wide [`tokio::sync::Notify`] (a simple,
+/// correct notify-all; a per-record condition would cut spurious wakeups — a documented
+/// throughput follow-up, not a correctness gap).
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Default)]
+pub struct OrderedLockManager {
+    records: std::sync::Mutex<HashMap<RecordKey, RecordQueue>>,
+    wake: tokio::sync::Notify,
+}
+
+/// A registered-but-not-yet-granted lock request set (CONCEPT:EG-342). Produced by
+/// [`OrderedLockManager::register`] SYNCHRONOUSLY in sequence order; awaited via
+/// [`LockTicket::granted`] which resolves to the held [`LockGuard`] once every record is
+/// granted.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug)]
+pub struct LockTicket {
+    seq: GlobalSeq,
+    keys: Vec<RecordKey>,
+}
+
+/// Proof the ordered locks for one txn are held (CONCEPT:EG-342). The deterministic
+/// execution phase runs while this is alive; dropping it (or [`LockGuard::release`])
+/// releases every record and lets the next sequenced waiter proceed.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug)]
+pub struct LockGuard {
+    mgr: Arc<OrderedLockManager>,
+    seq: GlobalSeq,
+    keys: Vec<RecordKey>,
+    released: bool,
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl OrderedLockManager {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Register a txn's whole predicted lock-set at global sequence `seq` (CONCEPT:
+    /// EG-342). SYNCHRONOUS and MUST be called in sequence order (see the type docs):
+    /// every record's queue gets this txn's request inserted at its `seq`-sorted slot.
+    /// Returns a [`LockTicket`] to await. Also runs a grant pass so a lower-sequence
+    /// registration that unblocks the front is applied immediately.
+    pub fn register(self: &Arc<Self>, seq: GlobalSeq, rwset: &RwSet) -> LockTicket {
+        let reqs = rwset.lock_requests();
+        let keys: Vec<RecordKey> = reqs.keys().cloned().collect();
+        {
+            let mut map = self.records.lock().unwrap();
+            for (key, mode) in &reqs {
+                let q = map.entry(key.clone()).or_default();
+                let pos = q.entries.partition_point(|e| e.seq < seq);
+                q.entries.insert(
+                    pos,
+                    LockEntry {
+                        seq,
+                        mode: *mode,
+                        granted: false,
+                    },
+                );
+                q.grant_front();
+            }
+        }
+        self.wake.notify_waiters();
+        LockTicket { seq, keys }
+    }
+
+    /// Await until every record in `ticket` is granted, then return the held guard
+    /// (CONCEPT:EG-342). Re-checks on every manager wake; the arm-before-check +
+    /// `enable()` pattern registers the waiter before the grant test so no wake is lost.
+    pub async fn granted(self: &Arc<Self>, ticket: LockTicket) -> LockGuard {
+        loop {
+            let notified = self.wake.notified();
+            tokio::pin!(notified);
+            // Register the waiter NOW so a grant between the check below and the await
+            // still wakes us (no lost notification).
+            notified.as_mut().enable();
+            if self.all_granted(&ticket) {
+                return LockGuard {
+                    mgr: self.clone(),
+                    seq: ticket.seq,
+                    keys: ticket.keys,
+                    released: false,
+                };
+            }
+            notified.await;
+        }
+    }
+
+    /// Register + await in one call (CONCEPT:EG-342) — safe ONLY when the caller
+    /// guarantees calls happen in sequence order (e.g. the two-txn conflict path or a
+    /// single-threaded scheduler). For a concurrent epoch use
+    /// [`register`](Self::register) in order first, then await each ticket.
+    pub async fn acquire(self: &Arc<Self>, seq: GlobalSeq, rwset: &RwSet) -> LockGuard {
+        let ticket = self.register(seq, rwset);
+        self.granted(ticket).await
+    }
+
+    /// Whether every record of a ticket is currently granted to its sequence.
+    fn all_granted(self: &Arc<Self>, ticket: &LockTicket) -> bool {
+        let map = self.records.lock().unwrap();
+        ticket.keys.iter().all(|key| {
+            map.get(key)
+                .and_then(|q| q.entries.iter().find(|e| e.seq == ticket.seq))
+                .map(|e| e.granted)
+                .unwrap_or(false)
+        })
+    }
+
+    /// Release every record a guard holds and grant the next sequenced waiters
+    /// (CONCEPT:EG-342). Synchronous (runs from `Drop`): removes this txn's entries,
+    /// advances each queue's front, then wakes all waiters to re-check.
+    fn release(&self, seq: GlobalSeq, keys: &[RecordKey]) {
+        {
+            let mut map = self.records.lock().unwrap();
+            for key in keys {
+                let now_empty = if let Some(q) = map.get_mut(key) {
+                    q.entries.retain(|e| e.seq != seq);
+                    q.grant_front();
+                    q.entries.is_empty()
+                } else {
+                    false
+                };
+                if now_empty {
+                    map.remove(key);
+                }
+            }
+        }
+        self.wake.notify_waiters();
+    }
+
+    /// Admit a whole epoch batch's txns in ONE in-sequence-order pass (CONCEPT:EG-342 +
+    /// EG-343): given `(seq, rwset)` pairs, sort by `seq` and `register` each in order,
+    /// returning the tickets in the same order. This is the Calvin invariant "the lock
+    /// manager requests locks in the sequenced-log order" made into a single call —
+    /// callers then await the tickets concurrently to run the deterministic phase.
+    pub fn admit_batch(self: &Arc<Self>, mut batch: Vec<(GlobalSeq, RwSet)>) -> Vec<LockTicket> {
+        batch.sort_by_key(|(seq, _)| *seq);
+        batch
+            .into_iter()
+            .map(|(seq, rw)| self.register(seq, &rw))
+            .collect()
+    }
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl LockGuard {
+    /// Explicitly release the held locks (equivalent to dropping the guard).
+    pub fn release(mut self) {
+        self.mgr.release(self.seq, &self.keys);
+        self.released = true;
+    }
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        if !self.released {
+            self.mgr.release(self.seq, &self.keys);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-343: multi-node sequencer epoch fan-in
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One node's locally-sequenced input for a Calvin epoch (CONCEPT:EG-343) — a txn that
+/// node's local sequencer accepted at position `local_seq`. Nodes exchange their
+/// per-epoch input batches; [`epoch_fan_in`] deterministically merges them.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeInput {
+    /// The node whose sequencer accepted this txn.
+    pub node: NodeId,
+    /// The txn's position in that node's LOCAL order for the epoch (1-based).
+    pub local_seq: u64,
+    /// The txn id (stable deterministic tie-breaker across nodes).
+    pub txn_id: String,
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl NodeInput {
+    pub fn new(node: NodeId, local_seq: u64, txn_id: impl Into<String>) -> Self {
+        Self {
+            node,
+            local_seq,
+            txn_id: txn_id.into(),
+        }
+    }
+}
+
+/// A txn's position in the merged GLOBAL order of an epoch (CONCEPT:EG-343) — carries
+/// the epoch-relative [`GlobalSeq`] plus the origin node so execution can route/attribute
+/// it. The cross-epoch total order is lexicographic `(epoch, global_seq)`.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SequencedInput {
+    pub global_seq: GlobalSeq,
+    pub origin_node: NodeId,
+    pub local_seq: u64,
+    pub txn_id: String,
+}
+
+/// The deterministic merged order of ONE Calvin epoch (CONCEPT:EG-343): every node's
+/// per-node input batches folded into a single total order, `inputs` ascending by
+/// `global_seq`. Deriving this from the same per-node batches yields byte-identical
+/// output on every node — the property the vote-free deterministic execution relies on.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EpochBatch {
+    pub epoch: u64,
+    pub inputs: Vec<SequencedInput>,
+}
+
+/// Fan-in the per-node sequenced inputs of one epoch into a single deterministic global
+/// order (CONCEPT:EG-343) — the multi-node extension of the single [`CalvinSequencer`]
+/// (EG-324).
+///
+/// Every node, given the SAME `per_node` batches, computes the IDENTICAL [`EpochBatch`]:
+/// the merge is a pure function. The order is a deterministic ROUND-ROBIN interleave —
+/// sort all inputs by `(local_seq, node, txn_id)`, so round *r* contains each node's
+/// *r*-th input ordered by node id (a fair cross-node interleave), and ties are broken by
+/// the stable `txn_id`. Global positions are assigned 1-based within the epoch. Because
+/// the sort key is total and data-independent, no two nodes can disagree on the result —
+/// which is exactly what lets each node run the deterministic execution phase without a
+/// vote. (This mirrors [`deterministic_order`]'s replay-stability, generalized from one
+/// sequencer to a multi-node fan-in.)
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+pub fn epoch_fan_in(epoch: u64, per_node: &BTreeMap<NodeId, Vec<NodeInput>>) -> EpochBatch {
+    let mut all: Vec<&NodeInput> = per_node.values().flatten().collect();
+    all.sort_by(|a, b| {
+        a.local_seq
+            .cmp(&b.local_seq)
+            .then_with(|| a.node.cmp(&b.node))
+            .then_with(|| a.txn_id.cmp(&b.txn_id))
+    });
+    let inputs = all
+        .into_iter()
+        .enumerate()
+        .map(|(i, ni)| SequencedInput {
+            global_seq: GlobalSeq(i as u64 + 1),
+            origin_node: ni.node,
+            local_seq: ni.local_seq,
+            txn_id: ni.txn_id.clone(),
+        })
+        .collect();
+    EpochBatch { epoch, inputs }
+}
+
 #[cfg(test)]
 mod calvin_tests {
     //! Pure unit tests for the CONCEPT:EG-324 Calvin deterministic-ordering layer
@@ -1208,5 +1671,129 @@ mod calvin_tests {
             .collect();
         assert_eq!(order1, vec!["a", "b", "c"]);
         assert_eq!(order1, order2, "any node derives the identical total order");
+    }
+
+    // ── EG-342: ordered lock manager (pure-logic proofs, no live cluster) ──────
+
+    fn rk(node: &str) -> RecordKey {
+        RecordKey::new("g", node)
+    }
+
+    /// EG-342: two txns that CONFLICT on a record are serialized in sequence order —
+    /// the lower-seq exclusive writer holds first, the higher-seq reader waits, and only
+    /// after the writer RELEASES is the reader granted. Proves the ordered lock phase
+    /// gives sequence-order serializability at the lock layer.
+    #[tokio::test]
+    async fn eg342_conflicting_locks_serialize_in_sequence_order() {
+        let mgr = OrderedLockManager::new();
+        let write_k = RwSet {
+            reads: BTreeSet::new(),
+            writes: [rk("k")].into_iter().collect(),
+        };
+        let read_k = RwSet {
+            reads: [rk("k")].into_iter().collect(),
+            writes: BTreeSet::new(),
+        };
+        // Register IN SEQUENCE ORDER (the Calvin invariant): seq 1 (writer) then seq 2.
+        let t1 = mgr.register(GlobalSeq(1), &write_k);
+        let t2 = mgr.register(GlobalSeq(2), &read_k);
+
+        // seq 1 is grantable immediately (front, exclusive); seq 2 must WAIT behind it.
+        let g1 = mgr.granted(t1).await;
+        assert!(
+            !mgr.all_granted(&t2),
+            "higher-seq reader must wait behind the lower-seq writer on the shared record"
+        );
+        // Release the writer → the reader is now granted (order enforced).
+        g1.release();
+        let _g2 = mgr.granted(t2).await; // resolves ⇒ granted after the writer released
+    }
+
+    /// EG-342: two READERS at different sequences co-grant (shared/shared compatible) —
+    /// the ordered lock phase only serializes CONFLICTING txns, not read-read pairs.
+    #[tokio::test]
+    async fn eg342_shared_readers_cogrant() {
+        let mgr = OrderedLockManager::new();
+        let read_k = RwSet {
+            reads: [rk("k")].into_iter().collect(),
+            writes: BTreeSet::new(),
+        };
+        let t1 = mgr.register(GlobalSeq(1), &read_k);
+        let t2 = mgr.register(GlobalSeq(2), &read_k);
+        // Both granted concurrently — no serialization needed for read/read.
+        let _g1 = mgr.granted(t1).await;
+        let _g2 = mgr.granted(t2).await;
+    }
+
+    /// EG-342: a non-conflicting higher-seq txn is NOT blocked by a lower-seq txn on a
+    /// DISJOINT record — the lock phase serializes only on shared records.
+    #[tokio::test]
+    async fn eg342_disjoint_records_do_not_block() {
+        let mgr = OrderedLockManager::new();
+        let write_k = RwSet {
+            reads: BTreeSet::new(),
+            writes: [rk("k")].into_iter().collect(),
+        };
+        let write_l = RwSet {
+            reads: BTreeSet::new(),
+            writes: [rk("l")].into_iter().collect(),
+        };
+        let t1 = mgr.register(GlobalSeq(1), &write_k);
+        let t2 = mgr.register(GlobalSeq(2), &write_l);
+        let _g1 = mgr.granted(t1).await;
+        assert!(
+            mgr.all_granted(&t2),
+            "disjoint record ⇒ granted immediately"
+        );
+    }
+
+    // ── EG-343: multi-node epoch fan-in determinism ───────────────────────────
+
+    /// EG-343: two independent nodes that exchange the SAME per-node epoch batches derive
+    /// the IDENTICAL global order — the property that lets each run the deterministic
+    /// execution phase with no vote.
+    #[test]
+    fn eg343_two_nodes_derive_identical_global_order() {
+        let mut per_node: BTreeMap<NodeId, Vec<NodeInput>> = BTreeMap::new();
+        per_node.insert(
+            1,
+            vec![NodeInput::new(1, 1, "a1"), NodeInput::new(1, 2, "a2")],
+        );
+        per_node.insert(
+            2,
+            vec![NodeInput::new(2, 1, "b1"), NodeInput::new(2, 2, "b2")],
+        );
+
+        let on_node_1 = epoch_fan_in(7, &per_node);
+        let on_node_2 = epoch_fan_in(7, &per_node);
+        assert_eq!(
+            on_node_1, on_node_2,
+            "both nodes derive byte-identical global epoch order"
+        );
+
+        // Round-robin interleave by (local_seq, node): round 1 = a1,b1; round 2 = a2,b2.
+        let order: Vec<&str> = on_node_1
+            .inputs
+            .iter()
+            .map(|si| si.txn_id.as_str())
+            .collect();
+        assert_eq!(order, vec!["a1", "b1", "a2", "b2"]);
+        // Global sequence positions are dense + 1-based within the epoch.
+        assert_eq!(on_node_1.inputs[0].global_seq, GlobalSeq(1));
+        assert_eq!(on_node_1.inputs[3].global_seq, GlobalSeq(4));
+    }
+
+    /// EG-343: the merge is order-INDEPENDENT of how the per-node map is built — a pure
+    /// function of the batches' CONTENTS (a `BTreeMap` already canonicalizes node order;
+    /// this asserts the interleave itself does not smuggle in arrival order).
+    #[test]
+    fn eg343_fan_in_is_a_pure_function_of_contents() {
+        let mut a: BTreeMap<NodeId, Vec<NodeInput>> = BTreeMap::new();
+        a.insert(2, vec![NodeInput::new(2, 1, "b1")]);
+        a.insert(1, vec![NodeInput::new(1, 1, "a1")]);
+        let mut b: BTreeMap<NodeId, Vec<NodeInput>> = BTreeMap::new();
+        b.insert(1, vec![NodeInput::new(1, 1, "a1")]);
+        b.insert(2, vec![NodeInput::new(2, 1, "b1")]);
+        assert_eq!(epoch_fan_in(3, &a), epoch_fan_in(3, &b));
     }
 }
