@@ -192,7 +192,7 @@ pub(crate) fn epistemic_decay_udf() -> ScalarUDF {
 /// (a stored vector column, materialized as `List<Float32>`), or a `Utf8` pgvector text
 /// literal `[1,2,3]` (an `ORDER BY emb <-> '[1,2,3]'` query literal). Returns `None` for
 /// a NULL or an unrecognized/unparseable value.
-fn row_to_vector(array: &dyn Array, row: usize) -> Option<Vec<f32>> {
+pub(crate) fn row_to_vector(array: &dyn Array, row: usize) -> Option<Vec<f32>> {
     use arrow::array::{
         Float32Array, Float64Array, LargeStringArray, ListArray, StringArray, StringViewArray,
     };
