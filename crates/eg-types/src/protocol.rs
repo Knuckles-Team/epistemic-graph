@@ -1835,6 +1835,77 @@ pub enum Method {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
+    /// Stage a TIME-SERIES measurement batch into a txn (CONCEPT:EG-360 — extended
+    /// cross-modal staging). The points land atomically WITH the txn's graph/property/
+    /// vector/blob writes in ONE redb `WriteTransaction` at commit — never a node
+    /// without its measurements. `points` is the SAME MessagePack `Vec<(i64 ts, Vec<f64>
+    /// values)>` blob `TsAppend` carries (kept opaque here so the protocol enum stays
+    /// free of any eg-tsdb type). Ungated in the enum like the `Ts*` family; the
+    /// staging/commit handler is `tsdb`-gated at the facade, so a slim build reaches the
+    /// dispatch "not available in this build" catch-all.
+    TxnAddMeasurement {
+        txn_id: String,
+        /// Target series id the points belong to.
+        series: String,
+        /// MessagePack `Vec<(i64, Vec<f64>)>` — the batch of points (one round-trip).
+        #[serde(with = "serde_bytes")]
+        points: Vec<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Stage OWL AXIOMS (Turtle) into a txn (CONCEPT:EG-361 — extended cross-modal
+    /// staging). At commit the `turtle` axioms lower to graph node/edge writes in the
+    /// SAME atomic `WriteTransaction` so the OWL reasoner sees them consistently with the
+    /// txn's other staged modalities. Gated `owl` (mirrors `OwlReason`); a build without
+    /// it drops the variant → the dispatch "not available in this build" catch-all.
+    #[cfg(feature = "owl")]
+    TxnAxiom {
+        txn_id: String,
+        /// OWL axioms as Turtle to stage into the txn.
+        turtle: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Stage a SPARQL CONSTRUCT into a txn (CONCEPT:EG-362 — extended cross-modal
+    /// staging). At commit the `sparql` CONSTRUCT's produced triples lower to graph
+    /// node/edge writes in the SAME atomic `WriteTransaction`. Gated `sparql` (mirrors
+    /// `Sparql`); a build without it drops the variant → the dispatch "not available in
+    /// this build" catch-all.
+    #[cfg(feature = "sparql")]
+    TxnConstruct {
+        txn_id: String,
+        /// SPARQL CONSTRUCT query whose triples are staged into the txn.
+        sparql: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Run a UNIFIED cross-modal query INSIDE a txn with read-your-own-writes
+    /// (CONCEPT:EG-359 — in-txn cross-modal RYOW). Executes the SAME `wire::Plan` AST as
+    /// `UnifiedQuery`, but over a snapshot OVERLAID with the txn's staged (uncommitted)
+    /// write-set, so a staged node/edge/embedding is visible to THIS txn before commit
+    /// and invisible off-txn until commit. Read-only w.r.t. the committed store. Gated
+    /// `query` (the plan AST + DataFusion filter leg); a slim build drops the variant →
+    /// the dispatch "not available in this build" catch-all.
+    #[cfg(feature = "query")]
+    TxnUnifiedQuery {
+        txn_id: String,
+        plan: crate::wire::Plan,
+        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:KG-2.209).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reorder_filter_selectivity: Option<f64>,
+    },
+    /// In-txn unified query, TEXT surface — UQL (CONCEPT:EG-359). The human/agent-
+    /// writable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the
+    /// SAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same
+    /// `query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.
+    #[cfg(feature = "query")]
+    TxnUnifiedQueryText {
+        txn_id: String,
+        text: String,
+        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:KG-2.209).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reorder_filter_selectivity: Option<f64>,
+    },
     Commit {
         txn_id: String,
     },

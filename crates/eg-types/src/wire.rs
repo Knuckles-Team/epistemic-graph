@@ -637,6 +637,22 @@ pub enum Op {
         streams: Vec<String>,
         tolerance_ns: u64,
     },
+    /// SOURCE (time-series, CONCEPT:EG-363) — seed the RowSet from native TSDB series.
+    /// Scans each series in `series` for points in the `[from, to)` timestamp window and
+    /// emits them as rows so a downstream `Rank`/`Limit`/`Filter` composes the tsdb leg
+    /// with the graph/vector/relational legs in ONE plan (tsdb-in-plan fusion). Bounds
+    /// are `f64` seconds (uniform with the other numeric plan ops); the executor lowers
+    /// them to the eg-tsdb `SeriesStore` ns range internally. Gated behind `timeseries`;
+    /// the variant only exists when eg-types/timeseries is on (pulled by
+    /// eg-plan/timeseries), so a non-timeseries build has neither the variant nor its
+    /// executor arm (the `SensorFuse` gating precedent). The scan implementation lives in
+    /// eg-plan behind its `timeseries` gate; this is the pure-serde wire variant.
+    #[cfg(feature = "timeseries")]
+    TsScan {
+        series: Vec<String>,
+        from: f64,
+        to: f64,
+    },
     /// TRANSFORM (probabilistic, CONCEPT:EG-086) — run the probabilistic query `query`
     /// against each row's stored `Distribution` VALUE (the conventional `distribution`
     /// node property, the tagged serde form of `eg_types::Distribution`) and SCORE the
