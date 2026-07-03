@@ -94,6 +94,8 @@ nav:
       - Subsystems (C4 Containers): architecture/subsystems.md
       - Lakehouse LTAP Interop (EG-317): architecture/lakehouse-ltap.md
       - Distribution / Robotics / GPU (EG-3.x): architecture/distribution-robotics-gpu.md
+      - Analytics Program (one kernel, two surfaces): architecture/analytics-program.md
+      - Numeric Kernel (EG-321): architecture/numeric-kernel.md
       - UQL & Unified Planner: uql.md
       - Tiers & Binaries: architecture/tiers.md
       - Engine Modes: engine-modes.md
@@ -111,6 +113,7 @@ nav:
       - Observability (logs/metrics/traces): interfaces/observability.md
       - GIS / Spatial: interfaces/gis.md
       - KV-cache (vLLM/LMCache): interfaces/kvcache.md
+      - Client Drivers (Python/JS/Go): interfaces/clients.md
       - Agent Memory: interfaces/memory.md
       - Ontology Lifecycle: interfaces/ontology.md
   - Deploy & Operate:
