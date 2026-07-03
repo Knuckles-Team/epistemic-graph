@@ -28,7 +28,7 @@ flowchart TD
 
     subgraph SA["Surface A — in-process Python"]
         M1["epistemic_graph.numeric<br/>(extension module)"]
-        M2["agent_utilities.numeric.xp<br/>(np-shim, numpy fallback) — KG-2.311"]
+        M2["agent_utilities.numeric.xp<br/>(np-shim, numpy fallback) — KG-2.312"]
         M1 --> M2
     end
 
