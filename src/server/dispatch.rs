@@ -690,6 +690,21 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── SQLite `.db` file import/export (CONCEPT:EG-331/EG-332) ──
+        // File-scoped, NOT graph-scoped: both ops target a filesystem `path` and move
+        // rows through the process-global user-table store (behind `query`), so they
+        // self-route here (like the Blob*/Kv* ops) BEFORE the per-graph chain. Gated
+        // `sqlite-file` (which pulls the bundled C sqlite kept OUT of pi); a build
+        // without it never has the variants in the enum, so this arm can't be reached.
+        #[cfg(feature = "sqlite-file")]
+        Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. } => {
+            match handlers::sqlite_file::try_handle(req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: both variants matched above are sqlite-file methods.
+                Err(_) => Response::err(req.id, "sqlite-file dispatch routing error"),
+            }
+        }
+
         // ── Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230) ───
         // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
         // side — emitting changes — lives in the dispatch_graph_op write-side-effect

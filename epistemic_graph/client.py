@@ -489,9 +489,7 @@ class GraphOperationsClient:
             "BatchCosineSimilarity", {"query": query, "targets": targets}
         )
 
-    async def batch_l2_normalize(
-        self, vectors: list[list[float]]
-    ) -> list[list[float]]:
+    async def batch_l2_normalize(self, vectors: list[list[float]]) -> list[list[float]]:
         """L2-normalize a batch of vectors IN-ENGINE via the eg-numeric kernel
         (CONCEPT:EG-330, compute-near-data). Returns each row's unit vector `v/‖v‖`
         (a zero vector is returned unchanged). Requires the engine's `numeric` feature."""
@@ -2124,6 +2122,37 @@ class QueryClient:
         the engine returns a clear parse error for them.
         """
         return await self._client._send("GraphQl", {"query": query})
+
+    async def import_sqlite_file(self, path: str) -> dict[str, Any]:
+        """Import every user table (+ rows) from an on-disk ``sqlite3`` ``.db`` file at
+        ``path`` into the engine's user-table store (CONCEPT:EG-331).
+
+        The file is read via the bundled C sqlite3 (server built ``--features
+        sqlite-file``, folded into ``full``/``node``; a ``pi`` build returns "not
+        available"). Each table is REPLACED if a same-name table already exists, so the
+        import mirrors the file; an imported table is immediately visible to
+        :meth:`sql` (``SELECT … FROM <table>``). ONE round-trip reads the whole file.
+
+        Returns a report dict ``{"path", "imported_tables": [{"table", "rows"}, …]}``.
+        """
+        return await self._client._send("ImportSqliteFile", {"path": path})
+
+    async def export_sqlite_file(
+        self, path: str, tables: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Export user tables OUT to a fresh, valid ``sqlite3`` ``.db`` file at ``path``
+        that a ``sqlite3`` CLI can open (CONCEPT:EG-332).
+
+        ``tables`` ``None``/empty ⇒ every user table; else exactly the named tables (each
+        must exist). Any pre-existing file at ``path`` is overwritten. Written via the
+        bundled C sqlite3 (server built ``--features sqlite-file``). ONE round-trip per
+        table (a single ``scan``), then a bulk sqlite transaction.
+
+        Returns a report dict ``{"path", "exported_tables": [{"table", "rows"}, …]}``.
+        """
+        return await self._client._send(
+            "ExportSqliteFile", {"path": path, "tables": list(tables or [])}
+        )
 
     async def unified(
         self,
