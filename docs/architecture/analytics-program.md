@@ -28,7 +28,8 @@ in Python → Surface A. Never round-trip transient data into the DB just to com
 |-------|-------|:------:|
 | **P1** | `eg-numeric` kernel (reductions/stats · element-wise · faer linalg · seedable random) + **Surface A** Python extension + the AU `xp` shim; 847 `np.allclose` parity checks | ✅ **shipped this release** (`CONCEPT:EG-321`) |
 | **P2–P3** | mechanical `import numpy as np` → `from agent_utilities.numeric import xp as np` migration (light-op files, then linalg files) | 🗺 follow-on |
-| **P4** | **Surface B** — DataFusion UDFs/UDAFs + graph/vector/timeseries analytics over engine-resident data; cross-modal join → PCA/cluster in-engine | 🗺 follow-on |
+| **P4** | **Surface B** — DataFusion SQL UDFs/UDAFs over the kernel (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) + the `BatchL2Normalize` engine Method, all behind `numeric` (out of `pi`) | ▶ **first increment shipped** (`CONCEPT:EG-329`/`EG-330`) |
+| **P4 (next)** | `pca(col,k)`/`svd(matrix)` SQL UDFs (column→matrix marshalling), graph/timeseries unification under the kernel, cross-modal join → PCA/cluster in-engine | 🗺 follow-on |
 | **P5** | drop numpy/scipy from agent-utilities; the `eg-numeric` wheel is the dep (the `xp` shim stays so future backend swaps remain mechanical) | 🗺 follow-on |
 
 > **Release policy.** P1 ships in the current release. **P2–P5 + full Surface B** proceed as a

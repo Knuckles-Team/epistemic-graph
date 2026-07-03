@@ -143,8 +143,12 @@ the authoritative `CONCEPT:EG-*` definitions.
   `np.allclose` vs numpy incl. nan/inf/singular/empty edge cases (EG-321). **Done.**
 - **P2–P3 — migrate the 598 numpy sites** — swap the 32 light-op files then the 6 linalg files in agent-utilities from
   numpy to the `xp` shim. 🗺
-- **P4 — Surface B engine operators** — DataFusion SQL UDFs/UDAFs (`pca`/`covariance`/`zscore`/`svd`), graph/vector/
-  timeseries analytics + cross-modal joins → PCA/cluster **in-engine** over resident data (compute-near-data, no FFI). 🗺
+- **P4 — Surface B engine operators** — DataFusion SQL UDFs/UDAFs over the kernel + kernel-backed batch vector ops.
+  **In progress:** `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + `covariance` UDAF registered on the SQL surface
+  (`SELECT zscore(price) FROM …`, `SELECT cosine_sim(a.emb, b.emb) …` run in-engine), plus the `BatchL2Normalize` engine
+  Method (EG-329/EG-330), all behind the `numeric` feature (in `full`, out of `pi`). **Deferred (next P4 increment):**
+  `pca(col,k)`/`svd(matrix)` (the column→matrix marshalling bridge), graph-algo/timeseries unification under the kernel,
+  and cross-modal joins → PCA/cluster in-engine. ▶ 🗺
 - **P5 — drop numpy/scipy** from agent-utilities; the `eg-numeric` wheel is the dep. 🗺
 
 See [`architecture/numeric-kernel.md`](architecture/numeric-kernel.md).
