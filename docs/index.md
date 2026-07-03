@@ -67,8 +67,8 @@ See the [subsystems reference](architecture/subsystems.md) for how each composes
 
 ## Operate & deploy
 
-- **[Tiers & binaries](architecture/tiers.md)** — the feature-composition map and the four prebuilt
-  binaries (pi / pi-max / node / cluster) plus the contains-all `full` build.
+- **[One build, opt-in layers](architecture/tiers.md)** — the feature-composition map: the one main
+  full-featured build plus the `cluster` (HA raft) and `full-extras` (GPU/ROS2) opt-in build layers.
 - **[Engine modes](engine_modes.md)** — the remote → shared-local → autostart resolver, the auto-bundled
   tiny engine, and the embedded in-process path.
 - **[Deployment (database)](deployment.md)** — Docker, prebuilt wheels, single-node, and HA-cluster

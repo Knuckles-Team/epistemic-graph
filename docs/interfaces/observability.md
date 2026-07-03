@@ -1,8 +1,8 @@
 # Observability interface
 
 epistemic-graph is a full **observability backend** — an OpenObserve-class store for the logs + metrics +
-traces trilogy — served from the same durable engine (feature `obs`, folded into node/full, out of the
-lean `pi` tier). Logs land as time-series + full-text documents, metrics answer PromQL, spans answer trace
+traces trilogy — served from the same durable engine (feature `obs`, in the one main build; out of the
+one main build). Logs land as time-series + full-text documents, metrics answer PromQL, spans answer trace
 search, and a super-cluster `/federated` fan-out unifies many regions. It is cross-modal: an ingest
 pipeline can enrich a record from the graph, and a query can join logs against graph/SQL data.
 

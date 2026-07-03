@@ -16,9 +16,9 @@ properties, held at every scale:
 2. **Non-blocking under ingestion load.** The `__commons__` ingestion firehose must
    not serialize the box or starve interactive reads. This is the whole point of the
    write coalescer, the sharded writer, MVCC reads, and the reserved read lane.
-3. **Scales pi → node → cluster.** The *same* binary family is an embedded library on
-   a Pi, a single durable server, or a replicated multi-node cluster — you pick the
-   smallest [tier](tiers.md) that fits.
+3. **Scales single-node → cluster.** The *same* binary is an embedded library, a single
+   durable server, or — with the opt-in `cluster` [layer](tiers.md) — a replicated
+   multi-node cluster. Runs on Raspberry Pi 4+ up to a 64-core box.
 
 The program is three waves:
 
@@ -173,7 +173,7 @@ keep **interactive** traffic alive while ingestion runs flat-out:
 
 ## M2 — HA cluster (openraft 0.10 multi-Raft)
 
-The cluster tier (cargo `raft` feature, cluster-only — a `pi`/`node`/`full` build links
+The opt-in `cluster` layer (cargo `raft` feature, cluster-only — the main `default`/`full` build links
 **no** openraft) runs the engine as a multi-node HA cluster replicating its
 **authoritative** redb state via **openraft 0.10** (`CONCEPT:KG-2.273` — the v2
 split-storage API + native graceful leader transfer). Off ⇒ the write path is
@@ -233,25 +233,25 @@ arm of R6 (cold tenants colder than redb spilled to `cold-tier-s3`/`blob-s3`).
 
 ## Tiers — what scales where
 
-The same code is a feature bundle per tier (full map: **[tiers.md](tiers.md)**; feature
-flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md)). The scaling capabilities partition as:
+There is one main build plus the opt-in `cluster` layer (full map: **[tiers.md](tiers.md)**;
+feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md)). The scaling capabilities partition as:
 
-| Capability | `pi` / `pi-max` | `node` | `full` | `cluster` |
-|------------|:---------------:|:------:|:------:|:---------:|
-| redb-authoritative durability (M1 floor) | ✅ | ✅ | ✅ | ✅ |
-| Write coalescer · K-way sharded writer · MVCC reads · group-commit linger | ✅ | ✅ | ✅ | ✅ |
-| Reserved read lane (EG-044) · auto-sizing (EG-028) | ✅ | ✅ | ✅ | ✅ |
-| Tenant catalog · online reshard · rebalancer · cold offload (M3, `redb`) | ✅ | ✅ | ✅ | ✅ |
-| BLOB CAS + streaming facade | `pi-max`+ | ✅ | ✅ | ✅ |
-| DataFusion SQL / pg-wire | ❌ (Pi contract) | SQL ✅ | SQL ✅ | + pg-wire ✅ |
-| openraft multi-Raft replication (M2) | ❌ | ❌ | ❌ | ✅ |
-| Cross-node resharding (M3 R2) · distributed Pregel · cross-shard 2PC | ❌ | ❌ | ❌ | ✅ |
+| Capability | main build (`default`/`full`) | `+ cluster` |
+|------------|:-----------------------------:|:-----------:|
+| redb-authoritative durability (M1 floor) | ✅ | ✅ |
+| Write coalescer · K-way sharded writer · MVCC reads · group-commit linger | ✅ | ✅ |
+| Reserved read lane (EG-044) · auto-sizing (EG-028) | ✅ | ✅ |
+| Tenant catalog · online reshard · rebalancer · cold offload (M3, `redb`) | ✅ | ✅ |
+| BLOB CAS + streaming facade | ✅ | ✅ |
+| DataFusion SQL / pg-wire (+ the whole wire family) | ✅ | ✅ |
+| openraft multi-Raft replication (M2) | ❌ | ✅ |
+| Cross-node resharding (M3 R2) · distributed Pregel · cross-shard 2PC | ❌ | ✅ |
 
-!!! note "The Pi contract"
-    A `pi` / `pi-max` / `node` / `full` build links **no openraft**, and `pi`/`pi-max`
-    additionally link **no DataFusion and no C toolchain**. M1 durable throughput + the
-    full M3 single-node resharding machinery are pure-Rust and ship even on the lean Pi
-    tier; only HA replication and cross-node distribution force `cluster`.
+!!! note "The invariant"
+    The main build (`default`/`full`) links **no openraft** — HA replication and cross-node
+    distribution force the opt-in `cluster` layer. Everything else, including DataFusion SQL
+    and the M3 single-node resharding machinery, is in the one main build. It targets
+    Raspberry Pi 4+.
 
 ---
 
@@ -273,12 +273,12 @@ flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/mai
 
 ### What to tune for a Pi vs a 64-core box
 
-- **Raspberry Pi (`pi`/`pi-max`):** leave `REDB_SHARDS` at the K=1 default (one core, one
+- **Raspberry Pi 4+:** leave `REDB_SHARDS` at the K=1 default (one core, one
   file — adding shards just adds threads it can't parallelize). The auto-sizer already
   caps `max_in_flight` at 256, the per-graph node cap at ~262 k resident nodes (1 GiB),
   and floors the reserved read lane at 8. Consider `COLD_OFFLOAD_SECS` to bound RAM
   across many tenants. No openraft, no DataFusion.
-- **64-core box (`node`/`full`):** let auto-sizing pick `REDB_SHARDS` toward 8 (or raise
+- **64-core box:** let auto-sizing pick `REDB_SHARDS` toward 8 (or raise
   with the migration tool if you have many hot graphs across many cores), `max_in_flight`
   ≈ 4096, reserved read lane ≈ 512. This is where the K-way writer + parallel cross-shard
   fan-out actually saturate the cores.

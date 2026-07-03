@@ -31,7 +31,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `CREATE` / `ALTER ADD COLUMN` / `DROP TABLE`, arbitrary user tables, DDL | ✅ | `query` | `crates/eg-query/src/tables/` durable catalog (EG-018); JOINable to the graph |
 | `ALTER TABLE` beyond ADD COLUMN — `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN TYPE` (data migration), `DROP CONSTRAINT` | ✅ | `query` | durable user-table catalog rewrite (CONCEPT:EG-310) |
 
-### Postgres wire (`pgwire`, folded into `node`/`full`/`cluster` — CONCEPT:EG-352)
+### Postgres wire (`pgwire`, in the main build — CONCEPT:EG-352/EG-371)
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
@@ -144,7 +144,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Hybrid metadata pre-filter (kNN with an `allow(id)` predicate) | ✅ | `ivfpq.rs` `search_filtered` (EG-070); tested DURING the ADC probe, not post-filter |
 | Exact/flat kNN index (ground-truth) + ANN-candidate re-rank + recall@k/precision self-eval harness | ✅ | brute-force exact + hybrid refinement (CONCEPT:EG-297) |
 | Cross-shard kNN scatter-gather (fan a kNN query across per-shard eg-ann indexes → deterministic global top-k) | ✅ | server-layer scatter over per-shard indexes merged via the `merge_topk` leaf (CONCEPT:EG-319, completing EG-069) |
-| GPU-accelerated batch distance (`DistanceBackend` seam + real CUDA backend; CPU fallback) | ✅ | `crates/eg-ann/src/distance.rs` — `FlatIndex::search` routes through `batch_distances`; pure-Rust CPU backend always compiled-in, `cudarc` NVRTC kernel behind `gpu-cuda` (dynamic-loading, out of `pi`) (CONCEPT:EG-326/3.6) |
+| GPU-accelerated batch distance (`DistanceBackend` seam + real CUDA backend; CPU fallback) | ✅ | `crates/eg-ann/src/distance.rs` — `FlatIndex::search` routes through `batch_distances`; pure-Rust CPU backend always compiled-in, `cudarc` NVRTC kernel behind `gpu-cuda` (dynamic-loading, `full-extras`-only) (CONCEPT:EG-326/3.6) |
 
 ## Time-series (`eg-tsdb`)
 
@@ -189,7 +189,7 @@ for per-wire connect+query recipes and the full env-var/port table.
 | MySQL / MariaDB wire (hand-rolled handshake v10 + `mysql_native_password`) | ✅ | `mysql-wire` | `src/server/mysql_wire`; `EPISTEMIC_GRAPH_MYSQL_ADDR` (EG-076) |
 | MSSQL TDS wire (hand-rolled TDS) | ✅ | `mssql-wire` | `src/server/mssql_wire`; `EPISTEMIC_GRAPH_MSSQL_ADDR` (EG-077) |
 | SQLite-dialect NDJSON-over-TCP endpoint | ✅ | `sqlite-wire` | `src/server/sqlite_wire`; `EPISTEMIC_GRAPH_SQLITE_ADDR` (EG-075) |
-| On-disk `sqlite3` `.db` file import/export (`Method::ImportSqliteFile`/`ExportSqliteFile`) | ✅ | `sqlite-file` | pulls `rusqlite` (bundled C sqlite3), folded into `full`/`node`, OUT of `pi` (CONCEPT:EG-331/EG-332) |
+| On-disk `sqlite3` `.db` file import/export (`Method::ImportSqliteFile`/`ExportSqliteFile`) | ✅ | `sqlite-file` | pulls `rusqlite` (bundled C sqlite3), in the main build (CONCEPT:EG-331/EG-332) |
 | Neo4j Bolt v4.4 wire (PackStream v2, native Cypher) | ✅ | `bolt-wire` | `src/server/bolt_wire`; `EPISTEMIC_GRAPH_BOLT_ADDR` (EG-159) |
 | AMQP 0.9.1 broker wire (exchanges/queues over the KG-2.303 work-queue) | ✅ | `amqp-wire` (impl `broker`) | `src/server/amqp_wire`; `EPISTEMIC_GRAPH_AMQP_ADDR` (EG-275) |
 | MQTT 3.1.1/5.0 broker wire (CONNECT/PUBLISH/SUBSCRIBE, QoS 0/1) | ✅ | `mqtt-wire` (impl `broker`) | `src/server/mqtt_wire`; `EPISTEMIC_GRAPH_MQTT_ADDR` (EG-281) |
@@ -228,7 +228,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Distributed traces (OTLP-JSON `POST /v1/traces`, `/api/traces` search, service-dependency graph) | ✅ | `traces` | `src/server/traces` (EG-163) |
 | Super-cluster federated search (fan a read out to peer instances, merge/dedup/re-rank, per-peer timeout + partial-result tolerance) | ✅ | `federation`/`cluster` | `/federated` HTTP entry (CONCEPT:EG-243); **typed SQL + SPARQL result fusion** — schema-aware column union + typed dedup/merge, not just hashed-key union (CONCEPT:EG-309) |
 | OpenTelemetry span export + slow-query log | ✅ | `otel` | CONCEPT:EG-091 |
-| OTel export (OTLP metrics + traces push to an external collector) + Prometheus remote-write receiver — the engine emits its own telemetry, not just ingests | ✅ | `otel-export` | protobuf (`prost`) dep behind the feature, out of `pi` (CONCEPT:EG-316) |
+| OTel export (OTLP metrics + traces push to an external collector) + Prometheus remote-write receiver — the engine emits its own telemetry, not just ingests | ✅ | `otel-export` | protobuf (`prost`) dep behind the feature, in the main build (CONCEPT:EG-316) |
 | Prometheus `/metrics` exposition (engine's own counters/gauges) | ✅ | `metrics` (default) | `--metrics-addr` / `GRAPH_SERVICE_METRICS_ADDR`, default `127.0.0.1:9101` |
 
 ## Unified planner & UQL (`eg-plan`)
@@ -295,7 +295,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 |-----------|:------:|----------|
 | Multimodal sensor fusion (camera/LiDAR/audio/tactile aligned via ASOF backward-join) → `Op::SensorFuse` | ✅ | composes EG-085 + EG-088 + tsdb ASOF (CONCEPT:EG-098) |
 | Action/policy/trajectory memory (`:Trajectory` of `:Step{state,action,reward,next,t}`, discounted return, best/worst retrieval) | ✅ | policy-learning/replay substrate (CONCEPT:EG-099) |
-| ROS2 bridge — engine CDC events ↔ ROS2 topics over the standard rosbridge-WebSocket JSON protocol (NO DDS C stack) | ✅ | `src/server/ros2_bridge.rs`, pure-Rust `tokio-tungstenite` client to a `rosbridge_server` (CONCEPT:EG-325); feature `ros2-bridge`, out of `pi`. A native DDS/RTPS wire is a documented optional leg |
+| ROS2 bridge — engine CDC events ↔ ROS2 topics over the standard rosbridge-WebSocket JSON protocol (NO DDS C stack) | ✅ | `src/server/ros2_bridge.rs`, pure-Rust `tokio-tungstenite` client to a `rosbridge_server` (CONCEPT:EG-325); feature `ros2-bridge`, `full-extras`-only. A native DDS/RTPS wire (`ros2-dds`) is the second `full-extras` leg |
 
 ## LLM KV-cache (`eg-kvcache` — vs vLLM / LMCache)
 
@@ -303,7 +303,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 |-----------|:------:|----------|
 | Tiered hot/warm/cold KV-block cache (LRU + importance/recency; RAM → compressed-RAM → redb/blob; auto promote/demote) | ✅ | survives OOM by offloading (CONCEPT:EG-185); warm tier uses real **zstd** (optional lz4) compression, not RLE (CONCEPT:EG-315) |
 | Shared multi-instance KV backend (content-addressed, dedup, ref-count; lookup/publish by token-hash) | ✅ | `SharedKvBackend` (CONCEPT:EG-186) |
-| HTTP endpoint (GET/PUT/EXISTS a block by token-hash + stats) + vLLM/LMCache remote-backend connector contract | ✅ | gated feature, out of pi (CONCEPT:EG-187) |
+| HTTP endpoint (GET/PUT/EXISTS a block by token-hash + stats) + vLLM/LMCache remote-backend connector contract | ✅ | `kvcache-server`, in the main build (CONCEPT:EG-187) |
 
 ## OBDA / virtual graphs (`federation` + `eg-rdf`)
 
@@ -322,7 +322,7 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 ## Lakehouse interop (eg-lake — LTAP)
 
 Databricks-LTAP-interoperable: external lakehouse engines read the engine's own tables as open formats with
-**zero ETL**. Gated `lake` (arrow/parquet + delta/iceberg deps), out of `pi`. See
+**zero ETL**. Gated `lake` (arrow/parquet + delta/iceberg deps), opt-in (not in the default build). See
 [lakehouse-ltap](architecture/lakehouse_ltap.md).
 
 | Operation | Status | Evidence |
@@ -339,7 +339,7 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 |-----------|:------:|----------|
 | Real-time QoS/SLO scheduler — per-tenant/priority admission + deadline scheduling + backpressure so latency-critical requests meet SLOs under load | ✅ | server/transport (CONCEPT:EG-320); complements the reserved read-admission lane (EG-044) |
 
-## Analytics / numeric kernel (`eg-numeric` — feature `numeric`, in `full`, out of `pi`)
+## Analytics / numeric kernel (`eg-numeric` — feature `numeric`, in the main build)
 
 The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 (CONCEPT:EG-321). See [numeric_kernel.md](architecture/numeric_kernel.md).
@@ -369,7 +369,7 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 | Multi-Raft groups (N-group ring, online reshard, hibernate/rehydrate) | ✅ | `src/raft/multi.rs` `MultiRaft`/`GroupRouter` (KG-2.266/267/268); `reshard.rs` online ownership move |
 | Parallel-commit + read-only-participant fast path + non-blocking (Raft-replicated decision) commit | ✅ | parallel prepare + empty-write-set skip (CONCEPT:EG-081) and the Paxos-Commit-lite Raft-replicated commit decision (CONCEPT:EG-082) over the working 2PC |
 | Full Calvin deterministic-ordering commit | ✅ | a global `CalvinSequencer` total order + Raft-replicated input log + vote-free deterministic execution + crash-replay recovery — a third commit branch opt-in via `calvin` alongside 2PC + Paxos-Commit-lite (CONCEPT:EG-324). OLLP distributed read-lock + multi-node sequencer fan-in remain (see [roadmap](roadmap.md)) |
-| Cross-region async read-replica tier + capacity guardrails | ✅ | bounded-LSN replication log + `/replicate` serve + async follower apply (CONCEPT:EG-322); circuit-breaker + per-tenant quota + backpressure guards (CONCEPT:EG-323). `federation-search`, out of `pi` |
-| Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), OFF by default, never in `pi` |
+| Cross-region async read-replica tier + capacity guardrails | ✅ | bounded-LSN replication log + `/replicate` serve + async follower apply (CONCEPT:EG-322); circuit-breaker + per-tenant quota + backpressure guards (CONCEPT:EG-323). `federation-search`, in the main build |
+| Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), in the main build; activates when a foreign source is registered |
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.

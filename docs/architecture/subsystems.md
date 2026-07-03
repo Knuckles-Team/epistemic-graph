@@ -59,7 +59,7 @@ extracted from the Postgres `pgwire` module into a trait — `parse → classify
 so **every** wire reuses the one exec path against the one store, differing only in framing + dialect
 translation. Postgres was refactored behind it (no behavior change) as the first impl; the rest are
 hand-rolled listeners, each behind its own cargo feature + `EPISTEMIC_GRAPH_*_ADDR` env var, all kept
-**out of `pi`** (folded into `node`/`full`, and `cluster` for pgwire):
+in the one main build:
 
 | Adapter | Protocol | Concept | Backing surface |
 |---------|----------|---------|-----------------|
@@ -120,7 +120,7 @@ search** (EG-243) fans a read out to a registry of peer engines and merges + re-
 (with **typed SQL/SPARQL result fusion** — schema-aware column union + typed dedup, EG-309), tolerating a
 slow/dead peer. Program B also closes the loop the other way: the engine **emits its own** telemetry via
 **OTLP export + a Prometheus remote-write receiver** (`otel-export`, EG-316), so it both ingests and pushes.
-Gated `obs`, out of `pi`.
+Gated `obs`, in the main build.
 
 ---
 
@@ -137,7 +137,7 @@ index (EG-263), **format I/O** (GeoJSON/WKB/GPX — plus Program-B **Shapefile/K
 **map tiling** (XYZ/TMS + Mapbox Vector Tiles; EG-265), **routing/isochrones/TSP** (EG-266) — extended in
 Program B with **turn-restriction penalties + time-window/time-dependent edge weights** for realistic
 logistics (EG-312) — and **map-anchored task tracking** (`:GeoTask`; EG-267). It surfaces through SQL `st_*`
-and a **GeoSPARQL** vocabulary (EG-261). Folded into `node`/`full`, out of `pi`.
+and a **GeoSPARQL** vocabulary (EG-261). In the one main build.
 
 ---
 
@@ -149,7 +149,7 @@ eg-ann's fixed-D ANN vectors. Dense/chunked arrays are content-addressed in the 
 `Op::TensorOp { kind }` (slice/reduce/elementwise) to the pure-serde wire algebra, executed in eg-plan.
 Program B adds **CAS write-back**: derived tensors from `Op::TensorOp`/`Op::TensorScan` persist into the
 content-addressed store on the exec path, so computed tensors are durable + dedup-shared (EG-304). Depends
-on eg-tsdb; folded into `node`/`full`, out of `pi`.
+on eg-tsdb; in the one main build.
 
 ---
 
@@ -161,7 +161,7 @@ runs a **bounded NFA** over a sliding/tumbling window (sequence/within/absence o
 as a RowSet. The engine's **CDC broadcast bus feeds live windows**, so standing CEP queries subscribe to the
 same reactive substrate that drives continuous queries and watches. Program B adds a **live-CEP
 standing-query subscription surface** (Method + subscription stream): register a CEP pattern, subscribe, and
-receive **pushed** matches fed by the CDC bus (EG-299). Gated `stream`, folded into `node`/`full`.
+receive **pushed** matches fed by the CDC bus (EG-299). Gated `stream`, in the one main build.
 
 ---
 
@@ -174,7 +174,7 @@ pressure — the substrate for an **LLM KV-block cache that survives OOM** by of
 (LMCache/vLLM-style). A `SharedKvBackend` trait + content-addressed shared index (EG-186) lets
 parallel-deployed engine/vLLM instances **share KV blocks** (hash-keyed, dedup, ref-count), and a gated HTTP
 surface (EG-187) exposes GET/PUT/EXISTS a block by token-hash + stats, so external vLLM/LMCache instances
-reuse blocks across the fleet. Pure-Rust leaf crate, out of `pi`.
+reuse blocks across the fleet. Pure-Rust leaf crate, in the one main build.
 
 ---
 
@@ -217,7 +217,7 @@ violating write — and can run in the OWL-reasoned view, surpassing Stardog ICV
 
 ## Lakehouse interop (eg-lake — LTAP, EG-317)
 
-A new leaf crate `eg-lake` (feature `lake`, out of `pi`) is the **read-side lakehouse egress** that makes
+A new leaf crate `eg-lake` (feature `lake`, an opt-in feature not in the default build) is the **read-side lakehouse egress** that makes
 the engine an **LTAP** (Lakehouse-Transactional-Analytical) superset — **Databricks-interoperable**. An async
 columnar-materialization tier transcodes an engine table / columnar segment into Arrow record batches and
 writes **Parquet** onto the object store (the same blob CAS / S3 tier), appending a **Delta** `_delta_log`
@@ -233,7 +233,7 @@ complete reader-ready surfaces.)* Deep dive: [lakehouse-ltap](lakehouse_ltap.md)
 In front of dispatch, a **real-time QoS/SLO scheduler** does per-tenant/priority **admission** + **deadline**
 scheduling + **backpressure**, so latency-critical requests meet SLOs under load. It complements the reserved
 read-admission lane (EG-044) — the lane guarantees interactive reads a slice; the scheduler orders and
-deadlines *all* admitted work by tenant/priority. Server-side, out of `pi`.
+deadlines *all* admitted work by tenant/priority. Server-side, in the one main build.
 
 ## How they compose
 
