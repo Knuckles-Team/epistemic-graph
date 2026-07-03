@@ -106,6 +106,71 @@ and runs against the compiled kernel when present, else the numpy fallback.
   linalg files.
 - **Surface B (P4):** the SAME rlib exposed as DataFusion UDFs/UDAFs + graph/vector/
   timeseries operators, re-homing KG-resident numerics (spectral_navigator, world_model)
-  to compute-near-data; cross-modal joins then PCA/cluster in-engine.
+  to compute-near-data; cross-modal joins then PCA/cluster in-engine. **First increment
+  shipped — see below.**
 - **P5:** drop numpy/scipy from agent-utilities; the `eg-numeric` wheel is the dep. The
   `xp` shim stays so future backend swaps remain mechanical.
+
+## Surface B — in-database analytics operators (P4, CONCEPT:EG-329/EG-330)
+
+The pure kernel rlib is wired into the engine's query surface so analytics run **where the
+data lives** — no fetch-to-Python, no FFI. Two reach paths:
+
+```mermaid
+flowchart TD
+    subgraph kernel["eg-numeric (rlib, feature numeric — faer + ndarray, NO pyo3)"]
+      K1["linalg: dot · norm · svd · batch_l2_normalize"]
+      K2["reductions: mean · std · var"]
+    end
+    subgraph sql["Surface B / SQL  (eg-query, feature numeric ⊃ sql)"]
+      U1["cosine_sim(a,b) → Float64  (scalar)"]
+      U2["l2_normalize(v) → List&lt;Float32&gt;  (scalar)"]
+      U3["zscore(col) → Float64  (scalar-over-batch)"]
+      U4["covariance(a,b) → Float64  (UDAF)"]
+    end
+    subgraph rpc["Surface B / Method  (src/server/handlers)"]
+      M1["BatchL2Normalize { vectors }"]
+    end
+    SQL["SELECT zscore(price) …\nSELECT cosine_sim(a.emb,b.emb) …"] --> U1 & U2 & U3 & U4
+    U1 & U2 & U3 & U4 --> kernel
+    client["client.batch_l2_normalize(vectors)"] --> M1 --> kernel
+    kernel --> pi{{"Pi-contract: numeric ∉ pi\n→ no eg-numeric/faer in the pi tree"}}
+```
+
+**SQL operators** (registered on the graph-exec AND obs-tables `SessionContext`, gated
+`#[cfg(feature = "numeric")]` in `crates/eg-query/src/sql/exec.rs::register_numeric`,
+implemented in `crates/eg-query/src/sql/numeric.rs`):
+
+| Operator | Kind | Kernel | Semantics |
+|----------|------|--------|-----------|
+| `cosine_sim(a, b)` | scalar → `Float64` | `linalg::dot`/`norm` | `a·b/(‖a‖‖b‖)`; the raw-similarity complement to EG-115 `vector_cosine` (distance). Accepts a stored `List<Float{32,64}>` column or a `'[1,2,3]'` text literal; NULL on a dimension mismatch. |
+| `l2_normalize(v)` | scalar → `List<Float32>` | `linalg::norm` | unit vector `v/‖v‖` (pgvector type — feeds `cosine_sim`/ANN in-query); zero-norm returned unchanged. |
+| `zscore(col)` | scalar-over-batch → `Float64` | `reductions::mean`/`std` | standardize `(x-mean)/std` (population `ddof=0`) over the materialized batch. Exact for the engine's single-partition MemTable/`NodesTableProvider` (one batch/table); a global two-pass is the `(x-avg(x) OVER())/stddev(x) OVER()` window form. |
+| `covariance(a, b)` | UDAF → `Float64` | `reductions::mean` | sample covariance `Σ(aᵢ-ā)(bᵢ-b̄)/(n-1)`; buffers aligned non-null pairs, merge state = two `List<Float64>` columns. |
+
+Example — standardize a price column and rank rows by similarity, all in-engine:
+
+```sql
+SELECT id, zscore(price) AS z FROM nodes ORDER BY z DESC;
+SELECT a.id, cosine_sim(a.emb, b.emb) AS sim FROM nodes a JOIN nodes b ON a.id <> b.id;
+```
+
+**Batch Method** — `Method::BatchL2Normalize { vectors }` (`src/server/handlers/graph_ops.rs`,
+handler `#[cfg(feature = "numeric")]`) L2-normalizes a batch in-engine via
+`eg_numeric::linalg::batch_l2_normalize`; the kernel-backed successor to the deprecated
+`BatchCosineSimilarity` on the same client path (`client.batch_l2_normalize()`).
+
+**Feature wiring & Pi-contract.** eg-query gains a `numeric` feature (`["sql", "dep:eg-numeric",
+"dep:ndarray"]`); the engine's top-level `numeric = ["dep:eg-numeric", "eg-query?/numeric"]`
+turns the SQL operators on whenever the query surface is also built (i.e. `full`). `numeric`
+stays OUT of `pi`/`node`/`pi-max`/`release-tiny`, and eg-numeric's pyo3 (`python`) feature is
+off in every engine build, so a `numeric` engine links faer/ndarray but **no Python extension**.
+Verified: `cargo tree --no-default-features --features pi` links **no** eg-numeric/faer/ndarray.
+
+**Deferred (next P4 increment):** `pca(col, k)` / `svd(matrix)` SQL UDFs — these need a
+column→`ndarray::Array2` marshalling step (a set of vector columns, or a
+`List<List<Float64>>` matrix argument, pivoted into a dense matrix) that is materially more
+work than the scalar/aggregate marshalling here; the faer SVD/eigh kernels
+(`linalg::svd`/`eigh`) are already present and parity-validated, so this is purely the
+columnar↔matrix bridge. Also deferred: graph-algo/timeseries unification under the one
+kernel and cross-modal joins → PCA/cluster in-engine (later P4).

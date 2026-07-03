@@ -101,7 +101,13 @@ reasoning = ["eg-compute/reasoning"]
 # faer/ndarray never bloat the lean Raspberry-Pi tier (verified: `cargo tree --features
 # pi` links no eg-numeric/faer/ndarray). Surface A (the Python wheel) is a SEPARATE
 # maturin build of eg-numeric with `--features python`; see crates/eg-numeric.
-numeric = ["dep:eg-numeric"]
+# CONCEPT:EG-329 — when the SQL query surface is ALSO built (`eg-query` present, i.e.
+# `full`), turn on its `numeric` feature so the eg-numeric-backed Surface-B SQL
+# UDFs/UDAFs (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) register on the
+# DataFusion context. `eg-query?/numeric` is a no-op when eg-query is absent (pi/node),
+# so `numeric` still links the pure kernel for future engine-side (non-SQL) ops without
+# forcing DataFusion in.
+numeric = ["dep:eg-numeric", "eg-query?/numeric"]
 # Native eg-ann IVF-PQ + OPQ + SQ8-refine vector index (CONCEPT:KG-2.207) as the
 # SemanticStore backend, replacing the rebuild-on-load hnsw_rs index. Pure-Rust,
 # CPU integer-table serving (no GPU/native-ML/faiss in the tree) so it is Pi-lean

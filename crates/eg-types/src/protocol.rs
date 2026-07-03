@@ -1027,6 +1027,13 @@ pub enum Method {
         query: Vec<f32>,
         targets: Vec<Vec<f32>>,
     },
+    /// CONCEPT:EG-330 — L2-normalize a batch of vectors IN-ENGINE via the `eg-numeric`
+    /// kernel (compute-near-data over a resident vector set): returns each row's unit
+    /// vector `v/‖v‖`. The kernel-backed successor to the deprecated
+    /// `BatchCosineSimilarity` on the same client/Method path (feature `numeric`).
+    BatchL2Normalize {
+        vectors: Vec<Vec<f64>>,
+    },
     FindSimilarPairs {
         embeddings: Vec<Vec<f32>>,
         ids: Vec<String>,

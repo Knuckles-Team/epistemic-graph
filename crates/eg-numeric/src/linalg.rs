@@ -46,6 +46,26 @@ pub fn norm_ord(v: ArrayView1<f64>, ord: f64) -> f64 {
     }
 }
 
+/// L2-normalize a single vector to its unit direction `v/‖v‖` (CONCEPT:EG-330). A
+/// slice-in/`Vec`-out API so an engine caller WITHOUT `ndarray` in scope (e.g. the
+/// server `Method` handler) can normalize a resident vector set through the kernel. A
+/// zero-norm vector is returned unchanged (all-zero) — a safe divide, no NaN.
+pub fn l2_normalize_slice(v: &[f64]) -> Vec<f64> {
+    let n = norm(ArrayView1::from(v));
+    if n == 0.0 {
+        v.to_vec()
+    } else {
+        v.iter().map(|x| x / n).collect()
+    }
+}
+
+/// L2-normalize every row of a batch (CONCEPT:EG-330) — the kernel behind the engine's
+/// `BatchL2Normalize` Method (compute-near-data over a resident vector set). Each row is
+/// unit-normalized by [`l2_normalize_slice`].
+pub fn batch_l2_normalize(vectors: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    vectors.iter().map(|v| l2_normalize_slice(v)).collect()
+}
+
 /// numpy `dot` for 1-D vectors → scalar.
 pub fn dot(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Result<f64> {
     if a.len() != b.len() {

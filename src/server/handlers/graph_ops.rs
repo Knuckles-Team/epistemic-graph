@@ -732,6 +732,25 @@ pub(crate) async fn try_handle(
             req_id,
             "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
         ),
+        // CONCEPT:EG-330 — kernel-backed in-engine batch L2-normalize (compute-near-data).
+        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, NO pyo3);
+        // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
+        Method::BatchL2Normalize { vectors } => {
+            #[cfg(feature = "numeric")]
+            {
+                let out = eg_numeric::linalg::batch_l2_normalize(&vectors);
+                Response::ok(req_id, ResultPayload::raw(&out))
+            }
+            #[cfg(not(feature = "numeric"))]
+            {
+                let _ = vectors;
+                Response::err(
+                    req_id,
+                    "BatchL2Normalize requires the `numeric` feature (eg-numeric kernel)."
+                        .to_string(),
+                )
+            }
+        }
         Method::AddEdge {
             source_id,
             target_id,
