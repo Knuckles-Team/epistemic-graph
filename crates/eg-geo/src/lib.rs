@@ -39,6 +39,11 @@
 //! * **Web-map tiling** ([`tiles`], CONCEPT:EG-265): XYZ/TMS [`Tile`] addressing over
 //!   Web-Mercator (bounds ⇄ index, y-flip) + a hand-rolled Mapbox Vector Tile
 //!   ([`encode_mvt`]/[`decode_mvt`]) codec — no protobuf codegen.
+//! * **Raster tile pyramids** ([`raster`], CONCEPT:EG-338/EG-339): a georeferenced coverage
+//!   grid ([`Raster`] — bbox + width×height × bands) resampled per XYZ tile into a
+//!   [`RasterTile`] ([`Raster::tile`], EG-339) and batched into a [`Pyramid`] over
+//!   `z_min..=z_max` ([`Raster::build_pyramid`], EG-338), with a hand-rolled dependency-free
+//!   PNG codec ([`encode_png`]/[`decode_png`]) — the raster complement to EG-265's MVT.
 //! * **Weighted-network routing** ([`routing`], CONCEPT:EG-266): a [`Network`] of located
 //!   nodes + weighted edges with Dijkstra / A\* shortest path, [`Network::isochrone`]
 //!   reachability, and a nearest-neighbour + 2-opt TSP tour ([`solve_tsp`]). Extended
@@ -78,6 +83,7 @@ pub mod geotask;
 pub mod gpx;
 pub mod kml;
 pub mod predicates;
+pub mod raster;
 pub mod registry;
 pub mod routing;
 pub mod rtree;
@@ -97,6 +103,7 @@ pub use kml::{read_kml, write_kml, Kml, Placemark};
 pub use predicates::{
     contains, covers, crosses, disjoint, distance, equals, intersects, overlaps, touches, within,
 };
+pub use raster::{decode_png, encode_png, Pyramid, Raster, RasterTile, ResampleOptions, TILE_SIZE};
 pub use registry::{st_transform, Affine, CrsDef, CrsRegistry};
 pub use routing::{
     distance_matrix, nearest_neighbour_tour, solve_tsp, tour_length, two_opt, Edge, Network, Path,
