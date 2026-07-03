@@ -303,6 +303,192 @@ fn eg_333_iceberg_avro_manifest_roundtrip() {
     );
 }
 
+/// CONCEPT:EG-350 — the Iceberg Avro manifest carries per-column stats (value/null/nan
+/// counts, column sizes, and typed lower/upper bounds) gathered as the file is
+/// materialized, so an external reader can skip files by predicate. Asserts the stats
+/// maps are present and correct (min/max/null-count) for the known `sample_batch`.
+#[cfg(feature = "lake")]
+#[test]
+fn eg_350_iceberg_manifest_carries_column_stats() {
+    use apache_avro::types::Value as AvroValue;
+    use eg_lake::iceberg_avro::read_avro_records;
+
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    // Materialize the known 3-row batch — this is the path that gathers column stats.
+    table
+        .materialize(&sample_batch(), Lsn(77))
+        .expect("materialize");
+
+    let m = table.iceberg_manifests().expect("build avro manifests");
+    let entries = read_avro_records(&m.manifest_avro).expect("read manifest");
+    assert_eq!(entries.len(), 1, "one data file");
+
+    // Drill into the single data_file record.
+    let ef = match &entries[0] {
+        AvroValue::Record(f) => f,
+        other => panic!("entry not a record: {other:?}"),
+    };
+    let data_file = ef
+        .iter()
+        .find(|(k, _)| k == "data_file")
+        .map(|(_, v)| v)
+        .unwrap();
+    let dff = match data_file {
+        AvroValue::Record(f) => f,
+        other => panic!("data_file not a record: {other:?}"),
+    };
+    let dget = |name: &str| dff.iter().find(|(k, _)| k == name).map(|(_, v)| v).unwrap();
+
+    // A stats map field is `["null", array<{key:int, value:X}>]`. Decode it into a
+    // field-id → value map. Panics if the union is null (stat absent).
+    let as_map = |field: &str| -> std::collections::HashMap<i32, AvroValue> {
+        let arr = match dget(field) {
+            AvroValue::Union(_, boxed) => match boxed.as_ref() {
+                AvroValue::Array(items) => items.clone(),
+                other => panic!("{field} not an array: {other:?}"),
+            },
+            other => panic!("{field} not a union: {other:?}"),
+        };
+        let mut out = std::collections::HashMap::new();
+        for it in arr {
+            let kv = match it {
+                AvroValue::Record(f) => f,
+                other => panic!("map entry not a record: {other:?}"),
+            };
+            let key = match kv.iter().find(|(k, _)| k == "key").map(|(_, v)| v).unwrap() {
+                AvroValue::Int(n) => *n,
+                other => panic!("key not int: {other:?}"),
+            };
+            let val = kv
+                .iter()
+                .find(|(k, _)| k == "value")
+                .map(|(_, v)| v.clone())
+                .unwrap();
+            out.insert(key, val);
+        }
+        out
+    };
+    let long_of = |v: &AvroValue| match v {
+        AvroValue::Long(n) => *n,
+        other => panic!("expected long: {other:?}"),
+    };
+    let bytes_of = |v: &AvroValue| match v {
+        AvroValue::Bytes(b) => b.clone(),
+        other => panic!("expected bytes: {other:?}"),
+    };
+
+    // value_counts: every column has 3 values (rows), keyed by 1-based field-id.
+    let values = as_map("value_counts");
+    for fid in 1..=5 {
+        assert_eq!(long_of(&values[&fid]), 3, "value_count for field {fid}");
+    }
+
+    // null_value_counts: price (field 2) and symbol (field 3) each have one null; the
+    // rest zero. (Iceberg only needs the columns it tracks; we list all 5.)
+    let nulls = as_map("null_value_counts");
+    assert_eq!(long_of(&nulls[&1]), 0, "id nulls");
+    assert_eq!(long_of(&nulls[&2]), 1, "price null");
+    assert_eq!(long_of(&nulls[&3]), 1, "symbol null");
+    assert_eq!(long_of(&nulls[&4]), 0, "active nulls");
+    assert_eq!(long_of(&nulls[&5]), 0, "ts nulls");
+
+    // nan_value_counts: no NaNs anywhere.
+    let nans = as_map("nan_value_counts");
+    assert_eq!(long_of(&nans[&2]), 0, "price nans");
+
+    // column_sizes: present for every column, each a positive on-disk byte size.
+    let sizes = as_map("column_sizes");
+    for fid in 1..=5 {
+        assert!(long_of(&sizes[&fid]) > 0, "column_size for field {fid}");
+    }
+
+    // lower/upper bounds are Iceberg single-value binary. Decode + assert the known
+    // min/max of the sample batch.
+    let lowers = as_map("lower_bounds");
+    let uppers = as_map("upper_bounds");
+
+    // id (field 1, Long): min 1, max 3.
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&lowers[&1]).try_into().unwrap()),
+        1
+    );
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&uppers[&1]).try_into().unwrap()),
+        3
+    );
+    // price (field 2, Double): min -3.25, max 101.5 (the null is excluded).
+    assert_eq!(
+        f64::from_le_bytes(bytes_of(&lowers[&2]).try_into().unwrap()),
+        -3.25
+    );
+    assert_eq!(
+        f64::from_le_bytes(bytes_of(&uppers[&2]).try_into().unwrap()),
+        101.5
+    );
+    // symbol (field 3, String): min "AAPL", max "MSFT" (the null is excluded).
+    assert_eq!(
+        String::from_utf8(bytes_of(&lowers[&3])).unwrap(),
+        "AAPL".to_string()
+    );
+    assert_eq!(
+        String::from_utf8(bytes_of(&uppers[&3])).unwrap(),
+        "MSFT".to_string()
+    );
+    // active (field 4, Bool): min false (0x00), max true (0x01).
+    assert_eq!(bytes_of(&lowers[&4]), vec![0u8]);
+    assert_eq!(bytes_of(&uppers[&4]), vec![1u8]);
+    // ts (field 5, Timestamp): min/max of the three micros values.
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&lowers[&5]).try_into().unwrap()),
+        1_700_000_000_000_000
+    );
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&uppers[&5]).try_into().unwrap()),
+        1_700_000_120_000_000
+    );
+}
+
+/// CONCEPT:EG-350 — a file recorded WITHOUT stats (the bare `record_file` seam) emits
+/// the stats maps as null unions, not garbage — the maps are genuinely optional.
+#[cfg(feature = "lake")]
+#[test]
+fn eg_350_stats_absent_when_not_gathered() {
+    use apache_avro::types::Value as AvroValue;
+    use eg_lake::iceberg_avro::read_avro_records;
+
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(9)); // no stats path
+
+    let m = table.iceberg_manifests().expect("build avro manifests");
+    let entries = read_avro_records(&m.manifest_avro).expect("read manifest");
+    let ef = match &entries[0] {
+        AvroValue::Record(f) => f,
+        other => panic!("{other:?}"),
+    };
+    let dff = match ef.iter().find(|(k, _)| k == "data_file").map(|(_, v)| v) {
+        Some(AvroValue::Record(f)) => f,
+        other => panic!("{other:?}"),
+    };
+    for field in [
+        "column_sizes",
+        "value_counts",
+        "null_value_counts",
+        "nan_value_counts",
+        "lower_bounds",
+        "upper_bounds",
+    ] {
+        let v = dff
+            .iter()
+            .find(|(k, _)| k == field)
+            .map(|(_, v)| v)
+            .unwrap();
+        assert!(
+            matches!(v, AvroValue::Union(0, b) if matches!(b.as_ref(), AvroValue::Null)),
+            "{field} must be a null union when no stats were gathered"
+        );
+    }
+}
+
 /// CONCEPT:EG-317 — the Iceberg-REST catalog lists and loads a registered table.
 #[test]
 fn eg_317_catalog_lists_and_loads_table() {
