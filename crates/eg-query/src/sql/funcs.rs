@@ -48,8 +48,20 @@ pub(super) fn expand_functions(sql: &str, functions: &[StoredFunction]) -> Resul
     if functions.is_empty() {
         return Ok(sql.to_string());
     }
-    let scalars: Vec<&StoredFunction> = functions.iter().filter(|f| !f.is_table()).collect();
-    let tables: Vec<&StoredFunction> = functions.iter().filter(|f| f.is_table()).collect();
+    // CONCEPT:EG-340 — a `LANGUAGE plpgsql` body is NOT SQL, so it is never inlined here;
+    // it executes via the procedural interpreter on a bare top-level call (`sql::plpgsql`).
+    // An embedded `plfn(x)` inside a larger query is left for the planner to reject.
+    let scalars: Vec<&StoredFunction> = functions
+        .iter()
+        .filter(|f| !f.is_table() && !f.is_plpgsql())
+        .collect();
+    let tables: Vec<&StoredFunction> = functions
+        .iter()
+        .filter(|f| f.is_table() && !f.is_plpgsql())
+        .collect();
+    if scalars.is_empty() && tables.is_empty() {
+        return Ok(sql.to_string());
+    }
 
     let mut text = sql.to_string();
     for _ in 0..MAX_PASSES {

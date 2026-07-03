@@ -407,20 +407,40 @@ pub enum FunctionReturns {
     SetOf(String),
 }
 
-/// A durable SQL-language stored function (CONCEPT:EG-118), persisted in the function
-/// catalog beside the view/table catalogs and EXPANDED into a query at plan time so
-/// DataFusion's existing planner executes it — there is NO separate function evaluator.
-/// PL/pgSQL procedural bodies (IF/LOOP/variables/RETURN) are a documented follow-up
-/// (the path is a WASM-compiled body or a small statement interpreter); only
-/// `LANGUAGE sql` is implemented.
+/// The procedural language a stored function's body is written in (CONCEPT:EG-340).
+/// `Sql` bodies are EXPANDED inline at plan time (CONCEPT:EG-118); `PlPgSql` bodies are
+/// run through the procedural interpreter (`sql::plpgsql`) on a bare top-level call.
+/// `#[serde(other)]`-free but `StoredFunction.language` carries `#[serde(default)]` so a
+/// catalog record written before EG-340 (no `language` field) decodes as `Sql`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum FunctionLanguage {
+    /// `LANGUAGE sql` — body is a single `SELECT`, expanded inline (CONCEPT:EG-118).
+    #[default]
+    Sql,
+    /// `LANGUAGE plpgsql` — a procedural body (DECLARE/BEGIN..END, IF, loops, `:=`,
+    /// `SELECT … INTO`, RETURN) executed by the interpreter (CONCEPT:EG-340/EG-341).
+    PlPgSql,
+}
+
+/// A durable stored function (CONCEPT:EG-118 / EG-340), persisted in the function
+/// catalog beside the view/table catalogs. A `LANGUAGE sql` body is EXPANDED into a
+/// query at plan time so DataFusion's existing planner executes it (no separate
+/// evaluator). A `LANGUAGE plpgsql` body (IF/LOOP/variables/RETURN) is executed by the
+/// procedural interpreter (`sql::plpgsql`, CONCEPT:EG-340/EG-341) when a bare top-level
+/// `SELECT fn(args)` / `CALL fn(args)` names it — its embedded SQL runs back through the
+/// same read path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredFunction {
     pub name: String,
     pub args: Vec<FunctionArg>,
     pub returns: FunctionReturns,
-    /// The `LANGUAGE sql` body (a dollar-/single-quoted `SELECT …`) whose argument
-    /// identifiers reference `args` by name.
+    /// The function body. For `Sql`: a dollar-/single-quoted `SELECT …` whose argument
+    /// identifiers reference `args` by name. For `PlPgSql`: the procedural block.
     pub body: String,
+    /// The body's procedural language (CONCEPT:EG-340). `#[serde(default)]` so a
+    /// pre-EG-340 catalog record (no field) decodes as [`FunctionLanguage::Sql`].
+    #[serde(default)]
+    pub language: FunctionLanguage,
 }
 
 impl StoredFunction {
@@ -432,5 +452,13 @@ impl StoredFunction {
             self.returns,
             FunctionReturns::Table(_) | FunctionReturns::SetOf(_)
         )
+    }
+
+    /// Whether this is a `LANGUAGE plpgsql` procedural function (CONCEPT:EG-340) — run by
+    /// the interpreter on a bare call rather than expanded inline like a `LANGUAGE sql`
+    /// body. Such a function is EXCLUDED from `funcs::expand_functions` (its body is not
+    /// SQL) so an embedded `fn(x)` in a larger query is left for the planner to reject.
+    pub fn is_plpgsql(&self) -> bool {
+        matches!(self.language, FunctionLanguage::PlPgSql)
     }
 }
