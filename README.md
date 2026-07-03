@@ -258,10 +258,12 @@ never compiles. Full map: [tiers & binaries](docs/architecture/tiers.md).
   [Agent memory](docs/interfaces/memory.md) · [Ontology](docs/interfaces/ontology.md) ·
   [Clients](docs/interfaces/clients.md).
 - Analytics & distribution: [Analytics Program](docs/architecture/analytics_program.md) ·
-  [Numeric kernel](docs/architecture/numeric_kernel.md) ·
+  [Analytics in UQL](docs/analytics_in_uql.md) · [Numeric kernel](docs/architecture/numeric_kernel.md) ·
   [Lakehouse LTAP](docs/architecture/lakehouse_ltap.md) ·
   [Distribution / Robotics / GPU](docs/architecture/distribution_robotics_gpu.md).
-- Deploy & operate: [Tiers & binaries](docs/architecture/tiers.md) ·
+- Deploy & operate: [Standalone deployment](docs/standalone_deployment.md) ·
+  [DBeaver / psql quickstart](docs/dbeaver_quickstart.md) ·
+  [Deployment topology](docs/deployment_topology.md) · [Tiers & binaries](docs/architecture/tiers.md) ·
   [Deployment](docs/deployment.md) · [Engine modes](docs/engine_modes.md) ·
   [Service mode](docs/service_mode.md) · [Cost model & capacity](docs/cost_model.md) ·
   [Operations runbook](docs/operations/runbook.md).

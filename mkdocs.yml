@@ -130,6 +130,9 @@ nav:
       - Index Manager: architecture/index_manager.md
       - Correctness Harness: architecture/correctness_harness.md
   - Deploy & Operate:
+      - Standalone Deployment (just the engine): standalone_deployment.md
+      - DBeaver / psql Quickstart: dbeaver_quickstart.md
+      - Deployment Topology (components): deployment_topology.md
       - Operations Runbook: operations/runbook.md
       - Deployment (database): deployment.md
       - Cost Model & Capacity: cost_model.md
