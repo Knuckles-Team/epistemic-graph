@@ -1,0 +1,17 @@
+{
+  "name": "@epistemic-graph/thin-client",
+  "version": "0.1.0",
+  "description": "Thin JS/Node client for the epistemic-graph Program-B engine Methods (broker/streams/RBAC/backup/NL) — CONCEPT:EG-3.1",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^3.0.0"
+  },
+  "license": "MIT"
+}
