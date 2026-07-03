@@ -1097,18 +1097,20 @@ async fn wire_txn_set_graph_rejected_while_open() {
 // the seam lands. They COMPILE against the real tokio-postgres client path.
 // ───────────────────────────────────────────────────────────────────────────
 
-/// FEATURE-GAP (CONCEPT:EG-364): inside an open transaction, an UPDATE's staged write
+/// FEATURE-GAP (CONCEPT:EG-359): inside an open transaction, an UPDATE's staged write
 /// is visible to a same-connection *SQL* read (read-your-own-writes — proven by
-/// `wire_txn_rollback_discards_and_ryow`), but a CROSS-MODAL / UQL read is NOT: the
-/// unified read path resolves `core.analysis_snapshot_versioned()` (the last COMMITTED
-/// snapshot, src/server/handlers/query.rs:104), so it cannot see the txn's staged
-/// buffer. This spec asserts the intended in-txn RYOW for a cross-modal read.
+/// `wire_txn_rollback_discards_and_ryow`) and, over the RPC transport, to an in-txn
+/// cross-modal read (the `TxnUnifiedQuery{,Text}` seam Lane A built — EG-359 — which
+/// overlays the staged write-set onto the committed snapshot; proven by the crate-level
+/// seam tests). What is STILL missing is the PGWIRE TEXT entrypoint for that seam: there
+/// is no `UQL …`-over-pgwire verb, so a unified read cannot be issued from a Postgres
+/// client. This spec asserts the intended in-txn RYOW for a cross-modal read over pgwire.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "seam not built: in-txn cross-modal (UnifiedQuery/UQL) read reads the \
-COMMITTED snapshot (analysis_snapshot_versioned, src/server/handlers/query.rs:104) and \
-cannot see same-txn staged writes; needs (1) a txn-scoped PlanCtx overlaying the staged \
-write buffer in src/server/txn.rs and (2) a UQL-over-pgwire entrypoint (there is no wire \
-syntax to issue a unified read today). CONCEPT:EG-364"]
+#[ignore = "RPC seam BUILT (TxnUnifiedQuery{,Text} overlays the staged write-set, \
+CONCEPT:EG-359, proven by the eg-plan/eg-core seam tests), but the PGWIRE surface these \
+specs use is not: there is no `UQL …`-over-pgwire entrypoint, so a Postgres client cannot \
+issue a unified read. Remaining gap is a UQL-over-pgwire verb in the WireSession, not the \
+seam. CONCEPT:EG-359"]
 async fn wire_txn_update_then_cross_modal_read() {
     let state = seeded_state();
     let addr = spawn_listener(state).await;
@@ -1153,17 +1155,22 @@ async fn wire_txn_update_then_cross_modal_read() {
     client.simple_query("COMMIT").await.expect("COMMIT");
 }
 
-/// FEATURE-GAP (CONCEPT:EG-365): a single transaction that stages FIVE modalities —
+/// FEATURE-GAP (CONCEPT:EG-360): a single transaction that stages FIVE modalities —
 /// graph nodes, vector embeddings, timeseries points, an OWL/SPARQL axiom UPDATE, and a
 /// CONSTRUCT-materialized triple — then a UQL join reads across all five atomically.
-/// Today the staged-txn write set (src/server/txn.rs) is graph+vector+blob ONLY: no tsdb
-/// staging, no OWL-update-in-txn, no CONSTRUCT-in-txn; and the planner has no proven
-/// tsdb / reason-mid-pipeline reach. This spec is the intended contract.
+/// The RPC staging seam Lane B built (EG-360/361/362 — `TxnAddMeasurement`/`TxnAxiom`/
+/// `TxnConstruct` land in the SAME redb `WriteTransaction` as the graph/vector/blob
+/// writes) plus Lane C's planner reach (EG-363 `Op::TsScan` + mid-pipeline `Op::Reason`)
+/// now cover all five modalities over the RPC transport. What is STILL missing is the
+/// PGWIRE TEXT surface for them (`INSERT INTO series`, `SET EMBEDDING FOR`, `SPARQL
+/// UPDATE`, `SPARQL CONSTRUCT`, `UQL …` verbs), so a Postgres client cannot drive them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "seam not built: a mixed FIVE-modality staged transaction (graph+vector+\
-timeseries+OWL-update+CONSTRUCT) is not supported — src/server/txn.rs stages only \
-graph+vector+blob (no tsdb / OWL-update / CONSTRUCT staging), and the planner has no \
-proven timeseries or reason-mid-pipeline leg to join them in one UQL read. CONCEPT:EG-365"]
+#[ignore = "RPC staging + planner seam BUILT (TxnAddMeasurement/TxnAxiom/TxnConstruct \
+land in ONE redb WriteTransaction — CONCEPT:EG-360/361/362 — and Op::TsScan + mid-pipeline \
+Op::Reason join them — EG-363; proven by the eg-plan/eg-tsdb seam tests), but the PGWIRE \
+TEXT surface these specs drive (INSERT INTO series / SET EMBEDDING FOR / SPARQL UPDATE / \
+SPARQL CONSTRUCT / UQL …) is not built. Remaining gap is the wire verbs, not the seam. \
+CONCEPT:EG-360"]
 async fn wire_txn_mixed_five_modality_commit() {
     let state = seeded_state();
     let addr = spawn_listener(state).await;
