@@ -333,6 +333,20 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 |-----------|:------:|----------|
 | Real-time QoS/SLO scheduler — per-tenant/priority admission + deadline scheduling + backpressure so latency-critical requests meet SLOs under load | ✅ | server/transport (CONCEPT:EG-320); complements the reserved read-admission lane (EG-044) |
 
+## Analytics / numeric kernel (`eg-numeric` — feature `numeric`, in `full`, out of `pi`)
+
+The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
+(CONCEPT:EG-321). See [numeric-kernel.md](architecture/numeric-kernel.md).
+
+| Operation | Status | Evidence |
+|-----------|:------:|----------|
+| Array reductions / stats (`sum/mean/std/var/min/max/prod/argmin/argmax/argsort/percentile/quantile/cumsum/cumprod`) | ✅ | `crates/eg-numeric/src/reductions.rs`; parity `np.allclose` vs numpy |
+| Element-wise (`sqrt/log/exp/abs/tanh/clip/maximum/minimum/where/nan_to_num/isnan`) | ✅ | `crates/eg-numeric/src/elementwise.rs`; nan/inf edge-cased |
+| LAPACK-class linalg (`norm/dot/matmul/solve/svd/eigh/pinv/lstsq/qr/cholesky/det/inv/matrix_power`) — pure-Rust faer, **no system BLAS/LAPACK** | ✅ | `crates/eg-numeric/src/linalg.rs`; singular → LinAlgError (numpy parity) |
+| Random (`normal/uniform/integers`, seedable, deterministic) | ✅ | `crates/eg-numeric/src/random.rs`; distributional parity |
+| Surface A — Python extension `epistemic_graph.numeric` (zero-copy rust-numpy + `allow_threads`) → `agent_utilities.numeric.xp` | ✅ | feature `python` (separate maturin build); consumed by KG-2.311 shim |
+| Surface B — in-database analytics (DataFusion UDFs / graph / vector / timeseries over resident data) | 🗺 | rlib linkable now; operator wiring is P4 (analytics program) |
+
 ## Durability & distribution
 
 | Operation | Status | Evidence |
