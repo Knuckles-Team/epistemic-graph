@@ -62,11 +62,17 @@ fn register_pg_common(ctx: &SessionContext) {
 /// tables-only obs path so both expose the identical operator set.
 #[cfg(feature = "numeric")]
 fn register_numeric(ctx: &SessionContext) {
-    use super::numeric::{cosine_sim_udf, covariance_udaf, l2_normalize_udf, zscore_udf};
+    use super::numeric::{
+        cosine_sim_udf, covariance_udaf, l2_normalize_udf, pca_udaf, svd_udaf, zscore_udf,
+    };
     ctx.register_udf(cosine_sim_udf());
     ctx.register_udf(l2_normalize_udf());
     ctx.register_udf(zscore_udf());
     ctx.register_udaf(covariance_udaf());
+    // CONCEPT:EG-336 svd / EG-335 pca — column→Array2 marshalling UDAFs (singular values /
+    // top-k principal-component directions of the aggregated vector column).
+    ctx.register_udaf(svd_udaf());
+    ctx.register_udaf(pca_udaf());
 }
 
 /// Implicit max rows guarded into the result. Transport is one Response per
@@ -875,6 +881,23 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
                     })
                     .collect(),
             )
+        }
+        // ── analytics numeric lists (CONCEPT:EG-336 svd / EG-335 pca): a `List<Float64>`
+        // (singular values) or a nested `List<List<Float64>>` (principal-component vectors)
+        // cell → JSON array(s) of numbers, so in-engine linear-algebra results deserialize
+        // STRUCTURALLY for a client rather than degrading to an Arrow text blob. Recurses
+        // through `cell_to_json` so each leaf hits the `Float64` number arm. ──
+        List(field) if matches!(field.data_type(), Float64 | List(_)) => {
+            use arrow::array::ListArray;
+            let child = col
+                .as_any()
+                .downcast_ref::<ListArray>()
+                .ok_or("numeric List cell is not a ListArray")?
+                .value(row);
+            let items = (0..child.len())
+                .map(|i| cell_to_json(child.as_ref(), i))
+                .collect::<Result<Vec<_>, _>>()?;
+            Value::Array(items)
         }
         // ── everything else: Decimal128/256 (→ lossless decimal string), Date32/64,
         // Time32/64, Timestamp(*)[/tz] (→ ISO-8601 string), List/LargeList/Struct/Map
