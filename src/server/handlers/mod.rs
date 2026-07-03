@@ -70,3 +70,10 @@ pub(crate) mod dist_compute;
 // catch-all.
 #[cfg(feature = "federation")]
 pub(crate) mod federation;
+// SQLite `.db` FILE import/export (CONCEPT:EG-331/EG-332, feature `sqlite-file`). The
+// ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`
+// file and the process-global `eg_query::TableStore` (behind `query`), via the bundled
+// C `rusqlite` (kept OUT of pi). NOT graph-scoped; a build without `sqlite-file` omits
+// the module and the variants aren't in the enum (so the dispatch chain never routes them).
+#[cfg(feature = "sqlite-file")]
+pub(crate) mod sqlite_file;

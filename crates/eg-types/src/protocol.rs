@@ -2003,6 +2003,34 @@ pub enum Method {
         new: Option<Vec<u8>>,
     },
 
+    // ── SQLite `.db` file import/export (CONCEPT:EG-331/EG-332) ─────────
+    // Read/write a real on-disk `sqlite3` `.db` FILE (the documented EG-075 follow-up),
+    // distinct from the `sqlite-wire` NDJSON dialect surface. NOT graph-scoped: both ops
+    // target a filesystem `path` and move rows through the process-global user-table
+    // store (the SAME `TableStore` the `Method::Sql` DDL/DML + pgwire paths use), so they
+    // self-route in dispatch like the Blob*/Kv* ops. Each is a BATCH op — ONE engine
+    // round-trip that reads/writes the whole file, never per-row. The variants only exist
+    // with the `sqlite-file` feature (which pulls the bundled C sqlite kept OUT of pi); a
+    // build without it drops them from the enum, so a slim/pi build can't reach the arm.
+    /// Import every user table (+ its rows) from the `sqlite3` `.db` file at `path`
+    /// into the engine's user-table store (CONCEPT:EG-331). A table that already exists
+    /// is REPLACED (drop-then-recreate) so the import mirrors the file. Returns a `Json`
+    /// report `{"path", "imported_tables":[{"table","rows"},…]}`.
+    #[cfg(feature = "sqlite-file")]
+    ImportSqliteFile {
+        path: String,
+    },
+    /// Export user tables OUT to a fresh, valid `sqlite3` `.db` file at `path` that the
+    /// `sqlite3` CLI can open (CONCEPT:EG-332). `tables` empty ⇒ every user table; else
+    /// exactly the named tables (each must exist). Any pre-existing file at `path` is
+    /// overwritten. Returns a `Json` report `{"path", "exported_tables":[{"table","rows"},…]}`.
+    #[cfg(feature = "sqlite-file")]
+    ExportSqliteFile {
+        path: String,
+        #[serde(default)]
+        tables: Vec<String>,
+    },
+
     // ── RDF/SPARQL (CONCEPT:KG-2.217 / KG-2.218 — native semantic-web surface) ──
     // The RDF dataset maps onto the SAME property-graph the rest of the engine uses
     // (resource object ⇒ typed edge `{type: predicate}`; literal object ⇒ a typed
