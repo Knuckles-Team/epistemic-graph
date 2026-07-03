@@ -28,6 +28,10 @@ pub use error::{NumericError, Result};
 // Gated behind the `python` feature so the engine-linked rlib pulls no pyo3.
 // ---------------------------------------------------------------------------
 #[cfg(feature = "python")]
+// pyo3 bindings carry unavoidable boilerplate lints: PyErr .into() round-trips
+// (useless_conversion), complex numpy return types (type_complexity), and a
+// pyo3-0.22-macro-emitted cfg(gil-refs). Scope-allow them to this module.
+#[allow(clippy::useless_conversion, clippy::type_complexity, unexpected_cfgs)]
 mod py {
     use crate::{elementwise, linalg, random, reductions};
     use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
