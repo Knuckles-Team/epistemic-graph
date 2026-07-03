@@ -616,6 +616,19 @@ federation-search = ["server", "dep:ureq"]
 # `pi`/`default`/`node`; the orchestrator folds it into an extras bundle. A default/pi
 # build links NO tokio-tungstenite (asserted by `cargo tree`).
 ros2-bridge = ["server", "streaming", "dep:tokio-tungstenite", "dep:futures"]
+# Native DDS/RTPS ROS2 wire (CONCEPT:EG-347) — the native leg of the ROS2 transport seam
+# (`src/server/dds.rs`, the `DdsTransport` trait). Where `ros2-bridge` (EG-325) tunnels
+# ROS2 topics through a `rosbridge_server` over WebSocket JSON, this leg speaks REAL
+# DDS/RTPS on the wire so the engine's CDC↔ROS2 topic path can publish/subscribe to a
+# ROS2 graph DIRECTLY — behind the SAME `DdsTransport` interface, so the path targets
+# EITHER transport. It uses the PURE-RUST `rustdds` crate (a native Rust DDS + RTPS impl:
+# mio/pnet/speedy/cdr-encoding — NO CycloneDDS/rmw/`ros` C toolchain), so, unlike a
+# `cyclonedds-rs`/`rmw` leg, it ACTUALLY builds in CI everywhere (no C dep). But robotics
+# is NOT a Pi requirement and DDS pulls a large transitive tree, so it is kept OUT of
+# `pi`/`default`/`node`/`full` — folded ONLY into the opt-in `full-extras` bundle. A
+# default/pi/node/full build links NO rustdds (asserted by `cargo tree`). The
+# CycloneDDS-C-backed `rmw` leg stays a documented, toolchain-gated future option.
+ros2-dds = ["server", "streaming", "dep:rustdds", "dep:futures"]
 # GPU-accelerated distance/tensor (CONCEPT:EG-326 seam / EG-327 CUDA). `gpu` opts the
 # eg-ann distance + eg-tensor elementwise kernels into the `DistanceBackend`/`TensorBackend`
 # dispatch seam (the pure-Rust CPU backend stays the compiled-in fallback). `gpu-cuda` adds
@@ -630,7 +643,7 @@ gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda"]
 # actually RUN (but build clean everywhere via dynamic-loading): the real CUDA backends +
 # the rosbridge ROS2 bridge. NEVER folded into pi/default/node/full — an extras-only bundle
 # for the CI extras builder / a GPU/robotics deployment.
-full-extras = ["gpu-cuda", "ros2-bridge"]
+full-extras = ["gpu-cuda", "ros2-bridge", "ros2-dds"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
@@ -858,6 +871,12 @@ object_store = { version = "0.11", optional = true, features = ["aws"] }
 # (ws:// to a local rosbridge_server); `connect`+`handshake` only — links NO native-tls/
 # openssl. OPTIONAL + only under `feature = "ros2-bridge"`, so pi/default/node link none.
 tokio-tungstenite = { version = "0.24", optional = true, default-features = false, features = ["connect", "handshake"] }
+# Native pure-Rust DDS/RTPS stack for the CONCEPT:EG-347 native ROS2 wire (feature
+# `ros2-dds`). rustdds is 100% Rust (mio/pnet/speedy/cdr-encoding) — it links NO
+# CycloneDDS/rmw/`ros` C toolchain, so unlike a `cyclonedds-rs` leg it builds in CI
+# everywhere. OPTIONAL + referenced ONLY under `#[cfg(feature = "ros2-dds")]`, so a
+# default/pi/node/full build links none of it (asserted by `cargo tree`).
+rustdds = { version = "0.13", optional = true }
 # In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188 / KG-2.272). Bumped to
 # openraft 0.10 (the v2 split-storage API + NATIVE `trigger().transfer_leader()` for
 # graceful leader handoff — the M2 remainder). `serde` is required because the app
