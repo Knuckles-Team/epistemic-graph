@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # STANDALONE epistemic-graph — one durable DB, NOTHING else.
 #
-# This compose runs ONLY the epistemic-graph engine (the published `node`-tier
+# This compose runs ONLY the epistemic-graph engine (the published main-build
 # wheel baked into docker/Dockerfile). NO agent-utilities, NO KG hub, NO other
 # services. It is a complete single-node database you can point psql / DBeaver /
 # any Postgres driver at over the Postgres wire protocol.
@@ -28,7 +28,7 @@
 services:
   epistemic-graph:
     image: ${EG_IMAGE:-epistemic-graph:local}
-    # Build the node-tier image locally from the repo. Comment `build` out and set
+    # Build the main image locally from the repo. Comment `build` out and set
     # EG_IMAGE=<registry>/epistemic-graph:<tag> to pull a prebuilt multi-arch image.
     build:
       context: ..

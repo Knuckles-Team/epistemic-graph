@@ -50,7 +50,8 @@ because that is exactly what it is.
 ## Durability model — redb-authoritative is the DEFAULT (CONCEPT:KG-2.195 — THE FLIP)
 
 **The engine is now a durable SOURCE OF TRUTH out of the box.** When built with the
-`redb` feature — which `full`/`node`/`cluster`/`pi` all include — the persist
+`redb` feature — which the main build (`default`/`full`) and the `cluster` layer all
+include — the persist
 backend defaults to `redb` and runs in **authoritative mode** whenever a persist
 dir is configured. A stock deployment is therefore durable-by-default: an acked
 write survives a `kill -9` (proven by `tests/test_redb_authoritative_crash.py::test_stock_default_build_is_durable_by_default`,
@@ -163,12 +164,12 @@ pre-flip model:
 - Durable mutations use fire-and-forget `record()` (write-behind); eviction drops
   the LRU on saturation.
 
-### Opt-in: in-engine Raft replication (CONCEPT:KG-2.188, `raft` feature, cluster tier)
+### Opt-in: in-engine Raft replication (CONCEPT:KG-2.188, `raft` feature, `cluster` layer)
 
 The DEFAULT remains single-node + a rebuildable cache. The `raft` cargo feature
-(cluster tier only — `cluster = ["node", "raft"]`; NOT in `full`/`all`, so a
-default / `pi` / `full` build links **no openraft** and the Pi contract holds: no
-DataFusion AND no openraft) runs the engine as a multi-node, highly-available
+(the opt-in `cluster` build layer only — `cluster = ["full", "raft", …]`; NOT in
+`default`/`full`/`all`, so the main build links **no openraft**, asserted by
+`cargo tree`) runs the engine as a multi-node, highly-available
 cluster that replicates its **authoritative** state via [`openraft`] **0.10** (the v2
 split-storage API + native graceful leader transfer — CONCEPT:KG-2.273). It
 **activates only** when built `--features raft` AND configured at runtime:
@@ -354,28 +355,32 @@ reasoning   = ["eg-compute/reasoning"]                # OWL/Datalog inference
 ast         = ["eg-compute/ast"]                      # → tree-sitter grammars
 # Native eg-ann IVF-PQ+OPQ+SQ8-refine vector index (CONCEPT:KG-2.207) as the
 # SemanticStore backend, replacing rebuild-on-load HNSW. Pure-Rust CPU serving —
-# NO GPU/faiss/native-ML — so it is folded into pi/node/cluster/full. A persisted
-# index reopens WITHOUT rebuilding from raw vectors. `ann-redb` also stores the
-# codes in the redb durable tier.
+# NO GPU/faiss/native-ML — so it is in the main build. A persisted index reopens
+# WITHOUT rebuilding from raw vectors. `ann-redb` also stores the codes in the redb
+# durable tier (also in the main build).
 ann         = ["eg-core/ann"]
 ann-redb    = ["ann", "redb", "eg-core/ann-redb"]
 compute     = ["finance", "ast", "datascience", "reasoning"]
 # Tokio service (UDS/TCP). tokio is pinned to the minimal feature set actually
 # used (rt-multi-thread, net, io-util, sync, time) — NOT "full".
 server      = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
-# Durable redb store (CONCEPT:KG-2.177). Folded into full/node/cluster/pi so the
-# standard build is redb-AUTHORITATIVE by default (CONCEPT:KG-2.195 — THE FLIP).
+# Durable redb store (CONCEPT:KG-2.177). In the main build so the standard build is
+# redb-AUTHORITATIVE by default (CONCEPT:KG-2.195 — THE FLIP).
 redb        = ["server", "dep:redb"]
 # Engine-level security (CONCEPT:KG-2.231): per-agent Row-Level Security (the
 # read/plan-path GraphView filter), encryption-at-rest for the redb value blobs, and a
 # hash-chained tamper-evident audit log over the ledger. PURE-RUST: RLS + audit chain
 # link only sha2/hmac (RustCrypto, already deps); encryption pulls chacha20poly1305
-# (RustCrypto AEAD — NO ring/openssl/C). Implies `redb`. Folded into node/cluster/full;
-# OUT of bare default + the lean `pi` tier.
+# (RustCrypto AEAD — NO ring/openssl/C). Implies `redb`. In the main build.
 security    = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-# `full` now pulls `redb` (+ `query`/`cypher`/`security`) so a stock full build is a
-# durable, RLS/audit/encryption-capable source of truth. It stays SINGLE-NODE (no raft).
-full        = ["compute", "server", "query", "cypher", "redb", "ann", "security"]
+# ONE MAIN BUILD (CONCEPT:EG-359): `default == full`. `full` pulls every MAIN feature
+# that compiles without an external GPU/robotics toolchain — compute, server, SQL
+# (query/DataFusion), cypher, redb, ann, security, the whole wire family, obs, … — so
+# `cargo build` IS the full-featured, durable, RLS/audit/encryption-capable source of
+# truth. It stays SINGLE-NODE (no raft; that is the opt-in `cluster` layer). The list
+# below is illustrative — see Cargo.toml for the exhaustive set.
+default     = ["graph", "algorithms", "metrics", "full"]
+full        = ["compute", "server", "query", "cypher", "redb", "ann", "security", "pgwire", "mysql-wire", "…"]
 ```
 
 `eg-compute` is a non-optional dep (its `algorithms` is used by the always-on
@@ -383,14 +388,15 @@ graph-op handlers); only its heavy domains + their deps are feature-gated.
 The facade declares `crate-type = ["rlib"]` (no `cdylib`/pyo3; maturin
 `bindings = "bin"`).
 
-**Opt-in extras — `full-extras` (out of every deployment tier).** A separate umbrella
-for heavy legs that need an external toolchain/GPU/robotics stack to actually *run* but
-still build clean everywhere: `gpu-cuda` (real CUDA via `dynamic-loading` cudarc,
-EG-326/327), `ros2-bridge` (rosbridge-WebSocket ROS2 leg, EG-325 — pure-Rust
-`tokio-tungstenite`), and `ros2-dds` (**native DDS/RTPS ROS2 leg, EG-347** — pure-Rust
-`rustdds`, NO CycloneDDS/rmw/C toolchain, so it CI-builds; the `DdsTransport` trait in
-`src/server/dds.rs` unifies the WS + DDS legs behind one interface). NEVER folded into
-`pi`/`default`/`node`/`full` — a `pi`/`full` build links no cudarc/rustdds (asserted by
+**Opt-in build layer — `full-extras` (main build + GPU/robotics).** An umbrella
+(`full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds"]`) for heavy legs that
+need an external toolchain/GPU/robotics stack to actually *run* but still build clean
+everywhere: `gpu-cuda` (real CUDA via `dynamic-loading` cudarc, EG-326/327),
+`ros2-bridge` (rosbridge-WebSocket ROS2 leg, EG-325 — pure-Rust `tokio-tungstenite`),
+and `ros2-dds` (**native DDS/RTPS ROS2 leg, EG-347** — pure-Rust `rustdds`, NO
+CycloneDDS/rmw/C toolchain, so it CI-builds; the `DdsTransport` trait in
+`src/server/dds.rs` unifies the WS + DDS legs behind one interface). NOT in the main
+build — a `default`/`full` build links no cudarc/rustdds (asserted by
 `cargo tree`). The CycloneDDS-C-backed `rmw` ROS2 leg stays a toolchain-gated future
 option (not CI-buildable without the C toolchain). Robotics config: `ros2-dds` reads the
 DDS domain from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`).
@@ -543,7 +549,7 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_OTLP_ENDPOINT` | **OpenTelemetry OTLP span export (CONCEPT:EG-091, feature `otel`).** When set (e.g. `http://127.0.0.1:4317`) AND the binary is built `--features otel`, a `tracing-opentelemetry` batch span exporter is layered ON TOP of the existing `tracing` subscriber, exporting the spans the engine already emits to the OTLP/gRPC collector. **Unset, or a build without `otel`, ⇒ no exporter is installed** (the fmt-only subscriber is byte-for-byte unchanged; zero overhead). A bad endpoint logs a warning and falls back to stdout-only tracing — it never blocks startup |
 | `EPISTEMIC_GRAPH_SLOW_QUERY_MS` | **Slow-query log threshold, milliseconds (CONCEPT:EG-091).** When set to a positive integer, any query (SQL / Cypher / SPARQL / UnifiedQuery over the RPC path, and pgwire SQL) whose end-to-end execution meets/exceeds this many ms is emitted as a structured `tracing::warn!` (target `epistemic_graph::slow_query`) with the query kind, truncated query text, elapsed ms, and — where available — the plan op count. Also increments the `epistemic_graph_slow_query_total` Prometheus counter (feature `metrics`). **Absent / `0` / invalid ⇒ disabled** (the only hot-path cost is a single cached-threshold compare) |
 | `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | Encryption-at-rest key material (CONCEPT:KG-2.231, feature `security`). When set, the redb durable **value** blobs (node/edge property + semantic store) are sealed with a pure-Rust ChaCha20-Poly1305 AEAD (RustCrypto — NO ring/openssl) — raw `.redb` bytes hold no plaintext properties. Keys stay plaintext so range scans work. **Default OFF / opt-in** (changes the on-disk format). `ValueCipher::from_env` is the KMS hook seam (swap it for a data-key fetch). A wrong key fails the read (never silent plaintext) |
-| `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` | **SPARQL SERVICE federation allowlist (CONCEPT:EG-052, feature `sparql-service`).** Comma-separated set of allowed endpoint hosts / `scheme://host:port` origins the `/sparql` endpoint may delegate a `SERVICE <ep> { … }` clause to. **Default empty/unset ⇒ SERVICE DISABLED (fail-closed)**: no remote client is bound, so a non-SILENT SERVICE errors (a `SERVICE SILENT` yields the empty solution). A host that resolves to a loopback/link-local/RFC-1918 (or unique-local IPv6) address is refused unless the allowlist names that exact IP literal (SSRF guard). The client rides the SAME pure-Rust rustls `ureq` stack `federation` links (no new dep; a `--features pi` build carries none of it), with bounded connect/read timeouts + a response-size cap |
+| `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` | **SPARQL SERVICE federation allowlist (CONCEPT:EG-052, feature `sparql-service`).** Comma-separated set of allowed endpoint hosts / `scheme://host:port` origins the `/sparql` endpoint may delegate a `SERVICE <ep> { … }` clause to. **Default empty/unset ⇒ SERVICE DISABLED (fail-closed)**: no remote client is bound, so a non-SILENT SERVICE errors (a `SERVICE SILENT` yields the empty solution). A host that resolves to a loopback/link-local/RFC-1918 (or unique-local IPv6) address is refused unless the allowlist names that exact IP literal (SSRF guard). The client rides the SAME pure-Rust rustls `ureq` stack `federation` links (no new dep; both are in the main build), with bounded connect/read timeouts + a response-size cap |
 | `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
 ---

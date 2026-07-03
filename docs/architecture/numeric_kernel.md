@@ -65,14 +65,14 @@ Feature discipline (the Pi contract):
 
 | build | pulls eg-numeric? | faer/ndarray? | pyo3? |
 |-------|:---:|:---:|:---:|
-| `--features pi` / `pi-max` / `node` / default | ❌ | ❌ | ❌ |
-| `--features full` (→ `numeric`) | ✅ (rlib) | ✅ | ❌ |
+| `--no-default-features --features server` (lib/minimal) | ❌ | ❌ | ❌ |
+| default / `--features full` (→ `numeric`) | ✅ (rlib) | ✅ | ❌ |
 | `maturin ... -m crates/eg-numeric/Cargo.toml --features python` | ✅ (cdylib) | ✅ | ✅ |
 
-- The top-level `numeric` cargo feature (`numeric = ["dep:eg-numeric"]`) is in `full`
-  only — **out of `pi`/`pi-max`/`node`** and the size-optimized `release-tiny` profile,
-  so faer/ndarray never bloat the lean Raspberry-Pi tier. Verified:
-  `cargo tree --no-default-features --features pi` links **no** eg-numeric/faer/ndarray.
+- The top-level `numeric` cargo feature (`numeric = ["dep:eg-numeric"]`) is part of the
+  one main build (`default`/`full`), so a full-featured engine links the pure faer/ndarray
+  kernel. A minimal `--no-default-features --features server` build links **no**
+  eg-numeric/faer/ndarray.
 - pyo3 is behind eg-numeric's **own** `python` feature (off in every engine build), so a
   `numeric` engine build links the kernel rlib but **no Python extension** — the Plan-01
   "no Python extension in the engine binary" contract holds (`scripts/check_no_pyo3.sh`
@@ -146,8 +146,8 @@ kernel. With the kernel present:
 — the server binary, no pyo3) even though both ship in one wheel.
 `scripts/check_no_pyo3.sh` guards the *facade* (`src/`, `epistemic_graph/`, top-level
 `Cargo.toml`/`pyproject.toml`) and never scans `crates/`, and the Pi contract holds unchanged
-— `cargo tree --features pi | grep -ci pyo3` = 0 (pyo3 is only ever pulled by eg-numeric's own
-`python` feature, which no engine tier enables). The folded `.so` is named `numeric.abi3.so`,
+— `cargo tree | grep -ci pyo3` = 0 (pyo3 is only ever pulled by eg-numeric's own
+`python` feature, which no engine build enables). The folded `.so` is named `numeric.abi3.so`,
 which the guard's `epistemic_graph/epistemic_graph*.so` / `_epistemic_graph*.so` patterns do
 not match, and it exists only in the built wheel, never in the source tree.
 
@@ -244,10 +244,9 @@ handler `#[cfg(feature = "numeric")]`) L2-normalizes a batch in-engine via
 
 **Feature wiring & Pi-contract.** eg-query gains a `numeric` feature (`["sql", "dep:eg-numeric",
 "dep:ndarray"]`); the engine's top-level `numeric = ["dep:eg-numeric", "eg-query?/numeric"]`
-turns the SQL operators on whenever the query surface is also built (i.e. `full`). `numeric`
-stays OUT of `pi`/`node`/`pi-max`/`release-tiny`, and eg-numeric's pyo3 (`python`) feature is
-off in every engine build, so a `numeric` engine links faer/ndarray but **no Python extension**.
-Verified: `cargo tree --no-default-features --features pi` links **no** eg-numeric/faer/ndarray.
+turns the SQL operators on whenever the query surface is also built (i.e. the main build).
+eg-numeric's pyo3 (`python`) feature is off in every engine build, so a `numeric` engine links
+faer/ndarray but **no Python extension**. Verified: `cargo tree | grep -ci pyo3` = 0.
 
 **Shipped this increment:** `kmeans(vec_col, k)` (EG-344) — the clustering column→matrix UDAF,
 backed by a new pure-Rust `eg-numeric::cluster` k-means kernel (Lloyd + k-means++, NO linfa) —

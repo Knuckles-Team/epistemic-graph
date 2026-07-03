@@ -2,13 +2,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Production server image for the epistemic-graph DB engine (CONCEPT:OS-5.64).
 #
-# This image INSTALLS THE PREBUILT `node`-tier wheel — it does NOT compile Rust.
+# This image INSTALLS THE PREBUILT main wheel — it does NOT compile Rust.
 # The wheel (maturin `bindings = "bin"`) ships the `epistemic-graph-server` binary,
 # which IS the whole product: pure Rust, no Python runtime code, no PyO3. The `node`
 # tier is a COMPLETE single-node DB — durable redb-authoritative store + cypher +
 # SQL/DataFusion + GraphQL + ann + tsdb + blob + text + the compute domains + the
 # Postgres-wire listener (pgwire, CONCEPT:KG-2.189 / EG-352) — with NO raft (single
-# node). The published default wheel is exactly this `node` tier (pyproject
+# node). The published default wheel is exactly this one main build (pyproject
 # `[tool.maturin] features = ["node", "ast-extended"]`).
 #
 # Following the agents/* fleet standard, the package is pulled from PyPI with `uv`
@@ -39,10 +39,10 @@ FROM python:3.11-slim AS runtime
 COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /bin/
 
 LABEL org.opencontainers.image.title="epistemic-graph" \
-      org.opencontainers.image.description="Durable Rust-native epistemic graph DB engine (node tier — pgwire-capable single-node)" \
+      org.opencontainers.image.description="Durable Rust-native epistemic graph DB engine (the one main full-featured single-node build)" \
       org.opencontainers.image.source="https://github.com/Knuckles-Team/epistemic-graph"
 
-# The node-tier package + its minimum version. CI passes the exact release version via
+# The main published package + its minimum version. CI passes the exact release version via
 # --build-arg EG_VERSION=<tag without v>. The PRIMARY install source is a LOCAL WHEEL
 # built in the same CI run (see EG_WHEEL_DIR / the install step below) — the image does
 # NOT round-trip through PyPI, so it can build the moment the wheels are built (no
@@ -51,7 +51,7 @@ LABEL org.opencontainers.image.title="epistemic-graph" \
 ARG EG_VERSION=2.6.0
 ARG EG_INSTALL_SPEC="epistemic-graph>=${EG_VERSION}"
 # Directory (relative to the build context) holding CI-built wheels. CI downloads the
-# `wheel-linux-x86_64` + `wheel-linux-aarch64` node-tier artifacts here; the install
+# `wheel-linux-x86_64` + `wheel-linux-aarch64` main-build artifacts here; the install
 # step picks the wheel matching this buildx platform leg (TARGETARCH). For a plain
 # build this dir holds only `.gitkeep`, so the step falls back to EG_INSTALL_SPEC.
 ARG EG_WHEEL_DIR=docker/wheels
@@ -80,7 +80,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY ${EG_WHEEL_DIR}/ /wheels/
 
 # Install the prebuilt wheel — seconds, no compile. PRIMARY: install the arch-matching
-# node-tier wheel built in THIS CI run (from /wheels). FALLBACK: if no matching wheel is
+# main wheel built in THIS CI run (from /wheels). FALLBACK: if no matching wheel is
 # present (plain build), install EG_INSTALL_SPEC from PyPI. `--prerelease=allow` matches
 # the fleet standard. Smoke the binary in-build so a broken install fails the image build.
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -151,7 +151,7 @@ ENTRYPOINT ["/bin/sh", "-c", "exec epistemic-graph-server --tcp-addr \"${GRAPH_S
 #     -v eg-data:/var/lib/epistemic-graph/data \
 #     <registry>/epistemic-graph:<tag>
 #
-# (The node-tier wheel is a COMPLETE single-node DB incl. the Postgres wire shim.
-#  For in-engine-Raft HA replication — CONCEPT:KG-2.188 — build the `cluster` tier
+# (The main wheel is a COMPLETE single-node DB incl. the whole wire family.
+#  For in-engine-Raft HA replication — CONCEPT:KG-2.188 — build the `cluster` layer
 #  from source; see docs/deployment.md.)
 # ─────────────────────────────────────────────────────────────────────────────

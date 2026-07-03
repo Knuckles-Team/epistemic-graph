@@ -131,10 +131,15 @@ jobs:
           - { name: 'crate-eg-core',    flags: '-p eg-core --all-features' }
           - { name: 'crate-eg-compute', flags: '-p eg-compute --all-features' }
           - { name: 'slim-lib',         flags: '--no-default-features --features graph,algorithms' }
+          # CONCEPT:EG-359 — tiers collapsed: `default` IS the main full-featured build,
+          # so `default` and `full` build the same thing (kept as two rows for clarity).
           - { name: 'default',          flags: '' }
           - { name: 'minimal-server',   flags: '--features server' }
           - { name: 'compute',          flags: '--features compute' }
-          - { name: 'full',             flags: '--features full' }
+          - { name: 'full',             flags: '--no-default-features --features full' }
+          # The two OPT-IN build layers on top of the main build must also stay green.
+          - { name: 'cluster',          flags: '--no-default-features --features cluster' }
+          - { name: 'full-extras',      flags: '--no-default-features --features full-extras' }
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

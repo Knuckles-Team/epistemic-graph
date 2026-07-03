@@ -59,7 +59,22 @@ path = "examples/embedded.rs"
 required-features = ["embedded"]
 
 [features]
-default = ["graph", "algorithms", "metrics"]
+# ── ONE main build (CONCEPT:EG-359) ──
+# The DEFAULT build IS the full-featured build. There is no longer a pi/pi-max/node
+# tier distinction: `cargo build` (and the single published wheel) links ALL MAIN
+# features that build without an external toolchain/GPU — compute, the Tokio server,
+# SQL (query/DataFusion), Cypher, GraphQL, redb-authoritative durability, ANN vectors,
+# RDF/SPARQL/OWL reasoning, the security stack, and the whole hand-rolled wire family
+# (pgwire/mysql/mssql/sqlite/bolt/redis/amqp/mqtt/stomp). It targets Raspberry Pi 4+
+# (NOT Pi 3). Two OPT-IN layers stack ON TOP and are NOT published as separate wheels:
+#   * `cluster`     — openraft HA replication + distributed compute (multi-node).
+#   * `full-extras` — the real CUDA + ROS2/DDS backends (need a GPU/robotics toolchain
+#                     to RUN; build clean everywhere via dynamic-loading).
+# INVARIANTS still enforced (the retired-DataFusion Pi contract, now Pi-4+): NO Python
+# extension bindings in any build (`bindings="bin"`, gated by the no-extension source/binary
+# CI check), NO openraft in the default build (cluster-only), NO cudarc/rustdds in the
+# default build (full-extras-only) — asserted by `cargo tree`.
+default = ["graph", "algorithms", "metrics", "full"]
 
 graph = []
 algorithms = []
@@ -644,11 +659,13 @@ ros2-dds = ["server", "streaming", "dep:rustdds", "dep:futures"]
 # by `cargo tree --features pi`).
 gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu"]
 gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda"]
-# Convenience umbrella for the heavy OPT-IN extras that require an external toolchain/GPU to
-# actually RUN (but build clean everywhere via dynamic-loading): the real CUDA backends +
-# the rosbridge ROS2 bridge. NEVER folded into pi/default/node/full — an extras-only bundle
-# for the CI extras builder / a GPU/robotics deployment.
-full-extras = ["gpu-cuda", "ros2-bridge", "ros2-dds"]
+# Opt-in umbrella (CONCEPT:EG-359) = the ONE main build (`full`) PLUS the heavy extras that
+# require an external toolchain/GPU to actually RUN (but build clean everywhere via
+# dynamic-loading): the real CUDA backends + the rosbridge ROS2 bridge + native DDS/RTPS.
+# This is a build LAYER on top of the main build for a GPU/robotics deployment — NOT folded
+# into `default`/`full` and NOT published as its own wheel. The default/main build links NO
+# cudarc/rustdds (asserted by `cargo tree`).
+full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
@@ -684,14 +701,19 @@ shacl = ["rdf", "dep:eg-shacl"]
 # OUT of `pi`.
 shex = ["rdf", "dep:eg-shex"]
 compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
-# `full`/`all` deliberately stay SINGLE-NODE: raft is NOT folded in, so a `full`
-# build links no openraft (matching the tier intent — replication is cluster-only).
-# Consequently `compute-dist` (which NEEDS raft for cross-shard supersteps) is NOT in
-# `full` either — it ships only in `cluster`. `wasm-udf` IS folded in (node/cluster/
-# full carry the WASM UDF runtime). `pgwire` IS folded in (CONCEPT:EG-352 — the pure-Rust
-# Postgres wire shim; `full` already carries `query`/DataFusion, so a `full` build is a
-# complete pgwire-capable single-node DB). `redb` IS folded in (CONCEPT:KG-2.195 — THE FLIP)
-# so the standard full/all build is authoritative-by-default just like pi/node/cluster.
+# `full`/`all`/`default` = THE ONE MAIN BUILD (CONCEPT:EG-359). It deliberately stays
+# SINGLE-NODE: raft is NOT folded in, so a `full` build links no openraft (replication
+# is the opt-in `cluster` layer). Consequently `compute-dist` (which NEEDS raft for
+# cross-shard supersteps) is NOT in `full` either — it ships only in `cluster`. Every
+# other MAIN feature that builds without an external GPU/robotics toolchain IS folded in
+# here: the whole hand-rolled wire family (pgwire — CONCEPT:EG-352 — PLUS the pure-Rust
+# mysql/mssql/sqlite/bolt/redis/amqp/mqtt/stomp listeners, formerly cluster-only), the
+# observability egress (`otel-export`), the compressed KV-cache warm tier
+# (`kvcache-compression`) and the redb-persisted ANN codes (`ann-redb`). `redb` IS folded
+# in (CONCEPT:KG-2.195 — THE FLIP) so the standard build is authoritative-by-default.
+# What stays OUT of the main build (explicit opt-in only): openraft/`raft` (the `cluster`
+# layer), `gpu-cuda`/`ros2-bridge`/`ros2-dds` (the `full-extras` layer), the object-store
+# SDK legs (`blob-s3`/`cold-tier-s3`), and `calvin` (opt-in per-call, needs raft).
 # Engine-level security (CONCEPT:KG-2.231, Lane O): per-agent Row-Level Security
 # (the read/plan-path view filter), encryption-at-rest for the redb durable value
 # blobs, and a hash-chained tamper-evident audit log over the ledger. PURE-RUST end
@@ -702,50 +724,32 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "numeric", "sqlite-file"]
+full = ["compute", "server", "query", "cypher", "graphql", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file"]
 all = ["full"]
 
-# ── Pi ↔ Cluster deployment tier bundles ──
-# Convenience feature sets spanning the deployment spectrum. `pi` is the lean
-# durable in-memory build with NO DataFusion (Raspberry-Pi contract) — but it
-# DOES carry the dep-free `cypher` query surface (CONCEPT:KG-2.179): Cypher is a
-# hard requirement of the Pi tier and links no DataFusion. `node` layers SQL +
-# compute on top; `cluster` is `node` + in-engine Raft replication
-# (CONCEPT:KG-2.188). A sibling track (M8) also extends `cluster` with `pgwire`;
-# an integration step unions them — keep the raft part here.
+# ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:EG-359) ──
+# The former `pi` / `pi-max` / `node` deployment tiers are GONE — they existed only to
+# STRIP heavy deps (DataFusion, etc.) for a tiny Pi-3 binary, at the cost of every tier
+# sharing the SAME wheel filename (only one could publish to PyPI). The main build
+# (`default` == `full`) now carries every MAIN feature; these two bundles are the ONLY
+# things layered ON TOP, selected explicitly at build time and NEVER published as their
+# own wheel:
 #
-# Lane-W (CONCEPT:KG-2.217/218) lands PURE-RUST `rdf` + `sparql`
-# (oxrdf/oxttl/spargebra — no native deps) and a `text` (Tantivy, C dep) surface.
-# Those lanes are now merged to this base, so the tier wiring is FINALIZED here:
-#   * `pi`  carries `rdf` + `sparql` (pure-Rust, Pi-safe — ships native RDF/SPARQL on
-#     the Pi-3 tier). NOT `text` (Tantivy's C dep must stay out of `pi`). The Pi
-#     contract still holds: `--features pi` links NO DataFusion / openraft / Tantivy.
-#   * `node`/`full` carry `rdf` + `sparql` + `text` (via `rdf-redb`/`sparql`/`text`).
-pi = ["server", "graph", "algorithms", "redb", "cypher", "ann", "rdf", "sparql", "owl", "streaming", "result-cache", "cold-tier", "cost"]
-# `node` is the SINGLE-NODE durable DB tier. It carries `pgwire` (CONCEPT:EG-352 /
-# KG-2.189): pgwire is pure-Rust and node already links `query`/DataFusion, so the
-# published `node` wheel is a COMPLETE Postgres-wire-capable single-node DB (no raft).
-node = ["pi", "query", "graphql", "reasoning", "finance", "datascience", "ast", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "owl-dl", "owl-plan", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "geo", "tensor", "stream", "shacl", "otel", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "broker", "sqlite-file"]
-# `cluster` = `node` + in-engine Raft replication (CONCEPT:KG-2.188, M7b) + distributed
-# graph compute (CONCEPT:KG-2.227, `compute-dist` — the cross-shard Pregel engine, which
-# needs the multi-Raft groups) + the multi-wire served surface (sqlite/mysql/mssql/amqp/
-# mqtt/stomp/bolt/redis). The Postgres wire shim (CONCEPT:KG-2.189, M8) is now inherited
-# via `node` (pgwire moved single-node-ward — it is pure-Rust over the SQL path node
-# already carries, CONCEPT:EG-352), so it is no longer listed explicitly here.
-cluster = ["node", "raft", "compute-dist", "nonblocking", "sqlite-wire", "mysql-wire", "mssql-wire", "amqp-wire", "mqtt-wire", "stomp-wire", "bolt-wire", "redis-wire"]
-# `pi-max` = the genuinely-Pi-3-friendly MAXIMAL build: every PURE-RUST feature that
-# fits a Pi WITHOUT a C toolchain and WITHOUT DataFusion. It is `pi` (server + graph +
-# algorithms + redb + cypher + ann + rdf + sparql + owl + streaming + result-cache +
-# cold-tier + cost) PLUS the remaining pure-Rust, no-DataFusion features: `tsdb`
-# (native time-series, redb-backed, NO DataFusion), `blob` (native redb CAS, NO
-# object_store SDK), and `security` (RLS + audit chain + ChaCha20-Poly1305
-# encryption-at-rest, all RustCrypto pure-Rust — NO ring/openssl/C). It deliberately
-# EXCLUDES `query`/`graphql` (DataFusion), `text` (Tantivy/zstd-sys C dep), `pgwire`,
-# `raft`/`openraft`, `wasm-udf` (wasmtime/cranelift), `federation` (rustls/ring),
-# `blob-s3`/`cold-tier-s3`/`compute-dist`. The Pi contract holds: a `--features pi-max`
-# build links NO datafusion / tantivy / openraft / pgwire / ring / openssl / zstd-sys /
-# C-toolchain dep (asserted by `cargo tree`). It sits between `pi` and `full`.
-pi-max = ["pi", "tsdb", "blob", "security"]
+#   * `cluster`     — the main build PLUS in-engine Raft replication (CONCEPT:KG-2.188)
+#                     + distributed graph compute (CONCEPT:KG-2.227, `compute-dist` — the
+#                     cross-shard Pregel engine over the multi-Raft groups) + non-blocking
+#                     cross-shard commit (`nonblocking`). This is HA / multi-node: it pulls
+#                     openraft, which the single-node main build deliberately does NOT.
+#   * `full-extras` — the main build PLUS the real CUDA (`gpu-cuda`) + ROS2 bridge/DDS
+#                     (`ros2-bridge`/`ros2-dds`) backends. They build clean everywhere via
+#                     dynamic-loading but need a GPU / robotics toolchain to actually RUN.
+#                     (`full-extras` is defined next to `gpu-cuda`/`ros2-dds` above.)
+#
+# INVARIANTS (asserted by `cargo tree`): the main/default build links NO openraft
+# (cluster-only) and NO cudarc/rustdds (full-extras-only). It DOES link DataFusion now
+# (query is a main feature) — the old "no-DataFusion Pi contract" is retired; the build
+# targets Raspberry Pi 4+, not Pi 3.
+cluster = ["full", "raft", "compute-dist", "nonblocking"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }

@@ -36,10 +36,10 @@ exact same in-engine kernel as the native RPC path. This is proven end-to-end in
 `exec_sql_typed_with_tables` (the wire read path) **and** `exec_sql` (the RPC path) and
 asserts identical results.
 
-Everything here is gated behind eg-query's `numeric` cargo feature (implied by the engine's
-`numeric`/`full` features). It is **out of the Pi contract**: a `pi`/`pi-max`/`node` build
-links neither `eg-numeric` nor `faer` (`cargo tree --features pi | grep -ciE
-'eg-numeric|faer|ndarray'` = 0).
+Everything here is gated behind eg-query's `numeric` cargo feature (part of the engine's one
+main build, `default`/`full`). A minimal `--no-default-features --features server` build links
+neither `eg-numeric` nor `faer`; the engine binary never links pyo3 (`cargo tree | grep -ci pyo3`
+= 0).
 
 ## Catalog — kernel-backed analytical functions (`eg-numeric`)
 

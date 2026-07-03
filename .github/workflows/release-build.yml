@@ -1,12 +1,16 @@
 name: Release Build (wheels + multi-arch image)
 
-# Cross-platform native build matrix for epistemic-graph (CONCEPT:OS-5.64).
+# Cross-platform native build matrix for epistemic-graph (CONCEPT:OS-5.64 / EG-359).
 #
-# BUILDS native `epistemic-graph-server` wheels for every supported
-# platform×arch, plus a multi-arch Docker DB image — and smoke-tests each leg
-# (`epistemic-graph-server --help`). Runs on every push/PR and on tags.
+# BUILDS ONE native `epistemic-graph-server` wheel per platform×arch — the SINGLE
+# main full-featured build (CONCEPT:EG-359: `default` == `full`) — plus a multi-arch
+# Docker DB image, and smoke-tests each leg (`epistemic-graph-server --help`). Runs on
+# every push/PR and on tags. There are no longer any pi/pi-max/node/full-tiny tier legs:
+# the tiers were collapsed into one main build, which also removes the old wheel-filename
+# collision (every tier shared `epistemic_graph-<ver>-py3-none-<platform>`, so only one
+# could publish). ONE tier ⇒ ONE wheel ⇒ it publishes cleanly.
 #
-# The multi-arch Docker DB image INSTALLS THE `node`-tier WHEEL BUILT IN THIS SAME RUN
+# The multi-arch Docker DB image INSTALLS THE MAIN WHEEL BUILT IN THIS SAME RUN
 # (the `wheel-linux-*` artifacts, selected per-arch by the Dockerfile) via `uv` — no
 # cargo compile in the image AND no PyPI round-trip. It therefore depends only on the
 # `wheels` job, NOT on `publish-pypi`, so a broken/late PyPI publish can no longer break
@@ -34,12 +38,15 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # Default wheel tier (the `node` auto-bundled engine). The pi-lean recipe is the
-  # separate `wheels-pi` leg below.
-  MATURIN_FEATURES: "node,ast-extended"
+  # The ONE main build (CONCEPT:EG-359): `full` = all MAIN features that build without an
+  # external GPU/robotics toolchain, plus `ast-extended` for the complete code-parsing
+  # grammar tier. `cluster` (raft HA) and `full-extras` (GPU/ROS2) are opt-in build layers,
+  # NOT published wheels.
+  MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
-  # ── Native wheels: linux x86_64 + aarch64, macOS x86_64 + arm64, windows x86_64
+  # ── The ONE main wheel (CONCEPT:EG-359): linux x86_64 + aarch64, the full-featured
+  #    `default`/`full` build. ONE tier ⇒ ONE wheel per platform (no more per-tier legs).
   wheels:
     name: wheel ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
@@ -142,84 +149,12 @@ jobs:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
 
-  # ── Leaner Raspberry-Pi tier wheels (no DataFusion / openraft — the Pi contract).
-  #    Two legs: the ultra-lean `pi` and the pure-Rust maximal `pi-max` (pi + tsdb +
-  #    blob + security; still NO DataFusion / Tantivy / openraft / C-toolchain dep).
-  wheels-pi:
-    name: wheel linux-aarch64-${{ matrix.tier }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        tier: [pi, pi-max]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Build Pi-tier wheel (${{ matrix.tier }})
-        uses: PyO3/maturin-action@v1
-        with:
-          target: aarch64-unknown-linux-gnu
-          manylinux: '2_28'
-          # --profile release-tiny = size-optimized (opt-level z, fat LTO, strip);
-          # maturin forwards it to cargo. --no-default-features so only the tier
-          # bundle is selected (the [tool.maturin] default must NOT union on top).
-          args: >-
-            --out dist
-            --profile release-tiny
-            --no-default-features
-            --features ${{ matrix.tier }},ast-extended
-          sccache: 'true'
-      - name: Upload Pi wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheel-linux-aarch64-${{ matrix.tier }}
-          path: dist/*.whl
-
-  # ── "Contains-all smallest" wheels: the `full` tier built with the size-optimized
-  #    release-tiny profile, linux x86_64 + aarch64. A single binary with every
-  #    single-node feature (query/cypher/graphql/redb/ann/tsdb/blob/text/sparql/rdf/
-  #    owl/streaming/wasm-udf/security/federation/result-cache/cold-tier/cost), built
-  #    smallest. Cross-built in CI so the target host never compiles the C deps.
-  wheels-full-tiny:
-    name: wheel ${{ matrix.name }}-full-tiny
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x86_64
-            target: x86_64-unknown-linux-gnu
-          - name: linux-aarch64
-            target: aarch64-unknown-linux-gnu
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Build contains-all (full) size-optimized wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          manylinux: '2_28'
-          args: >-
-            --out dist
-            --profile release-tiny
-            --no-default-features
-            --features full,ast-extended
-          sccache: 'true'
-      - name: Upload full-tiny wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheel-${{ matrix.name }}-full-tiny
-          path: dist/*.whl
+  # NOTE (CONCEPT:EG-359): the old pi/pi-max tier wheels (`wheels-pi`) and the
+  # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
+  # existed only because the deployment tiers produced DIFFERENT binaries that all shared
+  # the SAME wheel filename (`epistemic_graph-<ver>-py3-none-<platform>`), so only one
+  # could ever publish. The tiers are collapsed into ONE main build (the `wheels` job
+  # above), which is what publishes — no more per-tier legs, no more filename collision.
 
   # ── sdist (source distribution) for pip fallback builds
   sdist:
@@ -236,7 +171,7 @@ jobs:
           path: dist/*.tar.gz
 
   # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
-  # Surface-A pyo3 `.so` is FOLDED INTO the `epistemic-graph` node wheel in the
+  # Surface-A pyo3 `.so` is FOLDED INTO the `epistemic-graph` main wheel in the
   # `wheels` job above (see "Fold the eg-numeric Surface-A kernel INTO this same
   # wheel"), so `pip install epistemic-graph[numeric]` provides
   # `epistemic_graph.numeric` from ONE published package. The old `wheels-numeric` +
@@ -246,7 +181,7 @@ jobs:
   # doesn't publish.
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
-  #    The image INSTALLS THE `node`-tier WHEEL BUILT IN THIS SAME RUN (downloaded
+  #    The image INSTALLS THE MAIN WHEEL BUILT IN THIS SAME RUN (downloaded
   #    from the `wheel-linux-*` artifacts into docker/wheels/, selected per-arch by the
   #    Dockerfile) — NO PyPI round-trip — so it depends only on `wheels`, NOT on
   #    publish-pypi. The Dockerfile's in-build `epistemic-graph-server --help` is the
@@ -294,15 +229,13 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    # ONE published package: only the epistemic-graph wheels (the `node` wheel carries
-    # the folded-in numeric kernel) + the sdist. The old `eg-numeric` publish legs are
-    # gone — their re-upload of an existing `eg-numeric==0.1.0` used to abort the whole
-    # `twine upload dist/*` batch and starve the epistemic-graph upload.
-    # Only the node-tier wheels + sdist publish to PyPI. The pi/pi-max/full-tiny tier
-    # wheels share the SAME filename (epistemic_graph-<ver>-py3-none-<platform>) as node,
-    # so they cannot coexist on PyPI — and only the node wheel carries the folded numeric
-    # kernel. They stay CI artifacts for direct/edge install; PyPI ships node (the complete
-    # single-node DB) + the sdist.
+    # ONE published package (CONCEPT:EG-359): the single main `epistemic-graph` wheel per
+    # platform (x86_64 + aarch64, carrying the folded-in numeric kernel) + the sdist. Now
+    # that the pi/pi-max/node/full-tiny tier legs are gone, there is exactly ONE wheel per
+    # platform — the old wheel-filename collision (every tier shared
+    # `epistemic_graph-<ver>-py3-none-<platform>`, so only one could publish) is moot. The
+    # old `eg-numeric` publish legs are also gone — their re-upload of an existing
+    # `eg-numeric==0.1.0` used to abort the whole `twine upload dist/*` batch.
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT publish.
@@ -310,10 +243,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      # Download ONLY the node-tier wheels (x86_64 + aarch64) — they carry the folded
-      # numeric kernel. Pulling only node guarantees the kernel-bearing wheel is what
-      # lands on PyPI (the tier wheels share filenames, so a glob could otherwise win a
-      # kernel-less wheel).
+      # Download the main wheels (x86_64 + aarch64) — they carry the folded numeric
+      # kernel. With the tiers collapsed there is exactly ONE wheel per platform, so
+      # there is no longer any filename-shadowing risk between tier wheels.
       - uses: actions/download-artifact@v4
         with:
           name: wheel-linux-x86_64
@@ -393,14 +325,14 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      # Pull the same node-tier wheels into the context so the pushed image is built
+      # Pull the same main wheels into the context so the pushed image is built
       # from the CI artifact (no PyPI round-trip), matching docker-image.
-      - name: Download node-tier wheel (amd64)
+      - name: Download main wheel (amd64)
         uses: actions/download-artifact@v4
         with:
           name: wheel-linux-x86_64
           path: docker/wheels
-      - name: Download node-tier wheel (arm64)
+      - name: Download main wheel (arm64)
         uses: actions/download-artifact@v4
         with:
           name: wheel-linux-aarch64

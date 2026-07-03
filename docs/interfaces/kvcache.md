@@ -7,7 +7,7 @@ ANN stores fixed-dimension embedding vectors; the KV-cache stores opaque attenti
 a token-hash.
 
 > Status snapshot: the tiered store (EG-185), the shared multi-instance backend (EG-186), and the HTTP
-> server + vLLM/LMCache connector (EG-187) are shipped. Pure-Rust, out of the lean `pi` tier. See the
+> server + vLLM/LMCache connector (EG-187) are shipped. Pure-Rust, in the one main build. See the
 > [capability matrix](../capabilities.md).
 
 ## Where the engine sits: the caching levels (L0 GPU → L1 CPU → L2 engine)

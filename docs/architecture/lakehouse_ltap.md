@@ -7,7 +7,7 @@ engines read the engine's own tables as open **Parquet + Delta/Iceberg** with **
 still land through the one ACID write path.
 
 This is the `eg-lake` crate (CONCEPT:EG-317), gated behind the `lake` feature (`arrow`/`parquet` +
-delta/iceberg deps), **out of the lean `pi` tier**.
+delta/iceberg deps), an **opt-in feature (not in the default build)**.
 
 > Positioning: this is what makes the engine a drop-in in front of a **Databricks / Spark / Trino / DuckDB**
 > lakehouse — the tables it serves over pgwire/native are *also* an open-format lake the analytical engines
@@ -76,7 +76,7 @@ flowchart LR
 | **L**akehouse interop | **eg-lake (EG-317)**: Parquet + Delta + Iceberg + LSN as-of + Iceberg-REST catalog — external engines read with zero ETL |
 
 The write path is unchanged and stays the single source of truth; `eg-lake` is a **read-side, additive**
-projection. A default/`pi`/`node`/`full` build that does not enable `lake` (or set the catalog address) is
+projection. A build that does not enable the opt-in `lake` feature (or set the catalog address) is
 byte-for-byte the prior engine.
 
 ---
