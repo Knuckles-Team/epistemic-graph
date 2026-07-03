@@ -22,22 +22,33 @@
 //!   `partition-spec-id`, `format-version`, `content`) sit in the Avro file header.
 //! * The `manifest_file` records carry the v2 `content` / `sequence_number` /
 //!   `min_sequence_number` / added·existing·deleted file & row counts.
-//! * **Deferred (documented):** per-column stats (`column_sizes`, `value_counts`,
-//!   `null_value_counts`, `lower_bounds`, `upper_bounds`) and partition `field_summary`
-//!   bounds are OMITTED — the engine's `SnapshotLog` (EG-317) tracks only per-file
-//!   `record_count` + `file_size`, and the crate materializes an UNPARTITIONED spec
-//!   (`partition-spec` = `[]`), so these optional fields are legitimately absent rather
-//!   than wrong. Container codec is Avro **null** (uncompressed) — universally readable.
+//! * **Per-column stats (CONCEPT:EG-350):** the `data_file` now carries the Iceberg
+//!   stats maps — `column_sizes` (108), `value_counts` (109), `null_value_counts`
+//!   (110), `nan_value_counts` (137), `lower_bounds` (125) and `upper_bounds` (128),
+//!   each an Avro `logicalType: map` (array of key/value records) keyed by the column's
+//!   Iceberg field-id. Bounds are the column min/max serialized to Iceberg single-value
+//!   **binary** (little-endian scalars; raw UTF-8 for strings). Gathered as the file is
+//!   materialized ([`crate::parquet_io::materialize_with_column_stats`]) and carried on
+//!   the [`FileEntry`]; a reader (Spark/Trino) uses the bounds to **skip whole files**.
+//!   A file recorded without stats (bare `record_file`) emits the maps as null.
+//! * **Partition `field_summary`:** eg-lake materializes an UNPARTITIONED spec
+//!   (`partition-spec` = `[]`), so the `manifest_file.partitions` list has ZERO
+//!   entries (one `field_summary` per partition-spec field, of which there are none) —
+//!   it is correctly emitted as null, NOT stubbed. Data-file lower/upper bounds are the
+//!   file-skipping mechanism that actually applies to an unpartitioned table.
+//! * Container codec is Avro **null** (uncompressed) — universally readable.
 
 use apache_avro::types::Value as AvroValue;
 use apache_avro::{Reader, Schema, Writer};
 
 use crate::iceberg::{iceberg_schema, manifest_file_path, manifest_list_path};
-use crate::schema::LakeSchema;
-use crate::snapshot::{FileEntry, Lsn, SnapshotLog};
+use crate::schema::{CellValue, LakeSchema};
+use crate::snapshot::{ColumnStat, FileEntry, Lsn, SnapshotLog};
 
-/// Iceberg v2 `manifest_entry` Avro schema (CONCEPT:EG-333). Field-ids per the spec;
-/// the `data_file` here is the unpartitioned, stats-free projection eg-lake tracks.
+/// Iceberg v2 `manifest_entry` Avro schema (CONCEPT:EG-333 + per-column stats EG-350).
+/// Field-ids per the spec; the `data_file` carries the unpartitioned projection eg-lake
+/// tracks PLUS the six Iceberg stats maps (`logicalType: map`, keyed by column field-id)
+/// that drive external predicate pushdown / file skipping.
 const MANIFEST_ENTRY_SCHEMA: &str = r#"{
   "type": "record",
   "name": "manifest_entry",
@@ -55,7 +66,37 @@ const MANIFEST_ENTRY_SCHEMA: &str = r#"{
         {"name": "file_format", "type": "string", "field-id": 101},
         {"name": "partition", "type": {"type": "record", "name": "r102", "fields": []}, "field-id": 102},
         {"name": "record_count", "type": "long", "field-id": 103},
-        {"name": "file_size_in_bytes", "type": "long", "field-id": 104}
+        {"name": "file_size_in_bytes", "type": "long", "field-id": 104},
+        {"name": "column_sizes", "type": ["null", {"type": "array", "logicalType": "map", "items": {
+          "type": "record", "name": "k117_v118", "fields": [
+            {"name": "key", "type": "int", "field-id": 117},
+            {"name": "value", "type": "long", "field-id": 118}
+          ]}}], "default": null, "field-id": 108},
+        {"name": "value_counts", "type": ["null", {"type": "array", "logicalType": "map", "items": {
+          "type": "record", "name": "k119_v120", "fields": [
+            {"name": "key", "type": "int", "field-id": 119},
+            {"name": "value", "type": "long", "field-id": 120}
+          ]}}], "default": null, "field-id": 109},
+        {"name": "null_value_counts", "type": ["null", {"type": "array", "logicalType": "map", "items": {
+          "type": "record", "name": "k121_v122", "fields": [
+            {"name": "key", "type": "int", "field-id": 121},
+            {"name": "value", "type": "long", "field-id": 122}
+          ]}}], "default": null, "field-id": 110},
+        {"name": "nan_value_counts", "type": ["null", {"type": "array", "logicalType": "map", "items": {
+          "type": "record", "name": "k138_v139", "fields": [
+            {"name": "key", "type": "int", "field-id": 138},
+            {"name": "value", "type": "long", "field-id": 139}
+          ]}}], "default": null, "field-id": 137},
+        {"name": "lower_bounds", "type": ["null", {"type": "array", "logicalType": "map", "items": {
+          "type": "record", "name": "k126_v127", "fields": [
+            {"name": "key", "type": "int", "field-id": 126},
+            {"name": "value", "type": "bytes", "field-id": 127}
+          ]}}], "default": null, "field-id": 125},
+        {"name": "upper_bounds", "type": ["null", {"type": "array", "logicalType": "map", "items": {
+          "type": "record", "name": "k129_v130", "fields": [
+            {"name": "key", "type": "int", "field-id": 129},
+            {"name": "value", "type": "bytes", "field-id": 130}
+          ]}}], "default": null, "field-id": 128}
       ]
     }, "field-id": 2}
   ]
@@ -114,11 +155,82 @@ pub struct IcebergManifests {
     pub added_rows: u64,
 }
 
+/// Serialize a scalar to Iceberg **single-value binary** (CONCEPT:EG-350) — the encoding
+/// `lower_bounds` / `upper_bounds` values carry. Per the Iceberg spec: `long` / `timestamptz`
+/// as little-endian 8-byte, `double` as little-endian IEEE-754 8-byte, `boolean` as one
+/// byte (`0x00`/`0x01`), `string` as raw UTF-8 (no length prefix). Bounds are emitted
+/// untruncated, which is always spec-valid (truncation is only a size optimization).
+fn iceberg_binary(v: &CellValue) -> Vec<u8> {
+    match v {
+        CellValue::Long(x) => x.to_le_bytes().to_vec(),
+        CellValue::Timestamp(x) => x.to_le_bytes().to_vec(),
+        CellValue::Double(x) => x.to_le_bytes().to_vec(),
+        CellValue::Bool(b) => vec![u8::from(*b)],
+        CellValue::String(s) => s.as_bytes().to_vec(),
+        CellValue::Null => Vec::new(),
+    }
+}
+
+/// One entry of an Iceberg `logicalType: map` field: an Avro `{key, value}` record with
+/// an `int` key (the column field-id) and the given value (CONCEPT:EG-350).
+fn map_entry(field_id: i32, value: AvroValue) -> AvroValue {
+    AvroValue::Record(vec![
+        ("key".into(), AvroValue::Int(field_id)),
+        ("value".into(), value),
+    ])
+}
+
+/// Wrap a built map as the `["null", array]` union value the schema declares
+/// (CONCEPT:EG-350): union branch 1 (the array) when any entry exists, else branch 0
+/// (null) so a reader sees the optional stat as genuinely absent.
+fn map_field(entries: Vec<AvroValue>) -> AvroValue {
+    if entries.is_empty() {
+        AvroValue::Union(0, Box::new(AvroValue::Null))
+    } else {
+        AvroValue::Union(1, Box::new(AvroValue::Array(entries)))
+    }
+}
+
+/// Build the six Iceberg stats-map field values for a `data_file` record from a file's
+/// per-column stats (CONCEPT:EG-350). Emits `column_sizes` / `value_counts` /
+/// `null_value_counts` / `nan_value_counts` (int→long maps) and `lower_bounds` /
+/// `upper_bounds` (int→bytes maps), each keyed by the column's Iceberg field-id. A file
+/// with no gathered stats yields six null unions.
+fn stats_fields(stats: Option<&Vec<ColumnStat>>) -> [(String, AvroValue); 6] {
+    let (mut sizes, mut values, mut nulls, mut nans, mut lowers, mut uppers) =
+        (vec![], vec![], vec![], vec![], vec![], vec![]);
+    if let Some(cols) = stats {
+        for c in cols {
+            if let Some(sz) = c.column_size {
+                sizes.push(map_entry(c.field_id, AvroValue::Long(sz)));
+            }
+            values.push(map_entry(c.field_id, AvroValue::Long(c.value_count)));
+            nulls.push(map_entry(c.field_id, AvroValue::Long(c.null_count)));
+            nans.push(map_entry(c.field_id, AvroValue::Long(c.nan_count)));
+            if let Some(lo) = &c.lower {
+                lowers.push(map_entry(c.field_id, AvroValue::Bytes(iceberg_binary(lo))));
+            }
+            if let Some(hi) = &c.upper {
+                uppers.push(map_entry(c.field_id, AvroValue::Bytes(iceberg_binary(hi))));
+            }
+        }
+    }
+    [
+        ("column_sizes".into(), map_field(sizes)),
+        ("value_counts".into(), map_field(values)),
+        ("null_value_counts".into(), map_field(nulls)),
+        ("nan_value_counts".into(), map_field(nans)),
+        ("lower_bounds".into(), map_field(lowers)),
+        ("upper_bounds".into(), map_field(uppers)),
+    ]
+}
+
 /// Build one `manifest_entry` Avro value for a live data file (CONCEPT:EG-333). A
 /// newly-added file leaves `sequence_number` / `file_sequence_number` null so the reader
-/// inherits the manifest's sequence number, per the v2 inheritance rule.
+/// inherits the manifest's sequence number, per the v2 inheritance rule. The `data_file`
+/// carries the per-column Iceberg stats maps (CONCEPT:EG-350) when they were gathered.
 fn manifest_entry_value(location: &str, f: &FileEntry, snapshot_id: i64) -> AvroValue {
-    let data_file = AvroValue::Record(vec![
+    let mut data_file = vec![
         ("content".into(), AvroValue::Int(0)), // 0 = DATA
         (
             "file_path".into(),
@@ -131,7 +243,9 @@ fn manifest_entry_value(location: &str, f: &FileEntry, snapshot_id: i64) -> Avro
             "file_size_in_bytes".into(),
             AvroValue::Long(f.size_bytes as i64),
         ),
-    ]);
+    ];
+    data_file.extend(stats_fields(f.column_stats.as_ref()));
+    let data_file = AvroValue::Record(data_file);
     AvroValue::Record(vec![
         ("status".into(), AvroValue::Int(1)), // 1 = ADDED
         (
@@ -226,7 +340,10 @@ fn write_manifest_list(
         ),
         ("existing_rows_count".into(), AvroValue::Long(0)),
         ("deleted_rows_count".into(), AvroValue::Long(0)),
-        // Unpartitioned spec → no per-partition field summaries.
+        // Unpartitioned spec → the `partitions` list has one `field_summary` per
+        // partition-spec field, of which there are none, so it is correctly null (NOT
+        // stubbed) (CONCEPT:EG-350). Data-file lower/upper bounds (EG-350) are the
+        // file-skipping mechanism that applies to an unpartitioned table.
         (
             "partitions".into(),
             AvroValue::Union(0, Box::new(AvroValue::Null)),

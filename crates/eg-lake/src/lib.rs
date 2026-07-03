@@ -25,8 +25,11 @@
 //!   live file set).
 //! * **Iceberg** `metadata.json` is real (format-version 2); its manifest layer is now
 //!   real spec-compliant **Avro** ([`iceberg_avro`], CONCEPT:EG-333/EG-334) behind the
-//!   `lake` feature — per-column stats + partition bounds are the one documented
-//!   omission (eg-lake tracks only per-file counts and is unpartitioned).
+//!   `lake` feature, INCLUDING per-column stats (`column_sizes` / `value_counts` /
+//!   `null_value_counts` / `nan_value_counts` / `lower_bounds` / `upper_bounds`) gathered
+//!   at materialize time for external predicate pushdown (CONCEPT:EG-350). Partition
+//!   `field_summary` is null by design — the spec is unpartitioned (zero partition
+//!   fields).
 //! * The **catalog** is contents + response shapes, not an HTTP server.
 //!
 //! ## The engine-side seam (documented, intentionally NOT in this leaf)
@@ -56,7 +59,7 @@ pub mod parquet_io;
 pub mod iceberg_avro;
 
 pub use schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
-pub use snapshot::{FileEntry, Lsn, SnapshotLog};
+pub use snapshot::{ColumnStat, FileEntry, Lsn, SnapshotLog};
 
 use catalog::IcebergRestCatalog;
 use delta::DeltaLogFile;
@@ -192,10 +195,18 @@ impl LakeTable {
         batch: &LakeBatch,
         lsn: Lsn,
     ) -> Result<(String, Vec<u8>), String> {
-        let (bytes, stats) = parquet_io::materialize_with_stats(batch)?;
+        let (bytes, stats, column_stats) = parquet_io::materialize_with_column_stats(batch)?;
         // Deterministic part name per commit LSN.
         let path = format!("data/part-{:020}.parquet", lsn.value());
-        self.record_file(path.clone(), stats.size_bytes, stats.num_rows, lsn);
+        // Carry the per-column stats onto the snapshot so the Iceberg Avro manifest
+        // (CONCEPT:EG-350) can emit predicate-pushdown bounds a Spark/Trino reader uses.
+        self.snapshot.add_file_with_stats(
+            path.clone(),
+            stats.size_bytes,
+            stats.num_rows,
+            lsn,
+            Some(column_stats),
+        );
         Ok((path, bytes))
     }
 }

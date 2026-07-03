@@ -15,6 +15,45 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::schema::CellValue;
+
+/// Per-column statistics gathered over ONE materialized data file (CONCEPT:EG-350).
+///
+/// These are the numbers an external Iceberg reader (Spark / Trino / DuckDB) uses to
+/// **skip whole data files** during predicate pushdown: `lower`/`upper` bound a
+/// column's value range so a reader whose predicate falls outside the range never opens
+/// the file. Computed once, as the file is materialized (the LTAP tier already walks the
+/// rows to write Parquet, EG-317), and carried on the [`FileEntry`] so the Iceberg Avro
+/// manifest writer (CONCEPT:EG-333) can emit the spec's `column_sizes` / `value_counts`
+/// / `null_value_counts` / `nan_value_counts` / `lower_bounds` / `upper_bounds` maps.
+///
+/// The bounds are kept as neutral, typed [`CellValue`]s (NOT Iceberg's binary encoding)
+/// so this stays a pure, dependency-free projection — the `lake`-gated manifest writer
+/// owns the Iceberg single-value binary serialization. `field_id` is the Iceberg field
+/// id of the column (1-based, matching the metadata schema's `id`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ColumnStat {
+    /// Iceberg field id of the column these stats describe (1-based).
+    pub field_id: i32,
+    /// Total number of values in the column for this file (includes nulls) — the
+    /// Iceberg `value_counts` entry (= the file's row count).
+    pub value_count: i64,
+    /// Number of null values in the column for this file — `null_value_counts`.
+    pub null_count: i64,
+    /// Number of NaN values (Double columns only; 0 otherwise) — `nan_value_counts`.
+    pub nan_count: i64,
+    /// Total on-disk (compressed) size in bytes of the column chunk(s), read back from
+    /// the Parquet file metadata — the Iceberg `column_sizes` entry. `None` when the
+    /// writer could not attribute a size to the column.
+    pub column_size: Option<i64>,
+    /// Minimum non-null (non-NaN for Double) value — the `lower_bounds` entry. `None`
+    /// when every value in the column is null.
+    pub lower: Option<CellValue>,
+    /// Maximum non-null (non-NaN for Double) value — the `upper_bounds` entry. `None`
+    /// when every value in the column is null.
+    pub upper: Option<CellValue>,
+}
+
 /// A monotonic log sequence number identifying an engine version (CONCEPT:EG-317).
 /// Reuses the engine's versioned-snapshot / WAL sequence concept (KG-2.249/2.250);
 /// opaque and strictly increasing.
@@ -43,6 +82,12 @@ pub struct FileEntry {
     pub num_rows: u64,
     pub added_at: Lsn,
     pub removed_at: Option<Lsn>,
+    /// Per-column statistics for predicate pushdown / file skipping (CONCEPT:EG-350).
+    /// `None` for files recorded without stats (e.g. via the bare [`SnapshotLog::add_file`]
+    /// seam a caller that wrote Parquet itself uses); `Some` when the `lake` materialize
+    /// tier gathered them. Defaulted so older serialized logs deserialize unchanged.
+    #[serde(default)]
+    pub column_stats: Option<Vec<ColumnStat>>,
 }
 
 impl FileEntry {
@@ -77,12 +122,28 @@ impl SnapshotLog {
     /// current LSN (CONCEPT:EG-317). Panics-free: a non-monotonic `lsn` is clamped so
     /// `current` never regresses.
     pub fn add_file(&mut self, path: impl Into<String>, size_bytes: u64, num_rows: u64, lsn: Lsn) {
+        self.add_file_with_stats(path, size_bytes, num_rows, lsn, None);
+    }
+
+    /// Record a newly-materialized Parquet file plus its per-column statistics
+    /// (CONCEPT:EG-350). Identical to [`Self::add_file`] but pins the `column_stats` the
+    /// `lake` materialize tier gathered so the Iceberg manifest writer can emit
+    /// predicate-pushdown bounds. `None` stats are equivalent to `add_file`.
+    pub fn add_file_with_stats(
+        &mut self,
+        path: impl Into<String>,
+        size_bytes: u64,
+        num_rows: u64,
+        lsn: Lsn,
+        column_stats: Option<Vec<ColumnStat>>,
+    ) {
         self.files.push(FileEntry {
             path: path.into(),
             size_bytes,
             num_rows,
             added_at: lsn,
             removed_at: None,
+            column_stats,
         });
         if lsn > self.current {
             self.current = lsn;
