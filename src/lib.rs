@@ -54,6 +54,16 @@ pub mod slow_query;
 // durable format with no Tokio. Built whenever the `redb` crate is linked.
 #[cfg(feature = "redb")]
 pub mod redb_store;
+
+/// One staged time-series measurement batch for a cross-modal ACID commit
+/// (CONCEPT:EG-360): `(series_id, n_fields, bucket_ns, field_names, points)` where each
+/// point is `(ts_nanos, field_values)`. Carried as PLAIN data (no `eg-tsdb` type) so it
+/// threads through the `PersistenceBackend` trait + the server-independent `redb_store`
+/// without pulling the `tsdb` feature into either — the redb backend converts it to
+/// `eg_tsdb::point::Point` only where the SERIES tables are actually written. Kept as a
+/// named alias so the `&[MeasurementBatch]` params don't trip the `type_complexity` lint.
+pub type MeasurementBatch = (String, usize, u64, Vec<String>, Vec<(i64, Vec<f64>)>);
+
 // Engine-level security (CONCEPT:KG-2.231, Lane O): encryption-at-rest for the redb
 // durable value blobs (`crypto`) + the hash-chained tamper-evident audit log over the
 // ledger (`audit`). PURE-RUST (RustCrypto chacha20poly1305 + sha2). Gated on

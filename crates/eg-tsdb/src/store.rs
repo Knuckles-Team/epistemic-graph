@@ -45,7 +45,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction};
 
 pub use crate::point::{Point, Ts, TsError};
 
@@ -208,74 +208,8 @@ impl SeriesStore {
         if points.is_empty() {
             return Ok(());
         }
-        // Reject a mixed-width batch up front (each point must match n_fields).
-        for p in points {
-            if p.values.len() != n_fields {
-                return Err(TsError::FieldMismatch {
-                    expected: n_fields,
-                    got: p.values.len(),
-                });
-            }
-        }
         let wtx = self.db.begin_write().map_err(redb_err)?;
-        {
-            let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
-            let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
-
-            // Load-or-init meta. An existing series' stored schema is authoritative.
-            let mut meta: SeriesMeta = match meta_tab.get(series_id).map_err(redb_err)? {
-                Some(g) => rmp_serde::from_slice(g.value()).map_err(codec_err)?,
-                None => SeriesMeta {
-                    n_fields,
-                    bucket_ns,
-                    field_names: field_names.to_vec(),
-                    count: 0,
-                    min_ts: Ts::MAX,
-                    max_ts: Ts::MIN,
-                },
-            };
-            if meta.n_fields != n_fields {
-                return Err(TsError::FieldMismatch {
-                    expected: meta.n_fields,
-                    got: n_fields,
-                });
-            }
-
-            // Group incoming points by bucket so each chunk is touched once.
-            let mut by_bucket: BTreeMap<u64, Vec<&Point>> = BTreeMap::new();
-            for p in points {
-                by_bucket
-                    .entry(Self::bucket_of(p.ts, meta.bucket_ns))
-                    .or_default()
-                    .push(p);
-            }
-
-            for (bucket, pts) in by_bucket {
-                let mut chunk = match chunks.get((series_id, bucket)).map_err(redb_err)? {
-                    Some(g) => Chunk::decode(g.value())?,
-                    None => Chunk {
-                        n_fields: meta.n_fields,
-                        ts: vec![],
-                        vals: vec![],
-                    },
-                };
-                for p in pts {
-                    chunk.insert(p.ts, &p.values);
-                    meta.count += 1;
-                    meta.min_ts = meta.min_ts.min(p.ts);
-                    meta.max_ts = meta.max_ts.max(p.ts);
-                }
-                let blob = chunk.encode();
-                chunks
-                    .insert((series_id, bucket), blob.as_slice())
-                    .map_err(redb_err)?;
-            }
-
-            let mblob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
-            meta_tab
-                .insert(series_id, mblob.as_slice())
-                .map_err(redb_err)?;
-        }
+        append_batch_in_wtx(&wtx, series_id, n_fields, bucket_ns, field_names, points)?;
         wtx.commit().map_err(redb_err)?;
         Ok(())
     }
@@ -436,4 +370,100 @@ impl SeriesStore {
         wtx.commit().map_err(redb_err)?;
         Ok(dropped)
     }
+}
+
+/// Append `points` to `series_id` INTO an already-open redb [`WriteTransaction`] the
+/// CALLER owns (CONCEPT:EG-360 — cross-modal atomic commit). Byte-for-byte the SAME
+/// chunk encoding + read-modify-write + meta bookkeeping as [`SeriesStore::append_batch`]
+/// (that method now delegates here), but it opens `SERIES_CHUNKS`/`SERIES_META` on the
+/// passed transaction instead of the store's own `series.redb`.
+///
+/// This is what lets a time-series measurement batch land in the SAME `graph.redb`
+/// `WriteTransaction` as a cross-modal txn's graph/vector/blob writes: redb holds an
+/// EXCLUSIVE per-process file lock, so the only way measurements can be atomic WITH the
+/// graph modalities is to write them through the graph transaction the redb writer thread
+/// already owns — not a second `series.redb` handle. The caller is responsible for
+/// `begin_write`, `set_durability`, and `commit`; on any error it drops the `wtx` and NONE
+/// of the modalities (measurements included) land — a true all-or-nothing rollback.
+///
+/// `bucket_ns`/`field_names` are used only when the series is NEW; for an existing series
+/// the stored schema is authoritative and a width mismatch is a hard error (identical to
+/// [`SeriesStore::append_batch`]).
+pub fn append_batch_in_wtx(
+    wtx: &WriteTransaction,
+    series_id: &str,
+    n_fields: usize,
+    bucket_ns: u64,
+    field_names: &[String],
+    points: &[Point],
+) -> Result<()> {
+    if points.is_empty() {
+        return Ok(());
+    }
+    // Reject a mixed-width batch up front (each point must match n_fields).
+    for p in points {
+        if p.values.len() != n_fields {
+            return Err(TsError::FieldMismatch {
+                expected: n_fields,
+                got: p.values.len(),
+            });
+        }
+    }
+    let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
+    let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
+
+    // Load-or-init meta. An existing series' stored schema is authoritative.
+    let mut meta: SeriesMeta = match meta_tab.get(series_id).map_err(redb_err)? {
+        Some(g) => rmp_serde::from_slice(g.value()).map_err(codec_err)?,
+        None => SeriesMeta {
+            n_fields,
+            bucket_ns,
+            field_names: field_names.to_vec(),
+            count: 0,
+            min_ts: Ts::MAX,
+            max_ts: Ts::MIN,
+        },
+    };
+    if meta.n_fields != n_fields {
+        return Err(TsError::FieldMismatch {
+            expected: meta.n_fields,
+            got: n_fields,
+        });
+    }
+
+    // Group incoming points by bucket so each chunk is touched once.
+    let mut by_bucket: BTreeMap<u64, Vec<&Point>> = BTreeMap::new();
+    for p in points {
+        by_bucket
+            .entry(SeriesStore::bucket_of(p.ts, meta.bucket_ns))
+            .or_default()
+            .push(p);
+    }
+
+    for (bucket, pts) in by_bucket {
+        let mut chunk = match chunks.get((series_id, bucket)).map_err(redb_err)? {
+            Some(g) => Chunk::decode(g.value())?,
+            None => Chunk {
+                n_fields: meta.n_fields,
+                ts: vec![],
+                vals: vec![],
+            },
+        };
+        for p in pts {
+            chunk.insert(p.ts, &p.values);
+            meta.count += 1;
+            meta.min_ts = meta.min_ts.min(p.ts);
+            meta.max_ts = meta.max_ts.max(p.ts);
+        }
+        let blob = chunk.encode();
+        chunks
+            .insert((series_id, bucket), blob.as_slice())
+            .map_err(redb_err)?;
+    }
+
+    let mblob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
+    meta_tab
+        .insert(series_id, mblob.as_slice())
+        .map_err(redb_err)?;
+    Ok(())
 }
