@@ -152,8 +152,18 @@ pub(crate) async fn try_handle(
                 rls,
             );
             let semantic = core.semantic_store.read().clone();
+            // RECONCILE (CONCEPT:EG-363): committed tsdb store for `Op::TsScan` fusion.
+            #[cfg(feature = "tsdb")]
+            let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
-                run_unified(plan, reorder_filter_selectivity, &snap, &semantic)
+                run_unified(
+                    plan,
+                    reorder_filter_selectivity,
+                    &snap,
+                    &semantic,
+                    #[cfg(feature = "tsdb")]
+                    tsdb.as_deref(),
+                )
             })
             .await
             {
@@ -214,8 +224,18 @@ pub(crate) async fn try_handle(
                 rls,
             );
             let semantic = core.semantic_store.read().clone();
+            // RECONCILE (CONCEPT:EG-363): committed tsdb store for `Op::TsScan` fusion.
+            #[cfg(feature = "tsdb")]
+            let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
-                run_unified(plan, reorder_filter_selectivity, &snap, &semantic)
+                run_unified(
+                    plan,
+                    reorder_filter_selectivity,
+                    &snap,
+                    &semantic,
+                    #[cfg(feature = "tsdb")]
+                    tsdb.as_deref(),
+                )
             })
             .await
             {
@@ -324,17 +344,28 @@ pub(crate) async fn try_handle(
             #[cfg(feature = "security")]
             rls.filter_view(caller.unwrap_or(""), &mut snap);
             let semantic = core.semantic_store.read().clone();
-            let resp =
-                match compute_off_lock(req_id, move || run_unified(plan, None, &snap, &semantic))
-                    .await
-                {
-                    Ok(Ok(rows)) => {
-                        let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-                        Response::ok(req_id, ResultPayload::Raw(bytes))
-                    }
-                    Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
-                    Err(resp) => resp,
-                };
+            // RECONCILE (CONCEPT:EG-363): committed tsdb store for `Op::TsScan` fusion.
+            #[cfg(feature = "tsdb")]
+            let tsdb = state.read().await.tsdb_store.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                run_unified(
+                    plan,
+                    None,
+                    &snap,
+                    &semantic,
+                    #[cfg(feature = "tsdb")]
+                    tsdb.as_deref(),
+                )
+            })
+            .await
+            {
+                Ok(Ok(rows)) => {
+                    let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
+                Err(resp) => resp,
+            };
             Ok(resp)
         }
         #[cfg(feature = "graphql")]
@@ -521,6 +552,11 @@ fn run_unified(
     reorder_filter_selectivity: Option<f64>,
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
+    // RECONCILE (Lane C tsdb-in-plan, CONCEPT:EG-363): the committed native tsdb
+    // `SeriesStore` backing `Op::TsScan`, threaded in so a UQL plan fuses its
+    // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
+    // yields no rows (degrade, never err). Only exists under the `tsdb` feature.
+    #[cfg(feature = "tsdb")] tsdb: Option<&eg_tsdb::store::SeriesStore>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
     use eg_plan::{CostModel, Op, PlanCtx, Stats};
 
@@ -553,6 +589,13 @@ fn run_unified(
     // explicit follow-up integration (CONCEPT:KG-2.215 increment 2); the algebra +
     // index crate land + are proven here.
     let ctx = PlanCtx::new(view, semantic);
+    // RECONCILE (CONCEPT:EG-363): attach the committed tsdb store so `Op::TsScan`
+    // sources real series (tsdb-in-plan fusion). Absent store ⇒ ctx unchanged.
+    #[cfg(feature = "tsdb")]
+    let ctx = match tsdb {
+        Some(store) => ctx.with_tsdb(store),
+        None => ctx,
+    };
     let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
     Ok(result
         .rows()
@@ -612,16 +655,27 @@ async fn run_unified_overlaid(
         )
         // `guard` + `s` drop here — no lock held across the compute below.
     };
+    // RECONCILE (CONCEPT:EG-363): the committed tsdb `SeriesStore` for `Op::TsScan`
+    // fusion inside the txn, so an in-txn UQL reads COMMITTED series. (Overlaying the
+    // txn's OWN staged `GraphTxnState.measurements` (Lane B) into the TsScan source for
+    // pre-commit tsdb read-your-own-writes — scenario-5 — is a documented follow-up:
+    // `SeriesStore` is redb-file-backed with no in-memory overlay, so it needs an
+    // ephemeral store seeded with the staged points; a `TsScan` degrades to committed
+    // series until then, never errs.)
+    #[cfg(feature = "tsdb")]
+    let tsdb = state.read().await.tsdb_store.clone();
     // Overlay the txn's staged graph writes onto the RLS-filtered committed snapshot.
-    // (RECONCILE HOOK — Lane B/C: when run_unified gains `.with_tsdb(series_store)`
-    // (Lane C) and the txn stages MEASUREMENTS (Lane B `GraphTxnState.measurements`),
-    // overlay those staged points into the TsScan source HERE — the graph + semantic
-    // overlay below is the cross-modal template to extend for scenario-5 in-txn tsdb
-    // RYOW.)
     overlay_write_set(&mut view, &write_set);
     let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
     match compute_off_lock(req_id, move || {
-        run_unified(plan, reorder_filter_selectivity, &view, &semantic)
+        run_unified(
+            plan,
+            reorder_filter_selectivity,
+            &view,
+            &semantic,
+            #[cfg(feature = "tsdb")]
+            tsdb.as_deref(),
+        )
     })
     .await
     {
