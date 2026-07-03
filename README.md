@@ -370,6 +370,14 @@ DELETE FROM nodes WHERE id = 'AgentC';
 > `RENAME TO`, `ALTER COLUMN TYPE`, `DROP CONSTRAINT`, EG-310) are supported and JOINable to the graph;
 > compound-WHERE DML (`AND`/`OR`/`NOT`/`IN`/`BETWEEN`), `INSERT…SELECT`, `ON CONFLICT` upsert and
 > mixed-store wire transactions (`BEGIN`/`COMMIT` with RYOW) are supported (EG-045..049).
+>
+> **Run it standalone in one step** (no `agent-utilities`, no other service — just the DB): the published
+> default wheel is the `node` tier, which already carries `pgwire`, so `pip install epistemic-graph` +
+> `EPISTEMIC_GRAPH_PGWIRE_ADDR=…` is a complete Postgres-wire database. See
+> **[Standalone deployment](docs/standalone_deployment.md)** (pure binary or `docker/compose.standalone.yml`),
+> the **[DBeaver / psql quickstart](docs/dbeaver_quickstart.md)** (connect a SQL client and run
+> `CREATE TABLE`/`INSERT`/`SELECT`), and the **[Deployment topology](docs/deployment_topology.md)** (run just
+> the engine, or add the optional `agent-utilities` orchestrator + `agent-webui` visualizer).
 
 ### SPARQL (`sparql`)
 
@@ -421,6 +429,8 @@ lifecycle.
   [Distribution / Robotics / GPU tail](docs/architecture/distribution-robotics-gpu.md).
 - [UQL & the unified planner](docs/uql.md) · [Tiers & binaries](docs/architecture/tiers.md) ·
   [Deployment](docs/deployment.md) · [Engine modes](docs/engine-modes.md) · [Service Mode](docs/service_mode.md).
+- Standalone deploy & SQL clients: [Standalone deployment](docs/standalone_deployment.md) ·
+  [DBeaver / psql quickstart](docs/dbeaver_quickstart.md) · [Deployment topology](docs/deployment_topology.md).
 
 ## License
 
