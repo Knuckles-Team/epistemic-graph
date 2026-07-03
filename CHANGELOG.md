@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-07-03
+
+> **Minor, additive.** Reclaims two orphaned-branch capabilities as finished, validated code, and
+> makes the release image build in seconds instead of ~25 min/arch.
+
+### Added
+- **KG-2.132** — hybrid `Discover` engine op: dense HNSW retrieve + lexical keyword re-rank + text
+  hydration (`{id,name,description,type,score}`) in one round-trip, complementing `SemanticSearch`.
+- **EG-352** — release Docker image now `uv pip install`s the published `node`-tier wheel (no in-image
+  cargo compile; multi-arch clean) and **pgwire** is folded into the `node`/`full` tiers so the node
+  wheel is a complete Postgres-wire single-node DB. Pi contract preserved (pgwire never enters pi/pi-max).
+
+### Fixed
+- **CI publish** — eg-numeric aarch64 pyo3 cross-build made best-effort so it can't block `publish-pypi`
+  (x86_64 wheel + sdist still ship; arm builds from sdist).
+
 ## [2.5.0] - 2026-07-03
 
 > **Minor, additive.** Closes the remaining *deferred/follow-on* items from the 2.4.0 roadmap tail,
