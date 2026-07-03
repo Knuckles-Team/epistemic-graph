@@ -2188,6 +2188,106 @@ mod tests {
         assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
     }
 
+    /// One-round-trip hybrid discovery (CONCEPT:KG-2.132): a single `Discover`
+    /// blends dense (HNSW) similarity with lexical keyword overlap and returns the
+    /// top-k hydrated with `name`/`description`/`type` text. The keyword signal
+    /// must be able to promote a lexically-strong hit above a slightly-closer pure
+    /// vector neighbour, and an empty embedding must degrade to keyword-only.
+    #[tokio::test]
+    async fn test_discover_blends_keyword_and_semantic() {
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("agent:disc", GraphType::Agent, None)
+                .unwrap();
+        }
+        let core = {
+            let s = state.read().await;
+            s.registry.get("agent:disc").unwrap().core.clone()
+        };
+        // Three nodes with text + embeddings. `deployer` is the exact query
+        // direction; `deploy_runbook` is slightly farther in vector space BUT its
+        // text matches the "deploy" keyword; `unrelated` matches neither.
+        let seed = |id: &str, props: serde_json::Value, emb: Vec<f32>| {
+            core.add_node(id.to_string(), rmp_serde::to_vec(&props).unwrap());
+            core.semantic_store
+                .write()
+                .add_embedding(id.to_string(), emb);
+        };
+        seed(
+            "deployer",
+            serde_json::json!({"type": "agent", "name": "Release Bot",
+                "description": "ships builds"}),
+            vec![1.0, 0.0, 0.0],
+        );
+        seed(
+            "deploy_runbook",
+            serde_json::json!({"type": "doc", "name": "Deploy Runbook",
+                "description": "how to deploy a service"}),
+            vec![0.92, 0.39, 0.0],
+        );
+        seed(
+            "unrelated",
+            serde_json::json!({"type": "doc", "name": "Kitchen Sink",
+                "description": "nothing to see"}),
+            vec![0.0, 1.0, 0.0],
+        );
+
+        // Hybrid: keyword "deploy" + an embedding closest to `deployer`.
+        let resp = dispatch(
+            &state,
+            request(
+                1,
+                "agent:disc",
+                None,
+                Method::Discover {
+                    keywords: vec!["deploy".into()],
+                    query_embedding: vec![1.0, 0.0, 0.0],
+                    k: 3,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        let Some(ResultPayload::Json(serde_json::Value::Array(rows))) = resp.result else {
+            panic!("expected Json array discover payload");
+        };
+        assert_eq!(rows.len(), 3, "all three candidates returned, ranked");
+        // `deploy_runbook` wins: keyword overlap (0.4) + strong sim beats the
+        // marginally-closer keyword-less `deployer`.
+        assert_eq!(rows[0]["id"], "deploy_runbook");
+        assert_eq!(rows[0]["name"], "Deploy Runbook");
+        assert_eq!(rows[0]["type"], "doc");
+        assert_eq!(rows[0]["description"], "how to deploy a service");
+        assert!(rows[0]["score"].as_f64().unwrap() > rows[1]["score"].as_f64().unwrap());
+        // `unrelated` (neither signal) ranks last.
+        assert_eq!(rows[2]["id"], "unrelated");
+
+        // Embedding-absent fallback: keyword-only still finds the matching nodes.
+        let kw_only = dispatch(
+            &state,
+            request(
+                2,
+                "agent:disc",
+                None,
+                Method::Discover {
+                    keywords: vec!["deploy".into()],
+                    query_embedding: vec![],
+                    k: 5,
+                },
+            ),
+        )
+        .await;
+        assert_ok(&kw_only);
+        let Some(ResultPayload::Json(serde_json::Value::Array(rows))) = kw_only.result else {
+            panic!("expected Json array discover payload");
+        };
+        // Only `deploy_runbook` has "deploy" in its text (name+description).
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "deploy_runbook");
+    }
+
     #[tokio::test]
     async fn test_offloaded_algorithms_round_trip() {
         // Snapshot+spawn_blocking arms must preserve result semantics.
