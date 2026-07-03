@@ -205,7 +205,12 @@ pub fn configured() -> Option<Arc<QosScheduler>> {
 
 fn env_truthy(key: &str) -> bool {
     std::env::var(key)
-        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes"))
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "on" | "yes"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -230,7 +235,9 @@ impl QosReject {
             QosReject::FairShare => {
                 "BUSY: QoS tenant fair-share reached under contention, retry with backoff"
             }
-            QosReject::Backpressure => "BUSY: QoS capacity reserved for higher priority, retry with backoff",
+            QosReject::Backpressure => {
+                "BUSY: QoS capacity reserved for higher priority, retry with backoff"
+            }
         }
     }
     fn stat_idx(self) -> usize {
@@ -288,7 +295,11 @@ impl QosScheduler {
             inner: Arc::new(QosInner {
                 config,
                 in_flight: AtomicUsize::new(0),
-                per_class: [AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0)],
+                per_class: [
+                    AtomicUsize::new(0),
+                    AtomicUsize::new(0),
+                    AtomicUsize::new(0),
+                ],
                 per_tenant: DashMap::new(),
                 admitted_total: AtomicU64::new(0),
                 rejected_total: [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)],
@@ -467,7 +478,14 @@ mod tests {
     #[test]
     fn eg320_classify_maps_method_and_identity_to_class_and_tenant() {
         // A read ⇒ Interactive; tenant falls back to the graph when no agent id.
-        let r = classify(&Method::HasNode { node_id: "n".into() }, "g1", None, false);
+        let r = classify(
+            &Method::HasNode {
+                node_id: "n".into(),
+            },
+            "g1",
+            None,
+            false,
+        );
         assert_eq!(r.class, QosClass::Interactive);
         assert_eq!(r.tenant, "g1");
         // A write ⇒ Batch; agent id wins as the tenant.
@@ -493,7 +511,15 @@ mod tests {
         );
         // Empty agent id is ignored (treated as anonymous ⇒ graph tenant).
         assert_eq!(
-            classify(&Method::HasNode { node_id: "n".into() }, "g1", Some(""), false).tenant,
+            classify(
+                &Method::HasNode {
+                    node_id: "n".into()
+                },
+                "g1",
+                Some(""),
+                false
+            )
+            .tenant,
             "g1"
         );
     }
@@ -511,7 +537,9 @@ mod tests {
         // Fill to 7 in-flight with a mix of tenants so no single tenant trips fair-share.
         let mut held = Vec::new();
         for i in 0..7 {
-            held.push(permit(sched.try_admit(&req(QosClass::Interactive, &format!("t{i}")))));
+            held.push(permit(
+                sched.try_admit(&req(QosClass::Interactive, &format!("t{i}"))),
+            ));
         }
         assert_eq!(sched.stats().in_flight, 7);
 
@@ -537,17 +565,41 @@ mod tests {
         );
         drop(hi);
         drop(held);
-        assert_eq!(sched.stats().in_flight, 0, "permits release their slots on drop");
+        assert_eq!(
+            sched.stats().in_flight,
+            0,
+            "permits release their slots on drop"
+        );
     }
 
     // CONCEPT:EG-320 — deadline-aware, priority-first ordering of a pending batch.
     #[test]
     fn eg320_plan_admissions_orders_by_priority_then_deadline() {
         let pending = vec![
-            QosRequest { class: QosClass::Batch, tenant: "a".into(), deadline_micros: Some(10), is_write: true },       // 0
-            QosRequest { class: QosClass::Interactive, tenant: "b".into(), deadline_micros: Some(500), is_write: false }, // 1
-            QosRequest { class: QosClass::Interactive, tenant: "c".into(), deadline_micros: Some(100), is_write: false }, // 2
-            QosRequest { class: QosClass::Maintenance, tenant: "d".into(), deadline_micros: Some(1), is_write: true },   // 3
+            QosRequest {
+                class: QosClass::Batch,
+                tenant: "a".into(),
+                deadline_micros: Some(10),
+                is_write: true,
+            }, // 0
+            QosRequest {
+                class: QosClass::Interactive,
+                tenant: "b".into(),
+                deadline_micros: Some(500),
+                is_write: false,
+            }, // 1
+            QosRequest {
+                class: QosClass::Interactive,
+                tenant: "c".into(),
+                deadline_micros: Some(100),
+                is_write: false,
+            }, // 2
+            QosRequest {
+                class: QosClass::Maintenance,
+                tenant: "d".into(),
+                deadline_micros: Some(1),
+                is_write: true,
+            }, // 3
         ];
         // All four: interactive first (earlier deadline among them first), then batch,
         // then maintenance — regardless of maintenance's tiny deadline.
@@ -572,7 +624,9 @@ mod tests {
         // quota, interactive is fair-share exempt so this only raises in_flight).
         let mut filler = Vec::new();
         for i in 0..12 {
-            filler.push(permit(sched.try_admit(&req(QosClass::Interactive, &format!("f{i}")))));
+            filler.push(permit(
+                sched.try_admit(&req(QosClass::Interactive, &format!("f{i}"))),
+            ));
         }
         assert!(sched.stats().in_flight >= sched.config().pressure_band());
         assert!(sched.stats().in_flight < sched.config().class_ceiling(QosClass::Batch));
@@ -602,7 +656,11 @@ mod tests {
         for _ in 0..4 {
             held.push(permit(sched.try_admit(&req(QosClass::Interactive, "t"))));
         }
-        assert_eq!(sched.stats().in_flight, 4, "well below capacity — no backpressure");
+        assert_eq!(
+            sched.stats().in_flight,
+            4,
+            "well below capacity — no backpressure"
+        );
         assert_eq!(
             reject(sched.try_admit(&req(QosClass::Interactive, "t"))),
             QosReject::Quota,
@@ -633,7 +691,9 @@ mod tests {
         // Saturate with interactive across distinct tenants up to full capacity.
         let mut held = Vec::new();
         for i in 0..8 {
-            held.push(permit(sched.try_admit(&req(QosClass::Interactive, &format!("t{i}")))));
+            held.push(permit(
+                sched.try_admit(&req(QosClass::Interactive, &format!("t{i}"))),
+            ));
         }
         let d = sched.try_admit(&req(QosClass::Interactive, "overflow"));
         let why = reject(d);

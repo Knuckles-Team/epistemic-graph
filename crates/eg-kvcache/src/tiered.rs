@@ -767,13 +767,18 @@ mod tests {
         // must cascade all the way to COLD. Huge COLD ⇒ nothing dropped.
         let mut c: TieredCache<u64, Block> =
             TieredCache::new(600, 20, 10_000_000).with_warm_codec(Codec::Zstd);
-        let pages: Vec<Block> = (0..10u64).map(|k| compressible_page(512, k as u8)).collect();
+        let pages: Vec<Block> = (0..10u64)
+            .map(|k| compressible_page(512, k as u8))
+            .collect();
         for (k, p) in pages.iter().enumerate() {
             c.put(k as u64, p.clone());
         }
         let s = c.stats();
         assert_eq!(s.drops, 0, "nothing dropped while COLD has room");
-        assert!(s.cold_entries > 0, "pressure pushed compressed bytes to COLD");
+        assert!(
+            s.cold_entries > 0,
+            "pressure pushed compressed bytes to COLD"
+        );
         for (k, p) in pages.iter().enumerate() {
             assert_eq!(
                 c.get(&(k as u64)),

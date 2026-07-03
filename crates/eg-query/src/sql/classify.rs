@@ -35,12 +35,11 @@
 
 use datafusion::sql::sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator,
-    ColumnDef as SqlColumnDef,
-    ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption, CopySource, CopyTarget,
-    CreateTable, Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr,
-    FunctionArguments, Insert, ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction,
-    OnInsert, SelectItem, SetExpr, Statement, TableFactor, TableWithJoins, UnaryOperator,
-    Value as SqlValue, Values,
+    ColumnDef as SqlColumnDef, ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption,
+    CopySource, CopyTarget, CreateTable, Delete, Expr, FromTable, Function, FunctionArg,
+    FunctionArgExpr, FunctionArguments, Insert, ObjectName, ObjectType,
+    OnConflictAction as SqlOnConflictAction, OnInsert, SelectItem, SetExpr, Statement, TableFactor,
+    TableWithJoins, UnaryOperator, Value as SqlValue, Values,
 };
 // CONCEPT:EG-114/116/117 — the Postgres-family extension plan shapes classify routes to.
 use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};

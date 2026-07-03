@@ -406,9 +406,15 @@ fn apply_ann_pushdown(
     }
     for (name, schema, batch) in user_tables.iter_mut() {
         if name.eq_ignore_ascii_case(&plan.table) {
-            if let Some(sliced) =
-                super::ann::topk_slice(schema, batch, &plan.column, method, plan.metric, &qvec, plan.k)
-            {
+            if let Some(sliced) = super::ann::topk_slice(
+                schema,
+                batch,
+                &plan.column,
+                method,
+                plan.metric,
+                &qvec,
+                plan.k,
+            ) {
                 *batch = sliced;
             }
             return;

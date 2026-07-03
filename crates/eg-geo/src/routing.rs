@@ -1017,7 +1017,10 @@ mod tests {
         let mut tr = TurnRestrictions::new();
         tr.ban(0, 1, 2);
         let legal = g.dijkstra_with_turns(0, 2, &tr).unwrap();
-        assert_eq!(legal.cost, 3.0, "detour costs more than the banned direct route");
+        assert_eq!(
+            legal.cost, 3.0,
+            "detour costs more than the banned direct route"
+        );
         assert_eq!(legal.nodes, vec![0, 3, 2], "goes around via node 3");
 
         // A\* with turns must agree with Dijkstra-with-turns.
@@ -1076,7 +1079,9 @@ mod tests {
     fn eg312_turns_with_empty_model_match_plain_dijkstra() {
         let g = diamond();
         let plain = g.dijkstra(0, 3).unwrap();
-        let turns = g.dijkstra_with_turns(0, 3, &TurnRestrictions::new()).unwrap();
+        let turns = g
+            .dijkstra_with_turns(0, 3, &TurnRestrictions::new())
+            .unwrap();
         assert_eq!(plain.cost, turns.cost);
         assert_eq!(plain.nodes, turns.nodes);
     }
@@ -1146,7 +1151,9 @@ mod tests {
         let g = diamond();
         let plain = g.dijkstra(0, 3).unwrap();
         let const_cost = |_from: usize, _to: usize, w: f64, _dep: f64| w;
-        let td = g.shortest_path_time_dependent(0, 3, 0.0, &const_cost).unwrap();
+        let td = g
+            .shortest_path_time_dependent(0, 3, 0.0, &const_cost)
+            .unwrap();
         assert_eq!(plain.nodes, td.nodes);
         assert_eq!(plain.cost, td.cost);
     }

@@ -118,7 +118,10 @@ impl<'a> PlanCtx<'a> {
     /// keeps its prior validate-only behavior (no write-back), so a default ctx is
     /// byte-for-byte the old one.
     #[cfg(feature = "tensor")]
-    pub fn with_tensor_store(mut self, store: &'a std::sync::Mutex<eg_tensor::TensorStore>) -> Self {
+    pub fn with_tensor_store(
+        mut self,
+        store: &'a std::sync::Mutex<eg_tensor::TensorStore>,
+    ) -> Self {
         self.tensor_store = Some(store);
         self
     }

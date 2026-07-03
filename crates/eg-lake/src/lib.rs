@@ -117,13 +117,24 @@ impl LakeTable {
     /// relative to [`Self::location`]) committed at engine `lsn` (CONCEPT:EG-317). The
     /// `lake`-feature [`LakeTable::materialize`] calls this after transcoding; a caller
     /// that writes Parquet itself can call it directly.
-    pub fn record_file(&mut self, path: impl Into<String>, size_bytes: u64, num_rows: u64, lsn: Lsn) {
+    pub fn record_file(
+        &mut self,
+        path: impl Into<String>,
+        size_bytes: u64,
+        num_rows: u64,
+        lsn: Lsn,
+    ) {
         self.snapshot.add_file(path, size_bytes, num_rows, lsn);
     }
 
     /// Render the full Delta `_delta_log` for the current snapshot (CONCEPT:EG-317).
     pub fn delta_log(&self, created_time_ms: i64) -> Vec<DeltaLogFile> {
-        delta::build_delta_log(&self.schema, &self.snapshot, &self.table_id, created_time_ms)
+        delta::build_delta_log(
+            &self.schema,
+            &self.snapshot,
+            &self.table_id,
+            created_time_ms,
+        )
     }
 
     /// Render the Iceberg `metadata.json` (+ manifest stub) for the current snapshot
@@ -155,7 +166,11 @@ impl LakeTable {
     /// (CONCEPT:EG-317). The caller persists the returned bytes to the blob/S3 backend
     /// under `location/<path>`. Only available with the `lake` feature (needs parquet).
     #[cfg(feature = "lake")]
-    pub fn materialize(&mut self, batch: &LakeBatch, lsn: Lsn) -> Result<(String, Vec<u8>), String> {
+    pub fn materialize(
+        &mut self,
+        batch: &LakeBatch,
+        lsn: Lsn,
+    ) -> Result<(String, Vec<u8>), String> {
         let (bytes, stats) = parquet_io::materialize_with_stats(batch)?;
         // Deterministic part name per commit LSN.
         let path = format!("data/part-{:020}.parquet", lsn.value());

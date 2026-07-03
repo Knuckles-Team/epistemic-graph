@@ -258,10 +258,7 @@ mod tests {
         lang.insert("go".to_string(), vec!["b".to_string()]);
         by_value.insert("$.meta.lang".to_string(), lang);
         let mut present: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        present.insert(
-            "$.tags".to_string(),
-            vec!["a".to_string(), "b".to_string()],
-        );
+        present.insert("$.tags".to_string(), vec!["a".to_string(), "b".to_string()]);
         PersistedPathIndex {
             by_value,
             present,
@@ -296,10 +293,7 @@ mod tests {
         lang.insert("rust".to_string(), vec!["a".to_string(), "c".to_string()]);
         b_by_value.insert("$.meta.lang".to_string(), lang);
         let mut present: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        present.insert(
-            "$.tags".to_string(),
-            vec!["a".to_string(), "b".to_string()],
-        );
+        present.insert("$.tags".to_string(), vec!["a".to_string(), "b".to_string()]);
         let b = PersistedPathIndex {
             by_value: b_by_value,
             present,
@@ -332,7 +326,9 @@ mod tests {
         }
         // Reopen the SAME dir — durable across store lifetimes.
         let store = RedbPathIndexStore::open(&dir).unwrap();
-        let got = store.load().expect("loads the persisted snapshot from redb");
+        let got = store
+            .load()
+            .expect("loads the persisted snapshot from redb");
         assert_eq!(got, snap);
         let _ = std::fs::remove_dir_all(&dir);
     }

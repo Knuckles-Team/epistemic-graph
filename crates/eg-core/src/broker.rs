@@ -1369,7 +1369,14 @@ pub fn publish_idempotent(
     let Some(pid) = producer_id.filter(|p| !p.is_empty()) else {
         let delivered = if confirmed {
             publish_ex(
-                core, exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms,
+                core,
+                exchange,
+                routing_key,
+                payload,
+                priority,
+                delay_ms,
+                ttl_ms,
+                now_ms,
             )
         } else {
             0
@@ -1400,7 +1407,14 @@ pub fn publish_idempotent(
         };
     }
     let delivered = publish_ex(
-        core, exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms,
+        core,
+        exchange,
+        routing_key,
+        payload,
+        priority,
+        delay_ms,
+        ttl_ms,
+        now_ms,
     );
     IdempotentPublish {
         confirmed: true,
@@ -2225,8 +2239,7 @@ mod tests {
     fn eg314_unknown_exchange_nacks_without_consuming_seq() {
         let core = rig();
         // Unknown exchange → nack; the producer's seq is NOT consumed …
-        let nack =
-            publish_idempotent(&core, "nope", "k", b"x", Some("P"), 0, 0, None, None, None);
+        let nack = publish_idempotent(&core, "nope", "k", b"x", Some("P"), 0, 0, None, None, None);
         assert!(!nack.confirmed && !nack.duplicate && nack.delivered == 0);
         // … so publishing (P, 0) to a REAL exchange afterwards still lands (not a dup).
         let ok = publish_idempotent(&core, "ex", "k", b"x", Some("P"), 0, 0, None, None, None);

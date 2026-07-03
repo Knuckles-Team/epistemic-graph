@@ -79,15 +79,13 @@ pub(crate) fn parse_query_vector(raw: &str) -> Option<Vec<f32>> {
 pub(crate) fn sql_has_where(sql: &str) -> bool {
     let lower = sql.to_ascii_lowercase();
     // Match a ` where ` token (whitespace-delimited) so we don't trip on identifiers.
-    lower
-        .match_indices("where")
-        .any(|(i, _)| {
-            let before = lower.as_bytes().get(i.wrapping_sub(1)).copied();
-            let after = lower.as_bytes().get(i + 5).copied();
-            let ok_before = i == 0 || before.map(|b| b.is_ascii_whitespace()).unwrap_or(false);
-            let ok_after = after.map(|b| b.is_ascii_whitespace()).unwrap_or(true);
-            ok_before && ok_after
-        })
+    lower.match_indices("where").any(|(i, _)| {
+        let before = lower.as_bytes().get(i.wrapping_sub(1)).copied();
+        let after = lower.as_bytes().get(i + 5).copied();
+        let ok_before = i == 0 || before.map(|b| b.is_ascii_whitespace()).unwrap_or(false);
+        let ok_after = after.map(|b| b.is_ascii_whitespace()).unwrap_or(true);
+        ok_before && ok_after
+    })
 }
 
 /// Integer square root (floor) — used to size the IVF `nlist` ≈ √N without pulling a
@@ -342,10 +340,18 @@ mod tests {
         let want_c = brute_topk(&vectors, &query, 4, Metric::Cosine);
         assert_eq!(got_c, want_c, "hnsw cosine top-4 must equal brute force");
         // negative inner product (`<#>`)
-        let got_i =
-            ann_topk_rows(AnnMethod::IvfFlat, VectorMetric::InnerProduct, &vectors, &query, 4);
+        let got_i = ann_topk_rows(
+            AnnMethod::IvfFlat,
+            VectorMetric::InnerProduct,
+            &vectors,
+            &query,
+            4,
+        );
         let want_i = brute_topk(&vectors, &query, 4, Metric::InnerProduct);
-        assert_eq!(got_i, want_i, "ivfflat inner-product top-4 must equal brute force");
+        assert_eq!(
+            got_i, want_i,
+            "ivfflat inner-product top-4 must equal brute force"
+        );
     }
 
     #[test]
@@ -396,11 +402,9 @@ mod tests {
             }
             lb.append(true);
         }
-        let batch = RecordBatch::try_new(
-            schema.clone(),
-            vec![Arc::new(ids), Arc::new(lb.finish())],
-        )
-        .unwrap();
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(ids), Arc::new(lb.finish())])
+                .unwrap();
         (schema, batch)
     }
 
@@ -410,8 +414,16 @@ mod tests {
         let vectors = sample(25, dim);
         let (schema, batch) = vec_batch(&vectors);
         let query: Vec<f32> = (0..dim).map(|j| (j as f32) + 0.3).collect();
-        let sliced =
-            topk_slice(&schema, &batch, "emb", AnnMethod::Hnsw, VectorMetric::L2, &query, 5).unwrap();
+        let sliced = topk_slice(
+            &schema,
+            &batch,
+            "emb",
+            AnnMethod::Hnsw,
+            VectorMetric::L2,
+            &query,
+            5,
+        )
+        .unwrap();
         assert_eq!(sliced.num_rows(), 5, "slice must have exactly k rows");
         // The `id` column of the sliced batch (id == original row) must equal the
         // brute-force nearest-5, in nearest-first order.
@@ -432,9 +444,15 @@ mod tests {
         let (schema, batch) = vec_batch(&vectors);
         let query = vec![1.0, 2.0, 3.0];
         // k=5 > 2 usable rows ⇒ decline (caller keeps brute force).
-        assert!(
-            topk_slice(&schema, &batch, "emb", AnnMethod::Hnsw, VectorMetric::L2, &query, 5)
-                .is_none()
-        );
+        assert!(topk_slice(
+            &schema,
+            &batch,
+            "emb",
+            AnnMethod::Hnsw,
+            VectorMetric::L2,
+            &query,
+            5
+        )
+        .is_none());
     }
 }

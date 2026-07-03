@@ -101,7 +101,9 @@ fn parse_geometry_node(node: &XmlNode) -> Result<Option<Geometry>, String> {
             // A bare LinearRing (rare at Placemark level) → a closed LineString.
             Some(Geometry::LineString(LineString::new(coords_of(node)?)))
         }
-        _ if node.name.eq_ignore_ascii_case("Polygon") => Some(Geometry::Polygon(parse_polygon(node)?)),
+        _ if node.name.eq_ignore_ascii_case("Polygon") => {
+            Some(Geometry::Polygon(parse_polygon(node)?))
+        }
         _ if node.name.eq_ignore_ascii_case("MultiGeometry") => {
             let mut parts = Vec::new();
             for c in &node.children {
@@ -119,11 +121,7 @@ fn parse_geometry_node(node: &XmlNode) -> Result<Option<Geometry>, String> {
 /// Prefer a homogeneous Multi* over a mixed GeometryCollection when a `<MultiGeometry>` holds
 /// only points / only lines / only polygons — the natural KML → eg-geo mapping.
 fn collapse_multigeometry(parts: Vec<Geometry>) -> Geometry {
-    if !parts.is_empty()
-        && parts
-            .iter()
-            .all(|g| matches!(g, Geometry::Point(_)))
-    {
+    if !parts.is_empty() && parts.iter().all(|g| matches!(g, Geometry::Point(_))) {
         return Geometry::MultiPoint(
             parts
                 .into_iter()
@@ -134,11 +132,7 @@ fn collapse_multigeometry(parts: Vec<Geometry>) -> Geometry {
                 .collect(),
         );
     }
-    if !parts.is_empty()
-        && parts
-            .iter()
-            .all(|g| matches!(g, Geometry::LineString(_)))
-    {
+    if !parts.is_empty() && parts.iter().all(|g| matches!(g, Geometry::LineString(_))) {
         return Geometry::MultiLineString(
             parts
                 .into_iter()
@@ -149,11 +143,7 @@ fn collapse_multigeometry(parts: Vec<Geometry>) -> Geometry {
                 .collect(),
         );
     }
-    if !parts.is_empty()
-        && parts
-            .iter()
-            .all(|g| matches!(g, Geometry::Polygon(_)))
-    {
+    if !parts.is_empty() && parts.iter().all(|g| matches!(g, Geometry::Polygon(_))) {
         return Geometry::MultiPolygon(
             parts
                 .into_iter()
@@ -420,11 +410,7 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode, String> {
                     ..Default::default()
                 };
                 if self_close {
-                    stack
-                        .last_mut()
-                        .unwrap()
-                        .children
-                        .push(node);
+                    stack.last_mut().unwrap().children.push(node);
                 } else {
                     stack.push(node);
                 }
@@ -439,9 +425,7 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode, String> {
             i = next;
         }
     }
-    let mut root = stack
-        .pop()
-        .ok_or_else(|| "XML: no root".to_string())?;
+    let mut root = stack.pop().ok_or_else(|| "XML: no root".to_string())?;
     if !stack.is_empty() {
         return Err("XML: unclosed element(s)".to_string());
     }
@@ -619,8 +603,7 @@ mod tests {
 
     #[test]
     fn eg306_kml_bad_coordinate_errors() {
-        let xml =
-            r#"<kml><Placemark><Point><coordinates>notanumber,1</coordinates></Point></Placemark></kml>"#;
+        let xml = r#"<kml><Placemark><Point><coordinates>notanumber,1</coordinates></Point></Placemark></kml>"#;
         assert!(read_kml(xml).is_err());
     }
 

@@ -1717,7 +1717,11 @@ fn unsubscribe(
     chans: &[Vec<u8>],
     pattern: bool,
 ) -> Vec<Resp> {
-    let kind = if pattern { "punsubscribe" } else { "unsubscribe" };
+    let kind = if pattern {
+        "punsubscribe"
+    } else {
+        "unsubscribe"
+    };
     let targets: Vec<String> = if chans.is_empty() {
         if pattern {
             conn.sub_patterns.iter().cloned().collect()
@@ -2240,13 +2244,7 @@ mod tests {
         let pubsub = ps();
         let mut c = conn3();
         c.id = pubsub.register(mpsc::unbounded_channel().0);
-        let replies = dispatch(
-            &store,
-            &pubsub,
-            &a(&["SUBSCRIBE", "a", "b"]),
-            &mut c,
-            None,
-        );
+        let replies = dispatch(&store, &pubsub, &a(&["SUBSCRIBE", "a", "b"]), &mut c, None);
         // One confirmation per channel, with a running total count.
         assert_eq!(
             replies,

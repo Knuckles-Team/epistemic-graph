@@ -14,8 +14,8 @@
 //!  * `Warn` logs but APPLIES the violating change;
 //!  * `Off` (and an empty registry) leaves the write path unchanged.
 
-use eg_rdf::update::{execute_guarded_str, MapStore, UpdateError};
 use eg_rdf::sparql::{run_outcome, Projection, QueryOutcome};
+use eg_rdf::update::{execute_guarded_str, MapStore, UpdateError};
 use eg_shacl::{IcvMode, IcvPolicy, IcvPolicyRegistry};
 
 const PREFIXES: &str = r#"
