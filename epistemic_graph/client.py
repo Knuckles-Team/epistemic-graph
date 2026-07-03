@@ -2043,6 +2043,10 @@ _HEAVY_RPC_METHODS = frozenset(
         # A txn commit (CONCEPT:KG-2.180) applies the whole staged write-set under
         # one lock — a large multi-op commit may legitimately take longer.
         "Commit",
+        # An online backup (CONCEPT:EG-090) streams a per-shard MVCC snapshot verbatim to
+        # a bundle dir — give it the heavy budget. Restore stages a rebuilt copy likewise.
+        "Backup",
+        "Restore",
     }
 )
 
@@ -2244,6 +2248,24 @@ class QueryClient:
         return await self._client._send(
             "RegisterForeignSource", {"name": name, "source": source}
         )
+
+    async def nl_query(
+        self, text: str, graph: str | None = None
+    ) -> list[dict[str, Any]]:
+        """CONCEPT:EG-328 — Natural-language → executable query → rows (EG-078/EG-080).
+
+        Send free-text ``text`` to the engine's ``Method::NlQuery``: the configured/injected
+        ``NlPlanner`` (an OpenAI-compatible endpoint, e.g. agent-utilities' LLM, set via
+        config or ``EPISTEMIC_GRAPH_NL_ENDPOINT``) turns it into a UQL query STRING which then
+        rides the IDENTICAL deterministic :meth:`uql` pipeline (no LLM in the engine core, no
+        new execution path). Requires a server built with the ``nl-query`` feature AND a
+        configured planner — a build/deploy without either returns a clear error (never a
+        panic). ``graph`` defaults to the connection's graph.
+
+        Returns the query's result rows (a ``Raw`` payload the transport already
+        double-unpacks) — a list of row dicts, exactly as the produced UQL yields."""
+        result = await self._client._send("NlQuery", {"text": text}, graph=graph)
+        return result or []
 
     @staticmethod
     def _rows_to_dicts(result: Any) -> list[dict[str, Any]]:
@@ -2958,6 +2980,469 @@ class BlobClient:
         return int(blobs), int(chunks)
 
 
+def _as_bytes(value: Any) -> Any:
+    """Normalize a msgpack-decoded byte payload to ``bytes``.
+
+    The engine returns message payloads as a raw byte sequence; depending on the
+    ``serde`` tagging msgpack surfaces it as ``bytes``/``bytearray`` (a ``bin``) or as a
+    ``list[int]`` (an un-tagged ``Vec<u8>``). Coerce both to ``bytes``; leave anything
+    else untouched."""
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, list) and all(isinstance(b, int) for b in value):
+        return bytes(value)
+    return value
+
+
+class BrokerClient:
+    """CONCEPT:EG-328 — Native message-broker + streams namespace (EG-275..284/314).
+
+    A thin, typed binding over the engine's RabbitMQ/Kafka-class broker built on the
+    KG-2.303 work-queue: exchange/queue admin + routed publish + consumer-group
+    consume/ack/reject with DLQ/TTL/priority/delay policy (EG-275..280), publisher
+    confirms + tag-addressed acks (EG-284), effectively-once idempotent publish
+    (EG-314), and replayable append-log **streams** (EG-283). Every mutation is
+    deterministic from its explicit args (the caller supplies ``now_ms`` — no server
+    clock — so WAL/Raft replay reproduces byte-identical state), exactly as the engine
+    contract requires.
+
+    Requires a server built with the ``broker`` feature; a build without it returns the
+    "not available in this build" error (the same catch-all as EG-090 on a non-redb
+    build). The AMQP/MQTT/STOMP wire adapters + ``graph_bus`` reach the SAME ops — this
+    is the in-process Python surface for them.
+
+    Usage::
+
+        await client.broker.declare_exchange("events", "topic")
+        await client.broker.declare_queue("q1")
+        await client.broker.bind_queue("events", "q1", "user.*")
+        n = await client.broker.publish("events", "user.signup", b"payload")
+        msg = await client.broker.consume("q1", group="g", consumer="c1", now_ms=now)
+        if msg:
+            node_id, props = msg
+            await client.broker.ack("q1", node_id)
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    # ── Exchange / binding admin (EG-275) ─────────────────────────────
+    async def declare_exchange(self, exchange: str, kind: str = "direct") -> str:
+        """Idempotently upsert an exchange. ``kind`` is ``direct``/``topic``/``fanout``.
+        Returns ``"ok"`` (an unknown kind is a clear engine error)."""
+        return await self._client._send(
+            "DeclareExchange", {"exchange": exchange, "kind": kind}
+        )
+
+    async def delete_exchange(self, exchange: str) -> bool:
+        """Delete an exchange and all its bindings (queues/messages untouched).
+        Returns ``True`` if it existed."""
+        return await self._client._send("DeleteExchange", {"exchange": exchange})
+
+    async def bind_queue(self, exchange: str, queue: str, routing_key: str) -> str:
+        """Bind ``queue`` to ``exchange`` under ``routing_key`` (idempotent). Returns
+        ``"ok"``."""
+        return await self._client._send(
+            "BindQueue",
+            {"exchange": exchange, "queue": queue, "routing_key": routing_key},
+        )
+
+    async def unbind_queue(self, exchange: str, queue: str, routing_key: str) -> bool:
+        """Remove a specific ``exchange``/``queue``/``routing_key`` binding. Returns
+        ``True`` if the binding existed."""
+        return await self._client._send(
+            "UnbindQueue",
+            {"exchange": exchange, "queue": queue, "routing_key": routing_key},
+        )
+
+    # ── Queue policy: DLQ / TTL / priority (EG-276/277/278) ────────────
+    async def declare_queue(
+        self,
+        queue: str,
+        *,
+        dl_exchange: str | None = None,
+        dl_routing_key: str | None = None,
+        max_delivery_count: int | None = None,
+        message_ttl_ms: int | None = None,
+        queue_expiry_ms: int | None = None,
+        max_priority: int | None = None,
+    ) -> str:
+        """Idempotently upsert a queue's policy node. All fields optional — an all-``None``
+        policy keeps the queue behaving exactly as the plain EG-275 work-queue. ``dl_*`` +
+        ``max_delivery_count`` configure dead-lettering (EG-276), ``message_ttl_ms`` /
+        ``queue_expiry_ms`` TTL (EG-277), ``max_priority`` the priority ceiling (EG-278).
+        Returns ``"ok"``."""
+        return await self._client._send(
+            "DeclareQueue",
+            {
+                "queue": queue,
+                "dl_exchange": dl_exchange,
+                "dl_routing_key": dl_routing_key,
+                "max_delivery_count": max_delivery_count,
+                "message_ttl_ms": message_ttl_ms,
+                "queue_expiry_ms": queue_expiry_ms,
+                "max_priority": max_priority,
+            },
+        )
+
+    # ── Publish (EG-275/277/278/279/284/314) ──────────────────────────
+    async def publish(self, exchange: str, routing_key: str, payload: bytes) -> int:
+        """Publish ``payload`` to ``exchange`` with ``routing_key``; the engine routes it
+        to all matched queues atomically. Returns the delivered-queue count."""
+        return await self._client._send(
+            "Publish",
+            {"exchange": exchange, "routing_key": routing_key, "payload": payload},
+        )
+
+    async def publish_ex(
+        self,
+        exchange: str,
+        routing_key: str,
+        payload: bytes,
+        *,
+        priority: int = 0,
+        delay_ms: int | None = None,
+        ttl_ms: int | None = None,
+        now_ms: int | None = None,
+    ) -> int:
+        """Policy-carrying publish (superset of :meth:`publish`): stamps per-message
+        ``priority`` (EG-278) and — resolving against the EXPLICIT ``now_ms`` — a
+        ``delay_ms`` eta (EG-279) and a ``ttl_ms`` deadline (EG-277). With ``priority == 0``
+        and all options ``None`` it is byte-identical to a plain :meth:`publish`. Returns
+        the delivered-queue count."""
+        return await self._client._send(
+            "PublishEx",
+            {
+                "exchange": exchange,
+                "routing_key": routing_key,
+                "payload": payload,
+                "priority": int(priority),
+                "delay_ms": delay_ms,
+                "ttl_ms": ttl_ms,
+                "now_ms": now_ms,
+            },
+        )
+
+    async def publish_confirmed(
+        self,
+        exchange: str,
+        routing_key: str,
+        payload: bytes,
+        *,
+        priority: int = 0,
+        delay_ms: int | None = None,
+        ttl_ms: int | None = None,
+        now_ms: int | None = None,
+    ) -> dict[str, Any]:
+        """Publish with a publisher confirm (EG-284) — a superset of :meth:`publish_ex`
+        that also allocates a broker-wide monotonic delivery-tag. Returns a
+        ``ConfirmToken`` dict ``{"delivery_tag": int, "confirmed": bool}`` (``confirmed``
+        is ``False`` — a nack — on an unknown exchange)."""
+        return await self._client._send(
+            "PublishConfirmed",
+            {
+                "exchange": exchange,
+                "routing_key": routing_key,
+                "payload": payload,
+                "priority": int(priority),
+                "delay_ms": delay_ms,
+                "ttl_ms": ttl_ms,
+                "now_ms": now_ms,
+            },
+        )
+
+    async def publish_idempotent(
+        self,
+        exchange: str,
+        routing_key: str,
+        payload: bytes,
+        *,
+        producer_id: str | None = None,
+        seq: int = 0,
+        priority: int = 0,
+        delay_ms: int | None = None,
+        ttl_ms: int | None = None,
+        now_ms: int | None = None,
+    ) -> dict[str, Any]:
+        """Effectively-once publish (EG-314) — a superset of :meth:`publish_confirmed`.
+        With ``producer_id is None`` it is the plain at-least-once path. With a
+        ``producer_id`` the broker dedups against that producer's durable monotonic
+        high-water mark: a ``seq`` at/under the mark is a DUPLICATE (dropped but still
+        confirmed); a ``seq`` above it advances the mark and enqueues. Returns an
+        ``IdempotentPublish`` dict ``{"confirmed": bool, "duplicate": bool,
+        "delivered": int}``."""
+        return await self._client._send(
+            "PublishIdempotent",
+            {
+                "exchange": exchange,
+                "routing_key": routing_key,
+                "payload": payload,
+                "producer_id": producer_id,
+                "seq": int(seq),
+                "priority": int(priority),
+                "delay_ms": delay_ms,
+                "ttl_ms": ttl_ms,
+                "now_ms": now_ms,
+            },
+        )
+
+    # ── Consume / ack / reject (EG-280/276/284) ───────────────────────
+    async def consume(
+        self,
+        queue: str,
+        *,
+        group: str,
+        consumer: str,
+        now_ms: int,
+        lease_ms: int = 0,
+        prefetch: int = 0,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Consume one message from ``queue`` for consumer-group member
+        ``(group, consumer)`` (EG-280), honoring TTL/priority/delay. Claims the
+        highest-priority, oldest, DUE, non-expired message, enforcing ``prefetch``
+        (0 ⇒ unlimited) and taking a ``lease_ms`` visibility lease (0 ⇒ none). Lazily
+        dead-letters expired messages it steps over. Returns ``(node_id, properties)`` or
+        ``None`` if nothing is deliverable."""
+        claimed = await self._client._send(
+            "BrokerConsume",
+            {
+                "queue": queue,
+                "group": group,
+                "consumer": consumer,
+                "now_ms": int(now_ms),
+                "lease_ms": int(lease_ms),
+                "prefetch": int(prefetch),
+            },
+        )
+        if not claimed:
+            return None
+        node_id, props = claimed
+        return node_id, props
+
+    async def ack(self, queue: str, node_id: str) -> bool:
+        """Acknowledge (remove) a claimed message, freeing the consumer's in-flight slot
+        (EG-280). Returns ``True`` if the message existed."""
+        return await self._client._send(
+            "BrokerAck", {"queue": queue, "node_id": node_id}
+        )
+
+    async def reject(
+        self, queue: str, node_id: str, *, requeue: bool, now_ms: int
+    ) -> str:
+        """Reject a claimed message (EG-276). If ``requeue`` and the delivery count is
+        under the queue's ``max_delivery_count`` it returns to claimable; otherwise it is
+        dead-lettered or dropped. Returns the outcome string (``requeued``/
+        ``dead-lettered``/``dropped``/``absent``)."""
+        return await self._client._send(
+            "BrokerReject",
+            {
+                "queue": queue,
+                "node_id": node_id,
+                "requeue": bool(requeue),
+                "now_ms": int(now_ms),
+            },
+        )
+
+    async def ack_tag(self, delivery_tag: int) -> bool:
+        """Acknowledge a claimed message by its consumer ``delivery_tag`` (EG-284) — the
+        tag-addressed sibling of :meth:`ack`. Returns ``True`` if it existed."""
+        return await self._client._send(
+            "BrokerAckTag", {"delivery_tag": int(delivery_tag)}
+        )
+
+    async def nack_tag(self, delivery_tag: int, *, requeue: bool, now_ms: int) -> str:
+        """Nack a claimed message by its consumer ``delivery_tag`` (EG-284) — the
+        tag-addressed sibling of :meth:`reject`. Returns the outcome string."""
+        return await self._client._send(
+            "BrokerNackTag",
+            {
+                "delivery_tag": int(delivery_tag),
+                "requeue": bool(requeue),
+                "now_ms": int(now_ms),
+            },
+        )
+
+    async def sweep_expired(self, now_ms: int) -> int:
+        """Reaper sweep (EG-277): dead-letter/drop messages whose TTL has passed and
+        return lease-expired messages to claimable, across every queue. Returns the count
+        of messages acted on. Called periodically by a scheduler with the current clock."""
+        return await self._client._send("SweepExpired", {"now_ms": int(now_ms)})
+
+    # ── Replayable append-log streams (EG-283) ────────────────────────
+    async def stream_declare(
+        self,
+        stream: str,
+        *,
+        max_messages: int | None = None,
+        max_age_ms: int | None = None,
+    ) -> str:
+        """Idempotently upsert a stream's retention policy (EG-283). Both bounds optional —
+        an all-``None`` policy is an unbounded append log a trim never touches. Also ensures
+        the offset counter so the stream is publishable. Returns ``"ok"``."""
+        return await self._client._send(
+            "StreamDeclare",
+            {"stream": stream, "max_messages": max_messages, "max_age_ms": max_age_ms},
+        )
+
+    async def stream_publish(self, stream: str, payload: bytes, now_ms: int) -> int:
+        """Append ``payload`` to ``stream``, returning its assigned monotonic offset
+        (EG-283). The message is RETAINED (read by offset), never auto-consumed. ``now_ms``
+        is stamped as the message ``ts`` for age-based retention."""
+        return await self._client._send(
+            "StreamPublish",
+            {"stream": stream, "payload": payload, "now_ms": int(now_ms)},
+        )
+
+    async def stream_read(
+        self, stream: str, *, from_offset: int = 0, max: int = 0
+    ) -> list[tuple[int, bytes]]:
+        """Read up to ``max`` retained messages from ``stream`` starting at ``from_offset``
+        WITHOUT deleting (EG-283 — replay). ``from_offset < 0`` ⇒ only-new (from the current
+        end); ``0`` ⇒ earliest; otherwise that explicit offset. ``max == 0`` ⇒ uncapped.
+        Returns ``[(offset, payload), ...]`` ascending by offset. Read-only."""
+        msgs = await self._client._send(
+            "StreamRead",
+            {"stream": stream, "from_offset": int(from_offset), "max": int(max)},
+        )
+        # The engine serializes each payload as a raw byte sequence; msgpack surfaces it
+        # as ``bytes`` or, for an un-tagged ``Vec<u8>``, a list of ints — normalize both
+        # back to ``bytes`` so a publish→read round-trip is byte-clean.
+        return [(int(off), _as_bytes(payload)) for off, payload in (msgs or [])]
+
+    async def stream_trim(self, stream: str, now_ms: int) -> int:
+        """Trim ``stream`` per its declared retention (EG-283): drop messages beyond
+        ``max_messages`` (oldest first) and/or older than ``max_age_ms``. Returns the count
+        removed. An undeclared/unbounded stream trims nothing."""
+        return await self._client._send(
+            "StreamTrim", {"stream": stream, "now_ms": int(now_ms)}
+        )
+
+    async def stream_commit_offset(self, stream: str, group: str, offset: int) -> str:
+        """Commit a consumer-group's read ``offset`` on ``stream`` so it can resume
+        (EG-283). Idempotent upsert; returns ``"ok"``."""
+        return await self._client._send(
+            "StreamCommitOffset",
+            {"stream": stream, "group": group, "offset": int(offset)},
+        )
+
+    async def stream_committed_offset(self, stream: str, group: str) -> int | None:
+        """Read a consumer-group's committed offset on ``stream`` (EG-283). Returns the
+        offset, or ``None`` if the group has never committed. Read-only."""
+        return await self._client._send(
+            "StreamCommittedOffset", {"stream": stream, "group": group}
+        )
+
+
+class RbacClient:
+    """CONCEPT:EG-328 — RBAC policy administration namespace (EG-092).
+
+    A thin binding over ``Method::RbacAdmin`` (an admin/governance op, not a
+    graph call): manage durable roles + a role hierarchy + resource/action grants that
+    the engine's read/plan-path ``GraphView`` filter enforces. Unconditional on the wire;
+    the HANDLER is gated behind the server's ``security`` feature — a non-security build
+    returns the "not available in this build" error.
+
+    Grants bind a role to a ``(resource, action, effect)`` triple. ``resource`` is a
+    :class:`ResourceSelector` dict (``"All"`` / ``{"Pattern": s}`` / ``{"Label": s}`` /
+    ``{"Graph": s}``), ``action`` is ``"Read"``/``"Write"``/``"Admin"``, ``effect`` is
+    ``"Allow"``/``"Deny"``. Most-specific-resource wins.
+
+    Usage::
+
+        await client.rbac.add_role("reader")
+        await client.rbac.add_grant(
+            "reader", {"Graph": "agent:planner"}, "Read", "Allow"
+        )
+        policy = await client.rbac.list()   # {"roles": [...], "grants": [...]}
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def add_role(self, name: str, parents: list[str] | None = None) -> str:
+        """Add (or replace) a durable role that transitively inherits every grant of its
+        ``parents`` (a role hierarchy). Returns ``"role_added"``."""
+        role = {"name": name, "parents": list(parents or [])}
+        return await self._client._send("RbacAdmin", {"op": {"AddRole": role}})
+
+    async def remove_role(self, name: str) -> str:
+        """Remove a role. Returns ``"role_removed"``."""
+        return await self._client._send("RbacAdmin", {"op": {"RemoveRole": name}})
+
+    async def add_grant(
+        self,
+        role: str,
+        resource: dict[str, Any] | str,
+        action: str,
+        effect: str = "Allow",
+    ) -> str:
+        """Add a grant binding ``role`` to ``(resource, action, effect)``. ``resource`` is a
+        :class:`ResourceSelector` (``"All"`` or ``{"Pattern"|"Label"|"Graph": s}``),
+        ``action`` ∈ ``{Read, Write, Admin}``, ``effect`` ∈ ``{Allow, Deny}``. Returns
+        ``"grant_added"``."""
+        grant = {
+            "role": role,
+            "resource": resource,
+            "action": action,
+            "effect": effect,
+        }
+        return await self._client._send("RbacAdmin", {"op": {"AddGrant": grant}})
+
+    async def remove_grant(
+        self,
+        role: str,
+        resource: dict[str, Any] | str,
+        action: str,
+        effect: str = "Allow",
+    ) -> dict[str, Any]:
+        """Remove the grant matching ``(role, resource, action, effect)`` exactly. Returns
+        ``{"removed": bool}``."""
+        grant = {
+            "role": role,
+            "resource": resource,
+            "action": action,
+            "effect": effect,
+        }
+        return await self._client._send("RbacAdmin", {"op": {"RemoveGrant": grant}})
+
+    async def list(self) -> dict[str, Any]:
+        """List the current policy → ``{"roles": [...], "grants": [...]}``. Read-only."""
+        return await self._client._send("RbacAdmin", {"op": "List"})
+
+
+class AdminClient:
+    """CONCEPT:EG-328 — Ops / maintenance namespace: online backup + restore (EG-090).
+
+    A thin binding over the ``Method::Backup`` / ``Method::Restore`` admin RPCs.
+    :meth:`backup` takes an ONLINE consistent snapshot (per-shard ``begin_read()`` MVCC,
+    no quiesce) into a portable bundle directory. :meth:`restore` STAGES a rebuilt copy in
+    a sibling dir (the running engine holds an exclusive lock on its live store) for the
+    operator to swap in after stopping the engine — an in-place restore uses the offline
+    ``restore`` CLI. Redb-only; a non-redb build returns "not available".
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def backup(
+        self, destination: str, label: str | None = None
+    ) -> dict[str, Any]:
+        """Take an online consistent backup into ``destination`` (a bundle directory),
+        tagged with ``label`` (EG-090). Returns a ``BackupReport`` dict (destination,
+        label, timestamp, engine_version, per-shard/graph/node/edge/ledger/semantic/audit
+        counts)."""
+        return await self._client._send(
+            "Backup", {"destination": destination, "label": label}
+        )
+
+    async def restore(self, source: str) -> dict[str, Any]:
+        """Restore from a backup bundle at ``source`` (EG-090). Stages the rebuilt copy in a
+        sibling dir (returned as ``staged_dir``) for an offline swap-in. Returns a
+        ``RestoreReport`` dict (source, staged_dir, note, restored_shards, bundle
+        engine_version/timestamp/label, graphs)."""
+        return await self._client._send("Restore", {"source": source})
+
+
 class EpistemicGraphClient:
     """CONCEPT:KG-2.19 — Epistemic Graph Core Client
 
@@ -3044,6 +3529,11 @@ class EpistemicGraphClient:
         self.rdf = RdfClient(self)
         self.streaming = StreamingClient(self)
         self.blob = BlobClient(self)
+        # CONCEPT:EG-328 — B1.7 multi-lang client drivers: broker/streams (EG-275..284/314),
+        # RBAC admin (EG-092), backup/restore (EG-090). NlQuery (EG-080) lives on `query`.
+        self.broker = BrokerClient(self)
+        self.rbac = RbacClient(self)
+        self.admin = AdminClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -3451,6 +3941,10 @@ class SyncEpistemicGraphClient:
         self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
         self.streaming = self._SyncWrapper(self._client.streaming, self._loop)
         self.blob = self._SyncWrapper(self._client.blob, self._loop)
+        # CONCEPT:EG-328 — B1.7 broker/streams + RBAC + backup namespaces.
+        self.broker = self._SyncWrapper(self._client.broker, self._loop)
+        self.rbac = self._SyncWrapper(self._client.rbac, self._loop)
+        self.admin = self._SyncWrapper(self._client.admin, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

@@ -148,6 +148,13 @@ the authoritative `CONCEPT:EG-*` definitions.
 - **P5 — drop numpy/scipy** from agent-utilities; the `eg-numeric` wheel is the dep. 🗺
 
 See [`architecture/numeric-kernel.md`](architecture/numeric-kernel.md).
+### Client drivers
+- **Multi-language client drivers (B1.7)** — thin client bindings for the Program-B engine `Method`s that had no
+  client surface: the native broker + append-log streams (EG-275..284/314), RBAC admin (EG-092), online
+  backup/restore (EG-090), and NL→query (EG-080). A FULL Python surface (`client.broker`/`.rbac`/`.admin` +
+  `query.nl_query`) plus THIN generated-from-the-Method-list JS (`clients/js`) and Go (`clients/go`) bindings over
+  the same framed-MessagePack transport; Pi-contract preserved (no heavy deps). See
+  [`interfaces/clients.md`](interfaces/clients.md) (EG-328).
 
 ---
 
