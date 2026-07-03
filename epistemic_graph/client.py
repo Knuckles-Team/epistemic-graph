@@ -2470,6 +2470,70 @@ class TxnClient:
             {"txn_id": txn_id, "node_id": node_id, "digest": digest},
         )
 
+    async def add_measurement(
+        self,
+        txn_id: str,
+        series: str,
+        points: list[tuple[int, list[float]]],
+        graph: str | None = None,
+    ) -> bool:
+        """Stage a TIME-SERIES measurement batch (CONCEPT:EG-360 — extended cross-modal
+        staging). The points land atomically WITH the txn's graph/property/vector/blob
+        writes in ONE redb ``WriteTransaction`` at commit. ``points`` are
+        ``(ts_ns, [values])`` — the SAME shape :meth:`TimeSeriesClient.append` carries.
+        Requires a server built with the ``tsdb`` feature."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "series": series,
+            "points": msgpack.packb(
+                [[int(ts), [float(v) for v in vals]] for ts, vals in points]
+            ),
+        }
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnAddMeasurement", params)
+
+    async def axiom(self, txn_id: str, turtle: str, graph: str | None = None) -> bool:
+        """Stage OWL AXIOMS as Turtle (CONCEPT:EG-361). At commit they lower to graph
+        node/edge writes in the SAME atomic ``WriteTransaction`` so the OWL reasoner
+        sees them consistently with the txn's other staged modalities. Requires a
+        server built with the ``owl`` feature."""
+        params: dict[str, Any] = {"txn_id": txn_id, "turtle": turtle}
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnAxiom", params)
+
+    async def construct(
+        self, txn_id: str, sparql: str, graph: str | None = None
+    ) -> bool:
+        """Stage a SPARQL CONSTRUCT (CONCEPT:EG-362). At commit the produced triples
+        lower to graph node/edge writes in the SAME atomic ``WriteTransaction``.
+        Requires a server built with the ``sparql`` feature."""
+        params: dict[str, Any] = {"txn_id": txn_id, "sparql": sparql}
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnConstruct", params)
+
+    async def unified_query(
+        self,
+        txn_id: str,
+        text: str,
+        reorder_filter_selectivity: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run a UNIFIED cross-modal UQL read INSIDE the txn with read-your-own-writes
+        (CONCEPT:EG-359 — in-txn cross-modal RYOW). ``text`` is the SAME UQL surface
+        :meth:`QueryClient.unified_query_text` parses; the read runs over a snapshot
+        OVERLAID with THIS txn's staged (uncommitted) write-set, so a staged
+        node/edge/embedding is visible before commit and invisible off-txn until
+        commit. Returns the same ``{"id", "score"}`` rows as ``unified``. Requires a
+        server built with the ``query`` feature."""
+        params: dict[str, Any] = {"txn_id": txn_id, "text": text}
+        if reorder_filter_selectivity is not None:
+            params["reorder_filter_selectivity"] = reorder_filter_selectivity
+        result = await self._client._send("TxnUnifiedQueryText", params)
+        rows = result or []
+        return [{"id": id_, "score": score} for id_, score in rows]
+
     async def commit(self, txn_id: str) -> bool:
         """Commit the transaction. ``True`` ⇒ applied + persisted; ``False`` ⇒ OCC
         conflict (nothing applied — a true rollback; re-begin and retry)."""
