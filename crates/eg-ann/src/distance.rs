@@ -325,4 +325,47 @@ mod tests {
         assert_eq!(nearest, 0, "batch distances rank the exact match first");
         assert_eq!(idx.search(&q, 1, Metric::L2)[0].id, 1);
     }
+
+    /// GPU↔CPU parity (CONCEPT:EG-351). When a CUDA device is present, the real CUDA
+    /// batch-distance kernel MUST match the CPU ground truth to within f32 tolerance
+    /// across every metric; when no device is available `cuda::backend()` is `None` and
+    /// the test SKIPS cleanly. So it is a no-op in GPU-less CI yet auto-validates the
+    /// EG-327 kernel wherever a GPU exists (e.g. the GB10 box) without breaking CI. Only
+    /// compiled under `--features gpu-cuda` (the `cuda` module is gated on that feature).
+    #[cfg(feature = "gpu-cuda")]
+    #[test]
+    fn eg351_cuda_batch_distance_matches_cpu_ground_truth() {
+        let Some(gpu) = cuda::backend() else {
+            eprintln!("SKIP eg351_cuda_batch_distance: no CUDA device present (CPU-only host)");
+            return;
+        };
+        assert_eq!(gpu.name(), "cuda", "backend() returned a non-CUDA backend");
+
+        // A non-trivial batch: several dims, a zero-norm row (exercises the cosine
+        // zero-denominator branch), and mixed-sign values.
+        let dim = 5;
+        let rows: Vec<f32> = vec![
+            0.0, 0.0, 0.0, 0.0, 0.0, // zero-norm row → cosine == 1.0
+            1.0, 2.0, 3.0, 4.0, 5.0, //
+            -1.0, 0.5, 2.5, -3.0, 1.0, //
+            9.0, -8.0, 7.0, -6.0, 5.0, //
+            0.25, 0.25, 0.25, 0.25, 0.25, //
+        ];
+        let q = vec![0.3, -1.2, 2.0, 0.0, 4.4];
+
+        for metric in [Metric::L2, Metric::Cosine, Metric::InnerProduct] {
+            let cpu = CpuBackend.batch_distance(&q, &rows, dim, metric);
+            let gpu_out = gpu.batch_distance(&q, &rows, dim, metric);
+            assert_eq!(cpu.len(), gpu_out.len(), "length mismatch for {metric:?}");
+            for (i, (c, g)) in cpu.iter().zip(gpu_out.iter()).enumerate() {
+                // f32 accumulation on the GPU (FMA/rounding) can differ from the scalar
+                // CPU path by a few ULP — assert bitwise-CLOSE with a relative tolerance.
+                let tol = 1e-4_f32 * (1.0 + c.abs());
+                assert!(
+                    (c - g).abs() <= tol,
+                    "GPU!=CPU for {metric:?} row {i}: cpu={c} gpu={g} (tol {tol})"
+                );
+            }
+        }
+    }
 }
