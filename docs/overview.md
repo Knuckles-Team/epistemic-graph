@@ -112,7 +112,7 @@ family) and **agent-memory** primitives (CONCEPT:EG-099/220/221/222) live in `eg
 **observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:EG-160-165/172/243) lives in
 `eg-tsdb` + the facade's `obs` listener. **Program B** (waves B-1..B-6, CONCEPT:EG-298..320) then added a
 seventh leaf crate — **eg-lake** (LTAP lakehouse interop: Parquet + Delta + Iceberg + LSN as-of;
-CONCEPT:EG-317, see [lakehouse-ltap](architecture/lakehouse-ltap.md)) — plus the facade's **OTel egress**
+CONCEPT:EG-317, see [lakehouse-ltap](architecture/lakehouse_ltap.md)) — plus the facade's **OTel egress**
 (OTLP export + Prometheus remote-write; EG-316) and **QoS/SLO scheduler** (EG-320), and exposed the
 agent-memory/scene/trajectory primitives over the wire (EG-318). See
 [subsystems](architecture/subsystems.md) for how they compose on the one substrate.
@@ -181,6 +181,6 @@ each), computed off the per-graph lock on a structural snapshot so analytics nev
 - **Distributed Pregel/GAS** (cluster tier) — PageRank / connected-components / BFS across graphs that
   span multiple Raft shards, with incrementally-maintained materialized views.
 
-See the [Rust Compute Guide](RUST_COMPUTE_GUIDE.md) for the procedure to add a capability across the
+See the [Rust Compute Guide](rust_compute_guide.md) for the procedure to add a capability across the
 `protocol.rs` / `dispatch.rs` / `handlers` / client layers, and [benchmarks](benchmarks.md) for measured
 per-op latency.

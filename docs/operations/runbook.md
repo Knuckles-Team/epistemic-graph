@@ -194,5 +194,16 @@ tier by default.
   `tracing` spans over OTLP (additive; installs only when both are set).
 - **Slow queries**: `EPISTEMIC_GRAPH_SLOW_QUERY_MS`.
 
+!!! note "Deferred — admin console UI (🗺)"
+    Tenant / shard / RBAC / backup-PITR administration is fully driveable over the **APIs + CLI** today
+    (`Method::Backup`/`Restore`, the RBAC admin surface, `GroupRouter` resharding). A browser **admin
+    console** over those APIs is designed but not built. See the [forward roadmap](../roadmap.md).
+
+---
+
+**See also:** [Capabilities matrix](../capabilities.md) · [Deployment (database)](../deployment.md) ·
+[Cost Model & Capacity](../cost_model.md) · [Cluster Deployment](../architecture/cluster_deployment.md) ·
+[Observability](../interfaces/observability.md).
+
 ---
 *CONCEPT:EG-095 — comprehensive interface + operations documentation.*
