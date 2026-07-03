@@ -167,7 +167,7 @@ the authoritative `CONCEPT:EG-*` definitions.
   in-engine* — one SQL statement joins graph ⋈ vector ⋈ timeseries and runs `pca`/`kmeans`/`covariance` over the joined
   result set (**impossible in numpy** — no data layer), E2E-proven in `crates/eg-query/tests/cross_modal_analytics.rs`.
   **Deferred (next P4 increment):** graph-algo/timeseries unification under the kernel via native `Method` surfaces. ▶ ✅
-- **P5 — drop numpy/scipy** from agent-utilities; the `eg-numeric` wheel is the dep. 🗺 The publish blocker is **cleared (EG-351)**: `release-build.yml` now builds + tag-publishes the `eg-numeric` Surface-A wheel (linux x86_64 + aarch64 + sdist) to PyPI alongside `epistemic-graph`, so downstreams can hard-depend on the kernel and the numpy drop becomes purely an agent-utilities dependency swap.
+- **P5 — drop numpy/scipy** from agent-utilities; the kernel is the dep, shipped as **`epistemic-graph[numeric]`** (ONE package). 🗺 The publish blocker is **cleared (EG-351)**: `release-build.yml` builds the pyo3 Surface-A kernel and **folds its `.so` into the `epistemic-graph` node wheel** as `epistemic_graph.numeric` (`scripts/inject_numeric_kernel.py`) — no separate `eg-numeric` package on PyPI. So downstreams hard-depend on `epistemic-graph[numeric]` and the numpy drop becomes purely an agent-utilities dependency swap.
 
 See [`architecture/numeric-kernel.md`](architecture/numeric-kernel.md).
 ### Client drivers
