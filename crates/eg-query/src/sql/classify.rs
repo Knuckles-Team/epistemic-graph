@@ -51,7 +51,7 @@ use eg_types::wire::{JsonPathOp, Pred};
 use serde_json::{Map, Value};
 
 use crate::tables::schema::{
-    CmpOp, ColCheck, FunctionArg as CatalogArg, FunctionReturns, StoredFunction,
+    CmpOp, ColCheck, FunctionArg as CatalogArg, FunctionLanguage, FunctionReturns, StoredFunction,
 };
 
 /// How a single parsed SQL statement should be routed by the wire shim.
@@ -1854,16 +1854,27 @@ fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
     let (returns, after_ret) = parse_returns(after)?;
 
     let (body, language) = parse_body_and_language(after_ret)?;
-    if !language.eq_ignore_ascii_case("sql") {
+    // CONCEPT:EG-340 — a `LANGUAGE plpgsql` body is a procedural block run by the
+    // interpreter (`sql::plpgsql`); `LANGUAGE sql` stays the EG-118 inline-expansion path.
+    let lang = if language.eq_ignore_ascii_case("sql") {
+        FunctionLanguage::Sql
+    } else if language.eq_ignore_ascii_case("plpgsql") {
+        FunctionLanguage::PlPgSql
+    } else {
         return Err(format!(
-            "CREATE FUNCTION LANGUAGE `{language}` is not implemented — only LANGUAGE sql is \
-             supported; a procedural PL/pgSQL body (IF/LOOP/variables/RETURN) is a documented \
-             follow-up (CONCEPT:EG-118)"
+            "CREATE FUNCTION LANGUAGE `{language}` is not implemented — only LANGUAGE sql \
+             (CONCEPT:EG-118) and LANGUAGE plpgsql (CONCEPT:EG-340) are supported"
         ));
-    }
+    };
     let body = body.trim().to_string();
     if body.is_empty() {
         return Err("CREATE FUNCTION body is empty".to_string());
+    }
+    // CONCEPT:EG-340/EG-341 — validate the procedural body parses NOW so a malformed
+    // block fails at `CREATE FUNCTION`, not on first call.
+    if matches!(lang, FunctionLanguage::PlPgSql) {
+        super::plpgsql::parse_body(&body)
+            .map_err(|e| format!("CREATE FUNCTION plpgsql body: {e} (CONCEPT:EG-341)"))?;
     }
     Ok(CreateFunctionPlan {
         func: StoredFunction {
@@ -1871,6 +1882,7 @@ fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
             args,
             returns,
             body,
+            language: lang,
         },
         or_replace,
     })

@@ -228,15 +228,26 @@ pub fn exec_sql_typed_with_tables(
     store: &TableStore,
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
+    // CONCEPT:EG-118: the durable SQL stored functions, expanded into the query text
+    // (scalar → scalar subquery; table → parameterized-view subquery) before planning.
+    let functions = store.list_functions()?;
+    // CONCEPT:EG-340: a bare top-level `SELECT plfn(args)` / `CALL plproc(args)` naming a
+    // `LANGUAGE plpgsql` function runs the procedural interpreter instead of DataFusion.
+    // Its embedded SQL (expression eval, `SELECT … INTO`) runs back through THIS read path
+    // — the interpreter is synchronous, so each recursive call builds its own runtime with
+    // no nesting (we are not inside a reactor here; the handler calls us on `spawn_blocking`).
+    if functions.iter().any(|f| f.is_plpgsql()) {
+        let run_sql = |q: &str| exec_sql_typed_with_tables(view, store, q);
+        if let Some(res) = super::plpgsql::try_exec_call(sql, &functions, &run_sql)? {
+            return Ok(res);
+        }
+    }
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
     let user = materialize_user_tables(store)?;
     // CONCEPT:EG-072: the durable views, registered as read-only named queries so a
     // SELECT that references a view expands its stored SELECT during context build.
     let views = store.list_views()?;
-    // CONCEPT:EG-118: the durable SQL stored functions, expanded into the query text
-    // (scalar → scalar subquery; table → parameterized-view subquery) before planning.
-    let functions = store.list_functions()?;
     // CONCEPT:EG-116/EG-313: the durable pgvector ANN index registrations, consulted to
     // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index.
     let ann_indexes = store.list_ann_indexes()?;
