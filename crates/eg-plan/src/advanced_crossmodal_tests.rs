@@ -63,6 +63,7 @@ const SCHOLARLY_ONT: &str = "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema
 ///   * `p2` Paper,   live `[0,∞)`        — member, always live
 ///   * `p3` Topic,   live `[0,∞)`        — NON-member (no subclass path to ScholarlyWork)
 ///   * `p4` Article, live `[0,100)`      — member (2-hop), dies at 100
+///
 /// Bridged to IRIs by the REASON target's namespace (`<http://ex/…>`), so a plain
 /// `{"type":"Paper"}` resolves to `<http://ex/Paper>` (string→IRI bridge, EG-376).
 #[cfg(feature = "owl")]
@@ -296,6 +297,7 @@ fn federation_named_source_fails_closed_eg385() {
 ///   * `near_dead`  (2,2)  live `[0,100)`   — inside bbox, within 5, but EXPIRED at t=150
 ///   * `far_in_box` (9,9)  live `[0,∞)`     — inside bbox but >5 from origin (DWithin drops)
 ///   * `outside`   (50,50) live `[0,∞)`     — OUTSIDE the bbox (R-tree scan drops)
+///
 /// Query ≈ [1,0] ranks `near_live` before `near_dead`.
 #[cfg(feature = "geo")]
 fn places() -> (GraphView, SemanticStore) {
