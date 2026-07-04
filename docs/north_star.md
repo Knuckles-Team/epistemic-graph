@@ -69,6 +69,27 @@ feature); it is already covered over pgwire by `wire_reason_iri_bridges_string_t
 and needs no separate per-wire test since it rides the same `WireSession` result encoding.
 No open gap remains for these two wires.
 
+| **confidence time-decay not foldable into one fused plan** — surfaced by the agent-memory use-case suite (`tests/usecase_agent_memory.rs`, EG-434). The plan executor's `Op::Reason` passes `now=0` to the confidence reasoner (`exec.rs::reason_source`, decay-neutral by design so a bare `Reason` is a stable source/leaf). So a SINGLE fused plan cannot BOTH bi-temporal `AS OF`-reselect liveness AND Ebbinghaus-decay-reweight confidence — time-decayed confidence must be produced on the separate `OwlReason` Method / `eg_rdf::owl::instances_of_weighted` surface that threads a wall-clock `now`. The suite proves decay deterministically on `eg_rdf::owl::fact_confidence` and fuses the OTHER five memory signals in one plan. Fix option: a `Reason`/plan field carrying an explicit `now`/`half_life` so decayed confidence composes in-plan alongside `AsOf` | **open** | EG-439 |
+| **served `run_unified` binds no BM25 `TextIndex`** — surfaced by the agent-memory + hybrid-RAG suites (EG-434/EG-436). `src/server/handlers/query.rs::run_unified` builds its `PlanCtx` with `PlanCtx::new(view, semantic)` and NEVER calls `.with_text(...)` (documented at `query.rs:705` as the KG-2.215 increment-2 follow-up), so a SERVED `UnifiedQuery`/`UnifiedQueryText` whose plan contains `Op::RankText` or an `Op::FuseRrf` text branch degrades to ZERO lexical hits. The lexical leg is fully wired at the `eg_plan::execute` engine surface (proven by these suites via `PlanCtx::with_text`) but is a no-op through the served RPC surface — hence the suites drive the executor directly for the lexical leg. Fix: `ServerState` owns a live index-on-write `TextIndex` (+ an `AddText`/`IndexText` Method + persist dir beside `graph.redb`), bound in `run_unified` | **open** | EG-440 |
+
+## High-value use-case validation suites (EG-434..EG-438)
+
+Five end-to-end suites (external-review "High-Value Use Cases", handoff-1 track G) that
+stress the cross-modal seams by demonstrating unique value — each builds a small
+deterministic dataset and runs a hybrid query through the REAL engine (`eg_plan::execute`
+over a live `PlanCtx`, and/or the served `dispatch`), asserting the fused result honors
+EVERY modality it spans:
+
+| Suite | File | Modalities fused | Concept |
+|-------|------|------------------|---------|
+| agent-memory retrieval | `tests/usecase_agent_memory.rs` | semantic + lexical(BM25) + graph-expansion + OWL + bi-temporal `AS OF` + RRF (+ decay on the reasoner surface) | EG-434 |
+| codebase / repository intelligence | `tests/usecase_codebase_intel.rs` | vector(signature) + call-graph traverse + bi-temporal `AS OF` + OWL(language ontology) | EG-435 |
+| hybrid RAG + in-engine analytics | `tests/usecase_hybrid_rag_analytics.rs` | graph+vector+text fused retrieval → in-engine PCA/kmeans (`DsPca`/`DsKMeans`, compute-near-data) | EG-436 |
+| observability / root-cause | `tests/usecase_observability_rca.rs` | service-dependency graph traverse + error-log vectors + native tsdb `TsScan`→`WindowAgg` | EG-437 |
+| KG lifecycle w/ validation & inference | `tests/usecase_kg_lifecycle.rs` | SHACL validation + cross-modal ACID txn (graph+vector+OWL axiom) + inference closure + vector re-index under concurrent hybrid read/write | EG-438 |
+
+The two open rows above (EG-439, EG-440) are the REAL seam gaps these suites surfaced.
+
 ## What "done" means for a seam
 
 A seam row flips to **done** only when, at that surface:
