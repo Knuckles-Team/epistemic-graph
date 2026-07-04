@@ -1200,6 +1200,42 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
+    // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl —
+    // install the server-layer secondary-index factory so a committed write batch
+    // maintains the text / temporal / derived-OWL indexes INCREMENTALLY through the
+    // per-graph IndexManager seam (the D3 remainder), instead of drop-and-rebuild. The
+    // registry registers the per-graph indexes onto every recovered graph and every
+    // future `create_graph`. A build without text/tsdb/owl links none of this.
+    #[cfg(any(feature = "text", feature = "tsdb", feature = "owl"))]
+    {
+        let mut factory = server::secondary_indexes::ServerIndexFactory::new();
+        #[cfg(feature = "tsdb")]
+        {
+            if let Some(series) = state.read().await.tsdb_store.clone() {
+                factory = factory.with_series(series);
+            }
+        }
+        #[cfg(feature = "text")]
+        {
+            let text_dir = state
+                .read()
+                .await
+                .persist_dir
+                .clone()
+                .map(|d| std::path::Path::new(&d).join("text"));
+            factory = factory.with_text_dir(text_dir);
+        }
+        state
+            .write()
+            .await
+            .registry
+            .set_secondary_index_factory(factory.into_arc());
+        info!(
+            "incremental secondary indexes installed (CONCEPT:EG-KG.storage.incremental-text \
+             / .incremental-temporal / .incremental-derived-owl) — text/temporal/derived-OWL \
+             maintained per committed write batch"
+        );
+    }
     // CONCEPT:EG-KG.storage.semantic-index-directory — warm the semantic ANN index OFF the request path. The
     // cold-start bug: the FIRST `semantic_search` after a restart triggered a full
     // single-threaded IVF-PQ+OPQ build (SVD over a 1024² matrix + k-means over

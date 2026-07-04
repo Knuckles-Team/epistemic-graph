@@ -1737,6 +1737,27 @@ impl GraphCore {
         &self.index_manager
     }
 
+    /// Register a SERVER-LAYER secondary index (text/temporal/derived-OWL,
+    /// CONCEPT:EG-KG.storage.incremental-text etc.) onto this graph AFTER construction.
+    /// Called by the [`crate::index::SecondaryIndexFactory`] the registry installs, so
+    /// a committed write batch drives the index's incremental
+    /// [`crate::index::SecondaryIndex::apply_delta`] through
+    /// [`maintain_indexes`](Self::maintain_indexes) with no per-write wiring. Mirrors
+    /// [`set_read_through`](Self::set_read_through): a per-graph capability injected by
+    /// the server layer via `&self` interior mutability.
+    pub fn register_index(&self, index: Box<dyn crate::index::SecondaryIndex>) {
+        self.index_manager.register_server_index(index);
+    }
+
+    /// Does a registered server index derive from node content, so the write
+    /// coalescer must capture property blobs into the [`crate::index::ChangeSet`]
+    /// (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal)? A single
+    /// relaxed atomic load — `false` (no content index) keeps the hot path zero-clone.
+    #[inline]
+    pub fn wants_change_content(&self) -> bool {
+        self.index_manager.wants_change_content()
+    }
+
     /// Invalidate the lazy secondary caches — label (CONCEPT:EG-KG.compute.consult-lazy), property
     /// equality (CONCEPT:EG-KG.query.concept-12), and JSONPath path (CONCEPT:EG-KG.compute.json-deep-indexing) —
     /// so they rebuild on the next read. Carved out of `mark_dirty` (behavior-identical)

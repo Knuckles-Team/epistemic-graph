@@ -208,6 +208,11 @@ pub mod dds;
 // deadline-aware ordering + typed backpressure. With QoS unconfigured the transport never
 // touches it and the baseline path is byte-for-byte unchanged.
 pub mod qos;
+// Server-layer secondary indexes (text/temporal/derived-OWL) wired into the per-graph
+// IndexManager seam so a committed write batch maintains them incrementally
+// (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
+#[cfg(any(feature = "text", feature = "tsdb", feature = "owl"))]
+pub mod secondary_indexes;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid). `txn` holds the staged
