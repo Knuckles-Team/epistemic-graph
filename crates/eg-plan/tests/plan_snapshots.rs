@@ -12,7 +12,8 @@
 
 mod common;
 
-use eg_plan::{CostModel, Op, Pred, Stats};
+use common::{build_docs, ids_sorted, query_vec};
+use eg_plan::{execute, optimize, CostModel, Op, Plan, PlanCtx, Pred, Stats};
 
 /// Render a plan's ops as a stable, reviewable multi-line string.
 fn render(ops: &[Op]) -> String {
@@ -190,4 +191,87 @@ fn cost_reordered_plans_are_stable() {
 
     insta::assert_snapshot!("optimizer_selective_filter_pushed", render(&sel));
     insta::assert_snapshot!("optimizer_broad_vector_first", render(&brd));
+}
+
+/// END-TO-END optimizer-engine regression (CONCEPT:EG-KG.query.xmodal-cost-optimizer): the FULL
+/// rule engine `eg_plan::optimize` — not just the standalone `reorder_filter_rank` — reorders a
+/// real plan over the live docs fixture, and the rewrite is ANSWER-PRESERVING (the differential
+/// oracle: the optimized plan executes to the SAME id set as the original). Snapshot the
+/// reordered logical plan so a silent optimizer regression trips the diff.
+#[test]
+fn optimizer_engine_reorders_end_to_end() {
+    let (view, semantic) = build_docs();
+    let ctx = PlanCtx::new(&view, &semantic);
+
+    // A selective relational FILTER placed BEHIND the vector RANK: the engine must pull it
+    // ahead so the expensive brute-force scoring runs over the FEW survivors.
+    let original = Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Rank { query: query_vec() },
+        Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 2022.0,
+            }],
+        },
+    ]);
+    let optimized = optimize(&original, &ctx);
+    assert!(
+        matches!(optimized.ops[1], Op::Filter { .. })
+            && matches!(optimized.ops[2], Op::Rank { .. }),
+        "the engine pushes the selective filter ahead of RANK: {:?}",
+        optimized.ops
+    );
+    // Differential oracle: reorder is answer-preserving.
+    assert_eq!(
+        ids_sorted(&execute(&original, &ctx).unwrap()),
+        ids_sorted(&execute(&optimized, &ctx).unwrap()),
+        "the optimizer rewrite must return the same result set"
+    );
+    insta::assert_snapshot!("optimizer_engine_filter_pushed", render(&optimized.ops));
+}
+
+/// FuseRrf branch-reorder regression (CONCEPT:EG-KG.query.fuse-rrf-branch-reorder-rule): the engine
+/// reorders the sub-plan branches by ascending cost (a cheap graph-native rerank before a
+/// brute-force vector RANK). RRF fuses by summing reciprocal ranks into a map, so the result is
+/// branch-order-INDEPENDENT — the reorder is byte-for-byte answer-preserving. Snapshot the
+/// reordered branches and prove the executed RowSet is identical.
+#[cfg(feature = "text")]
+#[test]
+fn optimizer_fuse_branch_reorder_is_answer_preserving() {
+    let (view, semantic) = build_docs();
+    let ctx = PlanCtx::new(&view, &semantic);
+
+    let original = Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::FuseRrf {
+            // Expensive vector RANK branch FIRST, cheap graph-native rerank SECOND.
+            branches: vec![
+                vec![Op::Rank { query: query_vec() }],
+                vec![Op::RankMentions {}],
+            ],
+            k: 0.0,
+        },
+    ]);
+    let optimized = optimize(&original, &ctx);
+    // The cheap branch is now first.
+    let Op::FuseRrf { branches, .. } = &optimized.ops[1] else {
+        panic!("expected a FuseRrf op, got {:?}", optimized.ops[1]);
+    };
+    assert_eq!(
+        branches[0],
+        vec![Op::RankMentions {}],
+        "cheap branch runs first"
+    );
+    // RRF is order-independent → identical executed result.
+    assert_eq!(
+        ids_sorted(&execute(&original, &ctx).unwrap()),
+        ids_sorted(&execute(&optimized, &ctx).unwrap()),
+        "FuseRrf branch reorder must be answer-preserving"
+    );
+    insta::assert_snapshot!("optimizer_fuse_branches_reordered", render(&optimized.ops));
 }
