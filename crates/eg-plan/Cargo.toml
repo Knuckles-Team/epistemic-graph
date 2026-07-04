@@ -143,6 +143,15 @@ probabilistic = [
 # OFF by default and the facade folds it into node/full but NEVER `pi` (the Pi contract:
 # a `pi` build links no ureq/rustls/ring).
 nl-query = ["query", "dep:ureq"]
+# Lane B physical PARALLEL runtime (CONCEPT:EG-KG.query.parallel-runtime): the rayon-morsel,
+# memory-accounted, spilling `ParallelDriver` behind the Lane-0 `Driver` seam. Pulls the
+# pure-Rust `rayon` work-stealing pool (no C dep, same pin as eg-ann/eg-compute). IMPLIES
+# `query` (the runtime schedules the `query`-gated physical fns). OFF by default — a
+# default/Pi build links no rayon and `execute_ops` dispatches to the serial `SerialDriver`,
+# byte-for-byte the prior fold. Tuned via `EPISTEMIC_GRAPH_EXEC_THREADS` (pool width / morsel
+# fan-out) and `EPISTEMIC_GRAPH_EXEC_SPILL_MB` (per-intermediate spill budget). NEVER folded
+# into `pi`.
+par-runtime = ["query", "dep:rayon"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -230,6 +239,11 @@ tokio = { version = "1.38", features = ["rt", "net", "time"], optional = true }
 # linked transitively via eg-core; pin the same minor. NOT a new heavy dep, and the
 # graph leg is dep-free (ships in a default/Pi build).
 petgraph = { version = "0.6.4", features = ["serde-1"] }
+# The work-stealing data-parallel pool backing the `par-runtime` `ParallelDriver` (Lane B,
+# CONCEPT:EG-KG.query.parallel-runtime). Optional + only referenced under
+# #[cfg(feature = "par-runtime")]; pure-Rust (no C dep), same pin as eg-ann/eg-compute. A
+# default/Pi build links no rayon.
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 # The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
