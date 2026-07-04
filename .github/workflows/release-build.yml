@@ -187,9 +187,12 @@ jobs:
   #    publish-pypi. The Dockerfile's in-build `epistemic-graph-server --help` is the
   #    smoke (runs per-arch under QEMU).
   docker-image:
-    # Runs AFTER publish-pypi so the image installs the JUST-PUBLISHED wheel FROM PyPI
-    # (CI dependency order: wheels → publish-pypi → docker-image → publish-image).
-    needs: [publish-pypi]
+    # Builds the multi-arch image from the wheel BUILT IN THIS RUN (the `wheel-linux-*`
+    # artifacts → docker/wheels/, selected per-arch by the Dockerfile) — NO PyPI
+    # round-trip — so it depends only on `wheels`, NOT publish-pypi. Installing the
+    # just-published wheel FROM PyPI raced CDN propagation across the slow arm64/QEMU
+    # leg and flaked; the local CI wheel is deterministic (matches publish-image below).
+    needs: [wheels]
     runs-on: ubuntu-latest
     # GATE: tag push only (keeps CI cost down; the wheels themselves build on every push).
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -204,13 +207,23 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      # Pull the CI-built wheels into docker/wheels/ so the Dockerfile installs the LOCAL
+      # per-arch wheel (EG_WHEEL_DIR) instead of round-tripping PyPI (same as publish-image).
+      - name: Download wheel (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-x86_64
+          path: docker/wheels
+      - name: Download wheel (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-aarch64
+          path: docker/wheels
 
-      # BUILD multi-arch (amd64+arm64) installing the JUST-PUBLISHED wheel FROM PyPI —
-      # this job needs publish-pypi, so `epistemic-graph==$EG_VERSION` is already live on
-      # the index; the Dockerfile's `uv pip install "$EG_INSTALL_SPEC"` pulls it (no local
-      # wheel in the context ⇒ the PyPI path). load=false = build + in-image `--help` smoke
-      # only; the push step below pushes.
-      - name: Build multi-arch image (install published wheel from PyPI)
+      # BUILD multi-arch (amd64+arm64) from the CI-built wheels in docker/wheels/ — the
+      # Dockerfile picks the per-arch wheel, no PyPI. push:false = build + in-image
+      # `--help` smoke only; publish-image below pushes.
+      - name: Build multi-arch image (install CI-built wheel; no PyPI)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -219,7 +232,6 @@ jobs:
           push: false
           build-args: |
             EG_VERSION=${{ env.EG_VERSION }}
-            EG_INSTALL_SPEC=epistemic-graph==${{ env.EG_VERSION }}
           tags: epistemic-graph:ci
 
   # ─────────────────────────────────────────────────────────────────────────
