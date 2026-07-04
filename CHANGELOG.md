@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-07-03
+
+> **Minor, additive.** Extends the in-transaction cross-modal seam onto the SQL wire
+> family: a single psql `BEGIN…COMMIT` can now stage and atomically commit ALL modalities
+> and read its own uncommitted writes across them — routed onto the SAME committed RPC seam
+> the native transport uses (no re-implementation). Plus the North Star "Seamless" doc that
+> makes the seam-at-every-surface discipline explicit and tracks the remaining open sub-seams.
+
+### Added — pgwire / mysql / mssql cross-modal transaction seam
+- **EG-372** — pgwire (+ inherited mysql-wire / mssql-wire) in-transaction cross-modal
+  read-your-own-writes over the wire: inside a psql `BEGIN…COMMIT`, `UQL …`,
+  `SET EMBEDDING FOR …`, `INSERT INTO series …`, `SPARQL UPDATE …`, and `SPARQL CONSTRUCT …`
+  stage into the txn's write-set and read their own uncommitted writes across modalities,
+  committing atomically. Each SQL-wire statement is a thin parser/router onto the existing
+  committed RPC seam (`WireSession` → the EG-359..363 machinery) — never a re-implementation.
+  The two previously-`#[ignore]`d pgwire specs are un-ignored + green, plus a new in-txn
+  cross-modal isolation test. mysql-wire / mssql-wire inherit the verbs structurally via the
+  shared EG-074 core (per-wire executable roundtrip tests still pending — see north_star.md).
+
+### Added — North Star
+- **EG-373** — `docs/north_star.md` "Seamless" goal doc: every cross-modal seam must be fully
+  implemented at EVERY surface (RPC, SQL wire family, SPARQL, GraphQL), never merely flagged;
+  a seam that works over RPC but errors over psql is a leak. Includes the seam backlog table
+  tracking the remaining open sub-seams as explicit concept-owned rows rather than buried TODOs:
+  REASON-by-IRI mid-plan, the string→IRI class bridge, an in-txn tsdb read-your-own-writes
+  overlay, per-wire mysql/mssql roundtrip tests, and GraphQL cross-modal.
+
 ## [2.8.0] - 2026-07-03
 
 > **Minor, additive.** Closes the in-transaction cross-modal seam so a single ACID
