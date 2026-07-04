@@ -270,3 +270,174 @@ async fn tds_select_returns_colmetadata_rows_done() {
     assert_eq!(ids, vec!["n1", "n2", "n3"]);
     assert_eq!(status & protocol::DONE_ERROR, 0, "DONE has no error flag");
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Cross-modal transaction round-trip (CONCEPT:EG-378) — per-surface parity.
+//
+// The in-txn cross-modal seam routes through the SHARED `WireSession`
+// (CONCEPT:EG-074/EG-372), so the TDS wire INHERITS the pgwire seam. These tests
+// MIRROR the pgwire cross-modal cases (`tests/pgwire_roundtrip.rs`) over the TDS
+// SQLBatch protocol — every batch is handed verbatim to `WireSession::execute`, the
+// SAME core the pgwire shim runs:
+//   * `wire_txn_update_then_cross_modal_read` — a staged in-txn graph UPDATE + vector
+//     `SET EMBEDDING` are BOTH read back by an in-txn cross-modal `UQL` read, and
+//   * `wire_txn_crossmodal_ryow_isolated_until_commit` — `BEGIN; SET EMBEDDING …;
+//     INSERT INTO series …; <UQL cross-modal read>; COMMIT` reads its own writes while
+//     a SECOND connection sees NONE of them until COMMIT.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// Complete PRELOGIN + LOGIN7 (trust) and return the connected stream ready for the
+/// command phase. Panics if the login is not acknowledged.
+async fn connect(addr: &str) -> TcpStream {
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    stream
+        .write_all(&frame_message(PKT_PRELOGIN, &[0xFF]))
+        .await
+        .unwrap();
+    let _ = read_message(&mut stream).await;
+    stream
+        .write_all(&frame_message(PKT_LOGIN7, &empty_login7()))
+        .await
+        .unwrap();
+    let login_reply = read_message(&mut stream).await;
+    assert_eq!(
+        login_reply.first().copied(),
+        Some(protocol::TOKEN_LOGINACK),
+        "login succeeds with a LOGINACK token"
+    );
+    stream
+}
+
+/// Decode a TDS ERROR token's message text (US_VARCHAR at a fixed offset) for a loud panic.
+fn decode_error(s: &[u8]) -> String {
+    // [0xAA][len u16][number i32][state u8][class u8][msglen u16 code-units][utf16 msg]…
+    let msg_units = u16::from_le_bytes([s[9], s[10]]) as usize;
+    utf16le_to_string(&s[11..11 + msg_units * 2])
+}
+
+/// Send a `SQLBatch` and walk the returned token stream into `(cols, rows, status)`.
+/// Panics loudly on an ERROR token so a rejected cross-modal verb fails visibly.
+#[allow(clippy::type_complexity)]
+async fn batch(
+    stream: &mut TcpStream,
+    sql: &str,
+) -> (Vec<(String, TdsType)>, Vec<Vec<Value>>, u16) {
+    let bytes = utf16le_bytes(sql);
+    stream
+        .write_all(&frame_message(PKT_SQLBATCH, &bytes))
+        .await
+        .unwrap();
+    let result = read_message(stream).await;
+    if result.first().copied() == Some(protocol::TOKEN_ERROR) {
+        panic!(
+            "batch `{sql}` returned an ERROR token: {}",
+            decode_error(&result)
+        );
+    }
+    walk_result(&result)
+}
+
+/// The first column of every returned row (mirrors pgwire's `simple_ids`).
+fn first_col(rows: &[Vec<Value>]) -> Vec<String> {
+    rows.iter()
+        .map(|r| match &r[0] {
+            Value::String(s) => s.clone(),
+            other => panic!("expected a string id, got {other:?}"),
+        })
+        .collect()
+}
+
+/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:EG-378 / EG-372):
+/// inside an open txn, a staged graph UPDATE AND a staged vector `SET EMBEDDING` are BOTH
+/// read back by an in-txn cross-modal `UQL` read over the TDS wire (read-your-own-writes
+/// across the graph + vector modalities before COMMIT).
+#[tokio::test]
+async fn tds_txn_update_then_cross_modal_read() {
+    let addr = spawn_listener(seeded_state()).await;
+    let mut c = connect(&addr).await;
+
+    batch(&mut c, "BEGIN").await;
+
+    // Stage a graph write (UPDATE) AND a vector write (SET EMBEDDING) inside the txn.
+    batch(&mut c, "UPDATE nodes SET rank = 99 WHERE id = 'n1'").await;
+    batch(&mut c, "SET EMBEDDING FOR 'n1' = '[1.0, 0.0, 0.0]'").await;
+
+    // Plain-SQL RYOW sees the staged write (buffered write path).
+    let (_c, rows, _s) = batch(&mut c, "SELECT id FROM nodes WHERE rank = 99").await;
+    assert_eq!(
+        first_col(&rows),
+        vec!["n1".to_string()],
+        "plain SQL RYOW works"
+    );
+
+    // THE SEAM: a CROSS-MODAL / UQL read over the TDS wire ALSO reflects the staged
+    // writes — a unified filter→rank over the staged row returns `n1` (RYOW across the
+    // graph AND vector modalities before COMMIT).
+    let (_c, rows, _s) = batch(
+        &mut c,
+        "UQL MATCH (:Agent) WHERE rank = 99 |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5",
+    )
+    .await;
+    assert_eq!(
+        first_col(&rows),
+        vec!["n1".to_string()],
+        "the cross-modal read must see the same-txn staged UPDATE + embedding (RYOW)"
+    );
+
+    batch(&mut c, "COMMIT").await;
+}
+
+/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:EG-378 /
+/// EG-372) — the headline per-surface parity proof over TDS. A `BEGIN; INSERT node;
+/// SET EMBEDDING; INSERT INTO series; <UQL join over graph+vector>; COMMIT` reads its OWN
+/// writes inside the txn, while a SECOND connection sees NONE of them until COMMIT. After
+/// COMMIT the second connection reads the committed cross-modal state.
+#[tokio::test]
+async fn tds_txn_crossmodal_ryow_isolated_until_commit() {
+    let addr = spawn_listener(seeded_state()).await;
+    let mut writer = connect(&addr).await;
+    let mut reader = connect(&addr).await;
+
+    // The UQL cross-modal join used by both connections: a Widget node filtered on the
+    // graph modality and ranked by the query embedding (graph + vector legs).
+    let uql = "UQL MATCH (:Widget) WHERE rank = 5 |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5";
+
+    batch(&mut writer, "BEGIN").await;
+    // Stage a graph node, its embedding, and a measurement — all inside the txn.
+    batch(
+        &mut writer,
+        "INSERT INTO nodes (id, type, rank) VALUES ('vv1', 'Widget', 5)",
+    )
+    .await;
+    batch(&mut writer, "SET EMBEDDING FOR 'vv1' = '[1.0, 0.0, 0.0]'").await;
+    batch(
+        &mut writer,
+        "INSERT INTO series (id, ts, value) VALUES ('vv1', 1000, 9.0)",
+    )
+    .await;
+
+    // RYOW: the writer's OWN in-txn UQL join sees its staged node + embedding.
+    let (_c, rows, _s) = batch(&mut writer, uql).await;
+    assert_eq!(
+        first_col(&rows),
+        vec!["vv1".to_string()],
+        "the writer reads its own staged cross-modal writes (RYOW)"
+    );
+
+    // Isolation: a SECOND connection (no open txn) sees NONE of the staged writes.
+    let (_c, rows, _s) = batch(&mut reader, uql).await;
+    assert!(
+        rows.is_empty(),
+        "a second connection must see none of the uncommitted cross-modal writes, got {rows:?}"
+    );
+
+    batch(&mut writer, "COMMIT").await;
+
+    // After COMMIT the committed cross-modal state is visible to the second connection.
+    let (_c, rows, _s) = batch(&mut reader, uql).await;
+    assert_eq!(
+        first_col(&rows),
+        vec!["vv1".to_string()],
+        "after COMMIT the committed node + embedding are visible off-txn"
+    );
+}
