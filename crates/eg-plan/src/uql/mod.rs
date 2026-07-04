@@ -232,15 +232,56 @@ mod tests {
         assert!(e.msg.contains("unterminated"), "got: {}", e.msg);
     }
 
-    /// The text-rank forward seam: a NAMED rank ref parses but is rejected with a
-    /// clear "reserved forward seam" message (it lowers once `Op::TextRank` lands).
+    /// CONCEPT:EG-411 — the NL→vector seam: a quoted `RANK BY ~"text"` now LOWERS to
+    /// `Op::RankEmbed { text }` (the executor resolves the text to a query vector via the
+    /// embedder bound on the `PlanCtx`), instead of the old "reserved forward seam" error.
     #[test]
-    fn named_rank_ref_is_reserved_seam() {
-        let e = parse("MATCH (:Doc) |> RANK BY ~\"my query\"").unwrap_err();
+    fn quoted_rank_ref_lowers_to_rank_embed() {
+        let p = parse("MATCH (:Doc) |> RANK BY ~\"my query\" |> LIMIT 5").unwrap();
+        assert_eq!(
+            p.ops,
+            vec![
+                Op::Scan {
+                    label: "Doc".into()
+                },
+                Op::RankEmbed {
+                    text: "my query".into()
+                },
+                Op::Limit { k: 5 },
+            ]
+        );
+    }
+
+    /// A bare-IDENT embedding handle (`RANK BY ~handle`) stays a reserved forward seam
+    /// (there is no by-name embedding registry yet) — a clear, non-panicking error.
+    #[test]
+    fn bare_ident_rank_handle_is_reserved_seam() {
+        let e = parse("MATCH (:Doc) |> RANK BY ~myhandle").unwrap_err();
         assert!(
-            e.msg.contains("text-rank") || e.msg.contains("forward seam"),
+            e.msg.contains("reserved forward seam") || e.msg.contains("by-name embedding"),
             "got: {}",
             e.msg
+        );
+    }
+
+    /// CONCEPT:EG-417 — a negative vector component parses: `RANK BY ~[-0.1, 0.2, -0.3]`
+    /// lowers to the SAME `Op::Rank` the Rust builder / wire DTO construct (which have
+    /// always accepted negatives). Proof by UQL-vs-builder equality.
+    #[test]
+    fn negative_vector_components_parse_like_the_builder() {
+        let parsed = parse("MATCH (:Doc) |> RANK BY ~[-0.1, 0.2, -0.3]").unwrap();
+        let built = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            // The builder shape: negatives are just `f32`s.
+            Op::Rank {
+                query: vec![-0.1, 0.2, -0.3],
+            },
+        ]);
+        assert_eq!(
+            parsed, built,
+            "UQL `~[-0.1, 0.2, -0.3]` must parse to the builder's Op::Rank"
         );
     }
 
@@ -279,7 +320,7 @@ mod tests {
     }
 
     /// `WINDOW <dur>` parses to `Op::Window { secs }`; a bare number is seconds and a
-    /// unit suffix scales it (`1h` == `3600`).
+    /// unit suffix scales it (`1h` == `3600`). No trailing aggregate ⇒ `Op::Window` (mean).
     #[test]
     fn window_clause_units_scale_to_seconds() {
         let bare = parse("MATCH (:Event) |> WINDOW 3600").unwrap();
@@ -288,6 +329,41 @@ mod tests {
         assert_eq!(unit.ops[1], Op::Window { secs: 3600.0 });
         let mins = parse("MATCH (:Event) |> WINDOW 30 m").unwrap();
         assert_eq!(mins.ops[1], Op::Window { secs: 1800.0 });
+        // `30 min` stays 30 MINUTES (the unit is matched before an aggregate selector).
+        let min_unit = parse("MATCH (:Event) |> WINDOW 30 min").unwrap();
+        assert_eq!(min_unit.ops[1], Op::Window { secs: 1800.0 });
+    }
+
+    /// CONCEPT:EG-414 — a trailing aggregate selector lowers `WINDOW` to `Op::WindowAgg`.
+    /// `WINDOW 60 s SUM` (unit + agg) and `WINDOW 3600 MAX` (bare-seconds + agg) both carry
+    /// the canonical aggregate name; `WINDOW 30 s MIN` reaches the `min` aggregate (the
+    /// `s` unit is consumed first, so `min` is unambiguously the aggregate).
+    #[test]
+    fn window_aggregate_selector_lowers_to_window_agg() {
+        let sum = parse("MATCH (:Event) |> WINDOW 60 s SUM").unwrap();
+        assert_eq!(
+            sum.ops[1],
+            Op::WindowAgg {
+                secs: 60.0,
+                agg: "sum".into()
+            }
+        );
+        let max = parse("MATCH (:Event) |> WINDOW 3600 MAX").unwrap();
+        assert_eq!(
+            max.ops[1],
+            Op::WindowAgg {
+                secs: 3600.0,
+                agg: "max".into()
+            }
+        );
+        let min = parse("MATCH (:Event) |> WINDOW 30 s MIN").unwrap();
+        assert_eq!(
+            min.ops[1],
+            Op::WindowAgg {
+                secs: 30.0,
+                agg: "min".into()
+            }
+        );
     }
 
     /// `FOREIGN "<name>"` parses to `Op::Foreign { name }` (the federation CONTEXT op).
@@ -400,6 +476,70 @@ mod tests {
         let e = parse("MATCH (:Doc) |> TEXT \"q\"").unwrap_err();
         assert!(
             e.msg.contains("lexical index") || e.msg.contains("not available"),
+            "got: {}",
+            e.msg
+        );
+    }
+
+    /// CONCEPT:EG-418 — the `FUSE` stage now dispatches: `FUSE [branch] [branch]` lowers to
+    /// the SAME `Op::FuseRrf { branches, k: 0.0 }` the Rust builder / wire DTO construct
+    /// (the canonical tri-modal hybrid), so RRF fusion is expressible at the UQL surface.
+    /// Proof by UQL-vs-builder equality.
+    #[cfg(feature = "text")]
+    #[test]
+    fn fuse_stage_lowers_to_fuse_rrf_like_the_builder() {
+        let parsed = parse(
+            "MATCH (:Doc) \
+             |> FUSE [RANK BY ~[1.0, 0.0]] [TEXT \"graphs\"] [RERANK NODE_DISTANCE FROM \"n1\"] \
+             |> LIMIT 5",
+        )
+        .unwrap();
+        let built = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            // The builder shape: N sub-plan branches, k = 0.0 ⇒ the RRF_K default.
+            Op::FuseRrf {
+                branches: vec![
+                    vec![Op::Rank {
+                        query: vec![1.0, 0.0],
+                    }],
+                    vec![Op::RankText {
+                        query: "graphs".into(),
+                    }],
+                    vec![Op::RankNodeDistance {
+                        center: "n1".into(),
+                    }],
+                ],
+                k: 0.0,
+            },
+            Op::Limit { k: 5 },
+        ]);
+        assert_eq!(
+            parsed, built,
+            "UQL FUSE must lower to the builder's Op::FuseRrf"
+        );
+    }
+
+    /// A `FUSE` with no bracketed branch is a clear error.
+    #[cfg(feature = "text")]
+    #[test]
+    fn fuse_without_branch_is_clear() {
+        let e = parse("MATCH (:Doc) |> FUSE |> LIMIT 5").unwrap_err();
+        assert!(
+            e.msg.contains("branch") || e.msg.contains("FUSE"),
+            "got: {}",
+            e.msg
+        );
+    }
+
+    /// Without the `text` feature the `FUSE` clause is rejected with a clear message.
+    #[cfg(not(feature = "text"))]
+    #[test]
+    fn fuse_clause_not_in_build() {
+        let e = parse("MATCH (:Doc) |> FUSE [RANK BY ~[1.0]]").unwrap_err();
+        assert!(
+            e.msg.contains("RRF") || e.msg.contains("not available"),
             "got: {}",
             e.msg
         );

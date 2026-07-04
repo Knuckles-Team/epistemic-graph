@@ -1,0 +1,17 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&parsed.ops)
+---
+[
+    Scan {
+        label: "Doc",
+    },
+    Filter {
+        preds: [
+            Eq {
+                prop: "lang",
+                value: "en",
+            },
+        ],
+    },
+]

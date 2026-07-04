@@ -1,4 +1,4 @@
-//! # eg-plan — the unified cross-modal query planner (CONCEPT:AU-KG.compute.vector/209)
+//! # eg-plan — the unified cross-modal query planner (CONCEPT:KG-2.208/209)
 //!
 //! ONE query plan that *filters (relational) → traverses (graph) → ranks (vector)*
 //! over the SAME off-lock snapshot in a single execution — instead of three siloed
@@ -27,7 +27,7 @@
 //!    read from the edge property blob, matching eg-query/cypher).
 //!  * `Rank`     is the `SemanticStore` vector kNN.
 //!
-//! ## Cost-based reorder (CONCEPT:EG-KG.query.concept-14)
+//! ## Cost-based reorder (CONCEPT:KG-2.209)
 //!
 //! [`cost::CostModel`] orders an adjacent `(Filter, Rank)` pair filter-first vs
 //! vector-first by selectivity — the cross-modal reorder a unified planner exists to
@@ -56,7 +56,7 @@
 pub mod algebra;
 pub mod cost;
 
-/// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
+/// Structured hierarchical retrieval (CONCEPT:EG-195) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction
 /// level, then drill down `SUMMARIZES`/`CONSOLIDATES` provenance to the supporting
 /// leaves, assembling a de-duplicated multi-level context that beats flat top-k on
@@ -66,7 +66,7 @@ pub mod cost;
 /// a caller composes ABOVE the planner, NOT a wire `Op`.
 pub mod leanrag;
 
-/// The UQL text front-end (CONCEPT:AU-KG.query.top-nodes-by-degree) — `uql::parse(text) -> wire::Plan`. It
+/// The UQL text front-end (CONCEPT:KG-2.214) — `uql::parse(text) -> wire::Plan`. It
 /// is a pure parser (lexer + recursive descent, NO DataFusion), so it ships in a
 /// default/Pi build alongside the algebra/cost/IR; only EXECUTION of the resulting
 /// Plan is `query`-gated.
@@ -74,15 +74,15 @@ pub mod uql;
 
 #[cfg(feature = "query")]
 pub mod exec;
-// The natural-language → query planning seam (CONCEPT:EG-KG.query.core-query-input) + the concrete standalone
-// `UreqNlPlanner` (CONCEPT:EG-KG.query.fence-stripper). The `NlPlanner` trait + the `plan_and_execute*`
+// The natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
+// `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + the `plan_and_execute*`
 // helpers are pure (only touch the existing `uql::parse` + `execute`), so they ride the
 // `nl-query` feature which IMPLIES `query`; the concrete `UreqNlPlanner` inside is
 // additionally gated on `nl-query` (it pulls the shared `ureq` rustls client). Kept OUT
 // of pi.
 #[cfg(feature = "nl-query")]
 pub mod nl;
-// The federation foreign-source seam (CONCEPT:EG-KG.query.query-federation) — the `ForeignSource` trait +
+// The federation foreign-source seam (CONCEPT:KG-2.232) — the `ForeignSource` trait +
 // the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
 #[cfg(feature = "federation")]
 pub mod federation;
@@ -91,7 +91,7 @@ pub mod oracle;
 
 pub use algebra::{Op, Plan, Pred};
 
-// The hierarchical-retrieval surface (CONCEPT:EG-KG.retrieval.bounded-drill): the retriever + its accessor
+// The hierarchical-retrieval surface (CONCEPT:EG-195): the retriever + its accessor
 // traits + the structured result + the flat-top-k baseline, so a caller names them
 // through eg-plan.
 pub use cost::{CostModel, Order, Stats};
@@ -102,13 +102,20 @@ pub use rowset::RowSet;
 
 pub mod rowset;
 
-/// The in-txn tsdb read-your-own-writes staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
+/// The in-txn tsdb read-your-own-writes staged-series overlay (CONCEPT:EG-374).
 #[cfg(feature = "timeseries")]
 pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
 
-// The NL→query seam surface (CONCEPT:EG-KG.query.core-query-input/EG-080): the trait + the LLM-optional
+/// The server-side text→vector embedder seam (CONCEPT:EG-411): the `TextEmbedder` trait
+/// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the
+/// deterministic `HashEmbedder` fallback for tests/offline use. A facade binds a concrete
+/// model onto a `PlanCtx` via `with_embedder`.
+#[cfg(feature = "query")]
+pub use exec::{HashEmbedder, TextEmbedder};
+
+// The NL→query seam surface (CONCEPT:EG-078/EG-080): the trait + the LLM-optional
 // `Option<&dyn NlPlanner>` entry point, and the concrete `UreqNlPlanner`.
 #[cfg(feature = "nl-query")]
 pub use nl::{plan_and_execute, plan_and_execute_opt, NlPlanner, UreqNlPlanner};
@@ -118,7 +125,7 @@ pub use nl::{plan_and_execute, plan_and_execute_opt, NlPlanner, UreqNlPlanner};
 #[cfg(feature = "federation")]
 pub use federation::{source_for, ForeignSource};
 
-// The federation NAME-RESOLUTION seam (CONCEPT:EG-KG.query.closure-backed-source): the by-name registry + the
+// The federation NAME-RESOLUTION seam (CONCEPT:EG-073): the by-name registry + the
 // registerable owned source kinds (spec-backed / table / closure) + the shared handle.
 // These complete `Op::Foreign` / a `Named` `Op::ForeignScan` — a name → live source →
 // rows resolution the executor consults via `PlanCtx::with_foreign`.
@@ -127,7 +134,7 @@ pub use federation::{
     ClosureSource, ForeignSourceRegistry, SharedForeignSource, SpecSource, TableSource,
 };
 
-// Re-export the lexical surface (CONCEPT:AU-KG.query.text-spatial-time) so a caller wiring a text plan
+// Re-export the lexical surface (CONCEPT:KG-2.215) so a caller wiring a text plan
 // names them through eg-plan: the BM25 index, the hit row, and the RRF helper.
 #[cfg(feature = "text")]
 pub use eg_text::{rrf_fuse, TextHit, TextIndex, RRF_K};
@@ -137,64 +144,71 @@ mod fixture;
 #[cfg(all(test, feature = "query"))]
 mod tests;
 
-// The lexical BM25 `RankText` + RRF `FuseRrf` hybrid proofs (CONCEPT:AU-KG.query.text-spatial-time).
+// The server-side embedder seam proofs (CONCEPT:EG-411/412): `RANK BY ~ "text"`
+// (`Op::RankEmbed`) resolves the text to a query vector via the embedder bound on the
+// `PlanCtx` and ranks identically to the literal-vector oracle; an unbound embedder is a
+// clean typed error; the `HashEmbedder` fallback is deterministic. Gated on `query`.
+#[cfg(all(test, feature = "query"))]
+mod embedder_tests;
+
+// The lexical BM25 `RankText` + RRF `FuseRrf` hybrid proofs (CONCEPT:KG-2.215).
 #[cfg(all(test, feature = "text"))]
 mod text_tests;
 
 // The OWL `Reason` + SPARQL `SparqlBgp` source-op compose-oracle proofs
-// (CONCEPT:EG-KG.ontology.concept-12).
+// (CONCEPT:KG-2.220).
 #[cfg(all(test, feature = "owl"))]
 mod owl_tests;
 
-// The federation foreign-scan + compose-join-with-local proofs (CONCEPT:EG-KG.query.query-federation):
+// The federation foreign-scan + compose-join-with-local proofs (CONCEPT:KG-2.232):
 // a mock HTTP/JSON source joined with the local graph in ONE plan == the manual join.
 #[cfg(all(test, feature = "federation"))]
 mod federation_tests;
 
-// The federation NAME-REGISTRY proofs (CONCEPT:EG-KG.query.closure-backed-source): a registered source resolves by
+// The federation NAME-REGISTRY proofs (CONCEPT:EG-073): a registered source resolves by
 // name (`Named` `Op::ForeignScan` + `Op::Foreign`), composes with a local Join, an
 // unbound name errors cleanly, and an empty/absent registry keeps the prior behavior.
 #[cfg(all(test, feature = "federation"))]
 mod federation_registry_tests;
 
-// The external-SQL federation proofs (CONCEPT:EG-KG.query.feature): an external relational-SQL
+// The external-SQL federation proofs (CONCEPT:KG-2.239): an external relational-SQL
 // source (`ForeignSourceSpec::Sql`) joined with the local graph in ONE plan == the
 // manual join, plus the real sqlx DSN path errors cleanly when unreachable.
 #[cfg(all(test, feature = "federation-sql"))]
 mod federation_sql_tests;
 
 // The spatial `SpatialScan` + `Spatial{Within,DWithin}` executor proofs
-// (CONCEPT:EG-KG.ontology.singles-concept): a bbox R-tree scan + geometry filters compose with the graph/
+// (CONCEPT:EG-083): a bbox R-tree scan + geometry filters compose with the graph/
 // vector legs in ONE plan.
 #[cfg(all(test, feature = "geo"))]
 mod geo_tests;
 
-// The document/JSON `Pred::JsonPath` executor proofs (CONCEPT:EG-KG.compute.json-deep-indexing): deep JSONPath
+// The document/JSON `Pred::JsonPath` executor proofs (CONCEPT:EG-084): deep JSONPath
 // existence / `->>`-equality / `@>`-containment filters apply per-row against the stored
 // JSON and compose with the graph/vector legs in ONE plan.
 #[cfg(all(test, feature = "query"))]
 mod docjson_tests;
 
-// The array/tensor `TensorScan` + `TensorOp` executor proofs (CONCEPT:EG-KG.storage.content-addressed-dedup): a
+// The array/tensor `TensorScan` + `TensorOp` executor proofs (CONCEPT:EG-085): a
 // layer scan seeds tensor-bearing nodes, then slice/reduce/elementwise ops apply
 // per-row and compose with the graph/vector legs in ONE plan.
 #[cfg(all(test, feature = "tensor"))]
 mod tensor_tests;
 
-// The event-stream / CEP `Op::Cep` executor proofs (CONCEPT:EG-KG.query.pipelined-execution): a layer scan
+// The event-stream / CEP `Op::Cep` executor proofs (CONCEPT:EG-088): a layer scan
 // seeds a time-ordered event stream, then the bounded NFA (sequence/within/absence over
 // sliding/tumbling windows) narrows it — cross-modal graph→stream in ONE plan.
 #[cfg(all(test, feature = "stream"))]
 mod stream_tests;
 
-// The multimodal sensor-fusion `Op::SensorFuse` executor proofs (CONCEPT:EG-KG.query.multi-rate-sensor-stream): three
+// The multimodal sensor-fusion `Op::SensorFuse` executor proofs (CONCEPT:EG-098): three
 // heterogeneous sensor layers (scalar + tensor-frame blob) at different rates are
 // resolved off the snapshot, time-aligned to a common clock via eg-tsdb's ASOF-backed
 // `sensor_fuse`, and emitted as fused rows that compose with the graph/vector legs.
 #[cfg(all(test, feature = "timeseries"))]
 mod sensor_fuse_tests;
 
-// Cross-modal SEAM regression proofs (CONCEPT:EG-KG.ingest.timeseries-source-mid-pipeline): mid-pipeline composition of a
+// Cross-modal SEAM regression proofs (CONCEPT:EG-365): mid-pipeline composition of a
 // semantic (`Reason`), sensor (`SensorFuse`) or tensor (`TensorScan`) SOURCE op feeding
 // a downstream `Traverse`/`Rank`/reorder in ONE plan == the hand-wired oracle. Gated at
 // the module level on `query`; each proof is additionally `cfg`-gated on its modality
@@ -202,23 +216,32 @@ mod sensor_fuse_tests;
 #[cfg(all(test, feature = "query"))]
 mod cross_modal_seam_tests;
 
-// Vector ⇄ reasoning cross-txn write→read consistency (CONCEPT:EG-KG.compute.concept-6): a freshly
+// Vector ⇄ reasoning cross-txn write→read consistency (CONCEPT:EG-367): a freshly
 // written node (embedding + reasoner-subsumed type) is BOTH ANN-ranked AND
 // reasoner-included by the next `[Reason |> Rank]` plan; an embedding update is reflected
 // by the next ANN pass. Needs the OWL reasoner + the vector ranker, so it is gated on `owl`.
 #[cfg(all(test, feature = "owl"))]
 mod vector_reasoning_tests;
 
-// The probabilistic `Op::Probabilistic` executor proofs (CONCEPT:EG-KG.compute.uncertainty-values): a layer scan
+// The probabilistic `Op::Probabilistic` executor proofs (CONCEPT:EG-086): a layer scan
 // seeds distribution-bearing nodes, then a closed-form probabilistic query (expectation /
 // marginal / conditional posterior / seeded sample) scores + ranks each row's stored
 // `Distribution`, composing uncertainty with the graph/vector legs in ONE plan.
 #[cfg(all(test, feature = "probabilistic"))]
 mod probabilistic_tests;
 
-// Lane C proofs (CONCEPT:EG-KG.query.native-time-series): mid-pipeline OWL `Op::Reason` (a confidence-preserving
+// Lane C proofs (CONCEPT:EG-363): mid-pipeline OWL `Op::Reason` (a confidence-preserving
 // FILTER, not only a leaf source — `Rank → Reason → Traverse`) + the native eg-tsdb
 // `Op::TsScan` SOURCE (tsdb-in-plan fusion), over a hand-built `PlanCtx`. Compiles when
 // EITHER feature is on; each test is additionally gated on the one it needs.
 #[cfg(all(test, any(feature = "owl", feature = "timeseries")))]
 mod tsdb_scan_tests;
+
+// The ADVANCED cross-modal seam proofs (CONCEPT:EG-384..EG-389): the richest 3+-modality
+// fused plans over a hand-built `PlanCtx` — bitemporal reason→vector→traverse (owl),
+// federation fusion + fail-closed named source (federation), geo×vector×temporal (geo),
+// tensor×graph×vector + CAS dedup (tensor), CEP×graph×tsdb window (stream+timeseries), and
+// probabilistic×owl×vector + MMR (owl+probabilistic). Module-gated on `query`; each proof
+// is additionally `cfg`-gated on the modality feature(s) it needs.
+#[cfg(all(test, feature = "query"))]
+mod advanced_crossmodal_tests;

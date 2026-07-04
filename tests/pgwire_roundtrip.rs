@@ -1351,3 +1351,77 @@ async fn wire_reason_iri_bridges_string_typed_node() {
         "REASON <http://ex/Device> includes the string-typed Sensor via the string→IRI bridge"
     );
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// DIFFERENTIAL WIRE-SURFACE ORACLE (CONCEPT:EG-406) — the pgwire leg of the
+// query-surface harness. The in-process UQL-vs-builder-vs-oracle legs live in
+// `crates/eg-plan/tests/differential_oracle.rs`; this leg REUSES the live pgwire
+// listener above to prove the SQL-wire and UQL-wire surfaces agree on the SAME query,
+// so a caller reaches the identical result whichever door they speak.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// The SAME relational filter expressed as plain SQL and as UQL over the pgwire text
+/// protocol returns the IDENTICAL id set. `type='Agent' AND rank>1` (SQL) and
+/// `MATCH (:Agent) WHERE rank > 1` (UQL) must both select exactly `n2` — one wire, two
+/// surfaces, one answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_sql_and_uql_agree_on_same_filter() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    let mut sql = simple_ids(
+        client
+            .simple_query("SELECT id FROM nodes WHERE type = 'Agent' AND rank > 1")
+            .await
+            .expect("SQL filter"),
+    );
+    sql.sort();
+    let mut uql = simple_ids(
+        client
+            .simple_query("UQL MATCH (:Agent) WHERE rank > 1")
+            .await
+            .expect("UQL filter"),
+    );
+    uql.sort();
+
+    assert_eq!(
+        sql, uql,
+        "the SQL and UQL wire surfaces must return the identical set for the same filter"
+    );
+    assert_eq!(
+        sql,
+        vec!["n2".to_string()],
+        "only n2 is an Agent with rank > 1"
+    );
+}
+
+/// The UQL wire surface is DETERMINISTIC: the same cross-modal `MATCH → RANK → LIMIT`
+/// issued twice over the wire yields the byte-identical ordered id list (the wire leg of
+/// the harness's determinism / snapshot-isolation property).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_uql_is_deterministic() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    // Give the two Agent nodes embeddings so the RANK leg has something to order.
+    client
+        .simple_query("SET EMBEDDING FOR 'n1' = '[0.2, 0.9, 0.0]'")
+        .await
+        .expect("embed n1");
+    client
+        .simple_query("SET EMBEDDING FOR 'n2' = '[0.98, 0.2, 0.0]'")
+        .await
+        .expect("embed n2");
+
+    let uql = "UQL MATCH (:Agent) |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5";
+    let a = simple_ids(client.simple_query(uql).await.expect("UQL run 1"));
+    let b = simple_ids(client.simple_query(uql).await.expect("UQL run 2"));
+    assert_eq!(a, b, "the same UQL over the wire must be deterministic");
+    assert_eq!(
+        a,
+        vec!["n2".to_string(), "n1".to_string()],
+        "ranked n2 > n1"
+    );
+}
