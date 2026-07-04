@@ -8,6 +8,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-07-03
+
+> **Minor, additive.** Closes the in-transaction cross-modal seam so a single ACID
+> transaction can stage and atomically commit ALL modalities (graph + vector + time-series
+> + OWL + SPARQL CONSTRUCT), read its own uncommitted writes across modalities, and fuse a
+> time-series leg into a unified plan — plus a KV-cache data-version invalidation and the
+> collapse of the pi/pi-max/node deployment tiers into ONE full-featured build.
+
+### Added — in-transaction cross-modal seam
+- **EG-359** — in-txn cross-modal read-your-own-writes: `Method::TxnUnifiedQuery{,Text}` run
+  the SAME `wire::Plan`/UQL over the committed snapshot OVERLAID with the txn's staged
+  write-set, so a staged node/edge/embedding is visible to THIS txn pre-commit and invisible
+  off-txn until commit. Client: `client.txn.unified_query` / `unified_query_plan`.
+- **EG-360/361/362** — five-modality atomic staging: `TxnAddMeasurement` (time-series),
+  `TxnAxiom` (OWL Turtle), and `TxnConstruct` (SPARQL CONSTRUCT) stage into the SAME redb
+  `WriteTransaction` as the txn's graph/vector/blob writes, so all modalities land atomically
+  at commit or none do. Client: `client.txn.add_measurement` / `axiom` / `construct`.
+- **EG-363** — tsdb-in-plan + planner reason-mid-pipeline: `wire::Op::TsScan{series,from,to}`
+  seeds a plan's RowSet from the native eg-tsdb `SeriesStore` (threaded via `PlanCtx::with_tsdb`)
+  and mid-pipeline `Op::Reason` composes so `Scan→Rank→Reason→Traverse` / `TsScan→Rank→Limit`
+  fuse the time-series and OWL legs with the graph/vector/relational legs in ONE plan. The
+  committed unified-query path now attaches the tsdb store for time-series fusion.
+
+### Added — KV-cache data-version invalidation
+- **EG-364** — `DataVersion{Agnostic,At(u64)}` stamps each shared/tiered KV-cache entry with
+  the `GraphCore::version()` epoch it was derived at (mirrors the version-keyed result cache);
+  a graph write retires stale entries so no stale agent/LLM context is served, while pure
+  content-addressed (`Agnostic`) KV pages are never invalidated. HTTP surface wires
+  `X-EG-Data-Version` + `PUT|GET /kv/version/<n>`.
+
+### Added — cross-modal seam regression suite
+- **EG-365..370** — planner mid-pipeline composition proofs, bitemporal decay×AsOf, vector⇄
+  reasoning cross-txn consistency, SPARQL-UPDATE→reasoning visibility, SQL result-cache
+  coherence, and a served E2E cross-modal seam.
+
+### Changed — one full-featured build (tier collapse)
+- **EG-371** — the compiled pi/pi-max/node deployment tiers are collapsed into ONE main build:
+  `default == full` (`cargo build` links every MAIN feature that compiles without an external
+  GPU/robotics toolchain), removing the shared-wheel-filename collision (one build ⇒ one wheel
+  per platform). `cluster` (openraft HA) and `full-extras` (GPU/ROS2) remain opt-in build
+  layers, NOT published wheels. Preserved invariants: no pyo3 (`bindings=bin`), no openraft in
+  default, no cudarc/rustdds in default. The release wheel matrix collapses to one wheel per
+  platform while retaining the org-standard `DOCKER_REGISTRY/USERNAME/PASSWORD` image auth.
+
 ## [2.7.0] - 2026-07-03
 
 > **Minor, additive.** Completes the `eg-numeric` Surface-A kernel so `agent-utilities` can drop
