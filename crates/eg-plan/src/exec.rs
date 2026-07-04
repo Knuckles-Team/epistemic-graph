@@ -97,6 +97,19 @@ pub struct PlanCtx<'a> {
     /// (a trait object), so no feature gate: a plan that never uses `Op::RankEmbed` is
     /// unchanged whether or not an embedder is bound.
     pub embedder: Option<&'a dyn TextEmbedder>,
+    /// CONCEPT:EG-KG.query.reason-decay-in-plan — the wall-clock `(now, default_half_life)`
+    /// that makes an `Op::Reason` compute TIME-DECAYED OWL confidence IN-PLAN, so a single
+    /// fused plan can BOTH bi-temporal `AsOf`-reselect liveness AND Ebbinghaus-decay-reweight
+    /// confidence (the [`crate::exec`] reason path threads it into
+    /// `eg_rdf::owl::asserted_types_with_confidence_from_view`/`instances_of_weighted`). `None`
+    /// (the default) keeps `Op::Reason` DECAY-NEUTRAL (`now = 0`, `half_life = 0` ⇒ recency
+    /// weight `1.0`) — byte-for-byte the prior leaf-stable `Reason`, so a bare `Reason` stays a
+    /// deterministic source and every existing plan is unchanged. Bound via [`Self::with_decay`].
+    /// Gated behind `owl` (only the reasoner op consumes it), so a non-owl build's `PlanCtx` is
+    /// unchanged. `now`/`half_life` share a unit (typically epoch seconds, the unit graph-node
+    /// `last_access`/`valid_from` use); a per-node `half_life` blob field overrides the default.
+    #[cfg(feature = "owl")]
+    pub decay: Option<(u64, f64)>,
 }
 
 /// A server-side text→vector embedder (CONCEPT:EG-KG.compute.no-embedder-bound-op) — the seam that resolves a UQL
@@ -236,6 +249,8 @@ impl<'a> PlanCtx<'a> {
             #[cfg(feature = "timeseries")]
             staged_series: None,
             embedder: None,
+            #[cfg(feature = "owl")]
+            decay: None,
         }
     }
 
@@ -252,6 +267,20 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "text")]
     pub fn with_text(mut self, text: &'a eg_text::TextIndex) -> Self {
         self.text = Some(text);
+        self
+    }
+
+    /// Attach a `(now, default_half_life)` decay context so an `Op::Reason` computes
+    /// TIME-DECAYED OWL confidence IN-PLAN (CONCEPT:EG-KG.query.reason-decay-in-plan) — the
+    /// same fused plan can then reason with Ebbinghaus-decayed confidence ALONGSIDE a
+    /// bi-temporal `Op::AsOf` liveness filter. Without this call an `Op::Reason` runs
+    /// decay-neutral (`now = 0`, `half_life = 0`), so a default ctx is byte-for-byte the old
+    /// one. The SAME plan executed under two different `now` values yields different decayed
+    /// `Reason` scores — decay becomes a first-class in-plan signal, not an out-of-band
+    /// reasoner-surface step. A per-node `half_life` property overrides `default_half_life`.
+    #[cfg(feature = "owl")]
+    pub fn with_decay(mut self, now: u64, default_half_life: f64) -> Self {
+        self.decay = Some((now, default_half_life));
         self
     }
 
@@ -418,7 +447,13 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         Op::Reason {
             target_class,
             ontology,
-        } => Ok(reason_op(ctx.view, input, target_class, ontology)),
+        } => Ok(reason_op(
+            ctx.view,
+            ctx.decay,
+            input,
+            target_class,
+            ontology,
+        )),
 
         #[cfg(feature = "owl")]
         Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
@@ -726,11 +761,19 @@ fn fuse_rrf(ctx: &PlanCtx, input: &RowSet, branches: &[Vec<Op>], k: f32) -> Resu
 /// way; only the compose step differs, so the empty-input path is byte-for-byte the old
 /// `reason_source`.
 #[cfg(feature = "owl")]
-fn reason_op(view: &GraphView, input: RowSet, target_class: &str, ontology: &str) -> RowSet {
+fn reason_op(
+    view: &GraphView,
+    // CONCEPT:EG-KG.query.reason-decay-in-plan — the ctx's `(now, half_life)` decay context, so
+    // the inferred-membership scores are Ebbinghaus-decayed IN-PLAN. `None` ⇒ decay-neutral.
+    decay: Option<(u64, f64)>,
+    input: RowSet,
+    target_class: &str,
+    ontology: &str,
+) -> RowSet {
     if input.is_empty() {
-        return reason_source(view, target_class, ontology);
+        return reason_source(view, decay, target_class, ontology);
     }
-    let inferred = reason_source(view, target_class, ontology);
+    let inferred = reason_source(view, decay, target_class, ontology);
     let keep = inferred.id_set();
     input.intersect_keep_order(&keep)
 }
@@ -743,7 +786,12 @@ fn reason_op(view: &GraphView, input: RowSet, target_class: &str, ontology: &str
 /// ids the property-graph stored NO explicit `target_class` type edge for, yet they
 /// then flow — like any RowSet — into a downstream `Traverse`/`Rank`/`Filter`/`Limit`.
 #[cfg(feature = "owl")]
-fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet {
+fn reason_source(
+    view: &GraphView,
+    decay: Option<(u64, f64)>,
+    target_class: &str,
+    ontology: &str,
+) -> RowSet {
     use eg_rdf::owl::{asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner};
 
     // Axioms: an explicit ontology document, else the triples already in the graph.
@@ -766,11 +814,16 @@ fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet
     // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
     // <base/Device>`. A bare (non-IRI) target yields `None` ⇒ the prior bare-match path.
     let class_base = eg_rdf::owl::class_namespace(&target);
-    // Asserted instance→class assignments + their per-fact confidence. `now = 0` keeps
-    // the time-decay NEUTRAL inside the structural plan op (the time-aware decay is the
-    // server `OwlReason` surface, which threads the real wall-clock `now`); the AXIOM
-    // confidence still flows through into the score.
-    let asserted = asserted_types_with_confidence_from_view(view, 0, 0.0, class_base.as_deref());
+    // Asserted instance→class assignments + their per-fact confidence. CONCEPT:EG-KG.query.reason-decay-in-plan:
+    // when a `(now, half_life)` decay context is bound on the `PlanCtx` (via `with_decay`), the
+    // fact confidences are Ebbinghaus-decayed by each node's age relative to `now` RIGHT HERE,
+    // so time-decayed OWL confidence composes IN-PLAN alongside `Op::AsOf` in ONE fused plan.
+    // ABSENT a decay context, `now = 0` / `half_life = 0` keeps the op decay-NEUTRAL — a bare
+    // `Reason` stays a stable, deterministic source/leaf (byte-for-byte the prior behavior). The
+    // AXIOM confidence still flows through into the score either way.
+    let (now, half_life) = decay.unwrap_or((0, 0.0));
+    let asserted =
+        asserted_types_with_confidence_from_view(view, now, half_life, class_base.as_deref());
     let scored: Vec<(String, f32)> = instances_of_weighted(&cls, &asserted, &target, 0.0)
         .into_iter()
         .map(|(id, conf)| (id, conf as f32))
