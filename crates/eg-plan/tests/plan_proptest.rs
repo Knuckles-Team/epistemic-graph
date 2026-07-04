@@ -223,3 +223,39 @@ fn empty_intermediate_reseeds_source_breaks_commute() {
         "documented non-commutativity: an empty intermediate flips AsOf into source mode (EG-405)"
     );
 }
+
+// ── Lane B: serial ≡ parallel driver equivalence (CONCEPT:EG-KG.query.parallel-runtime) ──
+//
+// The physical runtime is a PURE refactor: the rayon-morsel, memory-accounted, spilling
+// `ParallelDriver` must produce the BYTE-IDENTICAL `RowSet` the Lane-0 `SerialDriver` does,
+// for every valid plan. This proptest runs BOTH drivers over the SAME generated plan +
+// snapshot and asserts identical `(id, score-bits)` rows in order. The parallel config is
+// pinned to `threads: 4` (real multi-worker morsel batching of the row-parallel `AS OF`
+// leg) AND `spill_bytes: Some(1)` (every intermediate exceeds the 1-byte budget → the spill
+// disk round-trip fires on EACH stage) — so the equivalence holds under BOTH the morsel and
+// the spill legs at once. Only compiled with `--features par-runtime`.
+#[cfg(feature = "par-runtime")]
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    #[test]
+    fn serial_and_parallel_drivers_agree(q in pipeline_strategy()) {
+        use eg_plan::{Driver, ParallelDriver, RuntimeConfig, SerialDriver};
+
+        let (view, semantic) = build_docs();
+        let plan = eg_plan::uql::parse(&q).expect("valid UQL");
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        // `plan_optimize` is identity in this tier, so routing the raw ops through each
+        // driver isolates the DRIVER as the only variable.
+        let serial = SerialDriver.run(&plan.ops, &ctx).expect("serial driver");
+        let cfg = RuntimeConfig { threads: 4, spill_bytes: Some(1) };
+        let parallel = ParallelDriver::new(cfg).run(&plan.ops, &ctx).expect("parallel driver");
+
+        prop_assert_eq!(
+            stable_rows(&serial),
+            stable_rows(&parallel),
+            "serial and parallel drivers must yield the byte-identical RowSet\n  UQL: {}", q
+        );
+    }
+}

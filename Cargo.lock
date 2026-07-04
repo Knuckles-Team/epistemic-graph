@@ -2243,6 +2243,7 @@ dependencies = [
  "insta",
  "petgraph",
  "proptest",
+ "rayon",
  "rmp-serde",
  "serde",
  "serde_json",
