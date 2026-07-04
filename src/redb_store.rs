@@ -74,6 +74,17 @@ pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
 #[cfg(feature = "compute-dist")]
 pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("matviews");
 
+// Named PLAN-BACKED materialized views (CONCEPT:EG-KG.storage.plan-backed-matview). One
+// row per matview keyed by `name`, holding the MessagePack-serialized plan-backed
+// DEFINITION (name + target graph + `wire::Plan` bytes + reorder hint) — NOT the result
+// rows, which ride the version-keyed result cache. DISJOINT table from the algo-only
+// `matviews` table above (and from Lane D's secondary-index tables): a distinct redb
+// table name, so the two matview families and the index rows never collide. Reloaded into
+// the in-RAM plan-matview manager on boot.
+#[cfg(feature = "matview")]
+pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("plan_matviews");
+
 /// In-doubt cross-shard prepare records `(txn_id, group_id, slice-blob)` returned by
 /// the recovery scan (CONCEPT:EG-KG.storage.lane-n-increment).
 pub(crate) type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
@@ -984,6 +995,51 @@ pub(crate) fn scan_matviews(db: &Database) -> Result<Vec<(String, Vec<u8>)>, Str
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     // A fresh DB may not have the table yet — treat "table missing" as "no views".
     let t = match rtx.open_table(MATVIEWS) {
+        Ok(t) => t,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    for kv in t.iter().map_err(|e| e.to_string())? {
+        let (k, v) = kv.map_err(|e| e.to_string())?;
+        out.push((k.value().to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+/// Durably upsert a PLAN-BACKED matview's serialized definition
+/// (CONCEPT:EG-KG.storage.plan-backed-matview). Disjoint table from `put_matview`.
+#[cfg(feature = "matview")]
+pub(crate) fn put_plan_matview(db: &Database, name: &str, blob: &[u8]) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(PLAN_MATVIEWS).map_err(|e| e.to_string())?;
+        t.insert(name, blob).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Durably delete a plan-backed matview definition. A missing row is a clean no-op.
+#[cfg(feature = "matview")]
+pub(crate) fn delete_plan_matview(db: &Database, name: &str) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx.open_table(PLAN_MATVIEWS).map_err(|e| e.to_string())?;
+        t.remove(name).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Scan every persisted plan-backed matview `(name, definition-blob)` for reload on boot.
+#[cfg(feature = "matview")]
+pub(crate) fn scan_plan_matviews(db: &Database) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = match rtx.open_table(PLAN_MATVIEWS) {
         Ok(t) => t,
         Err(_) => return Ok(Vec::new()),
     };
