@@ -30,12 +30,28 @@ The canonical in-transaction cross-modal seam — *stage graph + vector + OWL + 
 |----------------|--------|---------|
 | **RPC / native** — `TxnUnifiedQuery{,Text}` overlay + `TxnAddMeasurement`/`TxnAxiom`/`TxnConstruct` staging + one-`WriteTransaction` commit | **done** | EG-359..363 |
 | **pgwire (SQL wire)** — `UQL …` / `SET EMBEDDING FOR …` / `INSERT INTO series …` / `SPARQL UPDATE …` / `SPARQL CONSTRUCT …` inside `BEGIN…COMMIT`, RYOW + atomic cross-modal commit, routed onto the committed RPC seam via the shared `WireSession` | **done (this PR)** | EG-372 |
-| **mysql-wire / mssql-wire (SQL wire family)** — INHERITED via the shared EG-074 core: both wires pull `query` and hand each statement verbatim to `WireSession::execute`, so the EG-372 cross-modal verbs are already recognized/staged/committed for them. Remaining: a per-wire executable roundtrip **test** confirming each encodes the UQL `RowSet` + cross-modal command tags (pgwire is proven end-to-end; mysql/mssql are structurally covered, test-pending) | **core done; wire test pending** | EG-074 / EG-372 |
+| **mysql-wire / mssql-wire (SQL wire family)** — INHERITED via the shared EG-074 core: both wires pull `query` and hand each statement verbatim to `WireSession::execute`, so the EG-372 cross-modal verbs are already recognized/staged/committed for them. Now PROVEN end-to-end by a per-wire executable roundtrip test — `tests/mysql_roundtrip.rs` (hand-rolled MySQL Handshake-v10 / `COM_QUERY` text client, no mysql crate) and `tests/mssql_roundtrip.rs` (hand-rolled raw-TDS `SQLBatch` client) each mirror the pgwire cross-modal cases: an in-txn `UPDATE` + `SET EMBEDDING` read back by an in-txn `UQL` (RYOW), and `BEGIN; SET EMBEDDING; INSERT INTO series; <UQL join>; COMMIT` with RYOW inside the txn and off-txn isolation until COMMIT. Every verb was expressible over BOTH wires — no wire failed to express a modality (see note below) | **done** | EG-074 / EG-372 / EG-377 / EG-378 |
 | **in-txn tsdb read-your-own-writes** — overlay a txn's staged `measurements` into `Op::TsScan` so an in-txn UQL joins its own uncommitted series. Built: an in-memory `eg_plan::StagedSeries` overlay (`PlanCtx::with_staged_series`) is MERGED into `Op::TsScan` BEFORE the committed `SeriesStore` (RYOW precedence on a ts collision), threaded from `run_unified_overlaid` off the resolved txn's staged `GraphTxnState.measurements`; an off-txn read sees committed only | **done** | EG-374 |
 | **`REASON <iri>` mid-plan** — the UQL front-end lexes an angle-bracketed class IRI (`REASON <http://…/Class>`) and it composes mid-pipeline via the `reason_op` FILTER branch, intersecting a ranked candidate set with the reasoned members of that explicit IRI class (was folded into the advanced set below). *Wire-surface note:* the `Op::Reason` executor the UQL clause lowers to is gated by the reasoner-exec build layer (facade `owl-plan` → `eg-plan/owl`); it is compiled in `full` but NOT by the narrower `owl` feature alone | **done** | EG-375 |
 | **string-type↔IRI-class bridge for `REASON`** — a node's bare string `type` (`{"type":"Widget"}`) is bridged to the OWL class IRI (base = the `REASON` target IRI's namespace + the string as local name), applied in the reasoner's membership resolution (`asserted_types_*` / `reason_source`), so `REASON <iri>` includes string-typed nodes (was folded into the advanced set below) | **done** | EG-376 |
 | **GraphQL cross-modal** — a GraphQL mutation/query that spans modalities in one operation | **open** | KG-2.235 |
 | **advanced cross-modal correctness** — the advanced cross-modal tests in `workspace/plans/unified-txn-seam-plan.md` (bitemporal AsOf × decay, vector⇄reasoning write→read consistency, SPARQL-UPDATE→reasoning visibility, …). The string-type↔IRI-class bridge for `REASON <iri>` split OUT to its own done row above (EG-375/376) | **open** | EG-365..370 |
+
+### mysql/mssql wire parity — expressiveness note (EG-377 / EG-378)
+
+Every cross-modal verb the RYOW-isolation seam needs was expressible over BOTH wires with
+**no** driver/protocol limitation forcing a faked or skipped assertion. The verbs (`BEGIN`
+/ `COMMIT`, `INSERT INTO nodes`, `UPDATE`, `SET EMBEDDING FOR …`, `INSERT INTO series …`,
+and a cross-modal `UQL …` read) are ordinary text statements handed to the shared
+`WireSession::execute`, so they travel over the MySQL `COM_QUERY` text protocol and the
+TDS `SQLBatch` identically to pgwire's simple-query path — a non-row command (BEGIN /
+COMMIT / SET / INSERT) encodes as an OK packet (MySQL) or a lone `DONE` token (TDS), and
+the `UQL` cross-modal read encodes as a normal result set (column-count + text rows /
+`COLMETADATA` + `ROW*` + `DONE`). The advanced `REASON <iri>` read (EG-375/376) needs the
+`owl-plan` reasoner-exec build layer (only in the `full` build, not the narrower `owl`
+feature); it is already covered over pgwire by `wire_reason_iri_bridges_string_typed_node`
+and needs no separate per-wire test since it rides the same `WireSession` result encoding.
+No open gap remains for these two wires.
 
 ## What "done" means for a seam
 
