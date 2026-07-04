@@ -321,11 +321,14 @@ impl<'a> PlanCtx<'a> {
 /// arms:
 ///  1. [`plan_optimize`] rewrites the logical plan (identity in this tier — Lane A fills
 ///     the body). A gets an OWNED plan to rewrite, hence the [`Plan::clone`].
-///  2. a [`Driver`] executes the (possibly-rewritten) op list. [`SerialDriver`] is the
-///     current sequential fold; Lane B swaps in a parallel driver behind the SAME trait.
+///  2. [`crate::runtime::execute_ops`] dispatches the (possibly-rewritten) op list to a
+///     physical [`Driver`] chosen from the environment (CONCEPT:EG-KG.query.parallel-runtime):
+///     the Lane-0 [`SerialDriver`] by default (byte-for-byte the prior fold — the Pi
+///     contract), or Lane B's rayon-morsel `ParallelDriver` when the opt-in `par-runtime`
+///     feature is built and the environment asks for it.
 pub fn execute(plan: &Plan, ctx: &PlanCtx) -> Result<RowSet, String> {
     let optimized = plan_optimize(plan.clone(), ctx);
-    SerialDriver.run(&optimized.ops, ctx)
+    crate::runtime::execute_ops(&optimized.ops, ctx)
 }
 
 /// The logical-plan OPTIMIZATION seam (CONCEPT:EG-KG.query.plan-optimize-seam) — the single
@@ -425,34 +428,18 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         Op::AsOf { ts, axis } => Ok(as_of_filter(ctx.view, input, *ts, *axis)),
 
         // TIME (`WINDOW <dur>`, CONCEPT:EG-KG.query.streaming-execution) — a REAL windowed aggregate over the
-        // input RowSet's time/value columns via eg-tsdb's Pi-path `time_bucket`,
-        // replacing the pass-through seam. Gated behind `timeseries` (the eg-plan→
-        // eg-tsdb edge), kept OUT of the Pi tier; without the feature the op stays the
-        // RowSet-preserving marker the UQL `WINDOW <dur>` clause lowers to, so a plan
-        // that carries it still runs unchanged.
-        #[cfg(feature = "timeseries")]
-        Op::Window { secs } => Ok(window_aggregate(
-            ctx.view,
-            input,
-            *secs,
-            eg_tsdb::query::Agg::Mean,
-        )),
-        #[cfg(not(feature = "timeseries"))]
-        Op::Window { .. } => Ok(input),
+        // input RowSet's time/value columns via eg-tsdb's Pi-path `time_bucket`. The
+        // modality-availability boundary lives in the physical fn [`window_op`], NOT as a
+        // `#[cfg]` fallback arm in this driver loop (Lane B, CONCEPT:EG-KG.query.driver-modality-fn):
+        // ONE arm always, and `window_op` itself either runs the native aggregate
+        // (`timeseries`) or passes the rows through (no feature) — so the plan runs either way.
+        Op::Window { secs } => Ok(window_op(ctx, input, *secs)),
 
-        // TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers) — the selectable-aggregate windowed
-        // aggregate: resolve the `agg` selector to an eg-tsdb `Agg` and run the SAME
-        // tumbling windower `Op::Window` uses. Without `timeseries` the op passes the rows
-        // through, exactly like `Op::Window`.
-        #[cfg(feature = "timeseries")]
-        Op::WindowAgg { secs, agg } => Ok(window_aggregate(
-            ctx.view,
-            input,
-            *secs,
-            parse_window_agg(agg),
-        )),
-        #[cfg(not(feature = "timeseries"))]
-        Op::WindowAgg { .. } => Ok(input),
+        // TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers) — the selectable-aggregate
+        // windowed aggregate. Same modality-availability-in-the-physical-fn shape as
+        // `Op::Window`: ONE arm, and [`window_agg_op`] resolves the `agg` selector + runs the
+        // native windower (`timeseries`) or passes the rows through (no feature).
+        Op::WindowAgg { secs, agg } => Ok(window_agg_op(ctx, input, *secs, agg)),
 
         // FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness / EG-073) — the name MARKER
         // the UQL clause lowers to. With a `ForeignSourceRegistry` attached to the ctx
@@ -869,6 +856,37 @@ fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> Row
         .map(|r| r.id.as_str())
         .collect();
     input.intersect_keep_order(&kept)
+}
+
+// ── the WINDOW physical fns — modality availability lives HERE, not in the driver loop ──
+
+/// WINDOW physical op (CONCEPT:EG-KG.query.driver-modality-fn) — the `Op::Window`
+/// modality-availability boundary. With `timeseries` it runs the native tumbling-MEAN
+/// windowed aggregate ([`window_aggregate`]); without it the op passes the rows through
+/// unchanged. Keeping the `#[cfg]` in the PHYSICAL fn (not as a fallback arm in [`apply`])
+/// is Lane B's rule: the driver loop carries ONE arm per op, and a modality's absence
+/// degrades inside its own fn — so a non-timeseries build's plan still runs, byte-for-byte
+/// the prior pass-through.
+#[cfg(feature = "timeseries")]
+fn window_op(ctx: &PlanCtx, input: RowSet, secs: f64) -> RowSet {
+    window_aggregate(ctx.view, input, secs, eg_tsdb::query::Agg::Mean)
+}
+#[cfg(not(feature = "timeseries"))]
+fn window_op(_ctx: &PlanCtx, input: RowSet, _secs: f64) -> RowSet {
+    input
+}
+
+/// WINDOW-with-aggregate physical op (CONCEPT:EG-KG.query.driver-modality-fn) — the
+/// `Op::WindowAgg` modality-availability boundary, mirroring [`window_op`]: with `timeseries`
+/// it resolves the `agg` selector ([`parse_window_agg`]) and runs the SAME tumbling windower;
+/// without it the op passes the rows through unchanged.
+#[cfg(feature = "timeseries")]
+fn window_agg_op(ctx: &PlanCtx, input: RowSet, secs: f64, agg: &str) -> RowSet {
+    window_aggregate(ctx.view, input, secs, parse_window_agg(agg))
+}
+#[cfg(not(feature = "timeseries"))]
+fn window_agg_op(_ctx: &PlanCtx, input: RowSet, _secs: f64, _agg: &str) -> RowSet {
+    input
 }
 
 // ── the TIME WINDOW leg — native eg-tsdb windowed aggregate (CONCEPT:EG-KG.query.streaming-execution) ─────

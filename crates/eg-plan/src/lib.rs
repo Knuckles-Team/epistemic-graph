@@ -74,6 +74,12 @@ pub mod uql;
 
 #[cfg(feature = "query")]
 pub mod exec;
+/// The physical EXECUTION runtime (CONCEPT:EG-KG.query.parallel-runtime) — Lane B. The
+/// `execute_ops` driver-dispatch `execute` routes through + the rayon-morsel, memory-accounted,
+/// spilling `ParallelDriver` (feature `par-runtime`). Gated on `query` (it schedules the
+/// `query`-tier physical fns); a default/Pi build dispatches to the Lane-0 `SerialDriver`.
+#[cfg(feature = "query")]
+pub mod runtime;
 // The natural-language → query planning seam (CONCEPT:EG-KG.query.core-query-input) + the concrete standalone
 // `UreqNlPlanner` (CONCEPT:EG-KG.query.fence-stripper). The `NlPlanner` trait + the `plan_and_execute*`
 // helpers are pure (only touch the existing `uql::parse` + `execute`), so they ride the
@@ -122,6 +128,17 @@ pub use exec::{execute, PlanCtx, PlanExt};
 /// identity/serial in this tier, so `execute` is behavior-identical.
 #[cfg(feature = "query")]
 pub use exec::{plan_optimize, Driver, SerialDriver};
+
+/// The Lane B physical runtime surface (CONCEPT:EG-KG.query.parallel-runtime): the
+/// `execute_ops` driver-dispatch `execute` routes through (always, on `query`), plus — only
+/// on the opt-in `par-runtime` feature — the rayon-morsel `ParallelDriver` and its
+/// `RuntimeConfig` (pool width / spill budget, from `EPISTEMIC_GRAPH_EXEC_THREADS` /
+/// `_SPILL_MB`). A default build has neither; `execute_ops` dispatches to `SerialDriver`,
+/// byte-for-byte the prior fold.
+#[cfg(feature = "query")]
+pub use runtime::execute_ops;
+#[cfg(feature = "par-runtime")]
+pub use runtime::{ParallelDriver, RuntimeConfig};
 
 /// The server-side text→vector embedder seam (CONCEPT:EG-KG.compute.no-embedder-bound-op): the `TextEmbedder` trait
 /// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the
