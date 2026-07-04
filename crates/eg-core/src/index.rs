@@ -43,6 +43,145 @@
 
 use crate::graph::GraphCore;
 
+/// Is incremental heavy-index maintenance enabled process-wide? Read ONCE from
+/// `EPISTEMIC_GRAPH_INCREMENTAL_INDEX` and cached, so the write hot path pays a
+/// single relaxed atomic load rather than an env lookup per batch. Default ON; the
+/// kill-switch values `0|false|off|no` select the legacy invalidate-and-rebuild
+/// path (CONCEPT:EG-KG.storage.write-changeset).
+pub fn incremental_index_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        !matches!(
+            std::env::var("EPISTEMIC_GRAPH_INCREMENTAL_INDEX")
+                .ok()
+                .map(|v| v.trim().to_ascii_lowercase())
+                .as_deref(),
+            Some("0") | Some("false") | Some("off") | Some("no")
+        )
+    })
+}
+
+/// One node touched by a committed write batch (CONCEPT:EG-KG.storage.write-changeset). Carries
+/// the node id and — for adds/updates — OPTIONALLY the new property blob, so a
+/// content-derived index (text / temporal) can compute its own delta without
+/// re-reading the graph. The coalescer leaves `properties_msgpack` as `None` today
+/// (the only wired consumer, the vector store, keys off removals), keeping the hot
+/// path free of a per-op blob clone; a future text/temporal index that needs the
+/// content sets a capture flag (see the write-coalescer plumbing).
+#[derive(Debug, Clone)]
+pub struct NodeChange {
+    pub id: String,
+    pub properties_msgpack: Option<Vec<u8>>,
+}
+
+impl NodeChange {
+    pub fn new(id: String) -> Self {
+        Self {
+            id,
+            properties_msgpack: None,
+        }
+    }
+    pub fn with_properties(id: String, properties_msgpack: Vec<u8>) -> Self {
+        Self {
+            id,
+            properties_msgpack: Some(properties_msgpack),
+        }
+    }
+}
+
+/// One edge touched by a committed write batch.
+#[derive(Debug, Clone)]
+pub struct EdgeChange {
+    pub source: String,
+    pub target: String,
+}
+
+/// The per-batch delta collected inside the coalescer's single topology lock
+/// (CONCEPT:EG-KG.storage.write-changeset). It records exactly which nodes/edges were
+/// added / updated / removed by a committed [`WriteOp`](crate) batch, so the
+/// [`IndexManager`] can maintain the heavy secondary indexes incrementally instead
+/// of dropping and rebuilding them. Only successful ops are recorded (a failed
+/// add-edge or a lost CAS contributes nothing).
+#[derive(Debug, Clone, Default)]
+pub struct ChangeSet {
+    pub added_nodes: Vec<NodeChange>,
+    pub updated_nodes: Vec<NodeChange>,
+    pub removed_nodes: Vec<String>,
+    pub added_edges: Vec<EdgeChange>,
+    pub removed_edges: Vec<EdgeChange>,
+}
+
+impl ChangeSet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// No mutation was recorded (an empty batch, or a batch of only no-op writes).
+    pub fn is_empty(&self) -> bool {
+        self.added_nodes.is_empty()
+            && self.updated_nodes.is_empty()
+            && self.removed_nodes.is_empty()
+            && self.added_edges.is_empty()
+            && self.removed_edges.is_empty()
+    }
+
+    /// Total number of recorded node + edge changes.
+    pub fn len(&self) -> usize {
+        self.added_nodes.len()
+            + self.updated_nodes.len()
+            + self.removed_nodes.len()
+            + self.added_edges.len()
+            + self.removed_edges.len()
+    }
+
+    pub fn record_add_node(&mut self, id: String) {
+        self.added_nodes.push(NodeChange::new(id));
+    }
+    pub fn record_update_node(&mut self, id: String) {
+        self.updated_nodes.push(NodeChange::new(id));
+    }
+    pub fn record_remove_node(&mut self, id: String) {
+        self.removed_nodes.push(id);
+    }
+    pub fn record_add_edge(&mut self, source: String, target: String) {
+        self.added_edges.push(EdgeChange { source, target });
+    }
+    pub fn record_remove_edge(&mut self, source: String, target: String) {
+        self.removed_edges.push(EdgeChange { source, target });
+    }
+}
+
+/// Why a secondary index could not maintain a delta (CONCEPT:EG-KG.storage.index-manager-seam).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IndexError {
+    /// This index has no incremental path for the given change shape — the
+    /// [`IndexManager`] falls back to [`SecondaryIndex::full_rebuild`]. This is the
+    /// DEFAULT for the lazy label/property/ontology indexes in D1.
+    DeltaUnsupported,
+    /// The incremental apply itself failed; the manager falls back to a full rebuild.
+    Failed(String),
+}
+
+impl std::fmt::Display for IndexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IndexError::DeltaUnsupported => write!(f, "index delta unsupported"),
+            IndexError::Failed(e) => write!(f, "index delta failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for IndexError {}
+
+/// Per-batch maintenance tally returned by [`IndexManager::commit_batch`] — how
+/// many registered indexes applied their delta incrementally vs fell back to a
+/// full rebuild. Mainly for the seam's tests / in-process diagnostics.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BatchMaintenance {
+    pub deltas_applied: usize,
+    pub rebuilds: usize,
+}
+
 /// The kind of a secondary index. New index types (text, spatial, time) add a
 /// variant here without touching the manager core (extension point above).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +267,39 @@ pub trait SecondaryIndex: Send + Sync {
     ///   * `None` — this index can NOT resolve `predicate` under its policy (e.g.
     ///     the bounded property cap is full for a new key) ⇒ the caller full-scans.
     fn lookup(&self, core: &GraphCore, predicate: &Predicate) -> Option<Vec<String>>;
+
+    // ── Write-path maintenance seam (CONCEPT:EG-KG.storage.index-manager-seam) ─────────────
+    //
+    // These give the ONE registry a write side to match its read side: on a
+    // committed write batch the [`IndexManager`] calls `apply_delta` on each
+    // registered index, falling back to `full_rebuild` when a delta can't be
+    // applied. Both default to the lazy-index behavior (no incremental path,
+    // rebuild-on-read), so the label/property/ontology descriptors inherit the
+    // exact pre-seam semantics; an index with real incremental state (the vector
+    // store) overrides `apply_delta`.
+
+    /// Incrementally apply a committed batch's `change` to this index's state.
+    ///
+    /// The DEFAULT returns [`IndexError::DeltaUnsupported`], which tells the manager
+    /// to fall back to [`full_rebuild`](Self::full_rebuild) — the behavior the lazy
+    /// label / property / path / ontology indexes keep (they rebuild on read). A
+    /// concrete incremental index (the vector `SemanticStore`) overrides this to
+    /// upsert / tombstone in place with NO full rebuild.
+    fn apply_delta(&self, core: &GraphCore, change: &ChangeSet) -> Result<(), IndexError> {
+        let _ = (core, change);
+        Err(IndexError::DeltaUnsupported)
+    }
+
+    /// Rebuild — or, for a lazy index, invalidate for rebuild-on-read — this index
+    /// over `core`. The manager's fallback when `apply_delta` can't maintain a delta.
+    ///
+    /// The DEFAULT is a no-op: the lazy label/property/path caches are invalidated
+    /// centrally by [`GraphCore::invalidate_indexes`], so their descriptors need do
+    /// nothing here. A stateful index that owns its own cache clears/rebuilds it.
+    fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
+        let _ = core;
+        Ok(())
+    }
 }
 
 /// The label index descriptor (CONCEPT:EG-KG.compute.consult-lazy). Holds no state — it routes to
@@ -257,6 +429,37 @@ impl SecondaryIndex for VectorIndexDescriptor {
     fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
         None
     }
+
+    /// Incremental vector-store maintenance for a committed batch
+    /// (CONCEPT:EG-KG.storage.incremental-ann). A REMOVED node's embedding must be
+    /// tombstoned so kNN never returns a dead node — the `SemanticStore`
+    /// (hnsw_rs default / eg-ann IVF-PQ under `ann`) already inserts/overwrites
+    /// incrementally via `add_embedding`, and now removes incrementally via
+    /// `remove_embedding` (arena swap-remove + index tombstone, no full rebuild).
+    ///
+    /// Embedding ADDS/UPDATES do NOT flow through the topology write batch — they
+    /// arrive on the separate `TxnAddEmbedding` op (already incremental) — so this
+    /// delta actions removals only. Runs under the coalescer's topology lock, so a
+    /// concurrent hybrid read sees topology + embedding removal atomically.
+    fn apply_delta(&self, core: &GraphCore, change: &ChangeSet) -> Result<(), IndexError> {
+        if change.removed_nodes.is_empty() {
+            return Ok(());
+        }
+        let mut store = core.semantic_store.write();
+        for id in &change.removed_nodes {
+            store.remove_embedding(id);
+        }
+        Ok(())
+    }
+
+    /// Fallback for the vector store. `apply_delta` never errors (a removal always
+    /// succeeds or is absent), so this is only reachable via
+    /// [`IndexManager::rebuild_all`]. A clean compaction drops any tombstones so the
+    /// resident index reflects exactly the live embedding set.
+    fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
+        core.semantic_store.read().force_compact();
+        Ok(())
+    }
 }
 
 /// The single registry/seam over a graph's secondary indexes (CONCEPT:EG-KG.storage.index-manager-seam).
@@ -375,6 +578,45 @@ impl IndexManager {
         let _ = core;
         // No registered index holds its own cache yet; future stateful indexes
         // clear theirs here. The label/property caches are cleared by mark_dirty.
+    }
+
+    /// Maintain every registered index for a committed write batch
+    /// (CONCEPT:EG-KG.storage.write-changeset): for each index try the incremental
+    /// [`SecondaryIndex::apply_delta`]; on any error fall back to
+    /// [`SecondaryIndex::full_rebuild`]. Called by [`GraphCore::maintain_indexes`]
+    /// inside the coalescer's topology lock so topology + index moves publish
+    /// together. Returns a [`BatchMaintenance`] tally (deltas applied vs rebuilt).
+    ///
+    /// An empty change short-circuits (a no-op batch touches nothing). The lazy
+    /// label/property/path caches are invalidated separately by the caller via
+    /// [`GraphCore::invalidate_indexes`]; their descriptors here take the default
+    /// `DeltaUnsupported` → no-op `full_rebuild`, so they cost nothing in this loop.
+    pub fn commit_batch(&self, core: &GraphCore, change: &ChangeSet) -> BatchMaintenance {
+        let mut tally = BatchMaintenance::default();
+        if change.is_empty() {
+            return tally;
+        }
+        for idx in &self.indexes {
+            match idx.apply_delta(core, change) {
+                Ok(()) => tally.deltas_applied += 1,
+                Err(_) => {
+                    // Best-effort fallback: a failed rebuild is logged by the index
+                    // and leaves it to rebuild-on-read; never poisons the batch.
+                    let _ = idx.full_rebuild(core);
+                    tally.rebuilds += 1;
+                }
+            }
+        }
+        tally
+    }
+
+    /// Full-rebuild every registered index over `core` (the maintenance / kill-switch
+    /// escape hatch). Ignores per-index errors — a stateful index that can't rebuild
+    /// falls back to its own rebuild-on-read.
+    pub fn rebuild_all(&self, core: &GraphCore) {
+        for idx in &self.indexes {
+            let _ = idx.full_rebuild(core);
+        }
     }
 }
 
@@ -517,5 +759,156 @@ mod tests {
                 IndexKind::Vector | IndexKind::Ontology => assert!(!d.serves_lookup),
             }
         }
+    }
+
+    // ── Write-path maintenance seam (CONCEPT:EG-KG.storage.write-changeset / .index-manager-seam) ──
+
+    use crate::compute::semantic::SemanticStore;
+
+    fn v3(x: f32, y: f32, z: f32) -> Vec<f32> {
+        vec![x, y, z]
+    }
+
+    /// The `ChangeSet` records each op shape distinctly and reports emptiness/length.
+    #[test]
+    fn changeset_records_each_op_shape() {
+        let mut cs = ChangeSet::new();
+        assert!(cs.is_empty());
+        cs.record_add_node("a".into());
+        cs.record_update_node("b".into());
+        cs.record_remove_node("c".into());
+        cs.record_add_edge("a".into(), "b".into());
+        cs.record_remove_edge("b".into(), "a".into());
+        assert!(!cs.is_empty());
+        assert_eq!(cs.len(), 5);
+        assert_eq!(cs.added_nodes.len(), 1);
+        assert_eq!(cs.updated_nodes[0].id, "b");
+        assert_eq!(cs.removed_nodes, vec!["c".to_string()]);
+        assert_eq!(cs.added_edges[0].source, "a");
+        assert_eq!(cs.removed_edges[0].target, "a");
+    }
+
+    /// The kill-switch defaults to incremental ON when the env var is unset.
+    #[test]
+    fn incremental_index_enabled_defaults_on_when_unset() {
+        if std::env::var_os("EPISTEMIC_GRAPH_INCREMENTAL_INDEX").is_none() {
+            assert!(incremental_index_enabled());
+        }
+    }
+
+    /// `commit_batch` invokes `apply_delta` on every registered index: the vector
+    /// index applies a real delta (removes the embedding), the lazy/discoverable
+    /// descriptors fall back (default `DeltaUnsupported` → no-op rebuild).
+    #[test]
+    fn commit_batch_invokes_apply_delta_and_removes_embedding() {
+        let g = GraphCore::new();
+        {
+            let mut s = g.semantic_store.write();
+            s.add_embedding("a".into(), v3(1.0, 0.0, 0.0));
+            s.add_embedding("b".into(), v3(0.0, 1.0, 0.0));
+            s.add_embedding("c".into(), v3(0.0, 0.0, 1.0));
+        }
+        let mut cs = ChangeSet::new();
+        cs.record_remove_node("b".into());
+
+        let tally = g.indexes().commit_batch(&g, &cs);
+        // The vector descriptor applied a delta; the label/property/ontology ones
+        // returned DeltaUnsupported and fell back (their lazy caches invalidate
+        // separately via GraphCore::invalidate_indexes).
+        assert!(
+            tally.deltas_applied >= 1,
+            "vector apply_delta must run: {tally:?}"
+        );
+        assert!(tally.rebuilds >= 1, "lazy descriptors fall back: {tally:?}");
+
+        let s = g.semantic_store.read();
+        assert!(
+            s.get_embedding("b").is_none(),
+            "removed node's embedding must be gone"
+        );
+        assert!(s.get_embedding("a").is_some());
+        assert!(s.get_embedding("c").is_some());
+    }
+
+    /// An empty change short-circuits and touches nothing.
+    #[test]
+    fn commit_batch_empty_is_noop() {
+        let g = GraphCore::new();
+        g.semantic_store
+            .write()
+            .add_embedding("a".into(), v3(1.0, 0.0, 0.0));
+        let tally = g.indexes().commit_batch(&g, &ChangeSet::new());
+        assert_eq!(tally, BatchMaintenance::default());
+        assert!(g.semantic_store.read().get_embedding("a").is_some());
+    }
+
+    /// EQUIVALENCE (CONCEPT:EG-KG.storage.incremental-ann): incremental removal through the seam
+    /// yields the SAME kNN result set as a store rebuilt from only the surviving
+    /// embeddings. Exact brute-force regime (N well below the ANN build threshold)
+    /// so the comparison is deterministic.
+    #[test]
+    fn incremental_removal_equals_full_rebuild_baseline() {
+        let g = GraphCore::new();
+        let vectors: Vec<(String, Vec<f32>)> = (0..64)
+            .map(|i| {
+                (
+                    format!("n{i}"),
+                    v3(i as f32, (i % 7) as f32 * 0.1, (i % 3) as f32 * 0.1),
+                )
+            })
+            .collect();
+        {
+            let mut s = g.semantic_store.write();
+            for (id, v) in &vectors {
+                s.add_embedding(id.clone(), v.clone());
+            }
+        }
+
+        // Remove every 5th node through the maintenance seam; keep the survivors.
+        let mut cs = ChangeSet::new();
+        let mut survivors: Vec<(String, Vec<f32>)> = Vec::new();
+        for (i, (id, v)) in vectors.iter().enumerate() {
+            if i % 5 == 0 {
+                cs.record_remove_node(id.clone());
+            } else {
+                survivors.push((id.clone(), v.clone()));
+            }
+        }
+        g.maintain_indexes(&cs);
+
+        let query = v3(41.0, 0.3, 0.1);
+        let mut inc: Vec<String> = g
+            .semantic_store
+            .read()
+            .semantic_search(&query, 8)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        inc.sort();
+
+        // No removed id may surface.
+        for i in (0..64).step_by(5) {
+            assert!(
+                !inc.contains(&format!("n{i}")),
+                "removed node n{i} must not appear: {inc:?}"
+            );
+        }
+
+        // Baseline: a store rebuilt from ONLY the survivors.
+        let mut base = SemanticStore::new();
+        for (id, v) in &survivors {
+            base.add_embedding(id.clone(), v.clone());
+        }
+        let mut baseline: Vec<String> = base
+            .semantic_search(&query, 8)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        baseline.sort();
+
+        assert_eq!(
+            inc, baseline,
+            "incremental delete result set must equal a full rebuild baseline"
+        );
     }
 }
