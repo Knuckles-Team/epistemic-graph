@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CONCEPT:EG-423 — the perf/recall regression GATE for the eg-plan hybrid_queries bench.
+"""CONCEPT:EG-KG.query.perf-recall-ci-gate — the perf/recall regression GATE for the eg-plan hybrid_queries bench.
 
 Runs AFTER `cargo bench -p eg-plan --features …` has produced its criterion output. It
 reads two artifacts and fails (exit 1) on a regression:
@@ -92,7 +92,7 @@ def main() -> int:
                 f"{name} p50 {p50 / 1e6:.3f} ms > ceiling {float(ceiling) / 1e6:.1f} ms"
             )
 
-    print("eg-plan perf/recall gate (CONCEPT:EG-423):")
+    print("eg-plan perf/recall gate (CONCEPT:EG-KG.query.perf-recall-ci-gate):")
     print("\n".join(reported))
 
     if failures:

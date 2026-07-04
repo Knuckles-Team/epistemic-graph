@@ -1,11 +1,11 @@
-//! Query-pipeline fuzzing (CONCEPT:EG-424/425) — the "Fuzzing / Chaos for Queries"
+//! Query-pipeline fuzzing (CONCEPT:EG-KG.query.pipeline-fuzz + EG-KG.query.concurrency-chaos-fuzz) — the "Fuzzing / Chaos for Queries"
 //! track from the external review. It EXTENDS the `plan_proptest` determinism harness
 //! with LONGER, denser random pipelines over MANY more cases, and adds a concurrency
 //! CHAOS variant.
 //!
 //! Two properties, one crate:
 //!
-//!  * **fuzz (EG-424)** — a proptest generator emits RANDOM but VALID UQL pipelines up
+//!  * **fuzz (EG-KG.query.pipeline-fuzz)** — a proptest generator emits RANDOM but VALID UQL pipelines up
 //!    to 16 stages (vs the determinism test's ≤6) over 512 cases against a denser graph,
 //!    asserting the invariants a unified query engine must never violate on ANY valid
 //!    input: no panic / no error, a well-formed `RowSet` (UNIQUE ids — the closed-algebra
@@ -13,7 +13,7 @@
 //!    (the same plan over the same immutable snapshot yields the byte-identical `RowSet` —
 //!    the read side of snapshot isolation).
 //!
-//!  * **chaos (EG-425)** — a concurrency variant: a batch of random pipelines is executed
+//!  * **chaos (EG-KG.query.concurrency-chaos-fuzz)** — a concurrency variant: a batch of random pipelines is executed
 //!    both SERIALLY (the reference) and CONCURRENTLY across many threads sharing ONE
 //!    immutable `GraphView` snapshot + `SemanticStore`. Every concurrent result must equal
 //!    its serial reference — proving reads are ISOLATED (a concurrent workload, including
@@ -24,7 +24,7 @@
 //! No `cargo-fuzz`/libFuzzer target is added: proptest gives structured generation on
 //! STABLE (so it rides the normal `cargo test` gate with no nightly toolchain), which is
 //! what the CI perf/fuzz gate needs. A libFuzzer `fuzz/` target is the documented
-//! follow-up (CONCEPT:EG-426) for unstructured byte-level UQL-parser fuzzing.
+//! follow-up (CONCEPT:EG-KG.query.libfuzzer-parser-deferred) for unstructured byte-level UQL-parser fuzzing.
 
 mod common;
 
@@ -140,7 +140,7 @@ fn trailing_limit(uql: &str) -> Option<usize> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
-    /// Fuzz (EG-424): any generated VALID UQL up to 16 stages parses, executes without
+    /// Fuzz (EG-KG.query.pipeline-fuzz): any generated VALID UQL up to 16 stages parses, executes without
     /// panic/error, yields a well-formed RowSet (unique ids), respects a trailing LIMIT,
     /// and is deterministic across repeated execution over the same snapshot.
     #[test]
@@ -171,7 +171,7 @@ proptest! {
     // Fewer cases: each case spawns threads, so keep the outer count modest.
     #![proptest_config(ProptestConfig::with_cases(48))]
 
-    /// Chaos (EG-425): a batch of random pipelines executed CONCURRENTLY over ONE shared
+    /// Chaos (EG-KG.query.concurrency-chaos-fuzz): a batch of random pipelines executed CONCURRENTLY over ONE shared
     /// immutable snapshot must produce, for every pipeline, the byte-identical RowSet its
     /// SERIAL execution produced — reads are isolated under contention (incl. the lazy
     /// HNSW build race on first search). This is the query-workload nemesis: mixed

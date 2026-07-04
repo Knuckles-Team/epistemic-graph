@@ -1,4 +1,4 @@
-//! HIGH-VALUE USE-CASE SUITE #2 — codebase / repository intelligence (CONCEPT:EG-435).
+//! HIGH-VALUE USE-CASE SUITE #2 — codebase / repository intelligence (CONCEPT:EG-KG.query.usecase-codebase-intel).
 //!
 //! A repository is ingested as a code-structure GRAPH (File/Function nodes, CALLS/IMPORTS
 //! edges) + VECTOR embeddings of function signatures + a small language/framework OWL
@@ -87,7 +87,7 @@ fn build_repo() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), s)
 }
 
-/// THE codebase-intelligence proof (CONCEPT:EG-435): a single fused plan =
+/// THE codebase-intelligence proof (CONCEPT:EG-KG.query.usecase-codebase-intel): a single fused plan =
 /// `Traverse(call-graph of the focal entry) → Rank(signature) → Reason<CompiledFunction>
 /// (OWL) → AsOf(recent)` returns exactly the sig-similar, call-related, recently-changed,
 /// compiled-language function — and every leg is shown to filter.

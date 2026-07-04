@@ -819,7 +819,7 @@ async fn run_unified_overlaid(
     };
     // Overlay the txn's staged graph writes onto the RLS-filtered committed snapshot.
     overlay_write_set(&mut view, &write_set);
-    // CONCEPT:EG-427 — RLS on the STAGED-OVERLAY leg too. The committed base was
+    // CONCEPT:EG-KG.query.overlay-leg-rls-filter — RLS on the STAGED-OVERLAY leg too. The committed base was
     // `filter_view`d above, but the staged write-set is overlaid AFTER that filter, so a
     // staged node the caller may not see (an owned+private `_owner`/`_visibility` blob)
     // would otherwise leak through an in-txn fused read. Re-filter the overlaid view so
