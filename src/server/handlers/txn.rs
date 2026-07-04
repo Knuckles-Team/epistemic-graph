@@ -508,7 +508,7 @@ pub(crate) fn construct_to_methods(
 }
 
 /// Lower a SPARQL UPDATE's `INSERT DATA` triples to graph-native `AddNode`/`AddEdge`
-/// methods (CONCEPT:EG-372), reusing the SAME `triples_to_methods` lowering as the OWL
+/// methods (CONCEPT:EG-KG.txn.isolation-ryow-begin-set), reusing the SAME `triples_to_methods` lowering as the OWL
 /// axiom path. Used by the pgwire cross-modal txn seam's `SPARQL UPDATE` verb.
 #[cfg(feature = "sparql")]
 pub(crate) fn sparql_update_to_methods(update_str: &str) -> Result<Vec<Method>, String> {
@@ -764,7 +764,7 @@ async fn commit_cross_modal(
 
 /// The reusable core of the cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360/361/362),
 /// factored out of [`commit_cross_modal`] so BOTH the RPC `Method::Commit` handler AND
-/// the pgwire cross-modal txn seam (CONCEPT:EG-372) drive the IDENTICAL commit — no
+/// the pgwire cross-modal txn seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) drive the IDENTICAL commit — no
 /// logic duplicated across the RPC + wire surfaces. Returns `Ok(true)` on commit,
 /// `Ok(false)` on an OCC conflict (true rollback), `Err(msg)` on an ACL denial or a
 /// durable-commit failure.

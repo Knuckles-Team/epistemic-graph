@@ -95,7 +95,7 @@ pub fn parse_update(update_str: &str) -> Result<Update, String> {
     Update::parse(update_str, None).map_err(|e| format!("sparql update parse: {e}"))
 }
 
-/// Extract the ground triples an `INSERT DATA { … }` update inserts (CONCEPT:EG-372), so
+/// Extract the ground triples an `INSERT DATA { … }` update inserts (CONCEPT:EG-KG.txn.isolation-ryow-begin-set), so
 /// a caller that must STAGE (not directly apply) the axioms — e.g. the pgwire cross-modal
 /// transaction seam — can lower them to graph-native methods with the SAME RDF ⇄
 /// property-graph mapping the loader uses. Only `INSERT DATA` operations contribute

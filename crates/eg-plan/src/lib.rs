@@ -102,7 +102,7 @@ pub use rowset::RowSet;
 
 pub mod rowset;
 
-/// The in-txn tsdb read-your-own-writes staged-series overlay (CONCEPT:EG-374).
+/// The in-txn tsdb read-your-own-writes staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
 #[cfg(feature = "timeseries")]
 pub use exec::StagedSeries;
 #[cfg(feature = "query")]
