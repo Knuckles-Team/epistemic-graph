@@ -89,11 +89,21 @@ omitted range means 1 hop. The relationship is matched against the edge's stored
 `relationship`/`type` blob field (same as Cypher's `rel_matches`).
 
 #### `RANK BY` — vector re-rank
-`RANK BY ~[0.1,0.9,0.0]` → `Rank{query}` (feature `query`). Re-orders the current candidates
+`RANK BY ~[0.1,0.9,-0.3]` → `Rank{query}` (feature `query`). Re-orders the current candidates
 by cosine similarity to the inline literal query vector (kNN over the `SemanticStore`). The
-`~` sigil marks a vector. *(A named embedding handle — `~"some text"` / `~handle` — is a
-reserved forward seam and currently errors: there is no server-side embedder resolver yet.
-Embed in the client and pass the literal vector.)*
+`~` sigil marks a vector; components may be **negative** (CONCEPT:EG-417), matching the Rust
+builder / wire DTO.
+
+**`RANK BY ~"some text"` — server-side NL→vector (CONCEPT:EG-411).** A *quoted* rank ref now
+lowers to `RankEmbed{text}` and is **resolved at exec time by a server-side embedder** bound on
+the query context (`PlanCtx::with_embedder`) — the text is turned into a query vector and
+kNN-ranked exactly like a literal `~[…]`. The seam is closed: `~"…"` no longer errors when an
+embedder is bound. The engine stores embeddings but produces them client-side today, so **no
+in-process model ships by default** — with no embedder bound, `~"…"` is a *clear typed error*
+(not a panic), and the facade injection point (`run_unified` → `with_embedder`) is where a real
+embedding model is wired (opt-in deterministic `HashEmbedder` fallback via
+`EG_UQL_TEXT_EMBEDDER=hash`). A *bare-ident* handle (`~handle`) stays a reserved forward seam
+(no by-name embedding registry yet).
 
 #### `TEXT` — lexical (BM25) re-rank
 `TEXT "graph database"` → `RankText{query}` (feature `text`). Re-orders candidates by BM25
@@ -102,7 +112,9 @@ result is empty (degrade, never error). Sibling of the vector `RANK BY`.
 
 #### `FUSE` — N-way hybrid (reciprocal-rank fusion)
 `FUSE [ RANK BY ~[…] ] [ TEXT "…" ] [ RERANK NODE_DISTANCE FROM "x" ]` →
-`FuseRrf{branches,k}` (feature `text`, CONCEPT:KG-2.253). Runs each bracketed **sub-pipeline**
+`FuseRrf{branches,k:0.0}` (feature `text`, CONCEPT:KG-2.253 / EG-418 — the UQL parser now
+dispatches `FUSE`, closing a surface asymmetry where RRF was builder/wire-only; `k=0.0` ⇒ the
+canonical `RRF_K` default). Runs each bracketed **sub-pipeline**
 over the *same* seed, then reciprocal-rank-fuses their ranked id lists into one result. RRF
 fuses the **ranks** (not the incomparable cosine/BM25/distance scores), so a node strong
 across *more* branches out-ranks one strong in only one — the property that makes the fused
@@ -132,10 +144,20 @@ the first stage it acts as a source (every node live at `t`). Dep-free (no DataF
 runs in the Pi tier. The two axes give the headline bi-temporal pair in one grammar — see
 [Bi-temporal facts](architecture/engine.md).
 
-#### `WINDOW` — trailing time window
-`WINDOW 1 h` (or `30 m`, `7 d`, bare seconds) → `Window{secs}`. Declares a trailing window for a
-windowed time-series aggregate; pairs with `AS OF`. A RowSet-preserving context op today (the
-windowed aggregate is the eg-tsdb seam).
+#### `WINDOW` — tumbling time-series aggregate (CONCEPT:EG-413 / EG-414)
+`WINDOW 1 h` (or `30 m`, `7 d`, bare seconds) → `Window{secs}` — a **real tumbling windowed
+aggregate** (no longer a passthrough). It **consumes** a RowSet of `(ts, value)` rows — e.g. the
+output of `TsScan` (`id` = point ts, `score` = value), or graph-node rows carrying `valid_from`
++ a numeric `value`/`score` — and **produces** one row per non-empty window bucket
+(`id` = the aligned bucket start, `score` = the aggregate), via eg-tsdb's `time_bucket`
+primitive. The result composes cleanly downstream (→ `RANK`, `LIMIT`). Wired under the
+`timeseries` feature; without it the op keeps the RowSet-preserving passthrough.
+
+`WINDOW 60 s SUM` → `WindowAgg{secs,agg}` (CONCEPT:EG-414) selects the aggregate: one of
+`mean`/`avg`, `sum`, `min`, `max`, `count`, `first`, `last` (unknown ⇒ `mean`). The unit is
+matched before the aggregate, so `WINDOW 30 min` is 30 **minutes**; write `WINDOW 30 s min` for
+a 30-second min-aggregate. Canonical example — downsample a series and rerank:
+`… |> TsScan("cpu", 0, 3600) |> WINDOW 60 s MEAN |> RANK BY ~[…] |> LIMIT 10`.
 
 #### `LIMIT`
 `LIMIT 10` → `Limit{k}`. Order-respecting top-k.
@@ -147,14 +169,16 @@ windowed aggregate is the eg-tsdb seam).
 | `MATCH (:Doc)` | `Scan{label:"Doc"}` |
 | `WHERE year > 2024 AND lang = 'en'` | `Filter{preds:[GtNum, Eq]}` |
 | `TRAVERSE -[:CITES]->{1,2}` | `Traverse{rel:"CITES",min:1,max:2}` |
-| `RANK BY ~[1.0,0.0]` | `Rank{query:[1.0,0.0]}` |
+| `RANK BY ~[1.0,-0.5]` | `Rank{query:[1.0,-0.5]}` |
+| `RANK BY ~"some text"` | `RankEmbed{text:"some text"}` |
 | `TEXT "graphs"` | `RankText{query:"graphs"}` |
-| `FUSE [..] [..]` | `FuseRrf{branches:[..],k}` |
+| `FUSE [RANK BY ~[1,0]] [TEXT "q"]` | `FuseRrf{branches:[..],k:0.0}` |
 | `RERANK NODE_DISTANCE FROM "n1"` | `RankNodeDistance{center:"n1"}` |
 | `RERANK MENTIONS` | `RankMentions{}` |
 | `RERANK MMR 0.5 10` | `RankMmr{lambda:0.5,k:10}` |
 | `AS OF @t` / `AS OF TX @t` | `AsOf{ts:t,axis:Valid|Transaction}` |
 | `WINDOW 1 h` | `Window{secs:3600}` |
+| `WINDOW 60 s SUM` | `WindowAgg{secs:60,agg:"sum"}` |
 | `FOREIGN "peer"` | `Foreign{name:"peer"}` |
 | `REASON Mammal` | `Reason{target_class:"Mammal"}` |
 | `LIMIT 10` | `Limit{k:10}` |
