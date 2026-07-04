@@ -1,0 +1,23 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&parsed.ops)
+---
+[
+    Scan {
+        label: "Event",
+    },
+    Foreign {
+        name: "peer-west",
+    },
+    Window {
+        secs: 3600.0,
+    },
+    Traverse {
+        rel: "CAUSED",
+        min: 1,
+        max: 2,
+    },
+    Limit {
+        k: 10,
+    },
+]
