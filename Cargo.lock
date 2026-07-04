@@ -2155,7 +2155,9 @@ name = "eg-graphql"
 version = "0.1.0"
 dependencies = [
  "eg-core",
+ "eg-plan",
  "eg-query",
+ "eg-rdf",
  "petgraph",
  "rmp-serde",
  "serde",
