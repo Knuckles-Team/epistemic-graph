@@ -154,6 +154,43 @@ impl CostModel {
     }
 }
 
+// ── Lane-0 shared cost traits (A's optimizer + B's runtime both read these) ──────
+
+/// A shared physical COST estimate (CONCEPT:EG-KG.query.cost-cardinality-traits) — the triple
+/// Lane A's cross-modal optimizer compares to choose a plan and Lane B's runtime reads to
+/// budget an op: estimated output `rows`, `cpu` work, and `io` (bytes / index probes). Kept
+/// in eg-plan so cost/cardinality metadata NEVER leaks into the wire [`Op`] DTO (Rule R1).
+/// All fields are estimates in abstract units; only their RELATIVE magnitudes matter to a
+/// plan choice, exactly as with [`Stats`]. Fields are `pub` so a sibling optimizer/runtime
+/// module reads them directly.
+///
+/// This tier only DEFINES the shape — no estimator is wired yet (identity execution); Lane A
+/// populates it via the [`Cardinality`] estimators, so nothing here changes today's behavior.
+#[cfg(feature = "query")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CostEstimate {
+    /// Estimated rows the op emits.
+    pub rows: f64,
+    /// Estimated CPU work (abstract units).
+    pub cpu: f64,
+    /// Estimated I/O — bytes read / index probes (abstract units).
+    pub io: f64,
+}
+
+/// A per-op CARDINALITY estimator (CONCEPT:EG-KG.query.cost-cardinality-traits) — the shared
+/// trait Lane A's cost optimizer and Lane B's physical runtime BOTH read to size an op's
+/// output. Given an `op`, its input cardinality `in_card`, and the plan [`PlanCtx`], it
+/// returns the estimated number of rows the op emits, so per-modality estimators (graph
+/// degree/path, ANN recall@k / over-fetch, OWL closure + decay, `AsOf` selectivity, …) plug
+/// in behind ONE interface without baking any estimate into the wire [`Op`] (Rule R1). Gated
+/// on `query` because it borrows the `query`-tier [`PlanCtx`]; the dep-free [`CostModel`] /
+/// [`Stats`] / [`reorder_filter_rank`] stay available in the Pi tier, unchanged.
+#[cfg(feature = "query")]
+pub trait Cardinality {
+    /// Estimated rows OUT of `op` given `in_card` rows flowing in, over `ctx`.
+    fn rows_out(&self, op: &Op, in_card: f64, ctx: &crate::exec::PlanCtx) -> f64;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
