@@ -44,6 +44,17 @@
 //! [`LiveQuery`] + the server carrier; the change stream is `GraphCore::changes()`. A
 //! parse error names the unsupported construct.
 
+/// CONCEPT:EG-379/380/381 — the GraphQL CROSS-MODAL transaction seam: a multi-request
+/// `txnId` handle ([`crossmodal::CrossModalTxnRegistry`]) whose `beginTransaction` /
+/// `stageEmbedding` / `addMeasurement` / `sparqlUpdate` / `sparqlConstruct` /
+/// `unifiedQuery` / `commitTransaction` verbs stage graph + vector (+ tsdb) modalities,
+/// read them back in-txn with read-your-own-writes, and commit atomically — routing onto
+/// the SAME lower `eg-core`/`eg-plan`/`eg-rdf` primitives the RPC (EG-359..363) and pgwire
+/// (EG-372) seams are built on. Gated by the `crossmodal` sub-feature (default-on; rides
+/// into graphql/node/full via the facade's default features, federation/hardening
+/// precedent); `addMeasurement` is behind `crossmodal-tsdb`.
+#[cfg(feature = "crossmodal")]
+pub mod crossmodal;
 /// CONCEPT:EG-295 — Apollo Federation v2 subgraph support (schema `@link` + `@key`/
 /// `@shareable`/… directives, `_service.sdl`, `_entities`). Gated by the `federation`
 /// sub-feature (default-on; the facade's `graphql` feature pulls this crate with default
@@ -63,6 +74,8 @@ pub mod resolver;
 pub mod schema;
 pub mod subscription;
 
+#[cfg(feature = "crossmodal")]
+pub use crossmodal::{execute as execute_crossmodal, CrossModalTxnRegistry};
 #[cfg(feature = "federation")]
 pub use federation::{EntityMeta, FederatedSchema, FieldFedMeta, KeyDirective};
 #[cfg(feature = "hardening")]
