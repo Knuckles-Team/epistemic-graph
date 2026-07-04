@@ -1,4 +1,4 @@
-//! Property-based query-surface proofs (CONCEPT:EG-402). A constrained proptest
+//! Property-based query-surface proofs (CONCEPT:EG-KG.compute.eg-188). A constrained proptest
 //! generator emits RANDOM but VALID UQL pipelines (the generator only assembles
 //! grammatically legal op sequences), and we assert the invariants a unified query
 //! engine must never violate:

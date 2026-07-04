@@ -1,4 +1,4 @@
-//! Shared fixtures + helpers for the query-surface test harness (CONCEPT:EG-400).
+//! Shared fixtures + helpers for the query-surface test harness (CONCEPT:EG-KG.compute.highest-roi-proof-from).
 //!
 //! Integration tests are EXTERNAL crates against eg-plan's public API, so they cannot
 //! reach the crate-private `src/fixture.rs`. This module rebuilds the same
