@@ -108,12 +108,21 @@ impl Default for ResultCache {
 
 impl ResultCache {
     pub fn new() -> Self {
+        Self::with_cap(cap_from_env())
+    }
+
+    /// Construct a cache with an EXPLICIT capacity, bypassing the env override.
+    /// `new()` resolves the env cap once and delegates here; tests use it directly
+    /// so cache construction never depends on the process-global
+    /// `EPISTEMIC_GRAPH_RESULT_CACHE_CAP` (which would otherwise let one test's
+    /// `set_var`/`remove_var` leak into a concurrently-constructed cache).
+    pub fn with_cap(cap: usize) -> Self {
         ResultCache {
             inner: Mutex::new(Inner {
                 map: HashMap::new(),
                 clock: 0,
             }),
-            cap: cap_from_env(),
+            cap,
             hits: std::sync::atomic::AtomicU64::new(0),
             misses: std::sync::atomic::AtomicU64::new(0),
         }
@@ -316,9 +325,7 @@ mod tests {
 
     #[test]
     fn lru_evicts_least_recently_used() {
-        std::env::set_var("EPISTEMIC_GRAPH_RESULT_CACHE_CAP", "2");
-        let c = ResultCache::new();
-        std::env::remove_var("EPISTEMIC_GRAPH_RESULT_CACHE_CAP");
+        let c = ResultCache::with_cap(2);
         let q1 = ResultCache::hash_query("sql", b"q1");
         let q2 = ResultCache::hash_query("sql", b"q2");
         let q3 = ResultCache::hash_query("sql", b"q3");
@@ -383,9 +390,7 @@ mod tests {
 
     #[test]
     fn cap_zero_disables() {
-        std::env::set_var("EPISTEMIC_GRAPH_RESULT_CACHE_CAP", "0");
-        let c = ResultCache::new();
-        std::env::remove_var("EPISTEMIC_GRAPH_RESULT_CACHE_CAP");
+        let c = ResultCache::with_cap(0);
         let q = ResultCache::hash_query("sql", b"q");
         c.put(q, 0, b"x".to_vec());
         assert!(c.get(q, 0).is_none());

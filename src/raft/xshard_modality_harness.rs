@@ -103,7 +103,7 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
-        auth_secret: "xshard-modality-test".to_string(),
+        auth_secret: "xshard-modality-test".to_string(), // # sanitizer:ignore
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
         redb_authoritative: true,
