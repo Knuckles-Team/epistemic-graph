@@ -163,6 +163,9 @@ pub(crate) async fn try_handle(
                     &semantic,
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
+                    // Off-txn: no staged-series overlay (CONCEPT:EG-374).
+                    #[cfg(feature = "tsdb")]
+                    None,
                 )
             })
             .await
@@ -235,6 +238,9 @@ pub(crate) async fn try_handle(
                     &semantic,
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
+                    // Off-txn: no staged-series overlay (CONCEPT:EG-374).
+                    #[cfg(feature = "tsdb")]
+                    None,
                 )
             })
             .await
@@ -355,6 +361,9 @@ pub(crate) async fn try_handle(
                     &semantic,
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
+                    // Off-txn: no staged-series overlay (CONCEPT:EG-374).
+                    #[cfg(feature = "tsdb")]
+                    None,
                 )
             })
             .await
@@ -557,6 +566,10 @@ pub(crate) fn run_unified(
     // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
     // yields no rows (degrade, never err). Only exists under the `tsdb` feature.
     #[cfg(feature = "tsdb")] tsdb: Option<&eg_tsdb::store::SeriesStore>,
+    // In-txn tsdb read-your-own-writes (CONCEPT:EG-374): the resolved txn's OWN staged,
+    // uncommitted series points, overlaid onto `Op::TsScan` BEFORE the committed store so
+    // an in-txn UQL reads its own measurements. `None` off-txn ⇒ committed series only.
+    #[cfg(feature = "tsdb")] staged_series: Option<&eg_plan::StagedSeries>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
     use eg_plan::{CostModel, Op, PlanCtx, Stats};
 
@@ -594,6 +607,13 @@ pub(crate) fn run_unified(
     #[cfg(feature = "tsdb")]
     let ctx = match tsdb {
         Some(store) => ctx.with_tsdb(store),
+        None => ctx,
+    };
+    // CONCEPT:EG-374: attach the txn's staged-series overlay so an in-txn `Op::TsScan`
+    // reads its own uncommitted points (RYOW). Absent overlay ⇒ committed series only.
+    #[cfg(feature = "tsdb")]
+    let ctx = match staged_series {
+        Some(staged) => ctx.with_staged_series(staged),
         None => ctx,
     };
     let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
@@ -656,14 +676,26 @@ async fn run_unified_overlaid(
         // `guard` + `s` drop here — no lock held across the compute below.
     };
     // RECONCILE (CONCEPT:EG-363): the committed tsdb `SeriesStore` for `Op::TsScan`
-    // fusion inside the txn, so an in-txn UQL reads COMMITTED series. (Overlaying the
-    // txn's OWN staged `GraphTxnState.measurements` (Lane B) into the TsScan source for
-    // pre-commit tsdb read-your-own-writes — scenario-5 — is a documented follow-up:
-    // `SeriesStore` is redb-file-backed with no in-memory overlay, so it needs an
-    // ephemeral store seeded with the staged points; a `TsScan` degrades to committed
-    // series until then, never errs.)
+    // fusion inside the txn, so an in-txn UQL reads COMMITTED series.
     #[cfg(feature = "tsdb")]
     let tsdb = state.read().await.tsdb_store.clone();
+    // CONCEPT:EG-374 — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
+    // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
+    // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
+    // off-txn read (no overlay) still sees committed only. `SeriesStore` is redb-file-
+    // backed with no in-memory overlay, so this dep-free map is the RYOW source.
+    #[cfg(feature = "tsdb")]
+    let staged_series = {
+        let s = state.read().await;
+        let mut staged = eg_plan::StagedSeries::new();
+        if let Some(entry) = s.open_txns.get(txn_id) {
+            let guard = entry.value().lock();
+            for m in &guard.measurements {
+                staged.push_points(&m.series, m.points.iter().cloned());
+            }
+        }
+        staged
+    };
     // Overlay the txn's staged graph writes onto the RLS-filtered committed snapshot.
     overlay_write_set(&mut view, &write_set);
     let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
@@ -675,6 +707,8 @@ async fn run_unified_overlaid(
             &semantic,
             #[cfg(feature = "tsdb")]
             tsdb.as_deref(),
+            #[cfg(feature = "tsdb")]
+            Some(&staged_series),
         )
     })
     .await

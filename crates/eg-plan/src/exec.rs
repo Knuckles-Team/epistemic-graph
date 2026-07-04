@@ -77,6 +77,69 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "timeseries")]
     pub tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
+    /// CONCEPT:EG-374 — an in-memory STAGED-series overlay consulted by `Op::TsScan`
+    /// BEFORE the committed [`Self::tsdb`] store, so an in-txn UQL reading a series sees
+    /// the transaction's OWN uncommitted staged points (read-your-own-writes). `None` (the
+    /// default) makes a `TsScan` read committed series only — byte-for-byte the prior
+    /// behavior. Lane A's `run_unified_overlaid` builds this from the resolved txn's staged
+    /// `GraphTxnState.measurements` and threads it in via [`Self::with_staged_series`].
+    /// Gated behind `timeseries` (same edge as `tsdb`), so a non-timeseries build's
+    /// `PlanCtx` is unchanged.
+    #[cfg(feature = "timeseries")]
+    pub staged_series: Option<&'a StagedSeries>,
+}
+
+/// An in-memory overlay of a transaction's STAGED, uncommitted time-series points
+/// (CONCEPT:EG-374) — the in-txn tsdb read-your-own-writes source. The native
+/// [`eg_tsdb::store::SeriesStore`] is redb-file-backed with no in-memory overlay, so an
+/// in-txn `Op::TsScan` cannot see the txn's own staged `measurements` through it; this
+/// dep-free map (series id → its staged `(ts_ns, field_values)` points) is consulted
+/// alongside the committed store and MERGED so the txn reads its own writes while an
+/// off-txn read (no overlay attached) sees committed only. Points are stored verbatim
+/// as staged (`i64` nanoseconds, matching `GraphTxnState.measurements`); the scan trims
+/// them to the requested window and takes the first field value, exactly as the
+/// committed-store path does.
+#[cfg(feature = "timeseries")]
+#[derive(Debug, Default, Clone)]
+pub struct StagedSeries {
+    series: std::collections::HashMap<String, Vec<(i64, Vec<f64>)>>,
+}
+
+#[cfg(feature = "timeseries")]
+impl StagedSeries {
+    /// An empty overlay.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Stage a batch of `(ts_ns, field_values)` points for `series` (appended — a series
+    /// may be staged across several `INSERT INTO series …` in one txn).
+    pub fn push_points(&mut self, series: &str, points: impl IntoIterator<Item = (i64, Vec<f64>)>) {
+        self.series
+            .entry(series.to_string())
+            .or_default()
+            .extend(points);
+    }
+
+    /// True when nothing is staged (the executor then behaves as if no overlay were
+    /// attached).
+    pub fn is_empty(&self) -> bool {
+        self.series.is_empty()
+    }
+
+    /// The staged points of `series` within `[from_ns, to_ns)`, as `(ts, first_value)` —
+    /// the SAME `(id=ts, score=value)` shape `tsdb_scan_op` emits for the committed store.
+    fn range(&self, series: &str, from_ns: i64, to_ns: i64) -> Vec<(i64, f32)> {
+        self.series
+            .get(series)
+            .map(|pts| {
+                pts.iter()
+                    .filter(|(ts, _)| *ts >= from_ns && *ts < to_ns)
+                    .filter_map(|(ts, vals)| vals.first().map(|&v| (*ts, v as f32)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 impl<'a> PlanCtx<'a> {
@@ -97,6 +160,8 @@ impl<'a> PlanCtx<'a> {
             tensor_store: None,
             #[cfg(feature = "timeseries")]
             tsdb: None,
+            #[cfg(feature = "timeseries")]
+            staged_series: None,
         }
     }
 
@@ -148,6 +213,16 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "timeseries")]
     pub fn with_tsdb(mut self, store: &'a eg_tsdb::store::SeriesStore) -> Self {
         self.tsdb = Some(store);
+        self
+    }
+
+    /// Attach a [`StagedSeries`] overlay so an `Op::TsScan` reads a transaction's OWN
+    /// staged, uncommitted time-series points BEFORE/merged-with the committed store
+    /// (CONCEPT:EG-374 — in-txn tsdb read-your-own-writes). Without this call a `TsScan`
+    /// reads committed series only, so a default ctx is byte-for-byte the old one.
+    #[cfg(feature = "timeseries")]
+    pub fn with_staged_series(mut self, staged: &'a StagedSeries) -> Self {
+        self.staged_series = Some(staged);
         self
     }
 }
@@ -322,7 +397,13 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // `timeseries` (the eg-plan→eg-tsdb `redb-store` edge); with no store attached it
         // yields no rows (degrade, never err — the SensorFuse/Rank precedent).
         #[cfg(feature = "timeseries")]
-        Op::TsScan { series, from, to } => Ok(tsdb_scan_op(ctx.tsdb, series, *from, *to)),
+        Op::TsScan { series, from, to } => Ok(tsdb_scan_op(
+            ctx.tsdb,
+            ctx.staged_series,
+            series,
+            *from,
+            *to,
+        )),
 
         Op::Limit { k } => Ok(input.limit(*k)),
     }
@@ -509,12 +590,18 @@ fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet
     // closure is identical to the unweighted one for a HARD ontology (every score 1.0).
     let cls = reasoner.classify_weighted();
 
+    let target = normalize_class(target_class);
+    // String-type↔IRI-class bridge (CONCEPT:EG-376): derive the bridge base from the
+    // REASON target IRI's namespace, so a node with a BARE string `type` (e.g.
+    // `{"type":"Sensor"}`) is resolved as `<base/Sensor>` and — through the TBox subclass
+    // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
+    // <base/Device>`. A bare (non-IRI) target yields `None` ⇒ the prior bare-match path.
+    let class_base = eg_rdf::owl::class_namespace(&target);
     // Asserted instance→class assignments + their per-fact confidence. `now = 0` keeps
     // the time-decay NEUTRAL inside the structural plan op (the time-aware decay is the
     // server `OwlReason` surface, which threads the real wall-clock `now`); the AXIOM
     // confidence still flows through into the score.
-    let asserted = asserted_types_with_confidence_from_view(view, 0, 0.0);
-    let target = normalize_class(target_class);
+    let asserted = asserted_types_with_confidence_from_view(view, 0, 0.0, class_base.as_deref());
     let scored: Vec<(String, f32)> = instances_of_weighted(&cls, &asserted, &target, 0.0)
         .into_iter()
         .map(|(id, conf)| (id, conf as f32))
@@ -729,27 +816,42 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
 /// degrade, never err, exactly as `Rank` over an empty store or `SensorFuse` over no
 /// timed streams. Rows dedup by id (ts): on a ts shared across series the FIRST series'
 /// point wins ([`RowSet::from_scored`] keeps the first occurrence).
+///
+/// CONCEPT:EG-374 — in-txn read-your-own-writes: when a [`StagedSeries`] overlay is
+/// attached ([`PlanCtx::with_staged_series`]), the transaction's OWN staged points are
+/// emitted FIRST (before the committed store), so on a ts a series staged in-txn shadows
+/// the committed value (RYOW precedence) and staged-only points (a series the txn just
+/// created) are visible before commit. With no overlay the committed store is read alone
+/// — byte-for-byte the prior behavior.
 #[cfg(feature = "timeseries")]
 fn tsdb_scan_op(
     store: Option<&eg_tsdb::store::SeriesStore>,
+    staged: Option<&StagedSeries>,
     series: &[String],
     from: f64,
     to: f64,
 ) -> RowSet {
-    let Some(store) = store else {
-        return RowSet::new();
-    };
     const NS_PER_S: f64 = 1e9;
     let from_ns = (from.max(0.0) * NS_PER_S) as i64;
     let to_ns = (to.max(0.0) * NS_PER_S) as i64;
-    let scored = series.iter().flat_map(|sid| {
-        store
-            .range(sid, from_ns, to_ns)
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|p| p.values.first().map(|&v| (p.ts.to_string(), v as f32)))
+
+    // Staged points first (RYOW precedence — `from_scored` keeps the first occurrence of
+    // a ts), then the committed store's points.
+    let staged_rows = staged.into_iter().flat_map(|s| {
+        series
+            .iter()
+            .flat_map(move |sid| s.range(sid, from_ns, to_ns))
+            .map(|(ts, v)| (ts.to_string(), v))
     });
-    RowSet::from_scored(scored)
+    let committed_rows = store.into_iter().flat_map(|st| {
+        series.iter().flat_map(move |sid| {
+            st.range(sid, from_ns, to_ns)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|p| p.values.first().map(|&v| (p.ts.to_string(), v as f32)))
+        })
+    });
+    RowSet::from_scored(staged_rows.chain(committed_rows))
 }
 
 // ── graph-native rerankers (CONCEPT:KG-2.254) ───────────────────────────────────
