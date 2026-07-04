@@ -43,6 +43,7 @@ fn incident_error_vec() -> Vec<f32> {
 ///   * `database` — error log ≈ the incident signature (the ROOT CAUSE), 2 hops upstream.
 ///   * `api`      — a generic timeout error, 1 hop upstream, only weakly similar.
 ///   * `cache`    — an unrelated eviction warning, 1 hop upstream, dissimilar.
+///
 /// `frontend` is the failing edge service the incident is reported on (the focal seed).
 fn build_topology() -> (GraphView, SemanticStore) {
     let core = GraphCore::new();
