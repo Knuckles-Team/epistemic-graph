@@ -630,6 +630,43 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // Extended cross-modal STAGING (CONCEPT:EG-398, closing EG-360/361/362 at RPC) — the tsdb-measurement,
+        // OWL-axiom and SPARQL-CONSTRUCT stage methods. `handlers::txn::try_handle` handles
+        // them (feature-gated), but they carry their OWN `graph` (like `TxnAddEmbedding`),
+        // so they route straight there — NO `BeginTxn` graph-default rewrite. Without these
+        // arms the variants fell through to the graph-op "not available" catch-all, so an
+        // in-txn measurement/axiom/CONSTRUCT staged fine over pgwire (EG-372, which calls the
+        // stage fns directly) but ERRORED over the native RPC surface — a "seamless" leak
+        // (docs/north_star.md). Each is `cfg`-gated to match its protocol variant, so a slim
+        // build without the feature keeps the prior catch-all behavior.
+        #[cfg(feature = "tsdb")]
+        Method::TxnAddMeasurement { .. } => {
+            match handlers::txn::try_handle(state, req.id, req.agent_id.as_deref(), req.method)
+                .await
+            {
+                Ok(resp) => resp,
+                Err(_) => Response::err(req.id, "txn dispatch routing error"),
+            }
+        }
+        #[cfg(feature = "owl")]
+        Method::TxnAxiom { .. } => {
+            match handlers::txn::try_handle(state, req.id, req.agent_id.as_deref(), req.method)
+                .await
+            {
+                Ok(resp) => resp,
+                Err(_) => Response::err(req.id, "txn dispatch routing error"),
+            }
+        }
+        #[cfg(feature = "sparql")]
+        Method::TxnConstruct { .. } => {
+            match handlers::txn::try_handle(state, req.id, req.agent_id.as_deref(), req.method)
+                .await
+            {
+                Ok(resp) => resp,
+                Err(_) => Response::err(req.id, "txn dispatch routing error"),
+            }
+        }
+
         // ── Time-series (CONCEPT:KG-2.210/211 — native TSDB) ─────────
         // Stateful + self-routing: a Ts* op targets the SERIES store (keyed by
         // `series_id`), NOT a graph, so it is handled here (with `state`, which
