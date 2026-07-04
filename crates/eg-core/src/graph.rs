@@ -1768,6 +1768,29 @@ impl GraphCore {
             .version
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
             + 1;
+        // Retire the lazy secondary indexes made stale by this write. Carved into
+        // `invalidate_indexes` (CONCEPT:EG-KG.storage.invalidate-indexes-carve) so the C
+        // (matview cache) ↔ D (incremental write-index coherence) reconcile point is
+        // pre-split: D owns the BODY of this method (delta-maintain instead of drop),
+        // C owns the adjacent result-cache line here.
+        self.invalidate_indexes();
+        // CONCEPT:EG-KG.compute.cdc-event-emit — fan out a change notification (post-write version) to any
+        // live subscribers (the GraphQL subscription carrier). A single relaxed
+        // atomic load when there are none, so this is off the write hot path.
+        self.changes.emit(new_version);
+    }
+
+    /// Invalidate the lazy secondary indexes derived from the graph after a committed
+    /// write (CONCEPT:EG-KG.storage.invalidate-indexes-carve). Behavior-identical extraction
+    /// of the block [`mark_dirty`] used to inline — it drops the cached label / property /
+    /// JSONPath maps so each rebuilds lazily on its next lookup, which is how those indexes
+    /// stay "maintained on the mutation path": every committed write funnels through
+    /// `mark_dirty` (hence here) under the topology write guard, so an index is never
+    /// consistent-stale across a mutation. Called ONLY from `mark_dirty`, preserving the
+    /// exact prior ordering (index drop before the CDC `changes.emit`). Carving it isolates
+    /// the one place Lane D replaces whole-index invalidation with per-`WriteOp` delta
+    /// maintenance, without re-touching `mark_dirty`'s version-bump / CDC emit.
+    fn invalidate_indexes(&self) {
         // Invalidate the lazy label index (CONCEPT:EG-KG.compute.consult-lazy): a write may have
         // added/removed a node or rewritten a node's label, so the cached
         // `label → ids` map is stale and is rebuilt on the next label lookup.
@@ -1780,15 +1803,8 @@ impl GraphCore {
         // Invalidate the lazy JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing): a write may have
         // added/removed a node or changed a nested JSON value, so the cached
         // `path → value → ids` maps are stale and are rebuilt (over the same demanded
-        // paths) on the next `nodes_by_json_path` / `nodes_with_json_path` lookup. This
-        // is how the index is "maintained on the mutation path": every committed write
-        // funnels through `mark_dirty` under the topology write guard, so the index is
-        // never consistent-stale across a mutation.
+        // paths) on the next `nodes_by_json_path` / `nodes_with_json_path` lookup.
         *self.path_index.write() = None;
-        // CONCEPT:EG-KG.compute.cdc-event-emit — fan out a change notification (post-write version) to any
-        // live subscribers (the GraphQL subscription carrier). A single relaxed
-        // atomic load when there are none, so this is off the write hot path.
-        self.changes.emit(new_version);
     }
 
     /// Invalidate cached query results for a CHANGE that landed elsewhere
