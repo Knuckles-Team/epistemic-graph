@@ -10,6 +10,11 @@
 > `.db` I/O, raster pyramids, the numeric kernel + Surface-B analytics UDFs, Calvin, ROS2/DDS) is
 > **shipped** — see the capability matrix and `CHANGELOG.md`.
 
+The **[North Star: Seamless](north_star.md)** page tracks the *cross-modal seam* backlog specifically —
+every write→read path that crosses modalities, per surface (RPC, SQL wires, SPARQL, GraphQL). The
+in-transaction cross-modal seam is **done** over RPC (EG-359..363) and **pgwire** (EG-372); mysql/mssql
+wire parity, GraphQL cross-modal, and in-txn tsdb read-your-own-writes are the open rows there.
+
 What remains is a short list of genuinely-deferred items. Each is folded, as a note, into the deep-dive
 that owns it.
 

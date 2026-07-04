@@ -418,7 +418,7 @@ async fn stage_measurement(
 /// The SAME lowered `Vec<Method>` is applied both durably (`apply_method_rows`) and
 /// in-memory (`apply_staged`), so the two are identical by construction.
 #[cfg(feature = "sparql")]
-fn triples_to_methods(triples: &[eg_rdf::oxrdf::Triple]) -> Vec<Method> {
+pub(crate) fn triples_to_methods(triples: &[eg_rdf::oxrdf::Triple]) -> Vec<Method> {
     use eg_rdf::oxrdf::{NamedOrBlankNode, Term};
     const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
     type Props = serde_json::Map<String, serde_json::Value>;
@@ -486,6 +486,34 @@ fn triples_to_methods(triples: &[eg_rdf::oxrdf::Triple]) -> Vec<Method> {
         });
     }
     methods
+}
+
+/// Lower a SPARQL CONSTRUCT/DESCRIBE query's produced triples to graph-native
+/// `AddNode`/`AddEdge` methods (CONCEPT:EG-362/EG-372), evaluating the query against
+/// `core`'s committed snapshot. Shared by the RPC [`stage_construct`] and the pgwire
+/// cross-modal txn seam so both surfaces lower a CONSTRUCT identically.
+#[cfg(feature = "sparql")]
+pub(crate) fn construct_to_methods(
+    core: &crate::graph::GraphCore,
+    sparql: &str,
+) -> Result<Vec<Method>, String> {
+    let snap = core.analysis_snapshot();
+    let proj = eg_rdf::sparql::Projection::from_wire("", "");
+    let triples = match eg_rdf::sparql::run_outcome(&snap, sparql, &proj) {
+        Ok(eg_rdf::sparql::QueryOutcome::Graph(t)) => t,
+        Ok(_) => return Err("SPARQL CONSTRUCT/DESCRIBE query required".to_string()),
+        Err(e) => return Err(e),
+    };
+    Ok(triples_to_methods(&triples))
+}
+
+/// Lower a SPARQL UPDATE's `INSERT DATA` triples to graph-native `AddNode`/`AddEdge`
+/// methods (CONCEPT:EG-372), reusing the SAME `triples_to_methods` lowering as the OWL
+/// axiom path. Used by the pgwire cross-modal txn seam's `SPARQL UPDATE` verb.
+#[cfg(feature = "sparql")]
+pub(crate) fn sparql_update_to_methods(update_str: &str) -> Result<Vec<Method>, String> {
+    let triples = eg_rdf::update::insert_data_triples(update_str)?;
+    Ok(triples_to_methods(&triples))
 }
 
 /// Resolve the txn's DEFAULT-graph core, enforcing that `target_graph` (if given) is the
@@ -573,19 +601,10 @@ async fn stage_construct(
         Ok(c) => c,
         Err(resp) => return resp,
     };
-    let snap = core.analysis_snapshot();
-    let proj = eg_rdf::sparql::Projection::from_wire("", "");
-    let triples = match eg_rdf::sparql::run_outcome(&snap, &sparql, &proj) {
-        Ok(eg_rdf::sparql::QueryOutcome::Graph(t)) => t,
-        Ok(_) => {
-            return Response::err(
-                req_id,
-                "TxnConstruct requires a CONSTRUCT or DESCRIBE query",
-            )
-        }
+    let methods = match construct_to_methods(&core, &sparql) {
+        Ok(m) => m,
         Err(e) => return Response::err(req_id, format!("TxnConstruct: {e}")),
     };
-    let methods = triples_to_methods(&triples);
     if let Some(e) = s.open_txns.get(txn_id) {
         e.value().lock().stage_construct(&core, methods, now_ms());
     }
@@ -737,11 +756,38 @@ async fn commit_cross_modal(
     caller: Option<&str>,
     txn: GraphTxnState,
 ) -> Response {
+    match commit_cross_modal_txn(state, caller, txn).await {
+        Ok(committed) => Response::ok(req_id, ResultPayload::Bool(committed)),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// The reusable core of the cross-modal commit (CONCEPT:KG-2.225 + EG-360/361/362),
+/// factored out of [`commit_cross_modal`] so BOTH the RPC `Method::Commit` handler AND
+/// the pgwire cross-modal txn seam (CONCEPT:EG-372) drive the IDENTICAL commit — no
+/// logic duplicated across the RPC + wire surfaces. Returns `Ok(true)` on commit,
+/// `Ok(false)` on an OCC conflict (true rollback), `Err(msg)` on an ACL denial or a
+/// durable-commit failure.
+///
+/// Durability tiers:
+///   * **persistence present** → the ATOMIC commit point: ALL modalities land in ONE
+///     redb `WriteTransaction` (commit-before-ack) BEFORE the in-memory apply. A durable
+///     failure applies NOTHING (no partial cross-modal commit).
+///   * **persistence absent (in-memory engine)** → the graph/vector modalities are
+///     applied in-memory only (measurements are durable-only and are dropped, matching
+///     the engine's "no persist dir ⇒ in-memory only, no panic" durability model). A
+///     cross-modal txn on an in-memory engine therefore still commits its graph + vector
+///     writes rather than erroring.
+pub(crate) async fn commit_cross_modal_txn(
+    state: &Arc<RwLock<ServerState>>,
+    caller: Option<&str>,
+    txn: GraphTxnState,
+) -> Result<bool, String> {
     let (core, persistence, graph_type, owner) = {
         let s = state.read().await;
         let entry = match s.registry.get(&txn.graph) {
             Some(e) => e,
-            None => return Response::err(req_id, format!("Graph '{}' not found", txn.graph)),
+            None => return Err(format!("Graph '{}' not found", txn.graph)),
         };
         (
             entry.core.clone(),
@@ -753,16 +799,14 @@ async fn commit_cross_modal(
     // Re-check Write access at commit.
     {
         let s = state.read().await;
-        if let Err(denied) = check_graph_access(
+        check_graph_access(
             &s.isolation,
             caller,
             &txn.graph,
             graph_type,
             owner.as_deref(),
             AccessLevel::Write,
-        ) {
-            return Response::err(req_id, denied);
-        }
+        )?;
     }
 
     // ── OCC validation under the topology write guard (read-only check) ──
@@ -772,7 +816,7 @@ async fn commit_cross_modal(
         drop(gtxn); // release the barrier before returning / the durable commit
         if !ok {
             // Conflict: nothing applied, nothing persisted — true rollback.
-            return Response::ok(req_id, ResultPayload::Bool(false));
+            return Ok(false);
         }
     }
 
@@ -791,26 +835,27 @@ async fn commit_cross_modal(
     let measurements: Vec<crate::MeasurementBatch> =
         txn.measurements.iter().map(|m| m.to_batch()).collect();
 
-    // ── THE ATOMIC COMMIT POINT: land ALL modalities in ONE redb WriteTransaction ──
-    // commit-before-ack. A failure here means NOTHING is durable AND we apply nothing
-    // in-memory → the whole cross-modal txn rolls back (no partial).
-    let Some(p) = persistence else {
-        return Response::err(req_id, "cross-modal txn requires a persistence backend");
-    };
-    if let Err(e) = p
-        .commit_crossmodal(
-            &fname,
-            &methods,
-            &txn.vectors,
-            &txn.blob_refs,
-            &measurements,
-        )
-        .await
-    {
-        return Response::err(req_id, format!("cross-modal commit failed: {e}"));
+    // ── THE ATOMIC COMMIT POINT (when durable): land ALL modalities in ONE redb
+    // WriteTransaction, commit-before-ack. A failure means NOTHING is durable AND we
+    // apply nothing in-memory → the whole cross-modal txn rolls back (no partial). On an
+    // in-memory engine (no persistence) this step is skipped and the graph/vector
+    // modalities are applied in-memory only below.
+    if let Some(p) = persistence {
+        if let Err(e) = p
+            .commit_crossmodal(
+                &fname,
+                &methods,
+                &txn.vectors,
+                &txn.blob_refs,
+                &measurements,
+            )
+            .await
+        {
+            return Err(format!("cross-modal commit failed: {e}"));
+        }
     }
 
-    // ── Durable commit succeeded → reflect it in the in-memory model ──
+    // ── Durable commit succeeded (or in-memory-only) → reflect it in the in-memory model ──
     {
         let mut gtxn = core.txn();
         for m in &methods {
@@ -844,7 +889,7 @@ async fn commit_cross_modal(
     }
     core.mark_dirty();
 
-    Response::ok(req_id, ResultPayload::Bool(true))
+    Ok(true)
 }
 
 /// One graph's slice of a multi-graph txn (CONCEPT:KG-2.226), resolved at commit:
