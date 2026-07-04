@@ -102,6 +102,9 @@ pub use rowset::RowSet;
 
 pub mod rowset;
 
+/// The in-txn tsdb read-your-own-writes staged-series overlay (CONCEPT:EG-374).
+#[cfg(feature = "timeseries")]
+pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
 

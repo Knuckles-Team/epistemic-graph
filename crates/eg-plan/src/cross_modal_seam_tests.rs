@@ -132,7 +132,7 @@ fn reason_then_traverse_then_rank_equals_separate() {
     let triples = eg_rdf::owl::tbox_triples_from_view(&view);
     let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
     let cls = reasoner.classify();
-    let asserted = eg_rdf::owl::asserted_types_from_view(&view);
+    let asserted = eg_rdf::owl::asserted_types_from_view(&view, None);
     let members: Vec<String> = eg_rdf::owl::instances_of(&cls, &asserted, target);
     let reached = crate::exec::bfs_reached(&view, &members, "CITES", 1, 1);
     let reached_set: HashSet<&str> = reached.iter().map(String::as_str).collect();
@@ -210,6 +210,105 @@ fn reason_seeded_reorder_picks_winner() {
     assert!(
         matches!(broad_plan[1], Op::Rank { .. }) && matches!(broad_plan[2], Op::Filter { .. }),
         "broad → vector-first behind the reasoning seed"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REASON <iri> mid-plan + string-type↔IRI-class bridge  (CONCEPT:EG-375 / EG-376)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Two nodes carrying a BARE string `type` (no IRI, no `rdf:type` edge): `mm1` a
+/// `Sensor`, `w1` a `Widget`. The ontology declares `<http://ex/Sensor> ⊑
+/// <http://ex/Device>` (but says NOTHING about Widget). So `REASON <http://ex/Device>`
+/// must include `mm1` ONLY IF the string type `"Sensor"` is bridged to the class IRI
+/// `<http://ex/Sensor>` (the target's namespace + the local name) — the string→IRI bridge.
+#[cfg(feature = "owl")]
+const DEVICE_ONT: &str = "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+    <http://ex/Sensor> rdfs:subClassOf <http://ex/Device> .\n";
+
+#[cfg(feature = "owl")]
+fn string_typed_devices() -> (GraphView, SemanticStore) {
+    let core = GraphCore::new();
+    core.add_node("mm1".into(), blob(json!({ "type": "Sensor" })));
+    core.add_node("w1".into(), blob(json!({ "type": "Widget" })));
+    let mut semantic = SemanticStore::new();
+    semantic.add_embedding("mm1".into(), vec![1.0, 0.0, 0.0]);
+    semantic.add_embedding("w1".into(), vec![1.0, 0.0, 0.0]);
+    (core.analysis_snapshot(), semantic)
+}
+
+/// SEAM (CONCEPT:EG-376) — the string-type↔IRI-class bridge: a `REASON <http://ex/Device>`
+/// SOURCE op includes the string-typed `{"type":"Sensor"}` node (bridged to
+/// `<http://ex/Sensor>` ⊑ `<http://ex/Device>`) and EXCLUDES `{"type":"Widget"}` (no
+/// subclass path to Device). Without the bridge a bare `"Sensor"` would never match the
+/// IRI class, so this is the load-bearing proof.
+#[cfg(feature = "owl")]
+#[test]
+fn reason_iri_bridges_string_typed_node() {
+    let (view, semantic) = string_typed_devices();
+    let plan = Plan::new(vec![Op::Reason {
+        target_class: "<http://ex/Device>".into(),
+        ontology: DEVICE_ONT.into(),
+    }]);
+    let ids = execute(&plan, &PlanCtx::new(&view, &semantic))
+        .unwrap()
+        .ids();
+    assert_eq!(
+        ids,
+        vec!["mm1".to_string()],
+        "REASON <http://ex/Device> must include the string-typed Sensor (bridged) and \
+         exclude the Widget"
+    );
+}
+
+/// SEAM (CONCEPT:EG-375) — `REASON <iri>` composing MID-PIPELINE: a `Scan → Rank → REASON
+/// <http://ex/Device>` intersects the vector-ranked candidate set with the reasoned
+/// members of the explicit IRI class. `Scan(Sensor)` seeds the string-typed `mm1`, which
+/// survives the mid-plan `REASON <http://ex/Device>` (bridged); a `Scan(Widget) → REASON
+/// <http://ex/Device>` yields nothing (the non-member is filtered out mid-plan).
+#[cfg(feature = "owl")]
+#[test]
+fn reason_iri_midplan_filters_string_typed() {
+    let (view, semantic) = string_typed_devices();
+
+    // Sensor survives the mid-plan REASON <Device> filter (kept, in rank order).
+    let kept = Plan::new(vec![
+        Op::Scan {
+            label: "Sensor".into(),
+        },
+        Op::Rank {
+            query: vec![1.0, 0.0, 0.0],
+        },
+        Op::Reason {
+            target_class: "<http://ex/Device>".into(),
+            ontology: DEVICE_ONT.into(),
+        },
+    ]);
+    let kept_ids = execute(&kept, &PlanCtx::new(&view, &semantic))
+        .unwrap()
+        .ids();
+    assert_eq!(
+        kept_ids,
+        vec!["mm1".to_string()],
+        "the string-typed Sensor survives mid-plan REASON <http://ex/Device>"
+    );
+
+    // Widget is dropped by the same mid-plan filter (not a Device).
+    let dropped = Plan::new(vec![
+        Op::Scan {
+            label: "Widget".into(),
+        },
+        Op::Reason {
+            target_class: "<http://ex/Device>".into(),
+            ontology: DEVICE_ONT.into(),
+        },
+    ]);
+    let dropped_ids = execute(&dropped, &PlanCtx::new(&view, &semantic))
+        .unwrap()
+        .ids();
+    assert!(
+        dropped_ids.is_empty(),
+        "the Widget is not a Device — mid-plan REASON must filter it out, got {dropped_ids:?}"
     );
 }
 

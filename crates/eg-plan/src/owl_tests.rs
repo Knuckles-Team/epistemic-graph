@@ -91,7 +91,7 @@ fn owl_inferred_set_then_rank_equals_separate() {
     let triples = eg_rdf::owl::tbox_triples_from_view(&view);
     let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
     let cls = reasoner.classify();
-    let asserted = eg_rdf::owl::asserted_types_from_view(&view);
+    let asserted = eg_rdf::owl::asserted_types_from_view(&view, None);
     let members: HashSet<String> = eg_rdf::owl::instances_of(&cls, &asserted, target)
         .into_iter()
         .collect();

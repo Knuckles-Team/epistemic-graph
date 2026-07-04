@@ -412,18 +412,25 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `reason = "REASON" (ident | string)` → `Op::Reason` (CONCEPT:KG-2.235). The
-    /// OWL-inferred members of the named class seed the RowSet. Feature-gated to `owl`
-    /// — the feature that compiles the `Op::Reason` variant + its executor.
+    /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:KG-2.235 /
+    /// EG-375). The OWL-inferred members of the named class seed (or, mid-pipeline, filter)
+    /// the RowSet. The class may be a bare label (`REASON Mammal`) OR an explicit angle-
+    /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-375), the form the
+    /// string-type↔IRI-class bridge resolves against. Feature-gated to `owl` — the feature
+    /// that compiles the `Op::Reason` variant + its executor.
     #[cfg(feature = "owl")]
     fn parse_reason(&mut self) -> Result<Op, UqlError> {
         let target_class = match self.peek_kind() {
-            Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
+            Some(Tok::Iri(s)) | Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
                 let s = s.clone();
                 self.bump();
                 s
             }
-            _ => return Err(self.err_here("expected a class name (`REASON <Class>`)")),
+            _ => {
+                return Err(
+                    self.err_here("expected a class name or IRI (`REASON <http://…/Class>`)")
+                )
+            }
         };
         Ok(Op::Reason {
             target_class,
@@ -437,7 +444,10 @@ impl<'a> Parser<'a> {
     #[cfg(not(feature = "owl"))]
     fn parse_reason(&mut self) -> Result<Op, UqlError> {
         // Consume the class token so the error caret points at `REASON`, not past it.
-        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
+        if matches!(
+            self.peek_kind(),
+            Some(Tok::Iri(_)) | Some(Tok::Str(_)) | Some(Tok::Ident(_))
+        ) {
             self.bump();
         }
         Err(self.err_at(

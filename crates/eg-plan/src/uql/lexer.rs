@@ -29,6 +29,12 @@ pub enum Tok {
     Num(f64),
     /// A single- or double-quoted string literal (quotes stripped, `''`/`\"` unescaped).
     Str(String),
+    /// An angle-bracketed IRI `<scheme:...>` (CONCEPT:EG-375) — a whitespace-free
+    /// `<...>` run whose interior carries a `:` (a scheme). Stored WITH its brackets
+    /// (`<http://ex/Device>`) so it round-trips as a canonical OWL class id for
+    /// `REASON <iri>`. Distinguished from the comparison `<` (which is followed by a
+    /// numeric RHS, e.g. `year < 2022`), so both coexist.
+    Iri(String),
     /// `|>` — the pipeline stage separator.
     Pipe,
     /// `(`
@@ -71,6 +77,7 @@ impl fmt::Display for Tok {
             Tok::Ident(s) => write!(f, "`{s}`"),
             Tok::Num(n) => write!(f, "number `{n}`"),
             Tok::Str(s) => write!(f, "string \"{s}\""),
+            Tok::Iri(s) => write!(f, "IRI `{s}`"),
             Tok::Pipe => f.write_str("`|>`"),
             Tok::LParen => f.write_str("`(`"),
             Tok::RParen => f.write_str("`)`"),
@@ -129,7 +136,17 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
             b':' => simple(&mut out, &mut i, Tok::Colon),
             b',' => simple(&mut out, &mut i, Tok::Comma),
             b'>' => simple(&mut out, &mut i, Tok::Gt),
-            b'<' => simple(&mut out, &mut i, Tok::Lt),
+            // `<` is either an angle-bracketed IRI (`<http://ex/Device>` — CONCEPT:EG-375)
+            // or the comparison `<` (`year < 2022`). Try the IRI form first; it only
+            // matches a whitespace-free `<...>` run whose interior carries a `:` (a scheme),
+            // which a numeric comparison never does, so the two never collide.
+            b'<' => match lex_iri(bytes, i) {
+                Some((iri, next)) => {
+                    out.push(tok(Tok::Iri(iri), start, next));
+                    i = next;
+                }
+                None => simple(&mut out, &mut i, Tok::Lt),
+            },
             b'~' => simple(&mut out, &mut i, Tok::Tilde),
             b'@' => simple(&mut out, &mut i, Tok::At),
             b'=' => {
@@ -252,6 +269,35 @@ fn lex_string(bytes: &[u8], start: usize, q: u8) -> Result<(String, usize), LexE
         msg: "unterminated string literal".into(),
         at: start,
     })
+}
+
+/// Try to lex an angle-bracketed IRI starting at `start` (the `<`) — CONCEPT:EG-375.
+/// Returns `Some((iri_with_brackets, next))` when `bytes[start..]` opens a whitespace-
+/// free `<...>` run whose interior contains a `:` (a scheme separator); `None` otherwise
+/// (so the caller falls back to the comparison `<`). Never consumes across whitespace or
+/// a newline, so a stray `<` in `year < 2` stays the `Lt` operator.
+fn lex_iri(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+    let mut i = start + 1;
+    let mut has_colon = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'>' {
+            // A closing `>` with a scheme colon inside and a non-empty body ⇒ an IRI.
+            if has_colon && i > start + 1 {
+                let iri = std::str::from_utf8(&bytes[start..=i]).ok()?.to_string();
+                return Some((iri, i + 1));
+            }
+            return None;
+        }
+        if c.is_ascii_whitespace() {
+            return None; // a comparison `<`, not an IRI
+        }
+        if c == b':' {
+            has_colon = true;
+        }
+        i += 1;
+    }
+    None // unterminated `<...` ⇒ treat the `<` as the comparison operator
 }
 
 /// Lex a numeric literal (integer or decimal, optional leading `.`). Parsed as f64.
