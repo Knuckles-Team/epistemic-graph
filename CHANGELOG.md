@@ -8,6 +8,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-07-04
+
+> **Minor, additive.** Closes the cross-modal seam backlog `docs/north_star.md` tracked: the
+> in-transaction cross-modal seam is now proven at EVERY SQL wire (per-wire roundtrip tests),
+> reaches the GraphQL surface with a DURABLE atomic commit, and the advanced cross-modal
+> correctness set + a query-surface differential test harness are in the tree — plus four UQL
+> front-end fold-ins that close builder-vs-UQL expressiveness asymmetries. No wire-shape change.
+
+### Added — per-wire cross-modal roundtrip tests
+- **EG-377 / EG-378** — executable mysql-wire (`tests/mysql_roundtrip.rs`, hand-rolled
+  Handshake-v10 / `COM_QUERY` client) and mssql-wire TDS (`tests/mssql_roundtrip.rs`,
+  hand-rolled `SQLBatch` client) cross-modal roundtrip tests: an in-txn `UPDATE` + `SET
+  EMBEDDING` read back by an in-txn `UQL` (RYOW), and `BEGIN; SET EMBEDDING; INSERT INTO
+  series; <UQL join>; COMMIT` with off-txn isolation until COMMIT. Proves both wires inherit
+  the shared EG-074/EG-372 seam — test-only, no src change.
+
+### Added — GraphQL cross-modal transaction seam (durable)
+- **EG-379..383** — the GraphQL surface gains the in-txn cross-modal verbs
+  (`beginTransaction` / `stageEmbedding` / `addMeasurement` / `sparqlUpdate` /
+  `sparqlConstruct` / in-txn `unifiedQuery` / `commitTransaction` / `rollbackTransaction`) via
+  a multi-request `txnId` handle in an `eg_graphql::CrossModalTxnRegistry`. `eg-graphql` sits
+  below the facade in the crate DAG, so it routes onto the SAME lower primitives the facade's
+  `GraphTxnState` / `run_unified_overlaid` are built on — no plan/lowering duplicated.
+- **EG-419** — GraphQL cross-modal **durable** commit: the facade GraphQL carrier
+  (`handlers::query.rs` `Method::GraphQl` → `handlers::txn::commit_graphql_cross_modal`) routes
+  a `commitTransaction` into a facade `GraphTxnState` and lands ALL modalities (graph + vector
+  + tsdb measurements) in ONE redb `WriteTransaction` via `commit_cross_modal_txn` — exactly as
+  pgwire's `commit_txn_state`, replacing the crate's in-memory-only tier. The facade `full` tier
+  enables `eg-graphql/crossmodal-tsdb` so `addMeasurement` rides `full`. Proven durable (survives
+  a persist-dir reopen) by `tests/graphql_crossmodal_durable.rs`.
+
+### Added — advanced cross-modal correctness + query test harness
+- **EG-384..398** — 14 advanced cross-modal seam tests (`crates/eg-plan/src/advanced_crossmodal_tests.rs`
+  + `tests/advanced_crossmodal_roundtrip.rs`): 8 green (bitemporal AsOf×vector×OWL×graph,
+  federation fusion, geo×vector×temporal, tensor×graph×vector + CAS dedup, CEP×graph×tsdb,
+  probabilistic×OWL×vector + MMR, the 5-modality in-txn RYOW capstone, concurrent serializable
+  phantom) + 6 `#[ignore]`d as explicit north_star open rows (RLS, multi-listener snapshot,
+  encryption wrong-key, CDC matview, cross-shard Raft 2PC, KV warm-fork). Includes **EG-398** —
+  an RPC-routing leak fix: `TxnAddMeasurement`/`TxnAxiom`/`TxnConstruct` staging handlers existed
+  but `dispatch.rs` never routed them (worked over pgwire, errored over native RPC); three
+  cfg-gated dispatch arms close the leak.
+- **EG-400..406** — query-surface test harness proving modality interchangeability: a differential
+  multi-surface oracle (`differential_oracle.rs`), a cross-modal composition matrix
+  (`composition_matrix.rs`), property-based proofs (`plan_proptest.rs`, proptest), and plan
+  snapshots (`plan_snapshots.rs`, insta). It surfaced two documented open findings — **EG-404**
+  (UQL `RANK` rejects negative vector components) and **EG-405** (op composition is not freely
+  commutative under empty-intermediate reseed).
+
+### Added — UQL cross-modal fold-ins
+- **EG-411 / EG-412** — `RANK BY ~ "text"` server-side NL→vector: a quoted rank ref lowers to
+  `Op::RankEmbed` resolved by a `TextEmbedder` bound on `PlanCtx` (facade injection point in
+  `run_unified`); unbound ⇒ a clean typed error.
+- **EG-413 / EG-414** — real tumbling `WINDOW` time-series aggregate: `WINDOW <secs>` /
+  `WINDOW <secs> <agg>` (`Op::WindowAgg`) consumes `(ts,value)` rows and emits one row per
+  bucket via eg-tsdb `time_bucket` (closes EG-404's sibling — the TsScan→Window gap).
+- **EG-417** — negative vector components in UQL `RANK BY ~[-0.1, …]` (closes the lexer/parser
+  asymmetry EG-404 flagged; the builder/wire always accepted them).
+- **EG-418** — UQL `FUSE` stage dispatch to the same `Op::FuseRrf` the builder/wire construct
+  (RRF was builder/wire-only though the grammar listed it).
+
 ## [2.9.0] - 2026-07-03
 
 > **Minor, additive.** Extends the in-transaction cross-modal seam onto the SQL wire

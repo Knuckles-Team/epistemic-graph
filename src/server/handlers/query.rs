@@ -34,12 +34,25 @@ use crate::protocol::{Response, ResultPayload};
 #[cfg(feature = "result-cache")]
 use eg_core::result_cache::ResultCache;
 
+/// Process-wide GraphQL cross-modal transaction registry (CONCEPT:EG-419). Holds staged
+/// multi-request cross-modal txns (`beginTransaction` … `stage*` … `commitTransaction`)
+/// across GraphQL requests — GraphQL over the RPC transport has no per-connection session,
+/// and txn ids are process-unique, so ONE shared registry is the carrier (the `OnceLock`
+/// idiom the UQL text-embedder seam uses).
+#[cfg(feature = "graphql")]
+fn graphql_crossmodal_registry() -> &'static eg_graphql::CrossModalTxnRegistry {
+    use std::sync::OnceLock;
+    static REG: OnceLock<eg_graphql::CrossModalTxnRegistry> = OnceLock::new();
+    REG.get_or_init(eg_graphql::CrossModalTxnRegistry::new)
+}
+
 /// Handle `Method::Sql` / `Method::CypherQuery`. `Err(method)` hands a non-query
 /// method (or a query method whose feature is off) back to the dispatcher
 /// (routing fall-through). (CONCEPT:KG-2.19 — server dispatch convention)
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    graph_name: &str,
     core: Arc<GraphCore>,
     method: Method,
     #[cfg(feature = "security")] caller: Option<&str>,
@@ -50,6 +63,11 @@ pub(crate) async fn try_handle(
     // cypher/graphql-only build (no `query`) so no dead-param warning fires.
     #[cfg(not(feature = "query"))]
     let _ = state;
+    // `graph_name` is consumed only by the `graphql`-gated cross-modal durable commit
+    // (CONCEPT:EG-419); keep it referenced in a query/cypher-only build so no dead-param
+    // warning fires.
+    #[cfg(not(feature = "graphql"))]
+    let _ = graph_name;
     match method {
         #[cfg(feature = "query")]
         Method::Sql { query, .. } => {
@@ -385,20 +403,87 @@ pub(crate) async fn try_handle(
             // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
             // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
             if super::super::access::graphql_is_mutation(&query) {
-                let core_w = core.clone();
-                let resp = match compute_off_lock(req_id, move || {
-                    eg_graphql::execute_mutation(&core_w, &query)
-                })
-                .await
-                {
-                    Ok(Ok(value)) => Response::ok(
-                        req_id,
-                        ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
-                    ),
-                    Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
-                    Err(resp) => resp,
-                };
-                return Ok(resp);
+                // Cross-modal transaction routing (CONCEPT:EG-379/419). A GraphQL mutation
+                // is one of three shapes: a `commitTransaction` — landed DURABLY via
+                // `commit_cross_modal_txn` (ONE redb WriteTransaction across graph + vector
+                // + tsdb + axioms), exactly as pgwire's commit path; a begin/stage/read/
+                // rollback cross-modal verb — run in-memory over the process-wide
+                // `CrossModalTxnRegistry` (staging + read-your-own-writes, no durable side
+                // effect until commit); or an ordinary mutation — the native `execute_mutation`
+                // write path. `classify_crossmodal` picks the route with ONE parse.
+                match eg_graphql::classify_crossmodal(&query) {
+                    eg_graphql::CrossModalRoute::Commit(txn_id) => {
+                        let committed = super::txn::commit_graphql_cross_modal(
+                            state,
+                            graph_name,
+                            &core,
+                            graphql_crossmodal_registry(),
+                            &txn_id,
+                            #[cfg(feature = "security")]
+                            caller,
+                            #[cfg(not(feature = "security"))]
+                            None,
+                        )
+                        .await;
+                        let resp = match committed {
+                            Ok(committed) => Response::ok(
+                                req_id,
+                                ResultPayload::Raw(
+                                    rmp_serde::to_vec_named(&serde_json::json!({
+                                        "data": {"commitTransaction": {"committed": committed}}
+                                    }))
+                                    .unwrap_or_default(),
+                                ),
+                            ),
+                            Err(msg) => Response::err(
+                                req_id,
+                                format!("GraphQL commitTransaction error: {msg}"),
+                            ),
+                        };
+                        return Ok(resp);
+                    }
+                    eg_graphql::CrossModalRoute::Staging => {
+                        let core_w = core.clone();
+                        let reg = graphql_crossmodal_registry();
+                        let resp = match compute_off_lock(req_id, move || {
+                            eg_graphql::execute_crossmodal(&core_w, reg, &query)
+                        })
+                        .await
+                        {
+                            Ok(Ok(value)) => Response::ok(
+                                req_id,
+                                ResultPayload::Raw(
+                                    rmp_serde::to_vec_named(&value).unwrap_or_default(),
+                                ),
+                            ),
+                            Ok(Err(msg)) => {
+                                Response::err(req_id, format!("GraphQL cross-modal error: {msg}"))
+                            }
+                            Err(resp) => resp,
+                        };
+                        return Ok(resp);
+                    }
+                    eg_graphql::CrossModalRoute::NotCrossModal => {
+                        let core_w = core.clone();
+                        let resp = match compute_off_lock(req_id, move || {
+                            eg_graphql::execute_mutation(&core_w, &query)
+                        })
+                        .await
+                        {
+                            Ok(Ok(value)) => Response::ok(
+                                req_id,
+                                ResultPayload::Raw(
+                                    rmp_serde::to_vec_named(&value).unwrap_or_default(),
+                                ),
+                            ),
+                            Ok(Err(msg)) => {
+                                Response::err(req_id, format!("GraphQL mutation error: {msg}"))
+                            }
+                            Err(resp) => resp,
+                        };
+                        return Ok(resp);
+                    }
+                }
             }
             // A `subscription { … }` is a read-only POLL of the current matches (a full
             // push transport is a documented eg-graphql deferral); a `query { … }` is the

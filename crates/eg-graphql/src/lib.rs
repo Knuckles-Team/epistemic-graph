@@ -75,7 +75,10 @@ pub mod schema;
 pub mod subscription;
 
 #[cfg(feature = "crossmodal")]
-pub use crossmodal::{execute as execute_crossmodal, CrossModalTxnRegistry};
+pub use crossmodal::{
+    classify_crossmodal, execute as execute_crossmodal, CrossModalRoute, CrossModalTxn,
+    CrossModalTxnRegistry, GraphWrite,
+};
 #[cfg(feature = "federation")]
 pub use federation::{EntityMeta, FederatedSchema, FieldFedMeta, KeyDirective};
 #[cfg(feature = "hardening")]
