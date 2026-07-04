@@ -2304,8 +2304,10 @@ impl WireSession {
     /// wire node buffer + lowered OWL/CONSTRUCT methods) and staged vectors, giving
     /// read-your-own-writes; off-txn it reads the committed store (the overlay is empty).
     /// Reuses the EXTRACTED `run_unified` executor + `overlay_write_set`/`semantic_overlay`
-    /// — no plan logic duplicated. (In-txn tsdb RYOW is a documented open item: staged
-    /// measurements are not yet overlaid into `Op::TsScan`, which reads committed series.)
+    /// — no plan logic duplicated. In-txn tsdb read-your-own-writes (CONCEPT:EG-374) is
+    /// wired too: the txn's staged, uncommitted `measurements` are overlaid into `Op::TsScan`
+    /// via a `StagedSeries` so an in-txn UQL reads its own points; off-txn `TsScan` reads
+    /// committed series only.
     #[cfg(feature = "query")]
     async fn exec_uql(&self, graph: &str, text: &str, in_txn: bool) -> WireResult<WireOutcome> {
         let plan = eg_plan::uql::parse(text).map_err(|e| user_err(e.render(text)))?;
@@ -2320,6 +2322,18 @@ impl WireSession {
         } else {
             (Vec::new(), Vec::new())
         };
+        // CONCEPT:EG-374 — build the in-txn staged-series RYOW overlay from the wire txn's
+        // staged, uncommitted measurements (empty off-txn ⇒ committed series only).
+        #[cfg(feature = "tsdb")]
+        let staged_series = {
+            let mut staged = eg_plan::StagedSeries::new();
+            if in_txn {
+                for m in &self.xmodal.lock().measurements {
+                    staged.push_points(&m.series, m.points.iter().cloned());
+                }
+            }
+            staged
+        };
         crate::server::handlers::query::overlay_write_set(&mut view, &overlay_methods);
         let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
         #[cfg(feature = "tsdb")]
@@ -2332,6 +2346,8 @@ impl WireSession {
                 &semantic,
                 #[cfg(feature = "tsdb")]
                 tsdb.as_deref(),
+                #[cfg(feature = "tsdb")]
+                Some(&staged_series),
             )
         })
         .await
