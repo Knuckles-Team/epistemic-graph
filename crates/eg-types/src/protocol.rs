@@ -1746,6 +1746,49 @@ pub enum Method {
         name: String,
     },
 
+    // ── Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview) ───────
+    // GENERALIZES the algo-only matview above: a matview is a NAMED, DURABLE `wire::Plan`
+    // (the same cross-modal AST `UnifiedQuery` carries) over ONE `graph`. Defining it
+    // executes the plan once via the runtime and caches the RESULT in the version-keyed,
+    // RLS-aware result cache; a committed write bumps the graph version (and the CDC hub
+    // marks the view stale), so the next `Get` recomputes — never serves a stale result.
+    // Gated behind the facade `matview` feature (which needs `query` for the `Plan` AST
+    // and routes through the `compute-dist` dispatch line); in a build without it these
+    // variants fall to the dispatch "not available in this build" catch-all.
+    /// Define (or replace) a plan-backed materialized view `name` over `graph`, whose
+    /// definition is the cross-modal `plan`. Executes the plan once, caches the result,
+    /// and persists the definition durably. `reorder_filter_selectivity` mirrors
+    /// `UnifiedQuery`'s optional cost-based (Filter,Rank) reorder hint. Returns the row
+    /// count of the first materialization.
+    #[cfg(feature = "matview")]
+    PlanMatViewDefine {
+        name: String,
+        graph: String,
+        plan: crate::wire::Plan,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reorder_filter_selectivity: Option<f64>,
+    },
+    /// Read a plan-backed materialized view's current rows by name
+    /// (`ResultPayload::Raw`, `[id, score|nil]`). Serves the cached result when fresh;
+    /// recomputes (and re-caches) when a write to the underlying graph — or an explicit
+    /// CDC change signal — retired it.
+    #[cfg(feature = "matview")]
+    PlanMatViewGet {
+        name: String,
+    },
+    /// Force a re-materialization of a plan-backed matview NOW (bypassing the freshness
+    /// check), re-executing its stored plan and re-caching. Returns the fresh row count.
+    #[cfg(feature = "matview")]
+    PlanMatViewRefresh {
+        name: String,
+    },
+    /// Drop a plan-backed matview: remove its definition from RAM + the durable tier and
+    /// invalidate its cached result. Returns `Bool(true)` if it existed.
+    #[cfg(feature = "matview")]
+    PlanMatViewDrop {
+        name: String,
+    },
+
     // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ───────────────
     // Server-side STAGED, OPTIMISTIC, snapshot-isolation transactions. `BeginTxn`
     // returns a server-issued `txn_id` (String). The `Txn*` ops STAGE durable

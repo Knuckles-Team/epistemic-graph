@@ -44,6 +44,39 @@ pub trait ForeignSource {
     fn fetch(&self) -> Result<RowSet, String>;
 }
 
+/// Resolve a foreign [`ForeignSourceSpec`] to its rows THROUGH the single leaf-source
+/// seam (CONCEPT:EG-KG.query.symmetric-foreign-scan) — the piece that makes an
+/// `Op::ForeignScan` compose EXACTLY like an internal `Op::Scan`. An internal scan's leaf
+/// is `scan_label(view, label) -> RowSet`; a foreign scan's leaf is THIS fn: it produces
+/// the SAME [`RowSet`] currency, so the two leaves are interchangeable through the
+/// executor's `Driver` seam and any downstream `Filter`/`Traverse`/`Rank`/`Limit` sees no
+/// difference between a locally-scanned source and a foreign one.
+///
+/// Every spec kind resolves here, symmetrically: a `Named` spec resolves BY NAME through
+/// the `registry` on the `PlanCtx` (a clean typed error if none is attached), and every
+/// self-describing spec (remote-engine / HTTP-JSON / external-SQL) resolves via
+/// [`source_for`] + `fetch()`. The executor's `foreign_scan` arm is then a thin
+/// `fuse_foreign(input, foreign_source_rows(..)?, join)` — the leaf resolve + the compose
+/// — exactly mirroring the `Op::Scan` arm's thin `scan_label(..)` call.
+pub fn foreign_source_rows(
+    spec: &ForeignSourceSpec,
+    registry: Option<&ForeignSourceRegistry>,
+) -> Result<RowSet, String> {
+    match spec {
+        ForeignSourceSpec::Named { name } => {
+            let registry = registry.ok_or_else(|| {
+                format!(
+                    "federation: Op::ForeignScan names foreign source '{name}' but no \
+                     ForeignSourceRegistry is attached to the PlanCtx \
+                     (CONCEPT:EG-KG.query.symmetric-foreign-scan)"
+                )
+            })?;
+            registry.resolve(name)
+        }
+        other => source_for(other).fetch(),
+    }
+}
+
 /// Build the right [`ForeignSource`] for a wire [`ForeignSourceSpec`]. The executor
 /// calls this for an `Op::ForeignScan { source }` and runs `fetch()` on the blocking
 /// pool, exactly like the SQL/vector legs.
@@ -648,5 +681,87 @@ impl ForeignSource for NamedUnresolved<'_> {
              ForeignSourceRegistry on the PlanCtx, not source_for (CONCEPT:EG-KG.query.closure-backed-source)",
             self.name
         ))
+    }
+}
+
+#[cfg(test)]
+mod symmetric_scan_oracle {
+    //! Compose-oracle (CONCEPT:EG-KG.query.symmetric-foreign-scan): a `ForeignScan` leaf
+    //! composes through the executor's `Driver` seam EXACTLY like an internal `Scan` leaf.
+    //! Proof: register a foreign source returning EXACTLY the rows an internal
+    //! `Scan("Doc")` seeds, then run TWO plans that differ ONLY in the leaf op
+    //! (`Scan` vs `ForeignScan{join:false}`) under the SAME downstream
+    //! `Filter -> Rank -> Limit`. The two results MUST be byte-identical — the seam does
+    //! not distinguish a locally-scanned source from a foreign one.
+    use crate::algebra::Op;
+    use crate::exec::{execute, PlanCtx};
+    use crate::federation::ForeignSourceRegistry;
+    use crate::rowset::Row;
+    use crate::Plan;
+    use eg_types::wire::{ForeignSourceSpec, Pred};
+
+    /// The identical downstream applied to BOTH the internal and foreign leaf.
+    fn downstream() -> Vec<Op> {
+        vec![
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2023.0,
+                }],
+            },
+            Op::Rank {
+                query: crate::fixture::query_vec(),
+            },
+            Op::Limit { k: 10 },
+        ]
+    }
+
+    fn as_pairs(rows: &[Row]) -> Vec<(String, Option<f32>)> {
+        rows.iter().map(|r| (r.id.clone(), r.score)).collect()
+    }
+
+    #[test]
+    fn foreign_scan_composes_exactly_like_internal_scan() {
+        let fx = crate::fixture::build();
+
+        // Capture the EXACT RowSet an internal `Scan("Doc")` leaf seeds.
+        let ctx_plain = PlanCtx::new(&fx.view, &fx.semantic);
+        let scanned = execute(
+            &Plan::new(vec![Op::Scan {
+                label: "Doc".into(),
+            }]),
+            &ctx_plain,
+        )
+        .unwrap();
+        let scanned_rows = as_pairs(scanned.rows());
+
+        // A foreign source that returns EXACTLY those rows — the symmetric mirror of Scan.
+        let mut registry = ForeignSourceRegistry::new();
+        registry.register_table("mirror-doc", scanned_rows);
+
+        // Two plans, identical but for the leaf op.
+        let mut internal_ops = vec![Op::Scan {
+            label: "Doc".into(),
+        }];
+        internal_ops.extend(downstream());
+        let mut foreign_ops = vec![Op::ForeignScan {
+            source: ForeignSourceSpec::Named {
+                name: "mirror-doc".into(),
+            },
+            join: false,
+        }];
+        foreign_ops.extend(downstream());
+
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_foreign(&registry);
+        let internal = execute(&Plan::new(internal_ops), &ctx).unwrap();
+        let foreign = execute(&Plan::new(foreign_ops), &ctx).unwrap();
+
+        assert_eq!(
+            as_pairs(foreign.rows()),
+            as_pairs(internal.rows()),
+            "a ForeignScan leaf composes byte-identically to an internal Scan leaf"
+        );
+        // And the composition actually did something (guards a vacuous pass).
+        assert!(!internal.ids().is_empty(), "downstream produced rows");
     }
 }

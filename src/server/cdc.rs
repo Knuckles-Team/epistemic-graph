@@ -193,6 +193,14 @@ impl CdcHub {
             }
             (seq, feed.notify.clone())
         };
+        // CDC INVALIDATION for plan-backed matviews (CONCEPT:EG-KG.storage.matview-cdc-invalidation):
+        // a committed change to `graph` retires every plan-backed matview over it, so the
+        // next `Get` recomputes. Taken AFTER the feeds lock is dropped (the manager owns a
+        // separate lock — no nested lock ordering). The graph's OCC version already bumped
+        // on the write (the (query_hash, version) result-cache key retires the cached
+        // bytes); this is the belt-and-braces manager-side signal reusing that discipline.
+        #[cfg(feature = "matview")]
+        crate::server::matview::note_change(graph);
         notify.notify_waiters();
         seq
     }

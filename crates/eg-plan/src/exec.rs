@@ -597,21 +597,16 @@ fn foreign_scan(
     join: bool,
     ctx: &PlanCtx,
 ) -> Result<RowSet, String> {
-    // CONCEPT:EG-KG.query.closure-backed-source — a `Named` source resolves by name through the registry on the
-    // ctx; every self-describing spec kind (remote-engine / HTTP-JSON / SQL) still
-    // fetches via `source_for` exactly as before.
-    let foreign = match source {
-        eg_types::wire::ForeignSourceSpec::Named { name } => {
-            let registry = ctx.foreign.ok_or_else(|| {
-                format!(
-                    "federation: Op::ForeignScan names foreign source '{name}' but no \
-                     ForeignSourceRegistry is attached to the PlanCtx (CONCEPT:EG-KG.query.closure-backed-source)"
-                )
-            })?;
-            registry.resolve(name)?
-        }
-        other => crate::federation::source_for(other).fetch()?,
-    };
+    // SYMMETRIC leaf (CONCEPT:EG-KG.query.symmetric-foreign-scan): resolve the foreign
+    // source to its rows through the SINGLE `federation::foreign_source_rows` seam — the
+    // foreign analogue of `scan_label` for an internal `Op::Scan`. Every spec kind
+    // (Named-via-registry / remote-engine / HTTP-JSON / SQL) resolves identically there,
+    // yielding the SAME `RowSet` currency an internal `Scan` yields, so this arm is a thin
+    // "resolve the leaf, then compose" mirror of the `Op::Scan` arm's thin `scan_label`
+    // call. `fuse_foreign` then composes it exactly like a source (`join=false` REPLACES
+    // the input like a leading `Scan`; `join=true` intersects on id — a foreign∩local
+    // JOIN).
+    let foreign = crate::federation::foreign_source_rows(source, ctx.foreign)?;
     Ok(fuse_foreign(input, foreign, join))
 }
 
