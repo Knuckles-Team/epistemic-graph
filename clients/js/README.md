@@ -1,4 +1,4 @@
-# epistemic-graph — thin JS/Node client (CONCEPT:EG-328)
+# epistemic-graph — thin JS/Node client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
 
 A **deliberately thin** Node client for the Program-B engine `Method`s that had no
 client surface. It is **not a full SDK** — the canonical, full-featured client is the
@@ -9,9 +9,9 @@ binding covers only the new wire ops from B1.7:
 |--------|---------|----------------|
 | Broker admin | `declareExchange` `deleteExchange` `declareQueue` `bindQueue` `unbindQueue` | EG-275/276/277/278 |
 | Broker publish | `publish` `publishEx` `publishConfirmed` `publishIdempotent` | EG-275/279/284/314 |
-| Broker consume | `brokerConsume` `brokerAck` `brokerReject` `brokerAckTag` `brokerNackTag` `sweepExpired` | EG-280/276/284 |
+| Broker consume | `brokerConsume` `brokerAck` `brokerReject` `brokerAckTag` `brokerNackTag` `sweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 |
 | Streams | `streamDeclare` `streamPublish` `streamRead` `streamTrim` `streamCommitOffset` `streamCommittedOffset` | EG-283 |
-| RBAC admin | `rbacAddRole` `rbacRemoveRole` `rbacAddGrant` `rbacRemoveGrant` `rbacList` | EG-092 |
+| RBAC admin | `rbacAddRole` `rbacRemoveRole` `rbacAddGrant` `rbacRemoveGrant` `rbacList` | EG-KG.compute.feature |
 | Ops | `backup` `restore` | EG-090 |
 | NL→query | `nlQuery` | EG-080 |
 

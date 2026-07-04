@@ -1,4 +1,4 @@
-//! Query federation — EXTERNAL RowSet sources (CONCEPT:KG-2.232, Lane P).
+//! Query federation — EXTERNAL RowSet sources (CONCEPT:EG-KG.query.query-federation, Lane P).
 //!
 //! A federated query reads rows from a source OUTSIDE the local engine and composes
 //! them with the local graph/vector/SQL ops in ONE plan. The seam is one trait —
@@ -33,7 +33,7 @@ use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 /// The federation seam: turn an EXTERNAL source into the cross-modal [`RowSet`]
 /// currency, so a `ForeignScan` composes with every local op. One method, one shape —
 /// exactly what makes federation "just another RowSet source" rather than a bolted-on
-/// second engine. CONCEPT:EG-073 confirms this as the trait the
+/// second engine. CONCEPT:EG-KG.query.closure-backed-source confirms this as the trait the
 /// [`ForeignSourceRegistry`] stores by name (`Arc<dyn ForeignSource + Send + Sync>`);
 /// `fetch(&self)` is the `scan`-shaped method — the per-source connection spec is
 /// captured in the concrete type rather than passed per call.
@@ -79,7 +79,7 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
             id_field,
             score_field,
         } => sql_source(dsn, query, id_field, score_field.as_deref()),
-        // CONCEPT:EG-073 — a `Named` spec is a REFERENCE, not a self-describing source:
+        // CONCEPT:EG-KG.query.closure-backed-source — a `Named` spec is a REFERENCE, not a self-describing source:
         // it resolves through the executor's `ForeignSourceRegistry`, which `source_for`
         // (a pure spec→source builder with no registry) cannot reach. Hand-off is via
         // the executor / `ForeignSourceRegistry::resolve`; calling `source_for` on a
@@ -88,7 +88,7 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
     }
 }
 
-// ── kind (c): an EXTERNAL relational-SQL database (CONCEPT:KG-2.239) ─────────────
+// ── kind (c): an EXTERNAL relational-SQL database (CONCEPT:EG-KG.query.feature) ─────────────
 
 /// Build the SQL foreign source. With `federation-sql` it is the real [`SqlSource`]
 /// (a pure-Rust/rustls sqlx client). WITHOUT it — a `federation`-only build — the `Sql`
@@ -328,7 +328,7 @@ impl ForeignSource for HttpJsonSource<'_> {
     }
 }
 
-// ── kind (c) impl: external relational-SQL (CONCEPT:KG-2.239, feature `federation-sql`) ─
+// ── kind (c) impl: external relational-SQL (CONCEPT:EG-KG.query.feature, feature `federation-sql`) ─
 
 /// Reads rows from an EXTERNAL relational DB (Postgres/MySQL) over a pure-Rust/rustls
 /// `sqlx` client. Borrows the spec fields (no clones). The DSN scheme picks the dialect
@@ -495,15 +495,15 @@ fn json_to_id(v: &serde_json::Value) -> String {
     }
 }
 
-// ── CONCEPT:EG-073 — the foreign-source NAME REGISTRY + registerable source kinds ─
+// ── CONCEPT:EG-KG.query.closure-backed-source — the foreign-source NAME REGISTRY + registerable source kinds ─
 
 /// A boxed, thread-safe [`ForeignSource`] stored by name in a [`ForeignSourceRegistry`]
-/// (CONCEPT:EG-073). It is `Send + Sync` (the registry is shared across the executor's
+/// (CONCEPT:EG-KG.query.closure-backed-source). It is `Send + Sync` (the registry is shared across the executor's
 /// blocking pool) and OWNS its data (`'static`) — unlike the borrow-based sources
 /// [`source_for`] builds per-op straight off a wire spec.
 pub type SharedForeignSource = Arc<dyn ForeignSource + Send + Sync>;
 
-/// CONCEPT:EG-073 — the federation SOURCE REGISTRY: maps a foreign-source NAME to a live
+/// CONCEPT:EG-KG.query.closure-backed-source — the federation SOURCE REGISTRY: maps a foreign-source NAME to a live
 /// [`ForeignSource`]. This is the resolution seam the UQL `FOREIGN "<name>"` clause
 /// (`Op::Foreign`) and a `Named` [`eg_types::wire::Op::ForeignScan`] resolve through —
 /// the piece the wire doc-comment flagged as "the server-side foreign_sources registry
@@ -520,12 +520,12 @@ pub struct ForeignSourceRegistry {
 }
 
 impl ForeignSourceRegistry {
-    /// A new, empty registry (no foreign sources bound). CONCEPT:EG-073.
+    /// A new, empty registry (no foreign sources bound). CONCEPT:EG-KG.query.closure-backed-source.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Register (or replace) a source under `name`. CONCEPT:EG-073.
+    /// Register (or replace) a source under `name`. CONCEPT:EG-KG.query.closure-backed-source.
     pub fn register(&mut self, name: impl Into<String>, source: SharedForeignSource) -> &mut Self {
         self.sources.insert(name.into(), source);
         self
@@ -534,14 +534,14 @@ impl ForeignSourceRegistry {
     /// Register an owned [`ForeignSourceSpec`] (remote-engine / HTTP-JSON / SQL) under a
     /// name — the kind that "resolves the name to another graph/dataset": a
     /// `RemoteEngine` spec pointed at another graph is exactly that, reached over the
-    /// engine's own transport. CONCEPT:EG-073.
+    /// engine's own transport. CONCEPT:EG-KG.query.closure-backed-source.
     pub fn register_spec(&mut self, name: impl Into<String>, spec: ForeignSourceSpec) -> &mut Self {
         self.register(name, Arc::new(SpecSource { spec }))
     }
 
     /// Register a FIXED table of rows (id + optional score) under a name — the
     /// zero-dependency source kind for tests + pre-materialized datasets.
-    /// CONCEPT:EG-073.
+    /// CONCEPT:EG-KG.query.closure-backed-source.
     pub fn register_table<I>(&mut self, name: impl Into<String>, rows: I) -> &mut Self
     where
         I: IntoIterator<Item = (String, Option<f32>)>,
@@ -554,7 +554,7 @@ impl ForeignSourceRegistry {
         )
     }
 
-    /// Register a CLOSURE that produces the rows on demand under a name. CONCEPT:EG-073.
+    /// Register a CLOSURE that produces the rows on demand under a name. CONCEPT:EG-KG.query.closure-backed-source.
     pub fn register_closure<F>(&mut self, name: impl Into<String>, f: F) -> &mut Self
     where
         F: Fn() -> Result<RowSet, String> + Send + Sync + 'static,
@@ -562,7 +562,7 @@ impl ForeignSourceRegistry {
         self.register(name, Arc::new(ClosureSource { f: Box::new(f) }))
     }
 
-    /// Look a source up by name (borrowing the shared handle). CONCEPT:EG-073.
+    /// Look a source up by name (borrowing the shared handle). CONCEPT:EG-KG.query.closure-backed-source.
     pub fn get(&self, name: &str) -> Option<&SharedForeignSource> {
         self.sources.get(name)
     }
@@ -579,7 +579,7 @@ impl ForeignSourceRegistry {
 
     /// Resolve `name` to its foreign rows, or a CLEAN typed error naming the unbound
     /// source (and listing what IS registered). This is what the executor calls for a
-    /// `Named` `Op::ForeignScan` / an `Op::Foreign` marker. CONCEPT:EG-073.
+    /// `Named` `Op::ForeignScan` / an `Op::Foreign` marker. CONCEPT:EG-KG.query.closure-backed-source.
     pub fn resolve(&self, name: &str) -> Result<RowSet, String> {
         match self.sources.get(name) {
             Some(src) => src.fetch(),
@@ -588,14 +588,14 @@ impl ForeignSourceRegistry {
                 known.sort_unstable();
                 Err(format!(
                     "federation: no foreign source registered under name '{name}' \
-                     (registered: {known:?}) (CONCEPT:EG-073)"
+                     (registered: {known:?}) (CONCEPT:EG-KG.query.closure-backed-source)"
                 ))
             }
         }
     }
 }
 
-/// CONCEPT:EG-073 — a registerable source backed by an owned [`ForeignSourceSpec`]. It
+/// CONCEPT:EG-KG.query.closure-backed-source — a registerable source backed by an owned [`ForeignSourceSpec`]. It
 /// delegates to [`source_for`], so the SAME remote-engine / HTTP-JSON / external-SQL
 /// machinery becomes name-addressable. A `RemoteEngine` spec pointed at another graph is
 /// the "in-engine source that resolves a name to another graph/dataset" kind. (A `Named`
@@ -610,7 +610,7 @@ impl ForeignSource for SpecSource {
     }
 }
 
-/// CONCEPT:EG-073 — a registerable source backed by a FIXED table of rows (id + optional
+/// CONCEPT:EG-KG.query.closure-backed-source — a registerable source backed by a FIXED table of rows (id + optional
 /// score). The zero-dependency kind for tests and pre-materialized foreign datasets.
 pub struct TableSource {
     rows: Vec<(String, Option<f32>)>,
@@ -622,7 +622,7 @@ impl ForeignSource for TableSource {
     }
 }
 
-/// CONCEPT:EG-073 — a registerable source backed by a CLOSURE producing rows on demand
+/// CONCEPT:EG-KG.query.closure-backed-source — a registerable source backed by a CLOSURE producing rows on demand
 /// (e.g. an in-engine adapter that reads from another dataset the host holds).
 pub struct ClosureSource {
     f: Box<dyn Fn() -> Result<RowSet, String> + Send + Sync>,
@@ -634,7 +634,7 @@ impl ForeignSource for ClosureSource {
     }
 }
 
-/// CONCEPT:EG-073 — the placeholder [`ForeignSource`] a `Named` spec resolves to when it
+/// CONCEPT:EG-KG.query.closure-backed-source — the placeholder [`ForeignSource`] a `Named` spec resolves to when it
 /// reaches [`source_for`] (which has no registry). It always errors, pointing the caller
 /// at the `ForeignSourceRegistry`, so a misrouted `Named` fails loudly, never silently.
 struct NamedUnresolved<'a> {
@@ -645,7 +645,7 @@ impl ForeignSource for NamedUnresolved<'_> {
     fn fetch(&self) -> Result<RowSet, String> {
         Err(format!(
             "federation: the Named foreign source '{}' resolves through the \
-             ForeignSourceRegistry on the PlanCtx, not source_for (CONCEPT:EG-073)",
+             ForeignSourceRegistry on the PlanCtx, not source_for (CONCEPT:EG-KG.query.closure-backed-source)",
             self.name
         ))
     }

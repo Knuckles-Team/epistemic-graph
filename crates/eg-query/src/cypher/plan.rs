@@ -1,20 +1,20 @@
-//! The Cypher-subset AST (CONCEPT:KG-2.179). Pure data — the parser builds it,
+//! The Cypher-subset AST (CONCEPT:EG-KG.query.dep-free-behind). Pure data — the parser builds it,
 //! the executor consumes it. No engine deps here.
 //!
-//! Read clauses (CONCEPT:EG-062): a read query is a sequence of reading stages
+//! Read clauses (CONCEPT:EG-KG.query.eg-extend-read-side): a read query is a sequence of reading stages
 //! (`MATCH` / `OPTIONAL MATCH` / `WITH`) terminated by a `RETURN`. `WHERE` is a
 //! boolean expression tree (`OR`/`AND` + leaf tests `IN`/`STARTS WITH`/`CONTAINS`/
 //! `ENDS WITH`/`IS [NOT] NULL`/comparison). `RETURN`/`WITH` items support
 //! aggregation (`count`/`collect`/`sum`/`avg`/`min`/`max`), `DISTINCT`, `*`,
 //! `ORDER BY`, `SKIP` and `LIMIT`.
 //!
-//! Variable-length generalization (CONCEPT:EG-063): a pattern may combine fixed
+//! Variable-length generalization (CONCEPT:EG-KG.query.concept-2): a pattern may combine fixed
 //! hops with a single variable-length hop, and bind a path variable (`p = (…)`).
 
 use serde_json::Value;
 
 /// A whole parsed read query: one-or-more reading stages then a `RETURN`
-/// (CONCEPT:EG-062).
+/// (CONCEPT:EG-KG.query.eg-extend-read-side).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CypherQuery {
     /// The reading stages, in order. The first is always a `MATCH`.
@@ -23,7 +23,7 @@ pub struct CypherQuery {
     pub ret: ReturnSpec,
 }
 
-/// One reading stage (CONCEPT:EG-062).
+/// One reading stage (CONCEPT:EG-KG.query.eg-extend-read-side).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReadStage {
     /// `[OPTIONAL] MATCH [p =] <pattern> [WHERE <expr>]`. When `optional`, a binding
@@ -33,7 +33,7 @@ pub enum ReadStage {
         pattern: Pattern,
         optional: bool,
         where_clause: Option<WhereExpr>,
-        /// `p = (…)` path-variable binding (CONCEPT:EG-063). `None` ⇒ no path var.
+        /// `p = (…)` path-variable binding (CONCEPT:EG-KG.query.concept-2). `None` ⇒ no path var.
         path_var: Option<String>,
     },
     /// `WITH <items> [WHERE <expr>]` — project/rename the carried variables and
@@ -42,13 +42,13 @@ pub enum ReadStage {
         items: Vec<WithItem>,
         where_clause: Option<WhereExpr>,
     },
-    /// `UNWIND <list> AS <var>` (CONCEPT:EG-141) — expand a list expression into one
+    /// `UNWIND <list> AS <var>` (CONCEPT:EG-KG.query.param-list-drives-unwind) — expand a list expression into one
     /// row per element, binding each element to `var`, pipelining downstream.
     Unwind { list: ListExpr, var: String },
-    /// `CALL { <subquery> }` (CONCEPT:EG-142) — an evaluated read sub-query whose
+    /// `CALL { <subquery> }` (CONCEPT:EG-KG.query.cypher-planning) — an evaluated read sub-query whose
     /// result rows join (cartesian) onto each incoming row.
     Call { subquery: Box<CypherQuery> },
-    /// `CALL proc.name(args) YIELD col [AS alias], …` (CONCEPT:EG-142) — a registered
+    /// `CALL proc.name(args) YIELD col [AS alias], …` (CONCEPT:EG-KG.query.cypher-planning) — a registered
     /// procedure invocation; each yielded column binds into the pipeline.
     CallProc {
         name: String,
@@ -57,14 +57,14 @@ pub enum ReadStage {
     },
 }
 
-/// One `YIELD col [AS alias]` item on a `CALL proc(...)` stage (CONCEPT:EG-142).
+/// One `YIELD col [AS alias]` item on a `CALL proc(...)` stage (CONCEPT:EG-KG.query.cypher-planning).
 #[derive(Debug, Clone, PartialEq)]
 pub struct YieldItem {
     pub col: String,
     pub alias: Option<String>,
 }
 
-/// The list operand of an `UNWIND` (CONCEPT:EG-141): an inline list literal, a query
+/// The list operand of an `UNWIND` (CONCEPT:EG-KG.query.param-list-drives-unwind): an inline list literal, a query
 /// parameter (`$name`), or a bound variable that already holds a list value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListExpr {
@@ -76,7 +76,7 @@ pub enum ListExpr {
     Ref(String),
 }
 
-/// A property-map / argument value (CONCEPT:EG-141/142): a literal, a query parameter
+/// A property-map / argument value (CONCEPT:EG-KG.query.param-list-drives-unwind/142): a literal, a query parameter
 /// (`$name`), or a reference to a bound variable. Read-side inline property maps
 /// (`(n {id: x})`) and procedure args resolve `Param`/`Ref` against the live params +
 /// binding; the write path resolves them the same way when realizing nodes/edges.
@@ -105,13 +105,13 @@ pub struct Pattern {
 
 /// `(var:Label)` — both parts optional (`()`, `(a)`, `(:Label)`, `(a:Label)`).
 /// The optional `props` inline-property map (`{k: v, …}`) is used ONLY on the write
-/// path (CREATE/MERGE, CONCEPT:EG-020); the read parser always leaves it `None`.
+/// path (CREATE/MERGE, CONCEPT:EG-KG.query.register-each-user-table); the read parser always leaves it `None`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodePat {
     pub var: Option<String>,
     pub label: Option<String>,
     /// Inline property map (`(n:L {k: v})`). On the write path these realize the
-    /// created/merged node; on the read path (CONCEPT:EG-141) they constrain the
+    /// created/merged node; on the read path (CONCEPT:EG-KG.query.param-list-drives-unwind) they constrain the
     /// matched node (`(n {id: x})`). Values may reference params/bound vars.
     pub props: Option<Vec<(String, PropVal)>>,
 }
@@ -126,10 +126,10 @@ pub struct EdgePat {
     /// `Some((min,max))` for a `*min..max` variable-length path; `None` ⇒ a single
     /// fixed hop.
     pub var_len: Option<(usize, usize)>,
-    /// The edge variable (`-[r:REL]->`), if named — used by `DELETE r` (CONCEPT:EG-020).
+    /// The edge variable (`-[r:REL]->`), if named — used by `DELETE r` (CONCEPT:EG-KG.query.register-each-user-table).
     pub var: Option<String>,
     /// Inline edge properties for a write pattern. `None` on reads. Values may
-    /// reference params/bound vars (CONCEPT:EG-141).
+    /// reference params/bound vars (CONCEPT:EG-KG.query.param-list-drives-unwind).
     pub props: Option<Vec<(String, PropVal)>>,
 }
 
@@ -152,10 +152,10 @@ pub enum CompareOp {
     Ge,
 }
 
-// ── WHERE boolean expressions (CONCEPT:EG-062) ───────────────────────────────
+// ── WHERE boolean expressions (CONCEPT:EG-KG.query.eg-extend-read-side) ───────────────────────────────
 
 /// A WHERE boolean expression tree: disjunctions of conjunctions of leaf
-/// conditions (CONCEPT:EG-062).
+/// conditions (CONCEPT:EG-KG.query.eg-extend-read-side).
 #[derive(Debug, Clone, PartialEq)]
 pub enum WhereExpr {
     Or(Vec<WhereExpr>),
@@ -163,7 +163,7 @@ pub enum WhereExpr {
     Cond(Condition),
 }
 
-/// A leaf WHERE condition over a `var.prop` access (CONCEPT:EG-062).
+/// A leaf WHERE condition over a `var.prop` access (CONCEPT:EG-KG.query.eg-extend-read-side).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Condition {
     pub var: String,
@@ -171,7 +171,7 @@ pub struct Condition {
     pub test: Test,
 }
 
-/// What a [`Condition`] tests against the resolved `var.prop` value (CONCEPT:EG-062).
+/// What a [`Condition`] tests against the resolved `var.prop` value (CONCEPT:EG-KG.query.eg-extend-read-side).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Test {
     /// `<op> <literal>`.
@@ -190,9 +190,9 @@ pub enum Test {
     IsNotNull,
 }
 
-// ── RETURN projection (CONCEPT:EG-062) ───────────────────────────────────────
+// ── RETURN projection (CONCEPT:EG-KG.query.eg-extend-read-side) ───────────────────────────────────────
 
-/// The terminal `RETURN` (CONCEPT:EG-062): items + DISTINCT/`*`/ORDER BY/SKIP/LIMIT.
+/// The terminal `RETURN` (CONCEPT:EG-KG.query.eg-extend-read-side): items + DISTINCT/`*`/ORDER BY/SKIP/LIMIT.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnSpec {
     pub items: Vec<ReturnItem>,
@@ -222,7 +222,7 @@ impl ReturnItem {
     }
 }
 
-/// A projection / ORDER BY expression (CONCEPT:EG-062).
+/// A projection / ORDER BY expression (CONCEPT:EG-KG.query.eg-extend-read-side).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     /// A bare bound variable (`a` ⇒ its node id).
@@ -231,7 +231,7 @@ pub enum Expr {
     Prop(String, String),
     /// `count(*)`.
     CountStar,
-    /// An aggregation over a variable or `var.prop` (CONCEPT:EG-062).
+    /// An aggregation over a variable or `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
     Aggregate(AggFunc, AggArg),
 }
 
@@ -263,7 +263,7 @@ impl AggArg {
     }
 }
 
-/// The supported aggregation functions (CONCEPT:EG-062).
+/// The supported aggregation functions (CONCEPT:EG-KG.query.eg-extend-read-side).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggFunc {
     Count,
@@ -294,9 +294,9 @@ pub struct OrderKey {
     pub desc: bool,
 }
 
-// ── write statements (CONCEPT:EG-020) ────────────────────────────────────────
+// ── write statements (CONCEPT:EG-KG.query.register-each-user-table) ────────────────────────────────────────
 
-/// A whole parsed Cypher statement: a read query, or a write (CONCEPT:EG-020). The
+/// A whole parsed Cypher statement: a read query, or a write (CONCEPT:EG-KG.query.register-each-user-table). The
 /// existing `parse` entry-point still returns a [`CypherQuery`] (reads, unchanged);
 /// the new `parse_statement` returns this enum so the executor routes reads to the
 /// untouched snapshot path and writes to the native-op write path.
@@ -310,7 +310,7 @@ pub enum Statement {
     Write(WriteQuery),
 }
 
-/// A parsed write statement (CONCEPT:EG-020 / EG-061).
+/// A parsed write statement (CONCEPT:EG-KG.query.register-each-user-table / EG-061).
 #[derive(Debug, Clone, PartialEq)]
 pub struct WriteQuery {
     /// Optional leading `MATCH <pattern>` binding existing nodes for the write clauses.
@@ -323,7 +323,7 @@ pub struct WriteQuery {
     pub returns: Vec<ReturnItem>,
 }
 
-/// One write clause (CONCEPT:EG-020 / EG-061).
+/// One write clause (CONCEPT:EG-KG.query.register-each-user-table / EG-061).
 #[derive(Debug, Clone, PartialEq)]
 pub enum WriteOp {
     /// `CREATE <pattern>` — create the pattern's nodes (with inline props) and the
@@ -339,11 +339,11 @@ pub enum WriteOp {
     /// a node's incident edges first (a plain node DELETE with edges is rejected).
     Delete { vars: Vec<String>, detach: bool },
     /// `REMOVE v.prop | v:Label [, …]` — delete a property or remove a label from a
-    /// bound node variable (CONCEPT:EG-061).
+    /// bound node variable (CONCEPT:EG-KG.query.cypher-execution).
     Remove(Vec<RemoveItem>),
 }
 
-/// One `REMOVE` target (CONCEPT:EG-061): a property delete or a label removal.
+/// One `REMOVE` target (CONCEPT:EG-KG.query.cypher-execution): a property delete or a label removal.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RemoveItem {
     /// `REMOVE v.prop` — delete the property from the bound node.
@@ -352,7 +352,7 @@ pub enum RemoveItem {
     Label { var: String, label: String },
 }
 
-/// One `SET v.prop = literal` assignment (CONCEPT:EG-020).
+/// One `SET v.prop = literal` assignment (CONCEPT:EG-KG.query.register-each-user-table).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetItem {
     pub var: String,

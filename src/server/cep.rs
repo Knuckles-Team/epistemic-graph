@@ -1,5 +1,5 @@
-//! Live CEP standing-query surface (CONCEPT:EG-299) — the SERVER-side transport that
-//! wires the shipped, runtime-tested `eg_stream::live::CepEngine` (CONCEPT:EG-088) to a
+//! Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types) — the SERVER-side transport that
+//! wires the shipped, runtime-tested `eg_stream::live::CepEngine` (CONCEPT:EG-KG.query.pipelined-execution) to a
 //! live event feed and a client-facing register/poll surface.
 //!
 //! ## What EG-088 already gives us (and what was left)
@@ -66,7 +66,7 @@ use crate::wire::{CdcEvent, CdcKind, CepMatcherSpec, CepNodeSpec, CepPatternSpec
 /// backpressure the per-subscription match buffer gives on the read side.
 const CEP_EVENT_BUS_CAP: usize = 4096;
 
-/// The live CEP standing-query surface (CONCEPT:EG-299): the `eg_stream` [`CepEngine`]
+/// The live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types): the `eg_stream` [`CepEngine`]
 /// plus the CDC → [`Event`] bus that feeds it and the per-subscription receivers the
 /// `CepPoll` handler drains. Cheap to `Arc`-share; owned lazily by the [`CdcHub`]
 /// (created on the first subscribe).
@@ -106,7 +106,7 @@ impl CepSurface {
         })
     }
 
-    /// Adapter (CONCEPT:EG-299): map one committed [`CdcEvent`] to a CEP [`Event`] and
+    /// Adapter (CONCEPT:EG-KG.query.protocol-types): map one committed [`CdcEvent`] to a CEP [`Event`] and
     /// publish it on the bus the engine drains. `key` = the change's label if present (the
     /// useful CEP discriminator) else the op kind (`add`/`remove`/`update`); the op, graph,
     /// and ids ride in `attrs` for attribute predicates. Publishing with no live drain
@@ -134,7 +134,7 @@ impl CepSurface {
         let _ = self.bus.send(Event { ts, key, attrs });
     }
 
-    /// Register a standing query for `pattern` over `window` (CONCEPT:EG-299), keeping the
+    /// Register a standing query for `pattern` over `window` (CONCEPT:EG-KG.query.protocol-types), keeping the
     /// engine's [`CepSubscription`] server-side keyed by its id. Returns that id (the wire
     /// `sub_id`).
     pub fn register(&self, pattern: &CepPattern, window: Window, buffer: usize) -> u64 {
@@ -144,7 +144,7 @@ impl CepSurface {
         id
     }
 
-    /// Long-poll subscription `sub_id` for pushed matches (CONCEPT:EG-299): drain everything
+    /// Long-poll subscription `sub_id` for pushed matches (CONCEPT:EG-KG.query.protocol-types): drain everything
     /// already buffered; if none and `timeout_ms > 0`, await the next match up to the
     /// timeout, then drain any that arrived alongside it. A lagging poller silently skips the
     /// dropped-oldest matches (broadcast `Lagged`) and keeps going. `Err` iff `sub_id` is
@@ -173,7 +173,7 @@ impl CepSurface {
         Ok(out)
     }
 
-    /// Drop the standing query with `sub_id` + its server-held receiver (CONCEPT:EG-299).
+    /// Drop the standing query with `sub_id` + its server-held receiver (CONCEPT:EG-KG.query.protocol-types).
     /// Returns whether it existed.
     pub fn unsubscribe(&self, sub_id: u64) -> bool {
         let existed = self.subs.remove(&sub_id).is_some();
@@ -283,7 +283,7 @@ async fn surface_of(
     }
 }
 
-/// Handle the live CEP standing-query methods (CONCEPT:EG-299). Returns `Err(method)` for
+/// Handle the live CEP standing-query methods (CONCEPT:EG-KG.query.protocol-types). Returns `Err(method)` for
 /// any non-CEP method so the dispatch chain falls through — though dispatch only routes the
 /// `Cep*` methods here.
 pub async fn try_handle(

@@ -46,7 +46,7 @@ pub fn norm_ord(v: ArrayView1<f64>, ord: f64) -> f64 {
     }
 }
 
-/// L2-normalize a single vector to its unit direction `v/‖v‖` (CONCEPT:EG-330). A
+/// L2-normalize a single vector to its unit direction `v/‖v‖` (CONCEPT:EG-KG.compute.l2-normalize-batch-vectors). A
 /// slice-in/`Vec`-out API so an engine caller WITHOUT `ndarray` in scope (e.g. the
 /// server `Method` handler) can normalize a resident vector set through the kernel. A
 /// zero-norm vector is returned unchanged (all-zero) — a safe divide, no NaN.
@@ -59,7 +59,7 @@ pub fn l2_normalize_slice(v: &[f64]) -> Vec<f64> {
     }
 }
 
-/// L2-normalize every row of a batch (CONCEPT:EG-330) — the kernel behind the engine's
+/// L2-normalize every row of a batch (CONCEPT:EG-KG.compute.l2-normalize-batch-vectors) — the kernel behind the engine's
 /// `BatchL2Normalize` Method (compute-near-data over a resident vector set). Each row is
 /// unit-normalized by [`l2_normalize_slice`].
 pub fn batch_l2_normalize(vectors: &[Vec<f64>]) -> Vec<Vec<f64>> {
@@ -148,7 +148,7 @@ pub fn eigh(a: ArrayView2<f64>) -> Result<(Array1<f64>, Array2<f64>)> {
     Ok((w, v))
 }
 
-/// Partial symmetric eigensolver (CONCEPT:EG-356) — the `k` smallest-**magnitude**
+/// Partial symmetric eigensolver (CONCEPT:EG-KG.compute.concept-5) — the `k` smallest-**magnitude**
 /// eigenpairs of a symmetric matrix, matching
 /// `scipy.sparse.linalg.eigsh(A, k, which="SM")`. For a graph Laplacian (PSD) this
 /// is the `k` lowest eigenvalues (the Fiedler / spectral-embedding directions),

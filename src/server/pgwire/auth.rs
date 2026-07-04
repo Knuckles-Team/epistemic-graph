@@ -1,4 +1,4 @@
-//! pg-wire authentication bridged to the engine identity (CONCEPT:KG-2.202).
+//! pg-wire authentication bridged to the engine identity (CONCEPT:EG-KG.query.concept-13).
 //!
 //! The first pgwire increment was TRUST (`NoopStartupHandler`) — anyone who could
 //! reach the loopback listener could run SQL as anonymous. This module adds real
@@ -103,7 +103,7 @@ fn derive_salt(secret: &str, user: &str) -> Vec<u8> {
 }
 
 /// `AuthSource` that yields the SCRAM-salted form of the derived per-user password
-/// (CONCEPT:KG-2.202). For SCRAM, the server stores/returns the SALTED password
+/// (CONCEPT:EG-KG.query.concept-13). For SCRAM, the server stores/returns the SALTED password
 /// (`Hi(password, salt, iters)`) plus the salt; pgwire's SCRAM handler verifies the
 /// client's proof against it. We compute both deterministically from the engine
 /// secret + the connecting user, so no password is ever persisted.

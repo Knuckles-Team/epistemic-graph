@@ -1,4 +1,4 @@
-//! The `nodes` table provider (CONCEPT:KG-2.178). Schema-on-read: scan every
+//! The `nodes` table provider (CONCEPT:EG-KG.query.read-only-sql-query). Schema-on-read: scan every
 //! node's property MessagePack blob once, decode to `serde_json::Value` (the same
 //! path `get_nodes_by_label` uses), infer an Arrow schema as the union of observed
 //! keys, and materialize a single RecordBatch wrapped in a DataFusion `MemTable`.
@@ -91,7 +91,7 @@ struct DecodedNode<'a> {
 
 /// Inferred (schema, single batch) for the `nodes` table over `view` — the
 /// schema-on-read scan. Split out from MemTable construction so the result can be
-/// cached and re-wrapped per query (CONCEPT:KG-2.184 version-keyed cache).
+/// cached and re-wrapped per query (CONCEPT:EG-KG.query.version-keyed-cache version-keyed cache).
 pub(crate) fn infer_nodes(view: &GraphView) -> Result<(SchemaRef, RecordBatch), String> {
     // Pass 1: decode blobs and infer the per-key type union.
     let mut decoded: Vec<DecodedNode> = Vec::with_capacity(view.node_properties.len());
@@ -219,7 +219,7 @@ fn build_batch(
     RecordBatch::try_new(schema.clone(), columns).map_err(|e| format!("record batch: {e}"))
 }
 
-// ── edges table (CONCEPT:KG-2.184) ────────────────────────────────────────
+// ── edges table (CONCEPT:EG-KG.query.version-keyed-cache) ────────────────────────────────────────
 
 /// The `edges` table schema: fixed columns over the petgraph topology.
 ///   src:  Utf8   — source node id (the petgraph source node weight)
@@ -282,12 +282,12 @@ pub(crate) fn infer_edges(view: &GraphView) -> Result<(SchemaRef, RecordBatch), 
     Ok((schema, batch))
 }
 
-// ── version-keyed inferred-schema cache (CONCEPT:KG-2.184) ─────────────────
+// ── version-keyed inferred-schema cache (CONCEPT:EG-KG.query.version-keyed-cache) ─────────────────
 
 /// One cached, version-stamped inference of the `nodes` and `edges` tables. The
 /// schema-on-read scan is O(V) (decode every node blob) + O(E); for a read-mostly
 /// graph that cost is wasted on every query because the snapshot is identical
-/// between writes. Caching it keyed by the GraphCore OCC `version()` (CONCEPT:KG-2.180)
+/// between writes. Caching it keyed by the GraphCore OCC `version()` (CONCEPT:EG-KG.txn.multi-op-occ-acid)
 /// turns repeated queries into a cheap MemTable re-wrap of the already-built batches.
 #[derive(Clone)]
 pub(crate) struct CachedTables {
@@ -330,16 +330,16 @@ impl SqlCache {
     }
 }
 
-// ── the pushdown registry (CONCEPT:KG-2.213) ─────────────────────────────────
+// ── the pushdown registry (CONCEPT:AU-KG.retrieval.architecture-report) ─────────────────────────────────
 //
 // ONE registry the `nodes` provider consults for the two pushdown questions —
 // "is this predicate pushable?" and "resolve it to row positions" — instead of
 // the provider hard-coding the per-column indexability + per-value resolution
-// inline. This mirrors eg-core's `IndexManager` seam (CONCEPT:KG-2.213) at the
+// inline. This mirrors eg-core's `IndexManager` seam (CONCEPT:AU-KG.retrieval.architecture-report) at the
 // relational boundary: a relational predicate (`col = literal`) corresponds to
 // eg-core's `Predicate::PropertyEq`; the `id` column / a `type` equality maps to
 // the label/property indexes there. The registry keeps the EXACT bounded +
-// demand-driven equality semantics (CONCEPT:KG-2.199) so results stay identical —
+// demand-driven equality semantics (CONCEPT:EG-KG.query.concept-12) so results stay identical —
 // it relocates the bespoke checks into one object, it does not change them.
 //
 // It works on row positions over the already-materialized Arrow batch (the SQL
@@ -359,7 +359,7 @@ const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
 type IndexKey = String;
 
 /// The single secondary-index registry behind the `nodes` provider's pushdown
-/// (CONCEPT:KG-2.213, equality policy CONCEPT:KG-2.199). Owns the lazily-built,
+/// (CONCEPT:AU-KG.retrieval.architecture-report, equality policy CONCEPT:EG-KG.query.concept-12). Owns the lazily-built,
 /// bounded per-column equality index (`column → value → row positions`) over the
 /// materialized batch, and answers:
 ///   * [`PushdownRegistry::indexable_eq`] — "is this predicate a pushable
@@ -368,7 +368,7 @@ type IndexKey = String;
 ///     positions, or `None` when the column can't be indexed under the bound
 ///     (caller full-scans).
 ///
-/// Index policy (bounded + demand-driven, mirroring eg-core CONCEPT:KG-2.199): a
+/// Index policy (bounded + demand-driven, mirroring eg-core CONCEPT:EG-KG.query.concept-12): a
 /// column is indexed on its FIRST resolved equality and cached, up to
 /// `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` columns (default 32); columns named in
 /// `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` are pre-seeded on the first build.
@@ -525,10 +525,10 @@ impl PushdownRegistry {
     }
 }
 
-// ── nodes TableProvider over the pushdown registry (CONCEPT:KG-2.199/2.213) ──
+// ── nodes TableProvider over the pushdown registry (CONCEPT:EG-KG.query.concept-12/2.213) ──
 
 /// `nodes` table provider whose predicate pushdown runs through ONE
-/// [`PushdownRegistry`] (CONCEPT:KG-2.213) rather than bespoke per-index checks.
+/// [`PushdownRegistry`] (CONCEPT:AU-KG.retrieval.architecture-report) rather than bespoke per-index checks.
 /// Wraps the already-materialized `(schema, batch)` that `infer_nodes` produced (so
 /// the rows are byte-identical to the full-scan path); the registry holds the
 /// lazily-built, bounded per-column equality index.
@@ -545,7 +545,7 @@ impl PushdownRegistry {
 pub(crate) struct NodesTableProvider {
     schema: SchemaRef,
     batch: RecordBatch,
-    /// The single pushdown registry this provider consults (CONCEPT:KG-2.213).
+    /// The single pushdown registry this provider consults (CONCEPT:AU-KG.retrieval.architecture-report).
     registry: PushdownRegistry,
 }
 
@@ -627,7 +627,7 @@ impl TableProvider for NodesTableProvider {
         limit: Option<usize>,
     ) -> DfResult<Arc<dyn ExecutionPlan>> {
         // Collect the indexable equality predicates DataFusion pushed down,
-        // classified through the ONE pushdown registry (CONCEPT:KG-2.213).
+        // classified through the ONE pushdown registry (CONCEPT:AU-KG.retrieval.architecture-report).
         let preds: Vec<(String, IndexKey)> = filters
             .iter()
             .filter_map(|f| self.registry.indexable_eq(f))
@@ -759,7 +759,7 @@ mod provider_tests {
         assert_eq!(got[2], TableProviderFilterPushDown::Unsupported);
     }
 
-    /// CONCEPT:EG-020: a USER table (not the graph `nodes`) registered through the
+    /// CONCEPT:EG-KG.query.register-each-user-table: a USER table (not the graph `nodes`) registered through the
     /// SAME `NodesTableProvider` pushdown path — a `WHERE col = literal` resolves
     /// through the secondary index, and `supports_filters_pushdown` reports the
     /// equality `Inexact` (pushed + re-checked). This is the proof the user-table

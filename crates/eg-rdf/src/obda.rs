@@ -1,4 +1,4 @@
-//! CONCEPT:EG-101 — OBDA virtual graphs / R2RML (Phase Q).
+//! CONCEPT:EG-KG.ontology.foreign-source-seam — OBDA virtual graphs / R2RML (Phase Q).
 //!
 //! Ontology-Based Data Access: expose a FOREIGN tabular source (a SQL table, a CSV, a
 //! remote row set…) as a *virtual* RDF graph that SPARQL queries as if it were native
@@ -30,7 +30,7 @@
 //! the "no materialization of the whole graph" contract. A `VirtualGraph` spanning many
 //! sources still runs in one query (each `TriplesMap` names its own source).
 //!
-//! ## Relationship to eg-plan federation (CONCEPT:EG-073)
+//! ## Relationship to eg-plan federation (CONCEPT:EG-KG.query.closure-backed-source)
 //!
 //! eg-plan's [`ForeignSource`]/`ForeignSourceRegistry` speaks the id+optional-score
 //! `RowSet` currency (deliberately column-less — a candidate-id set for the cross-modal
@@ -42,7 +42,7 @@
 //! `ForeignSource` (id-only) into an [`ObdaSource`] (single `id` column) is a documented
 //! follow-up.
 //!
-//! ## Full R2RML Turtle parsing (CONCEPT:EG-305)
+//! ## Full R2RML Turtle parsing (CONCEPT:EG-KG.ontology.iri-template-object-map)
 //!
 //! Beyond EG-101's programmatic builders + minimal textual form, [`parse_r2rml_turtle`]
 //! reads a STANDARD R2RML mapping document written in Turtle (`rr:TriplesMap`,
@@ -70,7 +70,7 @@ use crate::sparql::{Projection, QueryOutcome, SparqlResult};
 /// The `rdf:type` predicate IRI (bare — used to emit `subject rdf:type <class>`).
 const RDF_TYPE_IRI: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
-// ── the column-carrying foreign-source seam (CONCEPT:EG-101) ─────────────────────
+// ── the column-carrying foreign-source seam (CONCEPT:EG-KG.ontology.foreign-source-seam) ─────────────────────
 
 /// A foreign-source NAME (the registry key a [`TriplesMap::logical_source`] resolves).
 pub type ForeignSourceName = String;
@@ -80,7 +80,7 @@ pub type ForeignSourceName = String;
 /// consume; typed literals are a documented follow-up.
 pub type ForeignRow = HashMap<String, String>;
 
-/// CONCEPT:EG-101 — the OBDA foreign-source seam: pull tabular rows on demand. This is
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — the OBDA foreign-source seam: pull tabular rows on demand. This is
 /// the column-carrying analogue of eg-plan's `ForeignSource` (which yields the id+score
 /// `RowSet`); R2RML needs full columns to fill templates, so an `ObdaSource` returns
 /// [`ForeignRow`]s. `scan` takes the columns the query actually needs (projection
@@ -101,7 +101,7 @@ pub trait ObdaSource: Send + Sync {
 /// A boxed, thread-safe [`ObdaSource`] stored by name in an [`ObdaSourceRegistry`].
 pub type SharedObdaSource = Arc<dyn ObdaSource>;
 
-/// CONCEPT:EG-101 — an in-memory tabular source: the zero-dependency [`ObdaSource`] for
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — an in-memory tabular source: the zero-dependency [`ObdaSource`] for
 /// tests and pre-materialized foreign datasets. Mirrors eg-plan's `TableSource`, but
 /// carries full columns rather than id+score.
 #[derive(Clone, Debug, Default)]
@@ -168,7 +168,7 @@ impl ObdaSource for TableSource {
     }
 }
 
-/// CONCEPT:EG-101 — an [`ObdaSource`] backed by a CLOSURE producing rows on demand (an
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — an [`ObdaSource`] backed by a CLOSURE producing rows on demand (an
 /// in-engine adapter over a dataset the host already holds). The closure receives the
 /// needed-column set so it can push the projection down itself.
 pub struct ClosureSource<F> {
@@ -199,7 +199,7 @@ where
     }
 }
 
-/// CONCEPT:EG-101 — the OBDA source registry: maps a foreign-source NAME to a live
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — the OBDA source registry: maps a foreign-source NAME to a live
 /// [`ObdaSource`]. A [`TriplesMap::logical_source`] resolves through it, exactly as an
 /// eg-plan `Named` foreign scan resolves through the `ForeignSourceRegistry`.
 #[derive(Clone, Default)]
@@ -240,22 +240,22 @@ impl ObdaSourceRegistry {
     }
 
     /// Resolve `name` to its source, or a CLEAN error naming the unbound source (and
-    /// listing what IS registered). CONCEPT:EG-101.
+    /// listing what IS registered). CONCEPT:EG-KG.ontology.foreign-source-seam.
     fn resolve(&self, name: &str) -> Result<&SharedObdaSource, String> {
         self.sources.get(name).ok_or_else(|| {
             let mut known: Vec<&str> = self.sources.keys().map(String::as_str).collect();
             known.sort_unstable();
             format!(
                 "obda: no foreign source registered under name '{name}' \
-                 (registered: {known:?}) (CONCEPT:EG-101)"
+                 (registered: {known:?}) (CONCEPT:EG-KG.ontology.foreign-source-seam)"
             )
         })
     }
 }
 
-// ── the R2RML-style mapping model (CONCEPT:EG-101) ───────────────────────────────
+// ── the R2RML-style mapping model (CONCEPT:EG-KG.ontology.foreign-source-seam) ───────────────────────────────
 
-/// CONCEPT:EG-101 — how the OBJECT term of a triple is produced from a foreign row (an
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — how the OBJECT term of a triple is produced from a foreign row (an
 /// R2RML `rr:objectMap`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectMap {
@@ -263,10 +263,10 @@ pub enum ObjectMap {
     Column(String),
     /// A TYPED literal from a column value with an explicit datatype IRI (`rr:column` +
     /// `rr:datatype`, e.g. `xsd:integer`). A missing/empty column ⇒ no triple.
-    /// CONCEPT:EG-305 — typed R2RML object maps.
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — typed R2RML object maps.
     TypedColumn(String, String),
     /// A LANGUAGE-TAGGED literal from a column value (`rr:column` + `rr:language`, e.g.
-    /// `en`). A missing/empty column ⇒ no triple. CONCEPT:EG-305.
+    /// `en`). A missing/empty column ⇒ no triple. CONCEPT:EG-KG.ontology.iri-template-object-map.
     LangColumn(String, String),
     /// An IRI built from a `{col}` template (`rr:template` — a reference / join to
     /// another entity's subject IRI).
@@ -276,7 +276,7 @@ pub enum ObjectMap {
     /// A constant literal object (`rr:constant`, a literal).
     ConstantLiteral(String),
     /// A constant TYPED literal object (`rr:constant` + `rr:datatype`).
-    /// CONCEPT:EG-305.
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map.
     TypedConstantLiteral(String, String),
 }
 
@@ -335,7 +335,7 @@ impl ObjectMap {
     }
 }
 
-/// CONCEPT:EG-101 — an R2RML `rr:TriplesMap`: one foreign source (`logical_source`), a
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — an R2RML `rr:TriplesMap`: one foreign source (`logical_source`), a
 /// subject-IRI template, an optional `rdf:type` class, and the predicate→object maps that
 /// turn each row into triples.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -376,7 +376,7 @@ impl TriplesMap {
     }
 
     /// Add a predicate→typed-literal-column map with an explicit datatype IRI (builder).
-    /// CONCEPT:EG-305.
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map.
     pub fn add_typed_column(
         mut self,
         predicate: impl Into<String>,
@@ -419,9 +419,9 @@ impl TriplesMap {
     }
 }
 
-// ── the virtual graph (CONCEPT:EG-101) ───────────────────────────────────────────
+// ── the virtual graph (CONCEPT:EG-KG.ontology.foreign-source-seam) ───────────────────────────────────────────
 
-/// CONCEPT:EG-101 — a VIRTUAL RDF graph: a set of [`TriplesMap`]s over one-or-more named
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — a VIRTUAL RDF graph: a set of [`TriplesMap`]s over one-or-more named
 /// foreign sources. A SPARQL query runs against it via [`run_virtual`] without any of the
 /// backing rows being persisted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -442,7 +442,7 @@ impl VirtualGraph {
         self
     }
 
-    /// CONCEPT:EG-101 — materialize the virtual graph's triples by scanning each backing
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — materialize the virtual graph's triples by scanning each backing
     /// source ON DEMAND. `wanted_predicates` restricts materialization to the given
     /// predicate IRIs (`None` ⇒ every predicate) — the BGP-driven pushdown: only those
     /// predicate-object maps run, and only their columns (plus the subject-template
@@ -511,7 +511,7 @@ impl VirtualGraph {
         Ok(out)
     }
 
-    /// CONCEPT:EG-101 — materialize the ENTIRE virtual graph (every predicate, every
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — materialize the ENTIRE virtual graph (every predicate, every
     /// column). Convenience for tests / debugging; the query path uses the pushdown
     /// [`materialize`](Self::materialize) so it never pulls the whole dataset.
     pub fn materialize_all(&self, reg: &ObdaSourceRegistry) -> Result<Vec<Triple>, String> {
@@ -519,9 +519,9 @@ impl VirtualGraph {
     }
 }
 
-// ── SPARQL over a virtual graph (CONCEPT:EG-101) ─────────────────────────────────
+// ── SPARQL over a virtual graph (CONCEPT:EG-KG.ontology.foreign-source-seam) ─────────────────────────────────
 
-/// CONCEPT:EG-101 — parse + evaluate a SPARQL SELECT (or any form, coerced to rows)
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — parse + evaluate a SPARQL SELECT (or any form, coerced to rows)
 /// against a VIRTUAL graph, using the IDENTITY projection. See
 /// [`run_outcome_virtual`] for the typed outcome and a custom projection.
 ///
@@ -546,7 +546,7 @@ pub fn run_virtual(
     }
 }
 
-/// CONCEPT:EG-101 — parse + evaluate a SPARQL query of ANY form against a VIRTUAL graph,
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — parse + evaluate a SPARQL query of ANY form against a VIRTUAL graph,
 /// returning the typed [`QueryOutcome`] and projecting materialized terms under `proj`.
 pub fn run_outcome_virtual(
     vg: &VirtualGraph,
@@ -595,7 +595,7 @@ fn bool_result(b: bool) -> SparqlResult {
     }
 }
 
-/// CONCEPT:EG-101 — the set of predicate IRIs a query's triple patterns reference, or
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — the set of predicate IRIs a query's triple patterns reference, or
 /// `None` when the pushdown cannot be narrowed (a variable predicate, a property path, or
 /// an unrecognized algebra node) — in which case EVERY predicate is materialized so the
 /// answer stays complete. This is the projection/predicate pushdown key.
@@ -670,7 +670,7 @@ fn collect_predicates(
     }
 }
 
-// ── template helpers (CONCEPT:EG-101) ────────────────────────────────────────────
+// ── template helpers (CONCEPT:EG-KG.ontology.foreign-source-seam) ────────────────────────────────────────────
 
 /// Expand a `{col}` template against a row: every `{col}` is replaced by `row[col]`.
 /// Returns `None` if any referenced column is missing OR empty (an incomplete key
@@ -743,9 +743,9 @@ fn template_columns_into(tpl: &str, out: &mut BTreeSet<String>) {
     }
 }
 
-// ── minimal textual mapping form (CONCEPT:EG-101) ────────────────────────────────
+// ── minimal textual mapping form (CONCEPT:EG-KG.ontology.foreign-source-seam) ────────────────────────────────
 
-/// CONCEPT:EG-101 — parse a COMPACT textual mapping into a [`VirtualGraph`]. This is the
+/// CONCEPT:EG-KG.ontology.foreign-source-seam — parse a COMPACT textual mapping into a [`VirtualGraph`]. This is the
 /// lightweight alternative to full R2RML Turtle (a documented follow-up). One
 /// `TriplesMap` per block; directives are one-per-line:
 ///
@@ -790,7 +790,7 @@ pub fn parse_mapping(text: &str) -> Result<VirtualGraph, String> {
                 let val = kv.next().unwrap_or("").trim().to_string();
                 if pred.is_empty() || val.is_empty() {
                     return Err(format!(
-                        "obda: line {}: `{directive}` needs `<predicate> <value>` (CONCEPT:EG-101)",
+                        "obda: line {}: `{directive}` needs `<predicate> <value>` (CONCEPT:EG-KG.ontology.foreign-source-seam)",
                         lineno + 1
                     ));
                 }
@@ -804,7 +804,7 @@ pub fn parse_mapping(text: &str) -> Result<VirtualGraph, String> {
             }
             other => {
                 return Err(format!(
-                    "obda: line {}: unknown directive `{other}` (CONCEPT:EG-101)",
+                    "obda: line {}: unknown directive `{other}` (CONCEPT:EG-KG.ontology.foreign-source-seam)",
                     lineno + 1
                 ));
             }
@@ -814,7 +814,7 @@ pub fn parse_mapping(text: &str) -> Result<VirtualGraph, String> {
         vg.triples_maps.push(pm.finish(text.lines().count())?);
     }
     if vg.triples_maps.is_empty() {
-        return Err("obda: mapping defined no TriplesMap (CONCEPT:EG-101)".into());
+        return Err("obda: mapping defined no TriplesMap (CONCEPT:EG-KG.ontology.foreign-source-seam)".into());
     }
     Ok(vg)
 }
@@ -844,7 +844,7 @@ impl PartialMap {
     }
 }
 
-// ── full R2RML Turtle parsing (CONCEPT:EG-305) ───────────────────────────────────
+// ── full R2RML Turtle parsing (CONCEPT:EG-KG.ontology.iri-template-object-map) ───────────────────────────────────
 
 // R2RML term IRIs, built from the `rr:` vocabulary namespace
 // (`http://www.w3.org/ns/r2rml#`) at compile time.
@@ -856,7 +856,7 @@ macro_rules! rr {
 
 /// A flat index of the parsed R2RML Turtle: subject-node-key → `(predicate IRI, object)`.
 /// The key is the canonical `<iri>` / `_:bnode` id ([`node_key`]) so a term map / logical
-/// table referenced by another node can be followed. CONCEPT:EG-305.
+/// table referenced by another node can be followed. CONCEPT:EG-KG.ontology.iri-template-object-map.
 struct R2rmlDoc {
     by_subject: HashMap<String, Vec<(String, Term)>>,
 }
@@ -942,7 +942,7 @@ fn unquote_identifier(s: &str) -> String {
     s.trim_matches('"').to_string()
 }
 
-/// CONCEPT:EG-305 — parse a STANDARD R2RML mapping document (in Turtle) into a
+/// CONCEPT:EG-KG.ontology.iri-template-object-map — parse a STANDARD R2RML mapping document (in Turtle) into a
 /// [`VirtualGraph`]. This reuses the existing Turtle parser ([`crate::mapping::parse_turtle`])
 /// to read the RDF, then interprets the `rr:` vocabulary over the parsed triples, mapping
 /// onto the EG-101 [`TriplesMap`]/[`ObjectMap`] model.
@@ -980,7 +980,7 @@ pub fn parse_r2rml_turtle(doc: &str) -> Result<VirtualGraph, String> {
         }
     }
     if tm_keys.is_empty() {
-        return Err("obda: R2RML document defines no rr:TriplesMap (CONCEPT:EG-305)".into());
+        return Err("obda: R2RML document defines no rr:TriplesMap (CONCEPT:EG-KG.ontology.iri-template-object-map)".into());
     }
 
     let mut vg = VirtualGraph::new();
@@ -990,7 +990,7 @@ pub fn parse_r2rml_turtle(doc: &str) -> Result<VirtualGraph, String> {
     Ok(vg)
 }
 
-/// Parse one R2RML triples map (anchored at `tm_key`) into a [`TriplesMap`]. CONCEPT:EG-305.
+/// Parse one R2RML triples map (anchored at `tm_key`) into a [`TriplesMap`]. CONCEPT:EG-KG.ontology.iri-template-object-map.
 fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, String> {
     // (1) logical source: rr:logicalTable → rr:tableName (or rr:sqlQuery best-effort).
     let logical_source = index
@@ -1010,7 +1010,7 @@ fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, Strin
         .ok_or_else(|| {
             format!(
                 "obda: R2RML triples map {tm_key} has no rr:logicalTable with \
-                 rr:tableName/rr:sqlQuery (CONCEPT:EG-305)"
+                 rr:tableName/rr:sqlQuery (CONCEPT:EG-KG.ontology.iri-template-object-map)"
             )
         })?;
 
@@ -1036,7 +1036,7 @@ fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, Strin
         subject_term_string(index, &sm).ok_or_else(|| {
             format!(
                 "obda: rr:subjectMap of {tm_key} has no rr:template/rr:column/rr:constant \
-                 (CONCEPT:EG-305)"
+                 (CONCEPT:EG-KG.ontology.iri-template-object-map)"
             )
         })?
     } else if let Some(subj) = index
@@ -1047,7 +1047,7 @@ fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, Strin
         subj
     } else {
         return Err(format!(
-            "obda: R2RML triples map {tm_key} has no rr:subjectMap/rr:subject (CONCEPT:EG-305)"
+            "obda: R2RML triples map {tm_key} has no rr:subjectMap/rr:subject (CONCEPT:EG-KG.ontology.iri-template-object-map)"
         ));
     };
 
@@ -1146,7 +1146,7 @@ fn constant_object_map(term: &Term) -> ObjectMap {
     }
 }
 
-/// Parse an `rr:objectMap` term map node into an [`ObjectMap`]. CONCEPT:EG-305:
+/// Parse an `rr:objectMap` term map node into an [`ObjectMap`]. CONCEPT:EG-KG.ontology.iri-template-object-map:
 /// `rr:column` (+ `rr:datatype`/`rr:language`/`rr:termType rr:IRI`), `rr:template`, or
 /// `rr:constant`.
 fn parse_object_map(index: &R2rmlDoc, om_key: &str) -> Option<ObjectMap> {
@@ -1224,7 +1224,7 @@ mod tests {
         )
     }
 
-    /// CONCEPT:EG-101 — a SPARQL SELECT over a virtual graph returns rows materialized via
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — a SPARQL SELECT over a virtual graph returns rows materialized via
     /// the TriplesMap; subject/predicate/object templates apply.
     #[test]
     fn eg101_virtual_graph_select_materializes_via_triples_map() {
@@ -1248,7 +1248,7 @@ mod tests {
         assert_eq!(names, vec!["Alice", "Bob", "Carol"]);
     }
 
-    /// CONCEPT:EG-101 — the SUBJECT template is applied: selecting `?p` yields the
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — the SUBJECT template is applied: selecting `?p` yields the
     /// templated subject IRIs, not the raw column values.
     #[test]
     fn eg101_subject_template_applies() {
@@ -1270,7 +1270,7 @@ mod tests {
         assert_eq!(subjects, vec!["<http://example.org/person/1>"]);
     }
 
-    /// CONCEPT:EG-101 — a 2-pattern BGP joins across the virtual graph: `?a knows ?b`
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — a 2-pattern BGP joins across the virtual graph: `?a knows ?b`
     /// then `?b name ?bname` binds via the object IRI template ↔ subject IRI template.
     #[test]
     fn eg101_bgp_two_patterns_join_over_virtual_graph() {
@@ -1309,7 +1309,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-101 — a FILTER over materialized virtual triples works (the existing
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — a FILTER over materialized virtual triples works (the existing
     /// evaluator runs unchanged over the transient view).
     #[test]
     fn eg101_filter_over_virtual_graph() {
@@ -1335,7 +1335,7 @@ mod tests {
         assert_eq!(names, vec!["Alice", "Carol"]);
     }
 
-    /// CONCEPT:EG-101 — predicate pushdown: a query mentioning only `ex:name` pulls only
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — predicate pushdown: a query mentioning only `ex:name` pulls only
     /// the `name` (and subject `id`) columns, and materializes only `name` triples.
     #[test]
     fn eg101_predicate_pushdown_narrows_columns_and_triples() {
@@ -1363,7 +1363,7 @@ mod tests {
             .all(|t| t.predicate.as_str() == "http://example.org/name"));
     }
 
-    /// CONCEPT:EG-101 — a variable predicate cannot be narrowed → full materialization
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — a variable predicate cannot be narrowed → full materialization
     /// (completeness preserved).
     #[test]
     fn eg101_variable_predicate_disables_pushdown() {
@@ -1371,17 +1371,17 @@ mod tests {
         assert_eq!(wanted_predicates(&query), None);
     }
 
-    /// CONCEPT:EG-101 — an unregistered source resolves to a clean, listing error.
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — an unregistered source resolves to a clean, listing error.
     #[test]
     fn eg101_unregistered_source_errors_cleanly() {
         let reg = ObdaSourceRegistry::new();
         let vg = people_vgraph();
         let err = run_virtual(&vg, &reg, "SELECT * WHERE { ?s ?p ?o }").unwrap_err();
         assert!(err.contains("no foreign source registered under name 'people'"));
-        assert!(err.contains("CONCEPT:EG-101"));
+        assert!(err.contains("CONCEPT:EG-KG.ontology.foreign-source-seam"));
     }
 
-    /// CONCEPT:EG-101 — the minimal textual mapping form parses to an equivalent graph.
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — the minimal textual mapping form parses to an equivalent graph.
     #[test]
     fn eg101_parse_textual_mapping_roundtrips_to_select() {
         let mapping = r#"
@@ -1406,7 +1406,7 @@ mod tests {
         assert_eq!(res.solutions.len(), 3);
     }
 
-    /// CONCEPT:EG-101 — `materialize_all` over the textual form yields every triple
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — `materialize_all` over the textual form yields every triple
     /// (3 rdf:type + 3 name + 3 age + 2 knows = 11; Bob has no friend_id).
     #[test]
     fn eg101_materialize_all_counts() {
@@ -1416,7 +1416,7 @@ mod tests {
         assert_eq!(triples.len(), 11);
     }
 
-    /// CONCEPT:EG-101 — the template expander handles `{col}`, empty-column skips, and
+    /// CONCEPT:EG-KG.ontology.foreign-source-seam — the template expander handles `{col}`, empty-column skips, and
     /// escaped braces.
     #[test]
     fn eg101_template_expansion() {
@@ -1432,7 +1432,7 @@ mod tests {
         assert_eq!(expand_template("a{{b}}c", &row), Some("a{b}c".to_string()));
     }
 
-    // ── CONCEPT:EG-305 — full R2RML Turtle parsing ───────────────────────────────
+    // ── CONCEPT:EG-KG.ontology.iri-template-object-map — full R2RML Turtle parsing ───────────────────────────────
 
     /// A standard R2RML mapping document (in Turtle) over the `people` table: a subject
     /// template + class, a plain-literal name, a typed (xsd:integer) age, and an IRI-
@@ -1462,7 +1462,7 @@ mod tests {
             ] .
     "#;
 
-    /// CONCEPT:EG-305 — a real R2RML Turtle doc parses to a VirtualGraph whose SPARQL
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — a real R2RML Turtle doc parses to a VirtualGraph whose SPARQL
     /// results match the EG-101 programmatic graph (subject template + class + name).
     #[test]
     fn eg305_r2rml_turtle_parses_and_selects() {
@@ -1491,7 +1491,7 @@ mod tests {
         assert_eq!(names, vec!["Alice", "Bob", "Carol"]);
     }
 
-    /// CONCEPT:EG-305 — the subject IRI template from `rr:subjectMap`/`rr:template` is
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — the subject IRI template from `rr:subjectMap`/`rr:template` is
     /// applied when selecting the subject variable.
     #[test]
     fn eg305_r2rml_subject_template_applies() {
@@ -1512,7 +1512,7 @@ mod tests {
         assert_eq!(subjects, vec!["<http://example.org/person/1>"]);
     }
 
-    /// CONCEPT:EG-305 — a typed object map (`rr:column` + `rr:datatype xsd:integer`)
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — a typed object map (`rr:column` + `rr:datatype xsd:integer`)
     /// materializes a TYPED literal, so a numeric SPARQL FILTER compares as an integer.
     #[test]
     fn eg305_r2rml_typed_object_map_numeric_filter() {
@@ -1552,7 +1552,7 @@ mod tests {
         assert_eq!(names, vec!["Alice", "Carol"]);
     }
 
-    /// CONCEPT:EG-305 — an IRI-template object map (`rr:objectMap`/`rr:template`) joins
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — an IRI-template object map (`rr:objectMap`/`rr:template`) joins
     /// across the virtual graph: `?a knows ?b`, `?b name ?bname`.
     #[test]
     fn eg305_r2rml_ref_template_joins() {
@@ -1589,7 +1589,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-305 — the R2RML shortcuts `rr:predicate`/`rr:object` (constant IRI) and
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — the R2RML shortcuts `rr:predicate`/`rr:object` (constant IRI) and
     /// a `rr:predicateMap`/`rr:constant` all resolve; multiple `rr:class` are preserved
     /// (first → subject_class, extras → rdf:type object maps).
     #[test]
@@ -1643,16 +1643,16 @@ mod tests {
         assert_eq!(res.solutions.len(), 3);
     }
 
-    /// CONCEPT:EG-305 — a document with no triples map is a clean, cited error.
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — a document with no triples map is a clean, cited error.
     #[test]
     fn eg305_r2rml_empty_document_errors() {
         let err =
             parse_r2rml_turtle("@prefix ex: <http://example.org/> . ex:a ex:b ex:c .").unwrap_err();
         assert!(err.contains("no rr:TriplesMap"));
-        assert!(err.contains("CONCEPT:EG-305"));
+        assert!(err.contains("CONCEPT:EG-KG.ontology.iri-template-object-map"));
     }
 
-    /// CONCEPT:EG-305 — a triples map missing its logical table is a cited error.
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — a triples map missing its logical table is a cited error.
     #[test]
     fn eg305_r2rml_missing_logical_table_errors() {
         let doc = r#"
@@ -1663,10 +1663,10 @@ mod tests {
         "#;
         let err = parse_r2rml_turtle(doc).unwrap_err();
         assert!(err.contains("rr:logicalTable"));
-        assert!(err.contains("CONCEPT:EG-305"));
+        assert!(err.contains("CONCEPT:EG-KG.ontology.iri-template-object-map"));
     }
 
-    /// CONCEPT:EG-305 — parsing does not disturb the EG-101 builders: the minimal textual
+    /// CONCEPT:EG-KG.ontology.iri-template-object-map — parsing does not disturb the EG-101 builders: the minimal textual
     /// form still round-trips to the programmatic graph.
     #[test]
     fn eg305_eg101_builders_still_work() {

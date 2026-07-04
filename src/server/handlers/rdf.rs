@@ -1,4 +1,4 @@
-//! Native RDF/SPARQL handler (CONCEPT:KG-2.217 / KG-2.218, features `rdf`/`sparql`).
+//! Native RDF/SPARQL handler (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / KG-2.218, features `rdf`/`sparql`).
 //!
 //! Owns the `// ── RDF/SPARQL ──` protocol section — `AddTriples` / `GetRdf`
 //! (feature `rdf`) and `Sparql` (feature `sparql`). These are GRAPH-SCOPED ops: the
@@ -67,13 +67,13 @@ pub(crate) async fn try_handle(
             base_iri,
             type_convention,
         } => {
-            // LPG→RDF projection vocabulary (CONCEPT:KG-2.240). An empty `base_iri` ⇒
+            // LPG→RDF projection vocabulary (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary). An empty `base_iri` ⇒
             // the identity projection (verbatim keys), so existing callers are
             // unchanged; a caller-supplied namespace + CamelCase convention projects
             // the live property graph into that vocabulary.
             let proj = eg_rdf::sparql::Projection::from_wire(&base_iri, &type_convention);
             // Off-lock snapshot + blocking-pool idiom, identical to SQL/Cypher.
-            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): a
+            // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): a
             // repeated SPARQL on an unchanged graph serves cached bytes; any write
             // bumps `version()` → miss. The cache KEY folds in the caller's RLS context
             // (the agent_id when RLS is active) so agent A's filtered SELECT result is
@@ -158,14 +158,14 @@ pub(crate) async fn try_handle(
             rls,
         )
         .await),
-        // SHACL Core validation (CONCEPT:EG-132). Read-only. Gated `shacl`; a build
+        // SHACL Core validation (CONCEPT:EG-KG.ontology.concept-6). Read-only. Gated `shacl`; a build
         // without it drops this arm → `other => Err(other)` → the dispatch not-available
         // catch-all (the variant is unconditional in the enum, like Backup/EG-090).
         #[cfg(feature = "shacl")]
         Method::ShaclValidate { shapes, data_graph } => {
             Ok(handle_shacl_validate(state, req_id, graph_name, &core, shapes, data_graph).await)
         }
-        // ShEx Core validation (CONCEPT:EG-133). Read-only. Gated `shex`; a build without
+        // ShEx Core validation (CONCEPT:EG-KG.compute.concept-2). Read-only. Gated `shex`; a build without
         // it drops this arm → `other => Err(other)` → the dispatch not-available catch-all
         // (the variant is unconditional in the enum, like ShaclValidate/EG-132).
         #[cfg(feature = "shex")]
@@ -182,7 +182,7 @@ pub(crate) async fn try_handle(
 }
 
 /// Validate the request graph (or an inline `data_graph` Turtle document) against a
-/// SHACL `shapes` Turtle document (CONCEPT:EG-132), returning a `Json`
+/// SHACL `shapes` Turtle document (CONCEPT:EG-KG.ontology.concept-6), returning a `Json`
 /// `sh:ValidationReport`. Read-only: an empty `data_graph` exports the LIVE graph's RDF
 /// (the same triples `GetRdf` serializes) and validates that.
 #[cfg(feature = "shacl")]
@@ -236,7 +236,7 @@ async fn handle_shacl_validate(
 }
 
 /// Validate the request graph (or an inline `data_graph` Turtle document) against a
-/// **ShExJ** `schema` for a `shape_map` (`[node_iri, shape_label]` pairs) (CONCEPT:EG-133),
+/// **ShExJ** `schema` for a `shape_map` (`[node_iri, shape_label]` pairs) (CONCEPT:EG-KG.compute.concept-2),
 /// returning a `Json` `ShexReport`. Read-only: an empty `data_graph` exports the LIVE
 /// graph's RDF (the same triples `GetRdf` serializes) and validates that.
 #[cfg(feature = "shex")]
@@ -296,7 +296,7 @@ async fn handle_shex_validate(
 }
 
 /// Run a parameterised custom-rule reasoning request over the request's graph view
-/// (CONCEPT:EG-021 / EG-023). Read-only: it reasons over an off-lock snapshot (its
+/// (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023). Read-only: it reasons over an off-lock snapshot (its
 /// folded TBox axioms + asserted facts) plus any inline `ontology_ttl` and the user
 /// `rules`, then returns the inferred facts as a `Raw` [`eg_rdf::rules::RuleReasonResponse`].
 /// The snapshot is RLS-filtered to the caller's visible rows BEFORE reasoning, so the
@@ -336,7 +336,7 @@ async fn handle_run_rules(
     }
 }
 
-/// Top-level routing for the cross-shard `OwlReasonDistributed` method (CONCEPT:KG-2.236).
+/// Top-level routing for the cross-shard `OwlReasonDistributed` method (CONCEPT:EG-KG.ontology.concept-13).
 /// It is NOT graph-scoped (it unions several graphs), so dispatch routes it here directly
 /// with `state` rather than through `dispatch_graph_op`. `Err(method)` ⇒ not mine.
 #[cfg(feature = "owl")]
@@ -385,7 +385,7 @@ fn now_secs() -> u64 {
 }
 
 /// Run the native OWL 2 reasoner over an off-lock snapshot and materialize entailments
-/// (CONCEPT:KG-2.219 / KG-2.236). Read-only — confidence-weighted classification /
+/// (CONCEPT:EG-KG.ontology.incremental-materialization / KG-2.236). Read-only — confidence-weighted classification /
 /// consistency over the graph's axioms (+ any extra `ontology` Turtle); returns the
 /// derived subsumptions + per-entailment confidence, the inferred instance memberships
 /// (optionally restricted to `target_class`, thresholded by `min_confidence`), and
@@ -413,7 +413,7 @@ async fn handle_owl_reason(
     resp
 }
 
-/// DISTRIBUTED reasoning over the UNION of `graphs` (CONCEPT:KG-2.236). Gathers each
+/// DISTRIBUTED reasoning over the UNION of `graphs` (CONCEPT:EG-KG.ontology.concept-13). Gathers each
 /// graph's off-lock snapshot (the cross-shard union-read seam), then runs the SAME
 /// weighted closure as the single-graph path over the unioned axioms + facts.
 #[cfg(feature = "owl")]
@@ -561,7 +561,7 @@ async fn handle_get_rdf(
     }
 }
 
-/// Physically RETRACT triples from the target graph (CONCEPT:EG-017) — the durable
+/// Physically RETRACT triples from the target graph (CONCEPT:EG-KG.query.named-graph-support) — the durable
 /// inverse of `AddTriples`. Routes through the reusable `eg_rdf::update::remove_triples`
 /// engine op (surgical: literal cells + the one matching typed edge). Returns the count.
 #[cfg(feature = "rdf")]
@@ -579,7 +579,7 @@ async fn handle_remove_triples(
     Response::ok(req_id, ResultPayload::Count(removed as u64))
 }
 
-/// DROP the target named graph's RDF content (CONCEPT:EG-017): clear the property-graph
+/// DROP the target named graph's RDF content (CONCEPT:EG-KG.query.named-graph-support): clear the property-graph
 /// nodes/edges AND the lossless multi-valued-literal quad-store rows for this graph. The
 /// graph stays addressable (distinct from `DeleteGraph` evicting the registry entry).
 #[cfg(feature = "rdf")]
@@ -615,7 +615,7 @@ fn parse_either(turtle: &str, ntriples: &str) -> Result<Vec<eg_rdf::oxrdf::Tripl
     }
 }
 
-// ── RunRules dispatch wiring (CONCEPT:EG-021 / EG-023) ────────────────────────────
+// ── RunRules dispatch wiring (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023) ────────────────────────────
 #[cfg(all(test, feature = "rdf"))]
 mod run_rules_dispatch_tests {
     use crate::channels::ChannelManager;
@@ -691,7 +691,7 @@ mod run_rules_dispatch_tests {
         }
     }
 
-    /// A `RunRules` dispatched over the wire returns the DERIVED facts (CONCEPT:EG-023):
+    /// A `RunRules` dispatched over the wire returns the DERIVED facts (CONCEPT:EG-KG.query.mirrors-pgwire):
     /// the `grandparent` entailment from the two `parent` ABox triples + the SWRL rule.
     #[tokio::test]
     async fn run_rules_returns_inferred_facts_via_dispatch() {

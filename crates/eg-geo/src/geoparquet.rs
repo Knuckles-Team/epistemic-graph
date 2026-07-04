@@ -1,4 +1,4 @@
-//! **GeoParquet** metadata + geometry-encoding layer (CONCEPT:EG-306).
+//! **GeoParquet** metadata + geometry-encoding layer (CONCEPT:EG-KG.domains.geo-formats).
 //!
 //! [GeoParquet](https://geoparquet.org) is the modern columnar interchange format for vector
 //! geospatial data: a plain Apache Parquet file whose geometry column holds **WKB** blobs, with
@@ -27,10 +27,10 @@ use serde_json::{json, Map, Value};
 use crate::geometry::{Bbox, Geometry};
 use crate::wkb::{from_wkb, to_wkb};
 
-/// Column geometry encoding — GeoParquet 1.0 primarily uses `"WKB"` (CONCEPT:EG-306).
+/// Column geometry encoding — GeoParquet 1.0 primarily uses `"WKB"` (CONCEPT:EG-KG.domains.geo-formats).
 pub const ENCODING_WKB: &str = "WKB";
 
-/// The GeoParquet per-geometry-column metadata (CONCEPT:EG-306).
+/// The GeoParquet per-geometry-column metadata (CONCEPT:EG-KG.domains.geo-formats).
 #[derive(Clone, Debug, PartialEq)]
 pub struct GeoColumnMetadata {
     /// Geometry encoding — `"WKB"` for GeoParquet 1.0.
@@ -57,7 +57,7 @@ impl GeoColumnMetadata {
     }
 }
 
-/// The GeoParquet file-level `"geo"` metadata object (CONCEPT:EG-306).
+/// The GeoParquet file-level `"geo"` metadata object (CONCEPT:EG-KG.domains.geo-formats).
 #[derive(Clone, Debug, PartialEq)]
 pub struct GeoParquetMetadata {
     /// The GeoParquet spec version this describes (e.g. `"1.0.0"`).
@@ -79,7 +79,7 @@ impl GeoParquetMetadata {
     }
 
     /// Serialise to the JSON value stored under the Parquet `"geo"` key/value metadata entry
-    /// (CONCEPT:EG-306).
+    /// (CONCEPT:EG-KG.domains.geo-formats).
     pub fn to_json(&self) -> Value {
         let mut cols = Map::new();
         for (name, c) in &self.columns {
@@ -109,12 +109,12 @@ impl GeoParquetMetadata {
         })
     }
 
-    /// Serialise to the JSON *string* stored in the Parquet footer (CONCEPT:EG-306).
+    /// Serialise to the JSON *string* stored in the Parquet footer (CONCEPT:EG-KG.domains.geo-formats).
     pub fn to_json_string(&self) -> String {
         self.to_json().to_string()
     }
 
-    /// Parse the GeoParquet `"geo"` metadata object (CONCEPT:EG-306).
+    /// Parse the GeoParquet `"geo"` metadata object (CONCEPT:EG-KG.domains.geo-formats).
     pub fn from_json(v: &Value) -> Result<Self, String> {
         let version = v
             .get("version")
@@ -176,7 +176,7 @@ impl GeoParquetMetadata {
         })
     }
 
-    /// Parse the GeoParquet `"geo"` metadata from its JSON *string* (CONCEPT:EG-306).
+    /// Parse the GeoParquet `"geo"` metadata from its JSON *string* (CONCEPT:EG-KG.domains.geo-formats).
     pub fn from_json_string(s: &str) -> Result<Self, String> {
         let v: Value = serde_json::from_str(s)
             .map_err(|e| format!("GeoParquet: invalid metadata JSON: {e}"))?;
@@ -186,13 +186,13 @@ impl GeoParquetMetadata {
 
 // ── geometry column encoding (eg-geo ⇄ WKB, the Parquet cell bytes) ──────────────────
 
-/// Encode a geometry column as per-row WKB blobs (CONCEPT:EG-306) — the exact bytes a
+/// Encode a geometry column as per-row WKB blobs (CONCEPT:EG-KG.domains.geo-formats) — the exact bytes a
 /// GeoParquet writer places in the geometry column. `None` rows become `None` (a null cell).
 pub fn encode_wkb_column(geoms: &[Option<Geometry>]) -> Vec<Option<Vec<u8>>> {
     geoms.iter().map(|g| g.as_ref().map(to_wkb)).collect()
 }
 
-/// Decode a WKB geometry column back into geometries (CONCEPT:EG-306). `None` cells (nulls)
+/// Decode a WKB geometry column back into geometries (CONCEPT:EG-KG.domains.geo-formats). `None` cells (nulls)
 /// decode to `None`.
 pub fn decode_wkb_column(cells: &[Option<Vec<u8>>]) -> Result<Vec<Option<Geometry>>, String> {
     cells
@@ -202,7 +202,7 @@ pub fn decode_wkb_column(cells: &[Option<Vec<u8>>]) -> Result<Vec<Option<Geometr
 }
 
 /// Derive the distinct GeoParquet `geometry_types` tag list (e.g. `"Point"`, `"MultiPolygon"`)
-/// from a set of geometries (CONCEPT:EG-306) — the value that goes into
+/// from a set of geometries (CONCEPT:EG-KG.domains.geo-formats) — the value that goes into
 /// [`GeoColumnMetadata::geometry_types`].
 pub fn geometry_types_of(geoms: &[Geometry]) -> Vec<String> {
     let mut seen = Vec::new();
@@ -230,7 +230,7 @@ fn geometry_type_tag(g: &Geometry) -> &'static str {
 // ── the documented B4 seam ──────────────────────────────────────────────────────────
 
 /// The **seam** an actual Parquet byte-container backend implements to complete GeoParquet
-/// (CONCEPT:EG-306) — a **B4 follow-up**. eg-geo owns the two halves above (the `"geo"` metadata
+/// (CONCEPT:EG-KG.domains.geo-formats) — a **B4 follow-up**. eg-geo owns the two halves above (the `"geo"` metadata
 /// model and the WKB geometry-column encoding); a backend outside this crate (e.g. built on
 /// `arrow`/`parquet`, kept out of eg-geo's dep tree) implements this trait to read/write the
 /// Parquet file itself:

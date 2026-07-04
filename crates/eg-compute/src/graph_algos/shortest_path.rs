@@ -1,4 +1,4 @@
-// CONCEPT:EG-144 — Single-source weighted shortest path (Dijkstra) + all-pairs
+// CONCEPT:EG-KG.compute.graph-data-science-algorithms — Single-source weighted shortest path (Dijkstra) + all-pairs
 // via repeated Dijkstra. Neo4j GDS `gds.shortestPath.dijkstra` parity.
 
 use super::graph::AdjacencyGraph;
@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::hash::Hash;
 
-/// Single-source shortest-path result over compact indices. CONCEPT:EG-144
+/// Single-source shortest-path result over compact indices. CONCEPT:EG-KG.compute.graph-data-science-algorithms
 #[derive(Debug, Clone)]
 pub struct DijkstraResult<N> {
     source: usize,
@@ -87,7 +87,7 @@ impl PartialOrd for HeapItem {
 /// Deterministic: equal-distance frontier nodes are settled in ascending index
 /// order.
 ///
-/// Complexity: `O((V + E) log V)`. CONCEPT:EG-144
+/// Complexity: `O((V + E) log V)`. CONCEPT:EG-KG.compute.graph-data-science-algorithms
 pub fn dijkstra<N>(graph: &AdjacencyGraph<N>, source: usize) -> DijkstraResult<N>
 where
     N: Clone + Eq + Hash + Ord,
@@ -135,7 +135,7 @@ where
 
 /// Convenience: shortest path between two node *labels*, returned as labels.
 /// `None` if either endpoint is absent or the target is unreachable.
-/// CONCEPT:EG-144
+/// CONCEPT:EG-KG.compute.graph-data-science-algorithms
 pub fn shortest_path<N>(graph: &AdjacencyGraph<N>, source: &N, target: &N) -> Option<Vec<N>>
 where
     N: Clone + Eq + Hash + Ord,
@@ -150,7 +150,7 @@ where
 /// `matrix[i][j]` = cost source-i → node-j (`None` if unreachable). Row/column
 /// order is the graph's node (sorted-id) order.
 ///
-/// Complexity: `O(V · (V + E) log V)`. CONCEPT:EG-144
+/// Complexity: `O(V · (V + E) log V)`. CONCEPT:EG-KG.compute.graph-data-science-algorithms
 pub fn all_pairs_shortest_paths<N>(graph: &AdjacencyGraph<N>) -> Vec<Vec<Option<f64>>>
 where
     N: Clone + Eq + Hash + Ord,

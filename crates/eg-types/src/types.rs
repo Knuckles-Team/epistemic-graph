@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.16 - Typed Graph Data Model
+// CONCEPT:EG-KG.compute.typed-graph-model - Typed Graph Data Model
 //
 // Typed node/edge structs with lifecycle state, embeddings,
 // and metadata. Replaces raw String JSON blobs with structured
@@ -345,7 +345,7 @@ pub struct PruneStats {
 
 // ── Decay Stats ──────────────────────────────────────────────────────────
 
-/// Result of an Ebbinghaus forgetting-curve decay sweep (CONCEPT:KG-2.16).
+/// Result of an Ebbinghaus forgetting-curve decay sweep (CONCEPT:EG-KG.compute.typed-graph-model).
 ///
 /// `*_decayed` count items whose belief `confidence` was reduced this sweep;
 /// `*_pruned` count items removed because their decayed confidence fell below

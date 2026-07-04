@@ -1,5 +1,5 @@
 //! Synthetic read-only Postgres system catalogs — `pg_catalog` + `information_schema`
-//! (CONCEPT:EG-103, extending the original `pg_catalog` supplement CONCEPT:KG-2.201).
+//! (CONCEPT:EG-KG.query.route-create-view-create, extending the original `pg_catalog` supplement CONCEPT:EG-KG.query.datafusion).
 //!
 //! Real Postgres clients introspect the system catalogs on connect and while
 //! reflecting: `psql`'s `\d`/`\dt`, psycopg/SQLAlchemy/JDBC/sqlx `SELECT ... FROM
@@ -14,7 +14,7 @@
 //! SYNTHETIC catalogs derived FROM those live catalogs — a real client can connect,
 //! reflect/inspect, then SELECT (a genuine drop-in).
 //!
-//! ## Approach (CONCEPT:EG-103)
+//! ## Approach (CONCEPT:EG-KG.query.route-create-view-create)
 //! Everything is synthesized as read-only `MemTable`s registered into the SAME
 //! `SessionContext` the `nodes`/`edges` query path builds, so a catalog query takes
 //! the identical DataFusion execution path as any other read — there is no second SQL
@@ -77,7 +77,7 @@ const OID_INT8: i32 = 20;
 const OID_FLOAT8: i32 = 701;
 const OID_TEXT: i32 = 25;
 
-/// Postgres `relkind` of a synthesized relation (CONCEPT:EG-103).
+/// Postgres `relkind` of a synthesized relation (CONCEPT:EG-KG.query.route-create-view-create).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RelKind {
     /// Ordinary table (`nodes`, `edges`, a user `CREATE TABLE`) — `relkind='r'`.
@@ -111,7 +111,7 @@ struct CatalogColumn {
     ordinal: i32,
 }
 
-/// One queryable relation the catalog describes (CONCEPT:EG-103): its name, assigned
+/// One queryable relation the catalog describes (CONCEPT:EG-KG.query.route-create-view-create): its name, assigned
 /// OID, kind (table/view), and columns. Built from the live `nodes`/`edges`/user-table
 /// Arrow schemas + the registered view providers, so the catalog always matches what a
 /// SELECT actually returns.
@@ -183,7 +183,7 @@ fn sql_type_name_to_oid(name: &str) -> i32 {
     }
 }
 
-/// Collect the live relations (CONCEPT:EG-103): `nodes`/`edges` + user tables as
+/// Collect the live relations (CONCEPT:EG-KG.query.route-create-view-create): `nodes`/`edges` + user tables as
 /// `relkind='r'` tables, then each durable view as `relkind='v'`. A view's columns are
 /// read back from its now-registered DataFusion provider (best-effort: a view that
 /// failed to register is still listed, with no columns). OIDs are assigned densely from
@@ -257,7 +257,7 @@ async fn collect_relations(
 }
 
 /// Rewrite schema-qualified catalog FUNCTION calls `pg_catalog.<fn>(...)` to bare
-/// `<fn>(...)` (CONCEPT:EG-103). DataFusion resolves scalar UDFs by bare name only, but
+/// `<fn>(...)` (CONCEPT:EG-KG.query.route-create-view-create). DataFusion resolves scalar UDFs by bare name only, but
 /// psql's `\d`/`\dt` and many ORMs qualify catalog functions with `pg_catalog.`
 /// (`pg_catalog.format_type(...)`, `pg_catalog.pg_table_is_visible(...)`). The qualifier
 /// is stripped ONLY when the identifier is immediately followed by `(` (a call), so
@@ -450,7 +450,7 @@ fn pg_type_batch() -> Result<(SchemaRef, RecordBatch), String> {
     .map_err(|e| format!("pg_type batch: {e}"))
 }
 
-/// `pg_index`: shaped but empty (CONCEPT:EG-103). The engine's secondary indexes are
+/// `pg_index`: shaped but empty (CONCEPT:EG-KG.query.route-create-view-create). The engine's secondary indexes are
 /// implicit (index-pushdown providers), not first-class `pg_index` rows; an empty table
 /// is the faithful "no user-visible indexes" answer and keeps a `\d`-style join running.
 fn pg_index_batch() -> Result<(SchemaRef, RecordBatch), String> {
@@ -479,7 +479,7 @@ fn pg_index_batch() -> Result<(SchemaRef, RecordBatch), String> {
     .map_err(|e| format!("pg_index batch: {e}"))
 }
 
-/// `pg_proc`: one row per durable SQL stored function (CONCEPT:EG-118). `prokind='f'`;
+/// `pg_proc`: one row per durable SQL stored function (CONCEPT:EG-KG.query.create-drop-function). `prokind='f'`;
 /// `prorettype` maps the declared scalar return type (a table/setof function reports
 /// `record`-ish `text`); `prosrc` is the stored body.
 fn pg_proc_batch(functions: &[StoredFunction]) -> Result<(SchemaRef, RecordBatch), String> {
@@ -690,7 +690,7 @@ fn info_columns_batch(rels: &[CatalogRelation]) -> Result<(SchemaRef, RecordBatc
             Arc::new(StringArray::from(cnames)),
             Arc::new(Int32Array::from(ords)),
             // Nullability isn't tracked structurally in the schema-on-read projection;
-            // report `YES` (a plausible, non-failing default). CONCEPT:EG-103.
+            // report `YES` (a plausible, non-failing default). CONCEPT:EG-KG.query.route-create-view-create.
             Arc::new(StringArray::from(vec!["YES"; n])),
             Arc::new(StringArray::from(dtypes)),
             Arc::new(StringArray::from(udts)),
@@ -728,7 +728,7 @@ fn info_views_batch(views: &[(String, String)]) -> Result<(SchemaRef, RecordBatc
     .map_err(|e| format!("information_schema.views batch: {e}"))
 }
 
-/// `information_schema.routines`: one row per durable SQL stored function (CONCEPT:EG-118).
+/// `information_schema.routines`: one row per durable SQL stored function (CONCEPT:EG-KG.query.create-drop-function).
 fn info_routines_batch(functions: &[StoredFunction]) -> Result<(SchemaRef, RecordBatch), String> {
     use crate::tables::FunctionReturns;
     let schema = Arc::new(Schema::new(vec![
@@ -766,7 +766,7 @@ fn info_routines_batch(functions: &[StoredFunction]) -> Result<(SchemaRef, Recor
     .map_err(|e| format!("information_schema.routines batch: {e}"))
 }
 
-/// `information_schema.key_column_usage`: shaped but empty (minimal, CONCEPT:EG-103).
+/// `information_schema.key_column_usage`: shaped but empty (minimal, CONCEPT:EG-KG.query.route-create-view-create).
 /// PK/UNIQUE constraint metadata lives in the redb table store (not threaded into the
 /// per-query catalog build); an empty-but-shaped table keeps a reflect query running.
 fn info_key_column_usage_batch() -> Result<(SchemaRef, RecordBatch), String> {
@@ -797,7 +797,7 @@ fn info_key_column_usage_batch() -> Result<(SchemaRef, RecordBatch), String> {
     .map_err(|e| format!("information_schema.key_column_usage batch: {e}"))
 }
 
-/// `information_schema.table_constraints`: shaped but empty (minimal, CONCEPT:EG-103).
+/// `information_schema.table_constraints`: shaped but empty (minimal, CONCEPT:EG-KG.query.route-create-view-create).
 fn info_table_constraints_batch() -> Result<(SchemaRef, RecordBatch), String> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("constraint_catalog", DataType::Utf8, false),
@@ -875,7 +875,7 @@ fn const_string_udf(name: &str, value: &str) -> ScalarUDF {
 /// regardless of its arguments — for `pg_get_expr`/`pg_get_userbyid`/
 /// `pg_get_constraintdef`/`obj_description` and friends, whose full fidelity (real
 /// defaults/ACLs/comments) the engine does not model. Accepts any arg count/types so a
-/// 1- or 2-arg reflect call resolves (CONCEPT:EG-103).
+/// 1- or 2-arg reflect call resolves (CONCEPT:EG-KG.query.route-create-view-create).
 #[derive(Debug)]
 struct ConstTextUdf {
     name: String,
@@ -926,7 +926,7 @@ impl ScalarUDFImpl for ConstTextUdf {
     }
 }
 
-/// `pg_catalog.pg_table_is_visible(oid) -> bool` (CONCEPT:EG-103). psql's `\d` filters
+/// `pg_catalog.pg_table_is_visible(oid) -> bool` (CONCEPT:EG-KG.query.route-create-view-create). psql's `\d` filters
 /// relations by search-path visibility; the engine has a single visible `public` schema,
 /// so every relation is visible → always `true`. Variadic-any so any oid arg type binds.
 #[derive(Debug)]
@@ -973,7 +973,7 @@ impl ScalarUDFImpl for PgTableIsVisibleUdf {
     }
 }
 
-/// `format_type(oid, typmod) -> text` (CONCEPT:EG-103). Maps the type OID in the FIRST
+/// `format_type(oid, typmod) -> text` (CONCEPT:EG-KG.query.route-create-view-create). Maps the type OID in the FIRST
 /// argument to its pg type name (ignoring `typmod`, whose length/precision detail the
 /// engine's coarse types don't carry). Variadic so a 1- or 2-arg call resolves.
 #[derive(Debug)]
@@ -1047,7 +1047,7 @@ fn register_syscat_table(
 }
 
 /// Register the synthetic `pg_catalog` + `information_schema` system views and the
-/// catalog scalar functions into `ctx` (CONCEPT:EG-103, extending CONCEPT:KG-2.201),
+/// catalog scalar functions into `ctx` (CONCEPT:EG-KG.query.route-create-view-create, extending CONCEPT:EG-KG.query.datafusion),
 /// synthesized from the live relations (`nodes`/`edges`/user tables), the durable views,
 /// and the EG-118 SQL functions. Called ONCE per built context, AFTER the durable views
 /// are registered (so views appear with their real columns). DataFusion's native

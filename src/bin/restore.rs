@@ -1,10 +1,10 @@
-//! `restore` — rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-090).
+//! `restore` — rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore).
 //!
 //! Reads a backup bundle produced by the online backup path (`Method::Backup` /
 //! `RedbBackend::backup`) — a directory of verbatim `graph.redb`/`graph-<n>.redb` shard
 //! files + a `MANIFEST.json` — and rebuilds a fresh persist-dir from it, verbatim (value
 //! blobs, encryption-at-rest ciphertext, and the KG-2.231 audit chain are copied
-//! byte-for-byte). Mirrors the offline `migrate-shards` CLI (CONCEPT:EG-030) — restore
+//! byte-for-byte). Mirrors the offline `migrate-shards` CLI (CONCEPT:EG-KG.sharding.atomic-shard-swap) — restore
 //! delegates to that same verbatim-import engine.
 //!
 //! Run with NOTHING serving out of `--persist-dir` (redb holds an exclusive per-file
@@ -26,7 +26,7 @@ use epistemic_graph::server::persistence::backup;
 
 #[derive(Parser, Debug)]
 #[command(name = "restore")]
-#[command(about = "Rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-090)")]
+#[command(about = "Rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore)")]
 struct Args {
     /// Backup bundle directory (holds graph*.redb + MANIFEST.json).
     #[arg(long)]

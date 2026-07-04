@@ -1,10 +1,10 @@
 """Configuration for the epistemic-graph remote KV-cache driver.
 
-CONCEPT:EG-337 — the shipped, pip-installable Python LMCache/vLLM remote-backend
+CONCEPT:EG-KG.backend.shipped-pip-installable-python — the shipped, pip-installable Python LMCache/vLLM remote-backend
 driver for the engine's EG-187 KV-cache endpoint.
 
 The driver reads its endpoint and bearer token from the SAME environment the
-engine's HTTP KV-cache listener (CONCEPT:EG-187) is configured with, so a
+engine's HTTP KV-cache listener (CONCEPT:EG-KG.backend.is-configured-so-co) is configured with, so a
 co-located deploy shares one source of truth. This module has NO third-party
 dependency (stdlib only) so ``import epistemic_graph.kvcache`` works without the
 optional ``lmcache`` extra installed.
@@ -59,7 +59,7 @@ def _bool_env(value: str | None, default: bool) -> bool:
 class KvCacheConfig:
     """Endpoint + auth + timeout settings for :class:`RemoteKVConnector`.
 
-    CONCEPT:EG-337. Prefer :meth:`from_env`, which mirrors the engine's EG-187
+    CONCEPT:EG-KG.backend.shipped-pip-installable-python. Prefer :meth:`from_env`, which mirrors the engine's EG-187
     environment variables so client and server stay in lockstep.
 
     Attributes:
@@ -93,7 +93,7 @@ class KvCacheConfig:
     def from_env(cls) -> KvCacheConfig:
         """Build config from the engine's EG-187 environment variables.
 
-        CONCEPT:EG-337. Recognized variables:
+        CONCEPT:EG-KG.backend.shipped-pip-installable-python. Recognized variables:
 
         * ``EPISTEMIC_GRAPH_KVCACHE_URL`` — explicit client base URL (wins).
         * ``EPISTEMIC_GRAPH_KVCACHE_ADDR`` — the engine bind value, coerced to a

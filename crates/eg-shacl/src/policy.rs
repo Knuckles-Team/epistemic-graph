@@ -1,5 +1,5 @@
 //! ICV write-path enforcement — the per-graph policy that turns [`crate::check_write`]
-//! into a **constraint-enforced transaction** guard (CONCEPT:EG-300).
+//! into a **constraint-enforced transaction** guard (CONCEPT:EG-KG.ontology.rdf-update-guard).
 //!
 //! [`crate::icv::check_write`] is the pure decision function: given a base graph and a
 //! proposed set of additions/removals, does the change INTRODUCE an integrity violation?
@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::icv::{check_write, WriteCheck};
 use crate::validate::graph_from_turtle;
 
-/// How strictly a graph's ICV shapes are enforced on write (CONCEPT:EG-300).
+/// How strictly a graph's ICV shapes are enforced on write (CONCEPT:EG-KG.ontology.rdf-update-guard).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum IcvMode {
     /// The guard is inert — the write path is unchanged (the default, backward-compatible).
@@ -41,7 +41,7 @@ pub enum IcvMode {
     Enforce,
 }
 
-/// A per-graph ICV policy (CONCEPT:EG-300): the registered shapes + the enforcement mode.
+/// A per-graph ICV policy (CONCEPT:EG-KG.ontology.rdf-update-guard): the registered shapes + the enforcement mode.
 #[derive(Debug, Clone)]
 pub struct IcvPolicy {
     /// The enforcement mode.
@@ -71,7 +71,7 @@ impl IcvPolicy {
     }
 }
 
-/// A registry of per-graph ICV policies (CONCEPT:EG-300) that implements the eg-rdf
+/// A registry of per-graph ICV policies (CONCEPT:EG-KG.ontology.rdf-update-guard) that implements the eg-rdf
 /// [`WriteGuard`] hook. Register a policy for the default graph and/or named graphs, then
 /// pass it to `eg_rdf::update::execute_guarded` to enforce ICV on commit.
 #[derive(Debug, Clone, Default)]
@@ -220,7 +220,7 @@ ex:PersonShape a sh:NodeShape ;
             .check_graph(None, &base, &add, &[])
             .expect_err("enforce must reject a maxCount-breaking add");
         assert_eq!(err.graph, None);
-        assert!(err.message.contains("EG-300"));
+        assert!(err.message.contains("EG-KG.ontology.rdf-update-guard"));
         // The structured detail carries the introduced violation(s) with their witness.
         let details = err.details.as_array().expect("details is an array");
         assert!(!details.is_empty());

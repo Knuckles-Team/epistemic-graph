@@ -1,6 +1,6 @@
 //! EG-136 — hand-rolled JSON-LD 1.1 serialization + parse over the eg-rdf term model.
 //!
-//! CONCEPT:EG-136. A dependency-light JSON-LD path built directly on `serde_json`
+//! CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix. A dependency-light JSON-LD path built directly on `serde_json`
 //! (already a base dep of this crate) + the `oxrdf` term model — it pulls NO heavy
 //! JSON-LD crate, so it links under the plain `rdf`/`sparql` features (and is safe in
 //! `pi`, unlike the `oxjsonld`-backed [`crate::mapping::to_jsonld`] which rides the
@@ -21,7 +21,7 @@ use serde_json::{Map, Value};
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
 
-// ── term-string helpers (CONCEPT:EG-136) ─────────────────────────────────────────
+// ── term-string helpers (CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix) ─────────────────────────────────────────
 
 /// The JSON-LD `@id` string for a subject term (IRI verbatim; blank node as `_:b`).
 fn subject_id(s: &Subject) -> String {
@@ -66,7 +66,7 @@ fn object_value(o: &Term) -> Value {
 /// Build the expanded JSON-LD node-object array for `triples`. `rdf:type` object
 /// triples are folded into an `@type` array; every other resource/literal object
 /// becomes a value object under its predicate IRI (an array — JSON-LD's expanded form
-/// always uses arrays for property values). CONCEPT:EG-136.
+/// always uses arrays for property values). CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix.
 fn expand_nodes(triples: &[Triple]) -> Vec<Value> {
     // Preserve first-seen subject order for deterministic output.
     let mut order: Vec<String> = Vec::new();
@@ -112,7 +112,7 @@ fn expand_nodes(triples: &[Triple]) -> Vec<Value> {
 /// Serialize `triples` to an **expanded** JSON-LD document string. When `graph` is
 /// `Some`, the node array is wrapped in a single named-graph object
 /// (`[{"@id": <graph>, "@graph": [...]}]`); otherwise it is the bare node array.
-/// CONCEPT:EG-136.
+/// CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix.
 pub fn to_expanded(triples: &[Triple], graph: Option<&str>) -> Result<String, String> {
     let nodes = expand_nodes(triples);
     let doc = match graph {
@@ -227,7 +227,7 @@ impl Context {
 /// `@context` (term aliases, prefixes, `@vocab`, `@type:@id` coercion). The emitted
 /// document embeds the context so it is self-describing and round-trips through
 /// [`from_jsonld`]. When `graph` is `Some`, the compacted nodes live under `@graph`
-/// alongside the graph's `@id`. CONCEPT:EG-136.
+/// alongside the graph's `@id`. CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix.
 pub fn to_compacted(
     triples: &[Triple],
     graph: Option<&str>,
@@ -350,7 +350,7 @@ fn compact_value(v: &Value, ctx: &Context, coerce_id: bool) -> Value {
 /// Serialize `triples` to JSON-LD: **compacted** against `context` when one is supplied,
 /// otherwise **expanded**. Named graphs via `@graph` when `graph` is `Some`. This is the
 /// EG-136 counterpart to the EG-050 `to_turtle`/`to_ntriples` writers and the negotiation
-/// form for the `application/ld+json` media type. CONCEPT:EG-136.
+/// form for the `application/ld+json` media type. CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix.
 pub fn to_jsonld(
     triples: &[Triple],
     graph: Option<&str>,
@@ -367,7 +367,7 @@ pub fn to_jsonld(
 /// Parse a JSON-LD document (expanded OR compacted-with-inline-`@context`) into quads.
 /// Handles the top-level array or object form, a document-level `@graph` (named when the
 /// wrapper carries an `@id`), `@type`, and `@value`/`@type`/`@language` literals.
-/// CONCEPT:EG-136.
+/// CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix.
 pub fn from_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
     let root: Value = serde_json::from_str(doc).map_err(|e| format!("jsonld parse: {e}"))?;
     let mut out = Vec::new();

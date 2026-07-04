@@ -1,4 +1,4 @@
-//! Schema-FROM-graph (CONCEPT:KG-2.235): derive a GraphQL schema by INTROSPECTING a
+//! Schema-FROM-graph (CONCEPT:EG-KG.query.sparql-completeness): derive a GraphQL schema by INTROSPECTING a
 //! live `GraphView`, so the GraphQL surface tracks the actual graph with no hand-
 //! maintained SDL. The mapping is the natural one a property-graph→GraphQL bridge uses:
 //!
@@ -85,7 +85,7 @@ impl Schema {
         self.types.contains_key(name)
     }
 
-    /// Render the GraphQL MUTATION SDL (CONCEPT:EG-019). The write surface is a small
+    /// Render the GraphQL MUTATION SDL (CONCEPT:EG-KG.query.mutation). The write surface is a small
     /// fixed CRUD vocabulary over the property graph, mirroring the query schema's view
     /// of it: `createNode` returns any of the graph's object types (`Node`), the edge
     /// ops return an `Edge` descriptor. Input objects (`props`) are the untyped

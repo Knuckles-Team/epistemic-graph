@@ -24,10 +24,10 @@ write-new, then drop the old reader). This skill is that boundary for the AI-nat
 Build + promote per `epistemic-graph-deploy`. New optional fields on persisted structs use
 `#[serde(default)]`, so an old snapshot/redb loads under a new binary **without** a rewrite
 (e.g. the bi-temporal `tx_from`/`tx_to` added to nodes/edges — old blobs decode as `None`,
-KG-2.249). Verify with `--verify` (live UQL smoke). Roll back by restoring the `.bak-<ts>`
+EG-KG.compute.preserved). Verify with `--verify` (live UQL smoke). Roll back by restoring the `.bak-<ts>`
 binary.
 
-## 2. First authoritative boot — `.mp` → redb migration (CONCEPT:OS-5.62)
+## 2. First authoritative boot — `.mp` → redb migration (CONCEPT:EG-OS.deployment.binary-promotion)
 Flipping to the redb-authoritative tier runs a **one-time** migration on first boot: it
 imports the legacy snapshot (`.mp`/WAL) into the durable redb store and **binds the socket
 only when done** — minutes on a large KG (thousands of graphs / hundreds of MB). The 20s

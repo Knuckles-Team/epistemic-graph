@@ -1,4 +1,4 @@
-//! Probabilistic modality executor proofs (CONCEPT:EG-086).
+//! Probabilistic modality executor proofs (CONCEPT:EG-KG.compute.uncertainty-values).
 //!
 //! A small `Belief` layer, each node carrying a `Distribution` in a `distribution`
 //! property (the tagged serde form of `eg_types::Distribution`), drives the

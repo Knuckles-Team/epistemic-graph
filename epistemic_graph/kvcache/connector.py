@@ -1,11 +1,11 @@
 """LMCache / vLLM remote-backend driver for the epistemic-graph KV-cache.
 
-CONCEPT:EG-337 — the shipped, pip-installable Python half of the EG-187 remote
+CONCEPT:EG-KG.backend.shipped-pip-installable-python — the shipped, pip-installable Python half of the EG-187 remote
 KV-cache contract.
 
 The engine exposes a shared, content-addressed KV-cache backend
-(``eg_kvcache::SharedKvIndex``, CONCEPT:EG-186) over a small HTTP surface
-(CONCEPT:EG-187). This module drives that surface from Python so that parallel
+(``eg_kvcache::SharedKvIndex``, CONCEPT:EG-KG.enrichment.content-address-separation) over a small HTTP surface
+(CONCEPT:EG-KG.backend.is-configured-so-co). This module drives that surface from Python so that parallel
 vLLM / LMCache workers pool their KV-cache blocks by token-hash: an identical KV
 page produced by two workers is stored **once** (dedup) and a cold worker can
 fetch a page a warm worker already computed.
@@ -71,7 +71,7 @@ if HTTPX_AVAILABLE:  # pragma: no cover - only where httpx installed
 
 @dataclass(slots=True)
 class KvCacheStats:
-    """Parsed ``GET /kv/stats`` response (CONCEPT:EG-337).
+    """Parsed ``GET /kv/stats`` response (CONCEPT:EG-KG.backend.shipped-pip-installable-python).
 
     Fields mirror the engine's occupancy + dedup counters. Unknown extra keys
     are ignored so a newer engine can add counters without breaking the driver.
@@ -205,7 +205,7 @@ class HttpxTransport:
 class RemoteKVConnector:
     """LMCache/vLLM remote backend over the engine's ``/kv`` HTTP surface.
 
-    CONCEPT:EG-337. Implements the LMCache remote-backend shape
+    CONCEPT:EG-KG.backend.shipped-pip-installable-python. Implements the LMCache remote-backend shape
     (``get`` / ``put`` / ``exists`` / ``contains`` / ``stats``) against EG-187
     with an optional bearer token, a short per-request timeout, and total
     graceful degradation — every error is a cache miss, never a raised exception
@@ -294,7 +294,7 @@ class RemoteKVConnector:
             )
             return None
 
-    # -- LMCache remote-backend contract (CONCEPT:EG-337) --------------------
+    # -- LMCache remote-backend contract (CONCEPT:EG-KG.backend.shipped-pip-installable-python) --------------------
     def get(self, key: str) -> bytes | None:
         """Fetch KV-block bytes for ``key`` (LMCache load).
 

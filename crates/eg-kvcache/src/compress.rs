@@ -1,9 +1,9 @@
-//! The WARM-tier compressor for the tiered cache (CONCEPT:EG-185, CONCEPT:EG-315).
+//! The WARM-tier compressor for the tiered cache (CONCEPT:EG-KG.memory.byte-bounded-tiers, CONCEPT:EG-KG.storage.rle-codec-default).
 //!
 //! The WARM tier keeps blocks in RAM but **compressed**, to fit more KV pages in the
 //! same byte budget before anything has to spill to the (slow) COLD tier.
 //!
-//! **Choice of compressor (CONCEPT:EG-315).** The WARM tier is codec-pluggable via
+//! **Choice of compressor (CONCEPT:EG-KG.storage.rle-codec-default).** The WARM tier is codec-pluggable via
 //! [`Codec`]:
 //!
 //! * [`Codec::Rle`] — a hand-written byte-run RLE ([`rle_encode`]). This is the
@@ -11,7 +11,7 @@
 //!   C or heavy-Rust dep). KV pages carry long zero / low-entropy runs after
 //!   quantization, so RLE gets a real win with zero dependencies.
 //! * [`Codec::Zstd`] — a **real** general-purpose codec (`zstd`), behind the optional
-//!   `compression` cargo feature (CONCEPT:EG-315). Far better ratios on realistic KV
+//!   `compression` cargo feature (CONCEPT:EG-KG.storage.rle-codec-default). Far better ratios on realistic KV
 //!   pages than RLE, at the cost of one dependency; selectable per-cache via
 //!   [`crate::TieredCache::with_warm_codec`].
 //! * [`Codec::Lz4`] — an OPTIONAL faster/lighter codec (`lz4_flex`, pure-Rust), behind
@@ -25,7 +25,7 @@
 //! which codec fills it; a demote encodes with the configured codec and a promote decodes
 //! by the tag recorded on the block.
 
-/// The compression codec a [`StoredBlock`] was produced with (CONCEPT:EG-315).
+/// The compression codec a [`StoredBlock`] was produced with (CONCEPT:EG-KG.storage.rle-codec-default).
 ///
 /// This is BOTH the per-block tag (so [`StoredBlock::decode`] knows how to reconstruct)
 /// AND the configuration knob a [`crate::TieredCache`] is built with
@@ -36,25 +36,25 @@
 pub enum Codec {
     /// Stored verbatim — the raw fallback (compression disabled, or it did not help).
     Raw,
-    /// Hand-rolled byte-run RLE — the dependency-free default (CONCEPT:EG-185).
+    /// Hand-rolled byte-run RLE — the dependency-free default (CONCEPT:EG-KG.memory.byte-bounded-tiers).
     #[default]
     Rle,
-    /// `zstd`, a real general-purpose codec (CONCEPT:EG-315, feature `compression`).
+    /// `zstd`, a real general-purpose codec (CONCEPT:EG-KG.storage.rle-codec-default, feature `compression`).
     #[cfg(feature = "compression")]
     Zstd,
-    /// `lz4_flex`, an optional faster/lighter pure-Rust codec (CONCEPT:EG-315, feature `lz4`).
+    /// `lz4_flex`, an optional faster/lighter pure-Rust codec (CONCEPT:EG-KG.storage.rle-codec-default, feature `lz4`).
     #[cfg(feature = "lz4")]
     Lz4,
 }
 
 /// A block resident in the WARM (or COLD) tier: possibly-compressed bytes plus the
-/// metadata needed to reconstruct the original block (CONCEPT:EG-185, CONCEPT:EG-315).
+/// metadata needed to reconstruct the original block (CONCEPT:EG-KG.memory.byte-bounded-tiers, CONCEPT:EG-KG.storage.rle-codec-default).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredBlock {
     /// The stored bytes: encoded with `codec` (or the raw block when `codec == Raw`).
     pub data: Vec<u8>,
     /// Which codec `data` was produced with — the tag [`StoredBlock::decode`] dispatches
-    /// on (CONCEPT:EG-315). [`Codec::Raw`] means `data` is the verbatim block.
+    /// on (CONCEPT:EG-KG.storage.rle-codec-default). [`Codec::Raw`] means `data` is the verbatim block.
     pub codec: Codec,
     /// The ORIGINAL (uncompressed) block length in bytes.
     pub orig_len: usize,
@@ -68,7 +68,7 @@ impl StoredBlock {
     }
 
     /// Compress `bytes` into a stored block with `codec`, falling back to RAW whenever
-    /// the codec does not actually shrink the block (CONCEPT:EG-315). The raw fallback
+    /// the codec does not actually shrink the block (CONCEPT:EG-KG.storage.rle-codec-default). The raw fallback
     /// guarantees the stored form NEVER expands incompressible input, for any codec.
     pub fn encode_with(codec: Codec, bytes: &[u8]) -> Self {
         let encoded: Option<Vec<u8>> = match codec {
@@ -151,7 +151,7 @@ fn rle_decode(data: &[u8], orig_len: usize) -> Vec<u8> {
     out
 }
 
-/// `zstd` encode at the library default level (CONCEPT:EG-315, feature `compression`).
+/// `zstd` encode at the library default level (CONCEPT:EG-KG.storage.rle-codec-default, feature `compression`).
 ///
 /// Infallible for an in-memory source buffer (the only failure modes are I/O on the
 /// reader/writer, which cannot happen for `&[u8]` / `Vec<u8>`), so we surface a panic
@@ -162,7 +162,7 @@ fn zstd_encode(input: &[u8]) -> Vec<u8> {
     zstd::stream::encode_all(input, 0).expect("zstd encode of an in-memory buffer cannot fail")
 }
 
-/// `zstd` decode of bytes this crate itself produced (CONCEPT:EG-315).
+/// `zstd` decode of bytes this crate itself produced (CONCEPT:EG-KG.storage.rle-codec-default).
 #[cfg(feature = "compression")]
 fn zstd_decode(data: &[u8], orig_len: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(orig_len);
@@ -171,13 +171,13 @@ fn zstd_decode(data: &[u8], orig_len: usize) -> Vec<u8> {
     out
 }
 
-/// `lz4_flex` encode with a length prefix (CONCEPT:EG-315, feature `lz4`).
+/// `lz4_flex` encode with a length prefix (CONCEPT:EG-KG.storage.rle-codec-default, feature `lz4`).
 #[cfg(feature = "lz4")]
 fn lz4_encode(input: &[u8]) -> Vec<u8> {
     lz4_flex::compress_prepend_size(input)
 }
 
-/// `lz4_flex` decode of bytes this crate itself produced (CONCEPT:EG-315).
+/// `lz4_flex` decode of bytes this crate itself produced (CONCEPT:EG-KG.storage.rle-codec-default).
 #[cfg(feature = "lz4")]
 fn lz4_decode(data: &[u8], _orig_len: usize) -> Vec<u8> {
     lz4_flex::decompress_size_prepended(data)
@@ -213,7 +213,7 @@ mod tests {
         block
     }
 
-    /// CONCEPT:EG-185 — a compressible (run-heavy) block round-trips AND shrinks in WARM.
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — a compressible (run-heavy) block round-trips AND shrinks in WARM.
     #[test]
     fn eg185_warm_compress_roundtrip_shrinks_run_heavy_block() {
         let mut block = vec![0u8; 4096];
@@ -232,7 +232,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-185 — incompressible data is stored RAW (never expanded) and still
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — incompressible data is stored RAW (never expanded) and still
     /// round-trips (the raw-fallback correctness guarantee).
     #[test]
     fn eg185_warm_incompressible_falls_back_to_raw() {
@@ -248,14 +248,14 @@ mod tests {
         assert_eq!(sb.decode(), block);
     }
 
-    /// CONCEPT:EG-185 — the empty block is handled.
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — the empty block is handled.
     #[test]
     fn eg185_warm_empty_block_roundtrips() {
         let sb = StoredBlock::encode(&[]);
         assert_eq!(sb.decode(), Vec::<u8>::new());
     }
 
-    /// CONCEPT:EG-315 — the default codec is still RLE (the dependency-free base build is
+    /// CONCEPT:EG-KG.storage.rle-codec-default — the default codec is still RLE (the dependency-free base build is
     /// unchanged); `encode` and `encode_with(Codec::Rle, ..)` agree.
     #[test]
     fn eg315_default_codec_is_rle_and_unchanged() {
@@ -267,7 +267,7 @@ mod tests {
         assert_eq!(a.decode(), block);
     }
 
-    /// CONCEPT:EG-315 — configuring `Codec::Raw` disables compression: the block is stored
+    /// CONCEPT:EG-KG.storage.rle-codec-default — configuring `Codec::Raw` disables compression: the block is stored
     /// verbatim and still round-trips.
     #[test]
     fn eg315_raw_codec_stores_verbatim() {
@@ -278,7 +278,7 @@ mod tests {
         assert_eq!(sb.decode(), block);
     }
 
-    /// CONCEPT:EG-315 — the real `zstd` codec round-trips a WARM block and achieves a
+    /// CONCEPT:EG-KG.storage.rle-codec-default — the real `zstd` codec round-trips a WARM block and achieves a
     /// ratio < 1 (strictly smaller) on compressible KV-page-like data.
     #[cfg(feature = "compression")]
     #[test]
@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(sb.decode(), block, "zstd must reconstruct the exact block");
     }
 
-    /// CONCEPT:EG-315 — `zstd` on incompressible (high-entropy) data NEVER expands it:
+    /// CONCEPT:EG-KG.storage.rle-codec-default — `zstd` on incompressible (high-entropy) data NEVER expands it:
     /// the universal raw fallback kicks in.
     #[cfg(feature = "compression")]
     #[test]
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(sb.decode(), block);
     }
 
-    /// CONCEPT:EG-315 — the optional `lz4` codec round-trips and shrinks compressible data.
+    /// CONCEPT:EG-KG.storage.rle-codec-default — the optional `lz4` codec round-trips and shrinks compressible data.
     #[cfg(feature = "lz4")]
     #[test]
     fn eg315_warm_lz4_roundtrip_ratio_below_one() {
@@ -329,7 +329,7 @@ mod tests {
         assert_eq!(sb.decode(), block);
     }
 
-    /// CONCEPT:EG-315 — `lz4` on incompressible data falls back to raw (never expands).
+    /// CONCEPT:EG-KG.storage.rle-codec-default — `lz4` on incompressible data falls back to raw (never expands).
     #[cfg(feature = "lz4")]
     #[test]
     fn eg315_warm_lz4_incompressible_falls_back_to_raw() {

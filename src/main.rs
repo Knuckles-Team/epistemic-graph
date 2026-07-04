@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 #![deny(unsafe_code)]
-// CONCEPT:KG-2.19 — Epistemic Graph Service Binary
+// CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Service Binary
 //
 // Entry point for the long-running Tokio service process.
 // Parses CLI args, initializes the GraphRegistry, and starts
@@ -76,14 +76,14 @@ struct Args {
     sparql_addr: Option<String>,
 
     /// GraphQL subscription SSE carrier listener address (e.g. 127.0.0.1:7879), feature
-    /// `graphql` (CONCEPT:EG-064). Disabled when unset. Streams a `subscription { … }`
+    /// `graphql` (CONCEPT:EG-KG.compute.cdc-event-emit). Disabled when unset. Streams a `subscription { … }`
     /// as a live query — a `text/event-stream` frame per graph change. Separate from the
     /// RPC transports and the read/write GraphQL RPC surface (`Method::GraphQl`).
     #[arg(long, env = "EPISTEMIC_GRAPH_GRAPHQL_ADDR")]
     graphql_addr: Option<String>,
 
     /// Observability log-ingestion HTTP listener address (e.g. 127.0.0.1:5080),
-    /// feature `obs` (CONCEPT:EG-160/161). Disabled when unset. Accepts OTLP/HTTP
+    /// feature `obs` (CONCEPT:AU-KG.ingest.self-ingest/161). Disabled when unset. Accepts OTLP/HTTP
     /// (`/v1/logs`), Elasticsearch `_bulk`/`_doc`, and JSON-lines log records, landing
     /// them in eg-tsdb series + eg-text full-text indices and rolling Parquet segments
     /// into the blob CAS. Separate from the RPC transports.
@@ -91,7 +91,7 @@ struct Args {
     obs_addr: Option<String>,
 
     /// Super-cluster federated-search HTTP listener address (e.g. 127.0.0.1:7900),
-    /// feature `federation-search` (CONCEPT:EG-243). Disabled when unset. Serves a
+    /// feature `federation-search` (CONCEPT:EG-KG.ontology.federation-client). Disabled when unset. Serves a
     /// `/federated` POST (`{query, lang}`) that fans the read query across the peers in
     /// `EPISTEMIC_GRAPH_FEDERATION_PEERS` AND the local store, then unions/de-dups +
     /// RRF-re-ranks the partials (a slow/dead peer degrades to `partial: true`). Separate
@@ -174,7 +174,7 @@ fn default_tcp_fallback_addr() -> String {
 }
 
 /// Resolve an optional listener bind address from a deploy-supplied value
-/// (CONCEPT:EG-022 — deploy-configurable listeners). The auxiliary HTTP listeners
+/// (CONCEPT:EG-OS.config.configurable-listeners — deploy-configurable listeners). The auxiliary HTTP listeners
 /// (Prometheus metrics, SPARQL, pgwire) are all opt-in; this lets a deploy turn one
 /// on WITHOUT a full `host:port` and WITHOUT a code change:
 ///   * `None` / empty / `0`|`off`|`false`|`no`|`disabled` ⇒ `None` (listener off).
@@ -193,7 +193,7 @@ fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<Stri
 }
 
 /// True if any legacy snapshot (`.mp`) or WAL (`.wal`) file exists in `dir` —
-/// the trigger for the one-time redb-authoritative migration (CONCEPT:KG-2.187).
+/// the trigger for the one-time redb-authoritative migration (CONCEPT:EG-KG.backend.authoritative-dispatch).
 fn legacy_snapshots_present(dir: &str) -> bool {
     std::fs::read_dir(dir)
         .map(|rd| {
@@ -209,7 +209,7 @@ fn legacy_snapshots_present(dir: &str) -> bool {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Explicit, hardware-sized multi-thread runtime (CONCEPT:KG-2.8 — A4). The
+    // Explicit, hardware-sized multi-thread runtime (CONCEPT:EG-KG.storage.nonblocking-checkpoint — A4). The
     // default `#[tokio::main]` already spins one worker per core, but building the
     // runtime explicitly lets us (a) put a small floor under the worker count so a
     // 1-2 core box (Raspberry Pi) still has runtime threads to overlap I/O, and
@@ -230,7 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // CONCEPT:EG-091 — install the tracing subscriber. This is the fmt-only
+    // CONCEPT:EG-OS.observability.tracing-subscriber-init — install the tracing subscriber. This is the fmt-only
     // subscriber (INFO, no target) UNLESS built with `otel` AND
     // EPISTEMIC_GRAPH_OTLP_ENDPOINT is set, in which case an OTLP batch span
     // exporter is layered on top. Off/unset ⇒ byte-for-byte the prior behavior.
@@ -261,7 +261,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting epistemic-graph-server");
     info!("  UDS: {}", socket_path);
 
-    // ── Hardware capacity auto-detection (CONCEPT:EG-028) ─────────────────
+    // ── Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size) ─────────────────
     // Size the concurrency / buffer / per-graph node-cap DEFAULTS from
     // (cpu_count, total_RAM) so the SAME binary is lean + OOM-safe on a Pi 3 and
     // exploits a big box. Detected ONCE; each env var below still overrides its
@@ -298,7 +298,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // ── Single-writer persist-dir guard (CONCEPT:KG-2.8 / OS-5.9, Phase B1) ──
+    // ── Single-writer persist-dir guard (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9, Phase B1) ──
     // Refuse to start if another engine already owns this persist dir; hold the
     // lock for the whole process lifetime so no second engine can clobber our
     // snapshots (the engine-level complement to the Python spawn guard). Kept in
@@ -317,7 +317,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    // Default auto-sizes from cpu count (CONCEPT:EG-028): a Pi sheds early, a big
+    // Default auto-sizes from cpu count (CONCEPT:AU-KG.backend.b-auto-size): a Pi sheds early, a big
     // box admits deep concurrency. Env override (when set > 0) still wins.
     let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
         .ok()
@@ -332,7 +332,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .unwrap_or_else(|| (max_in_flight / 4).max(1));
-    // Reserved READ-admission lane (CONCEPT:EG-044): a dedicated pool of in-flight
+    // Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane): a dedicated pool of in-flight
     // slots that ONLY reads/queries may use, so a write firehose that saturates the
     // global pool + per-graph cap can never shed an interactive MCP read to BUSY.
     // Auto-sized from cpu count (an eighth of the admission cap, floored); env override
@@ -346,7 +346,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         "Backpressure: max in-flight = {} (per-graph cap = {}, reserved read lane = {})",
         max_in_flight, per_graph_inflight_limit, read_reserved
     );
-    // Per-graph write coalescer (CONCEPT:KG-2.182): batch size auto-sized from cpu
+    // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batch size auto-sized from cpu
     // count; default ON, opt out with EPISTEMIC_GRAPH_WRITE_COALESCE=0.
     {
         let cfg = epistemic_graph::write_coalescer::CoalescerConfig::auto();
@@ -356,17 +356,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // ── Off-reactor WAL writer (CONCEPT:KG-2.8, Phase B3) ────────────────
+    // ── Off-reactor WAL writer (CONCEPT:EG-KG.storage.nonblocking-checkpoint, Phase B3) ────────────────
     // When persisting, all WAL file I/O runs on one dedicated thread so durable
     // mutations never block a Tokio worker; fsync is group-committed per
     // EPISTEMIC_GRAPH_WAL_FSYNC (off | each | <ms> | interval, default 100ms).
     // The bounded channel (EPISTEMIC_GRAPH_WAL_QUEUE, default 8192) sheds — loudly
     // — rather than stalling the reactor under a saturated disk.
-    // Build the durable persistence backend (CONCEPT:KG-2.177). `snapshot`
+    // Build the durable persistence backend (CONCEPT:EG-KG.storage.kg-kg). `snapshot`
     // (default) = today's snapshot RDB + off-reactor WAL; `redb` = the
     // feature-gated write-through tier. Selection is one env read; both own their
     // off-reactor writer internally so the dispatch path only sees the trait.
-    // THE FLIP (CONCEPT:KG-2.195): the engine is a SOURCE OF TRUTH out of the box.
+    // THE FLIP (CONCEPT:AU-KG.backend.backend-modes): the engine is a SOURCE OF TRUTH out of the box.
     // The persist backend now DEFAULTS to "redb" (was "snapshot"); operators can
     // still force the old rebuildable-cache path with
     // EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot.
@@ -386,7 +386,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let redb_feature = cfg!(feature = "redb");
     let redb_active = redb_feature && backend_kind == "redb";
 
-    // redb-authoritative mode (CONCEPT:KG-2.187 / KG-2.195), read ONCE at startup.
+    // redb-authoritative mode (CONCEPT:EG-KG.backend.authoritative-dispatch / KG-2.195), read ONCE at startup.
     // EXPLICIT env (Option<bool>): when the operator sets EPISTEMIC_GRAPH_REDB_AUTHORITATIVE
     // we honor it verbatim; when UNSET it DEFAULTS to ON exactly when the redb
     // backend is active — so a stock redb-bearing build (full/node/cluster/pi) is a
@@ -414,7 +414,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if redb_authoritative && redb_active {
         if args.persist_dir.is_some() {
-            info!("redb AUTHORITATIVE mode ON (CONCEPT:KG-2.187): commit-before-ack, eviction gated, backpressure (no drop)");
+            info!("redb AUTHORITATIVE mode ON (CONCEPT:EG-KG.backend.authoritative-dispatch): commit-before-ack, eviction gated, backpressure (no drop)");
         } else {
             // Authoritative is requested/defaulted but there is no persist dir, so
             // there is nowhere durable to write — the engine runs IN-MEMORY ONLY and
@@ -433,7 +433,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let policy = epistemic_graph::wal_service::FsyncPolicy::from_env(
             std::env::var("EPISTEMIC_GRAPH_WAL_FSYNC").ok().as_deref(),
         );
-        // WAL channel depth: default auto-sizes from cpu count (CONCEPT:EG-028) so a
+        // WAL channel depth: default auto-sizes from cpu count (CONCEPT:AU-KG.backend.b-auto-size) so a
         // Pi holds little and a big box absorbs bursts. Env override (>0) still wins.
         // (`capacity` here is the queue depth; the host Capacity is `host_capacity`.)
         let capacity = std::env::var("EPISTEMIC_GRAPH_WAL_QUEUE")
@@ -467,7 +467,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // backend we can't honor (e.g. set redb but the feature isn't
                 // compiled, or a typo). The NEW implicit default ("redb" on a build
                 // without the feature) falls back to snapshot SILENTLY so a
-                // bare/server-only build boots clean (CONCEPT:KG-2.195).
+                // bare/server-only build boots clean (CONCEPT:AU-KG.backend.backend-modes).
                 if other != "snapshot" && backend_explicit {
                     tracing::warn!(
                         "EPISTEMIC_GRAPH_PERSIST_BACKEND='{}' not available in this build; \
@@ -492,11 +492,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
     let persistence_shutdown = persistence.clone();
 
-    // OCC ACID transaction limits (CONCEPT:KG-2.180).
+    // OCC ACID transaction limits (CONCEPT:EG-KG.txn.multi-op-occ-acid).
     let (txn_ttl_secs, txn_max_per_graph, txn_max_per_agent) =
         epistemic_graph::server::txn_limits_from_env();
 
-    // Native time-series store (CONCEPT:KG-2.210, feature `tsdb`). A durable
+    // Native time-series store (CONCEPT:AU-KG.retrieval.god-nodes-communities, feature `tsdb`). A durable
     // `series.redb` beside `graph.redb` when a persist dir is set; else a
     // process-temp file (in-memory deployments). Built BEFORE `persist_dir` is moved
     // into the struct. A store-open failure is fatal at boot (loud + early), same
@@ -522,7 +522,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Opt-in lossless RDF quad table (CONCEPT:KG-2.217, feature `rdf-redb`). A
+    // Opt-in lossless RDF quad table (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql, feature `rdf-redb`). A
     // durable `rdf_quads.redb` beside `graph.redb` ONLY when a persist dir is set —
     // with no persist dir the property-graph mapping alone is used (the multi-valued
     // literal extras are reported by `LoadReport`, never silently lost), so there is
@@ -545,7 +545,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    // Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206). The CAS lives
+    // Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). The CAS lives
     // in `{persist_dir}/blob.redb`; with no persist dir there is no durable place
     // for the bytes, so the substrate is disabled and the Blob* methods report
     // "not available" (matching the in-memory-only philosophy elsewhere).
@@ -577,7 +577,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
                 info!(
-                    "Blob substrate: content-addressed CAS at {dir}/blob.redb (CONCEPT:KG-2.206)"
+                    "Blob substrate: content-addressed CAS at {dir}/blob.redb (CONCEPT:EG-KG.storage.blob-namespace)"
                 );
                 Some(Arc::new(epistemic_graph::server::blob::BlobCursors::new(
                     store,
@@ -593,7 +593,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         (cursors, ttl)
     };
 
-    // ── Generic Key→Value store (CONCEPT:EG-022, feature `kv`) ───────────
+    // ── Generic Key→Value store (CONCEPT:EG-OS.config.configurable-listeners, feature `kv`) ───────────
     // A durable `{persist_dir}/kv.redb` when a persist dir is set, else an in-memory
     // scratch map. Built BEFORE `persist_dir` is moved into the struct. A store-open
     // failure is fatal at boot (loud + early), same discipline as the other stores.
@@ -602,7 +602,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         match epistemic_graph::server::kv::KvStore::open(args.persist_dir.as_deref()) {
             Ok(s) => {
                 if s.is_durable() {
-                    info!("Key→Value store (kv): durable kv.redb (CONCEPT:EG-022)");
+                    info!("Key→Value store (kv): durable kv.redb (CONCEPT:EG-OS.config.configurable-listeners)");
                 } else {
                     info!("Key→Value store (kv): in-memory scratch — no persist dir");
                 }
@@ -662,7 +662,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tsdb_store,
         #[cfg(feature = "rdf-redb")]
         rdf_quads,
-        // Change-Data-Capture hub (CONCEPT:KG-2.229/230). In-memory only (a bounded
+        // Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230). In-memory only (a bounded
         // per-graph ring + Notify) — needs no persist dir, so it is always live on a
         // `streaming` build. The dispatch shell emits a change into it after every
         // durable mutation; the streaming handler reads/maintains/serves off it.
@@ -680,8 +680,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         kv,
     }));
 
-    // ── Prometheus metrics endpoint (CONCEPT:KG-2.51) ────────────────────
-    // Opt-in + deploy-configurable (CONCEPT:EG-022): bound only when
+    // ── Prometheus metrics endpoint (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
+    // Opt-in + deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): bound only when
     // --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is set. A bare enable token
     // (`1`/`on`/…) binds the safe localhost default `127.0.0.1:9101`; a bare port
     // binds loopback:port; a full addr is honored verbatim — so a deploy turns the
@@ -706,11 +706,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // ── W3C SPARQL 1.1 HTTP endpoint (CONCEPT:EG-017) ────────────────────
+    // ── W3C SPARQL 1.1 HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support) ────────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // sparql-http` AND --sparql-addr / EPISTEMIC_GRAPH_SPARQL_ADDR is set. With the
     // feature off, or unset, this is a no-op and the engine runs exactly as before.
-    // Deploy-configurable (CONCEPT:EG-022): a bare enable token binds the safe
+    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe
     // localhost default `127.0.0.1:7878`; a bare port binds loopback:port; a full
     // addr is honored verbatim.
     let sparql_addr = resolve_listener_addr(args.sparql_addr.as_deref(), "127.0.0.1:7878");
@@ -731,7 +731,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
     }
 
-    // ── Super-cluster federated search (CONCEPT:EG-243) ──────────────────
+    // ── Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client) ──────────────────
     // Opt-in AND feature-gated: the `/federated` listener starts ONLY when built
     // `--features federation-search` AND --federated-addr / EPISTEMIC_GRAPH_FEDERATED_ADDR
     // is set. With the feature off, or unset, this is a no-op. Fans a read query across the
@@ -758,7 +758,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // ── GraphQL subscription SSE carrier (CONCEPT:EG-064) ────────────────
+    // ── GraphQL subscription SSE carrier (CONCEPT:EG-KG.compute.cdc-event-emit) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features graphql`
     // AND --graphql-addr / EPISTEMIC_GRAPH_GRAPHQL_ADDR is set. With the feature off, or
     // unset, this is a no-op. Streams a GraphQL `subscription { … }` as a live query
@@ -782,7 +782,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("--graphql-addr ignored: binary built without the `graphql` feature");
     }
 
-    // ── Observability log ingestion (CONCEPT:EG-160/161) ─────────────────
+    // ── Observability log ingestion (CONCEPT:AU-KG.ingest.self-ingest/161) ─────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features obs`
     // AND --obs-addr / EPISTEMIC_GRAPH_OBS_ADDR is set. With the feature off, or
     // unset, this is a no-op. Ingests logs (OTLP/HTTP, Elasticsearch `_bulk`/`_doc`,
@@ -825,11 +825,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("--obs-addr ignored: binary built without the `obs` feature");
     }
 
-    // ── Postgres wire-protocol shim (CONCEPT:KG-2.189) ───────────────────
+    // ── Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python) ───────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
     // `--features pgwire` AND EPISTEMIC_GRAPH_PGWIRE_ADDR is set. With the feature
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
-    // Deploy-configurable (CONCEPT:EG-022): the addr is env-driven
+    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): the addr is env-driven
     // (EPISTEMIC_GRAPH_PGWIRE_ADDR); a bare enable token binds the safe localhost
     // default `127.0.0.1:5433`, a bare port binds loopback:port, a full addr verbatim.
     // pgwire's OWN internals are untouched — only the bind addr is resolved here.
@@ -849,13 +849,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── SQLite-compatible served surface (CONCEPT:EG-075) ────────────────
+    // ── SQLite-compatible served surface (CONCEPT:EG-KG.query.concept-3) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // sqlite-wire` AND EPISTEMIC_GRAPH_SQLITE_ADDR is set. With the feature off, or on
     // but unset, this is a no-op. SQLite has no wire protocol, so this speaks a tiny
     // NDJSON-over-TCP request/response line protocol, translating SQLite-dialect SQL and
     // running it through the SAME shared `WireSession` the pgwire shim uses (EG-074).
-    // Deploy-configurable (CONCEPT:EG-022): a bare enable token binds the safe localhost
+    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost
     // default `127.0.0.1:5461`, a bare port binds loopback:port, a full addr verbatim.
     #[cfg(feature = "sqlite-wire")]
     if let Some(addr) = resolve_listener_addr(
@@ -879,14 +879,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // ── MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) ──────────
+    // ── MySQL / MariaDB wire-protocol listener (CONCEPT:EG-KG.query.kg-2) ──────────
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
     // `--features mysql-wire` AND EPISTEMIC_GRAPH_MYSQL_ADDR is set. With the feature
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
-    // Deploy-configurable (CONCEPT:EG-022): a bare enable token binds the safe localhost
+    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost
     // default `127.0.0.1:3306`, a bare port binds loopback:port, a full addr verbatim.
     // The hand-rolled MySQL protocol reuses the SAME `WireSession` execute→classify→exec
-    // core as pgwire (CONCEPT:EG-074), so a MySQL driver/ORM runs SQL over `nodes`/`edges`.
+    // core as pgwire (CONCEPT:EG-KG.compute.subsystems-reference), so a MySQL driver/ORM runs SQL over `nodes`/`edges`.
     #[cfg(feature = "mysql-wire")]
     if let Some(addr) = resolve_listener_addr(
         std::env::var(epistemic_graph::server::mysql_wire::MYSQL_ADDR_ENV)
@@ -906,11 +906,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── MSSQL TDS wire-protocol listener (CONCEPT:EG-077) ─────────────────
+    // ── MSSQL TDS wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server) ─────────────────
     // Opt-in AND feature-gated, mirroring pgwire: the listener starts ONLY when the
     // binary is built `--features mssql-wire` AND EPISTEMIC_GRAPH_MSSQL_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:1433`, a bare port binds loopback:port, a full addr verbatim.
     #[cfg(feature = "mssql-wire")]
     if let Some(addr) = resolve_listener_addr(
@@ -928,11 +928,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-275) ────────────────
+    // ── AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.compute.message-broker-exchanges) ────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features amqp-wire` AND EPISTEMIC_GRAPH_AMQP_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:5672`, a bare port binds loopback:port, a full addr verbatim. Maps AMQP
     // exchange/queue/basic.* onto the `broker` primitives (KG-2.303 queue) via dispatch.
     #[cfg(feature = "amqp-wire")]
@@ -951,11 +951,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) ─────────────────
+    // ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol) ─────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:7687` (the Neo4j default), a bare port binds loopback:port, a full addr
     // verbatim. A native hand-rolled Bolt v4.4 server (PackStream v2 + chunked framing)
     // that routes RUN's Cypher straight to the eg-query cypher engine, so a Neo4j driver
@@ -976,11 +976,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── Redis RESP wire-protocol listener (CONCEPT:EG-174) ────────────────
+    // ── Redis RESP wire-protocol listener (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features redis-wire` AND EPISTEMIC_GRAPH_REDIS_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:6379` (the Redis default), a bare port binds loopback:port, a full addr
     // verbatim. A native hand-rolled RESP2/RESP3 server storing Redis types on the
     // engine's durable KV surface, so a Redis client runs GET/SET/HSET/… directly.
@@ -1000,11 +1000,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── MQTT 3.1.1 wire-protocol listener (CONCEPT:EG-281) ────────────────
+    // ── MQTT 3.1.1 wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec) ────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features mqtt-wire` AND EPISTEMIC_GRAPH_MQTT_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:1883` (the MQTT default), a bare port binds loopback:port, a full addr
     // verbatim. A native hand-rolled MQTT server mapping CONNECT/PUBLISH/SUBSCRIBE onto
     // the `broker` topic exchange (KG-2.303 queue) via dispatch, so an MQTT client
@@ -1025,11 +1025,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── STOMP 1.2 wire-protocol listener (CONCEPT:EG-282) ─────────────────
+    // ── STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ─────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features stomp-wire` AND EPISTEMIC_GRAPH_STOMP_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:61613` (the STOMP default), a bare port binds loopback:port, a full addr
     // verbatim. A native hand-rolled STOMP text-frame server mapping SEND/SUBSCRIBE onto
     // the `broker` primitives (destinations → exchange + per-subscription queues) via
@@ -1050,11 +1050,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── S3-compatible object-storage REST surface (CONCEPT:EG-176) ────────
+    // ── S3-compatible object-storage REST surface (CONCEPT:EG-KG.ontology.object-put-get-head) ────────
     // Opt-in AND feature-gated, mirroring the obs listener: it starts ONLY when the
     // binary is built `--features s3-api` AND EPISTEMIC_GRAPH_S3_ADDR is set. With the
     // feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-022): a bare enable token binds the safe localhost default
+    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:9000` (the MinIO default), a bare port binds loopback:port, a full addr
     // verbatim. A hand-rolled S3 REST API over the content-addressed BLOB CAS + the
     // durable KV listing index, with a SigV4-lite auth guard (anonymous unless
@@ -1075,7 +1075,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── Remote KV-cache HTTP surface (CONCEPT:EG-187) ─────────────────────
+    // ── Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co) ─────────────────────
     // Opt-in AND feature-gated, mirroring the s3 listener: it starts ONLY when the
     // binary is built `--features kvcache-server` AND EPISTEMIC_GRAPH_KVCACHE_ADDR is
     // set. With the feature off, or on but unset, this is a no-op. Exposes the
@@ -1101,14 +1101,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── Snapshot persistence (CONCEPT:KG-2.8 / OS-5.9) ───────────────────
+    // ── Snapshot persistence (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9) ───────────────────
     // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
     // the configured interval. Both no-op when no persist dir is configured.
     // Boot-time recovery + periodic checkpoint route through the chosen backend
-    // (CONCEPT:KG-2.177). Both no-op when no persist dir is configured.
+    // (CONCEPT:EG-KG.storage.kg-kg). Both no-op when no persist dir is configured.
     let persistence_for_load = { state.read().await.persistence.clone() };
     if let Some(p) = &persistence_for_load {
-        // One-time legacy → redb migration (CONCEPT:KG-2.187). When authoritative and
+        // One-time legacy → redb migration (CONCEPT:EG-KG.backend.authoritative-dispatch). When authoritative and
         // the redb store is EMPTY but legacy snapshot/WAL files exist (an engine that
         // ran on snapshot+WAL before the flag flip), import them into redb FIRST so
         // the authoritative store is seeded loss-free, then proceed. Precedent:
@@ -1125,7 +1125,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // of which take `state.write().await`. A read guard held across that
                     // write acquire is a permanent deadlock: the migration awaits a write
                     // lock that can never be granted, the task parks forever, and the UDS
-                    // socket is never bound (CONCEPT:KG-2.200).
+                    // socket is never bound (CONCEPT:EG-KG.storage.authoritative-flip).
                     let migrate_dir = {
                         let s = state.read().await;
                         s.persist_dir.clone()
@@ -1139,7 +1139,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                             // Load the legacy snapshot+WAL into the live registry via the
                             // snapshot recovery path, then checkpoint the registry into redb.
                             // Both phases are O(graphs) and run BEFORE the socket binds, so
-                            // each logs progress (CONCEPT:KG-2.200) — a silent multi-second
+                            // each logs progress (CONCEPT:EG-KG.storage.authoritative-flip) — a silent multi-second
                             // boot on a many-graph homelab is indistinguishable from a hang.
                             let mig_start = std::time::Instant::now();
                             if let Err(e) = epistemic_graph::persist::load_all(&state, None).await {
@@ -1176,7 +1176,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
         }
 
-        // Install the durable read-through (CONCEPT:KG-2.191) AFTER recovery, only
+        // Install the durable read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised) AFTER recovery, only
         // under redb-authoritative mode. This is the single wiring point that lets
         // the per-graph node cap resume EVICTING (memory bounded) without data loss:
         // an evicted node's properties are served back from redb on a RAM miss. It
@@ -1195,12 +1195,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .registry
                 .set_read_through_factory(factory);
             info!(
-                "redb authoritative: read-through-on-RAM-miss installed (CONCEPT:KG-2.191) — \
+                "redb authoritative: read-through-on-RAM-miss installed (CONCEPT:EG-KG.storage.read-through-seam-exercised) — \
                  per-graph node cap now EVICTS durable nodes (memory bounded, no data loss)"
             );
         }
     }
-    // CONCEPT:EG-013 — warm the semantic ANN index OFF the request path. The
+    // CONCEPT:EG-KG.storage.semantic-index-directory — warm the semantic ANN index OFF the request path. The
     // cold-start bug: the FIRST `semantic_search` after a restart triggered a full
     // single-threaded IVF-PQ+OPQ build (SVD over a 1024² matrix + k-means over
     // ~168k vectors) INLINE while holding the per-graph lock — minutes pegged on one
@@ -1298,7 +1298,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     }
-    // Periodic Ebbinghaus decay sweep (CONCEPT:KG-2.16) — opt-in. Confidence on
+    // Periodic Ebbinghaus decay sweep (CONCEPT:EG-KG.compute.graph-compute-engine) — opt-in. Confidence on
     // every node/edge decays toward 0 with a configurable half-life; with a
     // non-zero floor, forgotten facts are pruned. Off by default (interval 0).
     if args.decay_interval > 0 {
@@ -1325,17 +1325,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── Per-graph memory cap (CONCEPT:KG-2.8) — degrade, don't OOM ─────────
+    // ── Per-graph memory cap (CONCEPT:EG-KG.storage.nonblocking-checkpoint) — degrade, don't OOM ─────────
     // The engine is a rebuildable cache over the durable backend, so a graph that
     // exceeds EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
     // — the backstop that makes a shard shed working set instead of OOM-killing
     // every tenant. The sweep is periodic so it never touches the write hot path.
     //
-    // CONCEPT:EG-028 (Pi-OOM correctness): the DEFAULT now AUTO-SIZES from total RAM
+    // CONCEPT:AU-KG.backend.b-auto-size (Pi-OOM correctness): the DEFAULT now AUTO-SIZES from total RAM
     // instead of being 0/unbounded. An unbounded default OOM-kills a 1 GiB Pi; a
     // RAM-derived cap bounds a runaway graph's RESIDENT footprint with ZERO data loss
     // — evicted nodes still serve from the durable redb tier (read-through eviction,
-    // CONCEPT:KG-2.191). A big box derives an effectively-unbounded cap, so it is not
+    // CONCEPT:EG-KG.storage.read-through-seam-exercised). A big box derives an effectively-unbounded cap, so it is not
     // constrained. Setting the env to `0` is the explicit opt-out for "truly
     // unbounded"; any explicit value still wins.
     let max_nodes_per_graph = match std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH") {
@@ -1371,7 +1371,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── Per-tenant memory budget enforcer (CONCEPT:KG-2.234, Lane V) ─────
+    // ── Per-tenant memory budget enforcer (CONCEPT:EG-KG.compute.lane-v, Lane V) ─────
     // Tracks an approximate resident-RAM estimate per TENANT (a tenant owns one or more
     // graphs) and evicts/hibernates a tenant's coldest graphs when it exceeds its byte
     // budget, with a global ceiling + fair per-tenant caps so one hot tenant can't starve
@@ -1387,7 +1387,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             let budget_state = state.clone();
             info!(
                 "Memory budget: global ceiling {} bytes, per-tenant {} bytes, swept every {}s \
-                 (CONCEPT:KG-2.234)",
+                 (CONCEPT:EG-KG.compute.lane-v)",
                 cost_config.global_ceiling_bytes,
                 cost_config.per_tenant_budget_bytes,
                 cost_config.interval_secs
@@ -1415,7 +1415,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // ── Cold-tenant idle offload sweep (CONCEPT:EG-040, R6) ─────────────
+    // ── Cold-tenant idle offload sweep (CONCEPT:EG-KG.backend.r6-feature, R6) ─────────────
     // Periodically hibernate every graph idle longer than a window (its access recency is
     // tracked by `cold_tracker.touch` on the dispatch read/write path), bounding RAM across
     // many tenants. Reuses the engine's existing interval-task cadence (like the budget
@@ -1435,7 +1435,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             let window = std::time::Duration::from_secs(window_secs);
             info!(
                 "Cold-tenant offload: hibernate graphs idle > {}s, swept every {}s \
-                 (CONCEPT:EG-040)",
+                 (CONCEPT:EG-KG.backend.r6-feature)",
                 window_secs, window_secs
             );
             tokio::spawn(async move {
@@ -1458,7 +1458,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // ── OCC transaction TTL sweep (CONCEPT:KG-2.180 safety rail) ─────────
+    // ── OCC transaction TTL sweep (CONCEPT:EG-KG.txn.multi-op-occ-acid safety rail) ─────────
     // Auto-roll-back transactions idle past the TTL so an abandoned client never
     // leaks a staged transaction forever. An abandoned txn never committed, so it
     // applied nothing — reclaiming it just frees memory and never touches a graph
@@ -1485,7 +1485,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // ── In-engine Raft replication (CONCEPT:KG-2.188) — cluster tier ──────
+    // ── In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical) — cluster tier ──────
     // Only when built `--features raft` AND configured (EPISTEMIC_GRAPH_RAFT_NODE_ID
     // + EPISTEMIC_GRAPH_RAFT_PEERS). When the feature is off, OR on but unconfigured,
     // this block is absent / no-ops and the engine runs single-node exactly as
@@ -1507,7 +1507,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
                 info!(
-                    "Raft cluster mode: node {} of {} peers (CONCEPT:KG-2.188)",
+                    "Raft cluster mode: node {} of {} peers (CONCEPT:AU-KG.ingest.source-sync-canonical)",
                     cluster_cfg.node_id,
                     cluster_cfg.peers.len()
                 );
@@ -1520,7 +1520,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         // process lifetime). Keep it alive by storing the handle; the
                         // routing handle goes into ServerState for the dispatch path.
                         state.write().await.raft = Some(started.handle);
-                        // Cross-shard 2PC recovery (CONCEPT:KG-2.222): resolve any
+                        // Cross-shard 2PC recovery (CONCEPT:EG-KG.storage.lane-n-increment): resolve any
                         // in-doubt cross-shard txns from the durable prepare/decision
                         // records BEFORE serving — a COMMIT decision re-applies, an
                         // undecided/ABORT clears (presumed-abort). Deterministic from
@@ -1535,7 +1535,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 match coord.recover_in_doubt().await {
                                     Ok(0) => {}
                                     Ok(n) => info!(
-                                        "Cross-shard 2PC recovery: resolved {n} in-doubt txn(s) (CONCEPT:KG-2.222)"
+                                        "Cross-shard 2PC recovery: resolved {n} in-doubt txn(s) (CONCEPT:EG-KG.storage.lane-n-increment)"
                                     ),
                                     Err(e) => {
                                         eprintln!("error: cross-shard 2PC recovery failed: {e}");
@@ -1544,7 +1544,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
-                        // Hold the manager in ServerState (CONCEPT:KG-2.224/2.226) so
+                        // Hold the manager in ServerState (CONCEPT:EG-KG.storage.100m-tenant/2.226) so
                         // its listener task lives the process lifetime AND the
                         // user-facing cross-group surfaces (multi-graph Commit → 2PC,
                         // online reshard, tenant hibernation) can reach it. The Arc is
@@ -1568,14 +1568,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // ── Distributed-compute materialized-view reload (CONCEPT:KG-2.227) ───────
+    // ── Distributed-compute materialized-view reload (CONCEPT:EG-KG.storage.feature) ───────
     // On every boot, reload any persisted matviews from the redb durable tier into
     // the in-RAM index so `GetMatView` serves them immediately. A no-op when no
     // matviews were ever created / no redb backend is configured.
     #[cfg(feature = "compute-dist")]
     match epistemic_graph::server::reload_matviews(&state).await {
         Ok(0) => {}
-        Ok(n) => info!("Reloaded {n} materialized view(s) from redb (CONCEPT:KG-2.227)"),
+        Ok(n) => info!("Reloaded {n} materialized view(s) from redb (CONCEPT:EG-KG.storage.feature)"),
         Err(e) => tracing::warn!("materialized-view reload skipped: {e}"),
     }
 
@@ -1628,7 +1628,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // Optional reference-counted idle shutdown (CONCEPT:KG-2.223). Only spawned
+    // Optional reference-counted idle shutdown (CONCEPT:EG-KG.backend.tiny-shared). Only spawned
     // when --idle-shutdown-secs N (N>0); absent/0 ⇒ no watcher ⇒ the engine is
     // long-living/persistent and never self-terminates on idle.
     if args.idle_shutdown_secs > 0 {

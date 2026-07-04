@@ -95,7 +95,7 @@ def client_factory(service):
 # ── Tests ─────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_ping(service, client_factory):
     """Test basic connectivity with a Ping request."""
 
@@ -107,7 +107,7 @@ def test_service_ping(service, client_factory):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_node_crud(service, client_factory):
     """Test node add/has/remove via the service."""
 
@@ -122,7 +122,7 @@ def test_service_node_crud(service, client_factory):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_compare_and_set(service, client_factory):
     """Backend-agnostic atomic claim via CompareAndSetNodeFields round-trip."""
 
@@ -170,7 +170,7 @@ def test_service_compare_and_set(service, client_factory):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_edge_crud(service, client_factory):
     """Test edge add/has/remove via the service."""
 
@@ -186,7 +186,7 @@ def test_service_edge_crud(service, client_factory):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_multi_graph(service, client_factory):
     """Test creating, listing, and deleting named graphs."""
 
@@ -206,7 +206,7 @@ def test_service_multi_graph(service, client_factory):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_channel_p2p(service, client_factory):
     """Test P2P channel creation, messaging, and close with imprint."""
 
@@ -228,7 +228,7 @@ def test_service_channel_p2p(service, client_factory):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_channel_group(service, client_factory):
     """Test group channel join/leave/close lifecycle."""
 
@@ -246,7 +246,7 @@ def test_service_channel_group(service, client_factory):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_auth_required(service):
     """Test that unauthenticated requests are rejected."""
 
@@ -265,7 +265,7 @@ def test_service_auth_required(service):
     asyncio.run(_test())
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_algorithms(service, client_factory):
     """Test algorithm execution via the service."""
 

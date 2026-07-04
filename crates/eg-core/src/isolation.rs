@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.19 — Graph Access Control / Isolation Layer
+// CONCEPT:EG-KG.txn.access-control-isolation — Graph Access Control / Isolation Layer
 //
 // Enforces ACL rules for multi-tenant graph access:
 // 1. Peer isolation: Agent graphs invisible to peer agents
@@ -17,7 +17,7 @@ pub enum AccessLevel {
     Write,
 }
 
-/// Per-row owner/visibility derived from a node's property blob (CONCEPT:KG-2.231).
+/// Per-row owner/visibility derived from a node's property blob (CONCEPT:EG-KG.sharding.row-level-security).
 /// The reserved property keys (`_owner` / `_visibility` / `_grants`) form the RLS
 /// convention enforced by [`IsolationLayer::filter_view`].
 #[cfg(feature = "security")]
@@ -99,11 +99,11 @@ pub use crate::acl::{AgentIdentity, AgentRole};
 pub struct IsolationLayer {
     /// Known agent identities for ACL resolution.
     agents: HashMap<String, AgentIdentity>,
-    /// RBAC policy (CONCEPT:EG-092): roles + grants layered on top of the per-agent
+    /// RBAC policy (CONCEPT:EG-KG.compute.feature): roles + grants layered on top of the per-agent
     /// ACL/RLS. An EMPTY policy leaves every existing decision unchanged.
     #[cfg(feature = "security")]
     rbac: crate::rbac::RbacPolicy,
-    /// Durable RBAC/identity persistence handle (CONCEPT:EG-303). `None` ⇒ fully
+    /// Durable RBAC/identity persistence handle (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). `None` ⇒ fully
     /// in-memory (today's default): every write-through is a no-op. `Some` ⇒ the
     /// policy + identities were LOADED from redb at boot and are written through on
     /// every RBAC/identity mutation. `Arc` keeps [`IsolationLayer`] `Clone`.
@@ -129,7 +129,7 @@ impl IsolationLayer {
     }
 
     /// Open an [`IsolationLayer`] backed by a durable redb store at `dir`
-    /// (CONCEPT:EG-303). Any previously-persisted RBAC policy + registered agent
+    /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Any previously-persisted RBAC policy + registered agent
     /// identities are LOADED at boot; every subsequent `add_role`/`remove_role`/
     /// `add_grant`/`remove_grant`/`register_agent`/`unregister_agent` mutation is
     /// written through to redb. An EMPTY/absent store yields the exact in-memory
@@ -150,7 +150,7 @@ impl IsolationLayer {
     }
 
     /// Best-effort write-through of the FULL RBAC state (policy + identities) to the
-    /// durable store (CONCEPT:EG-303). A NO-OP when no persist dir is configured
+    /// durable store (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). A NO-OP when no persist dir is configured
     /// (in-memory default). Errors are swallowed: [`with_persist_dir`] already
     /// validated the store is writable at boot, and the mutation entry points
     /// (`RbacAdmin`, `register_identity`) are infallible by contract.
@@ -168,29 +168,29 @@ impl IsolationLayer {
         }
     }
 
-    /// Add/replace an RBAC role definition (CONCEPT:EG-092); written through to the
-    /// durable store when configured (CONCEPT:EG-303).
+    /// Add/replace an RBAC role definition (CONCEPT:EG-KG.compute.feature); written through to the
+    /// durable store when configured (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
     #[cfg(feature = "security")]
     pub fn add_role(&mut self, role: crate::acl::Role) {
         self.rbac.add_role(role);
         self.persist_state();
     }
 
-    /// Remove an RBAC role definition (CONCEPT:EG-092); written through (EG-303).
+    /// Remove an RBAC role definition (CONCEPT:EG-KG.compute.feature); written through (EG-303).
     #[cfg(feature = "security")]
     pub fn remove_role(&mut self, name: &str) {
         self.rbac.remove_role(name);
         self.persist_state();
     }
 
-    /// Add an RBAC grant (CONCEPT:EG-092); written through (EG-303).
+    /// Add an RBAC grant (CONCEPT:EG-KG.compute.feature); written through (EG-303).
     #[cfg(feature = "security")]
     pub fn add_grant(&mut self, grant: crate::acl::Grant) {
         self.rbac.add_grant(grant);
         self.persist_state();
     }
 
-    /// Remove an RBAC grant (CONCEPT:EG-092). Returns true when one was removed;
+    /// Remove an RBAC grant (CONCEPT:EG-KG.compute.feature). Returns true when one was removed;
     /// written through (EG-303).
     #[cfg(feature = "security")]
     pub fn remove_grant(&mut self, grant: &crate::acl::Grant) -> bool {
@@ -208,14 +208,14 @@ impl IsolationLayer {
     }
 
     /// Register or update an agent identity; written through to the durable store
-    /// when configured (CONCEPT:EG-303).
+    /// when configured (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
     pub fn register_agent(&mut self, identity: AgentIdentity) {
         self.agents.insert(identity.agent_id.clone(), identity);
         #[cfg(feature = "security")]
         self.persist_state();
     }
 
-    /// Remove an agent identity; written through (CONCEPT:EG-303).
+    /// Remove an agent identity; written through (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
     pub fn unregister_agent(&mut self, agent_id: &str) {
         let removed = self.agents.remove(agent_id).is_some();
         #[cfg(feature = "security")]
@@ -249,7 +249,7 @@ impl IsolationLayer {
             }
         }
 
-        // RBAC (CONCEPT:EG-092): consult roles/grants layered on top of the ACL.
+        // RBAC (CONCEPT:EG-KG.compute.feature): consult roles/grants layered on top of the ACL.
         // Backward-compatible: an EMPTY policy is skipped entirely, so the existing
         // GraphType decision below is returned unchanged. When grants exist, an
         // explicit Deny for the agent's roles wins (deny overrides), an explicit
@@ -331,7 +331,7 @@ impl IsolationLayer {
         false
     }
 
-    /// Per-agent Row-Level Security (CONCEPT:KG-2.231): may `agent_id` SEE one
+    /// Per-agent Row-Level Security (CONCEPT:EG-KG.sharding.row-level-security): may `agent_id` SEE one
     /// node, given that node's owner + visibility convention?
     ///
     /// Visibility convention (carried in the node's property blob; read by
@@ -373,7 +373,7 @@ impl IsolationLayer {
     }
 
     /// Filter a [`GraphView`](crate::graph::GraphView) IN-PLACE down to only the
-    /// rows `agent_id` may see (CONCEPT:KG-2.231 — RLS in the read/plan path).
+    /// rows `agent_id` may see (CONCEPT:EG-KG.sharding.row-level-security — RLS in the read/plan path).
     ///
     /// This runs on the owned, off-lock snapshot the query planner (SQL / Cypher /
     /// SPARQL / unified) consumes — NOT at the graph boundary — so NO query surface
@@ -578,7 +578,7 @@ mod tests {
         ));
     }
 
-    // ── Per-agent Row-Level Security (CONCEPT:KG-2.231) ──────────────────
+    // ── Per-agent Row-Level Security (CONCEPT:EG-KG.sharding.row-level-security) ──────────────────
     #[cfg(feature = "security")]
     mod rls {
         use super::*;
@@ -685,7 +685,7 @@ mod tests {
         }
     }
 
-    // ── RBAC-at-scale layered on check_access (CONCEPT:EG-092) ───────────
+    // ── RBAC-at-scale layered on check_access (CONCEPT:EG-KG.compute.feature) ───────────
     #[cfg(feature = "security")]
     mod rbac_access {
         use super::*;
@@ -826,7 +826,7 @@ mod tests {
         }
     }
 
-    // ── Durable RBAC/identity persistence (CONCEPT:EG-303) ───────────────
+    // ── Durable RBAC/identity persistence (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence) ───────────────
     #[cfg(feature = "security")]
     mod eg303_persist {
         use super::*;

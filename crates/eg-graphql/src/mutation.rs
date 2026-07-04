@@ -1,4 +1,4 @@
-//! GraphQL **mutation** execution (CONCEPT:EG-019): map a parsed `mutation { … }`
+//! GraphQL **mutation** execution (CONCEPT:EG-KG.query.mutation): map a parsed `mutation { … }`
 //! operation onto eg-core's native write ops over the SAME live `GraphCore` the read
 //! resolver snapshots — NO async-graphql, NO second graph. The five CRUD root fields
 //! mirror the engine's primitives one-for-one:

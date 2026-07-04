@@ -1,6 +1,6 @@
-//! CONCEPT:EG-320 — real-time QoS / SLO-aware admission scheduler.
+//! CONCEPT:EG-KG.coordination.backpressure-busy-signal — real-time QoS / SLO-aware admission scheduler.
 //!
-//! The transport's baseline admission (CONCEPT:EG-043/EG-044 in `transport.rs`) is a
+//! The transport's baseline admission (CONCEPT:EG-KG.backend.framed-response/EG-044 in `transport.rs`) is a
 //! try-acquire over a global in-flight pool + a per-graph fairness cap + a reserved
 //! read lane. It is FIFO-ish: once a permit is free ANY waiting request may take it,
 //! regardless of who it belongs to or how urgent it is. Under a mixed workload — an
@@ -282,7 +282,7 @@ pub struct QosStats {
     pub backpressure_rejected: u64,
 }
 
-/// Real-time QoS/SLO-aware admission scheduler (CONCEPT:EG-320). Cheaply cloneable (an
+/// Real-time QoS/SLO-aware admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal). Cheaply cloneable (an
 /// `Arc` inside); every clone shares the same counters.
 #[derive(Clone)]
 pub struct QosScheduler {
@@ -422,7 +422,7 @@ impl Drop for QosPermit {
 }
 
 /// Deterministically order a batch of pending requests for admission and pick the top
-/// `available` slots — the deadline-aware, priority-first scheduler seam (CONCEPT:EG-320).
+/// `available` slots — the deadline-aware, priority-first scheduler seam (CONCEPT:EG-KG.coordination.backpressure-busy-signal).
 ///
 /// Ordering key: **class descending** (Interactive before Batch before Maintenance), then
 /// **deadline ascending** (an earlier / more-urgent deadline first; `None` sorts last as
@@ -474,7 +474,7 @@ mod tests {
         }
     }
 
-    // CONCEPT:EG-320 — classification derives class + tenant from existing request fields.
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — classification derives class + tenant from existing request fields.
     #[test]
     fn eg320_classify_maps_method_and_identity_to_class_and_tenant() {
         // A read ⇒ Interactive; tenant falls back to the graph when no agent id.
@@ -524,7 +524,7 @@ mod tests {
         );
     }
 
-    // CONCEPT:EG-320 — under contention a high-priority (interactive) request is admitted
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — under contention a high-priority (interactive) request is admitted
     // while a low-priority (batch/maintenance) one in the SAME saturated state is shed:
     // priority-based admission / preemption.
     #[test]
@@ -572,7 +572,7 @@ mod tests {
         );
     }
 
-    // CONCEPT:EG-320 — deadline-aware, priority-first ordering of a pending batch.
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — deadline-aware, priority-first ordering of a pending batch.
     #[test]
     fn eg320_plan_admissions_orders_by_priority_then_deadline() {
         let pending = vec![
@@ -610,7 +610,7 @@ mod tests {
         assert!(plan_admissions(&pending, 0).is_empty());
     }
 
-    // CONCEPT:EG-320 — per-tenant fair share: under contention one greedy bulk tenant
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — per-tenant fair share: under contention one greedy bulk tenant
     // cannot exceed its capacity/active_tenants share while another tenant is competing.
     #[test]
     fn eg320_per_tenant_fair_share_under_contention() {
@@ -646,7 +646,7 @@ mod tests {
         drop(filler);
     }
 
-    // CONCEPT:EG-320 — per-tenant hard quota rejection (any class, regardless of load).
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — per-tenant hard quota rejection (any class, regardless of load).
     #[test]
     fn eg320_per_tenant_quota_rejection() {
         // capacity 16 ⇒ quota 4. A single uncontended tenant may burst up to the quota,
@@ -671,7 +671,7 @@ mod tests {
         let _ok = permit(sched.try_admit(&req(QosClass::Interactive, "t")));
     }
 
-    // CONCEPT:EG-320 — with QoS unconfigured the scheduler seam is absent (default path
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — with QoS unconfigured the scheduler seam is absent (default path
     // unchanged). `configured()` is None unless EPISTEMIC_GRAPH_QOS is truthy.
     #[test]
     fn eg320_default_no_qos_is_disabled() {
@@ -684,7 +684,7 @@ mod tests {
         assert!(configured().is_none(), "QoS is opt-in; default is disabled");
     }
 
-    // CONCEPT:EG-320 — backpressure is signalled with a typed, retryable BUSY message.
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — backpressure is signalled with a typed, retryable BUSY message.
     #[test]
     fn eg320_backpressure_is_signalled_at_capacity() {
         let sched = QosScheduler::new(QosConfig::auto(8));

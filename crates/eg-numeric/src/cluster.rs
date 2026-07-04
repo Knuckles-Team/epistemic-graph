@@ -1,4 +1,4 @@
-//! Unsupervised clustering — the `KMeans` surface (CONCEPT:EG-344). A slim, pure-Rust
+//! Unsupervised clustering — the `KMeans` surface (CONCEPT:EG-KG.query.kmeans-clustering-half-one). A slim, pure-Rust
 //! Lloyd's-algorithm k-means (k-means++ seeding) over an `ndarray` matrix, using the
 //! kernel's own seedable RNG ([`crate::random::Generator`], ChaCha20) so a run is
 //! **deterministic for a given seed** — no `linfa`/BLAS dependency, keeping the Pi
@@ -8,7 +8,7 @@
 //! UDAF (`crates/eg-query/src/sql/numeric.rs`): a column of vectors is marshalled into an
 //! `n×d` matrix and clustered IN-ENGINE (compute-near-data), returning one cluster label
 //! per row — the "cluster the joined result in-engine" half of the cross-modal analytics
-//! differentiator (CONCEPT:EG-345).
+//! differentiator (CONCEPT:EG-KG.query.eg-3).
 
 use crate::error::{NumericError, Result};
 use crate::random::Generator;
@@ -93,7 +93,7 @@ fn kmeans_plus_plus(data: ArrayView2<f64>, k: usize, gen: &mut Generator) -> Arr
 }
 
 /// Fit **k-means** on the `n×d` matrix `data` (rows = observations), returning a hard
-/// cluster label per row (CONCEPT:EG-344). Lloyd's algorithm with k-means++ seeding; the
+/// cluster label per row (CONCEPT:EG-KG.query.kmeans-clustering-half-one). Lloyd's algorithm with k-means++ seeding; the
 /// RNG is seeded from `seed` so the fit is reproducible. `k` is clamped to `n` (can't have
 /// more clusters than points). Convergence = labels stop changing (or `max_iter`).
 ///
@@ -180,7 +180,7 @@ pub fn kmeans(data: ArrayView2<f64>, k: usize, max_iter: usize, seed: u64) -> Re
     })
 }
 
-/// Convenience: the cluster labels only (CONCEPT:EG-344) — the shape the Surface-B
+/// Convenience: the cluster labels only (CONCEPT:EG-KG.query.kmeans-clustering-half-one) — the shape the Surface-B
 /// `kmeans(vec_col, k)` UDAF returns. Uses a fixed default `max_iter`/`seed` so a SQL
 /// caller gets a deterministic assignment without threading extra arguments.
 pub fn kmeans_labels(data: ArrayView2<f64>, k: usize) -> Result<Vec<usize>> {

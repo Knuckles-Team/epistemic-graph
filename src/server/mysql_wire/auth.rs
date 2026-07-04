@@ -1,6 +1,6 @@
-//! MySQL wire authentication bridged to the engine identity (CONCEPT:EG-076).
+//! MySQL wire authentication bridged to the engine identity (CONCEPT:EG-KG.query.kg-2).
 //!
-//! Mirrors the pgwire auth policy (CONCEPT:KG-2.202) for the MySQL wire: a connection's
+//! Mirrors the pgwire auth policy (CONCEPT:EG-KG.query.concept-13) for the MySQL wire: a connection's
 //! `user` IS an engine `agent_id`, and its password is a deterministic per-user token
 //! DERIVED from the engine's shared `GRAPH_SERVICE_AUTH_SECRET`:
 //! `derived_password(user) = hex(HMAC-SHA256(secret, "mysql:" || user))`. An operator
@@ -73,7 +73,7 @@ impl MysqlAuthMode {
     }
 
     /// Whether an authenticated login under this mode maps the connecting `user` to the
-    /// engine ACL actor (CONCEPT:KG-2.202). True for NATIVE; false for TRUST (anonymous).
+    /// engine ACL actor (CONCEPT:EG-KG.query.concept-13). True for NATIVE; false for TRUST (anonymous).
     pub fn maps_actor(&self) -> bool {
         matches!(self, MysqlAuthMode::Native)
     }

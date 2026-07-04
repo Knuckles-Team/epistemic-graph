@@ -1,4 +1,4 @@
-//! Online resharding + cold-tenant hibernation (CONCEPT:KG-2.224 — the 100M-tenant
+//! Online resharding + cold-tenant hibernation (CONCEPT:EG-KG.storage.100m-tenant — the 100M-tenant
 //! lever).
 //!
 //! Two elastic-tenant operations on a live [`MultiRaft`] cluster, both feature-gated
@@ -8,7 +8,7 @@
 //! ## Online resharding — move a graph A→B with NO downtime
 //!
 //! A graph belongs to exactly one Raft [`GroupId`] via the [`GroupRouter`]
-//! (CONCEPT:KG-2.205). Resharding re-points that ownership from a source group to a
+//! (CONCEPT:EG-KG.sharding.raft-resharding). Resharding re-points that ownership from a source group to a
 //! target group while the cluster keeps serving. The KEY simplification — and why
 //! this is safe — is the M2 architecture: **every group applies into ONE shared
 //! registry + ONE shared `graph.redb`** (`store::EgStore` holds the shared
@@ -39,7 +39,7 @@
 //! ## Cold-tenant hibernation — evict a graph's RAM, rehydrate on access
 //!
 //! A COLD tenant wastes RAM holding a `GraphCore` that is never read. [`hibernate_graph`]
-//! reuses the read-through/eviction machinery (CONCEPT:KG-2.191) at WHOLE-GRAPH
+//! reuses the read-through/eviction machinery (CONCEPT:EG-KG.storage.read-through-seam-exercised) at WHOLE-GRAPH
 //! granularity: force the graph durable (checkpoint it — the same durability gate
 //! per-node eviction uses), then `GraphCore::hibernate()` drops its in-RAM topology /
 //! properties / vectors. The durable redb rows remain. [`rehydrate_graph`] reads the
@@ -63,7 +63,7 @@ pub struct ReshardReport {
     pub nodes_transferred: usize,
 }
 
-/// Elastic-tenant operations on a live [`MultiRaft`] cluster (CONCEPT:KG-2.224).
+/// Elastic-tenant operations on a live [`MultiRaft`] cluster (CONCEPT:EG-KG.storage.100m-tenant).
 /// Holds the manager + the shared durable backend; every op runs under the manager's
 /// per-tenant migration guard so a reshard and a hibernate of the same graph cannot
 /// race.
@@ -78,7 +78,7 @@ impl TenantManager {
     }
 
     /// Online-reshard `graph_name` from its current owning group to `to_group`
-    /// WITHOUT downtime (CONCEPT:KG-2.224). See the module docs for the quiesce →
+    /// WITHOUT downtime (CONCEPT:EG-KG.storage.100m-tenant). See the module docs for the quiesce →
     /// durability-barrier → re-point → resume protocol.
     ///
     /// Preconditions: the graph exists; `to_group` is running on this node (use
@@ -141,7 +141,7 @@ impl TenantManager {
     }
 
     /// Hibernate a COLD graph: force it durable, then drop its in-RAM state
-    /// (CONCEPT:KG-2.224). The durable redb rows remain; [`rehydrate_graph`] rebuilds
+    /// (CONCEPT:EG-KG.storage.100m-tenant). The durable redb rows remain; [`rehydrate_graph`] rebuilds
     /// the core on next access. Returns the node count freed. Idempotent — hibernating
     /// an already-hibernated (empty-in-RAM) graph frees 0 and stays durable.
     pub async fn hibernate_graph(&self, graph_name: &str) -> Result<usize, String> {
@@ -163,7 +163,7 @@ impl TenantManager {
         Ok(freed)
     }
 
-    /// Rehydrate a hibernated graph from its durable dump (CONCEPT:KG-2.224). Reads the
+    /// Rehydrate a hibernated graph from its durable dump (CONCEPT:EG-KG.storage.100m-tenant). Reads the
     /// graph's redb rows back and rebuilds its `GraphCore` (the same path `load_all`
     /// uses). Idempotent — a re-rehydrate clears + reloads. Returns the node count
     /// restored. A graph with no durable rows (genuinely absent) restores 0.
@@ -194,7 +194,7 @@ impl TenantManager {
         Ok(n)
     }
 
-    /// Read ONE graph's durable dump via the redb backend (CONCEPT:KG-2.224). Errors if
+    /// Read ONE graph's durable dump via the redb backend (CONCEPT:EG-KG.storage.100m-tenant). Errors if
     /// the backend is not the redb tier (resharding/hibernation require it).
     fn read_dump(&self, graph_fname: &str) -> Result<Option<crate::redb_store::GraphDump>, String> {
         let redb = self.backend.as_redb().ok_or_else(|| {

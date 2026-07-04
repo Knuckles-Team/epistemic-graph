@@ -6,9 +6,9 @@ fields are typed edges. Queries compile to label scans + BFS over the same `Grap
 uses, and produce byte-equal results; mutations map to native graph write methods.
 
 > Status snapshot: read queries and mutations (`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge`)
-> are supported, along with CDC subscriptions (EG-064), fragments / variables / directives (EG-065), relay
-> pagination (EG-066), **Apollo Federation v2** subgraph support (EG-295), and production hardening
-> (APQ + depth/complexity limits, EG-296). See the [capability matrix](../capabilities.md#graphql-eg-graphql).
+> are supported, along with CDC subscriptions (EG-064), fragments / variables / directives (EG-KG.query.fragments-variables-directives), relay
+> pagination (EG-KG.query.graphql-cursors), **Apollo Federation v2** subgraph support (EG-295), and production hardening
+> (APQ + depth/complexity limits, EG-KG.domains.graphql-enterprise-hardening). See the [capability matrix](../capabilities.md#graphql-eg-graphql).
 
 ## Supported queries
 
@@ -48,12 +48,12 @@ A `tokio::sync::broadcast` change-stream fed by `GraphCore` `mark_dirty` backs l
 WS/SSE carrier (`EPISTEMIC_GRAPH_GRAPHQL_ADDR` starts the SSE carrier — a `text/event-stream` frame per
 graph change). This replaces the earlier poll-only stub.
 
-## Fragments, variables, directives & pagination (EG-065/066)
+## Fragments, variables, directives & pagination (EG-KG.query.fragments-variables-directives/066)
 
-- **Fragments** (EG-065): named fragment-spreads and inline fragments (`... on Type`).
-- **Variables** (EG-065): `$var` definitions/refs, resolved from the request variables.
-- **Directives** (EG-065): `@skip(if:)` / `@include(if:)`.
-- **Relay pagination** (EG-066): `first`/`after`/`before`/cursor args with an
+- **Fragments** (EG-KG.query.fragments-variables-directives): named fragment-spreads and inline fragments (`... on Type`).
+- **Variables** (EG-KG.query.fragments-variables-directives): `$var` definitions/refs, resolved from the request variables.
+- **Directives** (EG-KG.query.fragments-variables-directives): `@skip(if:)` / `@include(if:)`.
+- **Relay pagination** (EG-KG.query.graphql-cursors): `first`/`after`/`before`/cursor args with an
   `edges`/`node`/`cursor`/`pageInfo` envelope over a deterministic sort.
 
 ## Apollo Federation subgraph (EG-295)
@@ -66,7 +66,7 @@ the emitted SDL.
 { _service { sdl } }
 ```
 
-## Production hardening — APQ + limits (EG-296)
+## Production hardening — APQ + limits (EG-KG.domains.graphql-enterprise-hardening)
 
 For production the surface adds: **automatic persisted queries** (APQ — a sha256 hash registry so clients
 send hash-only requests), query **depth + complexity/cost** analysis with configurable limits (over-budget

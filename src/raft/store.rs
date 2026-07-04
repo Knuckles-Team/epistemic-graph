@@ -1,4 +1,4 @@
-//! Raft storage (CONCEPT:KG-2.188 + KG-2.204 + KG-2.273) — durable log store + state
+//! Raft storage (CONCEPT:AU-KG.ingest.source-sync-canonical + KG-2.204 + KG-2.273) — durable log store + state
 //! machine, on openraft 0.10's **v2 split-storage** API.
 //!
 //! openraft 0.10 removed the combined `RaftStorage` trait (and the `Adaptor` that
@@ -18,7 +18,7 @@
 //!    uses, then awaits [`PersistenceBackend::record_durable`] (the M2 / KG-2.187
 //!    commit-before-ack barrier) so committed graph data is durable in `graph.redb`.
 //!
-//! 2. **Durable redb Raft log (CONCEPT:KG-2.204).** The log entries, the vote, and
+//! 2. **Durable redb Raft log (CONCEPT:EG-KG.storage.one-fsync-covers-raft).** The log entries, the vote, and
 //!    the applied-state pointers all live in the SAME `graph.redb` Database as the
 //!    M2 graph data — keyed by `(group_id, index)` / `(group_id, key)` so ONE redb
 //!    file serves the M2 store AND every Raft group's log. Because the log shares the
@@ -237,7 +237,7 @@ impl EgStore {
         Ok(RaftResponse { applied: true })
     }
 
-    /// Dump THIS group's graphs for a snapshot (CONCEPT:KG-2.267). When the store runs
+    /// Dump THIS group's graphs for a snapshot (CONCEPT:AU-KG.ingest.staged). When the store runs
     /// under a [`super::multi::MultiRaft`] its ctx carries the router, so the dump is
     /// SCOPED to graphs whose tenant range resolves to this group — a large tenant in
     /// one group never bloats another group's snapshot. Without a router (a direct
@@ -262,7 +262,7 @@ impl EgStore {
     }
 
     /// Test-only: the sorted graph NAMES this group's snapshot would capture, AFTER
-    /// per-group scoping (CONCEPT:KG-2.267). Lets a test assert a group's snapshot
+    /// per-group scoping (CONCEPT:AU-KG.ingest.staged). Lets a test assert a group's snapshot
     /// carries ONLY its own tenant-range graphs without reaching into private types.
     #[cfg(test)]
     pub(crate) async fn scoped_snapshot_graph_names(&self) -> Vec<String> {
@@ -471,7 +471,7 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
             batch.push((entry.log_id().index, blob));
         }
         // Durable append: rides the SAME group-commit transaction as any concurrent
-        // M2 graph mutation (CONCEPT:KG-2.204) — one fsync covers both. Our append is
+        // M2 graph mutation (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — one fsync covers both. Our append is
         // synchronously durable, so we fire the 0.10 `IOFlushed` callback the moment
         // the group-commit fsync resolves (openraft treats the entry as on-disk then).
         match self.redb().raft_log_append(self.group_id, batch).await {

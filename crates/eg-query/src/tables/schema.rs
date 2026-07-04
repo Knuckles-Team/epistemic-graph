@@ -1,4 +1,4 @@
-//! Column types, table schemas, and the typed row-cell value (CONCEPT:EG-018).
+//! Column types, table schemas, and the typed row-cell value (CONCEPT:EG-KG.query.register-user-tables-alongside).
 //!
 //! These are the catalog's data model for an ARBITRARY user-defined relational
 //! table — the relational sibling of the graph's schema-on-read `nodes` projection.
@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// The set of column types a user table column may declare (CONCEPT:EG-018). Chosen
+/// The set of column types a user table column may declare (CONCEPT:EG-KG.query.register-user-tables-alongside). Chosen
 /// to cover the connector / ETL / time-series workloads the engine ingests —
 /// Prometheus samples (`timestamp`, `double`), Langfuse spans (`text`, `json`,
 /// `timestamp`), stock bars (`bigint`, `double`), and raw connector mirrors
@@ -39,7 +39,7 @@ pub enum ColumnType {
     Bytes,
     /// Arbitrary JSON, stored as its canonical text (Arrow `Utf8`).
     Json,
-    /// A pgvector `vector`/`vector(n)` dense float embedding (CONCEPT:EG-115), stored as
+    /// A pgvector `vector`/`vector(n)` dense float embedding (CONCEPT:EG-KG.query.vector-json-array-render), stored as
     /// a `Vec<f32>` (Arrow `List<Float32>`). `Some(n)` is the declared dimension (row
     /// length enforced on insert); `None` is an unconstrained-dimension vector.
     Vector(Option<usize>),
@@ -59,7 +59,7 @@ impl ColumnType {
             .unwrap_or(name)
             .trim()
             .to_ascii_lowercase();
-        // CONCEPT:EG-115 — pgvector `vector`/`vector(n)`. The dimension is read from the
+        // CONCEPT:EG-KG.query.vector-json-array-render — pgvector `vector`/`vector(n)`. The dimension is read from the
         // ORIGINAL spelling (the `(n)` suffix that the base-type strip above discards).
         if base == "vector" {
             return Ok(ColumnType::Vector(parse_vector_dim(name)));
@@ -86,7 +86,7 @@ impl ColumnType {
     }
 }
 
-/// Extract the declared dimension `n` from a `vector(n)` type spelling (CONCEPT:EG-115),
+/// Extract the declared dimension `n` from a `vector(n)` type spelling (CONCEPT:EG-KG.query.vector-json-array-render),
 /// or `None` for a bare `vector`. A malformed/zero suffix yields `None` (unconstrained).
 fn parse_vector_dim(name: &str) -> Option<usize> {
     let start = name.find('(')?;
@@ -99,7 +99,7 @@ fn parse_vector_dim(name: &str) -> Option<usize> {
 }
 
 /// A column-scoped comparison operator for a simple `CHECK (col OP literal)` constraint
-/// (CONCEPT:EG-020). Kept independent of the Cypher `CompareOp` so the relational store
+/// (CONCEPT:EG-KG.query.register-each-user-table). Kept independent of the Cypher `CompareOp` so the relational store
 /// has no cross-feature dependency.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CmpOp {
@@ -112,7 +112,7 @@ pub enum CmpOp {
 }
 
 /// A simple single-column `CHECK` predicate (`CHECK (col OP literal)`) enforced on
-/// insert/update (CONCEPT:EG-020). Only the column-vs-literal comparison shape is
+/// insert/update (CONCEPT:EG-KG.query.register-each-user-table). Only the column-vs-literal comparison shape is
 /// modeled; a complex CHECK expression is not stored (the classifier rejects it).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColCheck {
@@ -148,7 +148,7 @@ impl ColCheck {
 
 /// One column of a user table: its name, declared type, NULL-ability, primary-key /
 /// uniqueness participation, an optional column DEFAULT, SERIAL auto-increment, and an
-/// optional simple CHECK (CONCEPT:EG-018 + constraints CONCEPT:EG-020). The new
+/// optional simple CHECK (CONCEPT:EG-KG.query.register-user-tables-alongside + constraints CONCEPT:EG-KG.query.register-each-user-table). The new
 /// constraint fields are `#[serde(default)]` so a table written by the EG-018 increment
 /// (no constraints) deserializes unchanged.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -157,11 +157,11 @@ pub struct Column {
     pub ty: ColumnType,
     pub nullable: bool,
     pub primary_key: bool,
-    /// `UNIQUE` (or `PRIMARY KEY`) — enforced on insert/update (CONCEPT:EG-020).
+    /// `UNIQUE` (or `PRIMARY KEY`) — enforced on insert/update (CONCEPT:EG-KG.query.register-each-user-table).
     #[serde(default)]
     pub unique: bool,
     /// `SERIAL`/`BIGSERIAL` (or `DEFAULT nextval(...)`) — auto-assigned from the
-    /// per-table sequence when not supplied (CONCEPT:EG-020).
+    /// per-table sequence when not supplied (CONCEPT:EG-KG.query.register-each-user-table).
     #[serde(default)]
     pub serial: bool,
     /// Column `DEFAULT <literal>` value, used when a row omits the column.
@@ -194,7 +194,7 @@ impl Column {
     }
 }
 
-/// A user table's full schema: its name and ordered columns (CONCEPT:EG-018). The
+/// A user table's full schema: its name and ordered columns (CONCEPT:EG-KG.query.register-user-tables-alongside). The
 /// column ORDER is canonical — every stored row's `Vec<Cell>` is aligned to it, and
 /// a SELECT projects columns in this order unless the query names them explicitly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -215,7 +215,7 @@ impl TableSchema {
     }
 }
 
-/// One typed cell value of a stored row (CONCEPT:EG-018). A row is a `Vec<Cell>`
+/// One typed cell value of a stored row (CONCEPT:EG-KG.query.register-user-tables-alongside). A row is a `Vec<Cell>`
 /// aligned to the table's column order. `serde`-serializable so the redb store
 /// persists rows verbatim and they round-trip exactly across a restart.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -229,7 +229,7 @@ pub enum Cell {
     Timestamp(i64),
     Bytes(Vec<u8>),
     Json(Value),
-    /// A dense float embedding (CONCEPT:EG-115), stored as `Vec<f32>`.
+    /// A dense float embedding (CONCEPT:EG-KG.query.vector-json-array-render), stored as `Vec<f32>`.
     Vector(Vec<f32>),
 }
 
@@ -291,7 +291,7 @@ impl Cell {
                 other => return Err(format!("expected bytes, got `{other}`")),
             },
             ColumnType::Json => Cell::Json(value.clone()),
-            // CONCEPT:EG-115 — a `vector`/`vector(n)` accepts either a JSON array of
+            // CONCEPT:EG-KG.query.vector-json-array-render — a `vector`/`vector(n)` accepts either a JSON array of
             // numbers (`[1,2,3]`) or the pgvector text literal `'[1,2,3]'`; both decode
             // to a `Vec<f32>`. When the column declares a dimension, the row length is
             // enforced so a mis-shaped embedding is rejected, not silently stored.
@@ -325,7 +325,7 @@ impl Cell {
             Cell::Bool(b) => Value::Bool(*b),
             Cell::Bytes(b) => Value::Array(b.iter().map(|x| Value::Number((*x).into())).collect()),
             Cell::Json(v) => v.clone(),
-            // CONCEPT:EG-115 — a vector renders back as a JSON array of numbers; the
+            // CONCEPT:EG-KG.query.vector-json-array-render — a vector renders back as a JSON array of numbers; the
             // pgwire shim re-serializes that array to the pgvector text form `[1,2,3]`.
             Cell::Vector(v) => Value::Array(
                 v.iter()
@@ -340,7 +340,7 @@ impl Cell {
     }
 }
 
-/// Parse a JSON value into a dense `Vec<f32>` for a vector column (CONCEPT:EG-115):
+/// Parse a JSON value into a dense `Vec<f32>` for a vector column (CONCEPT:EG-KG.query.vector-json-array-render):
 /// a JSON array of numbers, or the pgvector text literal `[1,2,3]` (an array or a
 /// bracketed/comma string). Rejects a non-numeric element with a precise error.
 fn parse_vector_value(value: &Value) -> Result<Vec<f32>, String> {
@@ -361,7 +361,7 @@ fn parse_vector_value(value: &Value) -> Result<Vec<f32>, String> {
 }
 
 /// Parse a pgvector text literal `[1,2,3]` (brackets optional, comma/whitespace
-/// separated) into a `Vec<f32>` (CONCEPT:EG-115).
+/// separated) into a `Vec<f32>` (CONCEPT:EG-KG.query.vector-json-array-render).
 pub(crate) fn parse_vector_text(s: &str) -> Result<Vec<f32>, String> {
     let inner = s
         .trim()
@@ -381,9 +381,9 @@ pub(crate) fn parse_vector_text(s: &str) -> Result<Vec<f32>, String> {
         .collect()
 }
 
-// ── SQL stored functions (CONCEPT:EG-118) ─────────────────────────────────────
+// ── SQL stored functions (CONCEPT:EG-KG.query.create-drop-function) ─────────────────────────────────────
 
-/// One argument of a SQL stored function (CONCEPT:EG-118): `argname argtype`. The
+/// One argument of a SQL stored function (CONCEPT:EG-KG.query.create-drop-function): `argname argtype`. The
 /// `type_name` is the raw SQL type spelling (`int`, `text`, `double precision`, …);
 /// execution relies on DataFusion's schema inference over the EXPANDED body, so the
 /// declared type is catalog metadata (surfaced by a future `pg_proc`), not a coercion
@@ -394,7 +394,7 @@ pub struct FunctionArg {
     pub type_name: String,
 }
 
-/// What a SQL stored function returns (CONCEPT:EG-118). A `Scalar` function's body is a
+/// What a SQL stored function returns (CONCEPT:EG-KG.query.create-drop-function). A `Scalar` function's body is a
 /// single-expression `SELECT` inlined into an expression; a `Table`/`SetOf` function's
 /// body is a `SELECT` expanded as a parameterized-view subquery in a `FROM` clause.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -407,26 +407,26 @@ pub enum FunctionReturns {
     SetOf(String),
 }
 
-/// The procedural language a stored function's body is written in (CONCEPT:EG-340).
-/// `Sql` bodies are EXPANDED inline at plan time (CONCEPT:EG-118); `PlPgSql` bodies are
+/// The procedural language a stored function's body is written in (CONCEPT:EG-KG.query.eg-validate-procedural-body).
+/// `Sql` bodies are EXPANDED inline at plan time (CONCEPT:EG-KG.query.create-drop-function); `PlPgSql` bodies are
 /// run through the procedural interpreter (`sql::plpgsql`) on a bare top-level call.
 /// `#[serde(other)]`-free but `StoredFunction.language` carries `#[serde(default)]` so a
 /// catalog record written before EG-340 (no `language` field) decodes as `Sql`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum FunctionLanguage {
-    /// `LANGUAGE sql` — body is a single `SELECT`, expanded inline (CONCEPT:EG-118).
+    /// `LANGUAGE sql` — body is a single `SELECT`, expanded inline (CONCEPT:EG-KG.query.create-drop-function).
     #[default]
     Sql,
     /// `LANGUAGE plpgsql` — a procedural body (DECLARE/BEGIN..END, IF, loops, `:=`,
-    /// `SELECT … INTO`, RETURN) executed by the interpreter (CONCEPT:EG-340/EG-341).
+    /// `SELECT … INTO`, RETURN) executed by the interpreter (CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-341).
     PlPgSql,
 }
 
-/// A durable stored function (CONCEPT:EG-118 / EG-340), persisted in the function
+/// A durable stored function (CONCEPT:EG-KG.query.create-drop-function / EG-340), persisted in the function
 /// catalog beside the view/table catalogs. A `LANGUAGE sql` body is EXPANDED into a
 /// query at plan time so DataFusion's existing planner executes it (no separate
 /// evaluator). A `LANGUAGE plpgsql` body (IF/LOOP/variables/RETURN) is executed by the
-/// procedural interpreter (`sql::plpgsql`, CONCEPT:EG-340/EG-341) when a bare top-level
+/// procedural interpreter (`sql::plpgsql`, CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-341) when a bare top-level
 /// `SELECT fn(args)` / `CALL fn(args)` names it — its embedded SQL runs back through the
 /// same read path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -437,7 +437,7 @@ pub struct StoredFunction {
     /// The function body. For `Sql`: a dollar-/single-quoted `SELECT …` whose argument
     /// identifiers reference `args` by name. For `PlPgSql`: the procedural block.
     pub body: String,
-    /// The body's procedural language (CONCEPT:EG-340). `#[serde(default)]` so a
+    /// The body's procedural language (CONCEPT:EG-KG.query.eg-validate-procedural-body). `#[serde(default)]` so a
     /// pre-EG-340 catalog record (no field) decodes as [`FunctionLanguage::Sql`].
     #[serde(default)]
     pub language: FunctionLanguage,
@@ -446,7 +446,7 @@ pub struct StoredFunction {
 impl StoredFunction {
     /// Whether this function returns a set of rows (`RETURNS TABLE(...)`/`SETOF`) — so a
     /// call is expanded as a `FROM`-clause subquery — versus a scalar function whose
-    /// body expression is inlined into an expression (CONCEPT:EG-118).
+    /// body expression is inlined into an expression (CONCEPT:EG-KG.query.create-drop-function).
     pub fn is_table(&self) -> bool {
         matches!(
             self.returns,
@@ -454,7 +454,7 @@ impl StoredFunction {
         )
     }
 
-    /// Whether this is a `LANGUAGE plpgsql` procedural function (CONCEPT:EG-340) — run by
+    /// Whether this is a `LANGUAGE plpgsql` procedural function (CONCEPT:EG-KG.query.eg-validate-procedural-body) — run by
     /// the interpreter on a bare call rather than expanded inline like a `LANGUAGE sql`
     /// body. Such a function is EXCLUDED from `funcs::expand_functions` (its body is not
     /// SQL) so an embedded `fn(x)` in a larger query is left for the planner to reject.

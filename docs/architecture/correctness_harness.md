@@ -1,4 +1,4 @@
-# Correctness + Load Harness (CONCEPT:KG-2.212)
+# Correctness + Load Harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities)
 
 The standing **proof-engine** that gates every distributed / durability claim in the
 Waves-4-8 program: multi-Raft (lane A), M2 redb durability, distributed transactions
@@ -32,7 +32,7 @@ src/raft/network.rs   # partition::{partition,isolate,heal,reachable} gate (cfg-
 
 | Fault | What it does | Mechanism |
 |-------|--------------|-----------|
-| **Kill** (`KillLeader`/`KillNode`) | `kill -9` a node mid-write | `Cluster::kill` drops the node's Raft + redb backend; the on-disk redb is exactly what a crashed process leaves (every acked write was fsynced before the ack). `restart` re-opens over the same files → local log replay (KG-2.204) + catch-up. |
+| **Kill** (`KillLeader`/`KillNode`) | `kill -9` a node mid-write | `Cluster::kill` drops the node's Raft + redb backend; the on-disk redb is exactly what a crashed process leaves (every acked write was fsynced before the ack). `restart` re-opens over the same files → local log replay (EG-KG.storage.one-fsync-covers-raft) + catch-up. |
 | **Partition** | Drop the group-tagged TCP frames between subsets | A process-global `partition` "islands" controller the Raft network's per-RPC `round_trip` consults; a partitioned pair gets a `ConnectionReset` (the same thing a real dropped frame surfaces) → openraft `Unreachable` → backoff. |
 | **Skew / Pause** (`Isolate`) | A clock-skewed / GC-paused node stops heartbeating | Modeled as a network isolation window: peers see missed heartbeats → election. (Real monotonic-clock skew of one node is deferred — see below.) |
 | **Saturate** | Flood the write channel | The load gen's `rate_per_sec = 0` burst contends for the leader's group-commit + in-flight semaphore; `SaturateWindow` marks the window. |

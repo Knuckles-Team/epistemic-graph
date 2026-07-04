@@ -30,7 +30,7 @@ changes ship by **merging to `main` + restarting those services** — no rebuild
    reasoning method surface. A `--features server` build *links and runs* but is missing
    those methods, so emerald/quant callers fail at runtime with "Method not available in
    this server build". The script guards this by checking for a finance symbol. **`full`
-   now also pulls `redb`** (CONCEPT:KG-2.195), so a stock build is **redb-authoritative
+   now also pulls `redb`** (CONCEPT:AU-KG.backend.backend-modes), so a stock build is **redb-authoritative
    by default** — a durable source of truth, not a rebuildable cache. The *first* boot of
    a flipped binary runs a one-time `.mp`→redb migration that needs special restart
    handling — see [Authoritative migration (first boot)](#authoritative-migration-first-boot)
@@ -90,7 +90,7 @@ this becomes a **restart loop** that never completes.
 **Mitigation — restart with an extended `--health-start-period` covering the migration,
 then restore it.** Give the healthcheck a grace window long enough for the migration to
 finish before it starts probing. `scripts/promote_engine.sh` now does this for you
-(CONCEPT:OS-5.62) — prefer the script flags over the manual dance:
+(CONCEPT:EG-OS.deployment.binary-promotion) — prefer the script flags over the manual dance:
 
 ```bash
 # Migration-aware promotion of the FLIP binary: extend the start-period to cover the
@@ -124,7 +124,7 @@ What `--migrate` does, step by step:
    on this node, or a timeout), the restore is **skipped** so you don't shrink the window
    mid-migration — restore it manually after confirming the bind.
 
-Progress is logged so you can tell *slow-but-working* from *hung* (CONCEPT:KG-2.200):
+Progress is logged so you can tell *slow-but-working* from *hung* (CONCEPT:EG-KG.storage.authoritative-flip):
 `Snapshot load progress: N/total graph(s) processed` during the legacy load, then
 `redb authoritative migration: imported N graph(s) … in Xs` when it commits to redb. Then
 the script (with `--restart-consumers`) **restarts the consumers** with `GRAPH_BACKEND=fanout`
@@ -157,7 +157,7 @@ store entirely).
   silently falls back to the snapshot cache).
 - **First FLIP boot ⇒ extend `--health-start-period`.** The one-time `.mp`→redb migration runs
   before the socket binds and can take minutes; the 20s healthcheck start-period will kill it
-  into a restart loop. Use `promote_engine.sh --migrate [--restore-health-period]` (CONCEPT:OS-5.62),
+  into a restart loop. Use `promote_engine.sh --migrate [--restore-health-period]` (CONCEPT:EG-OS.deployment.binary-promotion),
   or pass `--health-start-period <secs>` directly. See
   [Authoritative migration (first boot)](#authoritative-migration-first-boot).
 - **Consumers should be `GRAPH_BACKEND=fanout` (or `epistemic_graph`), not `tiered`.** The `tiered`

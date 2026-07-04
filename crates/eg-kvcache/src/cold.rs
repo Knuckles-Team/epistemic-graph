@@ -1,4 +1,4 @@
-//! The COLD tier backing store (CONCEPT:EG-185).
+//! The COLD tier backing store (CONCEPT:EG-KG.storage.durable-redb-cold-tier).
 //!
 //! The COLD tier is where the cache offloads bytes it can no longer keep in RAM — the
 //! "survive OOM by spilling to disk" rung. [`ColdStore`] is the pluggable seam:
@@ -16,7 +16,7 @@
 
 use std::io;
 
-/// A pluggable COLD-tier blob device the tiered cache spills bytes into (CONCEPT:EG-185).
+/// A pluggable COLD-tier blob device the tiered cache spills bytes into (CONCEPT:EG-KG.storage.durable-redb-cold-tier).
 ///
 /// Object-safe by design: keys and values cross as borrows / owned `Vec<u8>`, so it can
 /// be held as `Box<dyn ColdStore<K>>`. The cache keeps the per-key metadata; a store
@@ -32,7 +32,7 @@ pub trait ColdStore<K> {
     fn kind(&self) -> &'static str;
 }
 
-/// An in-RAM COLD store (CONCEPT:EG-185) — always available, no dependency.
+/// An in-RAM COLD store (CONCEPT:EG-KG.storage.durable-redb-cold-tier) — always available, no dependency.
 ///
 /// It keeps spilled blobs in a *separate* map from the HOT/WARM tiers, so demotion to
 /// COLD is a real tier transition (bytes leave the HOT/WARM budgets) even in a pure-RAM
@@ -70,7 +70,7 @@ impl<K: std::hash::Hash + Eq + Clone> ColdStore<K> for MemoryColdStore<K> {
 }
 
 /// A key that the durable ([`RedbColdStore`]) tier can render to stable bytes
-/// (CONCEPT:EG-185). Only the durable tier needs this; the RAM tiers are content with
+/// (CONCEPT:EG-KG.storage.durable-redb-cold-tier). Only the durable tier needs this; the RAM tiers are content with
 /// `Hash + Eq`.
 #[cfg(feature = "durable")]
 pub trait ColdKey {
@@ -99,7 +99,7 @@ impl ColdKey for u64 {
     }
 }
 
-/// A durable, crash-safe COLD store backed by redb (CONCEPT:EG-185, feature `durable`).
+/// A durable, crash-safe COLD store backed by redb (CONCEPT:EG-KG.storage.durable-redb-cold-tier, feature `durable`).
 ///
 /// Demoted KV bytes are written under the key's [`ColdKey::cold_key`] encoding into a
 /// single redb table and committed (fsync), so they SURVIVE an OOM / process restart —
@@ -190,7 +190,7 @@ impl<K: ColdKey> ColdStore<K> for RedbColdStore {
 mod tests {
     use super::*;
 
-    /// CONCEPT:EG-185 — the RAM cold store round-trips blobs (models the tier boundary).
+    /// CONCEPT:EG-KG.storage.durable-redb-cold-tier — the RAM cold store round-trips blobs (models the tier boundary).
     #[test]
     fn eg185_memory_cold_store_roundtrips() {
         let mut cs: MemoryColdStore<String> = MemoryColdStore::new();
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(cs.get(&"k".to_string()).unwrap(), None);
     }
 
-    /// CONCEPT:EG-185 — the durable redb cold tier persists across a store reopen
+    /// CONCEPT:EG-KG.storage.durable-redb-cold-tier — the durable redb cold tier persists across a store reopen
     /// (offload survives a restart).
     #[cfg(feature = "durable")]
     #[test]

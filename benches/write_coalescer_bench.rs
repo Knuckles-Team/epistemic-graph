@@ -1,4 +1,4 @@
-//! Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-012).
+//! Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-KG.txn.write-path-benchmarks).
 //!
 //! This is the standing micro-reproduction of the live H1 contention: under the
 //! `__commons__` ingestion firehose a read (semantic_search) goes 0.02s idle → 14s,

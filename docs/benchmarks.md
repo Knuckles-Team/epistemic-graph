@@ -28,7 +28,7 @@ clients are bounded server-side by the in-flight semaphore
 (`EPISTEMIC_GRAPH_MAX_INFLIGHT`, default 1024) which sheds excess load with a
 `BUSY` response rather than queueing unbounded work.
 
-## Multi-shard scaling (measured) — CONCEPT:KG-2.7 P3
+## Multi-shard scaling (measured) — CONCEPT:AU-KG.query.vendor-agnostic-traversal P3
 
 The "100,000,000 concurrent agents" figure is an **architectural projection**, not
 a number that has been run. This section states exactly what *was* measured and the

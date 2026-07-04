@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.22b / KG-2.207 — SemanticStore backend selector.
+// CONCEPT:EG-KG.compute.rust-native-ml-estimators / KG-2.207 — SemanticStore backend selector.
 //
 // `compute::semantic::SemanticStore` is the embedding store the graph holds. Two
 // interchangeable backends share one public API and one on-disk serde shape:
@@ -21,7 +21,7 @@ mod backend;
 pub use backend::SemanticStore;
 
 /// Build an OVERLAY embedding store for in-txn cross-modal read-your-own-writes
-/// (CONCEPT:EG-359). Clones the committed `SemanticStore` (a point-in-time copy;
+/// (CONCEPT:EG-KG.query.txn-cross-modal-ryow). Clones the committed `SemanticStore` (a point-in-time copy;
 /// the live store is never touched) and folds each staged `(node_id, embedding)`
 /// vector in via `add_embedding`, so the Rank/kNN leg of an in-txn unified query
 /// ranks over the txn's own uncommitted embeddings alongside the committed ones.

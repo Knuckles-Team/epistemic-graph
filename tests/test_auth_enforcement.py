@@ -46,7 +46,7 @@ def _wait_for_socket(socket_path, timeout=10.0):
     return False
 
 
-@pytest.mark.concept("CONCEPT:KG-2.19")
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_empty_secret_refuses_to_start(tmp_path):
     sock = str(tmp_path / "no-secret.sock")
     proc = _spawn(sock)
@@ -61,7 +61,7 @@ def test_empty_secret_refuses_to_start(tmp_path):
     assert not os.path.exists(sock)
 
 
-@pytest.mark.concept("CONCEPT:KG-2.19")
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_allow_insecure_flag_starts_and_warns(tmp_path):
     sock = str(tmp_path / "insecure-flag.sock")
     proc = _spawn(sock, "--allow-insecure")
@@ -79,7 +79,7 @@ def test_allow_insecure_flag_starts_and_warns(tmp_path):
     assert "WITHOUT authentication" in stdout.decode() + stderr.decode()
 
 
-@pytest.mark.concept("CONCEPT:KG-2.19")
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_allow_insecure_env_starts(tmp_path):
     sock = str(tmp_path / "insecure-env.sock")
     proc = _spawn(sock, EPISTEMIC_GRAPH_ALLOW_INSECURE="1")
@@ -90,7 +90,7 @@ def test_allow_insecure_env_starts(tmp_path):
         proc.wait(timeout=10)
 
 
-@pytest.mark.concept("CONCEPT:KG-2.19")
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_wrong_secret_is_rejected(tmp_path):
     sock = str(tmp_path / "secret.sock")
     proc = _spawn(sock, GRAPH_SERVICE_AUTH_SECRET="right-secret")

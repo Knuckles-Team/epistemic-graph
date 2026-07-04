@@ -1,4 +1,4 @@
-//! Recall / latency / footprint bench for eg-ann (CONCEPT:KG-2.207).
+//! Recall / latency / footprint bench for eg-ann (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 //!
 //! Not a criterion bench — a plain `main` that builds an IVF-PQ+OPQ index at a
 //! given scale, measures brute-force vs ADC-only vs ADC+refine recall@10, query

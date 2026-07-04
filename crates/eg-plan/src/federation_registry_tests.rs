@@ -1,4 +1,4 @@
-//! Federation NAME-RESOLUTION proofs (CONCEPT:EG-073): the `ForeignSourceRegistry`
+//! Federation NAME-RESOLUTION proofs (CONCEPT:EG-KG.query.closure-backed-source): the `ForeignSourceRegistry`
 //! resolves a foreign source BY NAME so a `Named` `Op::ForeignScan` (and the UQL
 //! `FOREIGN "<name>"` marker `Op::Foreign`) materialize the registered source's rows,
 //! compose with a local Join, error cleanly on an unbound name, and — crucially — leave
@@ -23,7 +23,7 @@ fn rows(pairs: &[(&str, Option<f32>)]) -> Vec<(String, Option<f32>)> {
     pairs.iter().map(|(id, s)| (id.to_string(), *s)).collect()
 }
 
-/// CONCEPT:EG-073 — a registered source resolves by name: a `Named` `Op::ForeignScan`
+/// CONCEPT:EG-KG.query.closure-backed-source — a registered source resolves by name: a `Named` `Op::ForeignScan`
 /// (a pure source, `join=false`) materializes the registered rows into the RowSet.
 #[test]
 fn eg073_named_foreign_scan_materializes_registered_rows() {
@@ -51,7 +51,7 @@ fn eg073_named_foreign_scan_materializes_registered_rows() {
     assert_eq!(out.rows()[0].score, Some(0.7), "scores are projected");
 }
 
-/// CONCEPT:EG-073 — a `Named` `Op::ForeignScan{join:true}` composes with the LOCAL graph:
+/// CONCEPT:EG-KG.query.closure-backed-source — a `Named` `Op::ForeignScan{join:true}` composes with the LOCAL graph:
 /// `Scan -> Filter(year>2023) -> ForeignScan{Named, join} -> Rank -> Limit` equals the
 /// MANUAL join (local-filtered ids ∩ registered foreign ids, vector-ranked, top-k).
 #[test]
@@ -109,7 +109,7 @@ fn eg073_named_foreign_scan_composes_with_a_local_join() {
     assert_eq!(fused.ids(), vec!["d2", "d4"], "ranked d2 then d4");
 }
 
-/// CONCEPT:EG-073 — the UQL `FOREIGN "<name>"` marker (`Op::Foreign`) resolves through
+/// CONCEPT:EG-KG.query.closure-backed-source — the UQL `FOREIGN "<name>"` marker (`Op::Foreign`) resolves through
 /// the registry too: with a registry attached the named source's rows REPLACE the input.
 #[test]
 fn eg073_op_foreign_marker_resolves_through_registry() {
@@ -139,7 +139,7 @@ fn eg073_op_foreign_marker_resolves_through_registry() {
     );
 }
 
-/// CONCEPT:EG-073 — an unbound name is a CLEAN typed error (naming the source + what IS
+/// CONCEPT:EG-KG.query.closure-backed-source — an unbound name is a CLEAN typed error (naming the source + what IS
 /// registered), for BOTH the `Named` `Op::ForeignScan` and the `Op::Foreign` marker.
 #[test]
 fn eg073_unbound_named_source_errors_cleanly() {
@@ -167,7 +167,7 @@ fn eg073_unbound_named_source_errors_cleanly() {
     assert!(err2.contains("ghost"), "marker unbound error, got: {err2}");
 }
 
-/// CONCEPT:EG-073 — a `Named` `Op::ForeignScan` with NO registry attached to the ctx is a
+/// CONCEPT:EG-KG.query.closure-backed-source — a `Named` `Op::ForeignScan` with NO registry attached to the ctx is a
 /// clean error (rather than a panic or a silent empty set): the plan references a
 /// registry that was never wired.
 #[test]
@@ -188,7 +188,7 @@ fn eg073_named_scan_without_a_registry_errors() {
     );
 }
 
-/// CONCEPT:EG-073 — the CRITICAL invariant: with NO registry attached (the default ctx),
+/// CONCEPT:EG-KG.query.closure-backed-source — the CRITICAL invariant: with NO registry attached (the default ctx),
 /// the `Op::Foreign` marker keeps its PRIOR pass-through behavior, so every existing plan
 /// is byte-for-byte unchanged. A registry is strictly additive.
 #[test]
@@ -221,7 +221,7 @@ fn eg073_empty_registry_preserves_existing_foreign_marker_passthrough() {
     );
 }
 
-/// CONCEPT:EG-073 — a `Named` spec registered as a *spec-backed* source recurses into the
+/// CONCEPT:EG-KG.query.closure-backed-source — a `Named` spec registered as a *spec-backed* source recurses into the
 /// clean guard rather than looping: `source_for` cannot resolve a `Named`, so a
 /// `register_spec(Named)` surfaces the guard error, not a hang or empty set.
 #[test]

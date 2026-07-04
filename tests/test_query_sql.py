@@ -1,5 +1,5 @@
 """QueryClient.sql sends the Sql RPC and zips Raw(QueryResult) rows into dicts
-(CONCEPT:KG-2.178)."""
+(CONCEPT:EG-KG.query.read-only-sql-query)."""
 
 from __future__ import annotations
 

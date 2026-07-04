@@ -1,12 +1,12 @@
-//! Online single-node per-tenant resharding execution (CONCEPT:EG-032, M3 keystone).
+//! Online single-node per-tenant resharding execution (CONCEPT:EG-KG.backend.catalog-shard-resolve, M3 keystone).
 //!
 //! ## What it solves
 //!
-//! [`super::shard_migrate`] (CONCEPT:EG-030) moves shards OFFLINE — the engine must be
+//! [`super::shard_migrate`] (CONCEPT:EG-KG.sharding.atomic-shard-swap) moves shards OFFLINE — the engine must be
 //! stopped because it rewrites the whole store to a new uniform K. This module moves ONE
 //! graph between shards while the engine RUNS, with no data loss and no stop: the graph's
 //! rows are copied verbatim to the destination shard, the [`super::tenant_catalog`]
-//! (CONCEPT:EG-031) route is flipped so reads/writes follow the graph to its new shard,
+//! (CONCEPT:EG-KG.sharding.empty-catalog-routing) route is flipped so reads/writes follow the graph to its new shard,
 //! and the source rows are GC'd — all without touching any OTHER graph's writers.
 //!
 //! ## Correctness — the same verbatim row copy as EG-030
@@ -16,7 +16,7 @@
 //!
 //! * Per-graph data (`NODES`/`EDGES`/`LEDGER`/`SEMANTIC`/`GRAPH_META`) is moved row for
 //!   row, value blob unchanged — so encryption-at-rest blobs survive WITHOUT the key.
-//! * The tamper-evident hash-chained `AUDIT` log (CONCEPT:KG-2.231) is copied verbatim
+//! * The tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) is copied verbatim
 //!   `(graph, seq) -> blob`, so the chain stays verifiable (re-deriving would break it).
 //!
 //! ## Correctness — the quiesce / flip window
@@ -44,7 +44,7 @@ use super::tenant_catalog::TenantCatalog;
 use crate::redb_store::AUDIT;
 use crate::redb_store::{EDGES, GRAPH_META, LEDGER, NODES, SEMANTIC};
 
-/// One graph's durable rows captured VERBATIM for an online shard move (CONCEPT:EG-032).
+/// One graph's durable rows captured VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve).
 /// Value blobs are the raw on-disk bytes (encrypted if encryption-at-rest is on, the
 /// audit chain untouched) so re-inserting them on the destination shard preserves both
 /// encryption and audit-chain verifiability — exactly as EG-030's offline copy does.
@@ -66,7 +66,7 @@ pub(crate) struct RawGraphRows {
     pub audit: Vec<(u64, Vec<u8>)>,
 }
 
-/// Per-table counts of a completed online reshard (CONCEPT:EG-032).
+/// Per-table counts of a completed online reshard (CONCEPT:EG-KG.backend.catalog-shard-resolve).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReshardReport {
     pub graph: String,
@@ -77,7 +77,7 @@ pub struct ReshardReport {
     pub ledger: u64,
     pub semantic: u64,
     pub audit: u64,
-    /// Rows copied under the EXCLUSIVE routing quiesce (CONCEPT:EG-041, R1 delta-copy) —
+    /// Rows copied under the EXCLUSIVE routing quiesce (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy) —
     /// the work that actually pauses the moved graph's writes. For an idle graph this is
     /// 0 (the whole graph rode the unquiesced bulk pass), so `delta_nodes + delta_edges
     /// << nodes + edges` is the proof the snapshot+delta path shrank the pause.
@@ -120,7 +120,7 @@ impl ReshardReport {
 }
 
 /// The DELTA between a bulk snapshot (already on the destination shard) and the latest
-/// source state, captured under the exclusive quiesce (CONCEPT:EG-041, R1). Only the rows
+/// source state, captured under the exclusive quiesce (CONCEPT:EG-KG.backend.flush-pending-first, R1). Only the rows
 /// that changed/appeared since the bulk pass are upserted, and rows that DISAPPEARED (a
 /// node/edge deleted on `src` between the bulk snapshot and the flip) are removed from
 /// `dst` — so a deleted row can never be resurrected on the destination. Ledger/audit are
@@ -153,7 +153,7 @@ impl RawGraphDelta {
     }
 }
 
-/// Diff the LATEST source rows against the BULK snapshot already on `dst` (CONCEPT:EG-041).
+/// Diff the LATEST source rows against the BULK snapshot already on `dst` (CONCEPT:EG-KG.backend.flush-pending-first).
 /// Emits only what changed: new/changed-blob rows to upsert + vanished rows to remove.
 pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGraphDelta {
     use std::collections::HashMap;
@@ -233,7 +233,7 @@ pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGr
 }
 
 /// Apply a [`RawGraphDelta`] to the destination `Database` in ONE durable transaction
-/// (CONCEPT:EG-041). Runs on the destination shard's writer thread (via
+/// (CONCEPT:EG-KG.backend.flush-pending-first). Runs on the destination shard's writer thread (via
 /// [`Cmd::ImportGraphDelta`](super::redb_backend::Cmd)); the single `Durability::Immediate`
 /// commit is the delta's commit-before-flip point. O(delta) rows — the short under-quiesce
 /// write, vs the full O(graph) copy the bulk pass already did unquiesced.
@@ -306,7 +306,7 @@ pub(crate) fn import_graph_delta(
     Ok(())
 }
 
-/// Scan ONE graph's durable rows VERBATIM off a `Database` (CONCEPT:EG-032). Runs on the
+/// Scan ONE graph's durable rows VERBATIM off a `Database` (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs on the
 /// owning shard's writer thread (via [`Cmd::ExportGraphRaw`]) AFTER it has flushed pending
 /// writes, so the snapshot reflects every committed mutation. Value blobs are copied raw
 /// (no `crypto.unseal`) so encryption-at-rest and the audit chain survive the move.
@@ -386,7 +386,7 @@ pub(crate) fn export_graph_raw(db: &Database, graph: &str) -> Result<RawGraphRow
 }
 
 /// Insert ONE graph's verbatim rows into a destination `Database` in ONE durable
-/// transaction (CONCEPT:EG-032). Runs on the destination shard's writer thread (via
+/// transaction (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs on the destination shard's writer thread (via
 /// [`Cmd::ImportGraphRaw`]); the single `Durability::Immediate` commit is the
 /// commit-before-ack point of the move. Idempotent (keyed upserts), so a re-run after an
 /// interrupted move overwrites rather than duplicates.
@@ -455,7 +455,7 @@ fn export_from(src_tx: &SyncSender<Cmd>, graph: &str) -> Result<RawGraphRows, St
         .map_err(|_| "redb writer dropped export reply".to_string())?
 }
 
-/// PHASE 1 of the online move (CONCEPT:EG-041, R1 delta-copy) — the BULK pass, run WITHOUT
+/// PHASE 1 of the online move (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy) — the BULK pass, run WITHOUT
 /// the exclusive routing quiesce so writes keep flowing to `src` and the graph is NOT
 /// paused. Export the graph's rows verbatim off a src snapshot and import them into `dst`
 /// in one durable commit. Returns the bulk snapshot so [`delta_flip_purge`] can diff the
@@ -481,7 +481,7 @@ pub(crate) fn bulk_copy(
     Ok(rows)
 }
 
-/// PHASE 2 of the online move (CONCEPT:EG-041, R1) — run on a blocking thread WHILE the
+/// PHASE 2 of the online move (CONCEPT:EG-KG.backend.flush-pending-first, R1) — run on a blocking thread WHILE the
 /// exclusive `routing_epoch` WRITE guard is held, so writes to this graph are quiesced for
 /// only this short window. Re-export the LATEST source state, copy just the DELTA accrued
 /// since the bulk pass into `dst`, flip the catalog route, then GC the source. The pause is

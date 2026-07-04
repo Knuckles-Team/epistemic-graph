@@ -4,7 +4,7 @@
 There is exactly ONE published package — ``epistemic-graph`` — and the numeric
 kernel ships INSIDE its wheel as ``epistemic_graph/numeric.abi3.so`` (importable
 as ``epistemic_graph.numeric``, the module the ``agent_utilities.numeric`` ``xp``
-shim probes; CONCEPT:KG-2.315). There is NO separate ``eg-numeric`` package on
+shim probes; CONCEPT:AU-KG.compute.shim-goes-kernel-live). There is NO separate ``eg-numeric`` package on
 PyPI.
 
 The main ``epistemic-graph`` wheel is a maturin ``bindings="bin"`` wheel (it ships
@@ -82,7 +82,7 @@ def inject(server_whl: Path, numeric_whl: Path) -> None:
     # into the rewritten wheel. Dropping external_attr is what previously stripped the
     # 0755 executable bit off ``*.data/scripts/epistemic-graph-server`` — pip then
     # installed a non-executable console binary and ``epistemic-graph-server --help``
-    # died with "Permission denied" (CONCEPT:EG-346 CI smoke).
+    # died with "Permission denied" (CONCEPT:AU-KG.compute.is-installed-kernel-discovery CI smoke).
     with zipfile.ZipFile(server_whl) as z:
         infos = z.infolist()
         record_info = next(

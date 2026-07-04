@@ -1,4 +1,4 @@
-# Multi-node Raft cluster — deployment & data migration (CONCEPT:KG-2.273)
+# Multi-node Raft cluster — deployment & data migration (CONCEPT:AU-KG.backend.authority-has-already-acked)
 
 > How to run the epistemic-graph engine as a highly-available **Raft cluster** across
 > the fleet's 4 nodes, and how to convert the **live single-node R510 engine** (which
@@ -35,7 +35,7 @@ With Raft active, **all durable writes for a graph route through that graph's gr
 LEADER** before they are acked (consensus is the replication barrier). Today every
 graph maps to the single `DEFAULT_GROUP`, so the cluster is **HA, not write-scaling**:
 the writer is **K=1** (one serialized write path). Splitting the keyspace into many
-write groups (multi-Raft sharding, `GroupRouter` ring — KG-2.205/2.266) is a SEPARATE
+write groups (multi-Raft sharding, `GroupRouter` ring — EG-KG.sharding.raft-resharding/2.266) is a SEPARATE
 effort and is **off** in this deployment. Read that as: a 4-node cluster buys you
 *survivability of a node loss*, not 4× write throughput.
 

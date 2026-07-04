@@ -1,4 +1,4 @@
-//! Massive-scale engine micro-benchmark harness (CONCEPT:EG-096).
+//! Massive-scale engine micro-benchmark harness (CONCEPT:EG-KG.compute.massive-scale-benchmark).
 //!
 //! The standing "how fast is the core?" harness for the three hot substrates the
 //! whole engine is built on. It is DEV-only (criterion), never linked into the
@@ -17,7 +17,7 @@
 //!
 //! Run:  cargo bench --bench eg096_massive_scale_bench
 //!
-//! CONCEPT:EG-096 — massive-scale benchmark harness.
+//! CONCEPT:EG-KG.compute.massive-scale-benchmark — massive-scale benchmark harness.
 
 use std::hint::black_box;
 

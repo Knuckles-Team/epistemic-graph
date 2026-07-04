@@ -1,4 +1,4 @@
-// CONCEPT:EG-045 — Serializable compound WHERE predicate for DML.
+// CONCEPT:EG-KG.query.compound-predicate-decode — Serializable compound WHERE predicate for DML.
 //
 // A serde-only predicate AST that lives at the BOTTOM of the crate DAG (eg-types)
 // so `eg-core` can evaluate it under a held write guard WITHOUT depending on the
@@ -28,7 +28,7 @@ pub enum CmpOp {
     Ge,
 }
 
-/// A serializable compound row predicate (CONCEPT:EG-045). Decoded from a SQL
+/// A serializable compound row predicate (CONCEPT:EG-KG.query.compound-predicate-decode). Decoded from a SQL
 /// `WHERE` by `eg-query` and evaluated against a single decoded row (`col -> value`)
 /// by `eg-core` under the write guard.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.21 — AST Symbol Representation for KG Persistence
+// CONCEPT:EG-KG.compute.ast-symbol-representation — AST Symbol Representation for KG Persistence
 //
 // Symbol structs that map directly to Knowledge Graph nodes.
 // Each parsed code entity (function, class, import, variable) becomes

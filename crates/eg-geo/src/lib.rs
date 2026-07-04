@@ -1,4 +1,4 @@
-//! # eg-geo — the spatial / geospatial modality (CONCEPT:EG-083)
+//! # eg-geo — the spatial / geospatial modality (CONCEPT:EG-KG.ontology.singles-concept)
 //!
 //! A pure-Rust leaf crate (a sibling of `eg-ann`) giving the engine a spatial data
 //! type + index with **NO GEOS/PROJ/C dependency** — the Raspberry-Pi contract. It
@@ -6,51 +6,51 @@
 //!
 //! * [`Geometry`] — the full OGC model: `Point` / `LineString` / `Polygon`
 //!   (with interior rings) plus `MultiPoint` / `MultiLineString` / `MultiPolygon` /
-//!   `GeometryCollection` (CONCEPT:EG-257), each with a bounding box ([`Bbox`]);
+//!   `GeometryCollection` (CONCEPT:EG-KG.domains.geometry-collections), each with a bounding box ([`Bbox`]);
 //!   serde-serializable so a geometry persists as a typed value in the engine's redb
 //!   per-graph store.
 //! * A hand-written [`wkt`]/EWKT codec covering every variant (`SRID=…;` tolerated).
 //! * Planar spatial [`predicates`]: [`within`] / [`intersects`] / [`distance`]
 //!   (Euclidean).
-//! * Geodesic metrics ([`geodesic`], CONCEPT:EG-256): Haversine + Vincenty distance and
+//! * Geodesic metrics ([`geodesic`], CONCEPT:EG-KG.ontology.concept-8): Haversine + Vincenty distance and
 //!   spherical polygon area on WGS84 — pure-Rust, no C deps.
-//! * CRS + reprojection ([`crs`], CONCEPT:EG-255): EPSG codes (WGS84 / Web-Mercator / UTM)
+//! * CRS + reprojection ([`crs`], CONCEPT:EG-KG.domains.coordinate-reference-system): EPSG codes (WGS84 / Web-Mercator / UTM)
 //!   + a pure-Rust [`reproject`] and an SRID tag ([`SridGeometry`]).
-//! * DE-9IM topological [`predicates`] (CONCEPT:EG-258): `contains` / `covers` / `touches`
+//! * DE-9IM topological [`predicates`] (CONCEPT:EG-KG.ontology.de-9im-relations): `contains` / `covers` / `touches`
 //!   / `crosses` / `overlaps` / `equals` / `disjoint` beyond EG-083's within/intersects.
-//! * Constructive geometry [`algebra`] (CONCEPT:EG-259): `buffer` / `convex_hull` /
+//! * Constructive geometry [`algebra`] (CONCEPT:EG-KG.ontology.concept-9): `buffer` / `convex_hull` /
 //!   `simplify` / `centroid` / `union` / `intersection` / `difference`.
 //! * An in-house packed Hilbert [`RTree`] over a set of bounding boxes supporting
 //!   `query_bbox(bbox) -> Vec<id>`.
-//! * A **CRS registry** ([`registry`], CONCEPT:EG-262): [`CrsRegistry`] keyed by EPSG code,
+//! * A **CRS registry** ([`registry`], CONCEPT:EG-KG.domains.geo-registry): [`CrsRegistry`] keyed by EPSG code,
 //!   generic [`Affine`]/Helmert transforms, and an [`st_transform`] `ST_Transform` API layered
 //!   over the EG-255 reprojection.
-//! * A **durable STR R-tree** ([`strtree`], CONCEPT:EG-263): a bulk-loaded Sort-Tile-Recursive
+//! * A **durable STR R-tree** ([`strtree`], CONCEPT:EG-KG.domains.spatial-strtree-index): a bulk-loaded Sort-Tile-Recursive
 //!   [`StrTree`] that is serde-serialisable (persists alongside the store) and answers range,
 //!   k-nearest-neighbour and containment queries.
-//! * **Format I/O** (CONCEPT:EG-264): [`geojson`] (Feature/FeatureCollection with properties;
+//! * **Format I/O** (CONCEPT:EG-KG.domains.geojson-gpx-formats): [`geojson`] (Feature/FeatureCollection with properties;
 //!   behind the `geo-io` feature), [`wkb`] (Well-Known Binary + EWKB), and [`gpx`] (GPS track /
 //!   route / waypoint reader).
-//! * **More map formats** (CONCEPT:EG-306): [`shapefile`] (ESRI `.shp`+`.dbf`+`.shx` reader →
+//! * **More map formats** (CONCEPT:EG-KG.domains.geo-formats): [`shapefile`] (ESRI `.shp`+`.dbf`+`.shx` reader →
 //!   geometries + attribute maps), [`kml`] (Keyhole Markup Language reader+writer over a
 //!   hand-rolled XML DOM), and [`geoparquet`] (the GeoParquet `"geo"` metadata model + WKB
 //!   geometry-column encoding, behind `geo-io`; the Parquet byte container is a documented B4
 //!   seam that keeps `arrow`/`parquet` out of eg-geo).
-//! * **Web-map tiling** ([`tiles`], CONCEPT:EG-265): XYZ/TMS [`Tile`] addressing over
+//! * **Web-map tiling** ([`tiles`], CONCEPT:EG-KG.domains.map-tiles): XYZ/TMS [`Tile`] addressing over
 //!   Web-Mercator (bounds ⇄ index, y-flip) + a hand-rolled Mapbox Vector Tile
 //!   ([`encode_mvt`]/[`decode_mvt`]) codec — no protobuf codegen.
-//! * **Raster tile pyramids** ([`raster`], CONCEPT:EG-338/EG-339): a georeferenced coverage
+//! * **Raster tile pyramids** ([`raster`], CONCEPT:EG-KG.domains.raster-build/EG-339): a georeferenced coverage
 //!   grid ([`Raster`] — bbox + width×height × bands) resampled per XYZ tile into a
 //!   [`RasterTile`] ([`Raster::tile`], EG-339) and batched into a [`Pyramid`] over
 //!   `z_min..=z_max` ([`Raster::build_pyramid`], EG-338), with a hand-rolled dependency-free
 //!   PNG codec ([`encode_png`]/[`decode_png`]) — the raster complement to EG-265's MVT.
-//! * **Weighted-network routing** ([`routing`], CONCEPT:EG-266): a [`Network`] of located
+//! * **Weighted-network routing** ([`routing`], CONCEPT:EG-KG.domains.geo-routing): a [`Network`] of located
 //!   nodes + weighted edges with Dijkstra / A\* shortest path, [`Network::isochrone`]
 //!   reachability, and a nearest-neighbour + 2-opt TSP tour ([`solve_tsp`]). Extended
-//!   (CONCEPT:EG-312) with **turn restrictions / turn costs** ([`TurnRestrictions`],
+//!   (CONCEPT:EG-KG.domains.geo-partitioning) with **turn restrictions / turn costs** ([`TurnRestrictions`],
 //!   [`Network::dijkstra_with_turns`]) and **time-dependent edge weights**
 //!   ([`TrafficProfile`], [`Network::shortest_path_time_dependent`]).
-//! * **Map task tracking** ([`geotask`], CONCEPT:EG-267): a [`GeoTask`] (location + status +
+//! * **Map task tracking** ([`geotask`], CONCEPT:EG-KG.domains.geo-task): a [`GeoTask`] (location + status +
 //!   service area) with an R-tree-backed [`GeoTaskIndex`] for bbox/polygon/nearest queries
 //!   and nearest-resource ↔ task assignment.
 //!
@@ -65,7 +65,7 @@
 //! be consulted there for candidate pruning without a rebuild; that exec wiring is deferred
 //! (this crate exposes the index + serde surface it needs).
 //!
-//! **Format coverage (CONCEPT:EG-306):** Shapefile (reader) and KML (reader+writer) are now
+//! **Format coverage (CONCEPT:EG-KG.domains.geo-formats):** Shapefile (reader) and KML (reader+writer) are now
 //! delivered in full ([`shapefile`], [`kml`]); a Shapefile *writer* and the GeoParquet Parquet
 //! byte container ([`geoparquet::ParquetGeometryTable`]) remain documented B4 follow-ups (the
 //! latter to keep the heavy `arrow`/`parquet` crates out of eg-geo's dep tree). KMZ (zipped KML)

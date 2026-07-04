@@ -1,5 +1,5 @@
-//! The Cypher procedure registry (CONCEPT:EG-142) and its built-in APOC/GDS-style
-//! procedure library (CONCEPT:EG-143). A `CALL proc.name(args) YIELD …` stage
+//! The Cypher procedure registry (CONCEPT:EG-KG.query.cypher-planning) and its built-in APOC/GDS-style
+//! procedure library (CONCEPT:EG-KG.query.eg-2). A `CALL proc.name(args) YIELD …` stage
 //! consults [`registry`] for a [`CypherProcedure`] by (case-insensitive) name and
 //! materializes its result rows into the Cypher pipeline.
 //!
@@ -7,7 +7,7 @@
 //! surface is exactly the engine's own kernels adapted into `YIELD` rows — NO
 //! second implementation. The core `gds.*` catalogue
 //! (pageRank/betweenness/degree/louvain/wcc/scc/dijkstra/nodeSimilarity) lives in
-//! the sibling [`super::gds`] module (CONCEPT:EG-298): it projects the current
+//! the sibling [`super::gds`] module (CONCEPT:EG-KG.query.gds-call-procedures): it projects the current
 //! graph into `eg_compute::graph_algos::AdjacencyGraph`, parses a GDS config map,
 //! and streams `nodeId`/`score`/`communityId`/… rows. This module keeps
 //! `personalized_pagerank` on the earlier live-view kernel plus a handful of
@@ -25,7 +25,7 @@ use serde_json::Value;
 use eg_compute::algorithms;
 
 /// A single yielded column value: either a graph node id (bindable as an anchorable
-/// node variable downstream) or an opaque scalar (CONCEPT:EG-142).
+/// node variable downstream) or an opaque scalar (CONCEPT:EG-KG.query.cypher-planning).
 #[derive(Debug, Clone)]
 pub enum YieldValue {
     Node(String),
@@ -35,7 +35,7 @@ pub enum YieldValue {
 /// One procedure result row: an ordered list of `(column, value)` pairs.
 pub type ProcRow = Vec<(String, YieldValue)>;
 
-/// A callable Cypher procedure (CONCEPT:EG-142). Stateless — the registry holds one
+/// A callable Cypher procedure (CONCEPT:EG-KG.query.cypher-planning). Stateless — the registry holds one
 /// shared instance per name and the executor calls it with resolved args + the live
 /// (read-only) graph view.
 pub trait CypherProcedure: Send + Sync {
@@ -47,7 +47,7 @@ pub trait CypherProcedure: Send + Sync {
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String>;
 }
 
-/// The process-wide procedure registry, keyed by lower-cased name (CONCEPT:EG-142).
+/// The process-wide procedure registry, keyed by lower-cased name (CONCEPT:EG-KG.query.cypher-planning).
 pub fn registry() -> &'static HashMap<String, Box<dyn CypherProcedure>> {
     static REG: OnceLock<HashMap<String, Box<dyn CypherProcedure>>> = OnceLock::new();
     REG.get_or_init(build_registry)
@@ -62,13 +62,13 @@ fn build_registry() -> HashMap<String, Box<dyn CypherProcedure>> {
     // The core `gds.*` catalogue (pageRank/betweenness/degree/louvain/wcc/scc/
     // dijkstra/nodeSimilarity) is served by the EG-298 procedures, which project
     // the current graph into `eg_compute::graph_algos::AdjacencyGraph`, parse a GDS
-    // config map, and stream `nodeId`/`score`/`communityId`/… rows (CONCEPT:EG-298).
+    // config map, and stream `nodeId`/`score`/`communityId`/… rows (CONCEPT:EG-KG.query.gds-call-procedures).
     for p in super::gds::gds_procedures() {
         add(p);
     }
-    // Personalized PageRank stays on the earlier live-view kernel (CONCEPT:EG-143).
+    // Personalized PageRank stays on the earlier live-view kernel (CONCEPT:EG-KG.query.eg-2).
     add(Box::new(PersonalizedPageRank));
-    // ── APOC / db. metadata + list utilities (CONCEPT:EG-143) ─────────────────
+    // ── APOC / db. metadata + list utilities (CONCEPT:EG-KG.query.eg-2) ─────────────────
     add(Box::new(DbLabels));
     add(Box::new(DbRelationshipTypes));
     add(Box::new(ApocMetaStats));
@@ -195,7 +195,7 @@ fn single_value_row(v: Value) -> Vec<ProcRow> {
 // ── GDS procedures ──────────────────────────────────────────────────────────────
 // The core catalogue moved to the EG-298 `gds` module (config-driven, projected
 // onto `graph_algos::AdjacencyGraph`). Personalized PageRank remains here on the
-// earlier live-view kernel (CONCEPT:EG-143).
+// earlier live-view kernel (CONCEPT:EG-KG.query.eg-2).
 
 struct PersonalizedPageRank;
 impl CypherProcedure for PersonalizedPageRank {
@@ -213,7 +213,7 @@ impl CypherProcedure for PersonalizedPageRank {
     }
 }
 
-// ── APOC / db. metadata + list utilities (CONCEPT:EG-143) ───────────────────────
+// ── APOC / db. metadata + list utilities (CONCEPT:EG-KG.query.eg-2) ───────────────────────
 
 struct DbLabels;
 impl CypherProcedure for DbLabels {

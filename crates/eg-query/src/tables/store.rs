@@ -1,5 +1,5 @@
-//! The redb-backed user-table store (CONCEPT:EG-018; relational completeness
-//! CONCEPT:EG-020) — the durable, ACID home for ARBITRARY user-defined relational
+//! The redb-backed user-table store (CONCEPT:EG-KG.query.register-user-tables-alongside; relational completeness
+//! CONCEPT:EG-KG.query.register-each-user-table) — the durable, ACID home for ARBITRARY user-defined relational
 //! tables (Prometheus metrics, Langfuse time-series, stock bars, connector mirrors,
 //! ETL outputs).
 //!
@@ -13,9 +13,9 @@
 //!     table's rows contiguous for an efficient prefix range-scan.
 //!   * `__sql_seq__`      `table_name              -> next rowid (u64)`
 //!     A per-table monotonic rowid allocator — the internal row identity AND the
-//!     surface exposed as `SERIAL`/`DEFAULT nextval` (CONCEPT:EG-020).
+//!     surface exposed as `SERIAL`/`DEFAULT nextval` (CONCEPT:EG-KG.query.register-each-user-table).
 //!
-//! ## Durability + transactions (CONCEPT:EG-020)
+//! ## Durability + transactions (CONCEPT:EG-KG.query.register-each-user-table)
 //! Every one-shot mutation runs in ONE redb `WriteTransaction` committed at
 //! `Durability::Immediate` BEFORE the method returns (commit-before-ack). A
 //! mid-transaction error drops the txn without `commit()`, so redb discards every
@@ -24,7 +24,7 @@
 //! [`TableStore::commit_txn`] in ONE redb `WriteTransaction`: the whole batch is
 //! atomic and a constraint violation on ANY op aborts (and rolls back) the lot.
 //!
-//! ## Constraints (CONCEPT:EG-020)
+//! ## Constraints (CONCEPT:EG-KG.query.register-each-user-table)
 //! `NOT NULL` (rejected at coerce time), column `DEFAULT` (filled when a column is
 //! omitted), `SERIAL`/`DEFAULT nextval` (auto-assigned from the per-table sequence),
 //! `PRIMARY KEY`/`UNIQUE` uniqueness, and a simple `CHECK (col OP literal)` are all
@@ -41,7 +41,7 @@ use redb::{
 use serde_json::Value;
 
 use super::schema::{Cell, Column, ColumnType, StoredFunction, TableSchema};
-// CONCEPT:EG-116/EG-313 — the durable pgvector ANN index registration the exec
+// CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
 use crate::sql::AnnIndexPlan;
 
@@ -51,19 +51,19 @@ const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_catalo
 const ROWS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("__sql_rows__");
 /// Per-table rowid allocator (also the `SERIAL` sequence): `table_name -> next rowid`.
 const SEQ: TableDefinition<&str, u64> = TableDefinition::new("__sql_seq__");
-/// View catalog (CONCEPT:EG-072): `view_name -> SELECT text`. A read-only named query
+/// View catalog (CONCEPT:EG-KG.query.create-drop-view): `view_name -> SELECT text`. A read-only named query
 /// mirrored beside the user-table catalog; expanded during SQL context build.
 const VIEWS: TableDefinition<&str, &str> = TableDefinition::new("__sql_views__");
-/// Extension catalog (CONCEPT:EG-102): `extension_name -> ""`. Records the extensions a
+/// Extension catalog (CONCEPT:EG-KG.query.create-drop-extension-over): `extension_name -> ""`. Records the extensions a
 /// client has `CREATE EXTENSION`-enabled (pgvector, AGE, TimescaleDB, pg_search), so a
 /// setup script's enablement is durable across a restart. The value is unused today (a
 /// per-extension version/schema is a follow-up); the KEY presence is the enablement.
 const EXTENSIONS: TableDefinition<&str, &str> = TableDefinition::new("__sql_extensions__");
-/// Function catalog (CONCEPT:EG-118): `function_name -> MessagePack(StoredFunction)`. A
+/// Function catalog (CONCEPT:EG-KG.query.create-drop-function): `function_name -> MessagePack(StoredFunction)`. A
 /// SQL-language stored function (`CREATE FUNCTION … LANGUAGE sql`) mirrored beside the
 /// view/extension catalogs; expanded into a query at plan time (no separate evaluator).
 const FUNCTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_functions__");
-/// pgvector ANN index catalog (CONCEPT:EG-116/EG-313): `index_key -> MessagePack(AnnIndexPlan)`.
+/// pgvector ANN index catalog (CONCEPT:EG-KG.query.real-ann-top-k/EG-313): `index_key -> MessagePack(AnnIndexPlan)`.
 /// A `CREATE INDEX … USING hnsw|ivfflat (col opclass)` registers the index here so a
 /// `ORDER BY col <-> $1 LIMIT k` query pushes down to a real eg-ann index (EG-313)
 /// instead of the EG-115 brute-force scan. Keyed by `"<table>.<column>.<metric>"`
@@ -71,7 +71,7 @@ const FUNCTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_func
 /// [`AnnIndexPlan`] the exec pushdown consults.
 const ANN_INDEXES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_ann_indexes__");
 
-/// The action an `ON CONFLICT` clause takes for a user-table insert (CONCEPT:EG-048).
+/// The action an `ON CONFLICT` clause takes for a user-table insert (CONCEPT:EG-KG.query.delete-returning-sees-row).
 /// The store-level mirror of `classify::OnConflictAction` (kept here so the store has
 /// no dependency on the SQL classifier layer).
 #[derive(Debug, Clone, PartialEq)]
@@ -82,7 +82,7 @@ pub enum ConflictAction {
     DoUpdate(serde_json::Map<String, Value>),
 }
 
-/// One staged operation in a multi-statement transaction (CONCEPT:EG-020). Buffered
+/// One staged operation in a multi-statement transaction (CONCEPT:EG-KG.query.register-each-user-table). Buffered
 /// by [`TableTxn`] and applied in order, in ONE redb `WriteTransaction`, by
 /// [`TableStore::commit_txn`].
 #[derive(Debug, Clone, PartialEq)]
@@ -99,34 +99,34 @@ pub enum TxnOp {
         table: String,
         column: Column,
     },
-    /// CONCEPT:EG-310 — `ALTER TABLE … DROP COLUMN`: drop a column from the schema and
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE … DROP COLUMN`: drop a column from the schema and
     /// its cell from every stored row.
     DropColumn {
         table: String,
         column: String,
         if_exists: bool,
     },
-    /// CONCEPT:EG-310 — `ALTER TABLE … RENAME COLUMN a TO b` (rows are positional; no
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE … RENAME COLUMN a TO b` (rows are positional; no
     /// per-row migration needed).
     RenameColumn {
         table: String,
         from: String,
         to: String,
     },
-    /// CONCEPT:EG-310 — `ALTER TABLE … RENAME TO newtable`: rename the catalog entry,
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE … RENAME TO newtable`: rename the catalog entry,
     /// sequence, and every stored row's key.
     RenameTable {
         table: String,
         new_name: String,
     },
-    /// CONCEPT:EG-310 — `ALTER TABLE … ALTER COLUMN col TYPE newtype`: change the column
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE … ALTER COLUMN col TYPE newtype`: change the column
     /// type, best-effort coercing every stored cell (reject on an incompatible value).
     AlterColumnType {
         table: String,
         column: String,
         new_type: ColumnType,
     },
-    /// CONCEPT:EG-310 — `ALTER TABLE … DROP CONSTRAINT name`: drop a named constraint.
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE … DROP CONSTRAINT name`: drop a named constraint.
     DropConstraint {
         table: String,
         constraint: String,
@@ -148,7 +148,7 @@ pub enum TxnOp {
     },
 }
 
-/// A buffered multi-statement transaction (CONCEPT:EG-020). `BEGIN` creates one;
+/// A buffered multi-statement transaction (CONCEPT:EG-KG.query.register-each-user-table). `BEGIN` creates one;
 /// each DDL/DML statement pushes a [`TxnOp`]; `COMMIT` applies them via
 /// [`TableStore::commit_txn`] (one redb txn — all-or-nothing); `ROLLBACK` drops it.
 #[derive(Debug, Clone, Default)]
@@ -222,7 +222,7 @@ impl TableStore {
         Ok(())
     }
 
-    /// CONCEPT:EG-310 — `ALTER TABLE DROP COLUMN`: remove `column` from the schema and
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP COLUMN`: remove `column` from the schema and
     /// drop its cell from every stored row, atomically in one write txn. Errors if the
     /// column (or table) does not exist unless `if_exists`.
     pub fn drop_column(&self, table: &str, column: &str, if_exists: bool) -> Result<(), String> {
@@ -232,7 +232,7 @@ impl TableStore {
         Ok(())
     }
 
-    /// CONCEPT:EG-310 — `ALTER TABLE RENAME COLUMN a TO b`: rename a column in place.
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME COLUMN a TO b`: rename a column in place.
     /// Stored rows are positional so they need no migration. Errors if `from` is absent
     /// or `to` already exists.
     pub fn rename_column(&self, table: &str, from: &str, to: &str) -> Result<(), String> {
@@ -242,7 +242,7 @@ impl TableStore {
         Ok(())
     }
 
-    /// CONCEPT:EG-310 — `ALTER TABLE RENAME TO newtable`: move the table's catalog entry,
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME TO newtable`: move the table's catalog entry,
     /// sequence, and every stored row's key to `new_name`, atomically. Errors if the
     /// table is absent or `new_name` already exists.
     pub fn rename_table(&self, table: &str, new_name: &str) -> Result<(), String> {
@@ -252,7 +252,7 @@ impl TableStore {
         Ok(())
     }
 
-    /// CONCEPT:EG-310 — `ALTER TABLE ALTER COLUMN col TYPE newtype`: change a column's
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE ALTER COLUMN col TYPE newtype`: change a column's
     /// declared type and best-effort coerce every stored cell to it, atomically. A cell
     /// that cannot be coerced aborts (and rolls back) the whole change.
     pub fn alter_column_type(
@@ -267,7 +267,7 @@ impl TableStore {
         Ok(())
     }
 
-    /// CONCEPT:EG-310 — `ALTER TABLE DROP CONSTRAINT name`: drop the named constraint
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP CONSTRAINT name`: drop the named constraint
     /// (matched against Postgres's synthesized names — `<table>_pkey`, `<table>_<col>_key`,
     /// `<table>_<col>_check`). Errors if no such constraint exists unless `if_exists`.
     pub fn drop_constraint(
@@ -351,7 +351,7 @@ impl TableStore {
 
     // ── one-shot DML (each opens + commits its own txn) ───────────────────────
 
-    /// `INSERT INTO table (cols...) VALUES ...` with constraints (CONCEPT:EG-020):
+    /// `INSERT INTO table (cols...) VALUES ...` with constraints (CONCEPT:EG-KG.query.register-each-user-table):
     /// NOT NULL, DEFAULT, SERIAL, PK/UNIQUE uniqueness, CHECK. Returns the row count.
     pub fn insert_rows(
         &self,
@@ -362,7 +362,7 @@ impl TableStore {
         Ok(self.insert_rows_returning(table, col_order, rows)?.len())
     }
 
-    /// `INSERT …` returning the inserted rows' typed cells (CONCEPT:EG-048 RETURNING).
+    /// `INSERT …` returning the inserted rows' typed cells (CONCEPT:EG-KG.query.delete-returning-sees-row RETURNING).
     pub fn insert_rows_returning(
         &self,
         table: &str,
@@ -375,7 +375,7 @@ impl TableStore {
         Ok(out)
     }
 
-    /// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-048). Returns the
+    /// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-KG.query.delete-returning-sees-row). Returns the
     /// rows inserted-or-updated (for `RETURNING`).
     pub fn insert_rows_on_conflict(
         &self,
@@ -391,7 +391,7 @@ impl TableStore {
     }
 
     /// `UPDATE table SET <set> WHERE <predicate>` with constraint re-validation
-    /// (CONCEPT:EG-045 — a compound predicate evaluated per row inside the txn).
+    /// (CONCEPT:EG-KG.query.compound-predicate-decode — a compound predicate evaluated per row inside the txn).
     pub fn update_where(
         &self,
         table: &str,
@@ -401,7 +401,7 @@ impl TableStore {
         Ok(self.update_where_returning(table, set, selector)?.len())
     }
 
-    /// `UPDATE … WHERE …` returning the post-update rows (CONCEPT:EG-048 RETURNING).
+    /// `UPDATE … WHERE …` returning the post-update rows (CONCEPT:EG-KG.query.delete-returning-sees-row RETURNING).
     pub fn update_where_returning(
         &self,
         table: &str,
@@ -414,7 +414,7 @@ impl TableStore {
         Ok(out)
     }
 
-    /// `DELETE FROM table WHERE <predicate>` (CONCEPT:EG-045). Returns rows removed.
+    /// `DELETE FROM table WHERE <predicate>` (CONCEPT:EG-KG.query.compound-predicate-decode). Returns rows removed.
     pub fn delete_where(
         &self,
         table: &str,
@@ -424,7 +424,7 @@ impl TableStore {
     }
 
     /// `DELETE … WHERE …` returning the removed rows as they were BEFORE removal
-    /// (CONCEPT:EG-048 RETURNING).
+    /// (CONCEPT:EG-KG.query.delete-returning-sees-row RETURNING).
     pub fn delete_where_returning(
         &self,
         table: &str,
@@ -436,7 +436,7 @@ impl TableStore {
         Ok(out)
     }
 
-    // ── view catalog (CONCEPT:EG-072) ─────────────────────────────────────────
+    // ── view catalog (CONCEPT:EG-KG.query.create-drop-view) ─────────────────────────────────────────
 
     /// `CREATE [OR REPLACE] VIEW name AS <select>`: record `select_sql` in the view
     /// catalog. Errors if the name already exists and `or_replace` is false, or if a
@@ -516,7 +516,7 @@ impl TableStore {
         Ok(out)
     }
 
-    // ── extension catalog (CONCEPT:EG-102) ────────────────────────────────────
+    // ── extension catalog (CONCEPT:EG-KG.query.create-drop-extension-over) ────────────────────────────────────
 
     /// `CREATE EXTENSION [IF NOT EXISTS] name`: record `name` as enabled. `Ok(true)`
     /// when newly enabled, `Ok(false)` when it was already enabled (idempotent — no
@@ -586,7 +586,7 @@ impl TableStore {
         Ok(out)
     }
 
-    // ── function catalog (CONCEPT:EG-118) ──────────────────────────────────────
+    // ── function catalog (CONCEPT:EG-KG.query.create-drop-function) ──────────────────────────────────────
 
     /// `CREATE [OR REPLACE] FUNCTION name(...) RETURNS … AS $$ … $$ LANGUAGE sql`:
     /// record `func` in the durable function catalog. Errors if the name already exists
@@ -654,7 +654,7 @@ impl TableStore {
     }
 
     /// Every stored function (sorted by name for determinism) — the set the SQL exec
-    /// path expands into a query at plan time (CONCEPT:EG-118).
+    /// path expands into a query at plan time (CONCEPT:EG-KG.query.create-drop-function).
     pub fn list_functions(&self) -> Result<Vec<StoredFunction>, String> {
         let rtx = self.db.begin_read().map_err(map_err)?;
         let funcs = match rtx.open_table(FUNCTIONS) {
@@ -675,7 +675,7 @@ impl TableStore {
         Ok(out)
     }
 
-    // ── pgvector ANN index catalog (CONCEPT:EG-116/EG-313) ─────────────────────
+    // ── pgvector ANN index catalog (CONCEPT:EG-KG.query.real-ann-top-k/EG-313) ─────────────────────
 
     /// The catalog key for an ANN index: `"<table>.<column>.<metric>"` (lower-cased),
     /// so one column may register a separate index per distance metric.
@@ -688,9 +688,9 @@ impl TableStore {
         )
     }
 
-    /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-116): register the
+    /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-KG.query.real-ann-top-k): register the
     /// [`AnnIndexPlan`] so a matching `ORDER BY col <-> $1 LIMIT k` pushes down to a real
-    /// eg-ann index (CONCEPT:EG-313). Idempotent on `if_not_exists` (a re-register of the
+    /// eg-ann index (CONCEPT:EG-KG.query.real-pgvector-ann-top). Idempotent on `if_not_exists` (a re-register of the
     /// same key is a benign success); an existing key without `if_not_exists` is replaced
     /// (the newest DDL wins — pgvector's `CREATE INDEX` build is idempotent in practice).
     pub fn put_ann_index(&self, plan: &AnnIndexPlan) -> Result<(), String> {
@@ -706,7 +706,7 @@ impl TableStore {
         Ok(())
     }
 
-    /// `DROP INDEX name` (CONCEPT:EG-116): remove every ANN index registered for
+    /// `DROP INDEX name` (CONCEPT:EG-KG.query.real-ann-top-k): remove every ANN index registered for
     /// `table`.`column` (all metrics). `Ok(n)` = number of entries removed.
     pub fn drop_ann_indexes_for_column(&self, table: &str, column: &str) -> Result<usize, String> {
         let prefix = format!(
@@ -733,7 +733,7 @@ impl TableStore {
     }
 
     /// Every registered ANN index (sorted by key for determinism) — the set the SQL
-    /// exec path consults to decide the pgvector pushdown (CONCEPT:EG-313).
+    /// exec path consults to decide the pgvector pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top).
     pub fn list_ann_indexes(&self) -> Result<Vec<AnnIndexPlan>, String> {
         let rtx = self.db.begin_read().map_err(map_err)?;
         let idxs = match rtx.open_table(ANN_INDEXES) {
@@ -755,7 +755,7 @@ impl TableStore {
         Ok(pairs.into_iter().map(|(_, p)| p).collect())
     }
 
-    // ── multi-statement transaction (CONCEPT:EG-020) ──────────────────────────
+    // ── multi-statement transaction (CONCEPT:EG-KG.query.register-each-user-table) ──────────────────────────
 
     /// Apply a [`TableTxn`]'s buffered ops in ONE redb `WriteTransaction`
     /// (`BEGIN … COMMIT`). Atomic: a constraint violation (or any error) on ANY op
@@ -781,7 +781,7 @@ impl TableStore {
                 TxnOp::AddColumn { table, column } => {
                     add_column_in(&wtx, table, column)?;
                 }
-                // CONCEPT:EG-310 — ALTER TABLE ops staged into a multi-statement txn.
+                // CONCEPT:EG-KG.query.rename-table-moves-catalog — ALTER TABLE ops staged into a multi-statement txn.
                 TxnOp::DropColumn {
                     table,
                     column,
@@ -930,7 +930,7 @@ fn add_column_in(wtx: &WriteTransaction, table: &str, column: &Column) -> Result
 }
 
 /// Persist a (possibly renamed) schema back into the catalog under its `name` key.
-/// The single place an ALTER rewrites the catalog entry (CONCEPT:EG-310).
+/// The single place an ALTER rewrites the catalog entry (CONCEPT:EG-KG.query.rename-table-moves-catalog).
 fn put_schema_in(wtx: &WriteTransaction, schema: &TableSchema) -> Result<(), String> {
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
     let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
@@ -941,7 +941,7 @@ fn put_schema_in(wtx: &WriteTransaction, schema: &TableSchema) -> Result<(), Str
 
 /// Rewrite every stored row of `table` through `f` (which mutates the row's `Vec<Cell>`
 /// in place), inside the open write txn — the atomic row-migration primitive shared by
-/// DROP COLUMN and ALTER COLUMN TYPE (CONCEPT:EG-310). An error from `f` on ANY row
+/// DROP COLUMN and ALTER COLUMN TYPE (CONCEPT:EG-KG.query.rename-table-moves-catalog). An error from `f` on ANY row
 /// propagates so the whole ALTER rolls back (the txn drops without commit).
 fn migrate_rows_in(
     wtx: &WriteTransaction,
@@ -970,7 +970,7 @@ fn migrate_rows_in(
     Ok(())
 }
 
-/// CONCEPT:EG-310 — `DROP COLUMN`: remove `column` from the schema and drop its cell
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP COLUMN`: remove `column` from the schema and drop its cell
 /// from every stored row (positional splice at the column's index). Refuses to drop the
 /// only column of a table. `if_exists` turns an absent-column error into a no-op.
 fn drop_column_in(
@@ -1009,7 +1009,7 @@ fn drop_column_in(
     })
 }
 
-/// CONCEPT:EG-310 — `RENAME COLUMN a TO b`: rename in the schema only (rows are
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME COLUMN a TO b`: rename in the schema only (rows are
 /// positional). Errors if `from` is absent or `to` already exists.
 fn rename_column_in(
     wtx: &WriteTransaction,
@@ -1029,7 +1029,7 @@ fn rename_column_in(
     put_schema_in(wtx, &schema)
 }
 
-/// CONCEPT:EG-310 — `RENAME TO newtable`: move the catalog entry, the sequence, and
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`: move the catalog entry, the sequence, and
 /// every stored row's key from `table` to `new_name`. Errors if the table is absent or
 /// `new_name` already exists.
 fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Result<(), String> {
@@ -1077,7 +1077,7 @@ fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Resul
     Ok(())
 }
 
-/// CONCEPT:EG-310 — `ALTER COLUMN col TYPE newtype`: best-effort coerce every stored
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER COLUMN col TYPE newtype`: best-effort coerce every stored
 /// cell at the column's index to `new_type`, then record the new type. A cell that
 /// cannot be coerced returns `Err` so the whole ALTER rolls back (no partial migration).
 fn alter_column_type_in(
@@ -1104,7 +1104,7 @@ fn alter_column_type_in(
     put_schema_in(wtx, &schema)
 }
 
-/// CONCEPT:EG-310 — `DROP CONSTRAINT name`: this catalog stores constraints per column
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP CONSTRAINT name`: this catalog stores constraints per column
 /// (PK / UNIQUE / CHECK) without user-visible names, so a dropped constraint is matched
 /// against Postgres's synthesized names — `<table>_pkey`, `<table>_<col>_key`,
 /// `<table>_<col>_check` — and the matching column flag is cleared. Errors if nothing
@@ -1151,7 +1151,7 @@ fn drop_constraint_in(
 }
 
 /// Best-effort coerce an already-stored [`Cell`] to `ty` for an `ALTER COLUMN … TYPE`
-/// migration (CONCEPT:EG-310). A cell already of the target shape is kept verbatim; a
+/// migration (CONCEPT:EG-KG.query.rename-table-moves-catalog). A cell already of the target shape is kept verbatim; a
 /// NULL passes through subject to `nullable`; otherwise the value is rendered into a
 /// JSON value tuned for the target and run through the SAME [`Cell::coerce`] the write
 /// path uses — so an incompatible value (e.g. `'abc'` → int) is rejected identically.
@@ -1182,7 +1182,7 @@ fn cell_matches_type(cell: &Cell, ty: ColumnType) -> bool {
     )
 }
 
-/// Render `old` into a JSON value best-tuned for coercion into `ty` (CONCEPT:EG-310):
+/// Render `old` into a JSON value best-tuned for coercion into `ty` (CONCEPT:EG-KG.query.rename-table-moves-catalog):
 /// numeric text is parsed into a JSON number, integral floats become integers, booleans
 /// map to 0/1, etc. Anything that cannot be represented falls back to the cell's plain
 /// JSON form, so the downstream [`Cell::coerce`] produces a precise rejection error.
@@ -1231,7 +1231,7 @@ fn coercion_value(old: &Cell, ty: ColumnType) -> Value {
 }
 
 /// Parse the common SQL/Postgres textual boolean spellings for an ALTER-TYPE migration
-/// (CONCEPT:EG-310). Returns `None` for an unrecognized spelling (→ rejected downstream).
+/// (CONCEPT:EG-KG.query.rename-table-moves-catalog). Returns `None` for an unrecognized spelling (→ rejected downstream).
 fn parse_bool_text(s: &str) -> Option<bool> {
     match s.trim().to_ascii_lowercase().as_str() {
         "true" | "t" | "yes" | "y" | "on" | "1" => Some(true),
@@ -1316,7 +1316,7 @@ fn resolve_targets(
 /// Build one row's typed, schema-aligned cells: place supplied values, fill omitted
 /// columns (SERIAL → the allocated `rowid+1`; else DEFAULT; else NULL / reject if NOT
 /// NULL), and enforce per-column CHECK constraints. Shared by the plain and ON CONFLICT
-/// insert paths (CONCEPT:EG-048).
+/// insert paths (CONCEPT:EG-KG.query.delete-returning-sees-row).
 fn build_insert_cells(
     schema: &TableSchema,
     col_order: &[String],
@@ -1365,7 +1365,7 @@ fn build_insert_cells(
     Ok(cells)
 }
 
-/// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-048). For each row: if a
+/// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-KG.query.delete-returning-sees-row). For each row: if a
 /// UNIQUE/PK column value already exists (in the committed OR same-batch state), apply
 /// the conflict action — skip (DO NOTHING) or merge the SET assignments into the
 /// existing row (DO UPDATE); otherwise insert a fresh row. Returns the rows that were
@@ -1485,7 +1485,7 @@ fn insert_on_conflict_in(
     Ok(affected)
 }
 
-/// Build a `col -> json` row map for predicate evaluation (CONCEPT:EG-045): one
+/// Build a `col -> json` row map for predicate evaluation (CONCEPT:EG-KG.query.compound-predicate-decode): one
 /// entry per schema column, the cell decoded to its JSON value. A column the
 /// predicate references that is NOT in the schema is simply absent (reads as NULL).
 fn row_map(schema: &TableSchema, cells: &[Cell]) -> serde_json::Map<String, Value> {
@@ -1528,7 +1528,7 @@ fn update_in(
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
             }
-            // CONCEPT:EG-045 — serializable per-row predicate eval INSIDE the open
+            // CONCEPT:EG-KG.query.compound-predicate-decode — serializable per-row predicate eval INSIDE the open
             // redb write txn (the row cannot change before commit).
             if selector.eval(&row_map(&schema, &cells)) {
                 hits.push((k.value().1, cells));
@@ -1568,7 +1568,7 @@ fn delete_in(
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let width = schema.columns.len();
-    // Capture the pre-removal cells (CONCEPT:EG-048 — DELETE … RETURNING sees the row
+    // Capture the pre-removal cells (CONCEPT:EG-KG.query.delete-returning-sees-row — DELETE … RETURNING sees the row
     // as it was before deletion).
     let mut removed: Vec<Vec<Cell>> = Vec::new();
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
@@ -1583,7 +1583,7 @@ fn delete_in(
         if cells.len() < width {
             cells.resize(width, Cell::Null);
         }
-        // CONCEPT:EG-045 — serializable per-row predicate eval inside the write txn.
+        // CONCEPT:EG-KG.query.compound-predicate-decode — serializable per-row predicate eval inside the write txn.
         if selector.eval(&row_map(&schema, &cells)) {
             victims.push((k.value().1, cells));
         }
@@ -1741,7 +1741,7 @@ mod tests {
 
     #[test]
     fn compound_predicate_update_and_delete() {
-        // CONCEPT:EG-045 — AND / range / IN predicates select rows in the store.
+        // CONCEPT:EG-KG.query.compound-predicate-decode — AND / range / IN predicates select rows in the store.
         use eg_types::{CmpOp, RowPredicate};
         let (store, _p) = TableStore::open_temp().unwrap();
         store.create_table(&metrics_schema(), false).unwrap();
@@ -1897,7 +1897,7 @@ mod tests {
         assert!(err.contains("NOT NULL"), "{err}");
     }
 
-    // ── constraints + transactions + sequences (CONCEPT:EG-020) ───────────────
+    // ── constraints + transactions + sequences (CONCEPT:EG-KG.query.register-each-user-table) ───────────────
 
     /// A table with a SERIAL PK, a UNIQUE text column, a DEFAULT, and a CHECK.
     fn constrained_schema() -> TableSchema {
@@ -2004,7 +2004,7 @@ mod tests {
         assert_eq!(store.scan("items").unwrap().len(), 2);
     }
 
-    // ── ON CONFLICT + RETURNING (CONCEPT:EG-048) ──────────────────────────────
+    // ── ON CONFLICT + RETURNING (CONCEPT:EG-KG.query.delete-returning-sees-row) ──────────────────────────────
 
     #[test]
     fn on_conflict_do_nothing_skips_duplicate() {
@@ -2107,7 +2107,7 @@ mod tests {
         assert_eq!(store.scan("metrics").unwrap().len(), 0);
     }
 
-    // ── view catalog (CONCEPT:EG-072) ─────────────────────────────────────────
+    // ── view catalog (CONCEPT:EG-KG.query.create-drop-view) ─────────────────────────────────────────
 
     #[test]
     fn view_catalog_create_get_drop() {
@@ -2145,7 +2145,7 @@ mod tests {
         );
     }
 
-    // ── function catalog (CONCEPT:EG-118) ──────────────────────────────────────
+    // ── function catalog (CONCEPT:EG-KG.query.create-drop-function) ──────────────────────────────────────
 
     fn sample_add_fn() -> StoredFunction {
         use super::super::schema::{FunctionArg, FunctionLanguage, FunctionReturns};

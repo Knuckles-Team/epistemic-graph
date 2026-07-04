@@ -1,4 +1,4 @@
-//! The event model + per-event matcher (CONCEPT:EG-088): an [`Event`] is a
+//! The event model + per-event matcher (CONCEPT:EG-KG.query.pipelined-execution): an [`Event`] is a
 //! `ts`/`key`/`attrs` record; an [`EventMatcher`] tests one event by an optional event
 //! `key` plus a set of per-attribute [`AttrPredicate`]s that must ALL hold.
 //!

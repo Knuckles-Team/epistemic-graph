@@ -1,4 +1,4 @@
-"""End-to-end proof of the cost/efficiency autoscale surface (CONCEPT:KG-2.234).
+"""End-to-end proof of the cost/efficiency autoscale surface (CONCEPT:EG-KG.compute.lane-v).
 
 The session server is built `--features full`, which includes `cost`, so the
 `ResourceStats` Method is served. This drives it through the real transport and asserts
@@ -24,7 +24,7 @@ def test_resource_stats_reports_accurate_counts():
         c.close()
         pytest.skip(
             "installed epistemic_graph client predates resource_stats "
-            "(CONCEPT:KG-2.234); skip until the worktree client is installed"
+            "(CONCEPT:EG-KG.compute.lane-v); skip until the worktree client is installed"
         )
     try:
         c.tenants.create(graph)

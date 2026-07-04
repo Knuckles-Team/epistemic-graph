@@ -1,11 +1,11 @@
-// CONCEPT:EG-144 — Node similarity: Jaccard + cosine over neighbour sets.
+// CONCEPT:EG-KG.compute.node-similarity — Node similarity: Jaccard + cosine over neighbour sets.
 // Neo4j GDS `gds.nodeSimilarity` parity.
 
 use super::graph::AdjacencyGraph;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-/// A similarity edge between two nodes. CONCEPT:EG-144
+/// A similarity edge between two nodes. CONCEPT:EG-KG.compute.node-similarity
 #[derive(Debug, Clone)]
 pub struct SimilarityPair<N> {
     /// First node (the smaller-id endpoint).
@@ -54,7 +54,7 @@ where
 /// **Jaccard** similarity of two nodes' neighbour *sets* (weights ignored):
 /// `|N(a) ∩ N(b)| / |N(a) ∪ N(b)|`. Two nodes with no neighbours score 0.
 ///
-/// Complexity: `O(deg(a) + deg(b))`. CONCEPT:EG-144
+/// Complexity: `O(deg(a) + deg(b))`. CONCEPT:EG-KG.compute.node-similarity
 pub fn jaccard_similarity<N>(graph: &AdjacencyGraph<N>, a: usize, b: usize, dir: Direction) -> f64
 where
     N: Clone + Eq + Hash + Ord,
@@ -79,7 +79,7 @@ where
 /// `(a · b) / (‖a‖ ‖b‖)` over the shared neighbour space. For unit weights this
 /// reduces to `|N(a) ∩ N(b)| / √(|N(a)|·|N(b)|)`.
 ///
-/// Complexity: `O(deg(a) + deg(b))`. CONCEPT:EG-144
+/// Complexity: `O(deg(a) + deg(b))`. CONCEPT:EG-KG.compute.node-similarity
 pub fn cosine_similarity<N>(graph: &AdjacencyGraph<N>, a: usize, b: usize, dir: Direction) -> f64
 where
     N: Clone + Eq + Hash + Ord,
@@ -115,7 +115,7 @@ pub enum Metric {
 /// `(a < b)` whose score `> cutoff`, sorted by descending score then ascending
 /// node ids (deterministic).
 ///
-/// Complexity: `O(V² · d̄)` naïvely. CONCEPT:EG-144
+/// Complexity: `O(V² · d̄)` naïvely. CONCEPT:EG-KG.compute.node-similarity
 pub fn all_pairs_similarity<N>(
     graph: &AdjacencyGraph<N>,
     metric: Metric,

@@ -1,4 +1,4 @@
-//! Default persistence backend: snapshot RDB + off-reactor WAL (CONCEPT:KG-2.177).
+//! Default persistence backend: snapshot RDB + off-reactor WAL (CONCEPT:EG-KG.storage.kg-kg).
 //!
 //! This wraps TODAY's durability logic verbatim — there is no behavior change.
 //! `load_all`/`checkpoint_all` delegate to the existing `crate::persist`

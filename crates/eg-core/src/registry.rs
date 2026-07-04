@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.19 — Multi-Tenant Graph Registry
+// CONCEPT:EG-KG.sharding.multi-tenant-registry — Multi-Tenant Graph Registry
 //
 // Manages named graphs with lifecycle operations. The `__commons__` graph
 // is always present as the shared, world-readable/writable commons graph
@@ -27,7 +27,7 @@ pub struct GraphEntry {
 /// Multi-tenant graph registry.
 pub struct GraphRegistry {
     graphs: HashMap<String, GraphEntry>,
-    /// Durable read-through factory (CONCEPT:KG-2.191). Set once at startup ONLY
+    /// Durable read-through factory (CONCEPT:EG-KG.storage.read-through-seam-exercised). Set once at startup ONLY
     /// under redb-authoritative mode; when present, every `GraphCore` the registry
     /// creates (and every existing one, via `attach_read_through_all`) gains a
     /// per-graph read-through so an evicted node still reads from redb. `None` (the
@@ -62,7 +62,7 @@ impl GraphRegistry {
     }
 
     /// Install the durable read-through factory and attach a per-graph read-through
-    /// to every graph that ALREADY exists (CONCEPT:KG-2.191) — the pre-created
+    /// to every graph that ALREADY exists (CONCEPT:EG-KG.storage.read-through-seam-exercised) — the pre-created
     /// `__commons__` plus anything `load_all` recovered before this was set. Called
     /// once at startup under redb-authoritative mode; future `create_graph` calls
     /// pick the factory up automatically.
@@ -88,7 +88,7 @@ impl GraphRegistry {
         }
         let core = Arc::new(GraphCore::new());
         // Transparently wire read-through for the new graph when authoritative
-        // (CONCEPT:KG-2.191), so a graph created after startup is eviction-safe too.
+        // (CONCEPT:EG-KG.storage.read-through-seam-exercised), so a graph created after startup is eviction-safe too.
         if let Some(factory) = &self.read_through_factory {
             core.set_read_through(factory.for_graph(name));
         }

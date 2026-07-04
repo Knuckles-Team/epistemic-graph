@@ -1,4 +1,4 @@
-//! GraphQL enterprise hardening (CONCEPT:EG-296): production controls that run BEFORE
+//! GraphQL enterprise hardening (CONCEPT:EG-KG.domains.graphql-enterprise-hardening): production controls that run BEFORE
 //! the resolver, so a hostile or accidentally-pathological query is rejected without ever
 //! touching the graph. All of it is a THIN pre-pass over the already-parsed AST — no new
 //! resolution path, no async-graphql, and (like the rest of the crate) Pi-excludable: the
@@ -43,7 +43,7 @@ use crate::resolver::{bind_variables, execute_with_variables, flatten_document};
 
 use eg_core::graph::GraphView;
 
-/// The production controls for the GraphQL surface (CONCEPT:EG-296): the depth/complexity
+/// The production controls for the GraphQL surface (CONCEPT:EG-KG.domains.graphql-enterprise-hardening): the depth/complexity
 /// LIMITS plus the introspection/APQ TOGGLES, bundled into one config the server layer
 /// carries. Cheap to clone; holds no state (the APQ store is the separate
 /// [`ApqRegistry`]).
@@ -71,7 +71,7 @@ pub struct GraphQlPolicy {
 
 impl Default for GraphQlPolicy {
     /// A fully PERMISSIVE policy: no limits, introspection + APQ on. Applying it via
-    /// [`execute_with_policy`] leaves normal queries working unchanged (CONCEPT:EG-296).
+    /// [`execute_with_policy`] leaves normal queries working unchanged (CONCEPT:EG-KG.domains.graphql-enterprise-hardening).
     fn default() -> Self {
         Self {
             max_depth: None,
@@ -86,7 +86,7 @@ impl Default for GraphQlPolicy {
 
 impl GraphQlPolicy {
     /// A hardened production preset: bounded depth/complexity/fields and introspection
-    /// OFF (CONCEPT:EG-296). Callers can tune individual fields afterwards.
+    /// OFF (CONCEPT:EG-KG.domains.graphql-enterprise-hardening). Callers can tune individual fields afterwards.
     pub fn locked_down() -> Self {
         Self {
             max_depth: Some(10),
@@ -100,7 +100,7 @@ impl GraphQlPolicy {
 }
 
 /// The result of analysing a query against a policy: its measured depth, weighted
-/// complexity, and total field count (CONCEPT:EG-296). Returned by [`analyze`] so a
+/// complexity, and total field count (CONCEPT:EG-KG.domains.graphql-enterprise-hardening). Returned by [`analyze`] so a
 /// caller can log/meter the numbers even when the query is admitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueryCost {
@@ -109,7 +109,7 @@ pub struct QueryCost {
     pub fields: usize,
 }
 
-/// The sha256→query store backing Automatic Persisted Queries (CONCEPT:EG-296). Thread-
+/// The sha256→query store backing Automatic Persisted Queries (CONCEPT:EG-KG.domains.graphql-enterprise-hardening). Thread-
 /// safe (an internal `Mutex`), so one registry is shared across the server's request
 /// handlers. Keys are lowercase-hex sha256 digests of the query text; Apollo clients send
 /// this digest under `extensions.persistedQuery.sha256Hash`.
@@ -150,7 +150,7 @@ impl ApqRegistry {
     }
 }
 
-/// The lowercase-hex sha256 digest of `s` — the APQ key (CONCEPT:EG-296).
+/// The lowercase-hex sha256 digest of `s` — the APQ key (CONCEPT:EG-KG.domains.graphql-enterprise-hardening).
 pub fn sha256_hex(s: &str) -> String {
     let mut h = Sha256::new();
     h.update(s.as_bytes());
@@ -162,7 +162,7 @@ pub fn sha256_hex(s: &str) -> String {
     out
 }
 
-/// One incoming GraphQL request under the APQ protocol (CONCEPT:EG-296): the query text
+/// One incoming GraphQL request under the APQ protocol (CONCEPT:EG-KG.domains.graphql-enterprise-hardening): the query text
 /// and/or its persisted-query `sha256Hash`, plus the execution variables. This mirrors an
 /// Apollo request where `query` and `extensions.persistedQuery.sha256Hash` are each
 /// optional (but at least one must be present).
@@ -198,10 +198,10 @@ impl<'a> GraphQlRequest<'a> {
 
 /// The stable error string an unknown persisted-query hash yields — the Apollo APQ
 /// `PersistedQueryNotFound` signal a client keys on to retry with the full query
-/// (CONCEPT:EG-296).
+/// (CONCEPT:EG-KG.domains.graphql-enterprise-hardening).
 pub const PERSISTED_QUERY_NOT_FOUND: &str = "PersistedQueryNotFound";
 
-/// Resolve an APQ request to the concrete query text to execute (CONCEPT:EG-296),
+/// Resolve an APQ request to the concrete query text to execute (CONCEPT:EG-KG.domains.graphql-enterprise-hardening),
 /// applying Apollo's protocol semantics:
 ///   * `query` present, no hash → run it (no registration).
 ///   * `query` + `hash` → verify `hash == sha256(query)`; on mismatch reject; else
@@ -245,14 +245,14 @@ pub fn resolve_apq(
     }
 }
 
-// ── AST walks: depth / complexity / introspection (CONCEPT:EG-296) ────────────────
+// ── AST walks: depth / complexity / introspection (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) ────────────────
 
 /// The nesting depth of a single field: 1 for a scalar leaf, else 1 + the deepest child.
 fn field_depth(f: &Field) -> usize {
     1 + f.selection.iter().map(field_depth).max().unwrap_or(0)
 }
 
-/// The max selection-set nesting depth over a resolved root set (CONCEPT:EG-296). A flat
+/// The max selection-set nesting depth over a resolved root set (CONCEPT:EG-KG.domains.graphql-enterprise-hardening). A flat
 /// `{ Person { name } }` is depth 2 (`Person` → `name`); `{ a { b { c } } }` is depth 3.
 pub fn query_depth(roots: &[Field]) -> usize {
     roots.iter().map(field_depth).max().unwrap_or(0)
@@ -288,7 +288,7 @@ fn field_cost(f: &Field, factor: usize) -> usize {
     1usize.saturating_add(n.saturating_mul(child_sum))
 }
 
-/// The weighted complexity of a resolved root set (CONCEPT:EG-296): the sum of each root's
+/// The weighted complexity of a resolved root set (CONCEPT:EG-KG.domains.graphql-enterprise-hardening): the sum of each root's
 /// [`field_cost`], list fields multiplied by their page factor.
 pub fn query_complexity(roots: &[Field], list_page_factor: usize) -> usize {
     roots
@@ -302,13 +302,13 @@ fn field_count(f: &Field) -> usize {
     1 + f.selection.iter().map(field_count).sum::<usize>()
 }
 
-/// The total field count over a resolved root set (CONCEPT:EG-296).
+/// The total field count over a resolved root set (CONCEPT:EG-KG.domains.graphql-enterprise-hardening).
 pub fn query_field_count(roots: &[Field]) -> usize {
     roots.iter().map(field_count).sum()
 }
 
 /// Whether a resolved root set selects `__schema`/`__type` introspection anywhere
-/// (CONCEPT:EG-296). `__typename` is NOT introspection (it is a per-node meta-field), so it
+/// (CONCEPT:EG-KG.domains.graphql-enterprise-hardening). `__typename` is NOT introspection (it is a per-node meta-field), so it
 /// is not flagged.
 pub fn selects_introspection(roots: &[Field]) -> bool {
     fn walk(f: &Field) -> bool {
@@ -321,7 +321,7 @@ pub fn selects_introspection(roots: &[Field]) -> bool {
 }
 
 /// Analyse a resolved query against a policy, returning its [`QueryCost`] or the first
-/// limit it violates (CONCEPT:EG-296). Order: introspection → depth → complexity → field
+/// limit it violates (CONCEPT:EG-KG.domains.graphql-enterprise-hardening). Order: introspection → depth → complexity → field
 /// count. Pure over the AST; runs BEFORE any graph access.
 pub fn check_policy(roots: &[Field], policy: &GraphQlPolicy) -> Result<QueryCost, String> {
     if !policy.introspection_enabled && selects_introspection(roots) {
@@ -376,7 +376,7 @@ fn resolve_roots(query: &str, variables: &Value) -> Result<Vec<Field>, String> {
     flatten_document(&doc, &vars)
 }
 
-/// Analyse a raw query string against a policy without executing it (CONCEPT:EG-296) —
+/// Analyse a raw query string against a policy without executing it (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) —
 /// the depth/complexity/introspection gate, exposed for callers that want the verdict
 /// (or the [`QueryCost`] numbers) independently of resolution.
 pub fn analyze(
@@ -388,7 +388,7 @@ pub fn analyze(
     check_policy(&roots, policy)
 }
 
-/// THE hardened entry point (CONCEPT:EG-296): apply the policy, then run the existing
+/// THE hardened entry point (CONCEPT:EG-KG.domains.graphql-enterprise-hardening): apply the policy, then run the existing
 /// resolver. The steps, in order:
 ///   1. **APQ resolve** — turn the (query | hash | hash+query) request into a query string
 ///      ([`resolve_apq`]).
@@ -452,7 +452,7 @@ mod tests {
         core.analysis_snapshot()
     }
 
-    // ── depth (CONCEPT:EG-296) ────────────────────────────────────────────────────
+    // ── depth (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) ────────────────────────────────────────────────────
 
     /// EG-296: a `max_depth` policy REJECTS a query nested deeper than the limit and
     /// ADMITS a shallow one.
@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(query_depth(&nested), 3);
     }
 
-    // ── complexity / cost (CONCEPT:EG-296) ────────────────────────────────────────
+    // ── complexity / cost (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) ────────────────────────────────────────
 
     /// EG-296: a `max_complexity` policy rejects a costly list query (a list field's
     /// subtree is multiplied by the page factor) while a cheap one passes.
@@ -534,7 +534,7 @@ mod tests {
         assert!(err.contains("max_fields"), "got {err}");
     }
 
-    // ── APQ (CONCEPT:EG-296) ──────────────────────────────────────────────────────
+    // ── APQ (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) ──────────────────────────────────────────────────────
 
     /// EG-296: a hash-only request FAILS with `PersistedQueryNotFound` when unregistered,
     /// SUCCEEDS after the query is registered via a hash+query request, and a hash+query
@@ -588,7 +588,7 @@ mod tests {
         );
     }
 
-    // ── introspection toggle (CONCEPT:EG-296) ─────────────────────────────────────
+    // ── introspection toggle (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) ─────────────────────────────────────
 
     /// EG-296: with introspection OFF, a `__schema` query is blocked BEFORE execution.
     #[test]
@@ -609,7 +609,7 @@ mod tests {
         ));
     }
 
-    // ── default policy is permissive (CONCEPT:EG-296) ─────────────────────────────
+    // ── default policy is permissive (CONCEPT:EG-KG.domains.graphql-enterprise-hardening) ─────────────────────────────
 
     /// EG-296: the DEFAULT policy leaves a normal query working exactly as a bare
     /// `execute` would — no limits tripped, introspection on, APQ a no-op for a plain

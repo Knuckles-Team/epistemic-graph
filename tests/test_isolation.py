@@ -48,7 +48,7 @@ def _client(sock, agent_id=None, graph_name="__commons__"):
     )
 
 
-@pytest.mark.concept("CONCEPT:KG-2.19")
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_no_rules_back_compat(isolation_server):
     """Before any identity is registered, peers can reach any graph."""
     anon = _client(isolation_server)
@@ -60,7 +60,7 @@ def test_no_rules_back_compat(isolation_server):
         anon.close()
 
 
-@pytest.mark.concept("CONCEPT:KG-2.19")
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_acl_enforced_once_identities_registered(isolation_server):
     sock = isolation_server
 

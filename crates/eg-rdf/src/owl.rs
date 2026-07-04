@@ -1,4 +1,4 @@
-//! W3 — a NATIVE OWL 2 reasoner (CONCEPT:KG-2.219).
+//! W3 — a NATIVE OWL 2 reasoner (CONCEPT:EG-KG.ontology.incremental-materialization).
 //!
 //! A pure-Rust OWL 2 **EL⁺ completion** reasoner (Baader/Brandt/Lutz "Pushing the EL
 //! Envelope" — the algorithmic core of ELK/CEL) UNIONED with the full **OWL 2 RL**
@@ -107,20 +107,20 @@ const OWL_SAME_AS: &str = "http://www.w3.org/2002/07/owl#sameAs";
 /// pair is a clash (instance-level inconsistency, reported by [`crate::rules`]).
 const OWL_DIFFERENT_FROM: &str = "http://www.w3.org/2002/07/owl#differentFrom";
 
-/// Annotation property carrying an axiom's confidence in `[0, 1]` (CONCEPT:KG-2.236):
+/// Annotation property carrying an axiom's confidence in `[0, 1]` (CONCEPT:EG-KG.ontology.concept-13):
 /// `ex:Heart eg:confidence "0.8"` attaches `0.8` to the axiom(s) whose SUBJECT is
 /// `ex:Heart` (e.g. `Heart ⊑ …`). Absent ⇒ `1.0` (a hard axiom). This is the epistemic
 /// engine's native "uncertain axiom" hook — the EL/RL closure then PROPAGATES it.
 const EG_CONFIDENCE: &str = "http://epistemic-graph/owl#confidence";
 
 /// `<iri>` canonical form (matches the node-id convention of [`crate::mapping`]).
-/// `pub(crate)` so the [`crate::tableau`] OWL-DL reasoner (CONCEPT:EG-059) reuses the
+/// `pub(crate)` so the [`crate::tableau`] OWL-DL reasoner (CONCEPT:EG-KG.ontology.concept-2) reuses the
 /// SAME node-id convention without a second copy.
 pub(crate) fn iri(s: &str) -> String {
     format!("<{s}>")
 }
 
-/// Confidence-fixpoint convergence epsilon (CONCEPT:KG-2.236): a derivation only
+/// Confidence-fixpoint convergence epsilon (CONCEPT:EG-KG.ontology.concept-13): a derivation only
 /// re-triggers the closure when it raises a recorded confidence by more than this, so
 /// the max-confidence-per-pair fixpoint terminates (monotone-bounded above by 1.0).
 const CONF_EPS: f64 = 1e-9;
@@ -166,7 +166,7 @@ pub struct Gci {
     pub rhs: Concept,
     /// A human-readable axiom label for justifications.
     pub label: String,
-    /// Axiom confidence in `[0, 1]` (CONCEPT:KG-2.236) — `1.0` for a hard/asserted
+    /// Axiom confidence in `[0, 1]` (CONCEPT:EG-KG.ontology.concept-13) — `1.0` for a hard/asserted
     /// axiom. A derived subsumption's confidence MULTIPLIES this in (the conjunctive
     /// rule: a chain is only as confident as its weakest axiom × its premises).
     pub conf: f64,
@@ -178,7 +178,7 @@ pub struct RoleChain {
     pub chain: Vec<String>,
     pub sup: String,
     pub label: String,
-    /// Axiom confidence in `[0, 1]` (CONCEPT:KG-2.236).
+    /// Axiom confidence in `[0, 1]` (CONCEPT:EG-KG.ontology.concept-13).
     pub conf: f64,
 }
 
@@ -222,7 +222,7 @@ pub struct Ontology {
 // ── Parsing OWL axioms out of an RDF triple stream ───────────────────────────
 
 /// Index the triples for axiom extraction: `(s, p) -> [o]` and `s -> [(p,o)]`.
-/// `pub(crate)` so the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-059) reads class
+/// `pub(crate)` so the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-KG.ontology.concept-2) reads class
 /// expressions out of the SAME triple index.
 pub(crate) struct TripleIndex {
     spo: HashMap<(String, String), Vec<Term>>,
@@ -251,7 +251,7 @@ impl TripleIndex {
 
 /// Canonical key for a subject/object term (IRI or blank node) — matches the
 /// node-id convention so the EL closure speaks the SAME ids the property-graph uses.
-/// `pub(crate)` — shared with the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-059).
+/// `pub(crate)` — shared with the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-KG.ontology.concept-2).
 pub(crate) fn term_key(t: &Term) -> String {
     match t {
         Term::NamedNode(n) => format!("<{}>", n.as_str()),
@@ -292,7 +292,7 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
     let idx = TripleIndex::build(triples);
     let mut ont = Ontology::default();
 
-    // Pre-index per-subject axiom confidences (CONCEPT:KG-2.236): `S eg:confidence "c"`.
+    // Pre-index per-subject axiom confidences (CONCEPT:EG-KG.ontology.concept-13): `S eg:confidence "c"`.
     let mut conf_of: HashMap<String, f64> = HashMap::new();
     for t in triples {
         if t.predicate.as_str() == EG_CONFIDENCE {
@@ -540,7 +540,7 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
         );
     }
 
-    // Lift range rules into EL analogously to domains (CONCEPT:EG-058). A range
+    // Lift range rules into EL analogously to domains (CONCEPT:EG-KG.ontology.owl-reasoning). A range
     // `range(r, D)` is the inverse-role mirror of a domain: `range(r, D) ≈ ∃r⁻.⊤ ⊑ D`
     // (anything that is the TARGET of an `r` edge — i.e. has an incoming `r`, an `r⁻`
     // successor — is a `D`). Until now `ont.ranges` was consumed ONLY at the RL /
@@ -570,7 +570,7 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
 }
 
 /// A stable synthetic inverse-role id used to lift `rdfs:range` into the EL completion
-/// (CONCEPT:EG-058): role `<iri>` maps to `<iri__eg-range-inv>`. The suffix makes it
+/// (CONCEPT:EG-KG.ontology.owl-reasoning): role `<iri>` maps to `<iri__eg-range-inv>`. The suffix makes it
 /// disjoint from any asserted property, and reusing one id per role lets several range
 /// axioms on the same role share a single `(r, r⁻)` inverse pair.
 fn range_inverse_role(r: &str) -> String {
@@ -670,7 +670,7 @@ fn conjunction_to_concept(mut cs: Vec<Concept>) -> Concept {
 }
 
 /// Walk an `rdf:first`/`rdf:rest`/`rdf:nil` collection into a vector of object terms.
-/// `pub(crate)` — the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-059) walks the same
+/// `pub(crate)` — the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-KG.ontology.concept-2) walks the same
 /// `intersectionOf`/`unionOf`/`oneOf` RDF collections.
 pub(crate) fn parse_rdf_list(idx: &TripleIndex, head: &Term) -> Vec<Term> {
     let mut out = Vec::new();
@@ -734,7 +734,7 @@ fn register_class(ont: &mut Ontology, c: &str) {
 }
 
 /// A short, human-readable rendering of an IRI node-id (local name) for labels.
-/// `pub(crate)` — reused by the [`crate::tableau`] OWL-DL reasoner (CONCEPT:EG-059).
+/// `pub(crate)` — reused by the [`crate::tableau`] OWL-DL reasoner (CONCEPT:EG-KG.ontology.concept-2).
 pub(crate) fn short(id: &str) -> String {
     let inner = id
         .strip_prefix('<')
@@ -771,7 +771,7 @@ pub struct Classification {
     pub roles: BTreeMap<String, BTreeSet<(String, String)>>,
     /// Justification for each DERIVED (non-reflexive, non-asserted) subsumption.
     pub justifications: HashMap<(String, String), Justification>,
-    /// Confidence in `[0, 1]` for each subsumption `(sub, sup)` (CONCEPT:KG-2.236).
+    /// Confidence in `[0, 1]` for each subsumption `(sub, sup)` (CONCEPT:EG-KG.ontology.concept-13).
     /// A reflexive/seed subsumption is `1.0`; a DERIVED one is the MAX over its
     /// alternative derivations of `axiom_conf × ∏ premise_conf` — high-confidence
     /// chains stay high, a single weak axiom drags its consequence down. Empty when
@@ -795,7 +795,7 @@ impl Classification {
             .unwrap_or(false)
     }
 
-    /// The confidence in `[0, 1]` that `sub ⊑ sup` (CONCEPT:KG-2.236). `1.0` for a
+    /// The confidence in `[0, 1]` that `sub ⊑ sup` (CONCEPT:EG-KG.ontology.concept-13). `1.0` for a
     /// reflexive/asserted-hard subsumption; the MAX-over-derivations propagated value
     /// for a derived one. Returns `0.0` when `sub ⊑ sup` does not hold. A confidence
     /// is only recorded when the classification was run with
@@ -818,7 +818,7 @@ type RhsAxiom = (Concept, String, f64);
 /// An existential-RHS axiom `B ⊑ ∃r.D` indexed by `B`: `(role, filler, label, conf)`.
 type SomeRhsAxiom = (String, Concept, String, f64);
 
-/// A reusable completion state so a DELTA can re-run incrementally (CONCEPT:KG-2.219).
+/// A reusable completion state so a DELTA can re-run incrementally (CONCEPT:EG-KG.ontology.incremental-materialization).
 /// Holds the normalised axioms + the current `S`/`R` closure; [`Reasoner::classify`]
 /// runs the fixpoint, [`Reasoner::add_axioms`] adds axioms and re-runs only the new
 /// consequences (EL completion is monotone — adding axioms only ADDS subsumers).
@@ -831,13 +831,13 @@ pub struct Reasoner {
     r: BTreeMap<String, BTreeSet<(String, String)>>,
     just: HashMap<(String, String), Justification>,
     /// Confidence per subsumption `(A,B)` — MAX over derivations of
-    /// `axiom_conf × ∏ premise_conf` (CONCEPT:KG-2.236). Only maintained when
+    /// `axiom_conf × ∏ premise_conf` (CONCEPT:EG-KG.ontology.concept-13). Only maintained when
     /// `weighted` is set; an unweighted run leaves it empty.
     conf: BTreeMap<(String, String), f64>,
     /// Confidence per role pair `(r, (A,B))` — analogous to `conf` for the R relation,
     /// so an existential derivation can multiply in the confidence of the role edge.
     rconf: BTreeMap<(String, String, String), f64>,
-    /// When true, the saturation tracks + propagates confidences (CONCEPT:KG-2.236).
+    /// When true, the saturation tracks + propagates confidences (CONCEPT:EG-KG.ontology.concept-13).
     weighted: bool,
 }
 
@@ -893,7 +893,7 @@ impl Reasoner {
         self.snapshot()
     }
 
-    /// Run EL⁺ completion AND propagate per-subsumption confidence (CONCEPT:KG-2.236).
+    /// Run EL⁺ completion AND propagate per-subsumption confidence (CONCEPT:EG-KG.ontology.concept-13).
     /// Same closure as [`classify`] (membership is identical — confidence weighting
     /// never changes WHICH subsumptions hold, only their `[0,1]` confidence), with the
     /// `confidence` map populated: a derived `A ⊑ B` carries the MAX over its
@@ -910,7 +910,7 @@ impl Reasoner {
     /// Add axioms (a delta) and re-saturate INCREMENTALLY: the prior `S`/`R` closure
     /// is kept (EL completion is monotone, so nothing is retracted) and the fixpoint
     /// resumes from it — only the NEW consequences are derived, not the whole closure
-    /// from scratch (CONCEPT:KG-2.219 incremental materialization). Returns the new
+    /// from scratch (CONCEPT:EG-KG.ontology.incremental-materialization incremental materialization). Returns the new
     /// classification.
     pub fn add_axioms(&mut self, delta: Ontology) -> Classification {
         merge_ontology(&mut self.ont, delta);
@@ -937,7 +937,7 @@ impl Reasoner {
     /// * **CR-disjoint** — if `D1, D2 ∈ S(A)` and `D1 ⊓ D2 ⊑ ⊥`, add `⊥` to `S(A)`.
     fn saturate(&mut self) {
         // Pre-index axioms by their trigger for O(1) rule lookup. Each entry carries
-        // the axiom's confidence as the last tuple element (CONCEPT:KG-2.236).
+        // the axiom's confidence as the last tuple element (CONCEPT:EG-KG.ontology.concept-13).
         // single-conjunct sub: B -> [(C, axiom_label, conf)]
         let mut sub_index: HashMap<String, Vec<RhsAxiom>> = HashMap::new();
         // conjunctive sub: list of (conjuncts, C, label, conf)
@@ -1427,7 +1427,7 @@ pub fn instances_of(
     out
 }
 
-/// The confidence of a single TYPE FACT (CONCEPT:KG-2.236): the engine's per-node
+/// The confidence of a single TYPE FACT (CONCEPT:EG-KG.ontology.concept-13): the engine's per-node
 /// `confidence` in `[0,1]` (default `1.0`) MULTIPLIED by its Ebbinghaus recency weight
 /// `exp(-ln2·age/half_life)` — so an OLD fact contributes LESS even when its stored
 /// confidence is high. `age`/`half_life` share a unit. This is the epistemic
@@ -1439,7 +1439,7 @@ pub fn fact_confidence(node_confidence: f64, age: f64, half_life: f64) -> f64 {
         .clamp(0.0, 1.0)
 }
 
-/// Confidence-weighted instance membership (CONCEPT:KG-2.236). For each individual `x`
+/// Confidence-weighted instance membership (CONCEPT:EG-KG.ontology.concept-13). For each individual `x`
 /// with asserted type facts `{(A, fact_conf)}`, `x` is a member of every `B ∈ S(A)`
 /// with confidence `fact_conf × subclass_confidence(A, B)` (the conjunctive chain: the
 /// fact AND the subsumption must both hold). When several asserted types reach the same
@@ -1476,7 +1476,7 @@ pub fn materialize_instances_weighted(
     out
 }
 
-/// Confidence-weighted members of `target_class` (CONCEPT:KG-2.236): every individual
+/// Confidence-weighted members of `target_class` (CONCEPT:EG-KG.ontology.concept-13): every individual
 /// inferred to be a `target_class` with membership confidence `≥ min_confidence`,
 /// returned as `(instance, confidence)` sorted by DESCENDING confidence (then id). A
 /// `min_confidence ≤ 0.0` keeps every member; a high `min_confidence` THRESHOLDS out
@@ -1574,7 +1574,7 @@ pub fn asserted_types_from_view(
 }
 
 /// Like [`asserted_types_from_view`] but ALSO reads each fact's confidence
-/// (CONCEPT:KG-2.236): the per-node `confidence` (default `1.0`) decayed by its age
+/// (CONCEPT:EG-KG.ontology.concept-13): the per-node `confidence` (default `1.0`) decayed by its age
 /// `now - last_access` (→ `updated_at` → `created_at`) on the Ebbinghaus curve with
 /// `default_half_life` (or a per-node `half_life`), via [`fact_confidence`]. So an OLD
 /// type fact (one not touched in a long time) contributes a LOWER confidence to the
@@ -1694,10 +1694,10 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
     out
 }
 
-// ── Distributed (cross-shard) reasoning (CONCEPT:KG-2.236) ────────────────────
+// ── Distributed (cross-shard) reasoning (CONCEPT:EG-KG.ontology.concept-13) ────────────────────
 
 /// The materialized result of a confidence-weighted reasoning run over one or more
-/// graph views (CONCEPT:KG-2.236). `subclasses` carries the derived subsumptions WITH
+/// graph views (CONCEPT:EG-KG.ontology.concept-13). `subclasses` carries the derived subsumptions WITH
 /// confidence; `instances` the inferred memberships WITH confidence, already filtered
 /// by `min_confidence`. This is the shape both the single-graph and the cross-shard
 /// paths produce — so the distributed run is provably identical to the single-graph
@@ -1713,7 +1713,7 @@ pub struct WeightedReasonResult {
 }
 
 /// Run confidence-weighted EL⁺/RL reasoning over the UNION of `views` (each a graph /
-/// shard snapshot) plus optional extra `ontology` triples (CONCEPT:KG-2.236). Gathers
+/// shard snapshot) plus optional extra `ontology` triples (CONCEPT:EG-KG.ontology.concept-13). Gathers
 /// every view's TBox axioms AND its asserted type facts (each with its decayed
 /// confidence, via [`asserted_types_with_confidence_from_view`]), unions them, and runs
 /// ONE weighted closure — so facts that span MULTIPLE shards classify together exactly
@@ -1892,7 +1892,7 @@ ex:Dad rdfs:subClassOf ex:Male .
         );
     }
 
-    /// `rdfs:range` constrains CONCEPT-level classification (CONCEPT:EG-058): with
+    /// `rdfs:range` constrains CONCEPT-level classification (CONCEPT:EG-KG.ontology.owl-reasoning): with
     /// `Person ⊑ ∃hasPet.Dog` and `range(hasPet, Animal)`, the range filler `Dog` (an
     /// `hasPet`-target) is derived `⊑ Animal` PURELY in the EL closure — no concrete
     /// `hasPet` edge exists, so the RL/instance path cannot reach this. Proves the
@@ -2012,7 +2012,7 @@ ex:Mammal rdfs:subClassOf ex:Animal .
         );
     }
 
-    // ── Probabilistic / confidence-weighted reasoning (CONCEPT:KG-2.236) ─────────
+    // ── Probabilistic / confidence-weighted reasoning (CONCEPT:EG-KG.ontology.concept-13) ─────────
 
     /// PROOF 1 — a chain of HIGH-confidence axioms yields a HIGH-confidence entailment.
     /// `Dog ⊑ Mammal (0.9)`, `Mammal ⊑ Animal (0.9)` ⇒ `Dog ⊑ Animal` at `0.81`
@@ -2218,7 +2218,7 @@ ex:Mammal eg:confidence "0.9" .
         );
     }
 
-    // ── Distributed (2-shard) reasoning == single-graph (CONCEPT:KG-2.236) ───────
+    // ── Distributed (2-shard) reasoning == single-graph (CONCEPT:EG-KG.ontology.concept-13) ───────
 
     /// Build a `GraphView` holding the given individuals as typed nodes, each with a
     /// `confidence` + `last_access` so the decay path is exercised. (TBox is supplied

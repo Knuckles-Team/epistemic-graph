@@ -1,4 +1,4 @@
-//! Geodesic (round-earth) metrics on WGS84 (CONCEPT:EG-256).
+//! Geodesic (round-earth) metrics on WGS84 (CONCEPT:EG-KG.ontology.concept-8).
 //!
 //! The predicates in [`crate::predicates`] are **planar** (Euclidean) — correct for a
 //! projected plane but wrong for raw lon/lat. This module adds the real-world GIS

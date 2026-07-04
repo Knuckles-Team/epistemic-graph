@@ -1,5 +1,5 @@
 //! FlatIndex — an exact (brute-force) kNN index + an ANN-candidate rerank stage
-//! (CONCEPT:EG-297).
+//! (CONCEPT:EG-KG.query.concept-5).
 //!
 //! The [`IvfPq`](crate::IvfPq) index is *approximate*: it probes `nprobe` cells and
 //! scores candidates from lossy PQ/SQ8 codes, so its top-k can miss a true
@@ -26,7 +26,7 @@ use crate::kmeans::sq_dist;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// The distance/similarity metric a [`FlatIndex`] search scores by (CONCEPT:EG-297).
+/// The distance/similarity metric a [`FlatIndex`] search scores by (CONCEPT:EG-KG.query.concept-5).
 ///
 /// All three are normalised to a "smaller = nearer" scalar so they sort ascending
 /// like every other distance in the crate:
@@ -48,7 +48,7 @@ pub enum Metric {
 
 impl Metric {
     /// True "smaller = nearer" distance between two equal-length vectors under this
-    /// metric (CONCEPT:EG-297). Panics only on a length mismatch (a programming
+    /// metric (CONCEPT:EG-KG.query.concept-5). Panics only on a length mismatch (a programming
     /// error), never on data values.
     #[inline]
     pub fn distance(&self, a: &[f32], b: &[f32]) -> f32 {
@@ -81,7 +81,7 @@ impl Metric {
     }
 }
 
-/// A brute-force EXACT kNN index over full f32 vectors (CONCEPT:EG-297).
+/// A brute-force EXACT kNN index over full f32 vectors (CONCEPT:EG-KG.query.concept-5).
 ///
 /// Every vector is stored verbatim in one contiguous `N*dim` buffer (row `i` is
 /// `vectors[i*dim .. (i+1)*dim]`, external id `ids[i]`). Rows are append-only; a
@@ -166,7 +166,7 @@ impl FlatIndex {
     }
 
     /// EXACT top-k: scan every live row, score by `metric`, return the k nearest as
-    /// [`SearchResult`]s sorted nearest-first (CONCEPT:EG-297). Ties break by id so
+    /// [`SearchResult`]s sorted nearest-first (CONCEPT:EG-KG.query.concept-5). Ties break by id so
     /// the order is deterministic. This is the ground truth ANN recall is measured
     /// against.
     pub fn search(&self, query: &[f32], k: usize, metric: Metric) -> Vec<SearchResult> {
@@ -174,7 +174,7 @@ impl FlatIndex {
         if k == 0 || self.ids.is_empty() {
             return Vec::new();
         }
-        // Batch-score every row on the ACTIVE distance backend (CONCEPT:EG-326): the
+        // Batch-score every row on the ACTIVE distance backend (CONCEPT:EG-KG.compute.gpu-distance-seam): the
         // GPU kernel when `gpu-cuda` is built + a device is present, else the pure-Rust
         // CPU backend — byte-for-byte identical results either way. Tombstoned rows are
         // filtered AFTER scoring (the batch is over the contiguous `vectors` buffer).
@@ -191,7 +191,7 @@ impl FlatIndex {
         scored
     }
 
-    /// Rerank ANN candidate ids by EXACT distance (CONCEPT:EG-297). Given the
+    /// Rerank ANN candidate ids by EXACT distance (CONCEPT:EG-KG.query.concept-5). Given the
     /// (over-fetched) candidate `candidate_ids` an ANN returned, recompute the true
     /// `metric` distance on each candidate's FULL stored vector and return the
     /// precise top-k, nearest-first. Ids absent from the index (or tombstoned) are
@@ -240,7 +240,7 @@ impl FlatIndex {
         scored
     }
 
-    /// Refine an ANN result list into a high-precision top-k (CONCEPT:EG-297).
+    /// Refine an ANN result list into a high-precision top-k (CONCEPT:EG-KG.query.concept-5).
     /// A convenience over [`FlatIndex::rerank_metric`] that takes the ANN's
     /// [`SearchResult`]s directly (the over-fetched `refine_factor*k` candidates),
     /// discards their approximate distances, and re-scores them exactly. The
@@ -256,7 +256,7 @@ impl FlatIndex {
         self.rerank_metric(query, &ids, k, metric)
     }
 
-    /// Heap-byte footprint of the index (CONCEPT:EG-297) — the exact tier is the
+    /// Heap-byte footprint of the index (CONCEPT:EG-KG.query.concept-5) — the exact tier is the
     /// expensive one (full f32), so it is byte-accounted like the code buffers:
     /// `struct + vectors(4B) + ids(8B) + tombstones(1B)`, counting reserved
     /// capacity (what is actually resident).

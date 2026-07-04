@@ -1,4 +1,4 @@
-//! The ShEx schema model + a ShExJ (JSON abstract-syntax) parser (CONCEPT:EG-133).
+//! The ShEx schema model + a ShExJ (JSON abstract-syntax) parser (CONCEPT:EG-KG.compute.concept-2).
 //!
 //! ShEx has two concrete syntaxes: **ShExC** (a compact, Turtle-like grammar) and
 //! **ShExJ** (the JSON abstract syntax). ShExJ is the canonical, unambiguous form and is
@@ -157,7 +157,7 @@ impl Schema {
         }
     }
 
-    /// Parse a ShExJ (JSON abstract-syntax) schema document (CONCEPT:EG-133).
+    /// Parse a ShExJ (JSON abstract-syntax) schema document (CONCEPT:EG-KG.compute.concept-2).
     pub fn from_shexj(json: &str) -> Result<Schema, String> {
         let root: Value =
             serde_json::from_str(json).map_err(|e| format!("ShExJ: invalid JSON: {e}"))?;

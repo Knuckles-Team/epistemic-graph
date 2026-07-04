@@ -1,5 +1,5 @@
 //! Cross-shard distributed transactions — a 2-phase-commit coordinator
-//! (CONCEPT:KG-2.222, Lane N increment 1).
+//! (CONCEPT:EG-KG.storage.lane-n-increment, Lane N increment 1).
 //!
 //! ## The problem this closes
 //!
@@ -60,7 +60,7 @@
 //! The outcome is therefore deterministic from the durable decision record alone — no
 //! participant ever applies without a COMMIT decision on disk.
 //!
-//! ## Commit-path optimizations (CONCEPT:EG-081)
+//! ## Commit-path optimizations (CONCEPT:EG-KG.txn.cross-shard)
 //!
 //! Two tractable 2PC optimizations are folded into the commit path above WITHOUT
 //! weakening any durability/recovery invariant:
@@ -91,10 +91,10 @@
 //! restarted coordinator resolves every in-doubt txn deterministically from disk. A
 //! non-blocking commit (3PC / Paxos-Commit, or replicating the decision record itself
 //! through Raft so a surviving node can resolve) plus Calvin-style deterministic
-//! ordering remain a separate follow-up track (CONCEPT:EG-082); so is a cross-NODE
+//! ordering remain a separate follow-up track (CONCEPT:EG-KG.txn.harness-crash); so is a cross-NODE
 //! participant path and a larger >2-group scale test.
 //!
-//! ## Non-blocking commit — Raft-replicated decision (CONCEPT:EG-082)
+//! ## Non-blocking commit — Raft-replicated decision (CONCEPT:EG-KG.txn.harness-crash)
 //!
 //! The blocking window above exists for ONE reason: in classic 2PC the durable COMMIT
 //! decision lives ONLY in the coordinator's private redb (`xshard_decision_put`). A
@@ -213,13 +213,13 @@ pub enum TxnOutcome {
     Aborted,
 }
 
-/// The cross-shard 2PC coordinator (CONCEPT:KG-2.222). Holds the per-node
+/// The cross-shard 2PC coordinator (CONCEPT:EG-KG.storage.lane-n-increment). Holds the per-node
 /// [`MultiRaft`] manager (to reach each participant group) and the shared redb
 /// backend (to persist the durable prepare + decision records).
 pub struct CrossShardCoordinator {
     multi: Arc<MultiRaft>,
     backend: Arc<dyn PersistenceBackend>,
-    /// Observability (CONCEPT:EG-081): count of participant groups that took the
+    /// Observability (CONCEPT:EG-KG.txn.cross-shard): count of participant groups that took the
     /// read-only fast path — i.e. their write-set slice was EMPTY, so they were
     /// OCC-validated but NEVER durably prepared or applied in phase 2. Cheap
     /// relaxed counter, useful as a metric and as a test observable.
@@ -236,7 +236,7 @@ impl CrossShardCoordinator {
     }
 
     /// Total number of participant groups skipped by the read-only fast path across
-    /// this coordinator's lifetime (CONCEPT:EG-081) — groups whose write-set slice was
+    /// this coordinator's lifetime (CONCEPT:EG-KG.txn.cross-shard) — groups whose write-set slice was
     /// empty and therefore never got a durable PREPARE record or a phase-2 write.
     pub fn readonly_skipped(&self) -> u64 {
         self.readonly_skipped.load(Ordering::Relaxed)
@@ -373,7 +373,7 @@ impl CrossShardCoordinator {
         }
     }
 
-    /// Split the participant map into (WRITING, READ-ONLY) groups (CONCEPT:EG-081).
+    /// Split the participant map into (WRITING, READ-ONLY) groups (CONCEPT:EG-KG.txn.cross-shard).
     /// A group is READ-ONLY iff EVERY slice it owns has an empty method/write-set —
     /// it contributed only reads to the txn (or no ops at all), so it can skip the
     /// durable prepare + phase-2 write entirely.
@@ -396,7 +396,7 @@ impl CrossShardCoordinator {
         (writing, read_only)
     }
 
-    /// Validate a READ-ONLY participant's reads without preparing it (CONCEPT:EG-081).
+    /// Validate a READ-ONLY participant's reads without preparing it (CONCEPT:EG-KG.txn.cross-shard).
     /// Mirrors the reachability + OCC check `prepare_participant` runs for a writer,
     /// but writes NO durable prepare record and applies nothing: an unreachable group
     /// cannot confirm its reads (→ NO), otherwise the reads are OCC-validated against
@@ -558,7 +558,7 @@ impl CrossShardCoordinator {
         Ok(resolved)
     }
 
-    // ── Phase-granular entry points for the nemesis harness (CONCEPT:KG-2.222) ──
+    // ── Phase-granular entry points for the nemesis harness (CONCEPT:EG-KG.storage.lane-n-increment) ──
     // These let the gauntlet inject a crash/partition BETWEEN phases — exactly the
     // window where a naive design would leave a partial commit. They are the SAME
     // steps `commit_cross_shard` runs internally, exposed so a test can stop after
@@ -600,7 +600,7 @@ impl CrossShardCoordinator {
     // 2PC `commit_cross_shard` above. See the module-level "Non-blocking commit"
     // section for the design.
 
-    /// Run the NON-BLOCKING cross-shard commit (CONCEPT:EG-082): identical to
+    /// Run the NON-BLOCKING cross-shard commit (CONCEPT:EG-KG.txn.harness-crash): identical to
     /// [`commit_cross_shard`] except the atomic commit point REPLICATES the decision
     /// through the `decision_gid` Raft group (a durable, quorum-committed log entry in
     /// [`XSHARD_DECISION_GRAPH`]) instead of writing it to the coordinator-private redb.
@@ -702,7 +702,7 @@ impl CrossShardCoordinator {
         })
     }
 
-    /// Resolve every in-doubt cross-shard txn for the NON-BLOCKING path (CONCEPT:EG-082).
+    /// Resolve every in-doubt cross-shard txn for the NON-BLOCKING path (CONCEPT:EG-KG.txn.harness-crash).
     /// Like [`recover_in_doubt`] it scans the durable PREPARE records, but it LEARNS each
     /// txn's outcome from the REPLICATED decision graph ([`learn_decision`]) rather than
     /// the coordinator-private redb — so ANY node holding the decision group's replicated
@@ -758,7 +758,7 @@ impl CrossShardCoordinator {
     }
 
     /// Replicate the COMMIT/ABORT decision through the `decision_gid` Raft group
-    /// (CONCEPT:EG-082): an `AddNode(txn_id, {xshard_commit})` into [`XSHARD_DECISION_GRAPH`]
+    /// (CONCEPT:EG-KG.txn.harness-crash): an `AddNode(txn_id, {xshard_commit})` into [`XSHARD_DECISION_GRAPH`]
     /// committed via that group's `client_write`. Returns after the entry is
     /// quorum-committed AND applied locally — the decision is now durable on a quorum and
     /// readable on every replica. Writes NOTHING to the coordinator-private redb.
@@ -790,7 +790,7 @@ impl CrossShardCoordinator {
         Ok(())
     }
 
-    /// GC a resolved txn's replicated decision node (CONCEPT:EG-082) — a `RemoveNode`
+    /// GC a resolved txn's replicated decision node (CONCEPT:EG-KG.txn.harness-crash) — a `RemoveNode`
     /// through the decision group. Idempotent (removing an absent node is a no-op), so a
     /// recovery retry is safe. A missing decision group is tolerated (nothing to clear).
     #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
@@ -814,7 +814,7 @@ impl CrossShardCoordinator {
         Ok(())
     }
 
-    /// Learn a txn's outcome from the REPLICATED decision graph (CONCEPT:EG-082):
+    /// Learn a txn's outcome from the REPLICATED decision graph (CONCEPT:EG-KG.txn.harness-crash):
     /// `Some(true)` = COMMIT, `Some(false)` = ABORT, `None` = no decision replicated
     /// (undecided → presumed-abort). Reads the decision group's applied state machine
     /// (the registry [`XSHARD_DECISION_GRAPH`] core), NOT the coordinator-private redb —
@@ -842,7 +842,7 @@ impl CrossShardCoordinator {
         }
     }
 
-    /// Replicate a decision WITHOUT applying phase 2 (CONCEPT:EG-082 harness crash
+    /// Replicate a decision WITHOUT applying phase 2 (CONCEPT:EG-KG.txn.harness-crash harness crash
     /// window: the decision is quorum-durable in the replicated log, apply not yet done).
     /// The analog of [`decide_only`] for the non-blocking path.
     #[cfg(any(test, feature = "harness"))]
@@ -862,7 +862,7 @@ impl CrossShardCoordinator {
     // this is opt-in per call, a THIRD commit strategy alongside 2PC
     // (`commit_cross_shard`) and Paxos-Commit-lite (`commit_cross_shard_nonblocking`).
 
-    /// FULL Calvin deterministic-ordering commit for a cross-shard txn (CONCEPT:EG-324).
+    /// FULL Calvin deterministic-ordering commit for a cross-shard txn (CONCEPT:EG-KG.txn.calvin-deterministic-ordering).
     ///
     /// The 2PC / Paxos-Commit paths are *agreement-first*: every writing participant
     /// runs an OCC prepare and VOTES, and only a unanimous YES commits. Calvin inverts
@@ -961,7 +961,7 @@ impl CrossShardCoordinator {
         Ok((TxnOutcome::Committed, seq))
     }
 
-    /// Deterministic execution of a sequenced txn's writing slices (CONCEPT:EG-324):
+    /// Deterministic execution of a sequenced txn's writing slices (CONCEPT:EG-KG.txn.calvin-deterministic-ordering):
     /// apply each participant group's slice through its Raft `client_write` in `GroupId`
     /// order. Pure function of the (already agreed) order — no prepare/vote/OCC. Idempotent
     /// under a recovery replay (re-applying an AddNode/AddEdge is a no-op overwrite).
@@ -988,7 +988,7 @@ impl CrossShardCoordinator {
         Ok(())
     }
 
-    /// Replicate a txn's assigned [`GlobalSeq`] through the decision group (CONCEPT:EG-324)
+    /// Replicate a txn's assigned [`GlobalSeq`] through the decision group (CONCEPT:EG-KG.txn.calvin-deterministic-ordering)
     /// — an `AddNode(txn_id, {kind: xshard_sequence, seq})` into [`XSHARD_DECISION_GRAPH`]
     /// committed via that group's `client_write`. Returns after the entry is quorum-committed
     /// AND applied locally, so the ORDER is durable on a quorum and readable on every replica.
@@ -1022,7 +1022,7 @@ impl CrossShardCoordinator {
         Ok(())
     }
 
-    /// Learn a txn's replicated [`GlobalSeq`] from the decision graph (CONCEPT:EG-324):
+    /// Learn a txn's replicated [`GlobalSeq`] from the decision graph (CONCEPT:EG-KG.txn.calvin-deterministic-ordering):
     /// `Some(seq)` if the order was replicated (the txn WILL commit — replay it),
     /// `None` if no sequence was replicated (a crash before sequencing — the txn never
     /// entered the input log, so it commits nowhere). Reads the replicated state machine,
@@ -1045,7 +1045,7 @@ impl CrossShardCoordinator {
         }
     }
 
-    /// Replicate a txn's ORDER WITHOUT executing it (CONCEPT:EG-324 harness crash window:
+    /// Replicate a txn's ORDER WITHOUT executing it (CONCEPT:EG-KG.txn.calvin-deterministic-ordering harness crash window:
     /// the order is quorum-durable in the replicated log, execute not yet done). The Calvin
     /// analog of [`decide_replicated_only`].
     #[cfg(any(test, feature = "harness"))]
@@ -1058,7 +1058,7 @@ impl CrossShardCoordinator {
         self.replicate_sequence(decision_gid, txn_id, seq).await
     }
 
-    /// Resolve an in-doubt Calvin txn by REPLAYING its replicated sequence (CONCEPT:EG-324).
+    /// Resolve an in-doubt Calvin txn by REPLAYING its replicated sequence (CONCEPT:EG-KG.txn.calvin-deterministic-ordering).
     /// Because a sequenced txn's outcome is a deterministic function of the agreed order,
     /// any node that reads the replicated [`GlobalSeq`] can finish it WITHOUT the crashed
     /// coordinator: it re-executes the writing slices (idempotent apply) and GCs the record.
@@ -1123,7 +1123,7 @@ impl CrossShardCoordinator {
     /// predicted set can be stale. Calvin handles that by re-validating the seeds after
     /// the locks are held and RE-SEQUENCING (aborting + re-submitting) a txn whose recon
     /// no longer holds. [`recon_still_valid`] implements the detection half; the automatic
-    /// re-sequence/restart loop is [`acquire_ollp_with_restart`] (CONCEPT:EG-348).
+    /// re-sequence/restart loop is [`acquire_ollp_with_restart`] (CONCEPT:EG-KG.txn.concept-4).
     #[cfg(any(feature = "calvin", test, feature = "harness"))]
     pub async fn predict_rwset<F>(&self, seeds: &[RecordKey], derive: F) -> Result<RwSet, String>
     where
@@ -1155,7 +1155,7 @@ impl CrossShardCoordinator {
         Ok(true)
     }
 
-    /// EG-348 (CONCEPT:EG-348): Calvin OLLP recon-staleness RESTART — the automatic
+    /// EG-348 (CONCEPT:EG-KG.txn.concept-4): Calvin OLLP recon-staleness RESTART — the automatic
     /// re-sequence/restart loop EG-342 documented but did not wire.
     ///
     /// EG-342 supplied only the DETECTION half ([`recon_still_valid`]): it can tell that a
@@ -1250,19 +1250,19 @@ impl CrossShardCoordinator {
 }
 
 /// The dedicated graph that holds Raft-replicated cross-shard commit decisions
-/// (CONCEPT:EG-082). One node per txn — id = `txn_id`, property `xshard_commit: bool`.
+/// (CONCEPT:EG-KG.txn.harness-crash). One node per txn — id = `txn_id`, property `xshard_commit: bool`.
 /// Lives in the decision Raft group's replicated state machine, so every replica can
 /// read a txn's outcome without the coordinator.
 #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
 pub const XSHARD_DECISION_GRAPH: &str = "__xshard_decisions__";
 
 /// A position in the global total order Calvin assigns to cross-shard txns
-/// (CONCEPT:EG-324). Monotone within one [`CalvinSequencer`]; `Ord` so a replayer can
+/// (CONCEPT:EG-KG.txn.calvin-deterministic-ordering). Monotone within one [`CalvinSequencer`]; `Ord` so a replayer can
 /// sort a batch back into execution order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct GlobalSeq(pub u64);
 
-/// The global sequencer of Calvin's deterministic-ordering layer (CONCEPT:EG-324).
+/// The global sequencer of Calvin's deterministic-ordering layer (CONCEPT:EG-KG.txn.calvin-deterministic-ordering).
 ///
 /// It hands out a strictly monotone [`GlobalSeq`] per txn — the total order every
 /// participant then executes in, with no per-txn vote. One sequencer is the single
@@ -1299,7 +1299,7 @@ impl CalvinSequencer {
     }
 }
 
-/// The deterministic total order Calvin executes a BATCH of txns in (CONCEPT:EG-324).
+/// The deterministic total order Calvin executes a BATCH of txns in (CONCEPT:EG-KG.txn.calvin-deterministic-ordering).
 ///
 /// Returns the indices of `txns` in the canonical order EVERY node computes: ascending
 /// by `txn_id` (a stable, replay-safe key that does not depend on arrival timing, which
@@ -1328,7 +1328,7 @@ fn slice_inserts_node(slices: &[GraphSlice], node_id: &str) -> bool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A single lockable record — a `(graph, node)` pair — the granularity Calvin's OLLP
-/// lock phase acquires read/write locks at (CONCEPT:EG-342). `Ord`+`Hash` so it keys
+/// lock phase acquires read/write locks at (CONCEPT:EG-KG.txn.concept-2). `Ord`+`Hash` so it keys
 /// the lock manager's per-record queues and the deterministic [`RwSet`] sets.
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -1347,7 +1347,7 @@ impl RecordKey {
     }
 }
 
-/// The mode a record is locked in during the OLLP phase (CONCEPT:EG-342): `Shared` for
+/// The mode a record is locked in during the OLLP phase (CONCEPT:EG-KG.txn.concept-2): `Shared` for
 /// a read (co-grantable with other reads), `Exclusive` for a write (mutually exclusive
 /// with every other holder).
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
@@ -1357,7 +1357,7 @@ pub enum LockMode {
     Exclusive,
 }
 
-/// A txn's predicted read/write set (CONCEPT:EG-342) — the output of the OLLP
+/// A txn's predicted read/write set (CONCEPT:EG-KG.txn.concept-2) — the output of the OLLP
 /// reconnaissance ([`CrossShardCoordinator::predict_rwset`]) and the input to the
 /// ordered lock phase. A record in BOTH sets is locked `Exclusive` (the write subsumes
 /// the read).
@@ -1385,7 +1385,7 @@ impl RwSet {
 }
 
 /// One outstanding lock request on a record, tagged with its owning txn's global
-/// sequence (CONCEPT:EG-342). Ordered by `seq` inside a record's queue.
+/// sequence (CONCEPT:EG-KG.txn.concept-2). Ordered by `seq` inside a record's queue.
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
 #[derive(Debug, Clone, Copy)]
 struct LockEntry {
@@ -1394,7 +1394,7 @@ struct LockEntry {
     granted: bool,
 }
 
-/// A record's lock queue: outstanding requests kept ASCENDING by `seq` (CONCEPT:EG-342).
+/// A record's lock queue: outstanding requests kept ASCENDING by `seq` (CONCEPT:EG-KG.txn.concept-2).
 /// Grants flow strictly in sequence order, which is what makes conflicting sequenced
 /// txns serialize in the sequencer's total order.
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
@@ -1405,7 +1405,7 @@ struct RecordQueue {
 
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
 impl RecordQueue {
-    /// Grant every front request that is now grantable (CONCEPT:EG-342). A request is
+    /// Grant every front request that is now grantable (CONCEPT:EG-KG.txn.concept-2). A request is
     /// grantable iff EVERY strictly-lower-sequence request on the record is already
     /// granted AND `Shared`, and — for an `Exclusive` request — it sits at the very
     /// front (no lower-sequence request outstanding at all). Scanning front→back and
@@ -1437,7 +1437,7 @@ impl RecordQueue {
 }
 
 /// The deterministic ORDERED read/write lock manager of Calvin's OLLP phase
-/// (CONCEPT:EG-342).
+/// (CONCEPT:EG-KG.txn.concept-2).
 ///
 /// Locks are keyed by [`RecordKey`] and granted STRICTLY in the global-sequence order
 /// the [`CalvinSequencer`] (EG-324) / [`epoch_fan_in`] (EG-343) assign. A txn
@@ -1468,7 +1468,7 @@ pub struct OrderedLockManager {
     wake: tokio::sync::Notify,
 }
 
-/// A registered-but-not-yet-granted lock request set (CONCEPT:EG-342). Produced by
+/// A registered-but-not-yet-granted lock request set (CONCEPT:EG-KG.txn.concept-2). Produced by
 /// [`OrderedLockManager::register`] SYNCHRONOUSLY in sequence order; awaited via
 /// [`LockTicket::granted`] which resolves to the held [`LockGuard`] once every record is
 /// granted.
@@ -1479,7 +1479,7 @@ pub struct LockTicket {
     keys: Vec<RecordKey>,
 }
 
-/// Proof the ordered locks for one txn are held (CONCEPT:EG-342). The deterministic
+/// Proof the ordered locks for one txn are held (CONCEPT:EG-KG.txn.concept-2). The deterministic
 /// execution phase runs while this is alive; dropping it (or [`LockGuard::release`])
 /// releases every record and lets the next sequenced waiter proceed.
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
@@ -1491,7 +1491,7 @@ pub struct LockGuard {
     released: bool,
 }
 
-/// EG-348 (CONCEPT:EG-348): a successful OLLP acquisition after the recon-staleness restart loop
+/// EG-348 (CONCEPT:EG-KG.txn.concept-4): a successful OLLP acquisition after the recon-staleness restart loop
 /// ([`CrossShardCoordinator::acquire_ollp_with_restart`]). Carries the `GlobalSeq` the txn
 /// ultimately VALIDATED at (a restart bumps this past the failed attempts), its now-fresh
 /// predicted [`RwSet`], the held [`LockGuard`] the caller runs the deterministic-execution
@@ -1554,7 +1554,7 @@ impl OrderedLockManager {
     }
 
     /// Await until every record in `ticket` is granted, then return the held guard
-    /// (CONCEPT:EG-342). Re-checks on every manager wake; the arm-before-check +
+    /// (CONCEPT:EG-KG.txn.concept-2). Re-checks on every manager wake; the arm-before-check +
     /// `enable()` pattern registers the waiter before the grant test so no wake is lost.
     pub async fn granted(self: &Arc<Self>, ticket: LockTicket) -> LockGuard {
         loop {
@@ -1575,7 +1575,7 @@ impl OrderedLockManager {
         }
     }
 
-    /// Register + await in one call (CONCEPT:EG-342) — safe ONLY when the caller
+    /// Register + await in one call (CONCEPT:EG-KG.txn.concept-2) — safe ONLY when the caller
     /// guarantees calls happen in sequence order (e.g. the two-txn conflict path or a
     /// single-threaded scheduler). For a concurrent epoch use
     /// [`register`](Self::register) in order first, then await each ticket.
@@ -1596,7 +1596,7 @@ impl OrderedLockManager {
     }
 
     /// Release every record a guard holds and grant the next sequenced waiters
-    /// (CONCEPT:EG-342). Synchronous (runs from `Drop`): removes this txn's entries,
+    /// (CONCEPT:EG-KG.txn.concept-2). Synchronous (runs from `Drop`): removes this txn's entries,
     /// advances each queue's front, then wakes all waiters to re-check.
     fn release(&self, seq: GlobalSeq, keys: &[RecordKey]) {
         {
@@ -1617,7 +1617,7 @@ impl OrderedLockManager {
         self.wake.notify_waiters();
     }
 
-    /// Admit a whole epoch batch's txns in ONE in-sequence-order pass (CONCEPT:EG-342 +
+    /// Admit a whole epoch batch's txns in ONE in-sequence-order pass (CONCEPT:EG-KG.txn.concept-2 +
     /// EG-343): given `(seq, rwset)` pairs, sort by `seq` and `register` each in order,
     /// returning the tickets in the same order. This is the Calvin invariant "the lock
     /// manager requests locks in the sequenced-log order" made into a single call —
@@ -1653,7 +1653,7 @@ impl Drop for LockGuard {
 // EG-343: multi-node sequencer epoch fan-in
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// One node's locally-sequenced input for a Calvin epoch (CONCEPT:EG-343) — a txn that
+/// One node's locally-sequenced input for a Calvin epoch (CONCEPT:EG-KG.txn.concept-3) — a txn that
 /// node's local sequencer accepted at position `local_seq`. Nodes exchange their
 /// per-epoch input batches; [`epoch_fan_in`] deterministically merges them.
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
@@ -1678,7 +1678,7 @@ impl NodeInput {
     }
 }
 
-/// A txn's position in the merged GLOBAL order of an epoch (CONCEPT:EG-343) — carries
+/// A txn's position in the merged GLOBAL order of an epoch (CONCEPT:EG-KG.txn.concept-3) — carries
 /// the epoch-relative [`GlobalSeq`] plus the origin node so execution can route/attribute
 /// it. The cross-epoch total order is lexicographic `(epoch, global_seq)`.
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
@@ -1690,7 +1690,7 @@ pub struct SequencedInput {
     pub txn_id: String,
 }
 
-/// The deterministic merged order of ONE Calvin epoch (CONCEPT:EG-343): every node's
+/// The deterministic merged order of ONE Calvin epoch (CONCEPT:EG-KG.txn.concept-3): every node's
 /// per-node input batches folded into a single total order, `inputs` ascending by
 /// `global_seq`. Deriving this from the same per-node batches yields byte-identical
 /// output on every node — the property the vote-free deterministic execution relies on.
@@ -1702,7 +1702,7 @@ pub struct EpochBatch {
 }
 
 /// Fan-in the per-node sequenced inputs of one epoch into a single deterministic global
-/// order (CONCEPT:EG-343) — the multi-node extension of the single [`CalvinSequencer`]
+/// order (CONCEPT:EG-KG.txn.concept-3) — the multi-node extension of the single [`CalvinSequencer`]
 /// (EG-324).
 ///
 /// Every node, given the SAME `per_node` batches, computes the IDENTICAL [`EpochBatch`]:
@@ -1738,7 +1738,7 @@ pub fn epoch_fan_in(epoch: u64, per_node: &BTreeMap<NodeId, Vec<NodeInput>>) -> 
 
 #[cfg(test)]
 mod calvin_tests {
-    //! Pure unit tests for the CONCEPT:EG-324 Calvin deterministic-ordering layer
+    //! Pure unit tests for the CONCEPT:EG-KG.txn.calvin-deterministic-ordering Calvin deterministic-ordering layer
     //! (the sequencer + the replay-stable order kernel) — no live cluster needed. The
     //! end-to-end deterministic-execute + crash-replay-recovery proof lives in the live
     //! `xshard_harness` (`calvin_*` tests).

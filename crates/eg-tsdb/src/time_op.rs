@@ -1,5 +1,5 @@
 //! Time as a score-producing operator dimension in the unified RowSet algebra
-//! (CONCEPT:KG-2.211 — SKETCH / seam for the eg-plan binding increment).
+//! (CONCEPT:EG-KG.compute.handled-outside-single-anchor — SKETCH / seam for the eg-plan binding increment).
 //!
 //! ## Why this is a sketch, not a wired planner op
 //!

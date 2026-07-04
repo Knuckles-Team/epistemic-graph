@@ -66,7 +66,7 @@ fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
     Some(pair)
 }
 
-/// Extended-language tier (CONCEPT:KG-2.106), compiled only with `ast-extended`.
+/// Extended-language tier (CONCEPT:AU-KG.compute.built-ast-extended), compiled only with `ast-extended`.
 /// Without the feature it resolves nothing, so a slim `ast` build stays lean.
 #[cfg(feature = "ast-extended")]
 fn lang_for_path_extended(ext: &str) -> Option<(Language, &'static str)> {
@@ -89,8 +89,8 @@ fn lang_for_path_extended(_ext: &str) -> Option<(Language, &'static str)> {
 /// mirrored by the Python file-discovery walk.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "go", "rs", "java", "c",
-    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs", // SQL DDL (CONCEPT:KG-2.212):
-    "sql", "ddl", // extended tier (CONCEPT:KG-2.106):
+    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs", // SQL DDL (CONCEPT:AU-KG.ontology.emits-database-ontology-entities):
+    "sql", "ddl", // extended tier (CONCEPT:AU-KG.compute.built-ast-extended):
     "rb", "php", "sh", "bash", "scala", "sc", "lua",
 ];
 
@@ -110,7 +110,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
 
     let file_node_id = format!("file:{}", file_path);
 
-    // SQL DDL takes a dedicated extraction path (CONCEPT:KG-2.212): it emits
+    // SQL DDL takes a dedicated extraction path (CONCEPT:AU-KG.ontology.emits-database-ontology-entities): it emits
     // database-ontology entities (tables/columns/views + FK edges), NOT :Code
     // symbols, so it does not flow through the call-graph walker.
     if lang_label == "sql" {
@@ -131,7 +131,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
     Ok(result)
 }
 
-// ── SQL DDL extraction (CONCEPT:KG-2.212) ───────────────────────────────────
+// ── SQL DDL extraction (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) ───────────────────────────────────
 // Parses CREATE TABLE / CREATE VIEW + inline and table-level FOREIGN KEY
 // constraints from the tree-sitter-sequel grammar into the database ontology
 // (:DatabaseTable / :DatabaseColumn / :DatabaseView with hasColumn /
@@ -403,7 +403,7 @@ fn extract_create_view(node: Node, source: &[u8], file_path: &str, result: &mut 
     }
 }
 
-// CONCEPT:KG-2.8 — Native test-quality metrics. Computed in the Rust compute
+// CONCEPT:EG-KG.storage.nonblocking-checkpoint — Native test-quality metrics. Computed in the Rust compute
 // layer (not Python) so "which pytests need work" is a graph fact, not a script.
 const MOCK_CALLS: &[&str] = &[
     "Mock",
@@ -454,7 +454,7 @@ fn collect_test_metrics(node: Node, source: &[u8], m: &mut TestMetrics) {
     }
 }
 
-// CONCEPT:KG-2.100 — Type/scope-resolved call graph. A call site carries the
+// CONCEPT:EG-KG.compute.type-scope-resolved-call — Type/scope-resolved call graph. A call site carries the
 // receiver (`self`/`this`, a variable, or a Type for a static call — empty for a
 // bare call), the callee name (last dotted/`::` segment), and the argument count.
 // The cross-file resolver (`super::resolve`) binds these to the right *method on
@@ -498,7 +498,7 @@ fn count_args(node: Node) -> Option<usize> {
 
 /// Collect structured call sites within a function/method body across languages:
 /// Python `call`, JS/TS/Go/Rust/C/C++ `call_expression`, Java `method_invocation`.
-/// (CONCEPT:KG-2.100; supersedes the old name-only `collect_calls`.)
+/// (CONCEPT:EG-KG.compute.type-scope-resolved-call; supersedes the old name-only `collect_calls`.)
 fn collect_call_sites(node: Node, source: &[u8], out: &mut Vec<CallSite>) {
     match node.kind() {
         "call" | "call_expression" => {
@@ -818,7 +818,7 @@ fn class_like_kind(kind: &str) -> Option<&'static str> {
         "union_item" | "union_specifier" => "union",
         "record_declaration" | "record_struct_declaration" => "record",
         "namespace_definition" => "namespace",
-        // Ruby `class`/`module`; Scala `object_definition` (CONCEPT:KG-2.106).
+        // Ruby `class`/`module`; Scala `object_definition` (CONCEPT:AU-KG.compute.built-ast-extended).
         "class" => "class",
         "module" => "module",
         "object_definition" => "object",
@@ -835,7 +835,7 @@ fn function_like_kind(kind: &str) -> Option<&'static str> {
         | "function_declaration"
         | "function_item"
         | "generator_function_declaration" => "function",
-        // Ruby `method`/`singleton_method` (CONCEPT:KG-2.106).
+        // Ruby `method`/`singleton_method` (CONCEPT:AU-KG.compute.built-ast-extended).
         "method_definition" | "method_declaration" | "method" | "singleton_method" => "method",
         "constructor_declaration" => "constructor",
         _ => return None,
@@ -919,7 +919,7 @@ fn emit_symbol(
     );
     properties.insert("ast_hash".to_string(), content_hash);
     properties.insert("file_path".to_string(), file_path.to_string());
-    // CONCEPT:KG-2.101 — model-free similarity signature (MinHash over normalized
+    // CONCEPT:EG-KG.compute.model-free-similar-code — model-free similarity signature (MinHash over normalized
     // AST leaf trigrams). The cross-file resolver LSH-bands these into `similar_to`
     // edges; it is a resolution-only input and is stripped from the graph nodes.
     properties.insert(
@@ -955,20 +955,20 @@ fn walk_node(
     result: &mut ParseResult,
 ) {
     let kind = node.kind();
-    // The enclosing-class name children inherit (CONCEPT:KG-2.100 scope tracking);
+    // The enclosing-class name children inherit (CONCEPT:EG-KG.compute.type-scope-resolved-call scope tracking);
     // defaults to propagating the current scope unless this node is a named class.
     let mut descend_scope = scope.to_string();
 
     if let Some(detail) = class_like_kind(kind) {
         if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
             let mut extra = HashMap::new();
-            // CONCEPT:KG-2.100 — inheritance/realization facts across grammars.
+            // CONCEPT:EG-KG.compute.type-scope-resolved-call — inheritance/realization facts across grammars.
             let (inherits, realizes) = class_relations(node, source, language);
             extra.insert("scope".to_string(), scope.to_string());
             extra.insert("bases".to_string(), inherits.join(","));
             extra.insert("interfaces".to_string(), realizes.join(","));
             descend_scope = name.clone();
-            // CONCEPT:KG-2.8 — Python structural facts for design-pattern detection.
+            // CONCEPT:EG-KG.storage.nonblocking-checkpoint — Python structural facts for design-pattern detection.
             if language == "python" {
                 let (methods, has_abstract) = py_class_methods(node, source);
                 let decorators = py_decorators(node, source);
@@ -1003,7 +1003,7 @@ fn walk_node(
             extra.insert("scope".to_string(), scope.to_string());
             // Structured call sites (receiver/callee/argc) for type/scope-resolved
             // call edges, plus the bare callee names kept as `calls` for the
-            // name-only fallback + COVERS. (CONCEPT:KG-2.100 / KG-2.8)
+            // name-only fallback + COVERS. (CONCEPT:EG-KG.compute.type-scope-resolved-call / KG-2.8)
             let mut sites = Vec::new();
             collect_call_sites(node, source, &mut sites);
             sites.sort();
@@ -1020,10 +1020,10 @@ fn walk_node(
                 param_count(node, source, language).to_string(),
             );
 
-            // CONCEPT:KG-2.8 — native Python test-quality metrics on the symbol.
+            // CONCEPT:EG-KG.storage.nonblocking-checkpoint — native Python test-quality metrics on the symbol.
             if language == "python" {
                 let decorators = py_decorators(node, source);
-                // CONCEPT:KG-2.102 — keep the raw decorator strings so the route
+                // CONCEPT:EG-KG.compute.raw-decorator-strings — keep the raw decorator strings so the route
                 // pass can detect HTTP route definitions (@app.route/@router.get…).
                 extra.insert(
                     "decorators".to_string(),
@@ -1188,13 +1188,13 @@ fn import_module(node: Node, source: &[u8]) -> Option<String> {
     }
 }
 
-/// Parse many files in one call (CONCEPT:KG-2.16 batch op). Files are parsed
+/// Parse many files in one call (CONCEPT:EG-KG.compute.graph-compute-engine batch op). Files are parsed
 /// independently and in parallel via rayon (tree-sitter is stateless per call);
 /// a file that fails to parse yields an empty [`ParseResult`] in its slot, so
 /// the output is 1:1 with — and in the same order as — the input. This is the
 /// engine-side primitive behind the `ParseFiles` protocol op: one round-trip
 /// instead of N.
-// CONCEPT:EG-011 — span AST parse throughput (mirrors the Python-side phase spans).
+// CONCEPT:EG-KG.compute.parse-resolve-span — span AST parse throughput (mirrors the Python-side phase spans).
 // `n_files`/`total_bytes` are carried as span fields; a no-op without a subscriber.
 #[tracing::instrument(
     skip(files),
@@ -1214,7 +1214,7 @@ pub fn parse_files(files: &[(String, Vec<u8>)]) -> Vec<ParseResult> {
         .collect()
 }
 
-// ── CONCEPT:KG-2.101 — model-free code-similarity signature ──────────────────
+// ── CONCEPT:EG-KG.compute.model-free-similar-code — model-free code-similarity signature ──────────────────
 // A MinHash signature over a symbol's normalized AST-leaf trigrams. Identifiers/
 // strings/numbers/types are abstracted to class tokens (so a renamed-variable
 // clone still matches) while keywords/operators/punctuation are kept verbatim (so

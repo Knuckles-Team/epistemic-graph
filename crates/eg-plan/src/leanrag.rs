@@ -1,4 +1,4 @@
-//! # leanrag — structured hierarchical retrieval (CONCEPT:EG-195)
+//! # leanrag — structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill)
 //!
 //! Meet/exceed the **LeanRAG** method: instead of a flat vector top-k over every
 //! leaf memory — which clusters all its budget around the single nearest topic and
@@ -20,7 +20,7 @@
 //! `SemanticStore`. A production caller implements them over `GraphView` +
 //! `eg_ann::IvfPq` / `SemanticStore`.
 //!
-//! ## The algorithm (CONCEPT:EG-195)
+//! ## The algorithm (CONCEPT:EG-KG.retrieval.bounded-drill)
 //!
 //!  1. **(a) retrieve at the summary level** — [`AnnIndex::search`] restricted to
 //!     summary-labelled nodes for the top-`k` summaries by embedding similarity. If
@@ -46,11 +46,11 @@ pub struct Scored {
     pub score: f32,
 }
 
-/// The vector-retrieval accessor (CONCEPT:EG-195). Production wraps `eg_ann::IvfPq`
+/// The vector-retrieval accessor (CONCEPT:EG-KG.retrieval.bounded-drill). Production wraps `eg_ann::IvfPq`
 /// / the `SemanticStore` kNN; the fixture wraps an in-memory `id -> embedding` map.
 ///
 /// `allow`, when `Some`, restricts the candidate set (e.g. "summary-labelled only")
-/// — mirroring `eg_ann::IvfPq::search_filtered`'s allow-predicate (CONCEPT:EG-070),
+/// — mirroring `eg_ann::IvfPq::search_filtered`'s allow-predicate (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter),
 /// so a real implementation forwards straight to it with zero extra work.
 pub trait AnnIndex {
     /// Top-`k` `(id, score)` nearest the `query` embedding, score DESC (higher =
@@ -58,7 +58,7 @@ pub trait AnnIndex {
     fn search(&self, query: &[f32], k: usize, allow: Option<&dyn Fn(&str) -> bool>) -> Vec<Scored>;
 }
 
-/// The read-only graph accessor (CONCEPT:EG-195): labels, provenance children, and
+/// The read-only graph accessor (CONCEPT:EG-KG.retrieval.bounded-drill): labels, provenance children, and
 /// per-node embeddings. Production reads a `GraphView` (node property blob `type`,
 /// the `SUMMARIZES`/`CONSOLIDATES` out-edges, the stored embedding); the fixture
 /// reads plain maps. We do NOT edit eg-core — everything here is a read.
@@ -75,7 +75,7 @@ pub trait GraphTopology {
     fn embedding(&self, id: &str) -> Option<Vec<f32>>;
 }
 
-/// The retrieval budget knobs (CONCEPT:EG-195).
+/// The retrieval budget knobs (CONCEPT:EG-KG.retrieval.bounded-drill).
 #[derive(Clone, Copy, Debug)]
 pub struct RetrievalParams {
     /// Summaries to retrieve at the abstraction level (step a).
@@ -99,7 +99,7 @@ impl Default for RetrievalParams {
     }
 }
 
-/// A structured hierarchical result (CONCEPT:EG-195).
+/// A structured hierarchical result (CONCEPT:EG-KG.retrieval.bounded-drill).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HierResult {
     /// The chosen summary nodes, in retrieval-relevance order.
@@ -118,7 +118,7 @@ impl HierResult {
     }
 }
 
-/// The structured hierarchical retriever (CONCEPT:EG-195) — LeanRAG over the
+/// The structured hierarchical retriever (CONCEPT:EG-KG.retrieval.bounded-drill) — LeanRAG over the
 /// EG-220 summary tier. Holds only borrowed accessors, so it is cheap to construct
 /// per query.
 pub struct HierarchicalRetriever<'a> {
@@ -153,7 +153,7 @@ impl<'a> HierarchicalRetriever<'a> {
         }
     }
 
-    /// The full hierarchical retrieve (CONCEPT:EG-195): summary-level retrieval →
+    /// The full hierarchical retrieve (CONCEPT:EG-KG.retrieval.bounded-drill): summary-level retrieval →
     /// bounded provenance drill-down → de-duplicated, relevance-ordered multi-level
     /// context. See the module docs for the three steps.
     pub fn retrieve(&self, query: &[f32], params: RetrievalParams) -> HierResult {
@@ -219,7 +219,7 @@ impl<'a> HierarchicalRetriever<'a> {
         }
     }
 
-    /// Bounded provenance drill-down from one summary (CONCEPT:EG-195 step b): a BFS
+    /// Bounded provenance drill-down from one summary (CONCEPT:EG-KG.retrieval.bounded-drill step b): a BFS
     /// over `SUMMARIZES`/`CONSOLIDATES` children, at most `depth` levels, keeping the
     /// `breadth` most query-relevant children per node. Returns every visited
     /// descendant with its query relevance (the caller de-dups + caps).
@@ -275,7 +275,7 @@ impl<'a> HierarchicalRetriever<'a> {
     }
 }
 
-/// The NAIVE flat top-k baseline (CONCEPT:EG-195): a single vector search over the
+/// The NAIVE flat top-k baseline (CONCEPT:EG-KG.retrieval.bounded-drill): a single vector search over the
 /// LEAF level, returning the `budget` nearest leaves. This is exactly the RAG
 /// behaviour hierarchical retrieval improves on — it has no summary tier and no
 /// drill-down, so it spends its whole budget on the neighbours of the single closest
@@ -432,7 +432,7 @@ mod tests {
             .len()
     }
 
-    /// CONCEPT:EG-195 — the retriever pulls the summary tier first, then drills to
+    /// CONCEPT:EG-KG.retrieval.bounded-drill — the retriever pulls the summary tier first, then drills to
     /// the correct supporting leaves (not arbitrary nodes).
     #[test]
     fn eg195_retrieves_summaries_then_drills_to_correct_leaves() {
@@ -477,7 +477,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-195 — a leaf shared by two summaries appears exactly ONCE in the
+    /// CONCEPT:EG-KG.retrieval.bounded-drill — a leaf shared by two summaries appears exactly ONCE in the
     /// leaves and once in the flattened context (the de-dup flat top-k can't do).
     #[test]
     fn eg195_dedups_shared_leaf_across_summaries() {
@@ -512,7 +512,7 @@ mod tests {
         assert_eq!(uniq.len(), ctx.len(), "context must be duplicate-free");
     }
 
-    /// CONCEPT:EG-195 — the headline claim: for the SAME budget, hierarchical
+    /// CONCEPT:EG-KG.retrieval.bounded-drill — the headline claim: for the SAME budget, hierarchical
     /// retrieval covers MORE distinct topics than flat top-k, which spends its whole
     /// budget on the nearest topic's near-duplicate neighbours.
     #[test]
@@ -559,7 +559,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-195 — bounded drill: `drill_depth`/`drill_breadth` cap the fan-out
+    /// CONCEPT:EG-KG.retrieval.bounded-drill — bounded drill: `drill_depth`/`drill_breadth` cap the fan-out
     /// so the context stays concise instead of pulling every descendant.
     #[test]
     fn eg195_drill_breadth_and_depth_are_bounded() {
@@ -585,7 +585,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-195 — graceful degradation: with NO summary tier the retriever
+    /// CONCEPT:EG-KG.retrieval.bounded-drill — graceful degradation: with NO summary tier the retriever
     /// falls back to an unrestricted search rather than returning empty.
     #[test]
     fn eg195_falls_back_when_no_summary_tier() {

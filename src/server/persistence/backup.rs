@@ -1,4 +1,4 @@
-//! Online consistent BACKUP + RESTORE + PITR foundation (CONCEPT:EG-090).
+//! Online consistent BACKUP + RESTORE + PITR foundation (CONCEPT:EG-KG.sharding.reshard-on-restore).
 //!
 //! ## What it solves
 //!
@@ -10,7 +10,7 @@
 //! ## Online consistent backup — no quiesce
 //!
 //! [`RedbBackend::backup`](super::redb_backend::RedbBackend::backup) takes, PER SHARD, a
-//! `Database::begin_read()` MVCC snapshot (CONCEPT:EG-027) on the LIVE writer's shared
+//! `Database::begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the LIVE writer's shared
 //! handle — the same snapshot mechanism the read-through path uses. redb 4.1 is MVCC, so
 //! that snapshot sees the shard's LATEST COMMITTED state and runs CONCURRENTLY with the
 //! single writer (no writer involvement, no group-commit, no quiesce). Every table is
@@ -18,10 +18,10 @@
 //! copy: value blobs are copied byte-for-byte, so
 //!
 //! * encryption-at-rest blobs survive WITHOUT the key (no decrypt), and
-//! * the tamper-evident hash-chained `AUDIT` log (CONCEPT:KG-2.231) stays verifiable
+//! * the tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) stays verifiable
 //!   (re-deriving it would break verification; copying preserves it).
 //!
-//! **Cross-shard consistency** rides the commit-before-ack guarantee (CONCEPT:KG-2.187):
+//! **Cross-shard consistency** rides the commit-before-ack guarantee (CONCEPT:EG-KG.backend.authoritative-dispatch):
 //! any ACKED write is already durably committed, so each per-shard snapshot — opened
 //! independently — sees a self-consistent committed prefix of the durable history. There
 //! is no global stop-the-world; the bundle is a crash-consistent point-in-time image.
@@ -71,7 +71,7 @@ pub const MANIFEST_FILE: &str = "MANIFEST.json";
 /// change; `restore_bundle` refuses a newer format than it understands.
 pub const BUNDLE_FORMAT_VERSION: u32 = 1;
 
-/// Row totals copied for ONE shard (CONCEPT:EG-090) — the per-shard slice of a
+/// Row totals copied for ONE shard (CONCEPT:EG-KG.sharding.reshard-on-restore) — the per-shard slice of a
 /// [`BackupReport`]. Mirrors the dimensions EG-030's `MigrationReport` tracks.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ShardCounts {
@@ -103,7 +103,7 @@ impl std::ops::AddAssign for ShardCounts {
     }
 }
 
-/// Outcome of a backup run (CONCEPT:EG-090) — the shard count + copied totals.
+/// Outcome of a backup run (CONCEPT:EG-KG.sharding.reshard-on-restore) — the shard count + copied totals.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BackupReport {
     /// Number of shard files written into the bundle (= K).
@@ -137,7 +137,7 @@ impl BackupReport {
     }
 }
 
-/// The bundle manifest (CONCEPT:EG-090) — serialized to `MANIFEST.json` at backup and
+/// The bundle manifest (CONCEPT:EG-KG.sharding.reshard-on-restore) — serialized to `MANIFEST.json` at backup and
 /// validated at restore. All non-derived fields (timestamp, label, engine version) are
 /// CALLER-SUPPLIED — this module never calls `Date::now` (no wall-clock / randomness in
 /// library code).
@@ -194,7 +194,7 @@ impl BackupManifest {
 }
 
 /// Copy EVERY durable table from a source read snapshot into a fresh destination write
-/// txn, VERBATIM (CONCEPT:EG-090). Unlike EG-030's migration (which routes rows by
+/// txn, VERBATIM (CONCEPT:EG-KG.sharding.reshard-on-restore). Unlike EG-030's migration (which routes rows by
 /// `shard_index`), backup mirrors ONE shard 1:1 — the source snapshot already holds
 /// exactly the rows that shard owns, so no routing/filter is applied. `is_shard0`
 /// includes the global (non-per-graph) tables, which live on shard 0 only (EG-026).
@@ -262,7 +262,7 @@ pub(crate) fn copy_snapshot_verbatim(
             counts.semantic += 1;
         }
     }
-    // Audit — verbatim to keep the hash chain verifiable (CONCEPT:KG-2.231).
+    // Audit — verbatim to keep the hash chain verifiable (CONCEPT:EG-KG.sharding.row-level-security).
     if let Ok(t) = rtx.open_table(AUDIT) {
         for row in t.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
@@ -280,7 +280,7 @@ pub(crate) fn copy_snapshot_verbatim(
 }
 
 /// Copy the GLOBAL (non-per-graph) tables verbatim — the Raft log/meta, the cross-shard
-/// 2PC records, and the materialized views (CONCEPT:EG-090). These are EG-026 "shard 0
+/// 2PC records, and the materialized views (CONCEPT:EG-KG.sharding.reshard-on-restore). These are EG-026 "shard 0
 /// home" records, captured only from the shard-0 snapshot.
 fn copy_global_verbatim(
     rtx: &redb::ReadTransaction,
@@ -344,7 +344,7 @@ fn copy_global_verbatim(
 }
 
 /// Write ONE shard's `begin_read()` snapshot verbatim into `dst_path` (a fresh bundle
-/// redb file) and return the copied counts (CONCEPT:EG-090). Called once per shard by
+/// redb file) and return the copied counts (CONCEPT:EG-KG.sharding.reshard-on-restore). Called once per shard by
 /// [`RedbBackend::backup`](super::redb_backend::RedbBackend::backup).
 pub(crate) fn write_bundle_shard(
     src_db: &Database,
@@ -368,7 +368,7 @@ pub(crate) fn write_bundle_shard(
     Ok(counts)
 }
 
-/// Serialize + write the bundle manifest to `<dir>/MANIFEST.json` (CONCEPT:EG-090).
+/// Serialize + write the bundle manifest to `<dir>/MANIFEST.json` (CONCEPT:EG-KG.sharding.reshard-on-restore).
 pub(crate) fn write_manifest(
     dir: &Path,
     report: &BackupReport,
@@ -382,7 +382,7 @@ pub(crate) fn write_manifest(
     Ok(manifest)
 }
 
-/// Read + validate a bundle manifest from `<dir>/MANIFEST.json` (CONCEPT:EG-090).
+/// Read + validate a bundle manifest from `<dir>/MANIFEST.json` (CONCEPT:EG-KG.sharding.reshard-on-restore).
 pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     let path = dir.join(MANIFEST_FILE);
     let bytes = std::fs::read(&path)
@@ -398,7 +398,7 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     Ok(manifest)
 }
 
-/// Outcome of a restore (CONCEPT:EG-090) — the validated manifest + the verbatim import
+/// Outcome of a restore (CONCEPT:EG-KG.sharding.reshard-on-restore) — the validated manifest + the verbatim import
 /// totals produced by the EG-030 migration engine.
 #[derive(Debug, Clone)]
 pub struct RestoreReport {
@@ -410,7 +410,7 @@ pub struct RestoreReport {
     pub migration: shard_migrate::MigrationReport,
 }
 
-/// Rebuild a persist-dir from a backup bundle (CONCEPT:EG-090). Validates the manifest,
+/// Rebuild a persist-dir from a backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore). Validates the manifest,
 /// then verbatim-imports every bundle shard into `persist_dir` by delegating to EG-030's
 /// [`shard_migrate::migrate_shards`] (the bundle IS a valid `graph*.redb` shard set).
 ///
@@ -495,7 +495,7 @@ mod tests {
         backend.shutdown();
     }
 
-    /// CONCEPT:EG-090 — the DR round trip: populate a durable dir → ONLINE backup (live,
+    /// CONCEPT:EG-KG.sharding.reshard-on-restore — the DR round trip: populate a durable dir → ONLINE backup (live,
     /// no quiesce) → restore into a FRESH dir → reopen and assert every graph's
     /// nodes/edges/ledger survive identically.
     #[tokio::test(flavor = "multi_thread")]
@@ -584,7 +584,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// CONCEPT:EG-090 — RE-SHARD ON RESTORE: a K=1 bundle restores into a K=4 persist-dir,
+    /// CONCEPT:EG-KG.sharding.reshard-on-restore — RE-SHARD ON RESTORE: a K=1 bundle restores into a K=4 persist-dir,
     /// every graph re-routed by EG-026 and still fully readable.
     #[tokio::test(flavor = "multi_thread")]
     async fn restore_can_reshard() {

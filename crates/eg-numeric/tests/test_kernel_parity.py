@@ -1,11 +1,11 @@
-"""numpy-parity CI gate for the compiled ``eg-numeric`` kernel (CONCEPT:EG-346).
+"""numpy-parity CI gate for the compiled ``eg-numeric`` kernel (CONCEPT:AU-KG.compute.is-installed-kernel-discovery).
 
 Unlike the agent-utilities corpus (``tests/test_numeric_parity.py``, KG-2.312) which
 exercises the ``xp`` *shim* (kernel OR numpy fallback), this test is **engine-side and
 self-contained**: it imports the compiled Surface-A extension DIRECTLY and asserts every
 kernel op equals its numpy reference (``np.allclose``), including the mandatory edge cases
 (nan/inf, singular matrix, empty). It is the gate that FAILS CI if the Rust kernel ever
-diverges from numpy — so the ``xp`` shim can be made kernel-LIVE (CONCEPT:KG-2.315) with a
+diverges from numpy — so the ``xp`` shim can be made kernel-LIVE (CONCEPT:AU-KG.compute.shim-goes-kernel-live) with a
 standing correctness guarantee, not just the numpy fallback.
 
 Run against the freshly-built wheel::

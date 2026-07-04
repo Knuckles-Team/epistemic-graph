@@ -1,14 +1,14 @@
-# Remote KV-cache HTTP backend (CONCEPT:EG-187)
+# Remote KV-cache HTTP backend (CONCEPT:EG-KG.backend.is-configured-so-co)
 
 The `kvcache-server` feature exposes the engine's **shared, content-addressed
-KV-cache backend** (`eg_kvcache::SharedKvIndex`, CONCEPT:EG-186) over a small HTTP
+KV-cache backend** (`eg_kvcache::SharedKvIndex`, CONCEPT:EG-KG.enrichment.content-address-separation) over a small HTTP
 surface so that **parallel vLLM / LMCache instances share KV-cache blocks by
 token-hash**. An identical KV page produced by two workers is stored **once** (dedup),
 and a cold worker can fetch a page a warm worker already computed — the classic
 LMCache / prefix-cache win, but pooled across the whole fleet through one engine.
 
 It is a hand-rolled HTTP/1.1 listener (`src/server/kvcache_http/`), the same
-dependency-free `tokio::net` idiom as the s3 (`EG-176`) and obs listeners — no
+dependency-free `tokio::net` idiom as the s3 (`EG-KG.ontology.object-put-get-head`) and obs listeners — no
 axum/hyper, so no new HTTP dep enters the tree. It is in the one main build (a network listener +
 the shared backend crate); default/pi builds link none of it.
 
@@ -83,7 +83,7 @@ A **networked eviction / ref-count coordination** protocol across multiple engin
 (so a block is freed only when the last node releases it) is a further follow-up — today
 the shared index is per-engine-process.
 
-## The shipped Python driver (`epistemic_graph.kvcache`, CONCEPT:EG-337)
+## The shipped Python driver (`epistemic_graph.kvcache`, CONCEPT:EG-KG.backend.shipped-pip-installable-python)
 
 The `epistemic-graph` wheel now ships the packaged Python driver that maps LMCache/vLLM
 onto the contract above. It lives in the pure-Python client package and imports with
@@ -97,14 +97,14 @@ Two entry points:
   `get(key) -> bytes | None` / `put(key, bytes) -> bool` / `contains(key) -> bool` /
   `exists(key) -> bool` / `stats() -> KvCacheStats` shape over the endpoints above. Every
   transport/protocol error degrades to a cache **miss** (never raises on the hot path).
-  Build it from the engine's EG-187 environment with `RemoteKVConnector.from_env()`
+  Build it from the engine's EG-KG.backend.is-configured-so-co environment with `RemoteKVConnector.from_env()`
   (reads `EPISTEMIC_GRAPH_KVCACHE_URL` / `_ADDR` / `_TOKEN` / `_TIMEOUT_S` / `_TLS_VERIFY`).
 
 - **`RemoteKVL2Connector`** — the LMCache **`native_plugin`** L2-adapter *native client*
   (`event_fd()` / `submit_batch_set` / `submit_batch_get` / `submit_batch_exists` /
   `drain_completions()` / `close()`), which wraps `RemoteKVConnector` behind an async
   thread-pool + Linux `eventfd` so the decoupled `lmcache server` can offload its L2 tier
-  to the **content-addressed** EG-187 surface (so dedup + `/kv/stats` counters apply,
+  to the **content-addressed** EG-KG.backend.is-configured-so-co surface (so dedup + `/kv/stats` counters apply,
   unlike the generic `resp`/Redis L2 adapter).
 
 Wire it into the decoupled `lmcache server` via its `--l2-adapter` config — the same
@@ -119,14 +119,14 @@ Wire it into the decoupled `lmcache server` via its `--l2-adapter` config — th
 
 `adapter_params` are spread as keyword arguments to the constructor (all optional:
 `base_url`, `addr`, `token`, `timeout_s`, `num_workers`, `max_connections`, `verify_tls`);
-anything omitted falls back to the EG-187 environment via `KvCacheConfig.from_env()`.
+anything omitted falls back to the EG-KG.backend.is-configured-so-co environment via `KvCacheConfig.from_env()`.
 
 Direct use (custom L1→remote hierarchy) is equally supported:
 
 ```python
 from epistemic_graph.kvcache import RemoteKVConnector
 
-with RemoteKVConnector.from_env() as kv:      # reads EG-187 env
+with RemoteKVConnector.from_env() as kv:      # reads EG-KG.backend.is-configured-so-co env
     if not kv.contains(token_hash):           # HEAD /kv/<hash>
         kv.put(token_hash, block_bytes)       # PUT  /kv/<hash>
     block = kv.get(token_hash)                # GET  /kv/<hash>  (None on miss)

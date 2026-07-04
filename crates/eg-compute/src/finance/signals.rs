@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20d — Signal Generation Engine
+// CONCEPT:EG-KG.compute.signal-generation — Signal Generation Engine
 //
 // Rolling Z-score, alpha combination, signal decay, and cross-sectional ranking.
 // Core signal primitives for quantitative alpha research.

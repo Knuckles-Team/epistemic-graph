@@ -1,5 +1,5 @@
 //! Hand-rolled MSSQL **TDS** (Tabular Data Stream) framing + token codec
-//! (CONCEPT:EG-077). PURE bytes — no sockets, no async, no engine coupling — so every
+//! (CONCEPT:EG-KG.query.hand-rolled-tds-server). PURE bytes — no sockets, no async, no engine coupling — so every
 //! layout is unit-testable against the MS-TDS wire spec. `mod.rs` drives these over a
 //! `tokio` `TcpListener` and bridges the decoded `SQLBatch` into the shared
 //! [`crate::server::wire::WireSession`], then encodes the wire-neutral

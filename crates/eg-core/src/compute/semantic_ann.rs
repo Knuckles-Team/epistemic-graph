@@ -1,4 +1,4 @@
-//! eg-ann IVF-PQ index backend for `SemanticStore` (CONCEPT:KG-2.207, feature `ann`).
+//! eg-ann IVF-PQ index backend for `SemanticStore` (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed, feature `ann`).
 //!
 //! Wraps `eg_ann::IvfPq` with the bookkeeping `SemanticStore` needs:
 //!   * a `String` node-id ↔ `u64` row-id map (eg-ann is integer-keyed),
@@ -61,7 +61,7 @@ pub struct AnnIndex {
 }
 
 impl AnnIndex {
-    /// Train on a sample of the embeddings and encode them all. CONCEPT:EG-015 — the
+    /// Train on a sample of the embeddings and encode them all. CONCEPT:EG-KG.storage.arena-row-append — the
     /// store now holds embeddings in ONE contiguous row-major `data` buffer (`dim`
     /// floats per row) with a parallel `ids` table, so the index builds by streaming
     /// `data.chunks_exact(dim)` instead of iterating a scattered `HashMap`. `ids` must
@@ -138,7 +138,7 @@ impl AnnIndex {
         self.search_filtered(query, n_results, |_| true)
     }
 
-    /// kNN cosine search with a node-id metadata pre-filter (CONCEPT:EG-070). `allow`
+    /// kNN cosine search with a node-id metadata pre-filter (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). `allow`
     /// is pushed INTO the eg-ann scan (translated node-id → external row id), so the
     /// returned top-k already satisfies the predicate rather than being over-fetched
     /// and post-filtered. Returns `(node_id, cosine_similarity)` descending.

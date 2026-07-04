@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.21a — Multi-Language AST Parser
+// CONCEPT:EG-KG.compute.multi-language-ast-parser — Multi-Language AST Parser
 //
 // Tree-sitter based parser that extracts full-granularity Symbol nodes
 // from Python, Rust, TypeScript, JavaScript, and Go source files.

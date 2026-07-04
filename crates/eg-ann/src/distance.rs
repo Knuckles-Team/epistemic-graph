@@ -1,4 +1,4 @@
-//! GPU-accelerable batch-distance dispatch seam (CONCEPT:EG-326 seam / EG-327 CUDA).
+//! GPU-accelerable batch-distance dispatch seam (CONCEPT:EG-KG.compute.gpu-distance-seam seam / EG-327 CUDA).
 //!
 //! Vector search is dominated by ONE kernel: score a query against a large batch of
 //! candidate vectors under a [`Metric`]. That is embarrassingly parallel and the natural
@@ -20,7 +20,7 @@
 use crate::flat::Metric;
 
 /// A backend that scores a query against a contiguous batch of `n` row-major vectors
-/// (CONCEPT:EG-326). `rows_flat` is `n * dim` f32 (row `i` = `rows_flat[i*dim..(i+1)*dim]`);
+/// (CONCEPT:EG-KG.compute.gpu-distance-seam). `rows_flat` is `n * dim` f32 (row `i` = `rows_flat[i*dim..(i+1)*dim]`);
 /// the returned `Vec<f32>` has length `n`, entry `i` = `metric.distance(query, row_i)`
 /// under the crate's "smaller = nearer" convention. Every backend MUST agree with the CPU
 /// backend to within floating-point tolerance so GPU and CPU results are interchangeable.
@@ -38,7 +38,7 @@ pub trait DistanceBackend: Send + Sync {
     ) -> Vec<f32>;
 }
 
-/// Integer metric code shared by the CPU scalar path and the CUDA kernel (CONCEPT:EG-327)
+/// Integer metric code shared by the CPU scalar path and the CUDA kernel (CONCEPT:EG-KG.backend.real-cuda-tensor-backend)
 /// — keeps the two implementations in lockstep on which formula each `Metric` maps to.
 #[inline]
 pub fn metric_code(metric: Metric) -> i32 {
@@ -49,7 +49,7 @@ pub fn metric_code(metric: Metric) -> i32 {
     }
 }
 
-/// The always-compiled pure-Rust CPU backend (CONCEPT:EG-326).
+/// The always-compiled pure-Rust CPU backend (CONCEPT:EG-KG.compute.gpu-distance-seam).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CpuBackend;
 
@@ -76,14 +76,14 @@ impl DistanceBackend for CpuBackend {
     }
 }
 
-/// Score `query` against `rows_flat` on the ACTIVE backend (CONCEPT:EG-326) — the GPU
+/// Score `query` against `rows_flat` on the ACTIVE backend (CONCEPT:EG-KG.compute.gpu-distance-seam) — the GPU
 /// backend when `gpu-cuda` is built and a device is present, else the CPU backend. This is
 /// the single call site index code uses; the device choice is invisible to it.
 pub fn batch_distances(query: &[f32], rows_flat: &[f32], dim: usize, metric: Metric) -> Vec<f32> {
     active_backend().batch_distance(query, rows_flat, dim, metric)
 }
 
-/// The active backend (CONCEPT:EG-326). Selects the CUDA backend when it is compiled AND a
+/// The active backend (CONCEPT:EG-KG.compute.gpu-distance-seam). Selects the CUDA backend when it is compiled AND a
 /// device initialises; otherwise the CPU backend. Built once and cached.
 pub fn active_backend() -> &'static dyn DistanceBackend {
     #[cfg(feature = "gpu-cuda")]
@@ -101,11 +101,11 @@ pub fn active_backend_name() -> &'static str {
     active_backend().name()
 }
 
-// ── CONCEPT:EG-327 — the real CUDA backend ───────────────────────────────────
+// ── CONCEPT:EG-KG.backend.real-cuda-tensor-backend — the real CUDA backend ───────────────────────────────────
 
 #[cfg(feature = "gpu-cuda")]
 pub mod cuda {
-    //! REAL CUDA distance backend (CONCEPT:EG-327). Compiles the batch-distance CUDA-C
+    //! REAL CUDA distance backend (CONCEPT:EG-KG.backend.real-cuda-tensor-backend). Compiles the batch-distance CUDA-C
     //! kernel with NVRTC at first use, ships the query + row matrix to the device, launches
     //! one thread per row, and copies the scores back. On ANY device/compile/launch failure
     //! it returns `None` so [`super::active_backend`] falls back to CPU — a `gpu-cuda`
@@ -115,7 +115,7 @@ pub mod cuda {
 
     use cudarc::driver::{CudaContext, CudaFunction, LaunchConfig, PushKernelArg};
 
-    /// The batch-distance kernel, CUDA-C (CONCEPT:EG-327). One thread scores one row; the
+    /// The batch-distance kernel, CUDA-C (CONCEPT:EG-KG.backend.real-cuda-tensor-backend). One thread scores one row; the
     /// three metric branches match [`Metric::distance`] EXACTLY (L2 squared, cosine distance
     /// `1 - cos` with `1.0` for a zero-norm vector, negated inner product) so GPU results
     /// equal the CPU ground truth.
@@ -150,7 +150,7 @@ extern "C" __global__ void batch_distance(
     }
 
     impl CudaBackend {
-        /// Initialise device `ordinal`, NVRTC-compile the kernel, and load it (CONCEPT:EG-327).
+        /// Initialise device `ordinal`, NVRTC-compile the kernel, and load it (CONCEPT:EG-KG.backend.real-cuda-tensor-backend).
         /// `Err` on any failure (no driver / no device / compile error) — the caller degrades
         /// to CPU.
         fn init(ordinal: usize) -> Result<Self, String> {
@@ -232,7 +232,7 @@ extern "C" __global__ void batch_distance(
         }
     }
 
-    /// The process-global CUDA backend, `Some` only if a device initialised (CONCEPT:EG-327).
+    /// The process-global CUDA backend, `Some` only if a device initialised (CONCEPT:EG-KG.backend.real-cuda-tensor-backend).
     /// `EPISTEMIC_GRAPH_ANN_DEVICE` selects the ordinal (default 0). Cached, so device init +
     /// kernel compile happen once.
     pub fn backend() -> Option<&'static dyn DistanceBackend> {
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(idx.search(&q, 1, Metric::L2)[0].id, 1);
     }
 
-    /// GPU↔CPU parity (CONCEPT:EG-351). When a CUDA device is present, the real CUDA
+    /// GPU↔CPU parity (CONCEPT:EG-KG.compute.tensor-gpu-distance). When a CUDA device is present, the real CUDA
     /// batch-distance kernel MUST match the CPU ground truth to within f32 tolerance
     /// across every metric; when no device is available `cuda::backend()` is `None` and
     /// the test SKIPS cleanly. So it is a no-op in GPU-less CI yet auto-validates the

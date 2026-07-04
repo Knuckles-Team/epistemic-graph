@@ -1,4 +1,4 @@
-//! Apache Iceberg table metadata (CONCEPT:EG-317).
+//! Apache Iceberg table metadata (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 //!
 //! Iceberg describes a table with a chain of JSON `metadata.json` files, each pointing
 //! at a *manifest list* which points at *manifest files* which list the data
@@ -6,7 +6,7 @@
 //! format-version 2, a typed schema, a partition spec, a sort order, and a snapshot
 //! whose `manifest-list` locates the data files.
 //!
-//! ## Metadata (here) vs. the real Avro manifests (CONCEPT:EG-333/EG-334)
+//! ## Metadata (here) vs. the real Avro manifests (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-334)
 //! The manifest-list and manifest files themselves are, in the Iceberg spec, **Avro**
 //! containers. This module owns the pure-JSON `metadata.json` (format-version 2) plus
 //! a convenience JSON *preview* of the manifest entries ([`IcebergTable::manifest_json`],
@@ -24,14 +24,14 @@ use serde_json::{json, Value};
 use crate::schema::LakeSchema;
 use crate::snapshot::{Lsn, SnapshotLog};
 
-/// The Iceberg artifacts for a table snapshot (CONCEPT:EG-317).
+/// The Iceberg artifacts for a table snapshot (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 #[derive(Clone, Debug, PartialEq)]
 pub struct IcebergTable {
     /// The spec-correct `metadata.json` content (format-version 2).
     pub metadata_json: String,
     /// A JSON *preview* of the manifest entries (data files) — dependency-free and
     /// handy for tests/debugging. The spec-mandated **Avro** manifest is written by
-    /// [`crate::iceberg_avro`] (CONCEPT:EG-333) at [`manifest_file_path`]; this preview
+    /// [`crate::iceberg_avro`] (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest) at [`manifest_file_path`]; this preview
     /// mirrors its entries.
     pub manifest_json: String,
     /// Where the metadata.json should live (object-store-relative).
@@ -39,7 +39,7 @@ pub struct IcebergTable {
 }
 
 /// Object-store path of the Iceberg **manifest list** Avro file for a snapshot
-/// (CONCEPT:EG-334). Shared by [`build_iceberg`] (which references it from the
+/// (CONCEPT:EG-KG.storage.iceberg-manifest-list). Shared by [`build_iceberg`] (which references it from the
 /// snapshot's `manifest-list`) and [`crate::iceberg_avro`] (which writes it), so the
 /// metadata always resolves to the real Avro file.
 pub fn manifest_list_path(location: &str, snapshot_id: i64) -> String {
@@ -47,14 +47,14 @@ pub fn manifest_list_path(location: &str, snapshot_id: i64) -> String {
 }
 
 /// Object-store path of the Iceberg **manifest** Avro file for a snapshot
-/// (CONCEPT:EG-333) — the single data manifest the manifest list points at.
+/// (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest) — the single data manifest the manifest list points at.
 pub fn manifest_file_path(location: &str, snapshot_id: i64) -> String {
     format!("{location}/metadata/snap-{snapshot_id}-m0.avro")
 }
 
 /// The Iceberg typed schema for a [`LakeSchema`] with 1-based field ids
-/// (CONCEPT:EG-317). `pub(crate)` so the Avro manifest writer embeds the identical
-/// schema JSON in the manifest file's metadata (CONCEPT:EG-333).
+/// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). `pub(crate)` so the Avro manifest writer embeds the identical
+/// schema JSON in the manifest file's metadata (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest).
 pub(crate) fn iceberg_schema(schema: &LakeSchema) -> Value {
     let fields: Vec<Value> = schema
         .fields
@@ -73,7 +73,7 @@ pub(crate) fn iceberg_schema(schema: &LakeSchema) -> Value {
 }
 
 /// Build the Iceberg `metadata.json` (real) + a manifest JSON stub for the file set
-/// live as of the snapshot's current LSN (CONCEPT:EG-317).
+/// live as of the snapshot's current LSN (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 ///
 /// `table_uuid` is the stable Iceberg table id; `location` is the table root on the
 /// object store (the Parquet files + `metadata/` live under it); `timestamp_ms` stamps
@@ -117,7 +117,7 @@ pub fn build_iceberg(
         .collect();
 
     let manifest_json = json!({
-        "_note": "JSON preview; the real Avro manifest is written by iceberg_avro (CONCEPT:EG-333)",
+        "_note": "JSON preview; the real Avro manifest is written by iceberg_avro (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest)",
         "manifest_list": manifest_list,
         "manifest_file": manifest_file_path(location, snapshot_id),
         "schema-id": 0,
@@ -156,7 +156,7 @@ pub fn build_iceberg(
         "sort-orders": [ { "order-id": 0, "fields": [] } ],
         "properties": {
             "engine": "epistemic-graph/eg-lake",
-            "concept": "EG-317",
+            "concept": "EG-KG.storage.lsn-as-snapshot-returns",
         },
         "current-snapshot-id": snapshot_id,
         "snapshots": [snapshot_obj],
@@ -171,7 +171,7 @@ pub fn build_iceberg(
     }
 }
 
-/// Parse an Iceberg `metadata.json` back to a value (CONCEPT:EG-317) — used by the
+/// Parse an Iceberg `metadata.json` back to a value (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns) — used by the
 /// round-trip test and the catalog to read `current-snapshot-id` etc.
 pub fn parse_metadata(metadata_json: &str) -> Result<Value, String> {
     serde_json::from_str(metadata_json).map_err(|e| format!("iceberg metadata json: {e}"))

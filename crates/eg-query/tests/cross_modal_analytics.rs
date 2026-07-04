@@ -1,4 +1,4 @@
-//! Cross-modal in-engine analytics (CONCEPT:EG-345) — the Analytics-Program P4 differentiator
+//! Cross-modal in-engine analytics (CONCEPT:EG-KG.query.eg-3) — the Analytics-Program P4 differentiator
 //! that lets epistemic-graph *surpass* numpy: **join graph + vector + timeseries, then run
 //! PCA / k-means / covariance over the JOINED result set IN-ENGINE** (compute-near-data, no
 //! fetch-to-Python, no data-layer round-trip). numpy has no data layer, so this join→analytics
@@ -14,7 +14,7 @@
 //!
 //! ONE query JOINs the graph nodes to the timeseries aggregate on node id and runs the
 //! kernel analytics (`pca`/`kmeans`/`covariance`, `crates/eg-query/src/sql/numeric.rs`,
-//! CONCEPT:EG-329/335/336/344) over the joined columns. Only compiles under `numeric`.
+//! CONCEPT:EG-KG.query.surface-b-numeric-operators/335/336/344) over the joined columns. Only compiles under `numeric`.
 #![cfg(feature = "numeric")]
 
 use eg_core::graph::GraphCore;
@@ -66,7 +66,7 @@ const READINGS_CTE: &str = "\
         ('n6', 1, 11.0), ('n6', 2, 13.0)), \
     ts AS (SELECT nid, avg(reading) AS avg_reading FROM readings GROUP BY nid)";
 
-/// **The cross-modal covariance** (CONCEPT:EG-345): `covariance` over a column from the
+/// **The cross-modal covariance** (CONCEPT:EG-KG.query.eg-3): `covariance` over a column from the
 /// GRAPH modality (`x`) and a column from the TIMESERIES modality (`avg_reading`), aligned
 /// by the graph⋈timeseries JOIN — a statistic that spans two modalities and is computed
 /// entirely in-engine over the joined rows.
@@ -91,7 +91,7 @@ fn cross_modal_covariance_graph_join_timeseries() {
     );
 }
 
-/// **k-means over the joined VECTOR column** (CONCEPT:EG-345/EG-344): the join brings graph
+/// **k-means over the joined VECTOR column** (CONCEPT:EG-KG.query.eg-3/EG-344): the join brings graph
 /// nodes together with their timeseries average; `kmeans` then clusters the joined rows'
 /// `emb` vectors in-engine. The two communities (near `[10,10]` / `[-10,-10]`) must split
 /// into two balanced clusters of three — the "cluster the joined result in-engine" proof.
@@ -124,7 +124,7 @@ fn cross_modal_kmeans_over_join() {
     );
 }
 
-/// **PCA over the joined VECTOR column** (CONCEPT:EG-345): the first principal component of
+/// **PCA over the joined VECTOR column** (CONCEPT:EG-KG.query.eg-3): the first principal component of
 /// the joined `emb` vectors. Every point lies on y = x, so PC1 is exactly ±[1/√2, 1/√2]
 /// (all variance is along the [1,1] diagonal) — asserted on the in-engine join→analytics
 /// result.
@@ -151,7 +151,7 @@ fn cross_modal_pca_over_join() {
     assert!(a * b > 0.0, "PC1 should lie on y=x: {pc0:?}");
 }
 
-/// **All three modalities, ONE statement** (CONCEPT:EG-345): graph ⋈ timeseries, with the
+/// **All three modalities, ONE statement** (CONCEPT:EG-KG.query.eg-3): graph ⋈ timeseries, with the
 /// vector analytic (`kmeans`) and the cross-modal statistic (`covariance`) side by side in a
 /// single projection over the joined result — the full "impossible in numpy" pipeline.
 #[test]

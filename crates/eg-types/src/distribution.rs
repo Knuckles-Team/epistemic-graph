@@ -1,8 +1,8 @@
-// CONCEPT:EG-086 — Probabilistic / uncertainty values.
+// CONCEPT:EG-KG.compute.uncertainty-values — Probabilistic / uncertainty values.
 //
 // A first-class, serde-serializable `Distribution` VALUE. It generalizes the
-// scalar `eg:confidence` / noisy-OR belief model (CONCEPT:KG-2.236) and the
-// Ebbinghaus recency decay (CONCEPT:KG-2.211) into full probability
+// scalar `eg:confidence` / noisy-OR belief model (CONCEPT:EG-KG.ontology.concept-13) and the
+// Ebbinghaus recency decay (CONCEPT:EG-KG.compute.handled-outside-single-anchor) into full probability
 // distributions, so a node/edge property can carry *uncertainty* — a Gaussian
 // sensor reading, a Beta belief over a Bernoulli rate, a Categorical over
 // discrete labels, or an Empirical bag of samples — for medical / robotics /
@@ -18,7 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// A probability distribution stored as a node/edge property value (CONCEPT:EG-086).
+/// A probability distribution stored as a node/edge property value (CONCEPT:EG-KG.compute.uncertainty-values).
 ///
 /// Serializes as a tagged JSON object, e.g. `{"kind":"gaussian","mean":1.0,"std":0.5}`,
 /// so it round-trips through the arbitrary-JSON property map with no schema change.

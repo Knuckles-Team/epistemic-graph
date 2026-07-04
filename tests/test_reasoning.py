@@ -1,4 +1,4 @@
-"""Round-trip tests for the compiled semantic reasoner (CONCEPT:KG-2.17).
+"""Round-trip tests for the compiled semantic reasoner (CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
 
 Exercises the live UDS path: ``client.reasoning.reason`` against the running
 epistemic-graph-server (started by the conftest session fixture).

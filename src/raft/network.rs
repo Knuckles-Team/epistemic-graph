@@ -1,4 +1,4 @@
-//! Raft network (CONCEPT:KG-2.188 + KG-2.205 + KG-2.273) — a group-multiplexed Raft
+//! Raft network (CONCEPT:AU-KG.ingest.source-sync-canonical + KG-2.205 + KG-2.273) — a group-multiplexed Raft
 //! TCP channel on openraft 0.10's [`RaftNetworkV2`] API.
 //!
 //! A small purpose-built TCP channel rather than reusing the engine's auth'd
@@ -14,7 +14,7 @@
 //! spike's shared-channel design. A single-group cluster is just one group on that
 //! shared listener.
 //!
-//! ### openraft 0.10 changes (CONCEPT:KG-2.273)
+//! ### openraft 0.10 changes (CONCEPT:AU-KG.backend.authority-has-already-acked)
 //! * The deprecated v1 `RaftNetwork` trait was REMOVED. We now implement
 //!   [`RaftNetworkV2`] (which blanket-derives the `NetAppend`/`NetVote`/`NetSnapshot`/
 //!   `NetTransferLeader`/… sub-traits the factory requires).
@@ -39,7 +39,7 @@
 //! * **Graceful handoff:** the leader's `transfer_leader` notifies the target so it
 //!   campaigns immediately (the 0.10 native instant handoff).
 //!
-//! ### Pooled per-peer connections (CONCEPT:KG-2.265)
+//! ### Pooled per-peer connections (CONCEPT:AU-KG.ontology.manage-arbitrary)
 //! A [`PeerPool`] keeps a small set of WARM connections per peer ADDRESS and reuses
 //! them across RPCs and across ALL groups on the node. The wire is strict
 //! request→response on one stream with no correlation id, so a pooled connection is
@@ -90,12 +90,12 @@ impl std::fmt::Display for StrErr {
 }
 impl std::error::Error for StrErr {}
 
-// ── pooled per-peer connections (CONCEPT:KG-2.265) ────────────────────────
+// ── pooled per-peer connections (CONCEPT:AU-KG.ontology.manage-arbitrary) ────────────────────────
 
 /// Default warm connections kept idle PER PEER address.
 const DEFAULT_MAX_IDLE_PER_PEER: usize = 4;
 
-/// A per-peer pool of idle Raft-RPC connections (CONCEPT:KG-2.265). Keyed by the
+/// A per-peer pool of idle Raft-RPC connections (CONCEPT:AU-KG.ontology.manage-arbitrary). Keyed by the
 /// peer's `host:port`, shared by every group on the node (one pool per
 /// [`super::multi::MultiRaft`]).
 pub struct PeerPool {
@@ -188,7 +188,7 @@ impl Default for PeerPool {
     }
 }
 
-// ── group-multiplexed network (CONCEPT:KG-2.205) ──────────────────────────
+// ── group-multiplexed network (CONCEPT:EG-KG.sharding.raft-resharding) ──────────────────────────
 //
 // The multi-group path (`super::multi`) carries a `GroupId` in every RPC frame so
 // ONE listener per node serves ALL groups. The client tags every RPC with the group
@@ -233,10 +233,10 @@ pub enum GroupRpcReply {
     TransferLeader(Result<(), String>),
 }
 
-// ── heartbeat coalescing wire envelope (CONCEPT:KG-2.271) ──────────────────
+// ── heartbeat coalescing wire envelope (CONCEPT:EG-KG.storage.concept-2) ──────────────────
 
 /// The top-level Raft wire frame. Either a SINGLE group-tagged RPC (the per-group
-/// openraft path) or a BATCH of them coalesced to one peer (CONCEPT:KG-2.271).
+/// openraft path) or a BATCH of them coalesced to one peer (CONCEPT:EG-KG.storage.concept-2).
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum RaftFrame {
@@ -254,7 +254,7 @@ pub enum RaftFrameReply {
 }
 
 /// Coalesces per-peer Raft HEARTBEATS across groups into one batched frame
-/// (CONCEPT:KG-2.271). Only heartbeats coalesce — log-bearing appends, votes,
+/// (CONCEPT:EG-KG.storage.concept-2). Only heartbeats coalesce — log-bearing appends, votes,
 /// snapshots, and transfer-leader notifications are latency/ordering-sensitive and
 /// pass through individually ([`is_heartbeat`] gates this).
 ///
@@ -299,7 +299,7 @@ impl HeartbeatCoalescer {
         true
     }
 
-    /// Drain every buffered peer into one batch per peer (CONCEPT:KG-2.271).
+    /// Drain every buffered peer into one batch per peer (CONCEPT:EG-KG.storage.concept-2).
     pub fn drain_batches(&self) -> Vec<(String, Vec<GroupRpc>)> {
         let mut pending = self.pending.lock().unwrap();
         let drained: Vec<(String, Vec<GroupRpc>)> = pending.drain().collect();
@@ -327,7 +327,7 @@ impl HeartbeatCoalescer {
     }
 
     /// Send one coalesced batch to `addr` over the shared [`PeerPool`] and return the
-    /// ORDERED per-RPC replies (CONCEPT:KG-2.271).
+    /// ORDERED per-RPC replies (CONCEPT:EG-KG.storage.concept-2).
     pub(crate) async fn send_batch(
         pool: &PeerPool,
         addr: &str,
@@ -358,7 +358,7 @@ impl Default for HeartbeatCoalescer {
 pub struct GroupNetworkFactory {
     gid: GroupId,
     local: NodeId,
-    /// Shared per-peer connection pool (CONCEPT:KG-2.265).
+    /// Shared per-peer connection pool (CONCEPT:AU-KG.ontology.manage-arbitrary).
     pool: Arc<PeerPool>,
 }
 
@@ -383,7 +383,7 @@ impl RaftNetworkFactory<TypeConfig> for GroupNetworkFactory {
 }
 
 /// A client to ONE peer for ONE group. Reuses a pooled connection per round-trip
-/// (CONCEPT:KG-2.265); tags each frame with `gid`.
+/// (CONCEPT:AU-KG.ontology.manage-arbitrary); tags each frame with `gid`.
 pub struct GroupNetworkClient {
     gid: GroupId,
     /// The node this client runs ON (the RPC source). Unused in production; consulted
@@ -399,7 +399,7 @@ pub struct GroupNetworkClient {
 
 impl GroupNetworkClient {
     async fn round_trip(&self, rpc: GroupRpc) -> Result<GroupRpcReply, io::Error> {
-        // ── harness fault-injection: partition gate (CONCEPT:KG-2.212) ──
+        // ── harness fault-injection: partition gate (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) ──
         #[cfg(any(test, feature = "harness"))]
         if !partition::reachable(self.local, self.target) {
             return Err(io::Error::new(
@@ -407,7 +407,7 @@ impl GroupNetworkClient {
                 "partitioned (harness nemesis)",
             ));
         }
-        // A per-group RPC goes out as a single-RPC frame (CONCEPT:KG-2.271); coalesced
+        // A per-group RPC goes out as a single-RPC frame (CONCEPT:EG-KG.storage.concept-2); coalesced
         // heartbeats use `RaftFrame::Batch` via `HeartbeatCoalescer::send_batch`.
         let body = rmp_serde::to_vec_named(&RaftFrame::One(rpc))
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -475,7 +475,7 @@ impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
         }
     }
 
-    /// Forward a leader-transfer notification to the target (CONCEPT:KG-2.273). This
+    /// Forward a leader-transfer notification to the target (CONCEPT:AU-KG.backend.authority-has-already-acked). This
     /// backs the native graceful handoff: the old leader tells the target to campaign
     /// at once instead of waiting for its lease to time out.
     async fn transfer_leader(
@@ -564,7 +564,7 @@ pub async fn read_frame(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-// ── harness partition gate (CONCEPT:KG-2.212) ─────────────────────────────────
+// ── harness partition gate (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) ─────────────────────────────────
 //
 // A process-global, test/harness-only controller that the per-RPC `round_trip`
 // consults to decide whether a frame from node `from` may reach node `to`. The model

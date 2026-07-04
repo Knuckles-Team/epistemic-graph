@@ -1,5 +1,5 @@
 //! **Shapefile** reader — `.shp` geometry + `.dbf` attributes + `.shx` index
-//! (CONCEPT:EG-306).
+//! (CONCEPT:EG-KG.domains.geo-formats).
 //!
 //! The ESRI Shapefile is *the* legacy GIS interchange format: still the default export of
 //! ArcGIS, QGIS, `ogr2ogr`, and virtually every open-data portal. A "shapefile" is really a
@@ -50,7 +50,7 @@ const SHP_MULTIPOINT_M: i32 = 28;
 
 // ── public value model ───────────────────────────────────────────────────────────────
 
-/// One typed `.dbf` attribute cell (CONCEPT:EG-306). dBASE stores every field as fixed-width
+/// One typed `.dbf` attribute cell (CONCEPT:EG-KG.domains.geo-formats). dBASE stores every field as fixed-width
 /// ASCII with a one-char type; this preserves that type while trimming the fixed-width padding.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DbfValue {
@@ -65,7 +65,7 @@ pub enum DbfValue {
 }
 
 /// One record of a shapefile: a geometry (absent for a `Null` shape) plus its ordered `.dbf`
-/// attributes as `(field_name, value)` pairs (CONCEPT:EG-306). Order matches the `.dbf` field
+/// attributes as `(field_name, value)` pairs (CONCEPT:EG-KG.domains.geo-formats). Order matches the `.dbf` field
 /// descriptors.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShapeRecord {
@@ -83,7 +83,7 @@ impl ShapeRecord {
     }
 }
 
-/// A parsed `.shx` offset index (CONCEPT:EG-306): one `(offset_bytes, length_bytes)` per record,
+/// A parsed `.shx` offset index (CONCEPT:EG-KG.domains.geo-formats): one `(offset_bytes, length_bytes)` per record,
 /// converted from the on-disk 16-bit-word units. Enables random `.shp` access; the sequential
 /// reader does not require it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -94,7 +94,7 @@ pub struct ShxIndex {
 
 // ── .shp geometry reader ───────────────────────────────────────────────────────────
 
-/// A little/big-endian byte cursor over a shapefile buffer (CONCEPT:EG-306).
+/// A little/big-endian byte cursor over a shapefile buffer (CONCEPT:EG-KG.domains.geo-formats).
 struct Cur<'a> {
     buf: &'a [u8],
     pos: usize,
@@ -135,7 +135,7 @@ impl<'a> Cur<'a> {
     }
 }
 
-/// Parse a `.shp` main file into its geometries (CONCEPT:EG-306). A `Null` shape yields a
+/// Parse a `.shp` main file into its geometries (CONCEPT:EG-KG.domains.geo-formats). A `Null` shape yields a
 /// `None` slot so the geometry list stays 1:1 with the record order (and the `.dbf` rows).
 pub fn read_shp(bytes: &[u8]) -> Result<Vec<Option<Geometry>>, String> {
     if bytes.len() < 100 {
@@ -269,7 +269,7 @@ fn signed_area(ring: &[Point]) -> f64 {
     a / 2.0
 }
 
-/// Assemble shapefile polygon rings (CONCEPT:EG-306) into a [`Geometry::Polygon`] (single
+/// Assemble shapefile polygon rings (CONCEPT:EG-KG.domains.geo-formats) into a [`Geometry::Polygon`] (single
 /// exterior) or [`Geometry::MultiPolygon`] (multiple exteriors). Clockwise rings
 /// (`signed_area < 0`) are exteriors; counter-clockwise rings are holes assigned to the
 /// exterior whose ring contains the hole's first vertex.
@@ -323,7 +323,7 @@ fn assemble_polygon(parts: Vec<Vec<Point>>) -> Geometry {
 
 // ── .shx index reader ────────────────────────────────────────────────────────────────
 
-/// Parse a `.shx` index file into byte offsets/lengths (CONCEPT:EG-306). Same 100-byte header
+/// Parse a `.shx` index file into byte offsets/lengths (CONCEPT:EG-KG.domains.geo-formats). Same 100-byte header
 /// as `.shp`, then 8-byte records of `(offset, content_length)` big-endian 16-bit words.
 pub fn read_shx(bytes: &[u8]) -> Result<ShxIndex, String> {
     if bytes.len() < 100 {
@@ -345,7 +345,7 @@ pub fn read_shx(bytes: &[u8]) -> Result<ShxIndex, String> {
 
 // ── .dbf attribute-table reader ───────────────────────────────────────────────────────
 
-/// A `.dbf` field descriptor: name, one-char type, and fixed byte length (CONCEPT:EG-306).
+/// A `.dbf` field descriptor: name, one-char type, and fixed byte length (CONCEPT:EG-KG.domains.geo-formats).
 #[derive(Clone, Debug, PartialEq)]
 pub struct DbfField {
     pub name: String,
@@ -353,7 +353,7 @@ pub struct DbfField {
     pub length: usize,
 }
 
-/// Parse a `.dbf` dBASE table into `(field descriptors, rows-of-values)` (CONCEPT:EG-306).
+/// Parse a `.dbf` dBASE table into `(field descriptors, rows-of-values)` (CONCEPT:EG-KG.domains.geo-formats).
 /// Deleted records (leading `*`) are skipped.
 pub fn read_dbf(bytes: &[u8]) -> Result<(Vec<DbfField>, Vec<Vec<DbfValue>>), String> {
     if bytes.len() < 32 {
@@ -441,7 +441,7 @@ fn parse_cell(ty: char, raw: &[u8]) -> DbfValue {
 // ── combined shapefile reader ──────────────────────────────────────────────────────
 
 /// Read a shapefile from its `.shp` geometry bytes and (optional) `.dbf` attribute bytes into
-/// [`ShapeRecord`]s (CONCEPT:EG-306). Geometry order is preserved 1:1 with the `.dbf` rows; if
+/// [`ShapeRecord`]s (CONCEPT:EG-KG.domains.geo-formats). Geometry order is preserved 1:1 with the `.dbf` rows; if
 /// `dbf` is `None` (or has fewer rows) the missing rows get empty attribute lists.
 pub fn read_shapefile(shp: &[u8], dbf: Option<&[u8]>) -> Result<Vec<ShapeRecord>, String> {
     let geoms = read_shp(shp)?;
@@ -467,7 +467,7 @@ pub fn read_shapefile(shp: &[u8], dbf: Option<&[u8]>) -> Result<Vec<ShapeRecord>
     Ok(out)
 }
 
-// FOLLOW-UP (B4, CONCEPT:EG-306): a shapefile *writer* (emit .shp/.shx/.dbf) is deferred — the
+// FOLLOW-UP (B4, CONCEPT:EG-KG.domains.geo-formats): a shapefile *writer* (emit .shp/.shx/.dbf) is deferred — the
 // reader is the high-value ingest path (every GIS tool still reads the WKB/GeoJSON we already
 // emit). The writer would re-serialise geometries back into big-endian record headers +
 // little-endian payloads and re-pack fixed-width dBASE rows; tracked as a follow-up.

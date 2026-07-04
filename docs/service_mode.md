@@ -65,7 +65,7 @@ epistemic-graph-service graphs list
 
 With the `metrics` cargo feature (on by default) and `--metrics-addr` /
 `GRAPH_SERVICE_METRICS_ADDR` set, the server exposes Prometheus text-format
-metrics over a minimal HTTP listener (`src/metrics.rs`, CONCEPT:KG-2.51). The
+metrics over a minimal HTTP listener (`src/metrics.rs`, CONCEPT:EG-KG.txn.per-graph-write-isolation). The
 listener is completely separate from the MessagePack RPC transports, serves
 the full registry on any path, and stays disabled unless an address is
 configured — so multiple shards never collide on a default port. Recommended
@@ -163,7 +163,7 @@ A MessagePack map with `id` plus exactly one of `result` / `error`:
 {"id": 7, "error": "ACCESS_DENIED: agent 'worker2' lacks Write access to graph 'agent:worker1'"}
 ```
 
-## Postgres wire transactions (CONCEPT:EG-049)
+## Postgres wire transactions (CONCEPT:EG-KG.compute.kg-transaction-is-pinned)
 
 When built `--features pgwire` and bound via `EPISTEMIC_GRAPH_PGWIRE_ADDR`, the
 Postgres wire shim supports `BEGIN` / `COMMIT` / `ROLLBACK` over a **mixed-store**
@@ -179,7 +179,7 @@ applying them at `COMMIT`.
   ("current transaction is aborted…"); `COMMIT` while aborted behaves as `ROLLBACK`.
 - **One graph per transaction** — the transaction is pinned to the graph selected
   at `BEGIN`; `SET graph` is rejected while a transaction is open (a transaction
-  stays within one redb shard, CONCEPT:KG-2.207).
+  stays within one redb shard, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 - **`ReadyForQuery` status** — `BEGIN`/`COMMIT`/`ROLLBACK` drive the driver-visible
   `T` (in-transaction) / `E` (failed) / `I` (idle) status correctly.
 

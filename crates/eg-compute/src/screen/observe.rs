@@ -1,4 +1,4 @@
-//! Screen-observation enrichment (CONCEPT:KG-2.185 / KG-2.186).
+//! Screen-observation enrichment (CONCEPT:AU-KG.ontology.owl-screen-bridge / KG-2.186).
 //!
 //! Mirrors the code call-graph enrichment (`parser::resolve::index_repository`,
 //! KG-2.100): a pure `fn(input) -> {nodes, edges}` the server persists in one

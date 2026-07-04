@@ -1,4 +1,4 @@
-//! A minimal, dependency-free GraphQL parser (CONCEPT:KG-2.235, writes CONCEPT:EG-019).
+//! A minimal, dependency-free GraphQL parser (CONCEPT:EG-KG.query.sparql-completeness, writes CONCEPT:EG-KG.query.mutation).
 //!
 //! Covers the read subset the resolver needs — the same subset a relational/graph DB
 //! GraphQL surface exposes: an anonymous (or named) `query` operation whose selection
@@ -6,7 +6,7 @@
 //! (`first`/`limit` ints + property-equality filters) and a nested SELECTION SET of
 //! scalar fields (node properties) and object fields (edge relationships, recursed).
 //!
-//! It ALSO parses `mutation` and `subscription` operations (CONCEPT:EG-019). A mutation
+//! It ALSO parses `mutation` and `subscription` operations (CONCEPT:EG-KG.query.mutation). A mutation
 //! is a selection set of write root fields (`createNode`/`updateNode`/`deleteNode`/
 //! `addEdge`/`removeEdge`) whose arguments may carry OBJECT / LIST values (the `props`
 //! map). A subscription mirrors a query's selection set (the resolver serves it as a
@@ -16,7 +16,7 @@
 //! so the surface stays Pi-excludable (the facade gates the whole crate behind
 //! `graphql`).
 //!
-//! ## Fragments / variables / directives (CONCEPT:EG-065)
+//! ## Fragments / variables / directives (CONCEPT:EG-KG.query.fragments-variables-directives)
 //! The lexer also emits `$` (variable refs), `@` (directives), `...` (spreads) and `=`
 //! (variable defaults). [`parse_raw`] yields a [`RawDocument`] that retains named
 //! fragment definitions, fragment spreads / inline fragments, operation variable
@@ -31,9 +31,9 @@ use serde_json::Value;
 
 /// A parsed GraphQL value used as an argument. The read subset is ints, floats,
 /// strings, booleans (enough for `first: 10` and `name: "Alice"`); writes
-/// (CONCEPT:EG-019) add OBJECT and LIST values so a mutation can carry a `props`
+/// (CONCEPT:EG-KG.query.mutation) add OBJECT and LIST values so a mutation can carry a `props`
 /// map, e.g. `createNode(label: "Person", props: {name: "Alice", tags: ["a", "b"]})`.
-/// CONCEPT:EG-065 adds [`GqlValue::Var`] — an unresolved `$name` reference the resolver
+/// CONCEPT:EG-KG.query.fragments-variables-directives adds [`GqlValue::Var`] — an unresolved `$name` reference the resolver
 /// substitutes from the execution variables before the value is used.
 #[derive(Clone, Debug, PartialEq)]
 pub enum GqlValue {
@@ -47,7 +47,7 @@ pub enum GqlValue {
     List(Vec<GqlValue>),
     /// The `null` literal.
     Null,
-    /// A `$name` variable reference (CONCEPT:EG-065), substituted at execution time.
+    /// A `$name` variable reference (CONCEPT:EG-KG.query.fragments-variables-directives), substituted at execution time.
     Var(String),
 }
 
@@ -57,7 +57,7 @@ pub enum GqlValue {
 ///
 /// This is the DESUGARED field the resolver/mutation paths consume: by the time a
 /// [`Field`] exists, fragment spreads have been inlined, `@skip`/`@include` applied, and
-/// `$var` argument refs substituted (CONCEPT:EG-065).
+/// `$var` argument refs substituted (CONCEPT:EG-KG.query.fragments-variables-directives).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
     /// The response key — the alias if given, else `name`.
@@ -75,7 +75,7 @@ pub struct Query {
     pub roots: Vec<Field>,
 }
 
-/// A parsed mutation operation (CONCEPT:EG-019): the top-level selection set whose
+/// A parsed mutation operation (CONCEPT:EG-KG.query.mutation): the top-level selection set whose
 /// fields are WRITE root fields (`createNode`/`updateNode`/`deleteNode`/`addEdge`/
 /// `removeEdge`). Each field's args carry the write payload; its selection set (if any)
 /// shapes the returned object the resolver materializes from the post-write graph.
@@ -84,7 +84,7 @@ pub struct Mutation {
     pub roots: Vec<Field>,
 }
 
-/// A parsed subscription operation (CONCEPT:EG-019): structurally identical to a
+/// A parsed subscription operation (CONCEPT:EG-KG.query.mutation): structurally identical to a
 /// [`Query`] — the resolver serves it as a poll over the current matches (and, when a
 /// streaming transport is wired, as a change-stream emitting the same shape).
 #[derive(Clone, Debug, PartialEq)]
@@ -93,7 +93,7 @@ pub struct Subscription {
 }
 
 /// A parsed top-level GraphQL operation: a read query, a write mutation, or a
-/// subscription (CONCEPT:EG-019). [`parse`] returns the [`Query`] case directly for the
+/// subscription (CONCEPT:EG-KG.query.mutation). [`parse`] returns the [`Query`] case directly for the
 /// read path; [`parse_operation`] returns the full enum for callers that also write.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Operation {
@@ -102,7 +102,7 @@ pub enum Operation {
     Subscription(Subscription),
 }
 
-// ── raw (pre-desugar) AST (CONCEPT:EG-065) ───────────────────────────────────────
+// ── raw (pre-desugar) AST (CONCEPT:EG-KG.query.fragments-variables-directives) ───────────────────────────────────────
 //
 // `parse_raw` produces this richer tree; `crate::resolver::flatten_document` lowers it
 // to the plain `Field` tree above by inlining fragments, applying directives, and
@@ -184,10 +184,10 @@ impl fmt::Display for GqlError {
 
 impl std::error::Error for GqlError {}
 
-/// Convert a parsed [`GqlValue`] to a `serde_json::Value` (CONCEPT:EG-019). Shared by
+/// Convert a parsed [`GqlValue`] to a `serde_json::Value` (CONCEPT:EG-KG.query.mutation). Shared by
 /// the resolver (filter literals) and the mutation executor (write payloads), so the
 /// two surfaces coerce argument values identically. An unsubstituted [`GqlValue::Var`]
-/// (CONCEPT:EG-065) coerces to `null` — the resolver substitutes vars BEFORE this runs,
+/// (CONCEPT:EG-KG.query.fragments-variables-directives) coerces to `null` — the resolver substitutes vars BEFORE this runs,
 /// so a `Var` reaching here means it was unbound.
 pub(crate) fn gql_to_json(v: &GqlValue) -> Value {
     match v {
@@ -211,7 +211,7 @@ pub(crate) fn gql_to_json(v: &GqlValue) -> Value {
 
 /// Parse a GraphQL document into a [`Query`] (the READ path). Accepts a bare selection
 /// set (`{ … }`), `query { … }`, or `query Name { … }`. Fragments / variables /
-/// directives (CONCEPT:EG-065) are desugared here with NO execution variables (the
+/// directives (CONCEPT:EG-KG.query.fragments-variables-directives) are desugared here with NO execution variables (the
 /// variable-aware entry point is [`crate::resolver::execute_with_variables`]). A
 /// `mutation` / `subscription` document is reported as an error, since this entry point
 /// only yields the query case.
@@ -231,9 +231,9 @@ pub fn parse(src: &str) -> Result<Query, GqlError> {
     Ok(Query { roots })
 }
 
-/// Parse a GraphQL document into an [`Operation`] (CONCEPT:EG-019): a `query`,
+/// Parse a GraphQL document into an [`Operation`] (CONCEPT:EG-KG.query.mutation): a `query`,
 /// `mutation`, or `subscription`. A bare selection set (`{ … }`) is a query. Fragments,
-/// variables, and directives (CONCEPT:EG-065) are desugared with no execution variables.
+/// variables, and directives (CONCEPT:EG-KG.query.fragments-variables-directives) are desugared with no execution variables.
 pub fn parse_operation(src: &str) -> Result<Operation, GqlError> {
     let doc = parse_raw(src)?;
     let roots = crate::resolver::flatten_document(&doc, &crate::resolver::Variables::new())
@@ -245,7 +245,7 @@ pub fn parse_operation(src: &str) -> Result<Operation, GqlError> {
     })
 }
 
-/// Parse a GraphQL document into the RAW (pre-desugar) [`RawDocument`] (CONCEPT:EG-065),
+/// Parse a GraphQL document into the RAW (pre-desugar) [`RawDocument`] (CONCEPT:EG-KG.query.fragments-variables-directives),
 /// retaining fragments, variable definitions, directives, and `$var` references. The
 /// resolver lowers it to a plain [`Field`] tree once execution variables are known.
 pub(crate) fn parse_raw(src: &str) -> Result<RawDocument, GqlError> {
@@ -277,13 +277,13 @@ enum Tok {
     Colon,
     Comma,
     Bang,
-    /// `$` — starts a variable reference / definition (CONCEPT:EG-065).
+    /// `$` — starts a variable reference / definition (CONCEPT:EG-KG.query.fragments-variables-directives).
     Dollar,
-    /// `@` — starts a directive (CONCEPT:EG-065).
+    /// `@` — starts a directive (CONCEPT:EG-KG.query.fragments-variables-directives).
     At,
-    /// `...` — a fragment spread / inline fragment (CONCEPT:EG-065).
+    /// `...` — a fragment spread / inline fragment (CONCEPT:EG-KG.query.fragments-variables-directives).
     Spread,
-    /// `=` — a variable-definition default separator (CONCEPT:EG-065).
+    /// `=` — a variable-definition default separator (CONCEPT:EG-KG.query.fragments-variables-directives).
     Eq,
 }
 
@@ -546,7 +546,7 @@ impl P<'_> {
         })
     }
 
-    /// `($name: Type [= default], …)` — variable definitions (CONCEPT:EG-065).
+    /// `($name: Type [= default], …)` — variable definitions (CONCEPT:EG-KG.query.fragments-variables-directives).
     fn parse_var_defs(&mut self) -> Result<Vec<VarDef>, GqlError> {
         self.expect(&Tok::LParen, "`(` to open variable definitions")?;
         let mut defs = Vec::new();
@@ -581,7 +581,7 @@ impl P<'_> {
         Ok(())
     }
 
-    /// Zero or more `@name[(args)]` directives (CONCEPT:EG-065).
+    /// Zero or more `@name[(args)]` directives (CONCEPT:EG-KG.query.fragments-variables-directives).
     fn parse_directives(&mut self) -> Result<Vec<Directive>, GqlError> {
         let mut ds = Vec::new();
         while self.peek_is(&Tok::At) {
@@ -611,7 +611,7 @@ impl P<'_> {
     }
 
     /// A field, a fragment spread (`...Name`), or an inline fragment
-    /// (`... on Type { … }` / `... { … }`) — CONCEPT:EG-065.
+    /// (`... on Type { … }` / `... { … }`) — CONCEPT:EG-KG.query.fragments-variables-directives.
     fn parse_raw_selection(&mut self) -> Result<RawSelection, GqlError> {
         if self.peek_is(&Tok::Spread) {
             self.bump();
@@ -711,13 +711,13 @@ impl P<'_> {
                 self.bump();
                 Ok(GqlValue::Null)
             }
-            // A `$name` variable reference (CONCEPT:EG-065).
+            // A `$name` variable reference (CONCEPT:EG-KG.query.fragments-variables-directives).
             Some(Tok::Dollar) => {
                 self.bump();
                 let name = self.expect_name("a variable name after `$`")?;
                 Ok(GqlValue::Var(name))
             }
-            // An input object `{ field: value, … }` (CONCEPT:EG-019 — a mutation `props`).
+            // An input object `{ field: value, … }` (CONCEPT:EG-KG.query.mutation — a mutation `props`).
             Some(Tok::LBrace) => self.parse_object_value(),
             // A list `[ value, … ]`.
             Some(Tok::LBracket) => self.parse_list_value(),
@@ -905,7 +905,7 @@ mod tests {
         assert!(e.msg.contains("at least one field"), "got {}", e.msg);
     }
 
-    // ── CONCEPT:EG-065 — fragments / variables / directives ──────────────────────
+    // ── CONCEPT:EG-KG.query.fragments-variables-directives — fragments / variables / directives ──────────────────────
 
     #[test]
     fn raw_doc_retains_fragments_and_var_defs() {

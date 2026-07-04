@@ -7,20 +7,20 @@ retrieval, episodic trajectory memory for policy learning, and a scene-graph wor
 distillation/summarization) stays in agent-utilities; the engine provides the fast, durable, provenance-
 preserving operations. (Localized maintenance, not global reorganization, per arXiv 2606.24775.)
 
-> Status snapshot: the summary tier (EG-220), consolidation (EG-221), maintenance decay/reinforcement
+> Status snapshot: the summary tier (EG-KG.compute.hierarchical-summary-tier-eg), consolidation (EG-KG.compute.consolidate-cluster), maintenance decay/reinforcement
 > (EG-222), LeanRAG retrieval (EG-195), trajectory memory (EG-099), and the scene-graph world model
 > (EG-087) are shipped — and Program B **exposes them over the wire** (additive `Method`s + dispatch + WAL
-> replay), so AU/MCP drive them remotely rather than in-process only (EG-318). See the
+> replay), so AU/MCP drive them remotely rather than in-process only (EG-KG.memory.eg-batch-decay-caller). See the
 > [capability matrix](../capabilities.md).
 
-## Hierarchical summary tier (EG-220)
+## Hierarchical summary tier (EG-KG.compute.hierarchical-summary-tier-eg)
 
 A native multi-level memory abstraction ladder: `:SummaryNode` graph nodes roll up a set of source
 memories with a **level** + provenance links (`SUMMARIZES`/`CONSOLIDATES`) to their children. A
 `summarize`/`rollup` primitive materializes a higher level from a cluster of lower-level memories. The
 engine owns the structure + provenance; the LLM distill content is supplied by agent-utilities.
 
-## Episodic → semantic consolidation (EG-221)
+## Episodic → semantic consolidation (EG-KG.compute.consolidate-cluster)
 
 A localized consolidation op promotes a cluster of episodic memory nodes into a consolidated **semantic**
 node — merging properties, redirecting edges, preserving provenance and bitemporal `tx_from`/`tx_to`,
@@ -57,9 +57,9 @@ Episodic trajectory memory for agents/robotics: an ordered `:Trajectory` of
 - best / worst-trajectory retrieval.
 
 The substrate for policy learning + replay; composes with the scene states (EG-087) and the memory tiers
-(EG-220/221).
+(EG-KG.compute.hierarchical-summary-tier-eg/221).
 
-## Driving it over the wire (EG-318)
+## Driving it over the wire (EG-KG.memory.eg-batch-decay-caller)
 
 The memory / scene / trajectory primitives were originally **in-process** eg-core library calls. Program B
 adds an additive **wire surface** so agent-utilities / MCP drive them **remotely** over the same
@@ -78,7 +78,7 @@ robotics / AR / urban-3D world models. Composes (read-only) with the [GIS](gis.m
 store.
 
 !!! note "Deferred — memory → weights distillation (🗺)"
-    Distilling consolidated agent-memory (EG-220/221) into **model weights** (a fine-tune / LoRA export),
+    Distilling consolidated agent-memory (EG-KG.compute.hierarchical-summary-tier-eg/221) into **model weights** (a fine-tune / LoRA export),
     beyond the shipped retrieval-time context assembly (EG-195), is designed but not started. See the
     [forward roadmap](../roadmap.md).
 

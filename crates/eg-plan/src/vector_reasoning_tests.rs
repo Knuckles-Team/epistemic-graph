@@ -1,11 +1,11 @@
-//! Vector ⇄ reasoning consistency SEAM regression (CONCEPT:EG-367).
+//! Vector ⇄ reasoning consistency SEAM regression (CONCEPT:EG-KG.compute.concept-6).
 //!
 //! The cross-TRANSACTION write→read seam: a freshly WRITTEN node (an embedding + a type
 //! that the OWL reasoner subsumes) must be BOTH ANN-ranked AND reasoner-included by the
 //! very next query — because both the reasoner (`Op::Reason`) and the vector ranker
 //! (`Op::Rank`) read the SAME new committed snapshot. And an embedding UPDATE must be
 //! reflected by the next ANN pass. One fused plan `[Reason{Class} |> Rank{vec}]` pushes
-//! the reasoned class members INTO the ANN scan as the candidate allowlist (CONCEPT:EG-070),
+//! the reasoned class members INTO the ANN scan as the candidate allowlist (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter),
 //! so the fresh node can only surface if it cleared BOTH gates.
 //!
 //! (Placed in eg-plan, NOT eg-query as the audit's file plan sketched: eg-query links no

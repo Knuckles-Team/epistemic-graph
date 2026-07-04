@@ -1,4 +1,4 @@
-//! Encryption-at-rest for the redb durable value blobs (CONCEPT:KG-2.231, Lane O).
+//! Encryption-at-rest for the redb durable value blobs (CONCEPT:EG-KG.sharding.row-level-security, Lane O).
 //!
 //! A PURE-RUST RustCrypto AEAD (`chacha20poly1305::ChaCha20Poly1305`) — NO ring,
 //! NO openssl, NO C — so the Pi crypto contract holds. The data key is derived from

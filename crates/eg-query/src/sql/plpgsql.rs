@@ -1,7 +1,7 @@
-//! PL/pgSQL procedural interpreter (CONCEPT:EG-340 / EG-341).
+//! PL/pgSQL procedural interpreter (CONCEPT:EG-KG.query.eg-validate-procedural-body / EG-341).
 //!
 //! `CREATE FUNCTION … LANGUAGE plpgsql AS $$ … $$` stores a *procedural* body (not a
-//! single `SELECT`), so it cannot be inlined like a `LANGUAGE sql` body (CONCEPT:EG-118).
+//! single `SELECT`), so it cannot be inlined like a `LANGUAGE sql` body (CONCEPT:EG-KG.query.create-drop-function).
 //! Instead, when a **bare top-level** `SELECT fn(args)` or `CALL fn(args)` names a
 //! plpgsql function, [`try_exec_call`] runs a small hand-written statement interpreter
 //! over the parsed body against a variable environment. Every value-producing operation
@@ -10,7 +10,7 @@
 //! planner does all arithmetic/comparison/function work and there is no second expression
 //! evaluator to keep in sync.
 //!
-//! ## Implemented subset (CONCEPT:EG-341)
+//! ## Implemented subset (CONCEPT:EG-KG.query.concept-7)
 //! * `DECLARE` variables (`name type [:= init]`) at the function's top-level block.
 //! * `BEGIN … END` (including a nested `BEGIN … END;` block).
 //! * Assignment `var := <expr>`.
@@ -40,14 +40,14 @@ use super::exec::{PgColType, TypedColumn, TypedQueryResult};
 use crate::tables::schema::StoredFunction;
 
 /// Hard cap on total interpreted loop iterations, guarding a runaway `LOOP`/`WHILE`
-/// against hanging the reactor's blocking pool (CONCEPT:EG-341).
+/// against hanging the reactor's blocking pool (CONCEPT:EG-KG.query.concept-7).
 const MAX_STEPS: u64 = 5_000_000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Values
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A runtime scalar value held in the variable environment (CONCEPT:EG-341). Decoded
+/// A runtime scalar value held in the variable environment (CONCEPT:EG-KG.query.concept-7). Decoded
 /// from an embedded-SQL result cell and re-encoded as a SQL literal for substitution.
 #[derive(Clone, Debug)]
 enum Val {
@@ -150,7 +150,7 @@ impl Val {
 // AST
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// One top-level `DECLARE` variable: `name [type] [:= init]` (CONCEPT:EG-341). The type
+/// One top-level `DECLARE` variable: `name [type] [:= init]` (CONCEPT:EG-KG.query.concept-7). The type
 /// spelling is catalog metadata only — values are typed by the SQL that produces them.
 #[derive(Debug, Clone)]
 struct Decl {
@@ -158,7 +158,7 @@ struct Decl {
     init: Option<String>,
 }
 
-/// A parsed procedural statement (CONCEPT:EG-341). Expression/SQL text is kept as the raw
+/// A parsed procedural statement (CONCEPT:EG-KG.query.concept-7). Expression/SQL text is kept as the raw
 /// source slice so it substitutes + runs through the real SQL planner verbatim.
 #[derive(Debug, Clone)]
 enum Stmt {
@@ -210,7 +210,7 @@ enum Stmt {
 }
 
 /// A fully parsed PL/pgSQL body: its declared variables and top-level statements
-/// (CONCEPT:EG-341).
+/// (CONCEPT:EG-KG.query.concept-7).
 #[derive(Debug, Clone)]
 pub(super) struct PlBody {
     decls: Vec<Decl>,
@@ -361,7 +361,7 @@ struct Parser<'a> {
     pos: usize,
 }
 
-/// Parse a `LANGUAGE plpgsql` body into a [`PlBody`] (CONCEPT:EG-341). Public so
+/// Parse a `LANGUAGE plpgsql` body into a [`PlBody`] (CONCEPT:EG-KG.query.concept-7). Public so
 /// `CREATE FUNCTION` can validate the body up front.
 pub(super) fn parse_body(src: &str) -> Result<PlBody, String> {
     let toks = tokenize(src)?;
@@ -520,7 +520,7 @@ impl<'a> Parser<'a> {
             }
             if self.peek_is("next") || self.peek_is("query") {
                 return Err(
-                    "RETURN NEXT/QUERY (set-returning plpgsql) is out of scope (CONCEPT:EG-341)"
+                    "RETURN NEXT/QUERY (set-returning plpgsql) is out of scope (CONCEPT:EG-KG.query.concept-7)"
                         .to_string(),
                 );
             }
@@ -548,7 +548,7 @@ impl<'a> Parser<'a> {
             let body = self.parse_stmt_list()?;
             if self.peek_is("exception") {
                 return Err(
-                    "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-341)".to_string(),
+                    "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-KG.query.concept-7)".to_string(),
                 );
             }
             self.expect_kw("end")?;
@@ -589,7 +589,7 @@ impl<'a> Parser<'a> {
             return Ok(Stmt::Perform(sql));
         }
         Err(format!(
-            "unsupported plpgsql statement starting at `{}` (CONCEPT:EG-341)",
+            "unsupported plpgsql statement starting at `{}` (CONCEPT:EG-KG.query.concept-7)",
             t.text
         ))
     }
@@ -801,7 +801,7 @@ fn unquote(tok: &str) -> String {
 // Interpreter
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Non-local control flow produced by executing a statement/block (CONCEPT:EG-341).
+/// Non-local control flow produced by executing a statement/block (CONCEPT:EG-KG.query.concept-7).
 enum Flow {
     Normal,
     Return(Val),
@@ -977,7 +977,7 @@ impl<'a> Interp<'a> {
 }
 
 /// Execute a parsed body against `args` (bound by declared parameter name), returning the
-/// `RETURN`ed value (or `Null` if control falls off the end) (CONCEPT:EG-341).
+/// `RETURN`ed value (or `Null` if control falls off the end) (CONCEPT:EG-KG.query.concept-7).
 fn exec_function(
     f: &StoredFunction,
     body: &PlBody,
@@ -1013,7 +1013,7 @@ fn exec_function(
 
 /// If `sql` is a bare top-level `SELECT fn(args) [AS alias]` or `CALL fn(args)` that names
 /// a `LANGUAGE plpgsql` function in `functions`, run the interpreter and return its result
-/// (CONCEPT:EG-340). Returns `Ok(None)` when the statement is NOT such a call (so the
+/// (CONCEPT:EG-KG.query.eg-validate-procedural-body). Returns `Ok(None)` when the statement is NOT such a call (so the
 /// caller runs the normal SQL path). `run_sql` executes embedded SQL back through the same
 /// read path.
 pub(super) fn try_exec_call(
@@ -1217,7 +1217,7 @@ fn split_top_commas(inner: &str) -> Vec<String> {
 }
 
 /// Replace whole-word identifiers matching an environment variable with the variable's
-/// SQL literal (CONCEPT:EG-341). Quote-aware (a name inside `'…'` is untouched) and a
+/// SQL literal (CONCEPT:EG-KG.query.concept-7). Quote-aware (a name inside `'…'` is untouched) and a
 /// qualified `t.col` reference is left alone (only bare variable names are substituted).
 fn substitute_vars(sql: &str, env: &HashMap<String, Val>) -> String {
     let b = sql.as_bytes();

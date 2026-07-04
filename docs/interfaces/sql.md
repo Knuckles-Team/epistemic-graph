@@ -11,13 +11,13 @@ epistemic-graph speaks SQL two ways:
 > `INSERT`/`UPDATE`/`DELETE` on `nodes` and on **arbitrary user tables**, with full DDL
 > (`CREATE`/`ALTER TABLE`/`DROP TABLE`/`CREATE VIEW`/`CREATE FUNCTION`, `COPY`) over a durable redb
 > catalog — `ALTER TABLE` now covers `DROP`/`RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN TYPE`, `DROP
-> CONSTRAINT` (EG-310). Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML
+> CONSTRAINT` (EG-KG.query.rename-table-moves-catalog). Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML
 > (`UPDATE…FROM`/`DELETE…USING`), `ON CONFLICT` upsert, user-table `RETURNING`, and mixed-store wire
 > transactions are **shipped** (EG-045..049, EG-072). Postgres-extension surfaces
-> (`pg_catalog`/`information_schema`, arrays/ranges, pgvector with **real ANN pushdown** (EG-313), AGE
+> (`pg_catalog`/`information_schema`, arrays/ranges, pgvector with **real ANN pushdown** (EG-KG.query.real-pgvector-ann-top), AGE
 > `cypher()`, TimescaleDB, ParadeDB with **real BM25** (EG-311)) light up via `CREATE EXTENSION`. The same
 > tables are also readable as an open **Parquet + Delta + Iceberg** lakehouse with zero ETL — see
-> [lakehouse-ltap](../architecture/lakehouse_ltap.md) (EG-317). See the
+> [lakehouse-ltap](../architecture/lakehouse_ltap.md) (EG-KG.storage.lsn-as-snapshot-returns). See the
 > [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
 
 ## The tables
@@ -65,7 +65,7 @@ ORDER BY … ROWS/RANGE BETWEEN …)` are all supported.
 bounded per-column equality index before DataFusion re-applies the filter (the pushdown is `Inexact`, so
 correctness never depends on it).
 
-## DML — `nodes` table only (KG-2.198)
+## DML — `nodes` table only (EG-KG.query.follow-up)
 
 ```sql
 INSERT INTO nodes (id, properties) VALUES ('AgentC', '{"type":"worker"}');
@@ -79,14 +79,14 @@ is replicated/durable like any other mutation. The DML surface is now full (EG-0
 - **Compound WHERE** (EG-045): `UPDATE`/`DELETE` accept `AND`/`OR`/`NOT`/`IN`/`BETWEEN`/ranges/`IS NULL`,
   applied through serializable compare-and-set / remove gates (the predicate is re-checked under the write
   guard, so a concurrent write can't slip a row through);
-- **`INSERT INTO nodes … SELECT`** (EG-046): populate the node store from a SELECT that may JOIN user
+- **`INSERT INTO nodes … SELECT`** (EG-KG.query.insert-into-nodes-select): populate the node store from a SELECT that may JOIN user
   tables and the graph, with `RETURNING`;
 - **Multi-table DML** (EG-047): correlated `UPDATE nodes … FROM …` / `DELETE FROM nodes … USING …`;
-- **`ON CONFLICT`** (EG-048): `INSERT … ON CONFLICT (cols) DO NOTHING|DO UPDATE` for `nodes` and user
+- **`ON CONFLICT`** (EG-KG.query.delete-returning-sees-row): `INSERT … ON CONFLICT (cols) DO NOTHING|DO UPDATE` for `nodes` and user
   tables, plus `RETURNING` on user-table `INSERT`/`UPDATE`/`DELETE`;
 - `INSERT INTO edges …` still errors (target must be `nodes`); `id` cannot be reassigned.
 
-### Transactions (mixed-store, over the wire — EG-049)
+### Transactions (mixed-store, over the wire — EG-KG.compute.kg-transaction-is-pinned)
 
 pgwire `BEGIN`/`COMMIT`/`ROLLBACK` buffer **both** graph-node ops and user-table ops in one transaction;
 reads inside the txn see the buffered writes (read-your-own-writes). `COMMIT` applies the node batch (one
@@ -98,11 +98,11 @@ an aborted txn rejects statements until `ROLLBACK` (`25P02`). The node↔table c
 
 Arbitrary user tables are first-class: `CREATE TABLE`, full `ALTER TABLE`, `DROP TABLE`, `COPY`,
 and `CREATE VIEW` / `DROP VIEW` (EG-072 — a referenced view expands to its stored SELECT) persist to a
-durable redb catalog (`crates/eg-query/src/tables/`, EG-018/EG-020). User-table DML
+durable redb catalog (`crates/eg-query/src/tables/`, EG-KG.query.register-user-tables-alongside/EG-KG.query.register-each-user-table). User-table DML
 (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `RETURNING`) executes against it, and user tables are
 JOINable to the graph `nodes`/`edges` in a single query. Reserved names `nodes`/`edges` are rejected for DDL.
 
-### `ALTER TABLE` (EG-310)
+### `ALTER TABLE` (EG-KG.query.rename-table-moves-catalog)
 
 Beyond `ADD COLUMN`, the durable user-table catalog supports the full evolving-schema set with data
 migration: `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO` (rename the table), `ALTER COLUMN … TYPE` (with a
@@ -129,7 +129,7 @@ SELECT active_count();
 `CREATE FUNCTION … LANGUAGE sql` persists scalar + table SQL-language functions in a durable catalog and
 invokes them in queries. PL/pgSQL control-flow (`IF`/`LOOP`/`RETURN`) is a documented follow-up.
 
-### Arrays, ranges & scalar functions (EG-104)
+### Arrays, ranges & scalar functions (EG-KG.query.greatest-least-int4range-tsrange)
 
 Array types (`int[]`/`text[]`: literals, subscript, `ANY`/`ALL`, `unnest`, `array_agg`, `array_length`,
 `||` concat, `@>`/`&&` overlap) and range types (`int4range`/`tsrange` with `@>`/`&&`/`<@`) parse and
@@ -137,29 +137,29 @@ execute, along with the common scalar functions ORMs/BI emit: `string_agg`, `spl
 `to_char`/`to_timestamp`, `date_trunc`, `extract`, `greatest`/`least`, `generate_series`,
 `coalesce`/`nullif`.
 
-## Postgres extensions — `CREATE EXTENSION` (EG-102)
+## Postgres extensions — `CREATE EXTENSION` (EG-KG.query.create-drop-extension-over)
 
 An unmodified Postgres client/ORM can `CREATE EXTENSION` to light up a family surface; enabled extensions
 are recorded in a durable catalog:
 
 | Extension | Surfaces | Concept |
 |-----------|----------|---------|
-| `vector` (pgvector) | `vector(n)` column type + `<->` (L2) / `<=>` (cosine) / `<#>` (neg-inner) operators; `CREATE INDEX … USING hnsw/ivfflat` pushes `ORDER BY emb <-> $1 LIMIT k` down to the eg-ann index — a **real ANN top-k** (HNSW/IVF) + exact re-rank, not the brute-force fallback (which stays as the no-index path) | EG-115 / EG-116 / EG-313 |
-| `pg_age` (Apache AGE) | `SELECT * FROM cypher('graph', $$ MATCH … RETURN … $$) AS (a agtype)` routes the inner Cypher to the eg-query Cypher engine | EG-114 |
+| `vector` (pgvector) | `vector(n)` column type + `<->` (L2) / `<=>` (cosine) / `<#>` (neg-inner) operators; `CREATE INDEX … USING hnsw/ivfflat` pushes `ORDER BY emb <-> $1 LIMIT k` down to the eg-ann index — a **real ANN top-k** (HNSW/IVF) + exact re-rank, not the brute-force fallback (which stays as the no-index path) | EG-115 / EG-KG.query.real-ann-top-k / EG-KG.query.real-pgvector-ann-top |
+| `pg_age` (Apache AGE) | `SELECT * FROM cypher('graph', $$ MATCH … RETURN … $$) AS (a agtype)` routes the inner Cypher to the eg-query Cypher engine | EG-KG.query.postgres-family-extension-plan |
 | `timescaledb` | `create_hypertable()`, `time_bucket()` gap-fill, and `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates over the eg-tsdb store | EG-117 |
-| `pg_search` (ParadeDB) | the `@@@` BM25 search operator + `paradedb.*` `score()`/`snippet()` over the eg-text index — **real BM25 relevance scoring + highlighted snippets** (not a placeholder `1.0`) | EG-119 / EG-311 |
+| `pg_search` (ParadeDB) | the `@@@` BM25 search operator + `paradedb.*` `score()`/`snippet()` over the eg-text index — **real BM25 relevance scoring + highlighted snippets** (not a placeholder `1.0`) | EG-KG.query.paradedb-bm25 / EG-311 |
 
 ```sql
 CREATE EXTENSION vector;
 CREATE TABLE items (id text, emb vector(384));
 CREATE INDEX ON items USING hnsw (emb vector_cosine_ops);
-SELECT id FROM items ORDER BY emb <=> $1 LIMIT 10;   -- pushed to eg-ann (EG-116)
+SELECT id FROM items ORDER BY emb <=> $1 LIMIT 10;   -- pushed to eg-ann (EG-KG.query.real-ann-top-k)
 
 CREATE EXTENSION pg_age;
 SELECT * FROM cypher('social', $$ MATCH (a)-[:KNOWS]->(b) RETURN a.id, b.id $$) AS (a agtype, b agtype);
 ```
 
-## System-catalog compatibility — `pg_catalog` / `information_schema` (EG-103)
+## System-catalog compatibility — `pg_catalog` / `information_schema` (EG-KG.query.route-create-view-create)
 
 So `psql` (`\d`, `\dt`, `\l`), ORMs, and BI tools introspect the engine, the system catalogs are
 synthesized from the live table/view/function catalogs and answerable as normal `SELECT`s:

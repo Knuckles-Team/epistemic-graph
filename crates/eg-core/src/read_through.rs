@@ -1,6 +1,6 @@
-// CONCEPT:KG-2.191 — read-through-on-RAM-miss seam (eg-core side).
+// CONCEPT:EG-KG.storage.read-through-seam-exercised — read-through-on-RAM-miss seam (eg-core side).
 //
-// Under redb-AUTHORITATIVE mode (CONCEPT:KG-2.187) the per-graph node cap may
+// Under redb-AUTHORITATIVE mode (CONCEPT:EG-KG.backend.authoritative-dispatch) the per-graph node cap may
 // EVICT a node from RAM (drop it from `GraphCore`) once it is provably durable in
 // redb, to keep a shard's memory bounded. Without a way to serve an evicted node,
 // dropping it would make it unreadable — so M2 made eviction advisory. This module

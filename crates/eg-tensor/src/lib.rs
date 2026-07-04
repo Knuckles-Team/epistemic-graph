@@ -1,4 +1,4 @@
-//! # eg-tensor — the array / tensor modality (CONCEPT:EG-085)
+//! # eg-tensor — the array / tensor modality (CONCEPT:EG-KG.storage.content-addressed-dedup)
 //!
 //! A pure-Rust leaf crate (a sibling of `eg-ann` / `eg-geo`) giving the engine a dense
 //! N-D array data type + a handful of array ops with **NO BLAS/LAPACK/C dependency** —
@@ -12,7 +12,7 @@
 //! * Ops: [`Tensor::slice`] (per-axis start..end gather), [`Tensor::reduce`]
 //!   ([`ReduceKind`] sum/mean/max/min over one axis), [`Tensor::elementwise`]
 //!   ([`ElementwiseOp`] add/sub/mul/div with a scalar), and [`Tensor::reshape`].
-//! * [`TensorStore`] — content-addressed, restart-durable persistence (CONCEPT:EG-085):
+//! * [`TensorStore`] — content-addressed, restart-durable persistence (CONCEPT:EG-KG.storage.content-addressed-dedup):
 //!   tensors are kept as content-hashed byte blobs and `persist`/`load` round-trip them
 //!   to a directory so a store survives a restart (std-only, no new dep).
 //!
@@ -24,14 +24,14 @@
 //! N-D arrays (images / sensor frames / genomics / ML features).
 
 mod blob;
-// GPU-accelerable tensor-op dispatch seam (CONCEPT:EG-326 seam / EG-327 CUDA): the
+// GPU-accelerable tensor-op dispatch seam (CONCEPT:EG-KG.compute.gpu-distance-seam seam / EG-327 CUDA): the
 // elementwise kernel behind a `TensorBackend` trait with an always-compiled CPU fallback
 // and an optional real CUDA backend (feature `gpu-cuda`, out of pi).
 pub mod gpu;
 mod store;
 mod tensor;
 
-// CONCEPT:EG-098 — multimodal sensor fusion (robotics/IoT): stack a time-aligned
+// CONCEPT:EG-KG.query.multi-rate-sensor-stream — multimodal sensor fusion (robotics/IoT): stack a time-aligned
 // multi-rate frame (aligned by `eg_tsdb::fusion`) into a `[timesteps × channels]`
 // `Tensor` frame + validity mask, and a windowed variant emitting one fused tensor per
 // EG-067 tumbling window. The tensor-building half lives here; the time-alignment half

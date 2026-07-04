@@ -1,4 +1,4 @@
-//! Result-cell decoder coverage (CONCEPT:KG-2.196). DataFusion 43 already EXECUTES
+//! Result-cell decoder coverage (CONCEPT:EG-KG.query.concept-11). DataFusion 43 already EXECUTES
 //! aggregates / GROUP BY / HAVING, window functions, CTEs, subqueries, set ops
 //! (UNION/INTERSECT/EXCEPT) and DISTINCT — but their results often materialize as
 //! Arrow types the old `cell_to_json` rejected with a hard `Err` (Int32/UInt32,

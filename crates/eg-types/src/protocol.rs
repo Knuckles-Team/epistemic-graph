@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.19 — Epistemic Graph Service Wire Protocol
+// CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Service Wire Protocol
 //
 // Length-prefixed MessagePack framing for UDS/TCP communication between
 // the Python client and the Tokio service layer. Every request
@@ -15,7 +15,7 @@ fn default_split_seed() -> u64 {
     42
 }
 
-/// serde defaults for the training loss/optimizer kernels (CONCEPT:KG-2.22).
+/// serde defaults for the training loss/optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss).
 fn default_temperature() -> f64 {
     1.0
 }
@@ -35,7 +35,7 @@ fn default_adam_eps() -> f64 {
     1e-8
 }
 
-/// serde default for the Ebbinghaus decay half-life (CONCEPT:KG-2.16): 7 days in
+/// serde default for the Ebbinghaus decay half-life (CONCEPT:EG-KG.memory.forgetting-curve-decay): 7 days in
 /// seconds. Older clients omitting it get a one-week memory half-life.
 fn default_decay_half_life() -> f64 {
     604_800.0
@@ -67,7 +67,7 @@ pub struct Request {
 
 /// All operations supported by the service.
 // `IntoStaticStr` (metrics builds) yields the variant name as the bounded
-// `op` label for request counters/histograms (CONCEPT:KG-2.51).
+// `op` label for request counters/histograms (CONCEPT:EG-KG.txn.per-graph-write-isolation).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "metrics", derive(strum::IntoStaticStr))]
 #[serde(tag = "method", content = "params")]
@@ -89,7 +89,7 @@ pub enum Method {
     /// `type`/`label`/`labels` matches `label` (limit 0 ⇒ no cap). Unlike
     /// `GetNodes` (which materializes the WHOLE graph), this bounds the wire
     /// payload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every
-    /// node's properties off the engine. (CONCEPT:KG-2.51)
+    /// node's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)
     GetNodesByLabel {
         label: String,
         limit: usize,
@@ -97,7 +97,7 @@ pub enum Method {
     GetNodeProperties {
         node_id: String,
     },
-    /// Atomic compare-and-set on a node's property blob (CONCEPT:KG-2 backend-
+    /// Atomic compare-and-set on a node's property blob (CONCEPT:EG-KG.compute.backend backend-
     /// agnostic atomic claim). `conditions_msgpack`/`updates_msgpack` are
     /// MessagePack-encoded JSON objects (field→value maps, same encoding as
     /// `properties_msgpack`). Under the topology write guard: if every condition
@@ -113,7 +113,7 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
     },
-    /// Atomically claim the oldest pending node of `label` (CONCEPT:KG-2.303 —
+    /// Atomically claim the oldest pending node of `label` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending —
     /// native task queue). Under the topology write guard: among `label`'s nodes
     /// whose `status == "pending"`, pick the smallest `seq`, merge
     /// `updates_msgpack` (the claim marker — computed CLIENT-side, carrying NO
@@ -126,7 +126,7 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
     },
-    // ── Message broker (CONCEPT:EG-275) ──────────────────────────────
+    // ── Message broker (CONCEPT:EG-KG.compute.message-broker-exchanges) ──────────────────────────────
     // Exchange/binding admin + publish DATA ops for the RabbitMQ-class broker built
     // on the KG-2.303 work-queue (queues are pending nodes; consume/ack REUSE
     // `ClaimNext` + `CompareAndSetNodeFields`, so no consume variant is needed).
@@ -166,13 +166,13 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
     },
-    // ── Broker policy extensions (CONCEPT:EG-276..280) ────────────────
+    // ── Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280) ────────────────
     // All ADDITIVE over the EG-275 broker: a queue with no policy node + a message
     // with no priority/ttl/delay behaves EXACTLY as EG-275. Each variant mutates the
     // control graph deterministically from its EXPLICIT args (no server clock — the
     // caller supplies `now_ms`, mirroring `InvalidateEdge`'s `tx_now`), so WAL/Raft
     // replay reproduces byte-identical state.
-    /// Set (idempotently upsert) a queue's policy node (CONCEPT:EG-276 DLQ /
+    /// Set (idempotently upsert) a queue's policy node (CONCEPT:EG-KG.compute.dead-letter-queues DLQ /
     /// EG-277 TTL / EG-278 priority). All fields optional — an all-`None` policy is a
     /// no-op that keeps the queue behaving exactly as EG-275. Returns `String("ok")`.
     #[cfg(feature = "broker")]
@@ -191,7 +191,7 @@ pub enum Method {
         /// EG-278: max priority band the queue honors (advisory ceiling).
         max_priority: Option<u8>,
     },
-    /// Policy-carrying publish (CONCEPT:EG-277/278/279). Superset of [`Publish`]:
+    /// Policy-carrying publish (CONCEPT:EG-KG.compute.message-ttl-expiry/278/279). Superset of [`Publish`]:
     /// stamps per-message `priority` (EG-278), and — resolving relative intents
     /// against the EXPLICIT `now_ms` — a `deliver_at` eta (EG-279 delay) and an
     /// `expires_at` deadline (EG-277 TTL). With `priority == 0` and all options
@@ -218,7 +218,7 @@ pub enum Method {
         now_ms: Option<u64>,
     },
     /// Consume one message from `queue` for a named consumer-group member
-    /// (CONCEPT:EG-280 groups + QoS/prefetch, honoring EG-277 TTL / EG-278 priority /
+    /// (CONCEPT:EG-KG.compute.groups-qos-prefetch-honoring groups + QoS/prefetch, honoring EG-277 TTL / EG-278 priority /
     /// EG-279 delay). Claims the highest-priority, oldest, DUE, non-expired message,
     /// enforcing per-consumer `prefetch` (0 ⇒ unlimited) and taking a visibility lease
     /// of `lease_ms` (0 ⇒ no lease). Lazily dead-letters any expired messages it steps
@@ -233,13 +233,13 @@ pub enum Method {
         prefetch: u32,
     },
     /// Acknowledge (remove) a claimed message, freeing the consumer's in-flight slot
-    /// (CONCEPT:EG-280). Returns `Bool(true)` if the message existed.
+    /// (CONCEPT:EG-KG.compute.groups-qos-prefetch-honoring). Returns `Bool(true)` if the message existed.
     #[cfg(feature = "broker")]
     BrokerAck {
         queue: String,
         node_id: String,
     },
-    /// Reject a claimed message (CONCEPT:EG-276). If `requeue` and the delivery count
+    /// Reject a claimed message (CONCEPT:EG-KG.compute.dead-letter-queues). If `requeue` and the delivery count
     /// is under the queue's `max_delivery_count`, the message returns to claimable;
     /// otherwise it is dead-lettered to the queue's DL target (with `x-death` metadata)
     /// or dropped. Returns `String` outcome (`requeued`/`dead-lettered`/`dropped`/
@@ -251,7 +251,7 @@ pub enum Method {
         requeue: bool,
         now_ms: u64,
     },
-    /// Reaper sweep (CONCEPT:EG-277): dead-letter/drop messages whose `expires_at`
+    /// Reaper sweep (CONCEPT:EG-KG.compute.message-ttl-expiry): dead-letter/drop messages whose `expires_at`
     /// has passed and return messages whose visibility lease has expired to claimable,
     /// across every known queue. Called periodically by the scheduler with the current
     /// clock. Returns `Count` of messages acted on.
@@ -259,14 +259,14 @@ pub enum Method {
     SweepExpired {
         now_ms: u64,
     },
-    // ── Replayable append-log streams (CONCEPT:EG-283) ────────────────
+    // ── Replayable append-log streams (CONCEPT:EG-KG.compute.replayable-append-log) ────────────────
     // A `Stream` is a Kafka-class RETAIN + read-by-offset log living ALONGSIDE the
     // EG-275 work-queue on the same control graph: messages are labeled `smsg:<stream>`
     // with a per-stream monotonic offset and are NEVER deleted by a read — only by an
     // explicit retention trim. A queue with no stream usage is byte-for-byte unchanged.
     // Each mutation is deterministic from graph state + the EXPLICIT `now_ms`, so
     // WAL/Raft replay reproduces byte-identical nodes.
-    /// Declare (idempotently upsert) a stream's retention policy (CONCEPT:EG-283).
+    /// Declare (idempotently upsert) a stream's retention policy (CONCEPT:EG-KG.compute.replayable-append-log).
     /// Both bounds optional — an all-`None` policy is an unbounded append log that a
     /// trim never touches. Also ensures the offset counter so the stream is publishable.
     /// Returns `String("ok")`.
@@ -279,7 +279,7 @@ pub enum Method {
         max_age_ms: Option<u64>,
     },
     /// Append `payload` to `stream`, returning its assigned monotonic offset (`Count`)
-    /// (CONCEPT:EG-283). The message is RETAINED (read by offset), never auto-consumed.
+    /// (CONCEPT:EG-KG.compute.replayable-append-log). The message is RETAINED (read by offset), never auto-consumed.
     #[cfg(feature = "broker")]
     StreamPublish {
         stream: String,
@@ -289,7 +289,7 @@ pub enum Method {
         now_ms: u64,
     },
     /// Read up to `max` retained messages from `stream` starting at `from_offset`,
-    /// WITHOUT deleting (CONCEPT:EG-283 — replay). `from_offset < 0` ⇒ from the current
+    /// WITHOUT deleting (CONCEPT:EG-KG.compute.replayable-append-log — replay). `from_offset < 0` ⇒ from the current
     /// end ("only new"); `0` ⇒ earliest; otherwise that explicit offset. `max == 0` ⇒
     /// uncapped. Returns `Raw(Vec<(offset, payload)>)` ascending by offset. Read-only.
     #[cfg(feature = "broker")]
@@ -298,7 +298,7 @@ pub enum Method {
         from_offset: i64,
         max: u64,
     },
-    /// Trim `stream` per its declared retention (CONCEPT:EG-283): drop messages beyond
+    /// Trim `stream` per its declared retention (CONCEPT:EG-KG.compute.replayable-append-log): drop messages beyond
     /// `max_messages` (oldest first) and/or older than `max_age_ms`. Returns `Count`
     /// of messages removed. An undeclared / unbounded stream trims nothing.
     #[cfg(feature = "broker")]
@@ -307,25 +307,25 @@ pub enum Method {
         now_ms: u64,
     },
     /// Commit a consumer-group's read `offset` on `stream` so it can resume
-    /// (CONCEPT:EG-283). Idempotent upsert; returns `String("ok")`.
+    /// (CONCEPT:EG-KG.compute.replayable-append-log). Idempotent upsert; returns `String("ok")`.
     #[cfg(feature = "broker")]
     StreamCommitOffset {
         stream: String,
         group: String,
         offset: i64,
     },
-    /// Read a consumer-group's committed offset on `stream` (CONCEPT:EG-283). Returns
+    /// Read a consumer-group's committed offset on `stream` (CONCEPT:EG-KG.compute.replayable-append-log). Returns
     /// `Raw(Option<i64>)` — nil ⇒ the group has never committed. Read-only.
     #[cfg(feature = "broker")]
     StreamCommittedOffset {
         stream: String,
         group: String,
     },
-    // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-284) ───────
+    // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) ───────
     // At-least-once on top of the EG-275 publish + claim path: a confirm allocates a
     // broker-wide monotonic delivery-tag once the message is durably enqueued (or nacks
     // on an unknown exchange); consumer ack/nack address the message by that tag.
-    /// Publish with a publisher confirm (CONCEPT:EG-284) — a superset of [`PublishEx`]
+    /// Publish with a publisher confirm (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — a superset of [`PublishEx`]
     /// that also allocates a monotonic delivery-tag. Returns `Raw(ConfirmToken)` with
     /// `confirmed = true` once durably enqueued (exchange exists) or a nack on an
     /// unknown exchange. The tag increments on every call (confirms and nacks alike).
@@ -345,7 +345,7 @@ pub enum Method {
         now_ms: Option<u64>,
     },
     /// Publish with an OPTIONAL `(producer_id, seq)` idempotency stamp for
-    /// effectively-once delivery (CONCEPT:EG-314) — a superset of [`PublishConfirmed`].
+    /// effectively-once delivery (CONCEPT:EG-KG.ingest.broker-reject-publish) — a superset of [`PublishConfirmed`].
     /// With `producer_id == None` this is the plain at-least-once path (byte-identical
     /// to [`PublishEx`]). With `producer_id == Some`, the broker dedups against that
     /// producer's durable monotonic high-water mark: a `seq` at/under the mark is a
@@ -376,13 +376,13 @@ pub enum Method {
         now_ms: Option<u64>,
     },
     /// Acknowledge (remove) a claimed message by its consumer `delivery_tag`
-    /// (CONCEPT:EG-284) — the tag-addressed sibling of [`BrokerAck`]. Returns
+    /// (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — the tag-addressed sibling of [`BrokerAck`]. Returns
     /// `Bool(true)` if the message existed.
     #[cfg(feature = "broker")]
     BrokerAckTag {
         delivery_tag: i64,
     },
-    /// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-284) — the
+    /// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — the
     /// tag-addressed sibling of [`BrokerReject`]. With `requeue` the message returns to
     /// claimable (at-least-once redelivery) unless its delivery budget is exhausted.
     /// Returns `String` outcome (`requeued`/`dead-lettered`/`dropped`/`absent`).
@@ -392,7 +392,7 @@ pub enum Method {
         requeue: bool,
         now_ms: u64,
     },
-    // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-318) ──
+    // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ──
     // Expose the eg-core LIBRARY primitives for hierarchical summaries (EG-220),
     // episodic→semantic consolidation (EG-221), decay/reinforce/evict maintenance
     // (EG-222), the 3D scene-graph (EG-087), and action/policy trajectory memory
@@ -406,7 +406,7 @@ pub enum Method {
     // entry reproduces byte-identical state (`wal::apply`). Non-security /
     // non-broker builds are unaffected: a build that never issues these sees no
     // behavioral change.
-    /// CONCEPT:EG-318/EG-220 — create (or UPSERT) a hierarchical summary node at
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — create (or UPSERT) a hierarchical summary node at
     /// abstraction `level`, linked to each of `child_ids` via a `SUMMARIZES`
     /// provenance edge. `props_msgpack` is a MessagePack-encoded JSON object (the
     /// LLM summary text + any caller fields; an `id` string is honoured). Durable +
@@ -419,7 +419,7 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         props_msgpack: Vec<u8>,
     },
-    /// CONCEPT:EG-318/EG-221 — consolidate a cluster of `episodic_ids` into ONE
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-221 — consolidate a cluster of `episodic_ids` into ONE
     /// semantic node (LOCALIZED maintenance — nothing outside the cluster is
     /// touched). `semantic_props_msgpack` is a MessagePack-encoded JSON object. The
     /// semantic id derives deterministically from the sorted cluster, so WAL replay
@@ -429,7 +429,7 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         semantic_props_msgpack: Vec<u8>,
     },
-    /// CONCEPT:EG-318/EG-222 — reinforce a memory node: bump access/recency +
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-222 — reinforce a memory node: bump access/recency +
     /// importance as of the EXPLICIT `now_ms` (no server clock ⇒ deterministic
     /// replay). Returns `Bool` (whether the node existed).
     Reinforce {
@@ -437,7 +437,7 @@ pub enum Method {
         now_ms: u64,
         weight: f64,
     },
-    /// CONCEPT:EG-318/EG-222 — Ebbinghaus-decay a single memory node's importance to
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-222 — Ebbinghaus-decay a single memory node's importance to
     /// the EXPLICIT `now_ms` given `half_life_ms`. Deterministic (caller clock).
     /// Returns `Bool` (whether it decayed/stamped the node).
     DecayNode {
@@ -445,7 +445,7 @@ pub enum Method {
         now_ms: u64,
         half_life_ms: u64,
     },
-    /// CONCEPT:EG-318/EG-222 — batch-decay a caller-supplied working set of memory
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-222 — batch-decay a caller-supplied working set of memory
     /// `ids` to the EXPLICIT `now_ms` (localized — no global scan). Returns `Count`
     /// (nodes decayed).
     DecayMemories {
@@ -453,7 +453,7 @@ pub enum Method {
         half_life_ms: u64,
         ids: Vec<String>,
     },
-    /// CONCEPT:EG-318/EG-222 — prune the sub-`threshold`-importance members of the
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-222 — prune the sub-`threshold`-importance members of the
     /// working set `ids`. `delete == false` marks `forgotten` (provenance-preserving);
     /// `true` hard-removes. Deterministic (no clock). Returns the pruned ids (`Ids`,
     /// sorted).
@@ -462,7 +462,7 @@ pub enum Method {
         threshold: f64,
         delete: bool,
     },
-    /// CONCEPT:EG-318/EG-222 — decay-THEN-evict the working set `ids` in ONE atomic
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-222 — decay-THEN-evict the working set `ids` in ONE atomic
     /// pass as of the EXPLICIT `now_ms` (the primitive the AU maintenance loop
     /// schedules). Deterministic (caller clock). Returns `Raw((decayed_count,
     /// pruned_ids))`.
@@ -473,17 +473,17 @@ pub enum Method {
         evict_threshold: f64,
         delete: bool,
     },
-    /// CONCEPT:EG-318/EG-220 — the direct children of summary node `node_id` (targets
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — the direct children of summary node `node_id` (targets
     /// of its `SUMMARIZES` edges), sorted + deduped. Read-only. Returns `Ids`.
     SummaryChildren {
         node_id: String,
     },
-    /// CONCEPT:EG-318/EG-220 — all summary node ids at abstraction `level`, sorted +
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — all summary node ids at abstraction `level`, sorted +
     /// deduped. Read-only. Returns `Ids`.
     SummariesAtLevel {
         level: u32,
     },
-    /// CONCEPT:EG-318/EG-087 — create a `:SceneObject` with LOCAL `pose_msgpack` (a
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087 — create a `:SceneObject` with LOCAL `pose_msgpack` (a
     /// MessagePack-encoded `{translation,rotation,scale}` JSON), optionally parented
     /// under `parent` via a `CHILD_OF`/`HAS_CHILD` link. The id derives
     /// deterministically from `(live node count, parent, pose)`, so WAL replay
@@ -493,33 +493,33 @@ pub enum Method {
         pose_msgpack: Vec<u8>,
         parent: Option<String>,
     },
-    /// CONCEPT:EG-318/EG-087 — overwrite scene object `node_id`'s LOCAL pose with
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087 — overwrite scene object `node_id`'s LOCAL pose with
     /// `pose_msgpack`. Deterministic. Returns `Bool` (whether the node existed).
     SetPose {
         node_id: String,
         #[serde(with = "serde_bytes")]
         pose_msgpack: Vec<u8>,
     },
-    /// CONCEPT:EG-318/EG-087 — re-parent scene object `node_id` under `new_parent`
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087 — re-parent scene object `node_id` under `new_parent`
     /// (`None` ⇒ detach to a root). Deterministic. Returns `Bool` (whether it acted).
     Reparent {
         node_id: String,
         new_parent: Option<String>,
     },
-    /// CONCEPT:EG-318/EG-087 — the WORLD pose of scene object `node_id` (its local
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087 — the WORLD pose of scene object `node_id` (its local
     /// pose composed up the `CHILD_OF` chain). Read-only. Returns `Json` — the
     /// `{translation,rotation,scale}` object, or `null` if the node is absent / has
     /// no pose.
     WorldTransform {
         node_id: String,
     },
-    /// CONCEPT:EG-318/EG-087 — the direct transform children of scene object
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087 — the direct transform children of scene object
     /// `node_id` (targets of its `HAS_CHILD` edges), sorted + deduped. Read-only.
     /// Returns `Ids`.
     SceneChildren {
         node_id: String,
     },
-    /// CONCEPT:EG-318/EG-099 — START (or UPSERT) a `:Trajectory` (episode).
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-099 — START (or UPSERT) a `:Trajectory` (episode).
     /// `props_msgpack` is a MessagePack-encoded JSON object (an `id` string is
     /// honoured). The id derives deterministically from `(live node count, props)`,
     /// monotonic under replay, so WAL replay reproduces it. Returns the trajectory id
@@ -528,7 +528,7 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         props_msgpack: Vec<u8>,
     },
-    /// CONCEPT:EG-318/EG-099 — APPEND a `:Step{action,reward,t,…}` to trajectory
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-099 — APPEND a `:Step{action,reward,t,…}` to trajectory
     /// `traj_id`. `action_msgpack` is a MessagePack-encoded JSON action (a string or
     /// structured object); `reward`/`t` are caller-supplied (no clock/RNG ⇒
     /// deterministic). The step id derives from `(traj_id, step ordinal)`, so WAL
@@ -545,14 +545,14 @@ pub enum Method {
         next_state_ref: Option<String>,
         t: u64,
     },
-    /// CONCEPT:EG-318/EG-099 — the DISCOUNTED return `Σ gamma^t · reward` over
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-099 — the DISCOUNTED return `Σ gamma^t · reward` over
     /// trajectory `traj_id`'s ordered steps. Read-only, deterministic (`gamma`
     /// caller-supplied). Returns `Float` (`0.0` for an absent/empty trajectory).
     DiscountedReturn {
         traj_id: String,
         gamma: f64,
     },
-    /// CONCEPT:EG-318/EG-099 — the trajectory in `traj_ids` with the HIGHEST
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-099 — the trajectory in `traj_ids` with the HIGHEST
     /// discounted return (prioritized replay / policy selection); ties broken by the
     /// smaller id. Read-only. Returns `Raw(Option<String>)` — nil for empty input.
     BestTrajectory {
@@ -615,7 +615,7 @@ pub enum Method {
     },
     GetEdges,
     /// Bulk-export the graph as RDF triples ``[subject, predicate, object]`` in a
-    /// single call — the fast path for local SPARQL materialization (CONCEPT:KG-2.7):
+    /// single call — the fast path for local SPARQL materialization (CONCEPT:AU-KG.query.vendor-agnostic-traversal):
     /// edges → (src, rel_type, tgt), node type → (id, "rdf:type", node_type), and
     /// scalar node properties → (id, prop, literal). Avoids per-node round-trips.
     GetTriples,
@@ -648,7 +648,7 @@ pub enum Method {
         node_id: String,
     },
 
-    // ── Cross-graph union reads (CONCEPT:KG-2.171) ───────────────────
+    // ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ───────────────────
     // Read across a SET of content graphs as if they were one, so writes can be
     // partitioned across per-graph write locks (each lane its own graph/lock)
     // while reads still see the union. Missing graphs in the set are skipped
@@ -717,7 +717,7 @@ pub enum Method {
     ComputeSimilarityEdges {
         threshold: f64,
     },
-    /// Native entity-resolution candidate generator (CONCEPT:KG-2.260) — composes
+    /// Native entity-resolution candidate generator (CONCEPT:AU-KG.compute.when-exposes-native) — composes
     /// embedding similarity + clustering into one server-side READ op that returns
     /// merge proposals (same_as / extends). Never mutates; the client applies via
     /// `BatchUpdate`. The escalation tier for the agent-utilities dedup ladder.
@@ -746,7 +746,7 @@ pub enum Method {
         max_nodes: usize,
     },
 
-    // ── Temporal Decay (CONCEPT:KG-2.16 — Ebbinghaus forgetting curve) ──
+    // ── Temporal Decay (CONCEPT:EG-KG.memory.forgetting-curve-decay — Ebbinghaus forgetting curve) ──
     DecaySweep {
         #[serde(default = "default_decay_half_life")]
         half_life_secs: f64,
@@ -772,7 +772,7 @@ pub enum Method {
     ApplyLedger {
         transactions: Vec<String>,
     },
-    // Tamper-evident audit log verification (CONCEPT:KG-2.231, feature `security`):
+    // Tamper-evident audit log verification (CONCEPT:EG-KG.sharding.row-level-security, feature `security`):
     // walk the target graph's hash-chained audit log and report OK or the first break.
     #[cfg(feature = "security")]
     AuditVerify,
@@ -791,7 +791,7 @@ pub enum Method {
     },
 
     // ── Reasoning ────────────────────────────────────────────────────
-    // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. A single round of
+    // CONCEPT:EG-KG.compute.compiled-semantic-reasoner - Compiled Semantic Reasoner. A single round of
     // forward-chaining OWL/RDFS inference (Datalog) plus optional
     // domain/range and property-chain inference. All rule sets default to
     // empty so clients may run any subset without sending every field.
@@ -827,25 +827,25 @@ pub enum Method {
     },
     ListGraphs,
 
-    // ── M3 catalog-driven resharding admin (CONCEPT:EG-038) ───────────
+    // ── M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch) ───────────
     // The wire surface that DRIVES the M3 ops the engine already has the building
     // blocks for: online single-node resharding (EG-032), the tenant catalog
     // (EG-031), and the rebalancing planner (EG-035) + its execution (EG-039). All
     // are redb-only; in a non-redb build they return a clean "not available" error.
     /// Online-move `graph`'s durable rows to shard `to_shard` while the engine RUNS,
-    /// then flip the catalog route (CONCEPT:EG-032). Returns a `ReshardReport` JSON.
+    /// then flip the catalog route (CONCEPT:EG-KG.backend.catalog-shard-resolve). Returns a `ReshardReport` JSON.
     Reshard {
         graph: String,
         to_shard: u32,
     },
-    /// Populate / assign an explicit catalog placement for `graph` (CONCEPT:EG-031).
+    /// Populate / assign an explicit catalog placement for `graph` (CONCEPT:EG-KG.sharding.empty-catalog-routing).
     /// Flips the ROUTE only — to MOVE the rows too use `Reshard`. Returns `Bool`.
     CatalogAssign {
         graph: String,
         shard: u32,
         node: Option<u32>,
     },
-    /// Re-place `graph` onto `shard`, preserving its node placement (CONCEPT:EG-031).
+    /// Re-place `graph` onto `shard`, preserving its node placement (CONCEPT:EG-KG.sharding.empty-catalog-routing).
     CatalogReassign {
         graph: String,
         shard: u32,
@@ -857,33 +857,33 @@ pub enum Method {
     /// List every explicit catalog placement `{graph, shard, node}` (JSON).
     CatalogList,
     /// Compute (do NOT execute) a rebalance plan over live per-shard/per-graph load
-    /// (CONCEPT:EG-035). Returns the ordered `{graph, from_shard, to_shard}` moves +
+    /// (CONCEPT:EG-KG.sharding.even-load-rebalance). Returns the ordered `{graph, from_shard, to_shard}` moves +
     /// the per-shard load it planned against, as JSON.
     RebalancePlan {
         tolerance: Option<f64>,
         max_moves: Option<usize>,
     },
     /// Compute a rebalance plan AND execute it move-by-move via online resharding
-    /// (CONCEPT:EG-039, R3 plan execution). Each move is one online `Reshard` — online,
+    /// (CONCEPT:EG-KG.backend.r3-plan-execution, R3 plan execution). Each move is one online `Reshard` — online,
     /// one graph at a time, other graphs unaffected. Returns the executed moves' reports.
     RebalanceExecute {
         tolerance: Option<f64>,
         max_moves: Option<usize>,
     },
 
-    // ── Online backup / restore + PITR (CONCEPT:EG-090) ──────────────
+    // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────────
     // The wire surface for the DR ops the durable store now supports: an ONLINE
     // consistent backup (per-shard begin_read() MVCC snapshot, EG-027, streamed
     // verbatim to a portable bundle reusing EG-030's raw-row copy) and a restore
     // (verbatim import via the EG-030 engine). Redb-only; in a non-redb build they
     // return a clean "not available" error, exactly like the EG-038 admin surface.
     /// Take an ONLINE consistent backup of the durable store into `destination` (a bundle
-    /// directory), tagged with `label` (CONCEPT:EG-090). Returns a `BackupReport` JSON.
+    /// directory), tagged with `label` (CONCEPT:EG-KG.sharding.reshard-on-restore). Returns a `BackupReport` JSON.
     Backup {
         destination: String,
         label: Option<String>,
     },
-    /// Restore from a backup bundle at `source` (CONCEPT:EG-090). The engine holds an
+    /// Restore from a backup bundle at `source` (CONCEPT:EG-KG.sharding.reshard-on-restore). The engine holds an
     /// exclusive lock on its live store, so this stages the rebuilt copy in a sibling dir
     /// (returned in the response) for the operator to swap in after stopping the engine;
     /// an in-place restore uses the offline `restore` CLI. Returns a `RestoreReport` JSON.
@@ -933,7 +933,7 @@ pub enum Method {
     Shutdown,
     Checkpoint,
 
-    // ── Cost / Efficiency (CONCEPT:KG-2.234, Lane V) ──────────────────
+    // ── Cost / Efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────────
     /// Return a structured resource snapshot for autoscaling: per-graph + per-tenant
     /// resident memory, node/edge counts, queue depth / in-flight, hibernated-vs-
     /// resident counts, eviction rate, plus a process-wide aggregate. The signals an
@@ -964,7 +964,7 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         source: Vec<u8>,
     },
-    /// Batched parse: one round-trip for N files (CONCEPT:KG-2.16). The blob is
+    /// Batched parse: one round-trip for N files (CONCEPT:EG-KG.memory.forgetting-curve-decay). The blob is
     /// a MessagePack-encoded `Vec<(file_path, source_bytes)>`; the response is an
     /// ordered `Vec<ParseResult>`, one per input file. Mirrors `BatchUpdate`.
     ParseFiles {
@@ -972,7 +972,7 @@ pub enum Method {
         files_msgpack: Vec<u8>,
     },
     /// Parse a batch AND resolve cross-file call/import edges in one round-trip
-    /// (CONCEPT:KG-2.8r). The blob is the same MessagePack `Vec<(file_path,
+    /// (CONCEPT:EG-KG.compute.turn-each-project). The blob is the same MessagePack `Vec<(file_path,
     /// source_bytes)>` as `ParseFiles`, but the batch is treated as one
     /// resolution scope (a repository, or a delta set): the response is a SINGLE
     /// resolved `IndexResult` whose `calls`/`depends_on` edges point at real node
@@ -985,7 +985,7 @@ pub enum Method {
 
     // ── Screen Observation (computer-use) ─────────────────────────────
     /// Turn a captured desktop frame into durable session/frame/UIElement graph
-    /// entities in one round-trip (CONCEPT:KG-2.185). The blob is a MessagePack map
+    /// entities in one round-trip (CONCEPT:AU-KG.ontology.owl-screen-bridge). The blob is a MessagePack map
     /// `{session_id, frame_seq, prev_frame_id, prev_hash, png: bin, elements: [..]}`;
     /// the response is a SINGLE `ScreenObservationResult` (nodes + edges), mirroring
     /// `IndexRepository`. The screenshot bytes never persist — only its dimensions +
@@ -1004,7 +1004,7 @@ pub enum Method {
         query_embedding: Vec<f32>,
         n_results: usize,
     },
-    /// CONCEPT:KG-2.132 — one-round-trip hybrid discovery. Given the caller's
+    /// CONCEPT:EG-KG.retrieval.one-round-trip-discovery — one-round-trip hybrid discovery. Given the caller's
     /// de-duplicated `keywords` plus a `query_embedding`, dense-retrieve candidate
     /// nodes via the HNSW index (the same batch primitive as `SemanticSearch`),
     /// then re-rank each by BOTH its semantic similarity AND lexical keyword
@@ -1020,7 +1020,7 @@ pub enum Method {
         query_embedding: Vec<f32>,
         k: usize,
     },
-    /// CONCEPT:EG-010 — embedding-free lexical classification gate: which
+    /// CONCEPT:EG-ORCH.routing.lexical-capability-escalation — embedding-free lexical classification gate: which
     /// capability-node terms (Tool/Skill/MCPServer names+synonyms) appear in the
     /// query. The "free" tier between structural routing and `SemanticSearch`.
     MatchOntologyTerms {
@@ -1043,7 +1043,7 @@ pub enum Method {
         query: Vec<f32>,
         targets: Vec<Vec<f32>>,
     },
-    /// CONCEPT:EG-330 — L2-normalize a batch of vectors IN-ENGINE via the `eg-numeric`
+    /// CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — L2-normalize a batch of vectors IN-ENGINE via the `eg-numeric`
     /// kernel (compute-near-data over a resident vector set): returns each row's unit
     /// vector `v/‖v‖`. The kernel-backed successor to the deprecated
     /// `BatchCosineSimilarity` on the same client/Method path (feature `numeric`).
@@ -1085,7 +1085,7 @@ pub enum Method {
         target_return: f64,
     },
 
-    // ── Data Science Primitives (CONCEPT:KG-2.22) ─────────────────────
+    // ── Data Science Primitives (CONCEPT:EG-KG.compute.rust-native-training-loss) ─────────────────────
     DsLinearRegression {
         x: Vec<Vec<f64>>,
         y: Vec<f64>,
@@ -1127,7 +1127,7 @@ pub enum Method {
         x: Vec<Vec<f64>>,
     },
 
-    // ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ────────────
+    // ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ────────────
     DsSoftmax {
         logits: Vec<f64>,
         #[serde(default = "default_temperature")]
@@ -1181,7 +1181,7 @@ pub enum Method {
         lr: f64,
     },
 
-    // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────────
+    // ── Extended Finance: Risk (CONCEPT:AU-KG.memory.mementified-context) ──────────────────────
     FinanceVar {
         returns: Vec<f64>,
         confidence: f64,
@@ -1288,7 +1288,7 @@ pub enum Method {
         orders: Vec<crate::wire::Order>,
     },
 
-    // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────────
+    // ── Market Making / Microstructure (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─────────────
     FinanceAvellanedaStoikov {
         mid: f64,
         inventory: f64,
@@ -1363,7 +1363,7 @@ pub enum Method {
         n_windows: usize,
     },
 
-    // ── Kyle insider/stealth surveillance (CONCEPT:KG-2.20k) ──────────
+    // ── Kyle insider/stealth surveillance (CONCEPT:EG-KG.domains.concept-2) ──────────
     FinanceKyleLambda {
         price_changes: Vec<f64>,
         signed_order_flow: Vec<f64>,
@@ -1377,7 +1377,7 @@ pub enum Method {
         baseline_sigma: f64,
     },
 
-    // ── Position Sizing (CONCEPT:KG-2.20f) ────────────────────────────
+    // ── Position Sizing (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ────────────────────────────
     FinanceKellyFraction {
         q: f64,
         c: f64,
@@ -1395,7 +1395,7 @@ pub enum Method {
         level: f64,
     },
 
-    // ── Backtest Validation (CONCEPT:KG-2.20f) ────────────────────────
+    // ── Backtest Validation (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ────────────────────────
     FinancePurgedCpcv {
         n_samples: usize,
         n_groups: usize,
@@ -1418,7 +1418,7 @@ pub enum Method {
         h: usize,
     },
 
-    // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────────
+    // ── Forensic Accounting (CONCEPT:EG-KG.domains.forensic-accounting-kernels) ────────────────────────
     // Embeds `finance` domain types → gated with the feature.
     #[cfg(feature = "finance")]
     FinanceForensicReport {
@@ -1426,7 +1426,7 @@ pub enum Method {
         prior_year: crate::wire::YearData,
     },
 
-    // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────────
+    // ── State-Space / Stat-Arb (CONCEPT:EG-KG.domains.state-space-statistical-arbitrage) ─────────────────────
     FinanceKalmanFilter1d {
         observations: Vec<f64>,
         f: f64,
@@ -1472,7 +1472,7 @@ pub enum Method {
         n_states: usize,
     },
 
-    // ── Signal Combination / Sizing / Calibration (CONCEPT:KG-2.20i) ──
+    // ── Signal Combination / Sizing / Calibration (CONCEPT:EG-KG.domains.quant-finance) ──
     FinanceOrderBookImbalance {
         v_bid: Vec<f64>,
         v_ask: Vec<f64>,
@@ -1520,7 +1520,7 @@ pub enum Method {
         seed: u64,
     },
 
-    // ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ────────
+    // ── Derivatives: SABR volatility surface (CONCEPT:AU-KG.domains.derivatives) ────────
     FinanceSabrImpliedVol {
         f: f64,
         k: f64,
@@ -1553,12 +1553,12 @@ pub enum Method {
         role: crate::acl::AgentRole,
         teams: Vec<String>,
         signature: String,
-        /// RBAC role names this agent holds (CONCEPT:EG-092). `#[serde(default)]`
+        /// RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature). `#[serde(default)]`
         /// keeps pre-RBAC clients wire-compatible (they omit it ⇒ empty set).
         #[serde(default)]
         roles: Vec<String>,
     },
-    /// Administer the RBAC role/grant policy (CONCEPT:EG-092). Unconditional in the
+    /// Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the
     /// enum; the handler is gated behind the `security` feature (a non-security build
     /// falls to the dispatch "not available in this build" catch-all, like EG-090's
     /// backup/restore on a non-redb build).
@@ -1573,7 +1573,7 @@ pub enum Method {
     },
 
     // ── Query (SQL + Cypher) ──────────────────────────────────────────
-    // Read-only relational query surface (CONCEPT:KG-2.178). `SELECT … FROM
+    // Read-only relational query surface (CONCEPT:EG-KG.query.read-only-sql-query). `SELECT … FROM
     // nodes …` over ONE graph via DataFusion, gated behind the facade `query`
     // feature; in a slim build the variant falls to the not-built catch-all.
     // `params_msgpack` is reserved for future bound parameters.
@@ -1582,7 +1582,7 @@ pub enum Method {
         #[serde(default, with = "serde_bytes")]
         params_msgpack: Vec<u8>,
     },
-    // Read-only Cypher query surface (CONCEPT:KG-2.179). A `MATCH … WHERE … RETURN
+    // Read-only Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind). A `MATCH … WHERE … RETURN
     // … LIMIT …` over ONE graph, compiled to the engine's own primitives (the
     // eg-core label index, `vf2_subgraph_match`, and petgraph BFS) — NO DataFusion,
     // so it ships in the lean Pi build behind the facade `cypher` feature. Reuses
@@ -1593,7 +1593,7 @@ pub enum Method {
     CypherQuery {
         query: String,
     },
-    // Read-only GraphQL query surface (CONCEPT:KG-2.235). A GraphQL `query`
+    // Read-only GraphQL query surface (CONCEPT:EG-KG.query.sparql-completeness). A GraphQL `query`
     // operation whose root fields are node TYPES (label-scan + `first`/`limit` +
     // property-equality args) with nested EDGE selections (relationship traversal),
     // compiled to scans + BFS over the SAME GraphView the Cypher executor reads
@@ -1605,7 +1605,7 @@ pub enum Method {
     GraphQl {
         query: String,
         /// Optional GraphQL `$variables` — a JSON object bound at execution
-        /// (CONCEPT:EG-065 variables, wired through the wire path as an EG-064
+        /// (CONCEPT:EG-KG.query.fragments-variables-directives variables, wired through the wire path as an EG-064
         /// follow-up). The handler binds these via `execute_with_variables`
         /// (`@skip`/`@include` + `$var` args). Absent / `None` ⇒ an empty binding, so
         /// this is non-breaking: an old client that omits the field still deserializes
@@ -1614,13 +1614,13 @@ pub enum Method {
         variables: Option<serde_json::Value>,
     },
 
-    // ── Unified cross-modal query (CONCEPT:KG-2.208/209) ──────────────────
+    // ── Unified cross-modal query (CONCEPT:AU-KG.compute.vector/209) ──────────────────
     // ONE plan that filters (relational/DataFusion) → traverses (graph/BFS) →
     // ranks (vector/kNN) over the SAME off-lock snapshot, instead of three siloed
     // round-trips. The `plan` is the serializable [`crate::wire::Plan`] AST (an
     // ordered list of `Scan|Filter|Traverse|Rank|Limit` ops over a shared RowSet);
     // the bespoke planner (eg-plan) sequences the existing legs and applies a
-    // cost-based filter-vs-vector reorder (CONCEPT:KG-2.209). Read-only this
+    // cost-based filter-vs-vector reorder (CONCEPT:EG-KG.query.concept-14). Read-only this
     // increment. Gated behind the facade `query` feature (the FILTER leg needs
     // DataFusion); in a slim build the variant falls to the not-built catch-all.
     // Result via `ResultPayload::raw` — a list of `[id, score|nil]` rows.
@@ -1629,12 +1629,12 @@ pub enum Method {
         plan: crate::wire::Plan,
         /// Optional cost-based reorder hint: when set, the planner reorders an
         /// adjacent (Filter, Rank) pair by this estimated filter selectivity in
-        /// [0,1] (CONCEPT:KG-2.209). Absent ⇒ the plan executes as given.
+        /// [0,1] (CONCEPT:EG-KG.query.concept-14). Absent ⇒ the plan executes as given.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reorder_filter_selectivity: Option<f64>,
     },
 
-    // ── Unified query, TEXT surface — UQL (CONCEPT:KG-2.214) ────────────────
+    // ── Unified query, TEXT surface — UQL (CONCEPT:AU-KG.query.top-nodes-by-degree) ────────────────
     // The human/agent-writable counterpart of `UnifiedQuery`: a UQL `text` string
     // (e.g. `MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2} |> RANK BY
     // ~[…] |> LIMIT 10`) that the handler PARSES (eg_plan::uql::parse) into the SAME
@@ -1645,12 +1645,12 @@ pub enum Method {
     #[cfg(feature = "query")]
     UnifiedQueryText {
         text: String,
-        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:KG-2.209).
+        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:EG-KG.query.concept-14).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reorder_filter_selectivity: Option<f64>,
     },
 
-    // ── Natural-language query (CONCEPT:EG-078/EG-080) ─────────────────────
+    // ── Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080) ─────────────────────
     /// Natural-language → executable query → rows. `text` is the NL request, `graph`
     /// the target graph (the `/nl` HTTP facade path has no request envelope, so the
     /// graph rides the method; over the wire an empty `graph` falls back to the request
@@ -1670,7 +1670,7 @@ pub enum Method {
         graph: String,
     },
 
-    // ── Query federation / foreign sources (CONCEPT:KG-2.232, Lane P) ───────
+    // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
     // Register a named EXTERNAL source so a UnifiedQuery `Op::ForeignScan` can read it
     // as a RowSet and compose it with the local graph/vector/SQL ops in ONE plan. The
     // actual cross-engine/HTTP transport lives in eg-plan behind the `federation` gate;
@@ -1686,7 +1686,7 @@ pub enum Method {
         source: crate::wire::ForeignSourceSpec,
     },
 
-    // ── WASM-sandboxed UDF / extension model (CONCEPT:KG-2.228) ─────────────
+    // ── WASM-sandboxed UDF / extension model (CONCEPT:EG-KG.query.rowset-execution) ─────────────
     // An agent pushes a custom compute function as a WebAssembly module the engine
     // runs SANDBOXED (wasmtime, fuel + memory limits, NO host capabilities). Gated
     // behind the facade `wasm-udf` feature (wasmtime is heavy); in a slim/Pi build the
@@ -1712,7 +1712,7 @@ pub enum Method {
         input: Vec<u8>,
     },
 
-    // ── Distributed graph compute (CONCEPT:KG-2.227) ───────────────────────
+    // ── Distributed graph compute (CONCEPT:EG-KG.storage.feature) ───────────────────────
     // A Pregel/GAS vertex-centric superstep engine that runs an algorithm ACROSS a
     // SET of graphs spanning multiple Raft groups/shards. Gated behind `compute-dist`
     // (which needs `raft`); in a non-cluster build the variants fall to the not-built
@@ -1727,7 +1727,7 @@ pub enum Method {
     },
     /// Create (or replace) a named, incrementally-maintained MATERIALIZED VIEW of a
     /// distributed-compute result over `graphs`. The view is computed once, persisted,
-    /// and refreshed incrementally on a delta (CONCEPT:KG-2.227). Returns the row count.
+    /// and refreshed incrementally on a delta (CONCEPT:EG-KG.storage.feature). Returns the row count.
     #[cfg(feature = "compute-dist")]
     CreateMatView {
         name: String,
@@ -1746,7 +1746,7 @@ pub enum Method {
         name: String,
     },
 
-    // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ───────────────
+    // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ───────────────
     // Server-side STAGED, OPTIMISTIC, snapshot-isolation transactions. `BeginTxn`
     // returns a server-issued `txn_id` (String). The `Txn*` ops STAGE durable
     // mutations into a server-held write-set (nothing touches the graph or
@@ -1776,7 +1776,7 @@ pub enum Method {
         node_id: String,
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
-        /// Optional target graph for THIS staged op (CONCEPT:KG-2.226 — multi-graph
+        /// Optional target graph for THIS staged op (CONCEPT:EG-KG.txn.routes-cross-shard-txn — multi-graph
         /// txn). Absent ⇒ the txn's default graph (single-graph, backward-compatible).
         /// A staged op naming a graph that resolves to a DIFFERENT Raft group makes
         /// the txn CROSS-SHARD, routed through 2PC at commit.
@@ -1815,7 +1815,7 @@ pub enum Method {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
-    /// Stage a VECTOR upsert into a txn (CONCEPT:KG-2.225 — cross-modal ACID). The
+    /// Stage a VECTOR upsert into a txn (CONCEPT:EG-KG.txn.reader-never-sees-node — cross-modal ACID). The
     /// embedding lands atomically WITH the txn's graph/property/blob-ref writes in ONE
     /// redb `WriteTransaction` at commit — never a node without its vector.
     TxnAddEmbedding {
@@ -1825,7 +1825,7 @@ pub enum Method {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
-    /// Stage a BLOB REFERENCE into a txn (CONCEPT:KG-2.225 — cross-modal ACID). Records
+    /// Stage a BLOB REFERENCE into a txn (CONCEPT:EG-KG.txn.reader-never-sees-node — cross-modal ACID). Records
     /// a durable graph-side link (`__blob__` node property) to an already-stored,
     /// content-addressed blob; lands atomically with the node/vector/property at commit.
     TxnBlobRef {
@@ -1835,7 +1835,7 @@ pub enum Method {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
-    /// Stage a TIME-SERIES measurement batch into a txn (CONCEPT:EG-360 — extended
+    /// Stage a TIME-SERIES measurement batch into a txn (CONCEPT:EG-KG.backend.cross-modal-atomic-commit — extended
     /// cross-modal staging). The points land atomically WITH the txn's graph/property/
     /// vector/blob writes in ONE redb `WriteTransaction` at commit — never a node
     /// without its measurements. `points` is the SAME MessagePack `Vec<(i64 ts, Vec<f64>
@@ -1853,7 +1853,7 @@ pub enum Method {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
-    /// Stage OWL AXIOMS (Turtle) into a txn (CONCEPT:EG-361 — extended cross-modal
+    /// Stage OWL AXIOMS (Turtle) into a txn (CONCEPT:EG-KG.txn.extended-cross-modal — extended cross-modal
     /// staging). At commit the `turtle` axioms lower to graph node/edge writes in the
     /// SAME atomic `WriteTransaction` so the OWL reasoner sees them consistently with the
     /// txn's other staged modalities. Gated `owl` (mirrors `OwlReason`); a build without
@@ -1866,7 +1866,7 @@ pub enum Method {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
-    /// Stage a SPARQL CONSTRUCT into a txn (CONCEPT:EG-362 — extended cross-modal
+    /// Stage a SPARQL CONSTRUCT into a txn (CONCEPT:EG-KG.query.extended-cross-modal — extended cross-modal
     /// staging). At commit the `sparql` CONSTRUCT's produced triples lower to graph
     /// node/edge writes in the SAME atomic `WriteTransaction`. Gated `sparql` (mirrors
     /// `Sparql`); a build without it drops the variant → the dispatch "not available in
@@ -1880,7 +1880,7 @@ pub enum Method {
         graph: Option<String>,
     },
     /// Run a UNIFIED cross-modal query INSIDE a txn with read-your-own-writes
-    /// (CONCEPT:EG-359 — in-txn cross-modal RYOW). Executes the SAME `wire::Plan` AST as
+    /// (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). Executes the SAME `wire::Plan` AST as
     /// `UnifiedQuery`, but over a snapshot OVERLAID with the txn's staged (uncommitted)
     /// write-set, so a staged node/edge/embedding is visible to THIS txn before commit
     /// and invisible off-txn until commit. Read-only w.r.t. the committed store. Gated
@@ -1890,11 +1890,11 @@ pub enum Method {
     TxnUnifiedQuery {
         txn_id: String,
         plan: crate::wire::Plan,
-        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:KG-2.209).
+        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:EG-KG.query.concept-14).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reorder_filter_selectivity: Option<f64>,
     },
-    /// In-txn unified query, TEXT surface — UQL (CONCEPT:EG-359). The human/agent-
+    /// In-txn unified query, TEXT surface — UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-
     /// writable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the
     /// SAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same
     /// `query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.
@@ -1902,7 +1902,7 @@ pub enum Method {
     TxnUnifiedQueryText {
         txn_id: String,
         text: String,
-        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:KG-2.209).
+        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:EG-KG.query.concept-14).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reorder_filter_selectivity: Option<f64>,
     },
@@ -1913,7 +1913,7 @@ pub enum Method {
         txn_id: String,
     },
 
-    // ── Time-series (CONCEPT:KG-2.210/211 — native TSDB) ──────────────────
+    // ── Time-series (CONCEPT:AU-KG.retrieval.god-nodes-communities/211 — native TSDB) ──────────────────
     // Native time-series store + query primitives (the eg-tsdb crate), gated
     // behind the facade `tsdb` feature; in a slim build each variant falls to the
     // graph_ops not-built catch-all. Series are keyed by `series_id` in their OWN
@@ -1973,7 +1973,7 @@ pub enum Method {
         step: i64,
     },
 
-    // ── Blob (CONCEPT:KG-2.206 — streamed content-addressed media substrate) ──
+    // ── Blob (CONCEPT:EG-KG.storage.blob-namespace — streamed content-addressed media substrate) ──
     // Streamed transfer of a large media blob as MANY ordinary one-Response-per-
     // Request frames sharing a SERVER-SIDE CURSOR — NOT a side-channel socket, NOT
     // a protocol-v2. The whole file is never resident on either side; only one
@@ -2042,7 +2042,7 @@ pub enum Method {
     #[cfg(feature = "blob")]
     BlobGc,
 
-    // ── Key→Value (CONCEPT:EG-022 — generic namespaced KV surface) ──────
+    // ── Key→Value (CONCEPT:EG-KG.storage.namespaced-kv-surface — generic namespaced KV surface) ──────
     // A drop-in KV store keyed by `(namespace, key)`, layered over the SAME durable
     // redb substrate. NOT graph-scoped (a KV pair lives off the node/edge graph), so
     // these self-route in dispatch like the Blob*/Ts* ops. Writes are durable
@@ -2090,7 +2090,7 @@ pub enum Method {
         new: Option<Vec<u8>>,
     },
 
-    // ── SQLite `.db` file import/export (CONCEPT:EG-331/EG-332) ─────────
+    // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ─────────
     // Read/write a real on-disk `sqlite3` `.db` FILE (the documented EG-075 follow-up),
     // distinct from the `sqlite-wire` NDJSON dialect surface. NOT graph-scoped: both ops
     // target a filesystem `path` and move rows through the process-global user-table
@@ -2100,7 +2100,7 @@ pub enum Method {
     // with the `sqlite-file` feature (which pulls the bundled C sqlite kept OUT of pi); a
     // build without it drops them from the enum, so a slim/pi build can't reach the arm.
     /// Import every user table (+ its rows) from the `sqlite3` `.db` file at `path`
-    /// into the engine's user-table store (CONCEPT:EG-331). A table that already exists
+    /// into the engine's user-table store (CONCEPT:EG-KG.query.eg-feature). A table that already exists
     /// is REPLACED (drop-then-recreate) so the import mirrors the file. Returns a `Json`
     /// report `{"path", "imported_tables":[{"table","rows"},…]}`.
     #[cfg(feature = "sqlite-file")]
@@ -2108,7 +2108,7 @@ pub enum Method {
         path: String,
     },
     /// Export user tables OUT to a fresh, valid `sqlite3` `.db` file at `path` that the
-    /// `sqlite3` CLI can open (CONCEPT:EG-332). `tables` empty ⇒ every user table; else
+    /// `sqlite3` CLI can open (CONCEPT:EG-KG.query.full-protocol). `tables` empty ⇒ every user table; else
     /// exactly the named tables (each must exist). Any pre-existing file at `path` is
     /// overwritten. Returns a `Json` report `{"path", "exported_tables":[{"table","rows"},…]}`.
     #[cfg(feature = "sqlite-file")]
@@ -2118,7 +2118,7 @@ pub enum Method {
         tables: Vec<String>,
     },
 
-    // ── RDF/SPARQL (CONCEPT:KG-2.217 / KG-2.218 — native semantic-web surface) ──
+    // ── RDF/SPARQL (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / KG-2.218 — native semantic-web surface) ──
     // The RDF dataset maps onto the SAME property-graph the rest of the engine uses
     // (resource object ⇒ typed edge `{type: predicate}`; literal object ⇒ a typed
     // JSON property cell preserving xsd datatype + @lang; rdf:type ⇒ the engine
@@ -2131,7 +2131,7 @@ pub enum Method {
     // Turtle yields the same triples ⇒ the same node/edge writes), mirroring how
     // `BatchUpdate` replays. `GetRdf` (serialize OUT) and `Sparql` are read-only.
     /// Parse `turtle` OR `ntriples` (exactly one non-empty) and store the triples
-    /// into the request's graph (CONCEPT:KG-2.217). Returns a `Raw` `LoadReport`
+    /// into the request's graph (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql). Returns a `Raw` `LoadReport`
     /// (`{triples, multivalue, dropped_multivalue}`). Gated `rdf`; a build without it
     /// drops the variant → the dispatch not-built catch-all.
     #[cfg(feature = "rdf")]
@@ -2143,13 +2143,13 @@ pub enum Method {
         #[serde(default)]
         ntriples: String,
     },
-    /// Serialize the request's graph back OUT to RDF as N-Triples (CONCEPT:KG-2.217).
+    /// Serialize the request's graph back OUT to RDF as N-Triples (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql).
     /// Returns a `Raw` `String` (the canonical, order-independent form) — the
     /// datatype/lang-faithful inverse of `AddTriples`, distinct from the legacy lossy
-    /// `GetTriples` JSON triple-list (CONCEPT:KG-2.7). Read-only.
+    /// `GetTriples` JSON triple-list (CONCEPT:AU-KG.query.vendor-agnostic-traversal). Read-only.
     #[cfg(feature = "rdf")]
     GetRdf,
-    /// Physically RETRACT triples from the request's graph (CONCEPT:EG-017) — the
+    /// Physically RETRACT triples from the request's graph (CONCEPT:EG-KG.query.named-graph-support) — the
     /// inverse of `AddTriples`. Parses `turtle` OR `ntriples` (exactly one non-empty)
     /// and surgically removes each triple (a literal triple drops the property cell; a
     /// resource triple removes the one matching typed edge). DURABLE (WAL-replayed by
@@ -2164,7 +2164,7 @@ pub enum Method {
         #[serde(default)]
         ntriples: String,
     },
-    /// DROP the request's named graph (CONCEPT:EG-017): physically clear ALL of its RDF
+    /// DROP the request's named graph (CONCEPT:EG-KG.query.named-graph-support): physically clear ALL of its RDF
     /// content — the property-graph nodes/edges AND the lossless multi-valued-literal
     /// quad-store rows for this graph. DURABLE (WAL-replayed as a clear). The SPARQL
     /// `DROP/CLEAR GRAPH` op + ontology lifecycle teardown route here. Returns a `Raw`
@@ -2172,12 +2172,12 @@ pub enum Method {
     /// entry; this empties the graph's RDF while keeping the graph addressable.)
     #[cfg(feature = "rdf")]
     DropNamedGraph,
-    /// Evaluate a SPARQL 1.1 SELECT over the request's graph (CONCEPT:KG-2.218).
+    /// Evaluate a SPARQL 1.1 SELECT over the request's graph (CONCEPT:EG-KG.ontology.concept-11).
     /// Returns a `Raw` [`SparqlResult`] (`{vars, rows}`; each row a cell list aligned
     /// to `vars`, an unbound cell is `nil`). Read-only. Gated `sparql`.
     ///
     /// `base_iri` + `type_convention` carry an OPTIONAL LPG→RDF projection vocabulary
-    /// (CONCEPT:KG-2.240). Both default to empty ⇒ the IDENTITY projection (node-type
+    /// (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary). Both default to empty ⇒ the IDENTITY projection (node-type
     /// and property keys emitted verbatim, no `rdf:type` synthesis), which preserves
     /// the prior behavior for every existing caller. A caller (e.g. agent-utilities)
     /// that sets `base_iri = "http://agent-utilities.dev/ontology#"` +
@@ -2198,7 +2198,7 @@ pub enum Method {
         type_convention: String,
     },
     /// Run the native OWL 2 (EL⁺ + RL) reasoner over the request's graph and
-    /// materialize entailments (CONCEPT:KG-2.219). Classifies the OWL axioms already
+    /// materialize entailments (CONCEPT:EG-KG.ontology.incremental-materialization). Classifies the OWL axioms already
     /// in the graph (the TBox loaded via `AddTriples`) plus any extra `ontology`
     /// Turtle, then returns a `Raw` [`OwlReasonResult`]: the derived named-class
     /// subsumptions, the inferred instance→class memberships (incl. ones reached only
@@ -2214,7 +2214,7 @@ pub enum Method {
         /// inferred members) — the materialize-one-class shape. Empty ⇒ all classes.
         #[serde(default)]
         target_class: String,
-        /// Confidence threshold τ in `[0,1]` (CONCEPT:KG-2.236). The result carries a
+        /// Confidence threshold τ in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13). The result carries a
         /// per-entailment confidence (axioms/facts may be uncertain; the closure
         /// propagates it — `eg:confidence` annotations × the per-node confidence ×
         /// Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are
@@ -2224,7 +2224,7 @@ pub enum Method {
         min_confidence: f64,
     },
     /// DISTRIBUTED confidence-weighted OWL reasoning over the UNION of `graphs`
-    /// (CONCEPT:KG-2.236): gathers each graph/shard's TBox axioms + decayed-confidence
+    /// (CONCEPT:EG-KG.ontology.concept-13): gathers each graph/shard's TBox axioms + decayed-confidence
     /// type facts, runs ONE weighted EL⁺/RL closure over the union (the cross-shard
     /// union-read seam — KG-2.171), and returns the SAME [`OwlReasonResult`] a
     /// single-graph `OwlReason` would over the same axioms in one graph. The single-
@@ -2245,7 +2245,7 @@ pub enum Method {
         min_confidence: f64,
     },
 
-    // ── Custom-rule reasoning (CONCEPT:EG-021 / EG-023 — runtime SWRL/Datalog rules) ──
+    // ── Custom-rule reasoning (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023 — runtime SWRL/Datalog rules) ──
     // Run a parameterised rule-reasoning request over the request's graph view (its
     // folded TBox axioms + asserted facts) PLUS any inline `ontology_ttl` and the
     // user `rules`, returning the inferred facts. Read-only (it reasons over an
@@ -2275,16 +2275,16 @@ pub enum Method {
         derived_only: bool,
     },
 
-    // ── SHACL Core validation (CONCEPT:EG-132) ───────────────────────────────
+    // ── SHACL Core validation (CONCEPT:EG-KG.ontology.concept-6) ───────────────────────────────
     // Validate an RDF DATA graph against an RDF SHAPES graph, producing an
     // `sh:ValidationReport` (`conforms` + a list of `sh:ValidationResult`). The
     // engine half is the pure-Rust `eg-shacl` crate. This variant is UNCONDITIONAL in
-    // the enum (like `Backup`/`Restore`, CONCEPT:EG-090); the HANDLER is gated on the
+    // the enum (like `Backup`/`Restore`, CONCEPT:EG-KG.sharding.reshard-on-restore); the HANDLER is gated on the
     // `shacl` feature — a build without it drops the handler arm and the request falls
     // through to the dispatch "not available in this build" catch-all. The fields are
     // inline Strings so the protocol crate (bottom of the DAG) carries no eg-shacl type;
     // the handler parses both documents and returns a `Json` report.
-    /// Validate `data_graph` against `shapes`, both RDF Turtle documents (CONCEPT:EG-132).
+    /// Validate `data_graph` against `shapes`, both RDF Turtle documents (CONCEPT:EG-KG.ontology.concept-6).
     /// An EMPTY `data_graph` validates against the LIVE RDF of the request's graph (the
     /// same triples `GetRdf` would export). Returns a `Json` `sh:ValidationReport`.
     /// Read-only. Handler gated `shacl` (implies `rdf`).
@@ -2296,7 +2296,7 @@ pub enum Method {
         data_graph: String,
     },
 
-    // ── ShEx (Shape Expressions) Core validation (CONCEPT:EG-133) ────────────
+    // ── ShEx (Shape Expressions) Core validation (CONCEPT:EG-KG.compute.concept-2) ────────────
     // The complement to `ShaclValidate` (EG-132): validate that focus nodes of an RDF
     // DATA graph CONFORM to shape expressions in a ShEx schema, driven by a shape map
     // (focus node → shape label). The engine half is the pure-Rust `eg-shex` crate. Like
@@ -2308,7 +2308,7 @@ pub enum Method {
     // returns a `Json` `ShexReport`.
     /// Validate `data_graph` against a **ShExJ** `schema` for a `shape_map` (a list of
     /// `[node_iri, shape_label]` pairs; `"START"` selects the schema's start shape)
-    /// (CONCEPT:EG-133). `data_graph` is an RDF Turtle document; an EMPTY `data_graph`
+    /// (CONCEPT:EG-KG.compute.concept-2). `data_graph` is an RDF Turtle document; an EMPTY `data_graph`
     /// validates against the LIVE RDF of the request's graph (the same triples `GetRdf`
     /// would export). Returns a `Json` `ShexReport`. Read-only. Handler gated `shex`
     /// (implies `rdf`).
@@ -2323,7 +2323,7 @@ pub enum Method {
         shape_map: Vec<[String; 2]>,
     },
 
-    // ── Streaming / CDC / subscriptions / reactivity (CONCEPT:KG-2.229/230) ──
+    // ── Streaming / CDC / subscriptions / reactivity (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ──
     // A reactive surface over the engine's per-graph durable change record (the
     // ledger). Every durable mutation the dispatch shell records also emits an
     // ordered, cursor-addressable `CdcEvent` (node/edge add/remove/update with
@@ -2333,7 +2333,7 @@ pub enum Method {
     // are gated `streaming` (folds into pi/node/cluster/full — no heavy dep); a build
     // without it drops them → the dispatch "not available in this build" catch-all.
     /// Read the ordered change feed for `graph` from cursor `from_seq` (inclusive),
-    /// up to `limit` events (CONCEPT:KG-2.229). Returns a `Raw` `Vec<CdcEvent>`. The
+    /// up to `limit` events (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). Returns a `Raw` `Vec<CdcEvent>`. The
     /// consumer re-reads from `last.seq + 1` to skip what it has seen. `limit` 0 ⇒ a
     /// default cap.
     #[cfg(feature = "streaming")]
@@ -2343,7 +2343,7 @@ pub enum Method {
         #[serde(default)]
         limit: u32,
     },
-    /// Register a continuous query (CONCEPT:KG-2.229): a named, incrementally-
+    /// Register a continuous query (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): a named, incrementally-
     /// maintained aggregate/filter view over a graph's CDC feed. `spec_msgpack` is a
     /// MessagePack `ContinuousQuerySpec`. Returns a `String` (the name). Re-registering
     /// the same name replaces it (and re-seeds from the current graph state).
@@ -2364,7 +2364,7 @@ pub enum Method {
     DropContinuousQuery {
         name: String,
     },
-    /// LISTEN/NOTIFY-style long-poll subscription (CONCEPT:KG-2.230): return the
+    /// LISTEN/NOTIFY-style long-poll subscription (CONCEPT:EG-KG.query.wire-codec): return the
     /// matching CDC changes for `graph` since `from_seq`, blocking up to `timeout_ms`
     /// for the FIRST one if none are pending yet (then returns what arrived). `label`
     /// (empty ⇒ all) filters by node/edge label. Returns a `Raw` `WatchBatch`
@@ -2379,7 +2379,7 @@ pub enum Method {
         #[serde(default)]
         timeout_ms: u64,
     },
-    /// Register a trigger/reaction (CONCEPT:KG-2.230): when a CDC change in `graph`
+    /// Register a trigger/reaction (CONCEPT:EG-KG.query.wire-codec): when a CDC change in `graph`
     /// matches `label` (empty ⇒ any) + `op` ("add"|"remove"|"update"|"any"), record a
     /// firing carrying `action_msgpack` (an opaque reaction payload). Returns the name.
     #[cfg(feature = "streaming")]
@@ -2402,7 +2402,7 @@ pub enum Method {
     ListTriggers {
         graph: String,
     },
-    /// Poll the fired-trigger log for `graph` from cursor `from_seq` (CONCEPT:KG-2.230):
+    /// Poll the fired-trigger log for `graph` from cursor `from_seq` (CONCEPT:EG-KG.query.wire-codec):
     /// the reactions that fired since the cursor. Returns a `Raw` `Vec<FiredAction>`;
     /// the consumer dispatches each action then resumes from `last.fire_seq + 1`.
     #[cfg(feature = "streaming")]
@@ -2413,9 +2413,9 @@ pub enum Method {
         limit: u32,
     },
 
-    // ── Live CEP standing queries (CONCEPT:EG-299) ───────────────────────────
+    // ── Live CEP standing queries (CONCEPT:EG-KG.query.protocol-types) ───────────────────────────
     // The PUSH half of the event-stream + complex-event-processing modality
-    // (CONCEPT:EG-088): register a CEP pattern ONCE as a live standing query, then
+    // (CONCEPT:EG-KG.query.pipelined-execution): register a CEP pattern ONCE as a live standing query, then
     // pull the matches it detects as CDC changes flow. The CDC hub (feature
     // `streaming`) is adapted into an `eg_stream::Event` bus that feeds the live
     // `eg_stream::live::CepEngine` (feature `stream`); each detected `Match` is fanned
@@ -2426,7 +2426,7 @@ pub enum Method {
     // does; the ENGINE (and thus a real handler) additionally needs `stream` — a build
     // with `streaming` but not `stream` (e.g. `pi`) drops these to the dispatch
     // "not available in this build" catch-all, exactly like any other feature-off op.
-    /// Register a live CEP standing query (CONCEPT:EG-299). `pattern_msgpack` is a
+    /// Register a live CEP standing query (CONCEPT:EG-KG.query.protocol-types). `pattern_msgpack` is a
     /// MessagePack `CepPatternSpec` (the same pattern algebra `Op::Cep` carries); `buffer`
     /// (0 ⇒ a default) bounds how many unconsumed matches are retained for a lagging
     /// poller before the oldest are dropped. Returns a `Count` — the subscription id to
@@ -2439,7 +2439,7 @@ pub enum Method {
         buffer: u32,
     },
     /// Poll a CEP subscription for the matches pushed since the last poll
-    /// (CONCEPT:EG-299), blocking up to `timeout_ms` for the FIRST one if none are ready
+    /// (CONCEPT:EG-KG.query.protocol-types), blocking up to `timeout_ms` for the FIRST one if none are ready
     /// (then returns whatever arrived). Returns a `Raw` `Vec<eg_stream::Match>`; an empty
     /// vec means "nothing yet" (re-poll to keep tailing). A dropped subscription (unknown
     /// `sub_id`) is an error.
@@ -2449,7 +2449,7 @@ pub enum Method {
         #[serde(default)]
         timeout_ms: u64,
     },
-    /// Drop a CEP standing query + its subscriber (CONCEPT:EG-299). Returns `Bool` (true
+    /// Drop a CEP standing query + its subscriber (CONCEPT:EG-KG.query.protocol-types). Returns `Bool` (true
     /// if it existed).
     #[cfg(feature = "streaming")]
     CepUnsubscribe {
@@ -2460,7 +2460,7 @@ pub enum Method {
 // ── Supporting Types ────────────────────────────────────────────────────
 
 /// The distributed graph algorithm a `DistributedCompute` / matview runs across
-/// shards (CONCEPT:KG-2.227). Each is a vertex-centric (Pregel/GAS) computation the
+/// shards (CONCEPT:EG-KG.storage.feature). Each is a vertex-centric (Pregel/GAS) computation the
 /// cross-shard superstep coordinator drives; the single-shard fast path stays the
 /// always-on `PageRank`/`ConnectedComponents` ops.
 #[cfg(feature = "compute-dist")]
@@ -2477,7 +2477,7 @@ pub enum DistAlgo {
 }
 
 /// Outcome of walking a graph's tamper-evident hash-chained audit log
-/// (CONCEPT:KG-2.231, `Method::AuditVerify`). `ok` is true when every entry's stored
+/// (CONCEPT:EG-KG.sharding.row-level-security, `Method::AuditVerify`). `ok` is true when every entry's stored
 /// hash matches the recomputed chain hash AND the sequence is contiguous from 0;
 /// `first_broken_seq` carries the position of the first detected break.
 #[cfg(feature = "security")]
@@ -2490,7 +2490,7 @@ pub struct AuditReport {
     pub detail: String,
 }
 
-/// Materialized result of a `Method::Sql` query (CONCEPT:KG-2.178). Returned via
+/// Materialized result of a `Method::Sql` query (CONCEPT:EG-KG.query.read-only-sql-query). Returned via
 /// `ResultPayload::raw` — `rows[i]` is a MessagePack-encoded `Vec<serde_json::Value>`
 /// aligned to `columns`, so the Python client double-unpacks the top-level `Raw`
 /// blob then unpacks each row blob into a list of cells. Lives in eg-types (the
@@ -2502,7 +2502,7 @@ pub struct QueryResult {
     pub rows: Vec<Vec<u8>>,
 }
 
-/// Materialized result of a `Method::Sparql` SELECT (CONCEPT:KG-2.218). Returned via
+/// Materialized result of a `Method::Sparql` SELECT (CONCEPT:EG-KG.ontology.concept-11). Returned via
 /// `ResultPayload::raw`. `vars` is the projected variable order; each row is aligned
 /// to `vars` with `None` for an unbound (OPTIONAL) variable. Lives in eg-types (the
 /// wire-DTO crate) so the protocol can embed it; the evaluator lives in eg-rdf.
@@ -2513,7 +2513,7 @@ pub struct SparqlResult {
     pub rows: Vec<Vec<Option<String>>>,
 }
 
-/// Materialized result of a `Method::OwlReason` run (CONCEPT:KG-2.219). Returned via
+/// Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via
 /// `ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.
 #[cfg(feature = "owl")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2521,7 +2521,7 @@ pub struct OwlReasonResult {
     /// Derived named-class subsumptions `(sub, sup)` (the reflexive/asserted ones are
     /// included; the closure is the full classification hierarchy).
     pub subclasses: Vec<(String, String)>,
-    /// Per-subsumption confidence in `[0,1]` (CONCEPT:KG-2.236), ALIGNED index-for-index
+    /// Per-subsumption confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index
     /// with `subclasses`. `1.0` for a hard/asserted subsumption; the propagated
     /// `axiom_conf × ∏ premise_conf` (max over alternative derivations) for an uncertain
     /// one. A fully-hard ontology yields all `1.0`.
@@ -2531,7 +2531,7 @@ pub struct OwlReasonResult {
     /// existential restrictions / role chains. When `target_class` was set, restricted
     /// to that class's members. Only memberships with confidence `≥ min_confidence`.
     pub instances: Vec<(String, String)>,
-    /// Per-membership confidence in `[0,1]` (CONCEPT:KG-2.236), ALIGNED index-for-index
+    /// Per-membership confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index
     /// with `instances`: the type fact's confidence (per-node confidence × Ebbinghaus
     /// decay) × the subsumption confidence — so an old/decayed or weakly-asserted fact
     /// yields a lower-confidence membership.
@@ -2775,7 +2775,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-318 — the memory/scene/trajectory mutation + read variants
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller — the memory/scene/trajectory mutation + read variants
     /// round-trip through MessagePack (the on-wire + WAL framing) byte-for-byte,
     /// preserving every field.
     #[test]

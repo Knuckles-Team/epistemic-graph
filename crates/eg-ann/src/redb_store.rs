@@ -1,4 +1,4 @@
-//! Optional redb-durable codes (feature `redb`, CONCEPT:KG-2.195 tier reuse).
+//! Optional redb-durable codes (feature `redb`, CONCEPT:AU-KG.backend.backend-modes tier reuse).
 //!
 //! The default persistence is the mmap file format (`persist.rs`) — fast reopen,
 //! zero deps beyond memmap2. When the engine is already running its redb durable

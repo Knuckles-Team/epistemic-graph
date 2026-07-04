@@ -19,7 +19,7 @@ connection configuration, the configuration surface, and the database architectu
 > map** (what the main build contains and the two opt-in layers) see
 > [One build, opt-in layers](architecture/tiers.md).
 
-There is **one build** (CONCEPT:EG-371): `cargo build` (== `--features full`) is the
+There is **one build** (CONCEPT:EG-KG.sharding.deployment-tiers): `cargo build` (== `--features full`) is the
 full-featured engine — all MAIN features that compile without an external GPU/robotics
 toolchain. The **release Docker image installs the published main wheel via `uv`** (no
 cargo compile — see [`docker/Dockerfile`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docker/Dockerfile)). Two opt-in layers stack on top, built explicitly
@@ -268,15 +268,15 @@ flowchart LR
 - Auto-checkpoints run every `--checkpoint-interval` seconds and on `SIGTERM`.
 - In the cluster tier, openraft replicates the authoritative store across nodes.
 
-### Online backup / restore (CONCEPT:EG-090)
+### Online backup / restore (CONCEPT:EG-KG.sharding.reshard-on-restore)
 
 The redb tier takes a **consistent backup while the engine keeps serving** — no quiesce,
-no downtime. Per shard it opens a `begin_read()` MVCC snapshot (CONCEPT:EG-027) and streams
+no downtime. Per shard it opens a `begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) and streams
 every table **verbatim** into a portable *backup bundle*: a directory of `graph.redb` /
 `graph-<n>.redb` shard files plus a `MANIFEST.json` (format version, engine version, shard
 count K, timestamp + label, row totals). Because the copy is byte-for-byte, encryption-at-rest
-ciphertext and the tamper-evident KG-2.231 audit chain survive without the key and stay
-verifiable. Cross-shard consistency rides commit-before-ack (CONCEPT:KG-2.187): any acked write
+ciphertext and the tamper-evident EG-KG.sharding.row-level-security audit chain survive without the key and stay
+verifiable. Cross-shard consistency rides commit-before-ack (CONCEPT:EG-KG.backend.authoritative-dispatch): any acked write
 is already durably committed, so each per-shard snapshot is a self-consistent committed prefix.
 
 Trigger it live over the wire (mirrors the EG-038 admin RPCs):
@@ -291,7 +291,7 @@ Trigger it live over the wire (mirrors the EG-038 admin RPCs):
 ```
 
 For an **in-place** restore, stop the engine and use the offline CLI (it can also re-shard on
-restore — every graph re-routed by the same EG-026 `FNV-1a % K`):
+restore — every graph re-routed by the same EG-KG.backend.sharded-k-way-durable `FNV-1a % K`):
 
 ```bash
 # Restore at the bundle's own K.

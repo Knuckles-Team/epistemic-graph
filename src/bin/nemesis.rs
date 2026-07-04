@@ -1,4 +1,4 @@
-//! `nemesis` — the longer fault-injection SOAK runner (CONCEPT:KG-2.212).
+//! `nemesis` — the longer fault-injection SOAK runner (CONCEPT:AU-KG.ontology.emits-database-ontology-entities).
 //!
 //! The `cargo test --features raft harness::` gauntlet is bounded + deterministic for
 //! CI. This bin runs the SAME machinery for an unbounded, seeded soak: spin a cluster,
