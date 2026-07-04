@@ -819,6 +819,16 @@ async fn run_unified_overlaid(
     };
     // Overlay the txn's staged graph writes onto the RLS-filtered committed snapshot.
     overlay_write_set(&mut view, &write_set);
+    // CONCEPT:EG-427 — RLS on the STAGED-OVERLAY leg too. The committed base was
+    // `filter_view`d above, but the staged write-set is overlaid AFTER that filter, so a
+    // staged node the caller may not see (an owned+private `_owner`/`_visibility` blob)
+    // would otherwise leak through an in-txn fused read. Re-filter the overlaid view so
+    // BOTH the committed and the staged legs of a fused `Reason → Rank` honor per-agent
+    // row visibility. A no-op when no RLS rules are registered (`has_rules()==false`
+    // short-circuits `filter_view`), so the single-tenant RYOW path is byte-for-byte
+    // unchanged.
+    #[cfg(feature = "security")]
+    rls.filter_view(caller.unwrap_or(""), &mut view);
     let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
     match compute_off_lock(req_id, move || {
         run_unified(
