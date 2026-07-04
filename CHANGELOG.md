@@ -8,6 +8,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-07-04
+
+> **Minor, additive.** Closes **handoff-1** in full — the cross-modal query engine gains a
+> cost-based optimizer, a single physical/parallel runtime, unified materialized views with
+> federation and an RLS-aware result cache, incremental write-path index coherence, and a
+> query test harness (bench/recall gate + fuzz/chaos). Five end-to-end use-case validation
+> suites and the advanced cross-modal correctness specs are green; the served-query surface is
+> completeness-closed; and the warm-fork cross-modal fan-out lands (in agent-utilities). No
+> wire-shape change; new capabilities are feature-gated (`cost-opt` folded into `full`,
+> `par-runtime` opt-in, `matview` onto `cluster`).
+
+### Added — cross-modal cost optimizer (track A)
+- **Cross-modal cost optimizer** (`eg-plan/optimizer.rs`) — cardinality + `CostEstimate`
+  estimators over the Lane-0 exec-dispatch seam, driving `plan_optimize`; routes cross-modal
+  plans (graph / vector / text / timeseries / SQL) by estimated cost. Gated by the `cost-opt`
+  feature, folded into `full`.
+
+### Added — single physical / parallel runtime (track B)
+- **Physical runtime** (`eg-plan/runtime.rs`) — one pluggable `ParallelDriver`
+  (rayon morsel-parallel with spill) behind the Lane-0 `Driver` seam, plus `Window` /
+  `WindowAgg` execution arms. Opt-in via the `par-runtime` feature.
+
+### Added — unified materialized views + federation + RLS-aware result cache (track C)
+- **Materialized-view subsystem** — plan-backed matviews with CDC invalidation, a symmetric
+  `ForeignScan` federation path, and an **RLS-scoped result cache** (row-level-security-aware,
+  so cache hits never leak across security scopes). Persisted via `plan_matviews` redb rows.
+  Gated by the `matview` feature (onto `cluster`).
+
+### Added — incremental write-path index coherence (track D, incl. D3)
+- **IndexManager write seam** — change-set–driven incremental maintenance of ANN, text,
+  temporal, and derived-OWL indexes on the write path, with a `write_coalescer` and index
+  state persisted to redb rows. **D3** completes the text / temporal / derived-OWL incremental
+  maintenance behind the D1 seam, so all four index families stay coherent without full rebuilds.
+
+### Added — query test harness: bench / recall gate + fuzz / chaos (track E, EG-420..426)
+- **Criterion benchmarks + recall gate** and a **query fuzzing / chaos harness**, wired into a
+  CI bench job. Includes **EG-426** — a libFuzzer target for the UQL parser.
+
+### Added — 5 use-case validation suites (track G, EG-434..EG-440)
+- End-to-end validation suites covering hybrid RAG + analytics (EG-436), observability RCA
+  (EG-437, fused dependency/vector/TSDB root-cause + native ts-scan), KG lifecycle
+  (validate → commit → infer → reindex under concurrency, EG-438), and related flows —
+  exercising the full cross-modal seam at the engine surface.
+
+### Fixed / Closed — advanced cross-modal specs (track F, EG-427..433)
+- Advanced cross-modal correctness specs brought green, plus a **post-overlay RLS filter seam**
+  that fixes a row-level-security leak in the overlaid result path.
+
+### Closed — advanced specs: cross-shard 2PC + fuzz (cluster-fuzz)
+- **EG-396** — cross-shard two-phase-commit **coordinator-kill** harness un-ignored and green
+  under the `cluster` feature (both the raft-level `cross_shard_raft_2pc_single_decision_eg396`
+  and the cross-shard modality harness variant).
+- **EG-426** — libFuzzer UQL-parser fuzz target (see track E).
+
+### Closed — served-query completeness
+- **EG-439** — decay factored into the plan (decay-in-plan) rather than only post-hoc.
+- **EG-440** — served `TextIndex` (the served surface now serves the real text index).
+- Optimizer routing surfaced on the served path.
+- **EG-405** — intentional-semantics determination documented (behaviour is by-design, not a gap).
+
+### Added — warm-fork cross-modal fan-out (agent-utilities, ORCH-1.106)
+- Warm-fork cross-modal fan-out lands in **agent-utilities** (`feat/warmfork-crossmodal`,
+  ORCH-1.106); the north_star row is flipped to *implemented*.
+
+> **Documented remainders (not regressions):** cross-**node** Raft soak validation needs real
+> multi-host hardware; per-graph Tantivy heap tuning is a follow-up knob; and **EG-405**
+> intentional-semantics is by-design.
+
 ## [2.10.0] - 2026-07-04
 
 > **Minor, additive.** Closes the cross-modal seam backlog `docs/north_star.md` tracked: the
