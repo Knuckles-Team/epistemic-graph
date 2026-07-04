@@ -1,0 +1,47 @@
+# libFuzzer / cargo-fuzz harness for the UQL parser
+# (CONCEPT:EG-KG.query.uql-libfuzzer-parse-target).
+#
+# This crate is DELIBERATELY detached from the parent workspace (the empty
+# `[workspace]` table below) — it needs the nightly toolchain + the fuzzing
+# sanitizer runtime that `cargo-fuzz` injects, so it must NOT ride the normal
+# `cargo build`/`cargo test` gate of the main workspace. Build/run it explicitly:
+#
+#   cargo install cargo-fuzz          # once
+#   cd crates/eg-plan/fuzz
+#   cargo +nightly fuzz run uql_parse -- -runs=10000   # short smoke
+#   cargo +nightly fuzz run uql_parse                  # open-ended soak
+#
+# The proptest harness (CONCEPT:EG-KG.query.pipeline-fuzz) already covers RANDOM but
+# VALID pipelines on stable; THIS target covers ARBITRARY BYTES against
+# `eg_plan::uql::parse` to shake out parser panics/hangs on malformed input.
+
+[package]
+name = "eg-plan-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.eg-plan]
+path = ".."
+
+# Detach from the parent Cargo workspace so `cargo-fuzz`'s nightly + sanitizer
+# build does not perturb (and is not gated by) the main workspace build.
+[workspace]
+
+[profile.release]
+debug = 1
+
+# One target per fuzzed surface. `test`/`doc`/`bench` off — this is a fuzz binary,
+# not a test/bench crate.
+[[bin]]
+name = "uql_parse"
+path = "fuzz_targets/uql_parse.rs"
+test = false
+doc = false
+bench = false
