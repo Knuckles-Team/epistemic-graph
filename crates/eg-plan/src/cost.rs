@@ -133,6 +133,13 @@ impl CostModel {
     /// either operates on, so they no longer commute). A real optimizer would prove
     /// commutativity structurally across longer spans; that generalization is later
     /// optimizer work (predicate-pushdown-through-traversal).
+    ///
+    /// As of the cross-modal optimizer (CONCEPT:EG-KG.query.filter-pushdown-rule) this is the
+    /// low-level swap PRIMITIVE the engine's `FilterAsOfBeforeRank` rule folds in: the rule
+    /// derives its [`Stats`] from the plan-time [`crate::cost::Cardinality`] estimators and
+    /// then calls the SAME [`Self::order`] decision + [`Self::place_narrower`] swap this fn
+    /// uses, so there is ONE reorder implementation (No-Legacy). Kept `pub` for the
+    /// facade/server caller that passes an already-built `Stats`.
     pub fn reorder_filter_rank(plan: Vec<Op>, s: &Stats) -> Vec<Op> {
         let filter_idx = plan.iter().position(|o| matches!(o, Op::Filter { .. }));
         let rank_idx = plan.iter().position(|o| matches!(o, Op::Rank { .. }));
@@ -143,14 +150,281 @@ impl CostModel {
             return plan; // not an adjacent (provably commuting) pair
         }
         let want = Self::order(s);
-        let mut out = plan;
-        let (lo, hi) = (fi.min(ri), fi.max(ri));
-        let filter_is_lo = matches!(out[lo], Op::Filter { .. });
-        let filter_should_be_first = want == Order::FilterFirst;
-        if filter_is_lo != filter_should_be_first {
-            out.swap(lo, hi);
+        Self::place_narrower(plan, fi, ri, want == Order::FilterFirst)
+    }
+
+    /// The adjacent-pair SWAP primitive shared by [`Self::reorder_filter_rank`] and the
+    /// cross-modal optimizer's reorder rules (CONCEPT:EG-KG.query.filter-pushdown-rule). Given the
+    /// index of the id-set NARROWER (`Filter`/`AsOf`/`Reason`) and the index of the `Rank`
+    /// it is adjacent to, place the narrower first iff `narrower_first`. Pure list surgery —
+    /// no cost logic — so both callers agree byte-for-byte on the mechanical rewrite while
+    /// each supplies its own cost-derived decision.
+    pub(crate) fn place_narrower(
+        mut plan: Vec<Op>,
+        narrower_idx: usize,
+        rank_idx: usize,
+        narrower_first: bool,
+    ) -> Vec<Op> {
+        let (lo, hi) = (narrower_idx.min(rank_idx), narrower_idx.max(rank_idx));
+        let narrower_is_lo = narrower_idx == lo;
+        if narrower_is_lo != narrower_first {
+            plan.swap(lo, hi);
         }
-        out
+        plan
+    }
+}
+
+// ── Cross-modal cost/cardinality catalog + per-modality estimators ───────────────
+// (CONCEPT:EG-KG.query.cardinality-estimators) — the plan-time inputs Lane A's optimizer
+// reads. Everything here stays in eg-plan (Rule R1): NOTHING is added to the wire `Op`.
+
+/// Cheap, O(1) catalog statistics collected ONCE per `plan_optimize` call
+/// (CONCEPT:EG-KG.query.cardinality-estimators). Deliberately derived from `.len()` on the
+/// snapshot's maps — NEVER a per-node blob scan — so optimizing a plan costs O(1), not O(N):
+/// the estimators trade a little accuracy for a cost that never scales with graph size. A
+/// real catalog (histograms / per-label counts) can later feed richer numbers through the
+/// SAME [`Cardinality`] interface without touching the rules.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, Default)]
+pub struct PlanStats {
+    /// Total resident nodes (the seed-set upper bound).
+    pub node_count: usize,
+    /// Distinct edge endpoints (≈ edge count) — feeds the average-degree estimate.
+    pub edge_count: usize,
+    /// Embeddings in the semantic store — sets the ANN index top-k cost (≈ log2(N)·ef) and
+    /// the fraction of a candidate set a vector `Rank` can score.
+    pub embedding_count: usize,
+    /// Mean out-degree `edge_count / node_count` — the graph `Traverse` fan-out factor.
+    pub avg_out_degree: f64,
+}
+
+#[cfg(feature = "query")]
+impl PlanStats {
+    /// Collect the O(1) catalog from a [`crate::exec::PlanCtx`] snapshot.
+    pub fn collect(ctx: &crate::exec::PlanCtx) -> Self {
+        let node_count = ctx.view.node_properties.len();
+        let edge_count = ctx.view.edge_properties.len();
+        let embedding_count = ctx.semantic.len();
+        let avg_out_degree = if node_count > 0 {
+            edge_count as f64 / node_count as f64
+        } else {
+            0.0
+        };
+        Self {
+            node_count,
+            edge_count,
+            embedding_count,
+            avg_out_degree,
+        }
+    }
+}
+
+/// The default top-k a `Rank` targets when no trailing `Limit` pins one — the over-fetch
+/// denominator in the ANN cost.
+#[cfg(feature = "query")]
+pub const DEFAULT_TOP_K: usize = 10;
+
+/// Per-modality cardinality + cost estimator (CONCEPT:EG-KG.query.cardinality-estimators) — the
+/// concrete [`Cardinality`] Lane A's optimizer drives, one estimator per modality:
+///  * graph `Traverse` — degree histogram (`avg_out_degree`) × path length (`min..=max`);
+///  * ANN `Rank` — recall@k / over-fetch against the embedding-store size;
+///  * OWL `Reason` — inferred-closure membership × confidence retention;
+///  * bi-temporal `AsOf` — temporal range selectivity;
+///  * relational `Filter` — per-predicate selectivity product.
+///
+/// Holds the O(1) [`PlanStats`] catalog; `rows_out` sizes an op's output and `cost_of`
+/// budgets its work as a [`CostEstimate`]. All numbers are estimates in abstract units —
+/// only their RELATIVE magnitudes drive a plan choice, exactly as with [`Stats`].
+#[cfg(feature = "query")]
+#[derive(Clone, Debug)]
+pub struct ModalityCardinality {
+    stats: PlanStats,
+}
+
+#[cfg(feature = "query")]
+impl ModalityCardinality {
+    /// Bind the estimator to a collected catalog.
+    pub fn new(stats: PlanStats) -> Self {
+        Self { stats }
+    }
+
+    /// The catalog these estimates read.
+    pub fn stats(&self) -> &PlanStats {
+        &self.stats
+    }
+
+    // Per-op default selectivities / cost weights (relative magnitudes calibrated to the
+    // same crossover `Stats` uses: a brute-force vector distance ≈ 20× a predicate eval).
+    const LABEL_SEL: f64 = 0.5; // a `Scan` label selects ≈ half the graph (no per-label catalog).
+    const REL_SEL: f64 = 0.5; // fraction of edges whose relationship matches a `Traverse`.
+    const DEDUP_DAMP: f64 = 0.7; // path expansion re-visits nodes → damp the raw fan-out.
+    const TEMPORAL_SEL: f64 = 0.8; // most facts are live at a queried instant (`AsOf`).
+    const REASON_MEMBERSHIP_SEL: f64 = 0.5; // fraction of a candidate set inferred into the class.
+    const REASON_CONF_RETENTION: f64 = 0.9; // confidence-decay attrition of inferred members.
+    const COST_FILTER_PER_ROW: f64 = 1.0;
+    const COST_VECTOR_PER_ROW: f64 = 20.0;
+    const COST_TRAVERSE_PER_EDGE: f64 = 2.0;
+    const COST_ASOF_PER_ROW: f64 = 2.0;
+    const REASON_FIXED_COST: f64 = 500.0; // EL⁺ classification is a fixed up-front closure cost.
+
+    /// One ANN index top-k ≈ log2(N)·ef heap pushes (independent of the candidate count).
+    fn ann_topk_cost(&self) -> f64 {
+        const EF: f64 = 64.0;
+        (self.stats.embedding_count.max(2) as f64).log2() * EF
+    }
+
+    /// The fraction of an arbitrary candidate set a vector `Rank` can actually score — it
+    /// drops rows with no embedding, so coverage = embeddings / nodes, clamped to `[0,1]`.
+    fn embed_coverage(&self) -> f64 {
+        if self.stats.node_count == 0 {
+            return 1.0;
+        }
+        (self.stats.embedding_count as f64 / self.stats.node_count as f64).clamp(0.0, 1.0)
+    }
+
+    /// Estimated output selectivity of an op given `in_card` rows in — `rows_out / in_card`,
+    /// clamped to `[0,1]`. The single number the reorder rules compare: how much this op
+    /// SHRINKS the candidate set (a `Rank`/`Reason`/`Filter`/`AsOf` narrower). `0` in ⇒ `1.0`.
+    pub fn selectivity(&self, op: &Op, in_card: f64, ctx: &crate::exec::PlanCtx) -> f64 {
+        if in_card <= 0.0 {
+            return 1.0;
+        }
+        (self.rows_out(op, in_card, ctx) / in_card).clamp(0.0, 1.0)
+    }
+
+    /// Combined per-predicate selectivity of a relational `Filter` (independent-predicate
+    /// product): equality is highly selective, a numeric range moderately, JSONPath / spatial
+    /// broadly. Estimates only — a real catalog would use histograms.
+    fn filter_selectivity(preds: &[crate::algebra::Pred]) -> f64 {
+        use crate::algebra::Pred;
+        let mut sel = 1.0f64;
+        for p in preds {
+            // The wildcard catches the `geo` spatial `Pred` variants (and any future kind);
+            // in a non-`geo` build the relational/JSONPath arms are already exhaustive, so the
+            // wildcard is unreachable there — allowed so the SAME match compiles under every
+            // feature subset (the `where_clause`/exec split-out precedent).
+            #[allow(unreachable_patterns)]
+            let s = match p {
+                Pred::Eq { .. } => 0.1,
+                Pred::GtNum { .. } | Pred::LtNum { .. } => 0.33,
+                Pred::JsonPath { .. } => 0.4,
+                // Spatial preds (geo) and any future kind: a broad default.
+                _ => 0.25,
+            };
+            sel *= s;
+        }
+        sel.clamp(1e-6, 1.0)
+    }
+
+    /// The plan-time COST of an op given `in_card` rows in (CONCEPT:EG-KG.query.cardinality-estimators)
+    /// — the [`CostEstimate`] triple Lane A compares to order a pair and to rank `FuseRrf`
+    /// branches. `cpu` is the dominant term (per-row modality work); `io` counts index
+    /// probes / blob reads. Only relative magnitudes matter.
+    pub fn cost_of(&self, op: &Op, in_card: f64, ctx: &crate::exec::PlanCtx) -> CostEstimate {
+        let rows = self.rows_out(op, in_card, ctx);
+        let (cpu, io) = match op {
+            // Relational predicate eval per input row (cheap).
+            Op::Filter { .. } => (in_card * Self::COST_FILTER_PER_ROW, in_card * 0.1),
+            // A candidate-restricted vector `Rank` is BRUTE-FORCE per survivor; a SOURCE
+            // `Rank` (empty input) is one index top-k. This asymmetry is the whole reorder.
+            Op::Rank { .. } | Op::RankEmbed { .. } => {
+                if in_card > 0.0 {
+                    (in_card * Self::COST_VECTOR_PER_ROW, in_card)
+                } else {
+                    (
+                        self.ann_topk_cost(),
+                        (self.stats.embedding_count.max(2) as f64).log2(),
+                    )
+                }
+            }
+            // Graph BFS: one edge visit per fan-out edge across the hop range.
+            Op::Traverse { min, max, .. } => {
+                let d = self.stats.avg_out_degree.max(0.0) * Self::REL_SEL;
+                let edges = (*min..=*max).map(|h| d.powi(h as i32)).sum::<f64>();
+                (
+                    in_card * edges * Self::COST_TRAVERSE_PER_EDGE,
+                    in_card * edges,
+                )
+            }
+            // Cheap dep-free blob scan.
+            Op::AsOf { .. } => (in_card * Self::COST_ASOF_PER_ROW, in_card * 0.2),
+            // OWL EL⁺ classification: a fixed up-front closure cost + a per-candidate check.
+            #[cfg(feature = "owl")]
+            Op::Reason { .. } => (Self::REASON_FIXED_COST + in_card, in_card * 0.2),
+            // Everything else: a linear pass over the input (a rerank / narrow / source).
+            _ => (in_card.max(1.0), in_card * 0.1),
+        };
+        CostEstimate { rows, cpu, io }
+    }
+}
+
+/// The scalar comparison weight of a [`CostEstimate`] — `cpu + io` (CONCEPT:EG-KG.query.cardinality-estimators).
+/// The single number the reorder rules and `FuseRrf` branch-sort minimize.
+#[cfg(feature = "query")]
+impl CostEstimate {
+    /// Total abstract work — the scalar the optimizer minimizes.
+    pub fn weight(&self) -> f64 {
+        self.cpu + self.io
+    }
+}
+
+#[cfg(feature = "query")]
+impl Cardinality for ModalityCardinality {
+    /// Estimated rows OUT of `op` given `in_card` rows in — one arm per modality
+    /// (CONCEPT:EG-KG.query.cardinality-estimators). Feature-gated ops that are absent in this build
+    /// fall to the pass-through wildcard, so the match compiles under ANY feature subset.
+    fn rows_out(&self, op: &Op, in_card: f64, _ctx: &crate::exec::PlanCtx) -> f64 {
+        let n = self.stats.node_count as f64;
+        match op {
+            // SOURCE: a label selects a fraction of the graph (no per-label catalog).
+            Op::Scan { .. } => (n * Self::LABEL_SEL).max(0.0),
+            // FILTER: input × per-predicate selectivity product.
+            Op::Filter { preds } => in_card * Self::filter_selectivity(preds),
+            // TRAVERSE: degree histogram × path length, deduped, capped at the graph size.
+            Op::Traverse { min, max, .. } => {
+                if in_card <= 0.0 {
+                    return 0.0;
+                }
+                let d = self.stats.avg_out_degree.max(0.0) * Self::REL_SEL;
+                let expansion = (*min..=*max).map(|h| d.powi(h as i32)).sum::<f64>();
+                (in_card * expansion * Self::DEDUP_DAMP).min(n.max(in_card))
+            }
+            // RANK: a rerank preserves the candidate set MINUS rows with no embedding
+            // (recall coverage); as a SOURCE (empty input) it is a top-k over the index.
+            Op::Rank { .. } | Op::RankEmbed { .. } => {
+                if in_card > 0.0 {
+                    in_card * self.embed_coverage()
+                } else {
+                    (self.stats.embedding_count as f64).min(DEFAULT_TOP_K as f64)
+                }
+            }
+            // ASOF: bi-temporal range selectivity (most facts live). As a SOURCE, over the
+            // whole graph.
+            Op::AsOf { .. } => {
+                if in_card > 0.0 {
+                    in_card * Self::TEMPORAL_SEL
+                } else {
+                    n * Self::TEMPORAL_SEL
+                }
+            }
+            // LIMIT caps the row count.
+            Op::Limit { k } => in_card.min(*k as f64),
+            // REASON: OWL-inferred membership × confidence retention (a FILTER mid-pipeline);
+            // as a SOURCE (empty input) an inferred-closure fraction of the graph.
+            #[cfg(feature = "owl")]
+            Op::Reason { .. } => {
+                if in_card > 0.0 {
+                    in_card * Self::REASON_MEMBERSHIP_SEL * Self::REASON_CONF_RETENTION
+                } else {
+                    n * Self::REASON_MEMBERSHIP_SEL
+                }
+            }
+            // FUSE (RRF): the union of the branch rankings — bounded by the seed.
+            #[cfg(feature = "text")]
+            Op::FuseRrf { .. } => in_card.max(1.0),
+            // Rerankers / context / other sources: preserve the row count (pass-through).
+            _ => in_card,
+        }
     }
 }
 
@@ -257,5 +531,68 @@ mod tests {
         let broad = Stats::estimate(10_000, 0.98, 10, 10_000);
         assert_eq!(CostModel::order(&selective), Order::FilterFirst);
         assert_eq!(CostModel::order(&broad), Order::VectorFirst);
+    }
+
+    /// Per-regime cardinality proof (CONCEPT:EG-KG.query.cardinality-estimators), mirroring
+    /// [`cost_model_orders_by_selectivity`] but driven by the LIVE per-modality estimators:
+    /// equality is more selective than a numeric range, and the estimator-derived selectivity
+    /// feeds `CostModel::order` to the SAME filter-first / vector-first crossover — the
+    /// cross-modal reorder a unified planner exists to make.
+    #[cfg(feature = "query")]
+    #[test]
+    fn cardinality_estimators_drive_the_regime() {
+        let fx = crate::fixture::build();
+        let ctx = crate::exec::PlanCtx::new(&fx.view, &fx.semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        // Relational regime: equality slashes the set harder than a numeric range.
+        let eq = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "type".into(),
+                value: "Doc".into(),
+            }],
+        };
+        let range = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 2000.0,
+            }],
+        };
+        let s_eq = card.selectivity(&eq, 1_000.0, &ctx);
+        let s_range = card.selectivity(&range, 1_000.0, &ctx);
+        assert!(s_eq < s_range, "Eq is more selective than a numeric range");
+
+        // The SAME crossover the cost model draws, now over an estimator-scale seed: a very
+        // selective predicate ⇒ filter-first; a broad one ⇒ vector-first.
+        let emb = card.stats().embedding_count.max(2);
+        assert_eq!(
+            CostModel::order(&Stats::estimate(10_000, 0.01, 10, emb)),
+            Order::FilterFirst
+        );
+        assert_eq!(
+            CostModel::order(&Stats::estimate(10_000, 0.98, 10, emb)),
+            Order::VectorFirst
+        );
+
+        // Time regime: `AsOf` is a BROAD temporal narrower (most facts live); a brute-force
+        // vector `Rank` costs strictly more per row than the cheap relational `Filter`.
+        assert!(
+            card.selectivity(
+                &Op::AsOf {
+                    ts: 1.0,
+                    axis: Default::default()
+                },
+                1_000.0,
+                &ctx
+            ) >= 0.5,
+            "AsOf keeps most rows"
+        );
+        let rank = Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        };
+        assert!(
+            card.cost_of(&rank, 1_000.0, &ctx).weight() > card.cost_of(&eq, 1_000.0, &ctx).weight(),
+            "a brute-force vector Rank is the expensive leg"
+        );
     }
 }
