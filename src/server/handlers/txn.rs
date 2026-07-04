@@ -1,4 +1,4 @@
-//! Multi-op OCC ACID transaction handler (CONCEPT:EG-KG.txn.multi-op-occ-acid).
+//! Multi-op OCC ACID transaction handler (CONCEPT:KG-2.180).
 //!
 //! Owns the `Txn*`/`BeginTxn`/`Commit`/`Rollback` methods. These are STATEFUL
 //! (they read/write `ServerState::open_txns`), so unlike the per-graph handlers
@@ -6,7 +6,7 @@
 //! topology write lock is taken ONCE, at commit, where the OCC read-set is
 //! validated and the staged write-set applied through a single `GraphTxn`.
 //!
-//! Composition with the write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): staged ops are applied
+//! Composition with the write coalescer (CONCEPT:KG-2.182): staged ops are applied
 //! directly via `GraphTxn` at commit and never enter the coalescer's queue, so
 //! there is no interaction or deadlock with the per-graph write worker — that
 //! worker only batches NON-transactional single-op writes. A long-open txn holds
@@ -19,6 +19,8 @@ use tokio::sync::RwLock;
 
 use super::super::access::check_graph_access;
 use super::super::state::ServerState;
+#[cfg(feature = "graphql")]
+use super::super::txn::IsolationLevel;
 #[cfg(feature = "tsdb")]
 use super::super::txn::StagedMeasurement;
 use super::super::txn::{now_ms, parse_isolation, GraphTxnState};
@@ -129,7 +131,7 @@ pub(crate) async fn try_handle(
             digest,
             graph,
         } => Ok(stage_blob_ref(state, req_id, &txn_id, graph.as_deref(), node_id, digest).await),
-        // Extended cross-modal staging (CONCEPT:EG-KG.backend.cross-modal-atomic-commit/361/362). Each arm is feature-gated
+        // Extended cross-modal staging (CONCEPT:EG-360/361/362). Each arm is feature-gated
         // at the FACADE (tsdb/owl/sparql); in a slim build the variant falls through to
         // `other => Err(other)` → the dispatch "not available in this build" catch-all.
         #[cfg(feature = "tsdb")]
@@ -167,7 +169,7 @@ async fn begin_txn(
     graph: Option<String>,
     isolation: Option<&str>,
 ) -> Response {
-    // Parse the isolation hint up front (CONCEPT:EG-KG.txn.serializable-zero-cost); an unknown value is
+    // Parse the isolation hint up front (CONCEPT:KG-2.183); an unknown value is
     // rejected before any graph/ACL work so the contract is unambiguous.
     let (level, predicate) = match parse_isolation(isolation) {
         Ok(parsed) => parsed,
@@ -199,7 +201,7 @@ async fn begin_txn(
     }
     let begin_version = entry.core.version();
 
-    // Open-txn caps (CONCEPT:EG-KG.txn.multi-op-occ-acid): bound memory the way per_graph_inflight
+    // Open-txn caps (CONCEPT:KG-2.180): bound memory the way per_graph_inflight
     // bounds request concurrency. Count current open txns for this graph/agent.
     let agent = caller.unwrap_or("").to_string();
     let (mut for_graph, mut for_agent) = (0usize, 0usize);
@@ -244,7 +246,7 @@ async fn begin_txn(
 /// Stage one durable mutation into the open txn (no graph/persistence touch).
 /// Acks `Bool(true)`; errors if the txn id is unknown (expired/committed/rolled).
 ///
-/// `target_graph` (CONCEPT:EG-KG.txn.routes-cross-shard-txn): when `None` (or equal to the txn's default
+/// `target_graph` (CONCEPT:KG-2.226): when `None` (or equal to the txn's default
 /// graph) the op stages against the default graph through the single-graph OCC
 /// read-set path — unchanged. When it names a DIFFERENT graph, the op accumulates in
 /// the txn's multi-graph `extra_writes`; the default `core` is still passed so a
@@ -279,7 +281,7 @@ async fn stage(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Stage a VECTOR upsert into the txn's cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). The
+/// Stage a VECTOR upsert into the txn's cross-modal write-set (CONCEPT:KG-2.225). The
 /// one-`WriteTransaction` cross-modal barrier is per-graph, so a vector targets the
 /// txn's DEFAULT graph; a `graph` naming anything else is rejected (cross-graph
 /// cross-modal is a documented follow-up). Acks `Bool(true)`.
@@ -316,7 +318,7 @@ async fn stage_vector(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Stage a BLOB REFERENCE into the txn's cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). Same
+/// Stage a BLOB REFERENCE into the txn's cross-modal write-set (CONCEPT:KG-2.225). Same
 /// per-graph constraint as [`stage_vector`]. Acks `Bool(true)`.
 async fn stage_blob_ref(
     state: &Arc<RwLock<ServerState>>,
@@ -351,7 +353,7 @@ async fn stage_blob_ref(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Default bucket width for a NEW cross-modal series (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). The Lane-0
+/// Default bucket width for a NEW cross-modal series (CONCEPT:EG-360). The Lane-0
 /// `TxnAddMeasurement` wire carries only `series` + `points` (no schema), so a
 /// brand-new series is materialized with this 1-hour partition; an EXISTING series'
 /// stored meta is authoritative and this is ignored.
@@ -359,7 +361,7 @@ async fn stage_blob_ref(
 const DEFAULT_MEASUREMENT_BUCKET_NS: u64 = 3_600_000_000_000;
 
 /// Stage a TIME-SERIES measurement batch into the txn's cross-modal write-set
-/// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Same per-graph constraint as [`stage_vector`]: the batch targets the
+/// (CONCEPT:EG-360). Same per-graph constraint as [`stage_vector`]: the batch targets the
 /// txn's DEFAULT graph (the one-`WriteTransaction` barrier is per-graph). The points are
 /// decoded here (the SAME `Vec<(i64, Vec<f64>)>` MessagePack shape `TsAppend` carries), so
 /// the commit path is a pure durable append. Acks `Bool(true)`.
@@ -409,7 +411,7 @@ async fn stage_measurement(
 }
 
 /// Lower a stream of RDF triples to graph-native `AddNode`/`AddEdge` methods
-/// (CONCEPT:EG-KG.txn.extended-cross-modal/362), mirroring the canonical `eg_rdf::mapping::load_triples`
+/// (CONCEPT:EG-361/362), mirroring the canonical `eg_rdf::mapping::load_triples`
 /// property-graph projection so the durable rows match the in-memory model:
 ///   * literal object  → a property `{predicate: literal-cell}` on the subject node;
 ///   * resource object → subject + object nodes + a typed edge `{"type": predicate}`,
@@ -489,7 +491,7 @@ pub(crate) fn triples_to_methods(triples: &[eg_rdf::oxrdf::Triple]) -> Vec<Metho
 }
 
 /// Lower a SPARQL CONSTRUCT/DESCRIBE query's produced triples to graph-native
-/// `AddNode`/`AddEdge` methods (CONCEPT:EG-KG.query.extended-cross-modal/EG-372), evaluating the query against
+/// `AddNode`/`AddEdge` methods (CONCEPT:EG-362/EG-372), evaluating the query against
 /// `core`'s committed snapshot. Shared by the RPC [`stage_construct`] and the pgwire
 /// cross-modal txn seam so both surfaces lower a CONSTRUCT identically.
 #[cfg(feature = "sparql")]
@@ -508,7 +510,7 @@ pub(crate) fn construct_to_methods(
 }
 
 /// Lower a SPARQL UPDATE's `INSERT DATA` triples to graph-native `AddNode`/`AddEdge`
-/// methods (CONCEPT:EG-KG.txn.isolation-ryow-begin-set), reusing the SAME `triples_to_methods` lowering as the OWL
+/// methods (CONCEPT:EG-372), reusing the SAME `triples_to_methods` lowering as the OWL
 /// axiom path. Used by the pgwire cross-modal txn seam's `SPARQL UPDATE` verb.
 #[cfg(feature = "sparql")]
 pub(crate) fn sparql_update_to_methods(update_str: &str) -> Result<Vec<Method>, String> {
@@ -554,7 +556,7 @@ fn resolve_txn_default_core(
     }
 }
 
-/// Stage OWL AXIOMS (Turtle) into the txn's cross-modal write-set (CONCEPT:EG-KG.txn.extended-cross-modal). The
+/// Stage OWL AXIOMS (Turtle) into the txn's cross-modal write-set (CONCEPT:EG-361). The
 /// axioms are parsed + lowered to `AddNode`/`AddEdge` methods HERE (at stage time) so the
 /// commit path treats them as ordinary graph mutations riding the one cross-modal
 /// `WriteTransaction`. Acks `Bool(true)`.
@@ -582,7 +584,7 @@ async fn stage_axiom(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Stage a SPARQL CONSTRUCT into the txn's cross-modal write-set (CONCEPT:EG-KG.query.extended-cross-modal). The
+/// Stage a SPARQL CONSTRUCT into the txn's cross-modal write-set (CONCEPT:EG-362). The
 /// CONSTRUCT is evaluated NOW against the graph's committed snapshot; its produced triples
 /// are lowered to `AddNode`/`AddEdge` methods that land in the SAME cross-modal
 /// `WriteTransaction` at commit. (Read-your-own-writes over the txn's OTHER staged writes
@@ -617,7 +619,7 @@ async fn stage_construct(
 /// (which bumps the version). On conflict NOTHING is applied/persisted — a true
 /// rollback returning `Bool(false)`.
 ///
-/// **Cross-shard routing (CONCEPT:EG-KG.storage.lane-n-increment + KG-2.226).** A txn whose staged ops all
+/// **Cross-shard routing (CONCEPT:KG-2.222 + KG-2.226).** A txn whose staged ops all
 /// target ONE graph (or graphs that resolve to ONE Raft group) stays on this
 /// byte-for-byte-unchanged single-group FAST PATH. A MULTI-GRAPH txn whose staged
 /// write-set ([`crate::server::txn::GraphTxnState::extra_writes`]) spans graphs in ≥2
@@ -641,7 +643,7 @@ async fn commit(
     };
     let txn = txn_mutex.into_inner();
 
-    // ── Multi-graph span (CONCEPT:EG-KG.txn.routes-cross-shard-txn — Lane N) ────────────────────────────
+    // ── Multi-graph span (CONCEPT:KG-2.226 — Lane N) ────────────────────────────
     // If the txn staged ops against a graph other than its default, evaluate the
     // span against the router. A span over ≥2 Raft groups routes through the 2PC
     // coordinator (cross-shard, all-or-nothing across groups). A multi-graph span
@@ -652,7 +654,7 @@ async fn commit(
         return commit_multi_graph(state, req_id, caller, txn).await;
     }
 
-    // ── Cross-modal span (CONCEPT:EG-KG.txn.reader-never-sees-node) ─────────────────────────────────────
+    // ── Cross-modal span (CONCEPT:KG-2.225) ─────────────────────────────────────
     // If the txn staged vectors or blob-refs, its single-graph commit must land
     // graph + vectors + blob-refs in ONE redb WriteTransaction (all-or-nothing).
     if txn.is_cross_modal() {
@@ -732,14 +734,14 @@ async fn commit(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Commit a CROSS-MODAL single-graph transaction (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360/361/362).
+/// Commit a CROSS-MODAL single-graph transaction (CONCEPT:KG-2.225 + EG-360/361/362).
 /// Validates the OCC read-set, then lands EVERY staged modality ATOMICALLY in ONE redb
 /// `WriteTransaction` (commit-before-ack) BEFORE touching the in-memory model:
-///   * graph methods + vector upserts + blob-refs (CONCEPT:EG-KG.txn.reader-never-sees-node);
+///   * graph methods + vector upserts + blob-refs (CONCEPT:KG-2.225);
 ///   * OWL-axiom + SPARQL-CONSTRUCT triples, lowered to `AddNode`/`AddEdge` and folded
-///     into `methods` (CONCEPT:EG-KG.txn.extended-cross-modal/362);
+///     into `methods` (CONCEPT:EG-361/362);
 ///   * time-series measurement batches, written into the graph's SERIES tables in the
-///     SAME transaction (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
+///     SAME transaction (CONCEPT:EG-360).
 ///
 /// A durable-commit failure applies NOTHING (no partial cross-modal commit) and the
 /// in-memory state only ever reflects what is durable. On OCC conflict returns
@@ -762,9 +764,82 @@ async fn commit_cross_modal(
     }
 }
 
-/// The reusable core of the cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360/361/362),
+/// DURABLE GraphQL cross-modal commit (CONCEPT:EG-419) — the facade reconcile hook the
+/// `eg-graphql` crate left open. The crate stages a multi-request cross-modal txn in its
+/// process-wide [`eg_graphql::CrossModalTxnRegistry`] and, on its own, commits only the
+/// in-memory tier (it sits BELOW the facade in the crate DAG and cannot reach
+/// `ServerState`/persistence). Here the facade GraphQL carrier `take`s the staged txn,
+/// converts it into a facade [`GraphTxnState`] (graph writes → `AddNode`/`AddEdge`,
+/// embeddings → `stage_vector`, tsdb batches → `stage_measurement`) and lands every
+/// modality DURABLY in ONE redb `WriteTransaction` via [`commit_cross_modal_txn`] — the
+/// SAME committed machinery pgwire's `commit_txn_state` drives. Returns `Ok(true)` on
+/// commit, `Ok(false)` on an OCC conflict, `Err` on an unknown txn / commit failure.
+#[cfg(feature = "graphql")]
+pub(crate) async fn commit_graphql_cross_modal(
+    state: &Arc<RwLock<ServerState>>,
+    graph_name: &str,
+    core: &crate::graph::GraphCore,
+    registry: &eg_graphql::CrossModalTxnRegistry,
+    txn_id: &str,
+    caller: Option<&str>,
+) -> Result<bool, String> {
+    let staged = registry
+        .take(txn_id)
+        .ok_or_else(|| format!("unknown transaction '{txn_id}'"))?;
+    let mut txn = GraphTxnState::new(
+        core,
+        graph_name.to_string(),
+        core.version(),
+        IsolationLevel::Snapshot,
+        None,
+        caller.unwrap_or("").to_string(),
+        now_ms(),
+    );
+    // Staged graph writes (from `sparqlUpdate` / `sparqlConstruct`, already lowered to the
+    // property-graph projection) → the SAME `AddNode`/`AddEdge` write-set the RPC/pgwire
+    // seam commits.
+    for w in staged.graph_writes() {
+        match w {
+            eg_graphql::GraphWrite::Node { id, blob } => txn.write_set.push(Method::AddNode {
+                node_id: id.clone(),
+                properties_msgpack: blob.clone(),
+            }),
+            eg_graphql::GraphWrite::Edge { from, to, blob } => {
+                txn.write_set.push(Method::AddEdge {
+                    source_id: from.clone(),
+                    target_id: to.clone(),
+                    properties_msgpack: blob.clone(),
+                })
+            }
+        }
+    }
+    for (node_id, embedding) in staged.vectors() {
+        txn.stage_vector(core, node_id.clone(), embedding.clone(), now_ms());
+    }
+    // tsdb measurement batches ride `full` (the facade enables `eg-graphql/crossmodal-tsdb`
+    // from its tsdb graphql tier). Without the facade `tsdb` feature `staged.measurements()`
+    // is empty (the crate leg is off too), so this loop is a no-op.
+    #[cfg(feature = "tsdb")]
+    for (series, points) in staged.measurements() {
+        let n_fields = points.first().map(|(_, v)| v.len()).unwrap_or(0);
+        let field_names = (0..n_fields).map(|i| format!("f{i}")).collect();
+        txn.stage_measurement(
+            StagedMeasurement {
+                series,
+                n_fields,
+                bucket_ns: DEFAULT_MEASUREMENT_BUCKET_NS,
+                field_names,
+                points,
+            },
+            now_ms(),
+        );
+    }
+    commit_cross_modal_txn(state, caller, txn).await
+}
+
+/// The reusable core of the cross-modal commit (CONCEPT:KG-2.225 + EG-360/361/362),
 /// factored out of [`commit_cross_modal`] so BOTH the RPC `Method::Commit` handler AND
-/// the pgwire cross-modal txn seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) drive the IDENTICAL commit — no
+/// the pgwire cross-modal txn seam (CONCEPT:EG-372) drive the IDENTICAL commit — no
 /// logic duplicated across the RPC + wire surfaces. Returns `Ok(true)` on commit,
 /// `Ok(false)` on an OCC conflict (true rollback), `Err(msg)` on an ACL denial or a
 /// durable-commit failure.
@@ -823,7 +898,7 @@ pub(crate) async fn commit_cross_modal_txn(
     let fname = crate::persist::sanitize(&txn.graph);
     // Graph-topology methods for the durable + in-memory apply: the ordinary staged
     // write-set PLUS the OWL-axiom and SPARQL-CONSTRUCT triples already lowered to
-    // AddNode/AddEdge at stage time (CONCEPT:EG-KG.txn.extended-cross-modal/362). Folding them here means they
+    // AddNode/AddEdge at stage time (CONCEPT:EG-361/362). Folding them here means they
     // ride the SAME `apply_method_rows` / `apply_staged` path as any other mutation, so
     // the committed axioms/CONSTRUCT triples are durable + visible atomically with the
     // txn's other modalities.
@@ -831,7 +906,7 @@ pub(crate) async fn commit_cross_modal_txn(
     methods.extend(txn.axioms.iter().cloned());
     methods.extend(txn.constructs.iter().cloned());
     // Time-series measurement batches land into the graph's SERIES tables in the SAME
-    // WriteTransaction (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
+    // WriteTransaction (CONCEPT:EG-360).
     let measurements: Vec<crate::MeasurementBatch> =
         txn.measurements.iter().map(|m| m.to_batch()).collect();
 
@@ -892,7 +967,7 @@ pub(crate) async fn commit_cross_modal_txn(
     Ok(true)
 }
 
-/// One graph's slice of a multi-graph txn (CONCEPT:EG-KG.txn.routes-cross-shard-txn), resolved at commit:
+/// One graph's slice of a multi-graph txn (CONCEPT:KG-2.226), resolved at commit:
 /// name + sanitized fname + type + the staged ops for it.
 struct CommitSlice {
     graph_name: String,
@@ -902,7 +977,7 @@ struct CommitSlice {
     methods: Vec<Method>,
 }
 
-/// Commit a MULTI-GRAPH staged transaction (CONCEPT:EG-KG.txn.routes-cross-shard-txn — Lane N wire). Builds a
+/// Commit a MULTI-GRAPH staged transaction (CONCEPT:KG-2.226 — Lane N wire). Builds a
 /// per-graph slice from the default-graph write-set + each `extra_writes` graph
 /// (validating existence + Write access on each), then:
 ///
@@ -973,7 +1048,7 @@ async fn commit_multi_graph(
     apply_slices_locally(state, req_id, &slices).await
 }
 
-/// Route a cross-shard multi-graph txn through the 2PC coordinator (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
+/// Route a cross-shard multi-graph txn through the 2PC coordinator (CONCEPT:KG-2.226).
 #[cfg(feature = "raft")]
 async fn commit_cross_shard(
     state: &Arc<RwLock<ServerState>>,
@@ -1013,7 +1088,7 @@ async fn commit_cross_shard(
     }
 }
 
-/// Apply each graph's slice locally through its own `GraphTxn` (CONCEPT:EG-KG.txn.routes-cross-shard-txn — the
+/// Apply each graph's slice locally through its own `GraphTxn` (CONCEPT:KG-2.226 — the
 /// single-group / single-node multi-graph path). Per-graph atomic; used when the span
 /// collapses to one Raft group or no cluster is active. Returns `Bool(true)`.
 async fn apply_slices_locally(

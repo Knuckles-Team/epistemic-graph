@@ -235,6 +235,21 @@ petgraph = { version = "0.6.4", features = ["serde-1"] }
 # The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
 # DataFusion FILTER leg, so the test target needs the `query` feature on.
 eg-query = { path = "../eg-query", features = ["sql"] }
+# The query-surface INTEGRATION test harness (`tests/*.rs`, CONCEPT:EG-400..405) is an
+# EXTERNAL crate against eg-plan's public API, so it must name the fixture/currency
+# crates directly (integration tests see only the crate-under-test + its dev-deps, NOT
+# its regular deps). eg-core builds the GraphCore/SemanticStore fixtures; eg-types names
+# the `TimeAxis` the `AsOf` builder needs; serde_json/rmp-serde encode node blobs.
+eg-core = { path = "../eg-core" }
+eg-types = { path = "../eg-types", features = ["query"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+# Property-based generation of VALID UQL pipelines (CONCEPT:EG-402): random valid op
+# sequences → determinism / snapshot-isolation / algebraic-law proofs.
+proptest = "1"
+# Plan-snapshot regression (CONCEPT:EG-403): the logical plan + the cost-reorder output
+# are snapshotted so a lowering OR optimizer-quality regression trips the snapshot.
+insta = "1"
 # The owl compose-oracle test loads an OWL ontology + individuals via the eg-rdf
 # mapping and reasons over it, so the test target names eg-rdf directly with its
 # owl/sparql surfaces. (Only compiled with `--features owl`.)
