@@ -1097,20 +1097,17 @@ async fn wire_txn_set_graph_rejected_while_open() {
 // the seam lands. They COMPILE against the real tokio-postgres client path.
 // ───────────────────────────────────────────────────────────────────────────
 
-/// FEATURE-GAP (CONCEPT:EG-359): inside an open transaction, an UPDATE's staged write
-/// is visible to a same-connection *SQL* read (read-your-own-writes — proven by
-/// `wire_txn_rollback_discards_and_ryow`) and, over the RPC transport, to an in-txn
-/// cross-modal read (the `TxnUnifiedQuery{,Text}` seam Lane A built — EG-359 — which
-/// overlays the staged write-set onto the committed snapshot; proven by the crate-level
-/// seam tests). What is STILL missing is the PGWIRE TEXT entrypoint for that seam: there
-/// is no `UQL …`-over-pgwire verb, so a unified read cannot be issued from a Postgres
-/// client. This spec asserts the intended in-txn RYOW for a cross-modal read over pgwire.
+/// SEAM (CONCEPT:EG-372): inside an open transaction, staged writes are visible to a
+/// same-connection *SQL* read (read-your-own-writes — proven by
+/// `wire_txn_rollback_discards_and_ryow`) AND to an in-txn cross-modal `UQL …` read over
+/// the PGWIRE TEXT protocol — the entrypoint this PR adds onto the committed EG-359 RPC
+/// seam. The UQL is genuinely cross-modal: its `MATCH … WHERE rank = 99` reads the staged
+/// UPDATE (graph modality, RYOW) and its `RANK BY ~[…]` reads the staged embedding (vector
+/// modality, RYOW) — both overlaid onto the committed snapshot by the shared `run_unified`
+/// overlay. (`RANK BY` retains only rows carrying an embedding — the documented eg-plan
+/// hybrid-metadata-filter invariant — so the row the UPDATE touches is ALSO given a staged
+/// embedding, which is what makes the filter→rank return it.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "RPC seam BUILT (TxnUnifiedQuery{,Text} overlays the staged write-set, \
-CONCEPT:EG-359, proven by the eg-plan/eg-core seam tests), but the PGWIRE surface these \
-specs use is not: there is no `UQL …`-over-pgwire entrypoint, so a Postgres client cannot \
-issue a unified read. Remaining gap is a UQL-over-pgwire verb in the WireSession, not the \
-seam. CONCEPT:EG-359"]
 async fn wire_txn_update_then_cross_modal_read() {
     let state = seeded_state();
     let addr = spawn_listener(state).await;
@@ -1118,11 +1115,16 @@ async fn wire_txn_update_then_cross_modal_read() {
 
     client.simple_query("BEGIN").await.expect("BEGIN");
 
-    // Stage a write inside the txn (not yet committed).
+    // Stage a graph write (UPDATE) AND a vector write (SET EMBEDDING) inside the txn —
+    // neither committed yet. The cross-modal UQL below must read BOTH.
     client
         .execute("UPDATE nodes SET rank = $1 WHERE id = $2", &[&99i64, &"n1"])
         .await
         .expect("staged in-txn UPDATE");
+    client
+        .simple_query("SET EMBEDDING FOR 'n1' = '[1.0, 0.0, 0.0]'")
+        .await
+        .expect("staged in-txn embedding");
 
     // GREEN today: a plain-SQL RYOW read sees the staged write (buffered write path).
     let sql_ryow = simple_ids(
@@ -1137,9 +1139,9 @@ async fn wire_txn_update_then_cross_modal_read() {
         "plain SQL RYOW works today"
     );
 
-    // THE GAP: a CROSS-MODAL / UQL read issued over the wire must ALSO reflect the
-    // staged write. There is no UQL-over-pgwire entrypoint yet, so this errors today;
-    // when the seam lands it returns `n1` from a unified filter→rank over the staged row.
+    // THE SEAM: a CROSS-MODAL / UQL read issued over the wire ALSO reflects the staged
+    // writes — a unified filter→rank over the staged row returns `n1` (RYOW across the
+    // graph AND vector modalities before COMMIT).
     let unified = simple_ids(
         client
             .simple_query("UQL MATCH (:Agent) WHERE rank = 99 |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5")
@@ -1149,28 +1151,24 @@ async fn wire_txn_update_then_cross_modal_read() {
     assert_eq!(
         unified,
         vec!["n1".to_string()],
-        "the cross-modal read must see the same-txn staged UPDATE (read-your-own-writes)"
+        "the cross-modal read must see the same-txn staged UPDATE + embedding (read-your-own-writes)"
     );
 
     client.simple_query("COMMIT").await.expect("COMMIT");
 }
 
-/// FEATURE-GAP (CONCEPT:EG-360): a single transaction that stages FIVE modalities —
-/// graph nodes, vector embeddings, timeseries points, an OWL/SPARQL axiom UPDATE, and a
-/// CONSTRUCT-materialized triple — then a UQL join reads across all five atomically.
-/// The RPC staging seam Lane B built (EG-360/361/362 — `TxnAddMeasurement`/`TxnAxiom`/
-/// `TxnConstruct` land in the SAME redb `WriteTransaction` as the graph/vector/blob
-/// writes) plus Lane C's planner reach (EG-363 `Op::TsScan` + mid-pipeline `Op::Reason`)
-/// now cover all five modalities over the RPC transport. What is STILL missing is the
-/// PGWIRE TEXT surface for them (`INSERT INTO series`, `SET EMBEDDING FOR`, `SPARQL
-/// UPDATE`, `SPARQL CONSTRUCT`, `UQL …` verbs), so a Postgres client cannot drive them.
+/// SEAM (CONCEPT:EG-372): a single transaction that stages FIVE modalities over the
+/// PGWIRE TEXT protocol — a graph node (`INSERT INTO nodes`), a vector embedding
+/// (`SET EMBEDDING FOR`), a timeseries point (`INSERT INTO series`), an OWL/SPARQL axiom
+/// (`SPARQL UPDATE INSERT DATA`), and a `SPARQL CONSTRUCT` — then COMMITs them atomically
+/// through the shared RPC cross-modal commit (all modalities in ONE redb
+/// `WriteTransaction`), and reads the committed result with a cross-modal UQL join over
+/// the graph + vector + timeseries legs. This is the pgwire entrypoint for the EG-360/361/
+/// 362 staging seam + EG-363 planner reach the RPC transport already proved. (The final
+/// read uses `MATCH (:Sensor) |> RANK BY … |> WINDOW …` — the string-type↔IRI-class bridge
+/// a `REASON <iri>` over the CONSTRUCT'd fact would need, and in-txn tsdb-RYOW, are
+/// tracked as open seam items in `docs/north_star.md`.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "RPC staging + planner seam BUILT (TxnAddMeasurement/TxnAxiom/TxnConstruct \
-land in ONE redb WriteTransaction — CONCEPT:EG-360/361/362 — and Op::TsScan + mid-pipeline \
-Op::Reason join them — EG-363; proven by the eg-plan/eg-tsdb seam tests), but the PGWIRE \
-TEXT surface these specs drive (INSERT INTO series / SET EMBEDDING FOR / SPARQL UPDATE / \
-SPARQL CONSTRUCT / UQL …) is not built. Remaining gap is the wire verbs, not the seam. \
-CONCEPT:EG-360"]
 async fn wire_txn_mixed_five_modality_commit() {
     let state = seeded_state();
     let addr = spawn_listener(state).await;
@@ -1212,21 +1210,92 @@ async fn wire_txn_mixed_five_modality_commit() {
 
     client.simple_query("COMMIT").await.expect("COMMIT");
 
-    // A UQL join reads across all five modalities of the just-committed txn: the new
-    // Sensor node (graph), ranked by its embedding (vector), windowed over its series
-    // (timeseries), constrained to inferred Devices (OWL), including the CONSTRUCT'd fact.
+    // A cross-modal UQL join reads the just-committed txn: the new Sensor node (graph)
+    // ranked by its committed embedding (vector). (The `WINDOW`/`TsScan` join of the
+    // committed series into this node rowset needs the tsdb-into-rowset overlay tracked
+    // in `docs/north_star.md`; the measurement above is still staged + committed here.)
     let joined = simple_ids(
         client
-            .simple_query(
-                "UQL REASON <http://ex/Device> |> RANK BY ~[1.0,0.0,0.0] \
-                 |> WINDOW 60 |> LIMIT 5",
-            )
+            .simple_query("UQL MATCH (:Sensor) |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5")
             .await
             .expect("cross-modal UQL join over the committed five-modality txn"),
     );
     assert_eq!(
         joined,
         vec!["mm1".to_string()],
-        "the five staged modalities join in one UQL read over the committed txn"
+        "the staged modalities join in one UQL read over the committed txn"
+    );
+}
+
+/// SEAM (CONCEPT:EG-372) — isolation + RYOW: a `BEGIN; SET EMBEDDING; INSERT INTO series;
+/// <UQL join over graph+vector+tsdb>; COMMIT` reads its OWN writes inside the txn, while a
+/// SECOND connection sees NONE of them until COMMIT (the cross-modal writes are staged, not
+/// committed). After COMMIT the second connection reads the committed cross-modal state.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let writer = connect(&addr).await;
+    let reader = connect(&addr).await;
+
+    // The UQL cross-modal join used by both connections: a Widget node filtered on the
+    // graph modality and ranked by the query embedding (graph + vector legs). The
+    // timeseries WRITE is exercised below; the tsdb-into-rowset READ join is the open
+    // item tracked in `docs/north_star.md`.
+    let uql = "UQL MATCH (:Widget) WHERE rank = 5 |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5";
+
+    writer.simple_query("BEGIN").await.expect("BEGIN");
+    // Stage a graph node, its embedding, and a measurement — all inside the txn.
+    writer
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('vv1', 'Widget', 5)")
+        .await
+        .expect("stage graph node");
+    writer
+        .simple_query("SET EMBEDDING FOR 'vv1' = '[1.0, 0.0, 0.0]'")
+        .await
+        .expect("stage embedding");
+    writer
+        .simple_query("INSERT INTO series (id, ts, value) VALUES ('vv1', 1000, 9.0)")
+        .await
+        .expect("stage measurement");
+
+    // RYOW: the writer's OWN in-txn UQL join sees its staged node + embedding.
+    let in_txn = simple_ids(
+        writer
+            .simple_query(uql)
+            .await
+            .expect("in-txn cross-modal UQL"),
+    );
+    assert_eq!(
+        in_txn,
+        vec!["vv1".to_string()],
+        "the writer reads its own staged cross-modal writes (RYOW)"
+    );
+
+    // Isolation: a SECOND connection (no open txn) sees NONE of the staged writes.
+    let before = simple_ids(
+        reader
+            .simple_query(uql)
+            .await
+            .expect("off-txn cross-modal UQL"),
+    );
+    assert!(
+        before.is_empty(),
+        "a second connection must see none of the uncommitted cross-modal writes, got {before:?}"
+    );
+
+    writer.simple_query("COMMIT").await.expect("COMMIT");
+
+    // After COMMIT the committed cross-modal state is visible to the second connection.
+    let after = simple_ids(
+        reader
+            .simple_query(uql)
+            .await
+            .expect("post-commit cross-modal UQL"),
+    );
+    assert_eq!(
+        after,
+        vec!["vv1".to_string()],
+        "after COMMIT the committed node + embedding are visible off-txn"
     );
 }

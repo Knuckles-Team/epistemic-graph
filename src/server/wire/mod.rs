@@ -393,6 +393,39 @@ enum NodeOp {
     Remove { id: String },
 }
 
+/// The CROSS-MODAL write-set staged inside an open wire transaction (CONCEPT:EG-372).
+/// Parallel to the graph-node [`GraphTxnBuffer`] + user-table `TableTxn` buffers, this
+/// holds the NON-graph-topology modalities a pgwire `SET EMBEDDING` / `INSERT INTO
+/// series` / `SPARQL UPDATE` / `SPARQL CONSTRUCT` statement stages while a `BEGIN` is
+/// open. At `COMMIT` they are handed to the SHARED RPC cross-modal commit
+/// ([`crate::server::handlers::txn::commit_cross_modal_txn`]) so graph + vector + OWL
+/// modalities land atomically in ONE redb `WriteTransaction` — the SAME seam the RPC
+/// `TxnAddEmbedding`/`TxnAxiom`/`TxnConstruct` path commits through (no logic duplicated).
+#[cfg(feature = "query")]
+#[derive(Default)]
+struct XmodalStaged {
+    /// Staged `(node_id, embedding)` vector upserts (from `SET EMBEDDING FOR …`).
+    vectors: Vec<(String, Vec<f32>)>,
+    /// Staged time-series measurement batches (from `INSERT INTO series …`). The
+    /// `StagedMeasurement` type is ungated (the durable write is tsdb-gated in the
+    /// backend); a build without a tsdb backend drops the points at commit.
+    measurements: Vec<crate::server::txn::StagedMeasurement>,
+    /// OWL-axiom (`SPARQL UPDATE INSERT DATA`) and `SPARQL CONSTRUCT` triples, already
+    /// LOWERED to graph-native `AddNode`/`AddEdge` methods at stage time (reusing the
+    /// SAME `triples_to_methods` lowering the RPC stagers use). Fed to the cross-modal
+    /// commit as the txn's `axioms`, and overlaid onto an in-txn UQL read for RYOW.
+    owl_methods: Vec<crate::protocol::Method>,
+}
+
+#[cfg(feature = "query")]
+impl XmodalStaged {
+    /// True when no cross-modal modality was staged — the txn is an ordinary
+    /// graph/user-table txn and takes the byte-for-byte-unchanged commit path.
+    fn is_empty(&self) -> bool {
+        self.vectors.is_empty() && self.measurements.is_empty() && self.owl_methods.is_empty()
+    }
+}
+
 // ── the shared session core ────────────────────────────────────────────────────
 
 /// A per-connection, wire-agnostic SQL session (CONCEPT:EG-074). Holds the shared
@@ -439,6 +472,13 @@ pub struct WireSession {
     /// In-flight `COPY … FROM STDIN` state (CONCEPT:EG-020), set between the copy-in
     /// response and the wire's copy-done/copy-fail hook.
     copy: parking_lot::Mutex<Option<CopyState>>,
+    /// The OPEN transaction's staged CROSS-MODAL write-set (CONCEPT:EG-372) — vectors,
+    /// measurements, and lowered OWL/CONSTRUCT methods from the pgwire cross-modal
+    /// statements. Empty when no `BEGIN` is active or the txn touched no cross-modal
+    /// modality; when non-empty at `COMMIT` the whole txn commits atomically through the
+    /// shared RPC cross-modal seam.
+    #[cfg(feature = "query")]
+    xmodal: parking_lot::Mutex<XmodalStaged>,
 }
 
 impl WireSession {
@@ -462,6 +502,8 @@ impl WireSession {
             txn_graph: parking_lot::Mutex::new(None),
             txn_failed: parking_lot::Mutex::new(false),
             copy: parking_lot::Mutex::new(None),
+            #[cfg(feature = "query")]
+            xmodal: parking_lot::Mutex::new(XmodalStaged::default()),
         }
     }
 
@@ -490,6 +532,18 @@ impl WireSession {
         self.graph_txn.lock().ops.clear();
         *self.txn_failed.lock() = false;
         *self.txn_graph.lock() = Some(self.current_graph());
+        #[cfg(feature = "query")]
+        {
+            *self.xmodal.lock() = XmodalStaged::default();
+        }
+    }
+
+    /// Drain the open transaction's staged CROSS-MODAL write-set (CONCEPT:EG-372),
+    /// leaving it empty. Called by `COMMIT` (to hand the modalities to the shared
+    /// cross-modal commit) and `ROLLBACK` (drain-and-drop).
+    #[cfg(feature = "query")]
+    fn take_xmodal(&self) -> XmodalStaged {
+        std::mem::take(&mut self.xmodal.lock())
     }
 
     /// End the OPEN transaction (CONCEPT:EG-049): drop both buffers, the pinned
@@ -841,13 +895,52 @@ impl WireSession {
         // A COMMIT while the txn is aborted behaves as ROLLBACK (drop everything).
         if self.in_txn() && self.txn_aborted() {
             self.take_txn();
+            #[cfg(feature = "query")]
+            let _ = self.take_xmodal();
             return Ok(WireOutcome::TxnEnd { tag: "ROLLBACK" });
         }
         // The graph a txn was pinned to at BEGIN (node ops are scoped to it).
         let graph = self.txn_graph.lock().clone();
+        // Drain the staged cross-modal write-set (CONCEPT:EG-372) BEFORE the buffers.
+        #[cfg(feature = "query")]
+        let xmodal = self.take_xmodal();
+        #[cfg(feature = "query")]
+        let has_xmodal = !xmodal.is_empty();
+        #[cfg(not(feature = "query"))]
+        let has_xmodal = false;
         let (table_txn, node_ops) = self.take_txn();
         // Postgres-compatible no-op: COMMIT with no BEGIN.
-        if table_txn.is_none() && node_ops.is_empty() && graph.is_none() {
+        if table_txn.is_none() && node_ops.is_empty() && graph.is_none() && !has_xmodal {
+            return Ok(WireOutcome::TxnEnd { tag: "COMMIT" });
+        }
+
+        // ── EG-372 cross-modal COMMIT: when the txn staged any cross-modal modality
+        // (vector / measurement / OWL / CONSTRUCT), hand the WHOLE txn — graph nodes
+        // PLUS every cross-modal modality — to the SHARED RPC cross-modal commit so all
+        // land atomically in ONE redb WriteTransaction (the SAME seam the RPC
+        // TxnAddEmbedding/TxnAxiom/TxnConstruct path commits through). The user-table
+        // ops (which the graph cross-modal commit does not cover) are then committed
+        // sequenced, exactly like the ordinary mixed-store path. ──
+        #[cfg(feature = "query")]
+        if has_xmodal {
+            let graph = graph
+                .clone()
+                .ok_or_else(|| user_err("cross-modal transaction has no pinned graph"))?;
+            // `new_txn_state` resolves the pinned graph's core (surfacing a not-found).
+            let mut ts = self.new_txn_state(&graph).await?;
+            ts.write_set = Self::node_ops_to_methods(&node_ops)?;
+            ts.vectors = xmodal.vectors;
+            ts.measurements = xmodal.measurements;
+            ts.axioms = xmodal.owl_methods;
+            self.commit_txn_state(ts).await?;
+            // (b) User-table store — sequenced after the graph cross-modal commit.
+            if let Some(txn) = table_txn {
+                let store = user_table_store()?;
+                tokio::task::spawn_blocking(move || store.commit_txn(&txn))
+                    .await
+                    .map_err(|e| user_err(format!("commit task failed: {e}")))?
+                    .map_err(user_err)?;
+            }
             return Ok(WireOutcome::TxnEnd { tag: "COMMIT" });
         }
 
@@ -2042,6 +2135,406 @@ impl WireSession {
         }
         Ok(map)
     }
+
+    // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-372) ──────────────────────
+    // The PGWIRE TEXT entrypoint for the EG-359..363 in-txn cross-modal seam. These
+    // recognize the cross-modal verbs (`UQL …`, `SET EMBEDDING FOR …`, `INSERT INTO
+    // series …`, `SPARQL UPDATE …`, `SPARQL CONSTRUCT …`) and route them onto the
+    // EXISTING RPC machinery — the `src/server/txn.rs` `GraphTxnState` staging fields +
+    // the extracted `run_unified` overlay + `commit_cross_modal_txn` — so a psql/DBeaver
+    // `BEGIN … <mutate> … <UQL read> … COMMIT` gets read-your-own-writes across
+    // OWL+vector+graph and commits every modality atomically. No plan/txn logic is
+    // duplicated here; the wire is a thin parser/router. Because it lives on the SHARED
+    // `WireSession` core it lights up for the whole EG-074 multi-wire family.
+
+    /// Lower buffered graph-node ops (CONCEPT:EG-049) to the durable `Method`s that both
+    /// the in-txn UQL overlay and the cross-modal COMMIT consume, so the NodeOp→Method
+    /// mapping is never re-derived.
+    #[cfg(feature = "query")]
+    fn node_ops_to_methods(node_ops: &[NodeOp]) -> WireResult<Vec<crate::protocol::Method>> {
+        let mut methods = Vec::with_capacity(node_ops.len());
+        for op in node_ops {
+            match op {
+                NodeOp::Add { id, blob } => methods.push(crate::protocol::Method::AddNode {
+                    node_id: id.clone(),
+                    properties_msgpack: blob.clone(),
+                }),
+                NodeOp::Cas {
+                    id,
+                    conditions,
+                    updates,
+                } => {
+                    let cond_blob =
+                        rmp_serde::to_vec_named(&serde_json::Value::Object(conditions.clone()))
+                            .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
+                    let upd_blob =
+                        rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+                            .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+                    methods.push(crate::protocol::Method::CompareAndSetNodeFields {
+                        node_id: id.clone(),
+                        conditions_msgpack: cond_blob,
+                        updates_msgpack: upd_blob,
+                    });
+                }
+                NodeOp::Remove { id } => methods.push(crate::protocol::Method::RemoveNode {
+                    node_id: id.clone(),
+                }),
+            }
+        }
+        Ok(methods)
+    }
+
+    /// Detect a cross-modal verb (CONCEPT:EG-372). Cheap prefix classification only —
+    /// the heavy parse (vector literal, series tuple, SPARQL) happens in
+    /// [`WireSession::exec_crossmodal`] so a parse error becomes a clean `WireError`.
+    #[cfg(feature = "query")]
+    fn detect_crossmodal(sql: &str) -> Option<XmodalStmt> {
+        let trimmed = sql.trim().trim_end_matches(';').trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower == "uql" || lower.starts_with("uql ") {
+            return Some(XmodalStmt::Uql(trimmed[3..].trim_start().to_string()));
+        }
+        if lower.starts_with("set embedding") {
+            return Some(XmodalStmt::SetEmbedding(trimmed.to_string()));
+        }
+        if lower.starts_with("insert into series") {
+            return Some(XmodalStmt::InsertSeries(trimmed.to_string()));
+        }
+        #[cfg(feature = "sparql")]
+        {
+            // `SPARQL UPDATE <update>` must be checked before the generic `SPARQL <query>`.
+            if lower.starts_with("sparql update ") {
+                return Some(XmodalStmt::SparqlUpdate(
+                    trimmed["sparql update".len()..].trim_start().to_string(),
+                ));
+            }
+            if lower.starts_with("sparql ") {
+                return Some(XmodalStmt::SparqlConstruct(
+                    trimmed["sparql".len()..].trim_start().to_string(),
+                ));
+            }
+        }
+        None
+    }
+
+    /// Access level a cross-modal verb needs: a UQL read needs Read, every cross-modal
+    /// write needs Write.
+    #[cfg(feature = "query")]
+    fn crossmodal_access(stmt: &XmodalStmt) -> AccessLevel {
+        match stmt {
+            XmodalStmt::Uql(_) => AccessLevel::Read,
+            _ => AccessLevel::Write,
+        }
+    }
+
+    /// Execute a detected cross-modal verb (CONCEPT:EG-372). A UQL read runs over the
+    /// RYOW overlay (in a txn) or the committed snapshot (off-txn); a cross-modal write
+    /// stages into the open txn's [`XmodalStaged`] buffer, or — off-txn — auto-commits as
+    /// ONE atomic cross-modal statement so the seam is seamless at both surfaces.
+    #[cfg(feature = "query")]
+    async fn exec_crossmodal(
+        &self,
+        graph: &str,
+        stmt: XmodalStmt,
+        in_txn: bool,
+    ) -> WireResult<WireOutcome> {
+        match stmt {
+            XmodalStmt::Uql(text) => self.exec_uql(graph, &text, in_txn).await,
+            XmodalStmt::SetEmbedding(sql) => {
+                let (id, vec) = parse_set_embedding(&sql)?;
+                if in_txn {
+                    self.xmodal.lock().vectors.push((id, vec));
+                    Ok(WireOutcome::command("SET EMBEDDING"))
+                } else {
+                    let mut ts = self.new_txn_state(graph).await?;
+                    ts.vectors.push((id, vec));
+                    self.commit_txn_state(ts).await?;
+                    Ok(WireOutcome::command("SET EMBEDDING"))
+                }
+            }
+            XmodalStmt::InsertSeries(sql) => {
+                let m = parse_insert_series(&sql)?;
+                if in_txn {
+                    self.xmodal.lock().measurements.push(m);
+                    Ok(WireOutcome::command_rows("INSERT", 1))
+                } else {
+                    let mut ts = self.new_txn_state(graph).await?;
+                    ts.measurements.push(m);
+                    self.commit_txn_state(ts).await?;
+                    Ok(WireOutcome::command_rows("INSERT", 1))
+                }
+            }
+            #[cfg(feature = "sparql")]
+            XmodalStmt::SparqlUpdate(update) => {
+                let methods = crate::server::handlers::txn::sparql_update_to_methods(&update)
+                    .map_err(user_err)?;
+                self.stage_or_commit_owl(graph, methods, in_txn).await
+            }
+            #[cfg(feature = "sparql")]
+            XmodalStmt::SparqlConstruct(query) => {
+                let core = self.graph_core(graph).await?;
+                let methods = crate::server::handlers::txn::construct_to_methods(&core, &query)
+                    .map_err(user_err)?;
+                self.stage_or_commit_owl(graph, methods, in_txn).await
+            }
+        }
+    }
+
+    /// Stage (in a txn) or auto-commit (off-txn) OWL/CONSTRUCT-lowered graph methods.
+    #[cfg(feature = "sparql")]
+    async fn stage_or_commit_owl(
+        &self,
+        graph: &str,
+        methods: Vec<crate::protocol::Method>,
+        in_txn: bool,
+    ) -> WireResult<WireOutcome> {
+        if in_txn {
+            self.xmodal.lock().owl_methods.extend(methods);
+            Ok(WireOutcome::command("SPARQL"))
+        } else {
+            let mut ts = self.new_txn_state(graph).await?;
+            ts.axioms.extend(methods);
+            self.commit_txn_state(ts).await?;
+            Ok(WireOutcome::command("SPARQL"))
+        }
+    }
+
+    /// Run a UQL unified cross-modal read over the current graph (CONCEPT:EG-372). In a
+    /// txn the committed snapshot is OVERLAID with the txn's staged graph writes (the
+    /// wire node buffer + lowered OWL/CONSTRUCT methods) and staged vectors, giving
+    /// read-your-own-writes; off-txn it reads the committed store (the overlay is empty).
+    /// Reuses the EXTRACTED `run_unified` executor + `overlay_write_set`/`semantic_overlay`
+    /// — no plan logic duplicated. (In-txn tsdb RYOW is a documented open item: staged
+    /// measurements are not yet overlaid into `Op::TsScan`, which reads committed series.)
+    #[cfg(feature = "query")]
+    async fn exec_uql(&self, graph: &str, text: &str, in_txn: bool) -> WireResult<WireOutcome> {
+        let plan = eg_plan::uql::parse(text).map_err(|e| user_err(e.render(text)))?;
+        let core = self.graph_core(graph).await?;
+        let mut view = core.analysis_snapshot();
+        let committed_semantic = core.semantic_store.read().clone();
+        let (overlay_methods, vectors) = if in_txn {
+            let mut methods = Self::node_ops_to_methods(&self.graph_txn.lock().ops)?;
+            let xmodal = self.xmodal.lock();
+            methods.extend(xmodal.owl_methods.iter().cloned());
+            (methods, xmodal.vectors.clone())
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        crate::server::handlers::query::overlay_write_set(&mut view, &overlay_methods);
+        let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
+        #[cfg(feature = "tsdb")]
+        let tsdb = self.state.read().await.tsdb_store.clone();
+        let rows = tokio::task::spawn_blocking(move || {
+            crate::server::handlers::query::run_unified(
+                plan,
+                None,
+                &view,
+                &semantic,
+                #[cfg(feature = "tsdb")]
+                tsdb.as_deref(),
+            )
+        })
+        .await
+        .map_err(|e| user_err(format!("UQL task failed: {e}")))?
+        .map_err(|msg| user_err(format!("UQL error: {msg}")))?;
+        Ok(WireOutcome::Rows(uql_rows_to_result(rows)))
+    }
+
+    /// Build a fresh single-statement [`crate::server::txn::GraphTxnState`] pinned to
+    /// `graph` for an off-txn cross-modal auto-commit (CONCEPT:EG-372).
+    #[cfg(feature = "query")]
+    async fn new_txn_state(&self, graph: &str) -> WireResult<crate::server::txn::GraphTxnState> {
+        let core = self.graph_core(graph).await?;
+        Ok(crate::server::txn::GraphTxnState::new(
+            &core,
+            graph.to_string(),
+            core.version(),
+            crate::server::txn::IsolationLevel::Snapshot,
+            None,
+            self.actor().unwrap_or_default(),
+            crate::server::txn::now_ms(),
+        ))
+    }
+
+    /// Commit an assembled [`crate::server::txn::GraphTxnState`] through the SHARED RPC
+    /// cross-modal commit (CONCEPT:EG-372) — the SAME `commit_cross_modal_txn` the RPC
+    /// `Method::Commit` drives, so graph + vector + OWL modalities land atomically in ONE
+    /// redb `WriteTransaction` (in-memory-only on a no-persistence engine). Used by both
+    /// the off-txn auto-commit and the wire `COMMIT` of a cross-modal txn.
+    #[cfg(feature = "query")]
+    async fn commit_txn_state(&self, ts: crate::server::txn::GraphTxnState) -> WireResult<()> {
+        let committed = crate::server::handlers::txn::commit_cross_modal_txn(
+            &self.state,
+            self.actor().as_deref(),
+            ts,
+        )
+        .await
+        .map_err(user_err)?;
+        if !committed {
+            return Err(user_err("cross-modal transaction conflict"));
+        }
+        Ok(())
+    }
+}
+
+/// A detected cross-modal wire statement (CONCEPT:EG-372) — the parser/router output of
+/// [`WireSession::detect_crossmodal`]. Carries the raw statement text; the heavy parse
+/// happens in [`WireSession::exec_crossmodal`].
+#[cfg(feature = "query")]
+enum XmodalStmt {
+    /// `UQL <plan text>` — a unified cross-modal read (RYOW in a txn).
+    Uql(String),
+    /// `SET EMBEDDING FOR <id> = <vector>` — stage/commit a vector upsert.
+    SetEmbedding(String),
+    /// `INSERT INTO series (id, ts, value) VALUES (…)` — stage/commit a measurement.
+    InsertSeries(String),
+    /// `SPARQL UPDATE <update>` — stage/commit OWL axioms (INSERT DATA lowered to methods).
+    #[cfg(feature = "sparql")]
+    SparqlUpdate(String),
+    /// `SPARQL <CONSTRUCT/DESCRIBE query>` — stage/commit the CONSTRUCT'd triples.
+    #[cfg(feature = "sparql")]
+    SparqlConstruct(String),
+}
+
+/// Project a unified-query result (`[(id, score)]`) into a two-column typed row set
+/// (`id TEXT`, `score FLOAT8`) so the wire encodes it exactly like any other read.
+#[cfg(feature = "query")]
+fn uql_rows_to_result(rows: Vec<(String, Option<f32>)>) -> TypedQueryResult {
+    let columns = vec![
+        TypedColumn {
+            name: "id".to_string(),
+            ty: PgColType::Text,
+        },
+        TypedColumn {
+            name: "score".to_string(),
+            ty: PgColType::Float8,
+        },
+    ];
+    let rows = rows
+        .into_iter()
+        .map(|(id, score)| {
+            vec![
+                serde_json::Value::String(id),
+                match score {
+                    Some(s) => serde_json::json!(s),
+                    None => serde_json::Value::Null,
+                },
+            ]
+        })
+        .collect();
+    TypedQueryResult { columns, rows }
+}
+
+/// Parse `SET EMBEDDING FOR <id> = <vector>` (CONCEPT:EG-372) into `(node_id, embedding)`.
+/// `<id>` and `<vector>` may be single/double-quoted; `<vector>` is a `[a, b, c]` literal.
+#[cfg(feature = "query")]
+fn parse_set_embedding(sql: &str) -> WireResult<(String, Vec<f32>)> {
+    let lower = sql.to_ascii_lowercase();
+    let for_pos = lower
+        .find(" for ")
+        .ok_or_else(|| user_err("SET EMBEDDING requires `FOR <id> = <vector>`"))?;
+    let after_for = &sql[for_pos + 5..];
+    let eq_pos = after_for
+        .find('=')
+        .ok_or_else(|| user_err("SET EMBEDDING requires `= <vector>`"))?;
+    let id = after_for[..eq_pos]
+        .trim()
+        .trim_matches(['\'', '"'].as_ref())
+        .to_string();
+    if id.is_empty() {
+        return Err(user_err("SET EMBEDDING requires a node id"));
+    }
+    let vec_part = after_for[eq_pos + 1..]
+        .trim()
+        .trim_matches(['\'', '"'].as_ref());
+    let mut out = Vec::new();
+    for tok in vec_part
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .split(',')
+    {
+        let t = tok.trim();
+        if t.is_empty() {
+            continue;
+        }
+        out.push(
+            t.parse::<f32>()
+                .map_err(|_| user_err(format!("invalid embedding component '{t}'")))?,
+        );
+    }
+    if out.is_empty() {
+        return Err(user_err("embedding vector is empty"));
+    }
+    Ok((id, out))
+}
+
+/// Parse `INSERT INTO series (cols) VALUES (vals)` (CONCEPT:EG-372) into a
+/// [`crate::server::txn::StagedMeasurement`] — one point. Columns `id`/`series`,
+/// `ts`/`time`, `value`/`val` (any order); values may be quoted.
+#[cfg(feature = "query")]
+fn parse_insert_series(sql: &str) -> WireResult<crate::server::txn::StagedMeasurement> {
+    let lower = sql.to_ascii_lowercase();
+    let values_pos = lower
+        .find("values")
+        .ok_or_else(|| user_err("INSERT INTO series requires VALUES"))?;
+    let paren_slice = |s: &str, what: &str| -> WireResult<String> {
+        let open = s
+            .find('(')
+            .ok_or_else(|| user_err(format!("INSERT INTO series: missing {what}")))?;
+        let close = s[open..]
+            .find(')')
+            .ok_or_else(|| user_err(format!("INSERT INTO series: unterminated {what}")))?
+            + open;
+        Ok(s[open + 1..close].to_string())
+    };
+    let cols_raw = paren_slice(&sql[..values_pos], "column list")?;
+    let vals_raw = paren_slice(&sql[values_pos..], "VALUES tuple")?;
+    let cols: Vec<String> = cols_raw
+        .split(',')
+        .map(|c| c.trim().to_ascii_lowercase())
+        .collect();
+    let vals: Vec<&str> = vals_raw.split(',').map(|v| v.trim()).collect();
+    if cols.len() != vals.len() {
+        return Err(user_err("INSERT INTO series column/value count mismatch"));
+    }
+    let (mut id, mut ts, mut value): (Option<String>, Option<i64>, Option<f64>) =
+        (None, None, None);
+    for (c, v) in cols.iter().zip(vals.iter()) {
+        let cleaned = v.trim_matches(['\'', '"'].as_ref());
+        match c.as_str() {
+            "id" | "series" => id = Some(cleaned.to_string()),
+            "ts" | "time" | "timestamp" => {
+                ts = Some(
+                    cleaned
+                        .parse::<i64>()
+                        .map_err(|_| user_err(format!("invalid series ts '{cleaned}'")))?,
+                )
+            }
+            "value" | "val" => {
+                value = Some(
+                    cleaned
+                        .parse::<f64>()
+                        .map_err(|_| user_err(format!("invalid series value '{cleaned}'")))?,
+                )
+            }
+            other => {
+                return Err(user_err(format!(
+                    "unknown series column '{other}' (expected id, ts, value)"
+                )))
+            }
+        }
+    }
+    Ok(crate::server::txn::StagedMeasurement {
+        series: id.ok_or_else(|| user_err("INSERT INTO series requires an `id` column"))?,
+        n_fields: 1,
+        bucket_ns: 3_600_000_000_000,
+        field_names: vec!["f0".to_string()],
+        points: vec![(
+            ts.ok_or_else(|| user_err("INSERT INTO series requires a `ts` column"))?,
+            vec![value.ok_or_else(|| user_err("INSERT INTO series requires a `value` column"))?],
+        )],
+    })
 }
 
 #[async_trait]
@@ -2106,6 +2599,27 @@ impl WireProtocol for WireSession {
             return res;
         }
         let graph = self.current_graph();
+
+        // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-372) ──────────────────
+        // Recognize the cross-modal verbs BEFORE the SQL classifier (a UQL query / a
+        // `SET EMBEDDING` / an `INSERT INTO series` / a `SPARQL …` statement is not SQL)
+        // and route them onto the committed RPC seam. The same aborted-txn gate,
+        // ACL check, and aborted-latch-on-error the SQL dispatch applies wrap them.
+        #[cfg(feature = "query")]
+        if let Some(stmt) = Self::detect_crossmodal(sql) {
+            if self.in_txn() && self.txn_aborted() {
+                return Err(aborted_txn_err());
+            }
+            self.check_access(&graph, Self::crossmodal_access(&stmt))
+                .await?;
+            let in_txn = self.in_txn();
+            let result = self.exec_crossmodal(&graph, stmt, in_txn).await;
+            if in_txn && result.is_err() {
+                *self.txn_failed.lock() = true;
+            }
+            return result;
+        }
+
         let kind = eg_query::classify(sql).map_err(user_err)?;
 
         // ── transaction control (CONCEPT:EG-020 / EG-049) — no graph access needed ──
@@ -2118,9 +2632,11 @@ impl WireProtocol for WireSession {
             }
             StatementKind::Commit => return self.run_commit().await,
             StatementKind::Rollback => {
-                // ROLLBACK drops both buffers + the RYOW overlay (nothing was applied
-                // in-memory), and always ends the block.
+                // ROLLBACK drops both buffers + the cross-modal staging + the RYOW
+                // overlay (nothing was applied in-memory), and always ends the block.
                 self.take_txn();
+                #[cfg(feature = "query")]
+                let _ = self.take_xmodal();
                 return Ok(WireOutcome::TxnEnd { tag: "ROLLBACK" });
             }
             _ => {}
