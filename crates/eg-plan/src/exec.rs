@@ -315,12 +315,56 @@ impl<'a> PlanCtx<'a> {
 /// orphan rule forbids an `impl Plan` here; behavior attaches to the foreign type
 /// from this crate this way. See [`crate::PlanExt`] for the `plan.execute(&ctx)`
 /// ergonomic form.
+///
+/// Runs the plan in TWO seamed phases so the cost optimizer (Lane A) and the physical
+/// runtime (Lane B) can hang off ONE stable pipeline without re-touching the per-op
+/// arms:
+///  1. [`plan_optimize`] rewrites the logical plan (identity in this tier — Lane A fills
+///     the body). A gets an OWNED plan to rewrite, hence the [`Plan::clone`].
+///  2. a [`Driver`] executes the (possibly-rewritten) op list. [`SerialDriver`] is the
+///     current sequential fold; Lane B swaps in a parallel driver behind the SAME trait.
 pub fn execute(plan: &Plan, ctx: &PlanCtx) -> Result<RowSet, String> {
-    let mut cur = RowSet::new();
-    for op in &plan.ops {
-        cur = apply(op, cur, ctx)?;
+    let optimized = plan_optimize(plan.clone(), ctx);
+    SerialDriver.run(&optimized.ops, ctx)
+}
+
+/// The logical-plan OPTIMIZATION seam (CONCEPT:EG-KG.query.plan-optimize-seam) — the single
+/// point where a cost-based rewrite (Lane A's cross-modal optimizer) transforms a logical
+/// [`Plan`] into a cheaper-but-equivalent one BEFORE execution. In this foundation tier it
+/// is an IDENTITY passthrough: the plan runs exactly as lowered, so [`execute`] is
+/// byte-for-byte the prior fold. Lane A fills the body (reordering `Filter`/`AsOf` ahead
+/// of `Rank`, fusing RRF branches, …) WITHOUT re-touching the per-op arms or [`execute`];
+/// the differential oracle proves the rewritten plan returns the same result set.
+pub fn plan_optimize(plan: Plan, _ctx: &PlanCtx) -> Plan {
+    // Lane 0 = identity. Lane A rewrites here.
+    plan
+}
+
+/// The physical EXECUTION-driver seam (CONCEPT:EG-KG.query.exec-driver-seam) — the trait a
+/// plan's op list runs THROUGH, so the scheduling/materialization strategy is swappable
+/// without touching either the per-op arms ([`apply`]) or [`execute`]. Lane B replaces the
+/// [`SerialDriver`] impl with a parallel (rayon-morsel, memory-accounted, spilling) driver
+/// behind this SAME trait; the physical per-op fns stay modality-specific.
+pub trait Driver {
+    /// Run `ops` in sequence over one [`PlanCtx`], threading each op's output [`RowSet`]
+    /// into the next, and return the final `RowSet`.
+    fn run(&self, ops: &[Op], ctx: &PlanCtx) -> Result<RowSet, String>;
+}
+
+/// The serial driver (CONCEPT:EG-KG.query.exec-driver-seam) — reproduces today's execution
+/// EXACTLY: a left fold that seeds an empty [`RowSet`] and applies each op in order via
+/// [`apply`]. This is the behavior [`execute`] had inline before the seam was carved, so
+/// the oracle + snapshot suites are unchanged.
+pub struct SerialDriver;
+
+impl Driver for SerialDriver {
+    fn run(&self, ops: &[Op], ctx: &PlanCtx) -> Result<RowSet, String> {
+        let mut cur = RowSet::new();
+        for op in ops {
+            cur = apply(op, cur, ctx)?;
+        }
+        Ok(cur)
     }
-    Ok(cur)
 }
 
 /// Ergonomic `plan.execute(&ctx)` over the foreign [`Plan`] wire DTO (the orphan
@@ -342,47 +386,11 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 
         Op::Filter { preds } => filter_op(ctx, preds, input),
 
-        Op::Traverse { rel, min, max } => {
-            let reached = bfs_reached(ctx.view, &input.ids(), rel, *min, *max);
-            Ok(RowSet::from_ids(reached))
-        }
+        Op::Traverse { rel, min, max } => Ok(traverse_op(ctx, rel, *min, *max, input)),
 
-        Op::Rank { query } => {
-            // CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter — hybrid metadata pre-filter. Push the current candidate
-            // set INTO the ANN scan as an allowlist so the returned top-k already
-            // satisfies the predicate — filtering happens DURING the probe instead of
-            // over-fetching `k*4` and post-filtering. Semantics are unchanged: with an
-            // empty candidate set the allowlist rejects everything (a source `Rank`
-            // yields no rows, exactly as the prior over-fetch-then-intersect did).
-            let candidates = input.id_set();
-            let k = candidates.len().max(1);
-            let scored = ctx
-                .semantic
-                .semantic_search_filtered(query, k, |id| candidates.contains(id));
-            Ok(RowSet::from_scored(scored))
-        }
+        Op::Rank { query } => Ok(rank_op(ctx, query, input)),
 
-        // RANK (vector-from-text, CONCEPT:EG-KG.compute.no-embedder-bound-op) — the UQL `RANK BY ~ "text"` NL→vector
-        // seam. Resolve the text to a query vector via the server-side embedder bound on
-        // the ctx, then kNN-rank the candidate set exactly like `Op::Rank`. With NO
-        // embedder bound this is a clean typed error (never a panic) — the documented
-        // "no embedder bound" behavior.
-        Op::RankEmbed { text } => {
-            let embedder = ctx.embedder.ok_or_else(|| {
-                format!(
-                    "RANK BY ~ \"{text}\": no server-side text embedder is bound on this \
-                     query (bind one via PlanCtx::with_embedder, or pass an inline literal \
-                     vector `RANK BY ~[…]`)"
-                )
-            })?;
-            let query = embedder.embed(text)?;
-            let candidates = input.id_set();
-            let k = candidates.len().max(1);
-            let scored = ctx
-                .semantic
-                .semantic_search_filtered(&query, k, |id| candidates.contains(id));
-            Ok(RowSet::from_scored(scored))
-        }
+        Op::RankEmbed { text } => rank_embed_op(ctx, text, input),
 
         Op::RankNodeDistance { center } => Ok(rank_node_distance(ctx.view, input, center)),
 
@@ -531,6 +539,54 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 
         Op::Limit { k } => Ok(input.limit(*k)),
     }
+}
+
+/// GRAPH TRAVERSE (CONCEPT:EG-KG.query.exec-arm-dispatch) — petgraph BFS over the `GraphView`
+/// topology for `min..=max` hops of relationship `rel`, seeded by the current candidate ids.
+/// The behavior-identical extraction of the `Op::Traverse` arm so [`apply`] is a thin
+/// dispatch table (Lane 0 de-conflict); the BFS itself lives in [`bfs_reached`].
+fn traverse_op(ctx: &PlanCtx, rel: &str, min: usize, max: usize, input: RowSet) -> RowSet {
+    let reached = bfs_reached(ctx.view, &input.ids(), rel, min, max);
+    RowSet::from_ids(reached)
+}
+
+/// RANK (vector, CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) — hybrid metadata pre-filter.
+/// Push the current candidate set INTO the ANN scan as an allowlist so the returned top-k
+/// already satisfies the predicate — filtering happens DURING the probe instead of
+/// over-fetching `k*4` and post-filtering. Semantics are unchanged: with an empty candidate
+/// set the allowlist rejects everything (a source `Rank` yields no rows, exactly as the
+/// prior over-fetch-then-intersect did). The behavior-identical extraction of the `Op::Rank`
+/// arm (Lane 0 de-conflict) so [`apply`] is a thin dispatch table.
+fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> RowSet {
+    let candidates = input.id_set();
+    let k = candidates.len().max(1);
+    let scored = ctx
+        .semantic
+        .semantic_search_filtered(query, k, |id| candidates.contains(id));
+    RowSet::from_scored(scored)
+}
+
+/// RANK (vector-from-text, CONCEPT:EG-KG.compute.no-embedder-bound-op) — the UQL `RANK BY ~ "text"`
+/// NL→vector seam. Resolve the text to a query vector via the server-side embedder bound on
+/// the ctx, then kNN-rank the candidate set exactly like [`rank_op`]. With NO embedder bound
+/// this is a clean typed error (never a panic) — the documented "no embedder bound" behavior.
+/// The behavior-identical extraction of the `Op::RankEmbed` arm (Lane 0 de-conflict) so
+/// [`apply`] is a thin dispatch table.
+fn rank_embed_op(ctx: &PlanCtx, text: &str, input: RowSet) -> Result<RowSet, String> {
+    let embedder = ctx.embedder.ok_or_else(|| {
+        format!(
+            "RANK BY ~ \"{text}\": no server-side text embedder is bound on this \
+             query (bind one via PlanCtx::with_embedder, or pass an inline literal \
+             vector `RANK BY ~[…]`)"
+        )
+    })?;
+    let query = embedder.embed(text)?;
+    let candidates = input.id_set();
+    let k = candidates.len().max(1);
+    let scored = ctx
+        .semantic
+        .semantic_search_filtered(&query, k, |id| candidates.contains(id));
+    Ok(RowSet::from_scored(scored))
 }
 
 /// SOURCE (federation): read rows from an EXTERNAL source — a remote epistemic-graph
