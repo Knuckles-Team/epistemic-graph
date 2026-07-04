@@ -43,13 +43,13 @@ fn query_vec() -> Vec<f32> {
 /// from a focal `session` node so topology-proximity is a real signal:
 ///
 ///  * `target`     — vector #2 AND lexical #2 AND 1 hop from `session` → the doubly+graph
-///                   relevant memory RRF must lift to #1. Live `[0,∞)`.
+///    relevant memory RRF must lift to #1. Live `[0,∞)`.
 ///  * `vec_only`   — vector #1, NONE of the query terms, far in the graph. Live.
 ///  * `lex_only`   — lexical #1 (term-dense), vector far. Live.
 ///  * `chatter`    — a `Chatter` node (NOT an `Episode`): weak signals; the OWL `Reason`
-///                   leg must drop it even if a raw rank would keep it.
+///    leg must drop it even if a raw rank would keep it.
 ///  * `expired`    — strong-ish signals but its validity window `[0,100)` has CLOSED, so
-///                   an `AS OF now` re-selection drops it (the bitemporal leg).
+///    an `AS OF now` re-selection drops it (the bitemporal leg).
 struct MemoryFx {
     view: GraphView,
     semantic: SemanticStore,
