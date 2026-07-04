@@ -133,6 +133,20 @@ impl AnnIndex {
         true
     }
 
+    /// Incrementally tombstone `node_id`'s live row (CONCEPT:EG-KG.storage.incremental-ann) so
+    /// search no longer returns it — no rebuild. Returns `true` if a row was
+    /// tombstoned, `false` if the id was not indexed. The caller compacts once the
+    /// tombstone ratio crosses the threshold.
+    pub fn remove(&mut self, node_id: &str) -> bool {
+        match self.id_to_row.remove(node_id) {
+            Some(old) => {
+                self.index.delete(old);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// kNN cosine search. Returns `(node_id, cosine_similarity)` descending.
     pub fn search(&self, query: &[f32], n_results: usize) -> Vec<(String, f32)> {
         self.search_filtered(query, n_results, |_| true)
