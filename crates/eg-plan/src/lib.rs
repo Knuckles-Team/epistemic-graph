@@ -222,3 +222,12 @@ mod probabilistic_tests;
 // EITHER feature is on; each test is additionally gated on the one it needs.
 #[cfg(all(test, any(feature = "owl", feature = "timeseries")))]
 mod tsdb_scan_tests;
+
+// The ADVANCED cross-modal seam proofs (CONCEPT:EG-384..EG-389): the richest 3+-modality
+// fused plans over a hand-built `PlanCtx` — bitemporal reason→vector→traverse (owl),
+// federation fusion + fail-closed named source (federation), geo×vector×temporal (geo),
+// tensor×graph×vector + CAS dedup (tensor), CEP×graph×tsdb window (stream+timeseries), and
+// probabilistic×owl×vector + MMR (owl+probabilistic). Module-gated on `query`; each proof
+// is additionally `cfg`-gated on the modality feature(s) it needs.
+#[cfg(all(test, feature = "query"))]
+mod advanced_crossmodal_tests;
