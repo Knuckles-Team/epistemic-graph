@@ -17,6 +17,16 @@ DistributedCompute
 CreateMatView
 GetMatView
 RefreshMatView
+# Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview, handoff-1
+# Lane C, `matview` feature ⇒ cluster tier): a NAMED durable `wire::Plan` over one graph
+# executed once + cached, invalidated off the CDC stream. Server-side lifecycle driven by
+# the matview manager (src/server/matview/), NOT the thin nodes/edges/graph client —
+# the plan-backed generalization of the CreateMatView/GetMatView/RefreshMatView trio
+# above; bind here until a Python distributed-compute / matview sub-client is added.
+PlanMatViewDefine
+PlanMatViewGet
+PlanMatViewRefresh
+PlanMatViewDrop
 # WASM-sandboxed UDF surface (CONCEPT:KG-2.228, `wasm-udf` feature): an agent pushes a
 # sandboxed compute module (RegisterUdf) and runs it (RunUdf) — also reached via the
 # eg-plan `Op::Udf` inside a unified query. Engine-side capability surface, not the
