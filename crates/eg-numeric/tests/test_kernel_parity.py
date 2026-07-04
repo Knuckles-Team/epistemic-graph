@@ -39,7 +39,8 @@ for _name in ("epistemic_graph.numeric", "numeric"):
         break
 
 pytestmark = pytest.mark.skipif(
-    _k is None, reason="eg-numeric kernel wheel not installed (build with maturin --features python)"
+    _k is None,
+    reason="eg-numeric kernel wheel not installed (build with maturin --features python)",
 )
 
 
@@ -93,9 +94,7 @@ def test_elementwise(seed):
     assert _close(_k.clip(a, -1.0, 1.0), np.clip(a, -1.0, 1.0))
     assert _close(_k.maximum(a, b), np.maximum(a, b))
     assert _close(_k.minimum(a, b), np.minimum(a, b))
-    assert _close(
-        _k.where_((a > 0).tolist(), a, b), np.where(a > 0, a, b)
-    )
+    assert _close(_k.where_((a > 0).tolist(), a, b), np.where(a > 0, a, b))
     assert np.array_equal(np.asarray(_k.isnan(a)), np.isnan(a))
 
 
