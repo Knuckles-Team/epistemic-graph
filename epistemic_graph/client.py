@@ -2534,6 +2534,24 @@ class TxnClient:
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
+    async def unified_query_plan(
+        self,
+        txn_id: str,
+        plan: list[dict[str, Any]],
+        reorder_filter_selectivity: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """In-txn cross-modal RYOW read from a pre-built ``Op`` plan (CONCEPT:EG-359) —
+        the AST counterpart of :meth:`unified_query`, mirroring :meth:`QueryClient.unified`.
+        ``plan`` is the SAME ordered list of externally-tagged operator dicts ``unified``
+        carries; the read runs over a snapshot OVERLAID with THIS txn's staged writes.
+        Returns the same ``{"id", "score"}`` rows. Requires a ``query`` server."""
+        params: dict[str, Any] = {"txn_id": txn_id, "plan": {"ops": plan}}
+        if reorder_filter_selectivity is not None:
+            params["reorder_filter_selectivity"] = reorder_filter_selectivity
+        result = await self._client._send("TxnUnifiedQuery", params)
+        rows = result or []
+        return [{"id": id_, "score": score} for id_, score in rows]
+
     async def commit(self, txn_id: str) -> bool:
         """Commit the transaction. ``True`` ⇒ applied + persisted; ``False`` ⇒ OCC
         conflict (nothing applied — a true rollback; re-begin and retry)."""
