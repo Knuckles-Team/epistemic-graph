@@ -277,3 +277,22 @@ eg-rdf = { path = "../eg-rdf", features = ["owl", "sparql"] }
 # The `Udf` op test compiles a tiny `.wat` fixture to wasm in-test (only with
 # `--features wasm-udf`). The sandbox itself never needs a text parser — only the test.
 wat = "1"
+# Criterion drives the hybrid-query latency + vector-recall benches (CONCEPT:EG-420/421).
+# It is a `harness = false` bench target gated on `required-features = ["query"]`, so a
+# default `cargo bench -p eg-plan` skips it (no execute leg) and the CI perf gate runs it
+# with the full feature set. `default-features = false` drops criterion's optional
+# `rayon`/HTML plotting deps the gate does not need.
+criterion = { version = "0.5", default-features = false }
+
+# ── Perf / recall CI benchmark (CONCEPT:EG-420/421/422) ──────────────────────────
+# Representative hybrid pipelines (MATCH→TRAVERSE→RANK, REASON→RANK→TRAVERSE,
+# TsScan→WINDOW, FUSE) measured for latency (criterion p50/mean) + the vector leg's
+# recall@k vs a brute-force cosine oracle over a fixed deterministic synthetic dataset.
+# `required-features = ["query"]` so a default `cargo bench -p eg-plan` cleanly SKIPS it
+# (the `execute` leg is `query`-gated); the CI perf job builds it with the full feature
+# set. The optional-feature benches (owl / text / timeseries) are `#[cfg]`-gated inside.
+[[bench]]
+name = "hybrid_queries"
+path = "benches/hybrid_queries.rs"
+harness = false
+required-features = ["query"]

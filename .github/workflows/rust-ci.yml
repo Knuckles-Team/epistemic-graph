@@ -148,3 +148,36 @@ jobs:
           key: ${{ matrix.target.name }}
       - name: Build ${{ matrix.target.name }}
         run: cargo build ${{ matrix.target.flags }}
+
+  benchmarks:
+    # CONCEPT:EG-420..423 — the perf/recall regression gate. Runs the eg-plan
+    # hybrid_queries criterion bench (latency of the representative hybrid pipelines +
+    # recall@k of the vector leg vs a brute-force oracle over a fixed synthetic dataset),
+    # then gates on a committed threshold set. The RECALL floor is the tight, deterministic
+    # check (the bench itself also asserts it); the per-bench p50 ceilings are generous —
+    # a catastrophic-regression net, kept non-flaky on shared CI runners. It also runs the
+    # query-pipeline FUZZ + concurrency-chaos tests (EG-424/425) so a fuzz regression is
+    # caught in the same job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmarks
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
+      # snapshot-isolation under contention). Kept in this job so the query-robustness
+      # gate lives beside the perf gate.
+      - name: Query-pipeline fuzz + chaos (eg-plan)
+        run: cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines
+      # Run the benches (bounded iters — a short spot-check, not a wall-clock chase). The
+      # bench writes the measured recall to $EG_BENCH_RECALL_OUT and ASSERTS the floor, so
+      # a recall regression fails here directly.
+      - name: Run hybrid-query benches (latency + recall@k)
+        run: cargo bench -p eg-plan --features "query,owl,text,timeseries" --bench hybrid_queries
+      # Gate on the committed thresholds (recall floor + generous per-bench p50 ceilings).
+      - name: Perf/recall regression gate
+        run: python3 scripts/bench_gate.py
