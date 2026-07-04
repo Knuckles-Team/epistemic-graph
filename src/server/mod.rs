@@ -28,6 +28,13 @@ pub mod cdc;
 // not the other compiles none of it.
 #[cfg(all(feature = "streaming", feature = "stream"))]
 pub mod cep;
+// Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview): a NAMED,
+// DURABLE `wire::Plan` whose result rides the version-keyed, RLS-aware result cache. The
+// manager subscribes to the CDC feed (`CdcHub::emit`) to mark views over a changed graph
+// stale. Gated behind `matview` (which pulls `compute-dist`/`query`/`result-cache`/
+// `streaming`); its Method variants route through the `compute-dist` dispatch line.
+#[cfg(feature = "matview")]
+pub mod matview;
 // Distributed result-cache coherence over the CDC feed (CONCEPT:EG-KG.coordination.distributed-cache-coherence): a replica
 // tailing CDC invalidates its local version-keyed result cache on a remote write.
 // Needs BOTH the cache (`result-cache`) and the CDC feed (`streaming`).

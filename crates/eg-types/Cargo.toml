@@ -90,6 +90,11 @@ wasm-udf = ["query"]
 # serde — the cross-shard Pregel coordinator lives in the facade behind `compute-dist`
 # (which needs raft); this only adds the wire variants.
 compute-dist = []
+# Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview): gates the
+# `PlanMatView*` Method variants (Define/Get/Refresh/Drop) whose `plan` field is the
+# `query`-gated `wire::Plan` AST, so `matview` IMPLIES `query`. Pure serde — the manager
+# + durable rows + CDC invalidation live in the facade behind the `matview` feature.
+matview = ["query"]
 # Engine-level security (CONCEPT:KG-2.231): gates the `AuditVerify` Method variant +
 # the `AuditReport` wire DTO. Pure serde — no dep.
 security = []
