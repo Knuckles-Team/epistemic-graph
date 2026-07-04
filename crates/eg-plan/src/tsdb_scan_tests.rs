@@ -262,6 +262,99 @@ fn tsdb_in_plan_fusion() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// In-txn tsdb READ-YOUR-OWN-WRITES (CONCEPT:EG-374): a `StagedSeries` overlay attached
+/// to the ctx via `with_staged_series` makes `Op::TsScan` read the transaction's OWN
+/// staged, uncommitted points MERGED with (and taking precedence over) the committed
+/// `SeriesStore`, while a scan with NO overlay attached sees committed points only.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_in_txn_ryow_staged_overlay() {
+    use crate::exec::{execute, PlanCtx};
+    use crate::StagedSeries;
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+
+    let one_s: i64 = 1_000_000_000;
+    let path = temp_store_path("ryow");
+    let store = build_series(&path); // committed "temp": 1s=10, 2s=20, 3s=30
+
+    // The txn's staged, uncommitted measurements:
+    //  * "temp"  gets an EXTRA point at 4s=40 (extends the committed series), and a
+    //    shadowing point at 1s=111 (RYOW precedence over the committed 1s=10);
+    //  * "temp2" is a brand-new series the txn just created (5s=99) — invisible to any
+    //    committed read until commit.
+    let mut staged = StagedSeries::new();
+    staged.push_points("temp", [(one_s, vec![111.0]), (4 * one_s, vec![40.0])]);
+    staged.push_points("temp2", [(5 * one_s, vec![99.0])]);
+    assert!(!staged.is_empty());
+
+    let semantic = SemanticStore::new();
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+
+    let scan = |series: &str| {
+        Plan::new(vec![Op::TsScan {
+            series: vec![series.to_string()],
+            from: 0.0,
+            to: 10.0,
+        }])
+    };
+    let by_id = |rs: crate::rowset::RowSet| -> std::collections::HashMap<String, Option<f32>> {
+        rs.rows().iter().map(|r| (r.id.clone(), r.score)).collect()
+    };
+
+    // OFF-TXN (committed only): 3 rows, committed values, no staged point/series.
+    let off = {
+        let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+        by_id(execute(&scan("temp"), &ctx).unwrap())
+    };
+    assert_eq!(off.len(), 3, "off-txn sees the 3 committed points only");
+    assert_eq!(off.get(&one_s.to_string()), Some(&Some(10.0)));
+    assert!(
+        !off.contains_key(&(4 * one_s).to_string()),
+        "the staged 4s point is invisible off-txn"
+    );
+
+    // IN-TXN (committed + staged overlay): the staged point is visible AND shadows the
+    // committed one at the same ts (RYOW precedence).
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_staged_series(&staged);
+    let in_txn = by_id(execute(&scan("temp"), &ctx).unwrap());
+    assert_eq!(
+        in_txn.len(),
+        4,
+        "in-txn sees committed 3 + the staged 4s point"
+    );
+    assert_eq!(
+        in_txn.get(&one_s.to_string()),
+        Some(&Some(111.0)),
+        "the staged 1s point shadows the committed 1s (read-your-own-writes)"
+    );
+    assert_eq!(in_txn.get(&(4 * one_s).to_string()), Some(&Some(40.0)));
+    assert_eq!(in_txn.get(&(2 * one_s).to_string()), Some(&Some(20.0)));
+
+    // A staged-only series (never committed) reads its own staged point in-txn …
+    let staged_only = by_id(execute(&scan("temp2"), &ctx).unwrap());
+    assert_eq!(
+        staged_only.get(&(5 * one_s).to_string()),
+        Some(&Some(99.0)),
+        "a series created inside the txn reads its own staged point"
+    );
+    // … but is empty off-txn (isolated until commit).
+    let off_only = {
+        let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+        execute(&scan("temp2"), &ctx).unwrap()
+    };
+    assert!(
+        off_only.is_empty(),
+        "the txn-staged series is invisible off-txn until commit"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
 /// REGRESSION: with NO store attached to the ctx, `TsScan` yields no rows — degrade,
 /// never err (the `Rank`-over-empty-store precedent).
 #[cfg(feature = "timeseries")]

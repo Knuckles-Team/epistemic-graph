@@ -72,6 +72,45 @@ mod tests {
         assert_eq!(parsed, hand, "UQL must parse to the hand-built Plan AST");
     }
 
+    /// CONCEPT:EG-375 — `REASON <iri>` parses: an angle-bracketed class IRI lexes as ONE
+    /// token and `parse_reason` lowers it to `Op::Reason { target_class: "<iri>" }`, so the
+    /// explicit-IRI reasoner class is expressible at the UQL/pgwire surface. The comparison
+    /// `<` (a numeric predicate) still lexes as `Lt` — the two forms never collide.
+    #[cfg(feature = "owl")]
+    #[test]
+    fn reason_iri_parses_and_comparison_lt_still_works() {
+        let plan = parse("MATCH (:Sensor) |> REASON <http://ex/Device> |> LIMIT 5").unwrap();
+        assert_eq!(
+            plan.ops,
+            vec![
+                Op::Scan {
+                    label: "Sensor".into()
+                },
+                Op::Reason {
+                    target_class: "<http://ex/Device>".into(),
+                    ontology: String::new(),
+                },
+                Op::Limit { k: 5 },
+            ]
+        );
+        // The comparison `<` is unaffected: `year < 2022` still lowers to a `LtNum` pred.
+        let cmp = parse("MATCH (:Doc) WHERE year < 2022").unwrap();
+        assert_eq!(
+            cmp.ops,
+            vec![
+                Op::Scan {
+                    label: "Doc".into()
+                },
+                Op::Filter {
+                    preds: vec![Pred::LtNum {
+                        prop: "year".into(),
+                        n: 2022.0,
+                    }],
+                },
+            ]
+        );
+    }
+
     /// An inline `MATCH (:L) WHERE …` lowers to the same `[Scan, Filter]` as the
     /// piped `MATCH (:L) |> WHERE …` form — the two surfaces are interchangeable.
     #[test]
