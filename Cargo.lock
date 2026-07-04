@@ -2227,6 +2227,7 @@ dependencies = [
 name = "eg-plan"
 version = "0.33.0"
 dependencies = [
+ "criterion",
  "eg-compute",
  "eg-core",
  "eg-geo",
