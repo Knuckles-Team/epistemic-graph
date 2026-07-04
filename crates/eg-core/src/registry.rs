@@ -34,6 +34,14 @@ pub struct GraphRegistry {
     /// default and always in the rebuildable-cache model) ⇒ no read-through wiring,
     /// behavior unchanged.
     read_through_factory: Option<Arc<dyn crate::read_through::ReadThroughFactory>>,
+    /// Server-layer secondary-index factory (CONCEPT:EG-KG.storage.incremental-text /
+    /// .incremental-temporal / .incremental-derived-owl). Set once at startup when the
+    /// text/tsdb/owl features are active; when present, every `GraphCore` the registry
+    /// creates (and every existing one) gains its per-graph text/temporal/derived-OWL
+    /// indexes via [`GraphCore::register_index`], so a committed write batch maintains
+    /// them incrementally. `None` (default) ⇒ no server indexes wired — behavior
+    /// unchanged (mirrors `read_through_factory`).
+    secondary_index_factory: Option<Arc<dyn crate::index::SecondaryIndexFactory>>,
 }
 
 impl Default for GraphRegistry {
@@ -58,6 +66,7 @@ impl GraphRegistry {
         GraphRegistry {
             graphs,
             read_through_factory: None,
+            secondary_index_factory: None,
         }
     }
 
@@ -76,6 +85,24 @@ impl GraphRegistry {
         self.read_through_factory = Some(factory);
     }
 
+    /// Install the server-layer secondary-index factory and register the per-graph
+    /// text/temporal/derived-OWL indexes onto every graph that ALREADY exists
+    /// (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl) —
+    /// the pre-created `__commons__` plus anything `load_all` recovered. Called once at
+    /// startup when the text/tsdb/owl features are active; future `create_graph` calls
+    /// pick the factory up automatically. Mirrors [`set_read_through_factory`](Self::set_read_through_factory).
+    pub fn set_secondary_index_factory(
+        &mut self,
+        factory: Arc<dyn crate::index::SecondaryIndexFactory>,
+    ) {
+        for entry in self.graphs.values() {
+            for idx in factory.for_graph(&entry.name) {
+                entry.core.register_index(idx);
+            }
+        }
+        self.secondary_index_factory = Some(factory);
+    }
+
     /// Create a new named graph.
     pub fn create_graph(
         &mut self,
@@ -91,6 +118,13 @@ impl GraphRegistry {
         // (CONCEPT:EG-KG.storage.read-through-seam-exercised), so a graph created after startup is eviction-safe too.
         if let Some(factory) = &self.read_through_factory {
             core.set_read_through(factory.for_graph(name));
+        }
+        // Wire the per-graph server-layer indexes (text/temporal/derived-OWL) when the
+        // factory is installed, so a graph created after startup is index-maintained too.
+        if let Some(factory) = &self.secondary_index_factory {
+            for idx in factory.for_graph(name) {
+                core.register_index(idx);
+            }
         }
         self.graphs.insert(
             name.to_string(),
