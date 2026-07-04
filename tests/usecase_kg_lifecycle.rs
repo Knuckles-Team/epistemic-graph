@@ -1,4 +1,4 @@
-//! HIGH-VALUE USE-CASE SUITE #5 — KG lifecycle with validation & inference (CONCEPT:EG-438).
+//! HIGH-VALUE USE-CASE SUITE #5 — KG lifecycle with validation & inference (CONCEPT:EG-KG.query.usecase-kg-lifecycle).
 //!
 //! The full write-path lifecycle of a knowledge graph, proven end-to-end over the REAL
 //! server `dispatch`:
@@ -185,7 +185,7 @@ async fn shacl_conforms(state: &Arc<RwLock<ServerState>>, id: u64, data_graph: &
     }
 }
 
-/// THE KG-lifecycle proof (CONCEPT:EG-438): validate → atomic cross-modal commit → inference
+/// THE KG-lifecycle proof (CONCEPT:EG-KG.query.usecase-kg-lifecycle): validate → atomic cross-modal commit → inference
 /// closure → vector re-index → consistent concurrent reads.
 #[tokio::test]
 async fn validate_commit_infer_reindex_under_concurrency_eg438() {

@@ -15,21 +15,21 @@
 //!    with a captured predicate read-set commits AFTER a concurrent txn inserts a phantom
 //!    matching that predicate → the phantom flips `validate()` and the serializable txn
 //!    rolls back (`Commit` returns `false`), while its own cross-modal writes never land.
-//!  * **EG-391 (test 5, CONCEPT:EG-427)** — RLS per-agent visibility on a fused Reason→Rank
+//!  * **EG-391 (test 5, CONCEPT:EG-KG.query.overlay-leg-rls-filter)** — RLS per-agent visibility on a fused Reason→Rank
 //!    over BOTH the committed base and the staged-overlay legs (identities + `_owner`/
 //!    `_visibility` node blobs + caller-threaded `agent_id`; the overlay-leg seam is a
 //!    post-overlay `rls.filter_view` in `run_unified_overlaid`).
-//!  * **EG-393 (test 10, CONCEPT:EG-428)** — pgwire + `/sparql` + native consistent snapshot:
+//!  * **EG-393 (test 10, CONCEPT:EG-KG.query.tri-surface-snapshot-harness)** — pgwire + `/sparql` + native consistent snapshot:
 //!    three listeners on ONE `ServerState` all observe the SAME mixed committed snapshot.
-//!  * **EG-394 (test 7, CONCEPT:EG-429)** — encryption-at-rest + cross-modal read; a keyed
+//!  * **EG-394 (test 7, CONCEPT:EG-KG.storage.encryption-reopen-roundtrip)** — encryption-at-rest + cross-modal read; a keyed
 //!    `RedbBackend` reopened with the WRONG key FAILS the read (no silent plaintext).
-//!  * **EG-395 (test 8, CONCEPT:EG-430)** — streaming/CDC → live materialized cross-modal
+//!  * **EG-395 (test 8, CONCEPT:EG-KG.query.cdc-live-view-rebuild)** — streaming/CDC → live materialized cross-modal
 //!    view rebuild via a `CdcHub` continuous query maintained off the change stream.
 //!
 //! Tracked-but-`#[ignore]`d (each a north_star.md open row with its refined precise gap):
-//!  * EG-396 (test 4, CONCEPT:EG-431) — cross-shard txn under Raft; kill coordinator mid-2PC
+//!  * EG-396 (test 4, CONCEPT:EG-KG.query.crossshard-2pc-open-reason) — cross-shard txn under Raft; kill coordinator mid-2PC
 //!    → single decision. GENUINE GAP + out of `full` scope (raft is a `cluster`-only feature).
-//!  * EG-397 (test 11, CONCEPT:EG-432) — KV-cache warm-fork fan-out. CROSS-REPO gap (the
+//!  * EG-397 (test 11, CONCEPT:EG-KG.query.warmfork-fanout-open-reason) — KV-cache warm-fork fan-out. CROSS-REPO gap (the
 //!    warm-fork primitive lives in agent-utilities, not this engine).
 //!
 //! Gated at the module level on `query` + `tsdb` + `owl-plan` (the in-txn cross-modal
@@ -543,7 +543,7 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Advanced roundtrips CLOSED (handoff-1 track F, CONCEPT:EG-427..EG-430) — the
+// Advanced roundtrips CLOSED (handoff-1 track F, CONCEPT:EG-KG.query.overlay-leg-rls-filter..EG-KG.query.cdc-live-view-rebuild) — the
 // achievable specs turned GREEN by building the missing test-surface fixtures /
 // harnesses. The two genuinely-hard rows (EG-396 cross-shard Raft 2PC, EG-397
 // warm-fork) stay `#[ignore]`d below with a refined, precise reason + a north_star row.
@@ -567,7 +567,7 @@ fn req_as(id: u64, agent: &str, method: Method) -> Request {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// EG-391 (test 5) — RLS per-agent visibility on a fused Reason→Rank AND the overlay path.
-/// GREEN (CONCEPT:EG-391 / seam CONCEPT:EG-427): with an `IsolationLayer` carrying per-agent
+/// GREEN (CONCEPT:EG-391 / seam CONCEPT:EG-KG.query.overlay-leg-rls-filter): with an `IsolationLayer` carrying per-agent
 /// row-visibility rules, an in-txn `run_unified_overlaid` must hide rows agent B may not see
 /// from BOTH the committed base AND the staged-overlay legs of a fused `Reason → Rank`, while
 /// agent A (the owner) sees them.
@@ -578,7 +578,7 @@ fn req_as(id: u64, agent: &str, method: Method) -> Request {
 /// on). A txn STAGES two more `Robot` rows (one public, one `agent_a`-private) with embeddings.
 /// The fused plan `[Reason<Machine> |> Rank ~[1,0] |> Limit]` runs in-txn as each agent:
 ///   * agent_b sees ONLY the public rows (`pub_r`, `stg_pub`) — the committed private row is
-///     dropped by `filter_view` on the base, the STAGED private row by the EG-427 post-overlay
+///     dropped by `filter_view` on the base, the STAGED private row by the EG-KG.query.overlay-leg-rls-filter post-overlay
 ///     `filter_view` (without it the staged private row would leak);
 ///   * agent_a (the owner) sees ALL FOUR.
 #[cfg(feature = "security")]
@@ -654,7 +654,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     }
 
     // ── STAGE two more Robot rows in a txn: one public, one agent_a-private, each with an
-    // embedding (the staged-overlay leg the EG-427 filter must also cover). ──
+    // embedding (the staged-overlay leg the EG-KG.query.overlay-leg-rls-filter filter must also cover). ──
     let txn = begin(&state, 7, None).await;
     ok(
         &state,
@@ -744,7 +744,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     };
 
     // agent_b: ONLY the public rows — the committed private row is hidden on the base leg,
-    // the STAGED private row on the overlay leg (the EG-427 post-overlay filter).
+    // the STAGED private row on the overlay leg (the EG-KG.query.overlay-leg-rls-filter post-overlay filter).
     assert_eq!(
         run_as(12, "agent_b").await,
         vec!["pub_r".to_string(), "stg_pub".to_string()],
@@ -798,7 +798,7 @@ async fn sparql_post(addr: &str, query: &str) -> String {
 }
 
 /// EG-393 (test 10) — pgwire + `/sparql` + native consistent snapshot after a mixed commit.
-/// GREEN (CONCEPT:EG-428): a pgwire listener, a `/sparql` HTTP listener and the native
+/// GREEN (CONCEPT:EG-KG.query.tri-surface-snapshot-harness): a pgwire listener, a `/sparql` HTTP listener and the native
 /// `dispatch` path all bound to the SAME in-process `ServerState`. After ONE mixed
 /// cross-modal `BEGIN…COMMIT` (graph node + embedding + a second node + a `subClassOf`
 /// graph edge + an OWL axiom), a read over EACH of the three surfaces observes the SAME
@@ -1007,7 +1007,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
 static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// EG-394 (test 7) — encryption-at-rest + cross-modal read; a wrong key FAILS (no silent
-/// plaintext). GREEN (CONCEPT:EG-429): a keyed `RedbBackend` (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+/// plaintext). GREEN (CONCEPT:EG-KG.storage.encryption-reopen-roundtrip): a keyed `RedbBackend` (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`
 /// = K1) takes a cross-modal commit (graph node + edge + a vector embedding, sealed with
 /// ChaCha20-Poly1305). Reopened with K1 the fused cross-modal read (`read_graph_dump` = nodes
 /// + edges + the semantic/embedding blob) DECRYPTS; reopened with a WRONG key K2 the read
@@ -1136,7 +1136,7 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// EG-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild. GREEN
-/// (CONCEPT:EG-430): a materialized view (a `CdcHub` continuous query — the streaming-native
+/// (CONCEPT:EG-KG.query.cdc-live-view-rebuild): a materialized view (a `CdcHub` continuous query — the streaming-native
 /// live view available in the `full` build; the `MatViewStore` variant needs the cluster-tier
 /// `compute-dist`/`raft` layer, NOT in `full`) is subscribed to `state.cdc`. A cross-modal
 /// write (graph nodes + a vector embedding + a graph edge) emits CDC change events; the view
@@ -1250,7 +1250,7 @@ async fn streaming_cdc_matview_rebuild_eg395() {
 /// EG-396 (test 4) — cross-shard txn spanning modalities under Raft; kill the coordinator
 /// mid-2PC → a SINGLE decision (all shards commit or all abort — no split-brain).
 #[tokio::test]
-#[ignore = "GENUINE GAP (CONCEPT:EG-431), out of the `full` test scope. The 2PC coordinator \
+#[ignore = "GENUINE GAP (CONCEPT:EG-KG.query.crossshard-2pc-open-reason), out of the `full` test scope. The 2PC coordinator \
             (CrossShardCoordinator) + multi_raft live behind the `cluster`/`raft`+`compute-dist` \
             features, which are NOT in `full` (this file runs under `--features full`), so a \
             raft-gated harness here would not even compile/run in the gate. Standing up >1 \
@@ -1268,7 +1268,7 @@ async fn cross_shard_raft_2pc_single_decision_eg396() {
 /// EG-397 (test 11) — KV-cache warm-fork fan-out reusing cross-modal context, isolated on
 /// divergent writes.
 #[tokio::test]
-#[ignore = "CROSS-REPO GAP (CONCEPT:EG-432): the warm-FORK sandbox primitive (ForkableSandbox / \
+#[ignore = "CROSS-REPO GAP (CONCEPT:EG-KG.query.warmfork-fanout-open-reason): the warm-FORK sandbox primitive (ForkableSandbox / \
             WarmParentRegistry / forkserver, ORCH-1.86..93) lives in agent-utilities, NOT this \
             engine. Reachable engine-side seams are the KV page store (eg-kvcache: dedup/LRU/\
             data-version EG-364) and the cross-modal read surface this file already proves — but \
