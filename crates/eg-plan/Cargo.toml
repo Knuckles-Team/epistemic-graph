@@ -17,6 +17,12 @@ name = "eg_plan"
 # feature, exactly as the facade gates `query`.
 default = []
 query = ["dep:eg-query", "eg-query/sql"]
+# The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer). The engine
+# itself compiles under `query` (beside the executor) and is active by default with the
+# runtime kill-switch `EPISTEMIC_GRAPH_COST_OPT=0` → identity; this feature is the FACADE tier
+# selector (implies `query`) that the `full`/`node` profiles turn on. A `pi`/default build
+# links no DataFusion and never reaches `plan_optimize`, so it is unaffected.
+cost-opt = ["query"]
 # Lexical BM25 `RankText` op + the RRF `FuseRrf` hybrid (CONCEPT:KG-2.215). Pulls
 # eg-text's Tantivy index (the `tantivy` backend) and turns on the `text` wire
 # variants in eg-types. It IMPLIES `query` because the new ops live inside the

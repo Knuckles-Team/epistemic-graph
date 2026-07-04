@@ -1,0 +1,27 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&optimized.ops)
+---
+[
+    Scan {
+        label: "Doc",
+    },
+    FuseRrf {
+        branches: [
+            [
+                RankMentions,
+            ],
+            [
+                Rank {
+                    query: [
+                        1.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                },
+            ],
+        ],
+        k: 0.0,
+    },
+]
