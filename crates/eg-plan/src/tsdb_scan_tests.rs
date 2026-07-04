@@ -355,6 +355,173 @@ fn tsdb_in_txn_ryow_staged_overlay() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// CONCEPT:EG-413 — `TsScan(series) → Window(60s) → Rank → Limit`: the windowed aggregate
+/// CONSUMES the `(ts, value)` rows the tsdb SOURCE emits and PRODUCES one row per non-empty
+/// 60-second tumbling bucket (`id` = aligned bucket start ns, `score` = the MEAN), which
+/// then composes downstream into a vector `Rank` + `Limit`. Before EG-413 a TsScan row's
+/// numeric id was not a graph node, so `Window` dropped every row and produced nothing.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsscan_window_mean_consumes_and_composes() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+
+    // Series "temp": 1s=10, 2s=20, 3s=30 (see build_series). A 60s window aligns all three
+    // points to ONE bucket (start 0), so the mean is (10+20+30)/3 = 20.
+    let path = temp_store_path("window_mean");
+    let store = build_series(&path);
+    let semantic = SemanticStore::new();
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+
+    // TsScan → Window(60s): one bucket (start 0), mean = 20.
+    let win = Plan::new(vec![
+        Op::TsScan {
+            series: vec!["temp".into()],
+            from: 0.0,
+            to: 10.0,
+        },
+        Op::Window { secs: 60.0 },
+    ]);
+    let out = execute(&win, &ctx).unwrap();
+    let rows: Vec<(String, Option<f32>)> =
+        out.rows().iter().map(|r| (r.id.clone(), r.score)).collect();
+    assert_eq!(
+        rows,
+        vec![("0".to_string(), Some(20.0))],
+        "TsScan → Window(60s) must yield ONE bucket at start 0 with mean 20"
+    );
+
+    // Finer buckets: the points sit at 1s/2s/3s, so a 1-second window buckets each on its
+    // own — 3 buckets (aligned to seconds 1/2/3), each the point's value.
+    let fine = Plan::new(vec![
+        Op::TsScan {
+            series: vec!["temp".into()],
+            from: 0.0,
+            to: 10.0,
+        },
+        Op::Window { secs: 1.0 },
+    ]);
+    let fine_out = execute(&fine, &ctx).unwrap();
+    assert_eq!(
+        fine_out.len(),
+        3,
+        "a 1s window (< the 1e9-ns point spacing) keeps each point its own bucket"
+    );
+
+    // Downstream compose: Window → Limit truncates the windowed series (proves the RowSet
+    // flows on unchanged).
+    let composed = Plan::new(vec![
+        Op::TsScan {
+            series: vec!["temp".into()],
+            from: 0.0,
+            to: 10.0,
+        },
+        Op::Window { secs: 1.0 },
+        Op::Limit { k: 2 },
+    ]);
+    assert_eq!(
+        execute(&composed, &ctx).unwrap().len(),
+        2,
+        "Window output composes into a downstream Limit"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// CONCEPT:EG-414 — the selectable-aggregate `Op::WindowAgg` runs the SAME tumbling
+/// windower with a chosen aggregate: over "temp" (10/20/30 in one 60s bucket) SUM=60,
+/// MIN=10, MAX=30, COUNT=3.
+#[cfg(feature = "timeseries")]
+#[test]
+fn window_agg_selects_the_aggregate() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+
+    let path = temp_store_path("window_agg");
+    let store = build_series(&path);
+    let semantic = SemanticStore::new();
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+
+    let agg_value = |agg: &str| -> f32 {
+        let plan = Plan::new(vec![
+            Op::TsScan {
+                series: vec!["temp".into()],
+                from: 0.0,
+                to: 10.0,
+            },
+            Op::WindowAgg {
+                secs: 60.0,
+                agg: agg.into(),
+            },
+        ]);
+        let out = execute(&plan, &ctx).unwrap();
+        assert_eq!(out.len(), 1, "one 60s bucket for agg {agg}");
+        out.rows()[0].score.unwrap()
+    };
+
+    assert_eq!(agg_value("sum"), 60.0);
+    assert_eq!(agg_value("min"), 10.0);
+    assert_eq!(agg_value("max"), 30.0);
+    assert_eq!(agg_value("count"), 3.0);
+    assert_eq!(agg_value("mean"), 20.0);
+    // An unknown selector degrades to the canonical MEAN (never errs).
+    assert_eq!(agg_value("bogus"), 20.0);
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// REGRESSION: `Window` over GRAPH-NODE rows (id = node, ts = `valid_from`, value =
+/// `score`|`value` prop) is UNCHANGED by the EG-413 tsdb-row path — a node without a valid
+/// ts/value is still dropped, never reinterpreted as a bare timestamp.
+#[cfg(feature = "timeseries")]
+#[test]
+fn window_over_graph_nodes_is_unchanged() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+    use serde_json::json;
+
+    let core = GraphCore::new();
+    let blob = |v: serde_json::Value| rmp_serde::to_vec_named(&v).unwrap();
+    // Two Event nodes with a valid_from ts (ns) + a numeric value, one in each 60s bucket;
+    // plus one node with NO valid_from (must be dropped, not reinterpreted).
+    core.add_node(
+        "e1".into(),
+        blob(json!({ "type": "Event", "valid_from": 1_000_000_000i64, "value": 10.0 })),
+    );
+    core.add_node(
+        "e2".into(),
+        blob(json!({ "type": "Event", "valid_from": 2_000_000_000i64, "value": 30.0 })),
+    );
+    core.add_node("e3".into(), blob(json!({ "type": "Event", "value": 99.0 }))); // no ts ⇒ dropped
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic);
+
+    // A 1e9-ns-wide window (secs=1) keeps e1 and e2 in separate buckets, e3 dropped.
+    let plan = Plan::new(vec![
+        Op::Scan {
+            label: "Event".into(),
+        },
+        Op::Window { secs: 1.0 },
+    ]);
+    let out = execute(&plan, &ctx).unwrap();
+    assert_eq!(
+        out.len(),
+        2,
+        "two valid-from Event nodes bucket; the ts-less one is dropped"
+    );
+}
+
 /// REGRESSION: with NO store attached to the ctx, `TsScan` yields no rows — degrade,
 /// never err (the `Rank`-over-empty-store precedent).
 #[cfg(feature = "timeseries")]
