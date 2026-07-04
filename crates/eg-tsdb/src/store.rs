@@ -370,6 +370,39 @@ impl SeriesStore {
         wtx.commit().map_err(redb_err)?;
         Ok(dropped)
     }
+
+    /// Drop a series ENTIRELY — every chunk plus its meta — in ONE write txn
+    /// (CONCEPT:EG-KG.storage.incremental-temporal). The removal primitive the graph-node
+    /// temporal index (`GraphTemporalIndex`) uses when its owning node is removed, and
+    /// the idempotent-replace primitive it uses on a node UPDATE (delete-then-append the
+    /// node's current series). Returns the number of chunks removed (0 for an unknown
+    /// series). Unlike [`evict_before`], this removes the meta row too, so a
+    /// subsequently re-appended series starts fresh (no stale count/span).
+    pub fn delete_series(&self, series_id: &str) -> Result<usize> {
+        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let mut dropped = 0usize;
+        {
+            let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
+            let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
+            // Collect the covering bucket keys first (can't remove while the range
+            // iterator borrows `chunks`), then delete each.
+            let lo = (series_id, 0u64);
+            let hi = (series_id, u64::MAX);
+            let mut buckets: Vec<u64> = Vec::new();
+            for item in chunks.range(lo..=hi).map_err(redb_err)? {
+                let (k, _v) = item.map_err(redb_err)?;
+                buckets.push(k.value().1);
+            }
+            for b in buckets {
+                if chunks.remove((series_id, b)).map_err(redb_err)?.is_some() {
+                    dropped += 1;
+                }
+            }
+            meta_tab.remove(series_id).map_err(redb_err)?;
+        }
+        wtx.commit().map_err(redb_err)?;
+        Ok(dropped)
+    }
 }
 
 /// Append `points` to `series_id` INTO an already-open redb [`WriteTransaction`] the
@@ -466,4 +499,109 @@ pub fn append_batch_in_wtx(
         .insert(series_id, mblob.as_slice())
         .map_err(redb_err)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod delete_series_tests {
+    use super::*;
+
+    fn tmp_store() -> SeriesStore {
+        let path = std::env::temp_dir().join(format!(
+            "eg-tsdb-delseries-{}-{}.redb",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        SeriesStore::open(&path).expect("open temp series store")
+    }
+
+    const BUCKET_NS: u64 = 3_600_000_000_000; // 1h buckets
+    fn fields() -> Vec<String> {
+        vec!["value".to_string()]
+    }
+
+    /// `delete_series` removes every chunk + the meta row; a subsequent `meta` is None
+    /// and a range scan is empty. The removal primitive the temporal index uses on a
+    /// node removal (CONCEPT:EG-KG.storage.incremental-temporal).
+    #[test]
+    fn delete_series_removes_all_and_meta() {
+        let s = tmp_store();
+        let pts: Vec<Point> = (0..10).map(|i| Point::single(i * 1000, i as f64)).collect();
+        s.append_batch("g\u{0}n1", 1, BUCKET_NS, &fields(), &pts)
+            .unwrap();
+        assert!(s.meta("g\u{0}n1").unwrap().is_some());
+        let dropped = s.delete_series("g\u{0}n1").unwrap();
+        assert!(dropped >= 1, "at least one chunk removed");
+        assert!(s.meta("g\u{0}n1").unwrap().is_none(), "meta row gone");
+        assert!(
+            s.scan_all("g\u{0}n1").unwrap().is_empty(),
+            "no points remain"
+        );
+        // Deleting an unknown series is a harmless no-op.
+        assert_eq!(s.delete_series("g\u{0}nope").unwrap(), 0);
+    }
+
+    /// EQUIVALENCE (CONCEPT:EG-KG.storage.incremental-temporal): an INCREMENTAL sequence
+    /// — append n1, append n2, then remove n1 (delete_series) — leaves the store in the
+    /// IDENTICAL state (per-series `scan_all`) as a full REBUILD that only appended the
+    /// survivor n2. This is the primitive the `GraphTemporalIndex.apply_delta` (add +
+    /// remove) reduces to.
+    #[test]
+    fn incremental_delete_equals_rebuild_from_survivors() {
+        let n1: Vec<Point> = (0..5).map(|i| Point::single(i * 1000, i as f64)).collect();
+        let n2: Vec<Point> = (0..7)
+            .map(|i| Point::single(i * 500, (i * 3) as f64))
+            .collect();
+
+        // Incremental: add both, then remove n1.
+        let inc = tmp_store();
+        inc.append_batch("g\u{0}n1", 1, BUCKET_NS, &fields(), &n1)
+            .unwrap();
+        inc.append_batch("g\u{0}n2", 1, BUCKET_NS, &fields(), &n2)
+            .unwrap();
+        inc.delete_series("g\u{0}n1").unwrap();
+
+        // Rebuild: only the survivor.
+        let base = tmp_store();
+        base.append_batch("g\u{0}n2", 1, BUCKET_NS, &fields(), &n2)
+            .unwrap();
+
+        assert!(inc.scan_all("g\u{0}n1").unwrap().is_empty());
+        assert_eq!(
+            inc.scan_all("g\u{0}n2").unwrap(),
+            base.scan_all("g\u{0}n2").unwrap(),
+            "incremental survivor series must equal the rebuild baseline"
+        );
+        assert_eq!(
+            inc.meta("g\u{0}n1").unwrap(),
+            base.meta("g\u{0}n1").unwrap()
+        );
+    }
+
+    /// Idempotent REPLACE (the node-UPDATE path): delete_series then re-append yields
+    /// EXACTLY the new series (no stale points from the prior value), == appending the
+    /// new series into a fresh store.
+    #[test]
+    fn delete_then_reappend_is_exact_replace() {
+        let old: Vec<Point> = (0..9).map(|i| Point::single(i * 1000, 1.0)).collect();
+        let new: Vec<Point> = (0..3).map(|i| Point::single(i * 2000, 9.0)).collect();
+
+        let s = tmp_store();
+        s.append_batch("g\u{0}n", 1, BUCKET_NS, &fields(), &old)
+            .unwrap();
+        s.delete_series("g\u{0}n").unwrap();
+        s.append_batch("g\u{0}n", 1, BUCKET_NS, &fields(), &new)
+            .unwrap();
+
+        let base = tmp_store();
+        base.append_batch("g\u{0}n", 1, BUCKET_NS, &fields(), &new)
+            .unwrap();
+
+        assert_eq!(
+            s.scan_all("g\u{0}n").unwrap(),
+            base.scan_all("g\u{0}n").unwrap()
+        );
+    }
 }
