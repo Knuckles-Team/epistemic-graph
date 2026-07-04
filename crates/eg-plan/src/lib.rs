@@ -86,6 +86,12 @@ pub mod nl;
 // the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
 #[cfg(feature = "federation")]
 pub mod federation;
+/// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
+/// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
+/// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;
+/// runtime kill-switch `EPISTEMIC_GRAPH_COST_OPT=0` → identity passthrough.
+#[cfg(feature = "query")]
+pub mod optimizer;
 #[cfg(feature = "query")]
 pub mod oracle;
 
@@ -122,6 +128,15 @@ pub use exec::{execute, PlanCtx, PlanExt};
 /// identity/serial in this tier, so `execute` is behavior-identical.
 #[cfg(feature = "query")]
 pub use exec::{plan_optimize, Driver, SerialDriver};
+
+/// Lane A's cross-modal optimizer surface (CONCEPT:EG-KG.query.xmodal-cost-optimizer): the
+/// `optimize(plan, ctx) -> Plan` rule-engine entry point `plan_optimize` drives, its
+/// `enabled()` runtime kill-switch, and the plan-time cardinality/cost estimators the rules
+/// read (`ModalityCardinality` + the O(1) `PlanStats` catalog).
+#[cfg(feature = "query")]
+pub use cost::{ModalityCardinality, PlanStats};
+#[cfg(feature = "query")]
+pub use optimizer::{enabled as cost_opt_enabled, optimize, rule_names as cost_opt_rule_names};
 
 /// The server-side text→vector embedder seam (CONCEPT:EG-KG.compute.no-embedder-bound-op): the `TextEmbedder` trait
 /// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the

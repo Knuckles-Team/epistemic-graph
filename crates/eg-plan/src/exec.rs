@@ -335,9 +335,16 @@ pub fn execute(plan: &Plan, ctx: &PlanCtx) -> Result<RowSet, String> {
 /// byte-for-byte the prior fold. Lane A fills the body (reordering `Filter`/`AsOf` ahead
 /// of `Rank`, fusing RRF branches, …) WITHOUT re-touching the per-op arms or [`execute`];
 /// the differential oracle proves the rewritten plan returns the same result set.
-pub fn plan_optimize(plan: Plan, _ctx: &PlanCtx) -> Plan {
-    // Lane 0 = identity. Lane A rewrites here.
-    plan
+pub fn plan_optimize(plan: Plan, ctx: &PlanCtx) -> Plan {
+    // Lane A fills the seam: the cross-modal cost optimizer rewrites the logical plan into a
+    // cheaper-but-equivalent one (CONCEPT:EG-KG.query.xmodal-cost-optimizer). The runtime
+    // kill-switch `EPISTEMIC_GRAPH_COST_OPT=0` short-circuits back to the Lane-0 identity
+    // passthrough — byte-for-byte the pre-optimizer fold — leaving `execute` unchanged.
+    if crate::optimizer::enabled() {
+        crate::optimizer::optimize(&plan, ctx)
+    } else {
+        plan
+    }
 }
 
 /// The physical EXECUTION-driver seam (CONCEPT:EG-KG.query.exec-driver-seam) — the trait a
