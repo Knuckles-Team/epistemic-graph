@@ -661,6 +661,85 @@ mod rerank_tests {
             "MMR must surface the diverse 'c' ahead of the redundant 'b'"
         );
     }
+
+    /// CONCEPT:EG-KG.query.reason-decay-in-plan — confidence time-DECAY folds INTO a single
+    /// fused plan. The SAME `Op::Reason` plan, executed under two different `now` values
+    /// (via `PlanCtx::with_decay`), yields DIFFERENT decayed membership scores for the same
+    /// individual — proving Ebbinghaus decay is now an IN-PLAN signal that composes alongside
+    /// the bi-temporal `Op::AsOf` leg (both read the SAME temporal substrate), resolving the
+    /// EG-KG.query.decay-not-foldable-finding seam gap. Without a bound decay context the op is
+    /// decay-NEUTRAL (byte-for-byte the prior leaf-stable `Reason`).
+    #[cfg(feature = "owl")]
+    #[test]
+    fn reason_confidence_decays_in_plan_at_two_now_values() {
+        // `Sensor ⊑ Device`; the node's string `type:"Sensor"` bridges into the target's
+        // namespace, so REASON <…/Device> infers the Sensor node a Device with confidence
+        // = stored_confidence · ebbinghaus_weight(age, half_life) · subclass_conf(=1.0 hard).
+        const ONT: &str = "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+            <http://x/Sensor> rdfs:subClassOf <http://x/Device> .\n";
+        let hl = 100.0_f64;
+        let t0 = 1_000_u64; // the fact's last_access instant.
+        let core = GraphCore::new();
+        core.add_node(
+            "s1".into(),
+            blob(json!({"type":"Sensor","confidence":1.0,"last_access":t0})),
+        );
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+
+        let plan = Plan::new(vec![Op::Reason {
+            target_class: "http://x/Device".into(),
+            ontology: ONT.into(),
+        }]);
+
+        let score_at = |now: u64| -> f32 {
+            let ctx = PlanCtx::new(&view, &sem).with_decay(now, hl);
+            let out = plan.execute(&ctx).unwrap();
+            let row = out
+                .rows()
+                .iter()
+                .find(|r| r.id == "s1")
+                .expect("s1 inferred a Device");
+            row.score.expect("membership carries a confidence score")
+        };
+
+        // now = t0 (age 0) → undecayed (weight 1.0) → ~1.0.
+        let fresh = score_at(t0);
+        // now = t0 + half_life (age = 1 half-life) → weight 0.5 → ~0.5.
+        let one_hl = score_at(t0 + hl as u64);
+        // now = t0 + 2·half_life (age = 2 half-lives) → weight 0.25 → ~0.25.
+        let two_hl = score_at(t0 + 2 * hl as u64);
+
+        assert!(
+            (fresh - 1.0).abs() < 1e-6,
+            "fresh membership is undecayed: {fresh}"
+        );
+        assert!(
+            (one_hl - 0.5).abs() < 1e-3,
+            "one half-life halves the in-plan membership confidence: {one_hl}"
+        );
+        assert!(
+            two_hl < one_hl && one_hl < fresh,
+            "the SAME Reason plan decays monotonically as `now` advances: {fresh} > {one_hl} > {two_hl}"
+        );
+
+        // Decay-NEUTRAL default (no `with_decay`): the op is a stable leaf source, undecayed.
+        let neutral = {
+            let ctx = PlanCtx::new(&view, &sem);
+            plan.execute(&ctx)
+                .unwrap()
+                .rows()
+                .iter()
+                .find(|r| r.id == "s1")
+                .unwrap()
+                .score
+                .unwrap()
+        };
+        assert!(
+            (neutral - 1.0).abs() < 1e-6,
+            "absent a decay context the in-plan Reason stays decay-neutral: {neutral}"
+        );
+    }
 }
 
 /// `Op::Window` execution proofs (CONCEPT:EG-KG.query.streaming-execution). The planner now runs a real

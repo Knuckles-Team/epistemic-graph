@@ -12,11 +12,17 @@
 //! modality it names; the hybrid winner beats every single-modality ranking.
 //!
 //! SEAMS exercised: vector⇄graph⇄text⇄OWL⇄time fusion in one plan.
-//! REAL GAP found (→ docs/north_star.md, CONCEPT:EG-KG.query.decay-not-foldable-finding): confidence time-DECAY cannot be
-//! folded into the single fused plan — `Op::Reason` runs decay-neutral (`now=0`), so decay
-//! is proven here on the reasoner surface (`eg_rdf::owl::fact_confidence`) instead.
-//! REAL GAP (CONCEPT:EG-KG.query.served-text-index-unbound-finding): the SERVED `run_unified` binds no BM25 index, so the lexical
-//! leg is a no-op through RPC today — hence this suite drives the executor directly.
+//! RESOLVED (→ docs/north_star.md, CONCEPT:EG-KG.query.decay-not-foldable-finding →
+//! CONCEPT:EG-KG.query.reason-decay-in-plan): confidence time-DECAY now FOLDS INTO the single
+//! fused plan — `Op::Reason` decays confidence IN-PLAN when a `(now, half_life)` context is
+//! bound via `PlanCtx::with_decay` (decay-neutral by default), so decay composes alongside the
+//! bi-temporal `AS OF` leg in ONE plan. Proven both on the reasoner surface
+//! (`eg_rdf::owl::fact_confidence`) AND in-plan below (`confidence_decay_folds_into_reason_plan`).
+//! RESOLVED (CONCEPT:EG-KG.query.served-text-index-unbound-finding →
+//! CONCEPT:EG-KG.query.served-text-index-binding): the SERVED `run_unified` now binds a
+//! snapshot-derived BM25 index, so the lexical leg returns real hits through RPC (see
+//! `tests/served_query_completeness.rs`); this suite still drives the executor directly to
+//! isolate each modality.
 //!
 //! Module-gated on the modality legs it fuses; compiles + runs under `--features full`.
 #![cfg(all(feature = "query", feature = "text", feature = "owl-plan"))]
@@ -346,5 +352,64 @@ fn confidence_decay_reweights_by_recency_eg434() {
     assert!(
         new_weaker > old_strong,
         "a fresh weaker memory outweighs a stale strong one ({new_weaker} > {old_strong})"
+    );
+}
+
+/// Confidence DECAY, now folded IN-PLAN (CONCEPT:EG-KG.query.reason-decay-in-plan, resolving
+/// the EG-KG.query.decay-not-foldable-finding seam gap). The SAME `Op::Reason <Memory>` plan,
+/// executed under two `now` values via `PlanCtx::with_decay`, decays each memory's inferred
+/// membership confidence on the Ebbinghaus curve — so a fresh memory outranks an equally-
+/// confident stale one WITHIN the fused plan, no longer only on the out-of-band reasoner
+/// surface. Decay-neutral by default (no `with_decay`), so the other suites are unchanged.
+#[test]
+fn confidence_decay_folds_into_reason_plan() {
+    // Episode ⊑ Memory; two episodes with equal stored confidence but different recency.
+    const ONT: &str = "@prefix rdfs: <http://mem/> .\n\
+        <http://mem/Episode> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://mem/Memory> .\n";
+    let half_life = 100.0_f64;
+    let t0 = 10_000_u64;
+    let core = GraphCore::new();
+    // `fresh`: last accessed at t0. `stale`: last accessed 2 half-lives earlier.
+    core.add_node(
+        "fresh".into(),
+        blob(json!({"type":"Episode","confidence":1.0,"last_access": t0})),
+    );
+    core.add_node(
+        "stale".into(),
+        blob(json!({"type":"Episode","confidence":1.0,"last_access": t0 - 2 * half_life as u64})),
+    );
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let plan = Plan::new(vec![Op::Reason {
+        target_class: "http://mem/Memory".into(),
+        ontology: ONT.into(),
+    }]);
+
+    // Bind the wall clock at t0: `fresh` (age 0) keeps confidence ~1.0; `stale` (age 2·hl)
+    // decays to ~0.25 — a difference produced ENTIRELY inside the executed plan.
+    let ctx = PlanCtx::new(&view, &semantic).with_decay(t0, half_life);
+    let out = execute(&plan, &ctx).unwrap();
+    let score = |id: &str| {
+        out.rows()
+            .iter()
+            .find(|r| r.id == id)
+            .and_then(|r| r.score)
+            .unwrap_or_else(|| panic!("{id} inferred a Memory in-plan"))
+    };
+    let (fresh, stale) = (score("fresh"), score("stale"));
+    assert!(
+        (fresh - 1.0).abs() < 1e-3,
+        "the fresh memory keeps full in-plan confidence: {fresh}"
+    );
+    assert!(
+        fresh > stale && stale < 0.4,
+        "the SAME Reason plan decays the stale memory below the fresh one in-plan: fresh={fresh} stale={stale}"
+    );
+    // `Op::Reason` results are DESCENDING by confidence, so the fresher memory ranks first.
+    assert_eq!(
+        out.ids().first().map(String::as_str),
+        Some("fresh"),
+        "in-plan decay ranks the fresher memory ahead of the stale one: {:?}",
+        out.ids()
     );
 }
