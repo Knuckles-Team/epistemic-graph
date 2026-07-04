@@ -95,6 +95,29 @@ pub fn parse_update(update_str: &str) -> Result<Update, String> {
     Update::parse(update_str, None).map_err(|e| format!("sparql update parse: {e}"))
 }
 
+/// Extract the ground triples an `INSERT DATA { … }` update inserts (CONCEPT:EG-372), so
+/// a caller that must STAGE (not directly apply) the axioms — e.g. the pgwire cross-modal
+/// transaction seam — can lower them to graph-native methods with the SAME RDF ⇄
+/// property-graph mapping the loader uses. Only `INSERT DATA` operations contribute
+/// (the staging-insert case); other update ops (DELETE DATA, DELETE/INSERT … WHERE,
+/// CLEAR/DROP/…) are ignored — a txn that needs them applies directly via [`execute`].
+pub fn insert_data_triples(update_str: &str) -> Result<Vec<Triple>, String> {
+    let update = parse_update(update_str)?;
+    let mut out = Vec::new();
+    for op in &update.operations {
+        if let GraphUpdateOperation::InsertData { data } = op {
+            for q in data {
+                out.push(Triple::new(
+                    q.subject.clone(),
+                    q.predicate.clone(),
+                    q.object.clone(),
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The constant named-graph IRIs an UPDATE references (so a caller — e.g. the `/sparql`
 /// endpoint — can pre-create them in its registry before executing). Covers ground data,
 /// CREATE/CLEAR/DROP targets, the LOAD destination, and constant insert/delete pattern
