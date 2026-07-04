@@ -106,6 +106,17 @@ mod xshard_harness;
 #[cfg(all(test, feature = "harness"))]
 mod reshard_harness;
 
+/// In-process cross-shard 2PC **modality-spanning** coordinator-kill harness
+/// (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness) — the `--features cluster`
+/// proof that closes EG-396: a cross-shard txn spanning the property-graph + RDF
+/// modalities across two Raft groups stays all-or-nothing when the coordinator is
+/// killed mid-2PC (recovery resolves to a SINGLE decision). Gated on `compute-dist`
+/// (which `cluster` implies) so the pub proof entry is reachable from an external
+/// `--features cluster` integration test, and its `#[cfg(test)]` scenarios ride the
+/// `cargo test --features cluster` gate.
+#[cfg(feature = "compute-dist")]
+pub mod xshard_modality_harness;
+
 /// Raft node id — a small integer assigned per cluster member.
 pub type NodeId = u64;
 
