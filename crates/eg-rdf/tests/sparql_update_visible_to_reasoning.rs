@@ -26,7 +26,7 @@ fn members_of(store: &MapStore, class: &str) -> HashSet<String> {
     let triples = tbox_triples_from_view(&view);
     let mut reasoner = Reasoner::from_triples(&triples);
     let cls = reasoner.classify();
-    let asserted = asserted_types_from_view(&view);
+    let asserted = asserted_types_from_view(&view, None);
     instances_of(&cls, &asserted, class).into_iter().collect()
 }
 
