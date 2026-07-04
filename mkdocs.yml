@@ -91,6 +91,7 @@ nav:
   - Capabilities & Parity Matrix: capabilities.md
   - Technical Overview: overview.md
   - Foundations:
+      - "North Star: Seamless": north_star.md
       - Master-of-all Engine: architecture/engine.md
       - Subsystems (C4 Containers): architecture/subsystems.md
       - Unified Planner & UQL: uql.md

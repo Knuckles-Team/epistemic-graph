@@ -11,6 +11,11 @@ It is **durable by default** (redb-authoritative — an acked write survives `ki
 configuration alone, from a Raspberry Pi single binary to a multi-node Raft cluster with cross-shard
 transactions.
 
+> **[North Star: Seamless](north_star.md)** — every cross-modal seam (a write→read path that crosses
+> OWL/vector/graph/timeseries/relational) is implemented **at every surface** — RPC, all SQL wires,
+> SPARQL, GraphQL — never merely flagged. Each surface is a thin parser/router onto the same committed
+> seam. See the [seam backlog](north_star.md#the-seam-backlog) for what is done vs. open.
+
 ```mermaid
 flowchart LR
     EDGE["Pi / edge<br/>embedded or pi-tier binary"]
