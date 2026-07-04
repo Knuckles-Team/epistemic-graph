@@ -1097,7 +1097,7 @@ async fn wire_txn_set_graph_rejected_while_open() {
 // the seam lands. They COMPILE against the real tokio-postgres client path.
 // ───────────────────────────────────────────────────────────────────────────
 
-/// SEAM (CONCEPT:EG-372): inside an open transaction, staged writes are visible to a
+/// SEAM (CONCEPT:EG-KG.txn.isolation-ryow-begin-set): inside an open transaction, staged writes are visible to a
 /// same-connection *SQL* read (read-your-own-writes — proven by
 /// `wire_txn_rollback_discards_and_ryow`) AND to an in-txn cross-modal `UQL …` read over
 /// the PGWIRE TEXT protocol — the entrypoint this PR adds onto the committed EG-359 RPC
@@ -1157,7 +1157,7 @@ async fn wire_txn_update_then_cross_modal_read() {
     client.simple_query("COMMIT").await.expect("COMMIT");
 }
 
-/// SEAM (CONCEPT:EG-372): a single transaction that stages FIVE modalities over the
+/// SEAM (CONCEPT:EG-KG.txn.isolation-ryow-begin-set): a single transaction that stages FIVE modalities over the
 /// PGWIRE TEXT protocol — a graph node (`INSERT INTO nodes`), a vector embedding
 /// (`SET EMBEDDING FOR`), a timeseries point (`INSERT INTO series`), an OWL/SPARQL axiom
 /// (`SPARQL UPDATE INSERT DATA`), and a `SPARQL CONSTRUCT` — then COMMITs them atomically
@@ -1228,7 +1228,7 @@ async fn wire_txn_mixed_five_modality_commit() {
     );
 }
 
-/// SEAM (CONCEPT:EG-372) — isolation + RYOW: a `BEGIN; SET EMBEDDING; INSERT INTO series;
+/// SEAM (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — isolation + RYOW: a `BEGIN; SET EMBEDDING; INSERT INTO series;
 /// <UQL join over graph+vector+tsdb>; COMMIT` reads its OWN writes inside the txn, while a
 /// SECOND connection sees NONE of them until COMMIT (the cross-modal writes are staged, not
 /// committed). After COMMIT the second connection reads the committed cross-modal state.
@@ -1302,7 +1302,7 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
     );
 }
 
-/// SEAM (CONCEPT:EG-375 / EG-376) — `REASON <iri>` + the string-type↔IRI-class bridge over
+/// SEAM (CONCEPT:EG-KG.query.reason-iri-parses-angle / EG-376) — `REASON <iri>` + the string-type↔IRI-class bridge over
 /// the PGWIRE wire. Off-txn (each statement auto-commits as one atomic cross-modal write):
 /// INSERT a bare-string-typed `Sensor` node, then stage the OWL axiom `<http://ex/Sensor>
 /// ⊑ <http://ex/Device>` via `SPARQL UPDATE`. A `UQL MATCH (:Sensor) |> REASON

@@ -29,7 +29,7 @@ pub enum Tok {
     Num(f64),
     /// A single- or double-quoted string literal (quotes stripped, `''`/`\"` unescaped).
     Str(String),
-    /// An angle-bracketed IRI `<scheme:...>` (CONCEPT:EG-375) — a whitespace-free
+    /// An angle-bracketed IRI `<scheme:...>` (CONCEPT:EG-KG.query.reason-iri-parses-angle) — a whitespace-free
     /// `<...>` run whose interior carries a `:` (a scheme). Stored WITH its brackets
     /// (`<http://ex/Device>`) so it round-trips as a canonical OWL class id for
     /// `REASON <iri>`. Distinguished from the comparison `<` (which is followed by a
@@ -136,7 +136,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
             b':' => simple(&mut out, &mut i, Tok::Colon),
             b',' => simple(&mut out, &mut i, Tok::Comma),
             b'>' => simple(&mut out, &mut i, Tok::Gt),
-            // `<` is either an angle-bracketed IRI (`<http://ex/Device>` — CONCEPT:EG-375)
+            // `<` is either an angle-bracketed IRI (`<http://ex/Device>` — CONCEPT:EG-KG.query.reason-iri-parses-angle)
             // or the comparison `<` (`year < 2022`). Try the IRI form first; it only
             // matches a whitespace-free `<...>` run whose interior carries a `:` (a scheme),
             // which a numeric comparison never does, so the two never collide.
@@ -271,7 +271,7 @@ fn lex_string(bytes: &[u8], start: usize, q: u8) -> Result<(String, usize), LexE
     })
 }
 
-/// Try to lex an angle-bracketed IRI starting at `start` (the `<`) — CONCEPT:EG-375.
+/// Try to lex an angle-bracketed IRI starting at `start` (the `<`) — CONCEPT:EG-KG.query.reason-iri-parses-angle.
 /// Returns `Some((iri_with_brackets, next))` when `bytes[start..]` opens a whitespace-
 /// free `<...>` run whose interior contains a `:` (a scheme separator); `None` otherwise
 /// (so the caller falls back to the comparison `<`). Never consumes across whitespace or

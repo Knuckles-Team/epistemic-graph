@@ -415,7 +415,7 @@ impl<'a> Parser<'a> {
     /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:EG-KG.query.sparql-completeness /
     /// EG-375). The OWL-inferred members of the named class seed (or, mid-pipeline, filter)
     /// the RowSet. The class may be a bare label (`REASON Mammal`) OR an explicit angle-
-    /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-375), the form the
+    /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-KG.query.reason-iri-parses-angle), the form the
     /// string-type↔IRI-class bridge resolves against. Feature-gated to `owl` — the feature
     /// that compiles the `Op::Reason` variant + its executor.
     #[cfg(feature = "owl")]

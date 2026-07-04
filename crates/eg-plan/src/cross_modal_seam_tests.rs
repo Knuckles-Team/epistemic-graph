@@ -214,7 +214,7 @@ fn reason_seeded_reorder_picks_winner() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// REASON <iri> mid-plan + string-type↔IRI-class bridge  (CONCEPT:EG-375 / EG-376)
+// REASON <iri> mid-plan + string-type↔IRI-class bridge  (CONCEPT:EG-KG.query.reason-iri-parses-angle / EG-376)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Two nodes carrying a BARE string `type` (no IRI, no `rdf:type` edge): `mm1` a
@@ -237,7 +237,7 @@ fn string_typed_devices() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), semantic)
 }
 
-/// SEAM (CONCEPT:EG-376) — the string-type↔IRI-class bridge: a `REASON <http://ex/Device>`
+/// SEAM (CONCEPT:EG-KG.ontology.string-type-iri-class) — the string-type↔IRI-class bridge: a `REASON <http://ex/Device>`
 /// SOURCE op includes the string-typed `{"type":"Sensor"}` node (bridged to
 /// `<http://ex/Sensor>` ⊑ `<http://ex/Device>`) and EXCLUDES `{"type":"Widget"}` (no
 /// subclass path to Device). Without the bridge a bare `"Sensor"` would never match the
@@ -261,7 +261,7 @@ fn reason_iri_bridges_string_typed_node() {
     );
 }
 
-/// SEAM (CONCEPT:EG-375) — `REASON <iri>` composing MID-PIPELINE: a `Scan → Rank → REASON
+/// SEAM (CONCEPT:EG-KG.query.reason-iri-parses-angle) — `REASON <iri>` composing MID-PIPELINE: a `Scan → Rank → REASON
 /// <http://ex/Device>` intersects the vector-ranked candidate set with the reasoned
 /// members of the explicit IRI class. `Scan(Sensor)` seeds the string-typed `mm1`, which
 /// survives the mid-plan `REASON <http://ex/Device>` (bridged); a `Scan(Widget) → REASON

@@ -72,7 +72,7 @@ mod tests {
         assert_eq!(parsed, hand, "UQL must parse to the hand-built Plan AST");
     }
 
-    /// CONCEPT:EG-375 — `REASON <iri>` parses: an angle-bracketed class IRI lexes as ONE
+    /// CONCEPT:EG-KG.query.reason-iri-parses-angle — `REASON <iri>` parses: an angle-bracketed class IRI lexes as ONE
     /// token and `parse_reason` lowers it to `Op::Reason { target_class: "<iri>" }`, so the
     /// explicit-IRI reasoner class is expressible at the UQL/pgwire surface. The comparison
     /// `<` (a numeric predicate) still lexes as `Lt` — the two forms never collide.
