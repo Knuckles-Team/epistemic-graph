@@ -1,4 +1,4 @@
-//! HIGH-VALUE USE-CASE SUITE #4 — observability / root-cause analysis (CONCEPT:EG-437).
+//! HIGH-VALUE USE-CASE SUITE #4 — observability / root-cause analysis (CONCEPT:EG-KG.query.usecase-observability-rca).
 //!
 //! An incident investigation fuses THREE modalities the way a real RCA does:
 //!   * a SERVICE-DEPENDENCY GRAPH (services + `DEPENDS_ON` edges) — traverse upstream from
@@ -100,7 +100,7 @@ fn build_metrics() -> SeriesStore {
     store
 }
 
-/// THE root-cause proof (CONCEPT:EG-437): the fused dependency-traverse + error-log vector
+/// THE root-cause proof (CONCEPT:EG-KG.query.usecase-observability-rca): the fused dependency-traverse + error-log vector
 /// rank surfaces `database` as the culprit, and the native tsdb window over the incident
 /// interval flags the metric anomaly the baseline window does not.
 #[test]
@@ -187,7 +187,7 @@ fn fused_dependency_vector_tsdb_root_cause_eg437() {
 }
 
 /// The native `Op::TsScan` reads exactly the points in the requested interval — the tsdb
-/// SOURCE leg the RCA window composes over (CONCEPT:EG-437).
+/// SOURCE leg the RCA window composes over (CONCEPT:EG-KG.query.usecase-observability-rca).
 #[test]
 fn tsscan_reads_native_series_points_eg437() {
     let store = build_metrics();

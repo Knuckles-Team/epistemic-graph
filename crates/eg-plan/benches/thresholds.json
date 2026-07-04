@@ -1,5 +1,5 @@
 {
-  "_comment": "CONCEPT:EG-423 — committed perf/recall regression thresholds for the eg-plan hybrid_queries bench, consumed by scripts/bench_gate.py. The recall floor is the TIGHT, deterministic gate (fixed dataset + fixed HNSW params). The per-bench p50 ceilings (nanoseconds) are DELIBERATELY generous (~10-100x a warm local run) so ordinary CI-machine variance never trips them — they only catch a CATASTROPHIC algorithmic regression (e.g. an accidental O(n^2) blowup in a leg). A bench absent under the run's feature set is skipped, not failed.",
+  "_comment": "CONCEPT:EG-KG.query.perf-recall-ci-gate — committed perf/recall regression thresholds for the eg-plan hybrid_queries bench, consumed by scripts/bench_gate.py. The recall floor is the TIGHT, deterministic gate (fixed dataset + fixed HNSW params). The per-bench p50 ceilings (nanoseconds) are DELIBERATELY generous (~10-100x a warm local run) so ordinary CI-machine variance never trips them — they only catch a CATASTROPHIC algorithmic regression (e.g. an accidental O(n^2) blowup in a leg). A bench absent under the run's feature set is skipped, not failed.",
   "recall_floor": 0.80,
   "latency_p50_ns_max": {
     "match_traverse_rank": 300000000,

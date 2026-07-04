@@ -1,4 +1,4 @@
-//! HIGH-VALUE USE-CASE SUITE #1 — agent-memory retrieval (CONCEPT:EG-434).
+//! HIGH-VALUE USE-CASE SUITE #1 — agent-memory retrieval (CONCEPT:EG-KG.query.usecase-agent-memory).
 //!
 //! The core use-case for agent-utilities: an agent's episodic memory is ingested as
 //! graph nodes + vector embeddings + a small OWL ontology, and ONE fused pipeline query
@@ -12,10 +12,10 @@
 //! modality it names; the hybrid winner beats every single-modality ranking.
 //!
 //! SEAMS exercised: vector⇄graph⇄text⇄OWL⇄time fusion in one plan.
-//! REAL GAP found (→ docs/north_star.md, CONCEPT:EG-439): confidence time-DECAY cannot be
+//! REAL GAP found (→ docs/north_star.md, CONCEPT:EG-KG.query.decay-not-foldable-finding): confidence time-DECAY cannot be
 //! folded into the single fused plan — `Op::Reason` runs decay-neutral (`now=0`), so decay
 //! is proven here on the reasoner surface (`eg_rdf::owl::fact_confidence`) instead.
-//! REAL GAP (CONCEPT:EG-440): the SERVED `run_unified` binds no BM25 index, so the lexical
+//! REAL GAP (CONCEPT:EG-KG.query.served-text-index-unbound-finding): the SERVED `run_unified` binds no BM25 index, so the lexical
 //! leg is a no-op through RPC today — hence this suite drives the executor directly.
 //!
 //! Module-gated on the modality legs it fuses; compiles + runs under `--features full`.
@@ -139,7 +139,7 @@ fn build_memory() -> MemoryFx {
 const MEMORY_ONT: &str = "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
     <http://mem/Episode> rdfs:subClassOf <http://mem/Memory> .\n";
 
-/// THE agent-memory retrieval proof (CONCEPT:EG-434): ONE fused plan honors semantic +
+/// THE agent-memory retrieval proof (CONCEPT:EG-KG.query.usecase-agent-memory): ONE fused plan honors semantic +
 /// lexical + graph-proximity (RRF), OWL inference, and bi-temporal `AS OF` — and the
 /// hybrid winner beats every single-modality ranking.
 #[test]
@@ -259,7 +259,7 @@ fn fused_memory_retrieval_honors_every_signal_eg434() {
     );
 }
 
-/// Graph EXPANSION as an explicit leg (CONCEPT:EG-434): a `Traverse` from the focal
+/// Graph EXPANSION as an explicit leg (CONCEPT:EG-KG.query.usecase-agent-memory): a `Traverse` from the focal
 /// `session` node reaches its 1-hop memory `target`, and a 2-hop expansion additionally
 /// reaches `lex_only` (session → target → lex_only) — the graph-walk retrieval modality.
 #[test]
@@ -308,13 +308,13 @@ fn graph_expansion_reaches_related_memories_eg434() {
     );
 }
 
-/// Confidence DECAY (CONCEPT:EG-434, and the EG-439 seam gap): a memory's contribution
+/// Confidence DECAY (CONCEPT:EG-KG.query.usecase-agent-memory, and the EG-KG.query.decay-not-foldable-finding seam gap): a memory's contribution
 /// weight decays with recency on the Ebbinghaus curve — a FRESH fact outranks a STALE one
 /// of equal stored confidence. Proven deterministically on the reasoner's public
 /// `fact_confidence(node_confidence, age, half_life)` surface. This is NOT foldable into
 /// the single fused plan above (the plan's `Op::Reason` runs decay-neutral at `now=0`), so
 /// it is exercised here on the surface where decay actually lives — the documented seam
-/// gap tracked as CONCEPT:EG-439 / docs/north_star.md.
+/// gap tracked as CONCEPT:EG-KG.query.decay-not-foldable-finding / docs/north_star.md.
 #[test]
 fn confidence_decay_reweights_by_recency_eg434() {
     use eg_rdf::owl::fact_confidence;

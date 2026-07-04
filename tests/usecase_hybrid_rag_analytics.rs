@@ -1,4 +1,4 @@
-//! HIGH-VALUE USE-CASE SUITE #3 — hybrid RAG + IN-ENGINE analytics (CONCEPT:EG-436).
+//! HIGH-VALUE USE-CASE SUITE #3 — hybrid RAG + IN-ENGINE analytics (CONCEPT:EG-KG.query.usecase-hybrid-rag-analytics).
 //!
 //! The differentiator: retrieve candidates via a graph+vector+text FUSED plan, then run
 //! numeric/ML analytics (PCA + kmeans) over the JOINED properties of exactly those
@@ -156,7 +156,7 @@ fn as_json(resp: &Response) -> serde_json::Value {
     }
 }
 
-/// THE hybrid-RAG + analytics proof (CONCEPT:EG-436): fused retrieval feeds in-engine
+/// THE hybrid-RAG + analytics proof (CONCEPT:EG-KG.query.usecase-hybrid-rag-analytics): fused retrieval feeds in-engine
 /// analytics; the compute runs over exactly the retrieved candidates, in-process.
 #[tokio::test]
 async fn fused_retrieval_feeds_in_engine_analytics_eg436() {

@@ -1,4 +1,4 @@
-//! Perf / recall CI benchmark (CONCEPT:EG-420/421/422) — the "Performance & Recall
+//! Perf / recall CI benchmark (CONCEPT:EG-KG.query.hybrid-latency-benches/recall-oracle-bench/synthetic-bench-dataset) — the "Performance & Recall
 //! Regression" track from the external review.
 //!
 //! It measures the two properties a unified cross-modal planner must not silently
@@ -17,7 +17,7 @@
 //!    (so a recall regression fails the bench binary directly) AND writes the measured
 //!    value to a JSON the CI gate (`scripts/bench_gate.py`) reports.
 //!
-//! The dataset builder (CONCEPT:EG-422) is a deterministic LCG — NO `rand` dep, NO
+//! The dataset builder (CONCEPT:EG-KG.query.synthetic-bench-dataset) is a deterministic LCG — NO `rand` dep, NO
 //! checked-in corpus — so every run is byte-comparable.
 //!
 //! Run: `cargo bench -p eg-plan --features "query,owl,text,timeseries"`
@@ -58,7 +58,7 @@ fn blob(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
 }
 
-/// The synthetic dataset (CONCEPT:EG-422). `n` `Doc` nodes chained by CITES (plus a
+/// The synthetic dataset (CONCEPT:EG-KG.query.synthetic-bench-dataset). `n` `Doc` nodes chained by CITES (plus a
 /// deterministic skip-edge fan so a multi-hop TRAVERSE has real branching), each with a
 /// `dim`-d embedding drawn from the seeded LCG. Returns the off-lock `GraphView`
 /// snapshot, the `SemanticStore`, and the raw `(id, vec)` list the brute-force oracle
