@@ -107,6 +107,37 @@ tier — see [the master-of-all engine](architecture/engine.md).)
   (4) a fleet of ~78 independent hosts with client-side routing — with the
   availability and durability caveats above applying to every one of them.
 
+## Fuzzing
+
+Two complementary layers fuzz the query surface:
+
+- **Structured, VALID pipelines (STABLE, in the `cargo test` gate).** The proptest
+  harness `crates/eg-plan/tests/fuzz_pipelines.rs`
+  (CONCEPT:EG-KG.query.pipeline-fuzz + EG-KG.query.concurrency-chaos-fuzz) generates
+  random but *valid* UQL pipelines up to 16 stages over 512 cases and asserts the
+  invariants a unified query engine must never violate (no panic/error, unique ids,
+  trailing `LIMIT` bound, determinism), plus a concurrency-chaos variant. It runs on
+  stable with no extra toolchain:
+
+  ```sh
+  cargo test -p eg-plan --test fuzz_pipelines
+  ```
+
+- **Unstructured, ARBITRARY bytes (nightly, out of the standard gate).** A
+  `cargo-fuzz`/libFuzzer target at `crates/eg-plan/fuzz/`
+  (CONCEPT:EG-KG.query.uql-libfuzzer-parse-target) feeds arbitrary bytes to
+  `eg_plan::uql::parse`, shaking out lexer/parser panics or hangs on malformed input.
+  The fuzz crate is a **detached workspace** (its own `[workspace]` table) so it never
+  rides the stable `cargo test` gate — libFuzzer needs the nightly toolchain + the
+  fuzzing sanitizer runtime that `cargo-fuzz` injects:
+
+  ```sh
+  cargo install cargo-fuzz            # once
+  cd crates/eg-plan/fuzz
+  cargo +nightly fuzz run uql_parse -- -runs=10000   # short smoke
+  cargo +nightly fuzz run uql_parse                  # open-ended soak
+  ```
+
 ## Notes
 
 - Numbers are for the hot in-memory CRUD path; analytic ops (clustering,

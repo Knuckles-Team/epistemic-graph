@@ -26,9 +26,12 @@
 //!  * **EG-395 (test 8, CONCEPT:EG-KG.query.cdc-live-view-rebuild)** — streaming/CDC → live materialized cross-modal
 //!    view rebuild via a `CdcHub` continuous query maintained off the change stream.
 //!
-//! Tracked-but-`#[ignore]`d (each a north_star.md open row with its refined precise gap):
-//!  * EG-396 (test 4, CONCEPT:EG-KG.query.crossshard-2pc-open-reason) — cross-shard txn under Raft; kill coordinator mid-2PC
-//!    → single decision. GENUINE GAP + out of `full` scope (raft is a `cluster`-only feature).
+//! EG-396 (test 4, CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness) is now GREEN under
+//! `--features cluster`: it is `cfg(feature = "cluster")`-gated (compiles out of the
+//! `--features full` gate, runs under `--features cluster`) and drives the in-crate
+//! `raft::xshard_modality_harness` multi-group 2PC coordinator-kill proof.
+//!
+//! Tracked-but-`#[ignore]`d (a north_star.md open row with its refined precise gap):
 //!  * EG-397 (test 11, CONCEPT:EG-KG.query.warmfork-fanout-open-reason) — KV-cache warm-fork fan-out. CROSS-REPO gap (the
 //!    warm-fork primitive lives in agent-utilities, not this engine).
 //!
@@ -1249,20 +1252,30 @@ async fn streaming_cdc_matview_rebuild_eg395() {
 
 /// EG-396 (test 4) — cross-shard txn spanning modalities under Raft; kill the coordinator
 /// mid-2PC → a SINGLE decision (all shards commit or all abort — no split-brain).
-#[tokio::test]
-#[ignore = "GENUINE GAP (CONCEPT:EG-KG.query.crossshard-2pc-open-reason), out of the `full` test scope. The 2PC coordinator \
-            (CrossShardCoordinator) + multi_raft live behind the `cluster`/`raft`+`compute-dist` \
-            features, which are NOT in `full` (this file runs under `--features full`), so a \
-            raft-gated harness here would not even compile/run in the gate. Standing up >1 \
-            in-process openraft node, forming a cluster, and injecting a mid-2PC coordinator \
-            kill needs a `--features cluster` test binary with a loopback multi-node scaffold \
-            (cf. scripts/validate-raft-cluster.sh, which does formation/replication/failover on \
-            throwaway loopback nodes at the PROCESS level, not in-process). AGENTS.md flags the \
-            live-cadence + cross-host soak as needing real multi-node hardware. Deferred to a \
-            dedicated cluster-tier test harness."]
+///
+/// GREEN under `--features cluster` (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness):
+/// the `CrossShardCoordinator` + `multi_raft` live behind `cluster`/`raft`+`compute-dist`,
+/// NOT in `full` — so this spec is `cfg`-gated to `cluster` rather than `#[ignore]`d
+/// (under `--features full` it simply compiles out; under `--features cluster` it runs).
+/// The heavy in-process multi-group 2PC coordinator-kill proof lives in the crate at
+/// `raft::xshard_modality_harness`; this spec drives its public entry end-to-end. It
+/// spins up a live two-group cluster, runs a cross-shard txn spanning the property-graph
+/// modality (group A) and the RDF/triple modality (group B), kills the coordinator at
+/// BOTH 2PC windows (post-COMMIT-decision and pre-decision) via a full node+backend drop,
+/// and asserts recovery resolves to a SINGLE all-or-nothing decision — no half-committed
+/// modality. Real multi-HOST cross-node soak + ANN/TSDB cross-shard modalities are the
+/// documented remainder (see the harness module docs).
+#[cfg(feature = "cluster")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn cross_shard_raft_2pc_single_decision_eg396() {
-    // Contract asserted above; a multi-node Raft + 2PC-kill test harness does not yet exist,
-    // and cannot run under `--features full` (raft is a `cluster`-only feature).
+    let report =
+        epistemic_graph::raft::xshard_modality_harness::prove_crossshard_modality_2pc_single_decision()
+            .await
+            .expect("cross-shard modality 2PC coordinator-kill proof runs");
+    assert!(
+        report.all_atomic(),
+        "cross-shard 2PC must resolve to a single all-or-nothing decision across modalities: {report:?}"
+    );
 }
 
 /// EG-397 (test 11) — KV-cache warm-fork fan-out reusing cross-modal context, isolated on
