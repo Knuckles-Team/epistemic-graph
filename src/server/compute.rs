@@ -4,7 +4,7 @@
 use crate::protocol::Response;
 
 /// Run a CPU-heavy, read-only computation on the blocking thread pool
-/// (CONCEPT:KG-2.51). Callers snapshot whatever graph state the computation
+/// (CONCEPT:EG-KG.txn.per-graph-write-isolation). Callers snapshot whatever graph state the computation
 /// needs under a short read lock, drop the lock, then hand the owned snapshot
 /// here — so the tokio runtime threads and the per-graph RwLock are never
 /// held across O(V·E)-class work.
@@ -18,7 +18,7 @@ where
         .map_err(|e| Response::err(req_id, format!("Blocking compute task failed: {}", e)))
 }
 
-/// Confidence-weight raw semantic-search hits (CONCEPT:KG-2.51): drop
+/// Confidence-weight raw semantic-search hits (CONCEPT:EG-KG.txn.per-graph-write-isolation): drop
 /// strictly-stale facts (validity window closed), apply Ebbinghaus temporal
 /// decay (30-day half-life) to each hit's confidence, re-rank by the
 /// decay-weighted similarity and truncate to `n_results`. Pure function —
@@ -42,7 +42,7 @@ pub(crate) fn weight_semantic_results(
                 }
 
                 // Apply temporal decay to confidence using the ONE shared
-                // Ebbinghaus curve (CONCEPT:KG-2.211, `eg_core::decay`): the same
+                // Ebbinghaus curve (CONCEPT:EG-KG.compute.handled-outside-single-anchor, `eg_core::decay`): the same
                 // half-life model the time-series `decay_weighted_mean` uses. Here
                 // the unit is DAYS with a 30-day half-life — identical numerics to
                 // the previously-inlined `(-ln2/30 * age_days).exp()`.

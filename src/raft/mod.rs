@@ -1,4 +1,4 @@
-//! In-engine Raft replication (CONCEPT:KG-2.188) — the `cluster` tier.
+//! In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical) — the `cluster` tier.
 //!
 //! Runs the engine as a multi-node, highly-available cluster that replicates its
 //! AUTHORITATIVE state through [`openraft`]. This whole module is behind the
@@ -12,10 +12,10 @@
 //! the local engine by the SAME path a replayed WAL record uses
 //! ([`crate::wal::apply`] → [`GraphCore`]), then made durable through the SAME
 //! [`PersistenceBackend::record_durable`] M2 authoritative path
-//! (CONCEPT:KG-2.187). So a Raft node IS an M2 authoritative node — its graph data
+//! (CONCEPT:EG-KG.backend.authoritative-dispatch). So a Raft node IS an M2 authoritative node — its graph data
 //! lives in `graph.redb`, committed-before-applied.
 //!
-//! ## Durable redb Raft log (CONCEPT:KG-2.204)
+//! ## Durable redb Raft log (CONCEPT:EG-KG.storage.one-fsync-covers-raft)
 //!
 //! The Raft LOG, the vote, the applied state, and the graph data are ALL durable in
 //! the SAME `graph.redb` Database (the M2 store), keyed by `(group_id, index)` /
@@ -24,7 +24,7 @@
 //! node recovers its log tail LOCALLY from redb — it no longer needs the leader to
 //! refill an un-snapshotted tail. (The old separate `raft.redb` sidecar is gone.)
 //!
-//! ## Multi-Raft scaffold (CONCEPT:KG-2.205)
+//! ## Multi-Raft scaffold (CONCEPT:EG-KG.sharding.raft-resharding)
 //!
 //! [`multi::MultiRaft`] holds N openraft groups keyed by [`GroupId`], each its own
 //! state machine + `GraphCore`, sharing ONE TCP listener per node (RPC frames are
@@ -39,13 +39,13 @@
 //!   routing + group lifecycle + multi-group isolation are exercised by tests.
 //!   [`multi::GroupRouter::set_group_ring`] / [`multi::MultiRaft::configure_group_ring`]
 //!   now SPREAD un-pinned graphs across N groups on a stable hash ring
-//!   (CONCEPT:KG-2.266) — splitting a keyspace is a routing change, not a storage
+//!   (CONCEPT:AU-KG.ingest.mirror-inbound) — splitting a keyspace is a routing change, not a storage
 //!   change.
 //! * **Group = transaction boundary.** One graph belongs to one group; a txn stays
 //!   inside a group. Cross-group (2-phase) transactions are a SEPARATE, larger
-//!   project — NOT in this increment (documented follow-up CONCEPT:KG-2.207).
-//! * **M2 hardening (done):** pooled per-peer connections (CONCEPT:KG-2.265) and
-//!   per-group snapshot scoping (CONCEPT:KG-2.267) — see `docs/architecture/m2-raft-status.md`.
+//!   project — NOT in this increment (documented follow-up CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
+//! * **M2 hardening (done):** pooled per-peer connections (CONCEPT:AU-KG.ontology.manage-arbitrary) and
+//!   per-group snapshot scoping (CONCEPT:AU-KG.ingest.staged) — see `docs/architecture/m2-raft-status.md`.
 //! * **M2 follow-ups (remaining):** leader balancing across groups and heartbeat
 //!   coalescing — both need a real multi-node cluster to exercise; scoped as
 //!   independent pick-up tasks in `docs/architecture/m2-raft-status.md`.
@@ -76,7 +76,7 @@ pub mod multi;
 pub mod network;
 pub mod node;
 /// Distributed graph compute — the Pregel/GAS cross-shard superstep engine
-/// (CONCEPT:KG-2.227). Behind `compute-dist` (which implies `raft`): runs PageRank /
+/// (CONCEPT:EG-KG.storage.feature). Behind `compute-dist` (which implies `raft`): runs PageRank /
 /// connected-components / BFS across graphs spanning multiple Raft groups, plus the
 /// incremental/streaming variant and materialized views.
 #[cfg(feature = "compute-dist")]
@@ -84,7 +84,7 @@ pub mod pregel;
 pub mod reshard;
 pub mod store;
 
-/// Correctness + load harness (CONCEPT:KG-2.212) — the standing proof-engine that
+/// Correctness + load harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) — the standing proof-engine that
 /// gates every distributed/durability claim. Compiled under tests OR the explicit
 /// `harness` feature; never in a production tier build.
 #[cfg(any(test, feature = "harness"))]
@@ -93,14 +93,14 @@ pub mod harness;
 #[cfg(test)]
 mod tests;
 
-// The cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:KG-2.222) — the nemesis
+// The cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:EG-KG.storage.lane-n-increment) — the nemesis
 // harness proving NO PARTIAL COMMIT under participant-kill + partition. Gated behind
 // the `harness` feature so the default `raft` test set is unchanged; run it with
 // `cargo test --features "raft harness"`.
 #[cfg(all(test, feature = "harness"))]
 mod xshard_harness;
 
-// The online-resharding + tenant-hibernation gauntlet (CONCEPT:KG-2.224) — proves a
+// The online-resharding + tenant-hibernation gauntlet (CONCEPT:EG-KG.storage.100m-tenant) — proves a
 // graph reshareded A→B keeps all data + serves correctly, and a hibernated graph
 // rehydrates intact. Gated behind `harness` so a normal `raft` build links nothing.
 #[cfg(all(test, feature = "harness"))]
@@ -109,7 +109,7 @@ mod reshard_harness;
 /// Raft node id — a small integer assigned per cluster member.
 pub type NodeId = u64;
 
-/// A Raft GROUP id (CONCEPT:KG-2.205). One consensus group per keyspace; today one
+/// A Raft GROUP id (CONCEPT:EG-KG.sharding.raft-resharding). One consensus group per keyspace; today one
 /// graph maps to one group via the [`multi::GroupRouter`]. It is the composite-key
 /// prefix the durable redb log + meta rows are keyed by, so ONE `graph.redb` serves
 /// every group's log (the spike's FD-ceiling fix — no file per group).
@@ -161,7 +161,7 @@ pub struct RaftResponse {
 openraft::declare_raft_types!(
     /// The single Raft type configuration for the engine cluster.
     ///
-    /// openraft 0.10 (CONCEPT:KG-2.273): the macro fills the absent associated types
+    /// openraft 0.10 (CONCEPT:AU-KG.backend.authority-has-already-acked): the macro fills the absent associated types
     /// with their defaults — `NodeId = u64` (= our [`NodeId`] alias), `Node =
     /// BasicNode`, `Entry = openraft::Entry<…>`, `SnapshotData = Cursor<Vec<u8>>`,
     /// `AsyncRuntime = TokioRuntime` — so only `D`/`R` need to be named here.
@@ -174,7 +174,7 @@ openraft::declare_raft_types!(
 ///
 /// openraft 0.10's `Raft<C, SM = ()>` carries the state-machine type as a second
 /// generic; `Raft::new` returns it carrying the concrete SM. Our state machine is
-/// `Arc<EgStore>`, so the alias names it (CONCEPT:KG-2.273).
+/// `Arc<EgStore>`, so the alias names it (CONCEPT:AU-KG.backend.authority-has-already-acked).
 pub type EgRaft = openraft::Raft<TypeConfig, Arc<store::EgStore>>;
 
 /// Cloneable handle the dispatch path uses to route writes through consensus.
@@ -214,9 +214,9 @@ pub type PeerMap = BTreeMap<NodeId, BasicNode>;
 #[derive(Clone)]
 pub struct AppCtx {
     pub state: Arc<RwLock<ServerState>>,
-    /// The group router (CONCEPT:KG-2.266), present when the store runs under a
+    /// The group router (CONCEPT:AU-KG.ingest.mirror-inbound), present when the store runs under a
     /// [`multi::MultiRaft`]. A group's snapshot dump uses it to SCOPE the dump to the
-    /// graphs in THIS group's tenant range (CONCEPT:KG-2.267). `None` ⇒ a direct /
+    /// graphs in THIS group's tenant range (CONCEPT:AU-KG.ingest.staged). `None` ⇒ a direct /
     /// single-store open dumps the whole registry (the unscoped scaffold behavior).
     pub router: Option<Arc<multi::GroupRouter>>,
 }

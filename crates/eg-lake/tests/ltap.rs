@@ -1,4 +1,4 @@
-//! LTAP lakehouse-interop tests (CONCEPT:EG-317).
+//! LTAP lakehouse-interop tests (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 //!
 //! Covers the four seams: Parquet materialize→read-back (behind `lake`), the Delta
 //! `_delta_log` + Iceberg `metadata.json` written & parsed back, the LSN as-of
@@ -9,7 +9,7 @@ use eg_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
 use eg_lake::snapshot::Lsn;
 use eg_lake::{delta, iceberg, LakeTable};
 
-/// A 3-column schema exercising every LakeType (CONCEPT:EG-317).
+/// A 3-column schema exercising every LakeType (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 fn sample_schema() -> LakeSchema {
     LakeSchema::new(vec![
         LakeField::required("id", LakeType::Long),
@@ -47,14 +47,14 @@ fn sample_batch() -> LakeBatch {
     LakeBatch::new(sample_schema(), rows).expect("valid batch")
 }
 
-/// CONCEPT:EG-317 — a wrong-arity row is rejected.
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — a wrong-arity row is rejected.
 #[test]
 fn eg_317_batch_arity_is_validated() {
     let bad = LakeBatch::new(sample_schema(), vec![vec![CellValue::Long(1)]]);
     assert!(bad.is_err(), "short row must be rejected");
 }
 
-/// CONCEPT:EG-317 — rows materialize to Parquet and read back byte-for-cell correct,
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — rows materialize to Parquet and read back byte-for-cell correct,
 /// nulls included.
 #[cfg(feature = "lake")]
 #[test]
@@ -72,7 +72,7 @@ fn eg_317_parquet_materialize_roundtrip_is_correct() {
     assert_eq!(back.rows, batch.rows, "rows must round-trip incl. nulls");
 }
 
-/// CONCEPT:EG-317 — Parquet stats (size + row count) are surfaced for the table log.
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — Parquet stats (size + row count) are surfaced for the table log.
 #[cfg(feature = "lake")]
 #[test]
 fn eg_317_parquet_stats_report_rows() {
@@ -83,7 +83,7 @@ fn eg_317_parquet_stats_report_rows() {
     assert!(stats.size_bytes > 4);
 }
 
-/// CONCEPT:EG-317 — the Delta `_delta_log` is written and replays to the live files.
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — the Delta `_delta_log` is written and replays to the live files.
 #[test]
 fn eg_317_delta_log_written_and_parseable() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
@@ -117,7 +117,7 @@ fn eg_317_delta_log_written_and_parseable() {
     assert!(live.contains(&"data/part-1.parquet".to_string()));
 }
 
-/// CONCEPT:EG-317 — a Delta `remove` tombstone drops a file from the replayed live set.
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — a Delta `remove` tombstone drops a file from the replayed live set.
 #[test]
 fn eg_317_delta_remove_tombstones_file() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
@@ -130,7 +130,7 @@ fn eg_317_delta_remove_tombstones_file() {
     assert_eq!(live, vec!["data/part-1.parquet".to_string()]);
 }
 
-/// CONCEPT:EG-317 — the LSN as-of snapshot returns a consistent point-in-time file set.
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — the LSN as-of snapshot returns a consistent point-in-time file set.
 #[test]
 fn eg_317_lsn_as_of_snapshot_is_consistent() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
@@ -151,7 +151,7 @@ fn eg_317_lsn_as_of_snapshot_is_consistent() {
     assert!(table.snapshot.files_as_of(Lsn(0)).is_empty());
 }
 
-/// CONCEPT:EG-317 — the Iceberg metadata.json is real & parseable and references the
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — the Iceberg metadata.json is real & parseable and references the
 /// real Avro manifest paths (the Avro itself is round-tripped in the EG-333 test).
 #[test]
 fn eg_317_iceberg_metadata_written_and_parseable() {
@@ -175,7 +175,7 @@ fn eg_317_iceberg_metadata_written_and_parseable() {
     assert_eq!(man["entries"].as_array().unwrap().len(), 1);
 }
 
-/// CONCEPT:EG-333/EG-334 — the Iceberg **Avro** manifest + manifest-list are written as
+/// CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-334 — the Iceberg **Avro** manifest + manifest-list are written as
 /// real Avro containers, parse back, reference each other, and the manifest entries
 /// match the live data files. Also asserts the `metadata.json` snapshot's `manifest-list`
 /// points at the exact manifest-list path we materialized.
@@ -303,7 +303,7 @@ fn eg_333_iceberg_avro_manifest_roundtrip() {
     );
 }
 
-/// CONCEPT:EG-350 — the Iceberg Avro manifest carries per-column stats (value/null/nan
+/// CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries — the Iceberg Avro manifest carries per-column stats (value/null/nan
 /// counts, column sizes, and typed lower/upper bounds) gathered as the file is
 /// materialized, so an external reader can skip files by predicate. Asserts the stats
 /// maps are present and correct (min/max/null-count) for the known `sample_batch`.
@@ -448,7 +448,7 @@ fn eg_350_iceberg_manifest_carries_column_stats() {
     );
 }
 
-/// CONCEPT:EG-350 — a file recorded WITHOUT stats (the bare `record_file` seam) emits
+/// CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries — a file recorded WITHOUT stats (the bare `record_file` seam) emits
 /// the stats maps as null unions, not garbage — the maps are genuinely optional.
 #[cfg(feature = "lake")]
 #[test]
@@ -489,7 +489,7 @@ fn eg_350_stats_absent_when_not_gathered() {
     }
 }
 
-/// CONCEPT:EG-317 — the Iceberg-REST catalog lists and loads a registered table.
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — the Iceberg-REST catalog lists and loads a registered table.
 #[test]
 fn eg_317_catalog_lists_and_loads_table() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
@@ -519,7 +519,7 @@ fn eg_317_catalog_lists_and_loads_table() {
     assert!(cat.load_table("market", "nope").is_none());
 }
 
-/// CONCEPT:EG-317 — the full materialize path: rows → Parquet bytes recorded → Delta +
+/// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — the full materialize path: rows → Parquet bytes recorded → Delta +
 /// Iceberg + catalog all describe the same file, under one LSN.
 #[cfg(feature = "lake")]
 #[test]

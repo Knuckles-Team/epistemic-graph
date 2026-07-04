@@ -1,4 +1,4 @@
-//! Live / standing CEP queries (CONCEPT:EG-088) — the DEFERRED, push half of the
+//! Live / standing CEP queries (CONCEPT:EG-KG.query.pipelined-execution) — the DEFERRED, push half of the
 //! event-stream + complex-event-processing modality.
 //!
 //! Where [`crate::run`] is a *batch* CEP over a fixed slice, this module gives long-lived
@@ -54,7 +54,7 @@ pub const DEFAULT_MATCH_BUFFER: usize = 1024;
 /// The incremental counterpart of a [`CepPattern`]: it holds live NFA state and is
 /// advanced one event at a time. Built from a [`CepPattern`] + [`Window`] via
 /// [`IncPattern::compile`]; mirrors the recursion of [`crate::run`] arm-for-arm so the
-/// live result matches the batch result (CONCEPT:EG-088).
+/// live result matches the batch result (CONCEPT:EG-KG.query.pipelined-execution).
 enum IncPattern {
     /// A `Sequence` — driven by the shared bounded NFA stepper.
     Sequence(SequenceNfa),
@@ -111,7 +111,7 @@ impl IncPattern {
     }
 }
 
-/// A single registered standing CEP query (CONCEPT:EG-088): a compiled incremental pattern
+/// A single registered standing CEP query (CONCEPT:EG-KG.query.pipelined-execution): a compiled incremental pattern
 /// plus the broadcast sender its matches are published to. Owned by a [`CepEngine`]; not
 /// used directly by callers (they hold a [`CepSubscription`] on the receiving end).
 struct StandingQuery {
@@ -144,7 +144,7 @@ impl StandingQuery {
     }
 }
 
-/// A caller's handle to one standing query's live match stream (CONCEPT:EG-088). Wraps a
+/// A caller's handle to one standing query's live match stream (CONCEPT:EG-KG.query.pipelined-execution). Wraps a
 /// [`tokio::sync::broadcast::Receiver`], so awaiting [`CepSubscription::recv`] yields each
 /// [`Match`] as it is detected. If this receiver falls further behind than the query's
 /// buffer, [`broadcast`] drops the OLDEST matches and the next `recv` returns
@@ -180,7 +180,7 @@ impl CepSubscription {
     }
 }
 
-/// The standing-query registry + event fan-out (CONCEPT:EG-088). Owns every registered
+/// The standing-query registry + event fan-out (CONCEPT:EG-KG.query.pipelined-execution). Owns every registered
 /// [`StandingQuery`], feeds each incoming [`Event`] to all of them, and publishes matches
 /// per-query over independent broadcast channels. Cheap to `Arc`-share across the ingest
 /// task and any registrar.
@@ -256,7 +256,7 @@ impl CepEngine {
         self.source_lagged.load(Ordering::Relaxed)
     }
 
-    /// Bus adapter (CONCEPT:EG-088): spawn a task that drains `source` — the abstract
+    /// Bus adapter (CONCEPT:EG-KG.query.pipelined-execution): spawn a task that drains `source` — the abstract
     /// "event bus" a `broadcast::Sender<Event>` fronts (the server wires the EG-064 CDC
     /// change stream into it) — and [`ingest`](CepEngine::ingest)s each event into every
     /// standing query. Backpressure is graceful: if this consumer lags the sender,

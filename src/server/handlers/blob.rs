@@ -1,4 +1,4 @@
-//! Streamed content-addressed BLOB handler (CONCEPT:KG-2.206).
+//! Streamed content-addressed BLOB handler (CONCEPT:EG-KG.storage.blob-namespace).
 //!
 //! Owns the `Blob*` methods. These are STATEFUL (they drive
 //! [`ServerState::blob`](crate::server::ServerState) — the CAS chunk store + the

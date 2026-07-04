@@ -9,11 +9,11 @@ these have **zero** release-build impact. Each is registered `harness = false` i
 
 | Bench | Concept | Feature gate | Measures |
 |-------|---------|--------------|----------|
-| `eg096_massive_scale_bench` | **EG-096** | default (feature-light) | in-process node/edge write throughput, query latency, ANN kNN latency |
-| `write_coalescer_bench` | EG-012 | `--features server` | `__commons__` write-lock contention curve vs the batch window |
+| `eg096_massive_scale_bench` | **EG-KG.compute.massive-scale-benchmark** | default (feature-light) | in-process node/edge write throughput, query latency, ANN kNN latency |
+| `write_coalescer_bench` | EG-KG.txn.write-path-benchmarks | `--features server` | `__commons__` write-lock contention curve vs the batch window |
 | `redb_group_commit_bench` | EG-024 | `--features full` | durable group-commit ops-per-fsync vs the linger knob |
 
-## EG-096 — massive-scale core harness
+## EG-KG.compute.massive-scale-benchmark — massive-scale core harness
 
 `eg096_massive_scale_bench.rs` is the standing "how fast is the core?" harness. It runs
 entirely **in-process** against the pure `eg-core` `GraphCore` and the pure `eg-ann` IVF-PQ
@@ -73,5 +73,5 @@ cargo flamegraph --bench eg096_massive_scale_bench -- --bench eg096_ann_knn
 ```
 
 ---
-*CONCEPT:EG-096 — massive-scale benchmark harness. Sibling harnesses: EG-012 (write coalescer),
+*CONCEPT:EG-KG.compute.massive-scale-benchmark — massive-scale benchmark harness. Sibling harnesses: EG-KG.txn.write-path-benchmarks (write coalescer),
 EG-024 (redb group-commit).*

@@ -1,4 +1,4 @@
-//! Graph data-science algorithms — Neo4j GDS parity. CONCEPT:EG-144
+//! Graph data-science algorithms — Neo4j GDS parity. CONCEPT:EG-KG.compute.graph-data-science-algorithms
 //!
 //! A standalone, pure-Rust, deterministic library of graph algorithms that
 //! operate on a generic [`AdjacencyGraph`] rather than the live engine graph, so

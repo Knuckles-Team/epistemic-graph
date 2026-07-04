@@ -6,22 +6,22 @@ one main build). Logs land as time-series + full-text documents, metrics answer 
 search, and a super-cluster `/federated` fan-out unifies many regions. It is cross-modal: an ingest
 pipeline can enrich a record from the graph, and a query can join logs against graph/SQL data.
 
-> Status snapshot: log ingestion (EG-160), Parquet-on-object-store segments (EG-161), log search/query API
-> (EG-162), VRL-style ingest pipelines (EG-165), PromQL (EG-172) — with the Program-B **extended function
+> Status snapshot: log ingestion (AU-KG.ingest.self-ingest), Parquet-on-object-store segments (EG-KG.retrieval.observability-search), log search/query API
+> (EG-KG.query.concept-4), VRL-style ingest pipelines (EG-165), PromQL (EG-172) — with the Program-B **extended function
 > set** (EG-302) — and distributed traces + trace search (EG-163) are shipped. Program B also adds the
 > engine's **own** telemetry egress: OTLP export + a Prometheus remote-write receiver (EG-316), and
-> **typed** SQL/SPARQL result fusion for federated search (EG-309). See the
+> **typed** SQL/SPARQL result fusion for federated search (EG-KG.query.schema-typed-fusion-sql). See the
 > [capability matrix](../capabilities.md).
 
 All the HTTP surfaces below share **one** obs listener: `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`, default
 `127.0.0.1:5080`).
 
-## Log ingestion (EG-160)
+## Log ingestion (AU-KG.ingest.self-ingest)
 
 A hand-rolled HTTP ingestion listener (no axum/hyper — the Pi contract) accepting **OTLP/HTTP**
 (`/v1/logs`), Elasticsearch-**`_bulk`**/`_doc`, syslog, and JSON-lines records. Records land as
 schema-on-read streams: an eg-tsdb time-series **and** an eg-text full-text index, with rolling Parquet
-columnar segments persisted into the blob CAS / S3 backend (EG-161) — the "140× cheaper storage"
+columnar segments persisted into the blob CAS / S3 backend (EG-KG.retrieval.observability-search) — the "140× cheaper storage"
 object-store architecture, still DataFusion-queryable.
 
 ```bash
@@ -41,7 +41,7 @@ pure-Rust pipeline DSL (parse / json-extract, filter / drop, set / rename / remo
 route-to-stream) compiled to a staged executor. It surpasses OpenObserve VRL by being cross-modal — a
 transform can enrich a record from the graph.
 
-## Log search & query API (EG-162)
+## Log search & query API (EG-KG.query.concept-4)
 
 SQL + full-text search over the ingested streams: a DataFusion scan over the Parquet segments (pruned by
 the segment manifest's time/stream range) UNIONed with the hot eg-tsdb series + the eg-text BM25 index,
@@ -96,13 +96,13 @@ curl -s 'http://127.0.0.1:5080/api/traces?service=my-svc'
 
 (Feature `traces`, implies `obs`.)
 
-## Super-cluster federated search (EG-243)
+## Super-cluster federated search (EG-KG.ontology.federation-client)
 
 A read query fans out across a peer registry of engine instances (regions/clusters) and the local store,
 then unions/de-dups + RRF-re-ranks the partials — a slow/dead peer degrades to `partial: true`, never
 fails. Program B adds **typed result fusion** for SQL + SPARQL partials — a schema-aware column union +
 typed dedup/merge rather than a plain hashed-key union — so cross-instance SQL/SPARQL results combine
-correctly (EG-309). This is its **own** listener (`EPISTEMIC_GRAPH_FEDERATED_ADDR`, feature
+correctly (EG-KG.query.schema-typed-fusion-sql). This is its **own** listener (`EPISTEMIC_GRAPH_FEDERATED_ADDR`, feature
 `federation-search`), not on the obs listener:
 
 ```bash

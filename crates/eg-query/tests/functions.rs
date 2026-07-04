@@ -1,5 +1,5 @@
 //! End-to-end tests for SQL stored functions — `CREATE FUNCTION … LANGUAGE sql`
-//! (CONCEPT:EG-118). Exercises the FULL path a `psql`/ORM client drives: `classify`
+//! (CONCEPT:EG-KG.query.create-drop-function). Exercises the FULL path a `psql`/ORM client drives: `classify`
 //! the DDL, persist the function in the redb [`TableStore`] function catalog, then
 //! read back through DataFusion via `exec_sql_typed_with_tables`, which EXPANDS the
 //! call (scalar → scalar subquery; table → parameterized-view subquery) into the query
@@ -71,7 +71,7 @@ fn scalar_function_preserves_operator_precedence_eg118() {
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = GraphCore::new().analysis_snapshot();
     // Body `a * b`; a call `mul(1 + 2, 4)` must compute (1+2)*4 = 12, NOT 1+2*4 = 9 —
-    // proving each substituted argument is parenthesized (CONCEPT:EG-118).
+    // proving each substituted argument is parenthesized (CONCEPT:EG-KG.query.create-drop-function).
     run(
         &store,
         &view,
@@ -202,7 +202,7 @@ fn function_persists_in_catalog_across_reopen_eg118() {
 #[test]
 fn classify_accepts_plpgsql_language_eg340() {
     // A procedural PL/pgSQL body is now accepted and validated at CREATE time
-    // (CONCEPT:EG-340) — the interpreter runs it on a bare call (see `plpgsql.rs`).
+    // (CONCEPT:EG-KG.query.eg-validate-procedural-body) — the interpreter runs it on a bare call (see `plpgsql.rs`).
     let k =
         classify("CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql")
             .unwrap();
@@ -222,7 +222,7 @@ fn classify_accepts_plpgsql_language_eg340() {
 
 #[test]
 fn classify_language_before_as_order_eg118() {
-    // `LANGUAGE sql` may precede the `AS <body>` clause (CONCEPT:EG-118).
+    // `LANGUAGE sql` may precede the `AS <body>` clause (CONCEPT:EG-KG.query.create-drop-function).
     let k =
         classify("CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql AS $$ SELECT a $$").unwrap();
     match k {

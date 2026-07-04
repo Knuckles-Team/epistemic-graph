@@ -1,4 +1,4 @@
-//! Data-version invalidation seam tests (CONCEPT:EG-364).
+//! Data-version invalidation seam tests (CONCEPT:EG-KG.storage.content-addressed-put).
 //!
 //! The seam-scenario-3 deliverable: an update to the underlying graph data must
 //! invalidate cached agent/LLM context derived from it — a stale KV/context entry is
@@ -26,7 +26,7 @@ fn derive_context(key: &str, data_version: u64) -> Block {
 
 // ── SharedKvIndex (EG-186 / the EG-187 HTTP surface store) ─────────────────────────
 
-/// CONCEPT:EG-364 — populate → bump data version → MISS → re-populate returns fresh.
+/// CONCEPT:EG-KG.storage.content-addressed-put — populate → bump data version → MISS → re-populate returns fresh.
 /// The core "no stale LLM context after a write" contract on the shared backend.
 #[test]
 fn shared_bump_invalidates_then_repopulate_is_fresh() {
@@ -58,7 +58,7 @@ fn shared_bump_invalidates_then_repopulate_is_fresh() {
     assert_eq!(idx.get_block("agent-a"), Some(v11), "re-populate is fresh");
 }
 
-/// CONCEPT:EG-364 — unchanged-data path: version stable ⇒ every read is a HIT, nothing is
+/// CONCEPT:EG-KG.storage.content-addressed-put — unchanged-data path: version stable ⇒ every read is a HIT, nothing is
 /// falsely invalidated.
 #[test]
 fn shared_stable_version_never_false_invalidates() {
@@ -75,7 +75,7 @@ fn shared_stable_version_never_false_invalidates() {
     assert_eq!(idx.stats().unique_blocks, 1, "entry still resident");
 }
 
-/// CONCEPT:EG-364 — cache-ON vs cache-OFF A/B: the logical answer an agent reads is
+/// CONCEPT:EG-KG.storage.content-addressed-put — cache-ON vs cache-OFF A/B: the logical answer an agent reads is
 /// IDENTICAL whether or not the cache is consulted. A cache MISS (cold, or invalidated by
 /// a write) just means "recompute from the graph"; the recomputed value equals what the
 /// cache would have held. Correctness never depends on the cache.
@@ -127,7 +127,7 @@ fn shared_cache_on_vs_off_identical_logical_result() {
     }
 }
 
-/// CONCEPT:EG-364 — pure content-addressed (Agnostic) KV pages are immune to version
+/// CONCEPT:EG-KG.storage.content-addressed-put — pure content-addressed (Agnostic) KV pages are immune to version
 /// bumps, so the EG-186 cross-instance dedup win survives graph writes (the versioning is
 /// layered on top, it does not break the content-addressed path).
 #[test]
@@ -147,7 +147,7 @@ fn shared_agnostic_pages_immune_to_writes() {
 
 // ── TieredCache (EG-185 single-instance offload cache) ─────────────────────────────
 
-/// CONCEPT:EG-364 — the same populate → bump → MISS → fresh-repopulate contract on the
+/// CONCEPT:EG-KG.storage.content-addressed-put — the same populate → bump → MISS → fresh-repopulate contract on the
 /// tiered cache, whatever tier the entry occupies.
 #[test]
 fn tiered_bump_invalidates_then_repopulate_is_fresh() {
@@ -166,7 +166,7 @@ fn tiered_bump_invalidates_then_repopulate_is_fresh() {
     assert_eq!(c.get(&"k".into()), Some(v1), "re-populate is fresh");
 }
 
-/// CONCEPT:EG-364 — cache-ON vs cache-OFF A/B on the tiered cache under REAL tier pressure
+/// CONCEPT:EG-KG.storage.content-addressed-put — cache-ON vs cache-OFF A/B on the tiered cache under REAL tier pressure
 /// (tiny budgets force demotion/drops): the logical answer is identical either way, and it
 /// is never a stale earlier-version value.
 #[test]
@@ -206,7 +206,7 @@ fn tiered_cache_on_vs_off_identical_under_pressure() {
     }
 }
 
-/// CONCEPT:EG-364 — unchanged-data path on the tiered cache: a stable version yields
+/// CONCEPT:EG-KG.storage.content-addressed-put — unchanged-data path on the tiered cache: a stable version yields
 /// repeated HITs with no invalidation (cache genuinely accelerates, doesn't just miss).
 #[test]
 fn tiered_stable_version_hits_without_invalidation() {

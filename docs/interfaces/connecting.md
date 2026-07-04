@@ -84,7 +84,7 @@ SELECT id, properties FROM nodes LIMIT 10;
 
 - Hand-rolled **Handshake v10** + `mysql_native_password` auth (`MYSQL_AUTH_ENV` selects
   `Trust` for dev). Text-protocol result sets. Same wire-neutral `WireSession` as pgwire, so
-  SQL semantics are identical across wires (CONCEPT:EG-074).
+  SQL semantics are identical across wires (CONCEPT:EG-KG.compute.subsystems-reference).
 
 ## MSSQL / SQL Server (`mssql-wire`)
 
@@ -151,7 +151,7 @@ with drv.session() as s:
 
 ## Redis — `redis-cli` / clients (`redis-wire`)
 
-A hand-rolled **RESP2/RESP3** listener (`src/server/redis_wire/`, CONCEPT:EG-174) serving the
+A hand-rolled **RESP2/RESP3** listener (`src/server/redis_wire/`, CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) serving the
 core Redis command set over the engine's namespace-scoped KV surface (feature `kv`): strings
 (`GET`/`SET`/`DEL`/`EXPIRE`/`INCR`), hashes (`HSET`/`HGET`), lists (`LPUSH`/`LRANGE`), sets
 (`SADD`/`SMEMBERS`), sorted sets (`ZADD`/`ZRANGE`), and keyspace `SCAN`.
@@ -169,7 +169,7 @@ redis-cli -h 127.0.0.1 -p 6379 GET agent:1        # → "online"
 
 ## S3 — `aws s3` / MinIO SDKs (`s3-api`)
 
-An **S3-compatible REST API** (`src/server/s3/`, CONCEPT:EG-176) over the blob CAS: bucket +
+An **S3-compatible REST API** (`src/server/s3/`, CONCEPT:EG-KG.ontology.object-put-get-head) over the blob CAS: bucket +
 object CRUD (`PUT`/`GET`/`DELETE`/`HEAD`/List) with **SigV4-lite** auth, so S3 clients read/write
 blobs as objects.
 
@@ -192,7 +192,7 @@ aws --endpoint-url http://127.0.0.1:9000 s3 ls s3://docs
 
 A hand-rolled **AMQP 0.9.1** server (no heavy AMQP crate) mapping
 connection/channel/exchange/queue/`basic.*` frames onto the engine's RabbitMQ-class broker
-primitives (exchanges, bindings, topic routing) over the KG-2.303 work-queue. See
+primitives (exchanges, bindings, topic routing) over the EG-KG.compute.atomically-claim-oldest-pending work-queue. See
 [messaging](messaging.md) for the broker semantics (DLQ/TTL/priority/streams/confirms).
 
 ```bash
@@ -214,7 +214,7 @@ ch.basic_publish(exchange="", routing_key="tasks", body="hello")
 
 ## MQTT — `mosquitto_pub` / IoT (`mqtt-wire`)
 
-An **MQTT 3.1.1 / 5.0** listener (`src/server/mqtt_wire/`, CONCEPT:EG-281) mapping
+An **MQTT 3.1.1 / 5.0** listener (`src/server/mqtt_wire/`, CONCEPT:EG-KG.query.mqtt-packet-codec) mapping
 CONNECT/PUBLISH/SUBSCRIBE/PINGREQ/DISCONNECT onto the EG-275 broker (topic exchange + bindings,
 QoS 0/1), so MQTT/IoT clients pub/sub over the native broker.
 
@@ -230,7 +230,7 @@ mosquitto_pub -h 127.0.0.1 -p 1883 -t 'sensors/room1' -m '21.5'
 
 ## STOMP — text-frame clients (`stomp-wire`)
 
-A **STOMP 1.2** text-frame listener (`src/server/stomp_wire/`, CONCEPT:EG-282) mapping
+A **STOMP 1.2** text-frame listener (`src/server/stomp_wire/`, CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) mapping
 CONNECT/SEND/SUBSCRIBE/ACK/DISCONNECT onto the EG-275 broker.
 
 ```bash
@@ -254,7 +254,7 @@ hello^@
 ## KV-cache — vLLM / LMCache shared blocks (`kvcache-server`)
 
 A gated HTTP surface over the tiered shared KV-cache (`src/server/kvcache_http/`,
-CONCEPT:EG-185/186/187), so parallel-deployed vLLM/LMCache instances share LLM KV blocks by
+CONCEPT:EG-KG.memory.byte-bounded-tiers/186/187), so parallel-deployed vLLM/LMCache instances share LLM KV blocks by
 token-hash (dedup + OOM-offload). See [kvcache](kvcache.md) for the tier model and the LMCache
 connector contract.
 
@@ -338,7 +338,7 @@ See [observability](observability.md) for the full logs + PromQL + traces + VRL-
 `/federated` fans a read query across the peer registry
 (`EPISTEMIC_GRAPH_FEDERATION_PEERS`, an SSRF allowlist in `EPISTEMIC_GRAPH_FEDERATION_ALLOW`)
 **and** the local store, then unions/de-dups + RRF-re-ranks the partials (a slow/dead peer
-degrades to `partial: true`, never fails — CONCEPT:EG-243). This is a **separate** listener from
+degrades to `partial: true`, never fails — CONCEPT:EG-KG.ontology.federation-client). This is a **separate** listener from
 `/sparql`, on its own `EPISTEMIC_GRAPH_FEDERATED_ADDR`.
 
 ```bash
@@ -353,13 +353,13 @@ curl -s -XPOST 'http://127.0.0.1:7900/federated' \
 ```
 
 Peers answer each other over `/federated?local=1` (run-locally-only, no re-fan). Distinct from
-the in-plan `Op::ForeignScan` federation (KG-2.232) — that composes a single foreign source into
+the in-plan `Op::ForeignScan` federation (EG-KG.query.query-federation) — that composes a single foreign source into
 one query plan; `/federated` scatter-gathers a whole query across peer engines.
 
 ### Natural-language query (`/nl`, `nl-query`)
 
 `POST /nl` on the **SPARQL** listener turns a natural-language string into a plan and executes it
-through the deterministic pipeline (CONCEPT:EG-078/080). It needs `nl-query` **and** an
+through the deterministic pipeline (CONCEPT:EG-KG.query.core-query-input/080). It needs `nl-query` **and** an
 OpenAI-compatible endpoint (`EPISTEMIC_GRAPH_NL_ENDPOINT` / `…_NL_MODEL` / `…_NL_API_KEY_ENV`);
 unconfigured it returns a clear "not configured" error, never a panic.
 
@@ -396,7 +396,7 @@ surface and the [operations runbook](../operations/runbook.md) for the full env-
 tiers, backup/PITR, and RBAC.
 
 ---
-*CONCEPT:EG-095 — comprehensive interface + operations documentation.*
+*CONCEPT:EG-KG.ontology.comprehensive-interface-operations-documentation — comprehensive interface + operations documentation.*
 
 ---
 

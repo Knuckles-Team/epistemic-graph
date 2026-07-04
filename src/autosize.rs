@@ -1,4 +1,4 @@
-//! Hardware capacity auto-detection (CONCEPT:EG-028).
+//! Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size).
 //!
 //! The SAME server binary must be correct + lean on a Raspberry Pi 3 (4 cores /
 //! 1 GiB RAM) AND exploit a 64-core / 247 GiB box. Rather than ship per-host knobs
@@ -37,7 +37,7 @@ const GIB: u64 = 1024 * 1024 * 1024;
 
 /// Conservative resident-RAM estimate per graph node (property blob + topology
 /// overhead). Embedding vectors are budgeted SEPARATELY (the per-tenant byte budget,
-/// CONCEPT:KG-2.234), and most graphs are embedding-free, so this is deliberately
+/// CONCEPT:EG-KG.compute.lane-v), and most graphs are embedding-free, so this is deliberately
 /// modest. Used only to translate a RAM budget into a node-count cap.
 const BYTES_PER_NODE_EST: u64 = 2048;
 
@@ -91,7 +91,7 @@ pub fn detect_capacity() -> Capacity {
 /// to a sane window so a tiny box still serves a usable graph and a huge box is
 /// effectively unbounded.
 ///
-/// Pi-safe because eviction is read-through (CONCEPT:KG-2.191): a node evicted past
+/// Pi-safe because eviction is read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised): a node evicted past
 /// the cap still serves from the durable redb tier — the cap bounds RESIDENT RAM with
 /// ZERO data loss, which is exactly what stops a 1 GiB Pi from OOM-killing by default.
 pub fn default_node_cap(total_ram_bytes: u64) -> usize {
@@ -111,7 +111,7 @@ impl Capacity {
         (self.cpus * 64).clamp(256, 8192)
     }
 
-    /// Reserved READ-admission lane (CONCEPT:EG-044, default for
+    /// Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane, default for
     /// `EPISTEMIC_GRAPH_READ_RESERVED`). A dedicated pool of in-flight slots that ONLY
     /// read/query requests may use, SEPARATE from `max_inflight` (which writes also
     /// contend for). Under a flood of ingestion writes that saturates `max_inflight`

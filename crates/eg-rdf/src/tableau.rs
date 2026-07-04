@@ -1,4 +1,4 @@
-//! W5 — the OWL-DL **tableau** reasoner (CONCEPT:EG-059).
+//! W5 — the OWL-DL **tableau** reasoner (CONCEPT:EG-KG.ontology.concept-2).
 //!
 //! A pure-Rust description-logic tableau over the parsed ontology's TBox+ABox. It
 //! DECIDES exactly the constructs the monotone EL⁺/RL completion in [`crate::owl`]
@@ -1122,7 +1122,7 @@ fn concept_sat(ont: &DlOntology, extra: Vec<Dl>) -> bool {
 
 // ── Public entry points ──────────────────────────────────────────────────────
 
-/// **Ontology consistency** (CONCEPT:EG-059): does the ontology (TBox + ABox) have a
+/// **Ontology consistency** (CONCEPT:EG-KG.ontology.concept-2): does the ontology (TBox + ABox) have a
 /// model? Builds a completion with one nominal root per named individual (carrying its
 /// asserted types + role edges + same/different constraints) and runs the tableau. With
 /// an empty ABox it probes a single anonymous `⊤` node (detects a globally-unsatisfiable
@@ -1177,7 +1177,7 @@ pub fn is_consistent(ont: &DlOntology) -> bool {
     comp.expand()
 }
 
-/// **Concept subsumption** (CONCEPT:EG-059): does `sub ⊑ sup` hold w.r.t. the TBox?
+/// **Concept subsumption** (CONCEPT:EG-KG.ontology.concept-2): does `sub ⊑ sup` hold w.r.t. the TBox?
 /// Decided by the unsatisfiability of `sub ⊓ ¬sup`. `sub`/`sup` are named-class IRIs in
 /// canonical `<iri>` form (`owl:Thing`/`owl:Nothing` fold to `⊤`/`⊥`, so
 /// `is_subsumed(_, A, owl:Nothing)` is the unsatisfiability test for `A`).
@@ -1187,7 +1187,7 @@ pub fn is_subsumed(ont: &DlOntology, sub: &str, sup: &str) -> bool {
     !concept_sat(ont, vec![sub_c, neg_sup])
 }
 
-/// **Instance checking** (CONCEPT:EG-059): is individual `ind` a member of `class`?
+/// **Instance checking** (CONCEPT:EG-KG.ontology.concept-2): is individual `ind` a member of `class`?
 /// Decided by the inconsistency of `ont ∪ { ind : ¬class }`. `ind`/`class` are canonical
 /// `<iri>` ids.
 pub fn is_instance(ont: &DlOntology, ind: &str, class: &str) -> bool {
@@ -1198,7 +1198,7 @@ pub fn is_instance(ont: &DlOntology, ind: &str, class: &str) -> bool {
     !is_consistent(&ont2)
 }
 
-/// **Full classification** (CONCEPT:EG-059): the complete subsumer set `S(A) = { B :
+/// **Full classification** (CONCEPT:EG-KG.ontology.concept-2): the complete subsumer set `S(A) = { B :
 /// A ⊑ B }` for every named class `A` (reflexive, includes `owl:Thing`, and
 /// `owl:Nothing` for an unsatisfiable class). O(n²) subsumption tests over the signature.
 pub fn classify_dl(ont: &DlOntology) -> BTreeMap<String, BTreeSet<String>> {
@@ -1277,7 +1277,7 @@ fn needs_tableau(triples: &[Triple]) -> bool {
     false
 }
 
-/// The engine picker (CONCEPT:EG-059): route through the tableau ONLY when a DL
+/// The engine picker (CONCEPT:EG-KG.ontology.concept-2): route through the tableau ONLY when a DL
 /// construct forces it ([`needs_tableau`]); otherwise run the fast EL⁺/RL completion in
 /// [`crate::owl`]. Correctness-preserving: both engines agree on the EL/RL fragment, and
 /// the tableau is complete on the rest.

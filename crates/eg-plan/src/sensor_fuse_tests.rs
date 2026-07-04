@@ -1,4 +1,4 @@
-//! Multimodal sensor-fusion executor proofs (CONCEPT:EG-098).
+//! Multimodal sensor-fusion executor proofs (CONCEPT:EG-KG.query.multi-rate-sensor-stream).
 //!
 //! Three heterogeneous sensor LAYERS at different rates — `imu` (fast scalar), `gps`
 //! (medium scalar), `lidar` (slow tensor-frame blob) — drive the `Op::SensorFuse` op

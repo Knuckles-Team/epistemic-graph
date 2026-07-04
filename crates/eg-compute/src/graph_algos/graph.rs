@@ -1,4 +1,4 @@
-// CONCEPT:EG-144 — Graph data-science algorithms (Neo4j GDS parity).
+// CONCEPT:EG-KG.compute.graph-data-science-algorithms — Graph data-science algorithms (Neo4j GDS parity).
 //
 // A standalone, generic adjacency-graph value the graph-algorithms operate on.
 // It is deliberately decoupled from the live engine (`GraphView`/petgraph) so the
@@ -19,7 +19,7 @@ use std::hash::Hash;
 /// run over compact `usize` indices (`0..node_count`) and map results back to `N`
 /// at the boundary. Parallel edges between the same ordered pair are **summed**.
 ///
-/// CONCEPT:EG-144
+/// CONCEPT:EG-KG.compute.graph-data-science-algorithms
 #[derive(Debug, Clone)]
 pub struct AdjacencyGraph<N> {
     /// Compact index → node id. Sorted, unique — the determinism anchor.
@@ -43,7 +43,7 @@ where
     /// primary constructor the tests use.
     ///
     /// Complexity: O(E log E) for the per-node neighbour sort, O(V log V) for the
-    /// stable node ordering. CONCEPT:EG-144
+    /// stable node ordering. CONCEPT:EG-KG.compute.graph-data-science-algorithms
     pub fn from_adjacency<I, J>(adjacency: I) -> Self
     where
         I: IntoIterator<Item = (N, J)>,
@@ -97,7 +97,7 @@ where
     }
 
     /// Build from a flat weighted edge list `(src, dst, weight)`.
-    /// CONCEPT:EG-144
+    /// CONCEPT:EG-KG.compute.graph-data-science-algorithms
     pub fn from_edges<I>(edges: I) -> Self
     where
         I: IntoIterator<Item = (N, N, f64)>,
@@ -122,7 +122,7 @@ where
     }
 
     /// Build from an *unweighted* edge list (every edge weight = 1.0).
-    /// CONCEPT:EG-144
+    /// CONCEPT:EG-KG.compute.graph-data-science-algorithms
     pub fn from_unweighted_edges<I>(edges: I) -> Self
     where
         I: IntoIterator<Item = (N, N)>,
@@ -192,7 +192,7 @@ where
 
     /// Undirected neighbour set of a node as a sorted, de-duplicated index list
     /// (union of out- and in-neighbours, self excluded). Used by the undirected
-    /// algorithms (similarity, WCC). CONCEPT:EG-144
+    /// algorithms (similarity, WCC). CONCEPT:EG-KG.compute.graph-data-science-algorithms
     pub fn undirected_neighbors(&self, idx: usize) -> Vec<usize> {
         let mut v: Vec<usize> = Vec::with_capacity(self.out[idx].len() + self.inc[idx].len());
         for &(t, _) in &self.out[idx] {
@@ -213,7 +213,7 @@ where
     /// Build a symmetric undirected weighted adjacency (each undirected edge's
     /// weight is the sum of both directions; self-loops kept once). Returned as
     /// per-node sorted `(neighbor, weight)` lists over compact indices. Shared by
-    /// Louvain and weighted undirected measures. CONCEPT:EG-144
+    /// Louvain and weighted undirected measures. CONCEPT:EG-KG.compute.graph-data-science-algorithms
     pub fn undirected_weighted_adjacency(&self) -> Vec<Vec<(usize, f64)>> {
         let n = self.node_count();
         let mut maps: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];

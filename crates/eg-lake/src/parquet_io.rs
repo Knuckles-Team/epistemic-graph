@@ -1,4 +1,4 @@
-//! Parquet materialization + read-back (CONCEPT:EG-317).
+//! Parquet materialization + read-back (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 //!
 //! Transcodes a [`LakeBatch`] (the engine's columnar/table data, neutralized in
 //! `schema.rs`) into a single Parquet file's bytes, and reads Parquet bytes back into
@@ -26,7 +26,7 @@ use parquet::format::FileMetaData;
 use crate::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
 use crate::snapshot::ColumnStat;
 
-/// The Arrow [`DataType`] a [`LakeType`] maps to (CONCEPT:EG-317). A UTC-zoned
+/// The Arrow [`DataType`] a [`LakeType`] maps to (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). A UTC-zoned
 /// micro-timestamp is what Delta/Iceberg's `timestamptz` expects.
 fn arrow_type(ty: LakeType) -> DataType {
     match ty {
@@ -38,7 +38,7 @@ fn arrow_type(ty: LakeType) -> DataType {
     }
 }
 
-/// Build the Arrow [`Schema`] mirroring a [`LakeSchema`] (CONCEPT:EG-317).
+/// Build the Arrow [`Schema`] mirroring a [`LakeSchema`] (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 fn arrow_schema(schema: &LakeSchema) -> Schema {
     let fields: Vec<Field> = schema
         .fields
@@ -50,7 +50,7 @@ fn arrow_schema(schema: &LakeSchema) -> Schema {
 
 /// Explode one column (column index `col`) of a row-major batch into a typed Arrow
 /// array, honoring nulls. A cell whose runtime variant disagrees with the schema type
-/// is treated as null for that column (schema-on-read tolerance, CONCEPT:EG-317).
+/// is treated as null for that column (schema-on-read tolerance, CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 fn build_column(batch: &LakeBatch, col: usize, ty: LakeType) -> ArrayRef {
     match ty {
         LakeType::Long => {
@@ -97,7 +97,7 @@ fn build_column(batch: &LakeBatch, col: usize, ty: LakeType) -> ArrayRef {
 }
 
 /// Transcode a [`LakeBatch`] into one Parquet file's bytes AND the Parquet
-/// [`FileMetaData`] the close returns (CONCEPT:EG-317). The metadata carries the
+/// [`FileMetaData`] the close returns (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). The metadata carries the
 /// per-column-chunk compressed sizes the Iceberg `column_sizes` stat needs (EG-350).
 fn materialize_batch_meta(batch: &LakeBatch) -> Result<(Vec<u8>, FileMetaData), String> {
     let schema = Arc::new(arrow_schema(&batch.schema));
@@ -122,7 +122,7 @@ fn materialize_batch_meta(batch: &LakeBatch) -> Result<(Vec<u8>, FileMetaData), 
     Ok((buf, meta))
 }
 
-/// Transcode a [`LakeBatch`] into one Parquet file's bytes (CONCEPT:EG-317).
+/// Transcode a [`LakeBatch`] into one Parquet file's bytes (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 ///
 /// This is the core materialization primitive — `materialize_table(rows) -> parquet
 /// bytes`. The bytes are a self-describing Parquet file (schema in the footer) that
@@ -132,7 +132,7 @@ pub fn materialize_batch(batch: &LakeBatch) -> Result<Vec<u8>, String> {
 }
 
 /// Whether a cell's runtime variant matches the column's declared [`LakeType`]
-/// (CONCEPT:EG-350). A mismatching cell is materialized as null by the Parquet path
+/// (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries). A mismatching cell is materialized as null by the Parquet path
 /// ([`build_column`]), so the stats treat it as null too, staying file-exact.
 fn cell_matches(cell: &CellValue, ty: LakeType) -> bool {
     matches!(
@@ -145,7 +145,7 @@ fn cell_matches(cell: &CellValue, ty: LakeType) -> bool {
     )
 }
 
-/// Strict `a < b` for two same-typed, non-null, non-NaN cells (CONCEPT:EG-350). Used to
+/// Strict `a < b` for two same-typed, non-null, non-NaN cells (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries). Used to
 /// fold a column's min/max. String ordering is UTF-8 byte order (matches Iceberg's
 /// binary string ordering); bool orders `false < true`.
 fn cell_lt(a: &CellValue, b: &CellValue) -> bool {
@@ -159,7 +159,7 @@ fn cell_lt(a: &CellValue, b: &CellValue) -> bool {
     }
 }
 
-/// Compute per-column min/max/null/nan over a batch (CONCEPT:EG-350). A pure row walk —
+/// Compute per-column min/max/null/nan over a batch (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries). A pure row walk —
 /// no arrow needed; bounds stay neutral [`CellValue`]s the Iceberg manifest writer later
 /// serializes to Iceberg single-value binary. `column_size` is filled from the Parquet
 /// metadata by [`materialize_with_column_stats`], so it is left `None` here.
@@ -209,7 +209,7 @@ fn compute_column_stats(batch: &LakeBatch) -> Vec<ColumnStat> {
 }
 
 /// Per-column total compressed byte size, keyed by leaf column name, read back from the
-/// Parquet [`FileMetaData`] (CONCEPT:EG-350) — the source for Iceberg `column_sizes`.
+/// Parquet [`FileMetaData`] (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries) — the source for Iceberg `column_sizes`.
 fn column_sizes_by_name(meta: &FileMetaData) -> std::collections::HashMap<String, i64> {
     let mut sizes: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for rg in &meta.row_groups {
@@ -225,7 +225,7 @@ fn column_sizes_by_name(meta: &FileMetaData) -> std::collections::HashMap<String
 }
 
 /// The Parquet physical footprint of a materialized batch: byte length + row count
-/// (CONCEPT:EG-317). Fed straight into the Delta `add` action / Iceberg data-file
+/// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Fed straight into the Delta `add` action / Iceberg data-file
 /// entry so an external planner sees accurate file stats without opening the file.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ParquetStats {
@@ -233,7 +233,7 @@ pub struct ParquetStats {
     pub num_rows: u64,
 }
 
-/// Materialize and return the bytes plus their [`ParquetStats`] (CONCEPT:EG-317).
+/// Materialize and return the bytes plus their [`ParquetStats`] (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 pub fn materialize_with_stats(batch: &LakeBatch) -> Result<(Vec<u8>, ParquetStats), String> {
     let bytes = materialize_batch(batch)?;
     let stats = ParquetStats {
@@ -243,13 +243,13 @@ pub fn materialize_with_stats(batch: &LakeBatch) -> Result<(Vec<u8>, ParquetStat
     Ok((bytes, stats))
 }
 
-/// Materialize a batch AND gather full per-column Iceberg stats (CONCEPT:EG-350).
+/// Materialize a batch AND gather full per-column Iceberg stats (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries).
 ///
 /// Returns the Parquet bytes, the file-level [`ParquetStats`], and one [`ColumnStat`]
 /// per column carrying `value_count` / `null_count` / `nan_count` / `column_size` and
 /// typed min/max `lower`/`upper` bounds. This is the LTAP tier's stats-bearing
 /// materialize path (EG-317) — [`crate::LakeTable::materialize`] feeds the returned
-/// stats to the snapshot so the Iceberg Avro manifest (CONCEPT:EG-333) can emit the
+/// stats to the snapshot so the Iceberg Avro manifest (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest) can emit the
 /// predicate-pushdown maps a Spark/Trino reader uses to skip files.
 pub fn materialize_with_column_stats(
     batch: &LakeBatch,
@@ -267,7 +267,7 @@ pub fn materialize_with_column_stats(
     Ok((bytes, stats, col_stats))
 }
 
-/// Map an Arrow [`DataType`] back to a [`LakeType`] on read (CONCEPT:EG-317).
+/// Map an Arrow [`DataType`] back to a [`LakeType`] on read (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 fn lake_type(dt: &DataType) -> Result<LakeType, String> {
     Ok(match dt {
         DataType::Int64 => LakeType::Long,
@@ -279,7 +279,7 @@ fn lake_type(dt: &DataType) -> Result<LakeType, String> {
     })
 }
 
-/// Read Parquet bytes back into a [`LakeBatch`] (CONCEPT:EG-317). The inverse of
+/// Read Parquet bytes back into a [`LakeBatch`] (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). The inverse of
 /// [`materialize_batch`]; used by the round-trip correctness test and by any in-engine
 /// consumer that wants to re-read a materialized file.
 pub fn read_parquet(bytes: &[u8]) -> Result<LakeBatch, String> {
@@ -318,7 +318,7 @@ pub fn read_parquet(bytes: &[u8]) -> Result<LakeBatch, String> {
     LakeBatch::new(schema, rows)
 }
 
-/// Extract one cell from an Arrow column at row `r` as a [`CellValue`] (CONCEPT:EG-317).
+/// Extract one cell from an Arrow column at row `r` as a [`CellValue`] (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 fn cell_at(col: &ArrayRef, r: usize) -> Result<CellValue, String> {
     use arrow::array::Array;
     if col.is_null(r) {

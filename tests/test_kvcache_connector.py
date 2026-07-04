@@ -1,4 +1,4 @@
-"""Unit tests for the EG-187 Python KV-cache driver (CONCEPT:EG-337).
+"""Unit tests for the EG-187 Python KV-cache driver (CONCEPT:EG-KG.backend.shipped-pip-installable-python).
 
 Runs a tiny in-process HTTP server implementing the EG-187 ``/kv`` surface
 (``GET|PUT|HEAD /kv/<hash>``, ``GET /kv/<hash>/exists``, ``GET /kv/stats``) with

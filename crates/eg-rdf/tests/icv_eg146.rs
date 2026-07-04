@@ -1,8 +1,8 @@
 //! ICV — Integrity Constraint Validation, exercised through the eg-rdf test surface
-//! (CONCEPT:EG-146).
+//! (CONCEPT:EG-KG.ontology.wired-into-commit-write).
 //!
 //! ICV is implemented in `eg-shacl` (which sits ABOVE eg-rdf in the DAG and reuses the
-//! SHACL Core shape machinery, CONCEPT:EG-132). This integration test drives it via a
+//! SHACL Core shape machinery, CONCEPT:EG-KG.ontology.concept-6). This integration test drives it via a
 //! DEV-dependency so the closed-world behaviour is verifiable from
 //! `cargo test -p eg-rdf --features sparql`: a missing required property is a VIOLATION;
 //! datatype/class/pattern/in breaches are detected with a focus node + message; a valid
@@ -47,7 +47,7 @@ fn eg146_icv_closed_world_and_witness_from_eg_rdf() {
         .any(|v| v.result.constraint_component.contains("Datatype")));
     // Every violation is self-explaining (SPARQL witness citing EG-146, anchored at focus).
     for v in &report.violations {
-        assert!(v.witness.contains("CONCEPT:EG-146"));
+        assert!(v.witness.contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"));
         assert!(v.witness.contains("<http://example.org/bob>"));
         assert!(v.result.message.is_some());
     }

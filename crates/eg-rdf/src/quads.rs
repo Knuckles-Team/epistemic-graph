@@ -1,4 +1,4 @@
-//! Opt-in lossless `quads` table (CONCEPT:KG-2.217, feature `rdf-redb`).
+//! Opt-in lossless `quads` table (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql, feature `rdf-redb`).
 //!
 //! The property-graph mapping is faithful for the COMMON shape but lossy for ONE
 //! edge: a node property map is key-unique, so a subject with two DIFFERENT literals

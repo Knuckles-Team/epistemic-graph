@@ -1,6 +1,6 @@
-//! SQLite-compatible served surface (CONCEPT:EG-075) — Phase J of the Universal-DB
+//! SQLite-compatible served surface (CONCEPT:EG-KG.query.concept-3) — Phase J of the Universal-DB
 //! multi-wire program. The SECOND consumer of the wire-agnostic execution core
-//! (CONCEPT:EG-074), after the Postgres shim (`crate::server::pgwire`).
+//! (CONCEPT:EG-KG.compute.subsystems-reference), after the Postgres shim (`crate::server::pgwire`).
 //!
 //! ## Why this is not a "wire" like the others
 //! SQLite has **no client/server wire protocol** — it is an embedded library that
@@ -19,7 +19,7 @@
 //!      a || b` / `PRAGMA` statements work against the engine.
 //!
 //!   2. **`.db` file export/import** — producing / loading a real SQLite database file.
-//!      SHIPPED as `CONCEPT:EG-331`/`CONCEPT:EG-332` behind the SEPARATE `sqlite-file`
+//!      SHIPPED as `CONCEPT:EG-KG.query.eg-feature`/`CONCEPT:EG-KG.query.full-protocol` behind the SEPARATE `sqlite-file`
 //!      feature (`src/server/handlers/sqlite_file.rs` + the `ImportSqliteFile`/
 //!      `ExportSqliteFile` methods). A spec-correct SQLite b-tree file cannot be written
 //!      without reimplementing the page format (the blocker below), so `sqlite-file`
@@ -28,7 +28,7 @@
 //!      a `--features pi` build links NO rusqlite/libsqlite3-sys. That C leg is gated to
 //!      the non-Pi tiers ONLY; the `sqlite-wire` surface here stays pure-Rust.
 //!
-//! ## The wire-neutral promise (CONCEPT:EG-074)
+//! ## The wire-neutral promise (CONCEPT:EG-KG.compute.subsystems-reference)
 //! NOTHING about SQL classification, read execution (DataFusion), the graph write path,
 //! transactions, ACL, or durability is reimplemented here. This module is purely: the
 //! TCP framing (newline-delimited JSON), the SQLite-dialect rewrite, and the encoding of
@@ -50,7 +50,7 @@
 //! Column `type` is reported as the SQLite storage-class name (`INTEGER`/`REAL`/`TEXT`)
 //! so a SQLite-minded client sees familiar types.
 //!
-//! ## `.db` file export/import — SHIPPED (CONCEPT:EG-331/EG-332)
+//! ## `.db` file export/import — SHIPPED (CONCEPT:EG-KG.query.eg-feature/EG-332)
 //! Delivered in `src/server/handlers/sqlite_file.rs` behind the `sqlite-file` feature:
 //! import reads a `.db`'s tables+rows into the `TableStore`; export writes a `TableStore`
 //! selection out to a valid `sqlite3`-readable `.db`. Serializing the SQLite b-tree page

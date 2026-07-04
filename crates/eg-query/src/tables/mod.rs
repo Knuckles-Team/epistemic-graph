@@ -1,4 +1,4 @@
-//! Arbitrary user-defined relational tables (CONCEPT:EG-018) — the first complete
+//! Arbitrary user-defined relational tables (CONCEPT:EG-KG.query.register-user-tables-alongside) — the first complete
 //! increment of a real relational store living BESIDE the graph projection.
 //!
 //! Where `sql::providers` projects the GRAPH as a fixed schema-on-read `nodes` table,

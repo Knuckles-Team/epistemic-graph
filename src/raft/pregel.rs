@@ -1,4 +1,4 @@
-//! Distributed graph compute — a Pregel/GAS vertex-centric engine (CONCEPT:KG-2.227).
+//! Distributed graph compute — a Pregel/GAS vertex-centric engine (CONCEPT:EG-KG.storage.feature).
 //!
 //! Runs PageRank / connected-components / BFS ACROSS a set of graphs that span
 //! multiple Raft groups/shards, by gather-apply-scatter SUPERSTEPS with message
@@ -38,7 +38,7 @@
 //! [`incremental_connected_components`] recomputes ONLY the vertices a delta touched
 //! (the changed vertices + their neighborhood), reusing the prior labeling as the seed;
 //! the result equals a from-scratch run (the test asserts `incremental == from_scratch`).
-//! Named [`MatView`]s (CONCEPT:KG-2.227) persist a distributed-compute result and refresh
+//! Named [`MatView`]s (CONCEPT:EG-KG.storage.feature) persist a distributed-compute result and refresh
 //! incrementally; they live in the redb durable tier (see `super::store` / the handler).
 
 #![cfg(feature = "compute-dist")]
@@ -56,7 +56,7 @@ use crate::server::ServerState;
 /// vertex, owned by the shard that declares it first in the `graphs` order).
 pub type VertexId = String;
 
-/// The gathered, partitioned topology for a distributed run (CONCEPT:KG-2.227). Holds:
+/// The gathered, partitioned topology for a distributed run (CONCEPT:EG-KG.storage.feature). Holds:
 ///
 /// * `owner` — which shard each vertex is OWNED by (the routing table: a message to a
 ///   vertex is delivered to its owning shard, the cross-shard hop). One graph = one
@@ -406,7 +406,7 @@ fn distributed_bfs(part: &Partitioning, source: &str) -> LabelRows {
     rows
 }
 
-// ── Incremental / streaming connected components (CONCEPT:KG-2.227) ────────────
+// ── Incremental / streaming connected components (CONCEPT:EG-KG.storage.feature) ────────────
 
 /// Recompute connected components INCREMENTALLY after a delta: given the prior labeling
 /// and the set of vertices a delta touched (new/changed edges' endpoints), re-propagate
@@ -493,10 +493,10 @@ pub async fn incremental_connected_components(
     Ok(rows)
 }
 
-// ── Materialized views (CONCEPT:KG-2.227) ──────────────────────────────────────
+// ── Materialized views (CONCEPT:EG-KG.storage.feature) ──────────────────────────────────────
 
 /// A named, incrementally-maintained materialized view of a distributed-compute result
-/// (CONCEPT:KG-2.227). Persisted in the redb durable tier so it survives restart; the
+/// (CONCEPT:EG-KG.storage.feature). Persisted in the redb durable tier so it survives restart; the
 /// handler refreshes it incrementally on a delta. The definition (graphs + algo) is
 /// stored alongside the rows so a `RefreshMatView` can recompute without re-specifying.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -507,7 +507,7 @@ pub struct MatView {
     pub result: DistResult,
 }
 
-/// A flat map of named materialized views the engine maintains (CONCEPT:KG-2.227). The
+/// A flat map of named materialized views the engine maintains (CONCEPT:EG-KG.storage.feature). The
 /// in-RAM index; the durable copy lives in redb (the handler persists + reloads). The
 /// `BTreeMap` keeps a deterministic order for listing.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

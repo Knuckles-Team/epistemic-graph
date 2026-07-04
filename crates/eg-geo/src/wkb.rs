@@ -1,4 +1,4 @@
-//! **WKB — Well-Known Binary** reader/writer (CONCEPT:EG-264).
+//! **WKB — Well-Known Binary** reader/writer (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 //!
 //! The OGC/ISO binary sibling of the [`crate::wkt`] text codec: a compact byte encoding that
 //! every spatial database (PostGIS, GEOS, GDAL) speaks. Hand-rolled here — NO C/GEOS dep — so
@@ -26,7 +26,7 @@ const WKB_GEOMETRYCOLLECTION: u32 = 7;
 /// EWKB high bit signalling an embedded 4-byte SRID follows the type word.
 const EWKB_SRID_FLAG: u32 = 0x2000_0000;
 
-/// Serialise a geometry to standard OGC WKB, little-endian (NDR) (CONCEPT:EG-264).
+/// Serialise a geometry to standard OGC WKB, little-endian (NDR) (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn to_wkb(geom: &Geometry) -> Vec<u8> {
     let mut out = Vec::new();
     write_geom(&mut out, geom, None);
@@ -34,20 +34,20 @@ pub fn to_wkb(geom: &Geometry) -> Vec<u8> {
 }
 
 /// Serialise a geometry to **EWKB** with an embedded `srid` (PostGIS extension, little-endian)
-/// (CONCEPT:EG-264). The SRID rides only on the top-level geometry, matching PostGIS.
+/// (CONCEPT:EG-KG.domains.geojson-gpx-formats). The SRID rides only on the top-level geometry, matching PostGIS.
 pub fn to_ewkb(geom: &Geometry, srid: u32) -> Vec<u8> {
     let mut out = Vec::new();
     write_geom(&mut out, geom, Some(srid));
     out
 }
 
-/// Parse a geometry from WKB or EWKB bytes, discarding any SRID (CONCEPT:EG-264).
+/// Parse a geometry from WKB or EWKB bytes, discarding any SRID (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn from_wkb(bytes: &[u8]) -> Result<Geometry, String> {
     Ok(from_wkb_srid(bytes)?.1)
 }
 
 /// Parse a geometry from WKB/EWKB, also returning the embedded SRID if the EWKB flag was set
-/// (CONCEPT:EG-264) — the natural bridge to [`crate::crs::SridGeometry`].
+/// (CONCEPT:EG-KG.domains.geojson-gpx-formats) — the natural bridge to [`crate::crs::SridGeometry`].
 pub fn from_wkb_srid(bytes: &[u8]) -> Result<(Option<u32>, Geometry), String> {
     let mut c = Cursor::new(bytes);
     let g = read_geom(&mut c)?;

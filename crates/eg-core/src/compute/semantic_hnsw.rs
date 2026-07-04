@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.22b — Semantic Embedding Store with HNSW Index (default backend).
+// CONCEPT:EG-KG.compute.semantic-embedding-store-hnsw — Semantic Embedding Store with HNSW Index (default backend).
 //
 // High-performance embedding store using the hnsw_rs crate for
 // O(log n) approximate nearest-neighbor search. Falls back to
@@ -6,7 +6,7 @@
 //
 // This is the DEFAULT `SemanticStore`. Under the `ann` feature it is replaced by
 // the eg-ann IVF-PQ+OPQ+SQ8-refine backend (`semantic_store_ann.rs`,
-// CONCEPT:KG-2.207), which reopens a persisted index without rebuilding from raw
+// CONCEPT:EG-KG.sharding.semantic-embedding-store-backed), which reopens a persisted index without rebuilding from raw
 // vectors. `compute::semantic` re-exports whichever backend is active.
 
 use hnsw_rs::hnsw::Hnsw;
@@ -132,7 +132,7 @@ impl SemanticStore {
         }
     }
 
-    /// Raw stored embedding for `node_id`, if present (CONCEPT:KG-2.255 — the MMR
+    /// Raw stored embedding for `node_id`, if present (CONCEPT:AU-KG.retrieval.mmr-diversification — the MMR
     /// reranker needs per-candidate vectors to compute pairwise diversity).
     pub fn get_embedding(&self, node_id: &str) -> Option<Vec<f32>> {
         self.embeddings.get(node_id).cloned()
@@ -195,7 +195,7 @@ impl SemanticStore {
         self.hnsw_query(query_embedding, n_results, &idx)
     }
 
-    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-070). hnsw_rs has no
+    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). hnsw_rs has no
     /// native candidate pre-filter, so this backend realises the predicate by
     /// over-fetching a wider band and post-filtering — still correct, just without the
     /// push-down win the `ann` (IVF-PQ) backend gets from `search_filtered`. The
@@ -333,7 +333,7 @@ impl SemanticStore {
         self.embeddings.is_empty()
     }
 
-    /// Approximate resident bytes held by the embedding vectors (CONCEPT:KG-2.234):
+    /// Approximate resident bytes held by the embedding vectors (CONCEPT:EG-KG.compute.lane-v):
     /// the sum of every stored vector's `len × 4` (f32). Used by the per-tenant
     /// memory-budget estimate; the HNSW index built on top is rebuildable and not
     /// counted (the raw vectors are the durable footprint).

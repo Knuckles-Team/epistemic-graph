@@ -1,4 +1,4 @@
-//! `migrate-shards` — OFFLINE K-shard migration CLI (CONCEPT:EG-030, M3).
+//! `migrate-shards` — OFFLINE K-shard migration CLI (CONCEPT:EG-KG.sharding.atomic-shard-swap, M3).
 //!
 //! Rewrites an existing durable redb store (`graph.redb` for K=1, or a
 //! `graph-<n>.redb` set) into a NEW shard count K, routing every graph with the SAME
@@ -22,7 +22,7 @@ use epistemic_graph::server::persistence::shard_migrate;
 #[derive(Parser, Debug)]
 #[command(name = "migrate-shards")]
 #[command(
-    about = "Offline K-shard migration for the epistemic-graph durable store (CONCEPT:EG-030)"
+    about = "Offline K-shard migration for the epistemic-graph durable store (CONCEPT:EG-KG.sharding.atomic-shard-swap)"
 )]
 struct Args {
     /// Persist dir holding the existing redb shard files (the source).

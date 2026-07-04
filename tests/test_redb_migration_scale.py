@@ -1,6 +1,6 @@
 """Scale + deadlock regression for the one-time legacy → redb migration.
 
-CONCEPT:KG-2.200. THE FLIP (CONCEPT:KG-2.195) made redb-authoritative the
+CONCEPT:EG-KG.storage.authoritative-flip. THE FLIP (CONCEPT:AU-KG.backend.backend-modes) made redb-authoritative the
 default; the first authoritative boot over a pre-flip persist dir runs a one-time
 ``.mp``/``.wal`` → redb import (``src/main.rs``: detect "redb empty + legacy
 present" → ``persist::load_all`` → ``checkpoint_all``).

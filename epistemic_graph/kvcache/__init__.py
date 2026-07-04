@@ -1,8 +1,8 @@
 """Python LMCache/vLLM remote-backend driver for the EG-187 KV-cache endpoint.
 
-CONCEPT:EG-337 — a shipped, pip-installable driver that lets parallel vLLM /
+CONCEPT:EG-KG.backend.shipped-pip-installable-python — a shipped, pip-installable driver that lets parallel vLLM /
 LMCache workers use the engine's shared, content-addressed KV-cache backend
-(CONCEPT:EG-185/186) as a remote KV backend over its HTTP surface (CONCEPT:EG-187).
+(CONCEPT:EG-KG.memory.byte-bounded-tiers/186) as a remote KV backend over its HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co).
 
 Two entry points:
 

@@ -1,4 +1,4 @@
-//! Pure-compute quantitative-finance ops (CONCEPT:KG-2.20): portfolio optimization,
+//! Pure-compute quantitative-finance ops (CONCEPT:AU-KG.memory.mementified-context): portfolio optimization,
 //! risk, regimes, signals, microstructure/market-making, sizing, backtest
 //! validation, state-space, derivatives. Stateless — no graph core, runs inline.
 
@@ -11,7 +11,7 @@
 use crate::protocol::{Method, Response, ResultPayload};
 
 /// Handle a `Finance*` method. `Err(method)` hands a non-finance method back to the
-/// dispatcher (routing fall-through). (CONCEPT:KG-2.19 — server dispatch convention)
+/// dispatcher (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention — server dispatch convention)
 pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method> {
     let resp = match method {
         Method::FinanceOptimizePortfolio {
@@ -64,7 +64,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             );
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
         }
-        // ── Extended Finance: Risk (CONCEPT:KG-2.20) ──────────────────
+        // ── Extended Finance: Risk (CONCEPT:AU-KG.memory.mementified-context) ──────────────────
         Method::FinanceVar {
             returns,
             confidence,
@@ -227,7 +227,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::raw(&v))
         }
 
-        // ── Market Making / Microstructure (CONCEPT:KG-2.20f) ─────────
+        // ── Market Making / Microstructure (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─────────
         Method::FinanceAvellanedaStoikov {
             mid,
             inventory,
@@ -339,7 +339,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::Float(v))
         }
 
-        // ── Kyle insider/stealth surveillance (CONCEPT:KG-2.20k) ──────
+        // ── Kyle insider/stealth surveillance (CONCEPT:EG-KG.domains.concept-2) ──────
         Method::FinanceKyleLambda {
             price_changes,
             signed_order_flow,
@@ -366,7 +366,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::raw(&v))
         }
 
-        // ── Position Sizing (CONCEPT:KG-2.20f) ────────────────────────
+        // ── Position Sizing (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ────────────────────────
         Method::FinanceKellyFraction { q, c, fraction } => {
             let v = crate::finance::quant::kelly_fraction(q, c, fraction);
             Response::ok(req_id, ResultPayload::Float(v))
@@ -388,7 +388,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             )
         }
 
-        // ── Backtest Validation (CONCEPT:KG-2.20f) ────────────────────
+        // ── Backtest Validation (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ────────────────────
         Method::FinancePurgedCpcv {
             n_samples,
             n_groups,
@@ -427,7 +427,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::raw(&v))
         }
 
-        // ── Forensic Accounting (CONCEPT:KG-2.20g) ────────────────────
+        // ── Forensic Accounting (CONCEPT:EG-KG.domains.forensic-accounting-kernels) ────────────────────
         Method::FinanceForensicReport {
             this_year,
             prior_year,
@@ -436,7 +436,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::raw(&v))
         }
 
-        // ── State-Space / Stat-Arb (CONCEPT:KG-2.20h) ─────────────────
+        // ── State-Space / Stat-Arb (CONCEPT:EG-KG.domains.state-space-statistical-arbitrage) ─────────────────
         Method::FinanceKalmanFilter1d {
             observations,
             f,
@@ -519,7 +519,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::raw(&v))
         }
 
-        // ── Signal Combination / Sizing / Calibration (CONCEPT:KG-2.20i) ──
+        // ── Signal Combination / Sizing / Calibration (CONCEPT:EG-KG.domains.quant-finance) ──
         Method::FinanceOrderBookImbalance { v_bid, v_ask } => {
             let v = crate::finance::quant::order_book_imbalance(&v_bid, &v_ask);
             Response::ok(req_id, ResultPayload::raw(&v))
@@ -593,7 +593,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::Float(v))
         }
 
-        // ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ────
+        // ── Derivatives: SABR volatility surface (CONCEPT:AU-KG.domains.derivatives) ────
         Method::FinanceSabrImpliedVol {
             f,
             k,

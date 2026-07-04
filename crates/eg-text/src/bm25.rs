@@ -1,5 +1,5 @@
 //! Classic Robertson/Spärck-Jones BM25 relevance scoring + highlighted snippets
-//! (CONCEPT:EG-311) — the REAL ranking behind ParadeDB's `paradedb.score()` /
+//! (CONCEPT:EG-KG.query.bm25-ranking-snippets) — the REAL ranking behind ParadeDB's `paradedb.score()` /
 //! `paradedb.snippet()`, replacing the EG-119 placeholders (score ≡ 1.0, snippet ≡
 //! echo).
 //!
@@ -11,7 +11,7 @@
 //! *value*-shaped scorer instead — `score(query, doc)` / `snippet(query, doc, maxlen)`
 //! over a single `(query, doc)` pair with NO index in hand:
 //!
-//!   * the eg-query `bm25_score` / `bm25_snippet` scalar UDFs (CONCEPT:EG-119), which
+//!   * the eg-query `bm25_score` / `bm25_snippet` scalar UDFs (CONCEPT:EG-KG.query.paradedb-bm25), which
 //!     run per-row inside DataFusion and only ever see one document's text at a time;
 //!   * any server-side lowering that already has the matched row's text.
 //!
@@ -35,7 +35,7 @@
 
 use std::collections::HashMap;
 
-/// BM25 free parameters (CONCEPT:EG-311). `k1` controls term-frequency saturation
+/// BM25 free parameters (CONCEPT:EG-KG.query.bm25-ranking-snippets). `k1` controls term-frequency saturation
 /// (higher ⇒ raw counts matter more before flattening); `b` controls length
 /// normalization (`0` ⇒ ignore document length, `1` ⇒ fully normalize by it). The
 /// defaults are the classic, widely-used `k1 = 1.2`, `b = 0.75`.
@@ -51,7 +51,7 @@ impl Default for Bm25 {
     }
 }
 
-/// Corpus-level statistics for true IDF (CONCEPT:EG-311): document count, average
+/// Corpus-level statistics for true IDF (CONCEPT:EG-KG.query.bm25-ranking-snippets): document count, average
 /// document length (in tokens) and the per-term document frequency. Build one with
 /// [`Corpus::from_docs`] to score many documents against a query with a *shared* IDF.
 #[derive(Clone, Debug, Default)]
@@ -62,7 +62,7 @@ pub struct Corpus {
 }
 
 impl Corpus {
-    /// Compute corpus statistics from an iterator of document bodies (CONCEPT:EG-311).
+    /// Compute corpus statistics from an iterator of document bodies (CONCEPT:EG-KG.query.bm25-ranking-snippets).
     /// Each document is tokenized once; `df(term)` counts *documents* (not occurrences)
     /// containing the term, and `avgdl` is the mean token count.
     pub fn from_docs<'a, I>(docs: I) -> Self
@@ -97,13 +97,13 @@ impl Corpus {
 }
 
 impl Bm25 {
-    /// Construct with explicit parameters (CONCEPT:EG-311).
+    /// Construct with explicit parameters (CONCEPT:EG-KG.query.bm25-ranking-snippets).
     pub fn new(k1: f32, b: f32) -> Self {
         Self { k1, b }
     }
 
     /// The BM25 IDF of a term given corpus `n_docs` and its document frequency `df`
-    /// (CONCEPT:EG-311): `ln(1 + (N - df + 0.5) / (df + 0.5))`. The `1 +` (Lucene's
+    /// (CONCEPT:EG-KG.query.bm25-ranking-snippets): `ln(1 + (N - df + 0.5) / (df + 0.5))`. The `1 +` (Lucene's
     /// variant) keeps IDF strictly non-negative even for very common terms, so no term
     /// ever *subtracts* from relevance.
     fn idf(n_docs: usize, df: usize) -> f32 {
@@ -113,7 +113,7 @@ impl Bm25 {
     }
 
     /// BM25 score of `query` against `doc` using explicit corpus statistics
-    /// (CONCEPT:EG-311) — the multi-document path where IDF is shared across every
+    /// (CONCEPT:EG-KG.query.bm25-ranking-snippets) — the multi-document path where IDF is shared across every
     /// scored document. Sum, over distinct query terms present in `doc`, of
     /// `idf(term) * tf * (k1 + 1) / (tf + k1 * (1 - b + b * |doc| / avgdl))`.
     pub fn score_in_corpus(&self, query: &str, doc: &str, corpus: &Corpus) -> f32 {
@@ -146,7 +146,7 @@ impl Bm25 {
     }
 }
 
-/// BM25 score of `query` against a single `doc` (CONCEPT:EG-311), self-contained: the
+/// BM25 score of `query` against a single `doc` (CONCEPT:EG-KG.query.bm25-ranking-snippets), self-contained: the
 /// document is treated as a 1-document corpus (`N = 1`, `avgdl = |doc|`). Ranking many
 /// docs against one query with this reflects term-frequency saturation — a doc that
 /// mentions the query terms more often scores higher — which is the property the
@@ -156,7 +156,7 @@ pub fn bm25_score(query: &str, doc: &str) -> f32 {
     Bm25::default().score_in_corpus(query, doc, &corpus)
 }
 
-/// A highlighted relevance snippet of `doc` for `query` (CONCEPT:EG-311) — the REAL
+/// A highlighted relevance snippet of `doc` for `query` (CONCEPT:EG-KG.query.bm25-ranking-snippets) — the REAL
 /// `paradedb.snippet()`, replacing the EG-119 echo placeholder. Finds the first window
 /// of `doc` (snapped to token boundaries, ≈ `maxlen` chars) that contains a query term,
 /// wraps every whole-word, case-insensitive query-term occurrence in that window with
@@ -222,7 +222,7 @@ pub fn bm25_snippet(query: &str, doc: &str, maxlen: usize) -> String {
     out
 }
 
-/// Lowercased alphanumeric tokens of `text` (CONCEPT:EG-311). Deliberately simple —
+/// Lowercased alphanumeric tokens of `text` (CONCEPT:EG-KG.query.bm25-ranking-snippets). Deliberately simple —
 /// split on any non-alphanumeric run, lowercase — matching the value-shaped scorer's
 /// "no external tokenizer" contract (the Tantivy path in [`crate::TextIndex`] does the
 /// stemming; here we keep it dep-free).
@@ -234,7 +234,7 @@ fn tokenize(text: &str) -> Vec<String> {
 }
 
 /// Byte spans `(start, end)` of each alphanumeric token run in `text`, in order
-/// (CONCEPT:EG-311) — used by [`bm25_snippet`] to highlight in place without losing the
+/// (CONCEPT:EG-KG.query.bm25-ranking-snippets) — used by [`bm25_snippet`] to highlight in place without losing the
 /// original casing / separators. Boundaries fall between an alphanumeric and a
 /// non-alphanumeric char, so every span start/end is a valid UTF-8 char boundary.
 fn token_spans(text: &str) -> Vec<(usize, usize)> {
@@ -257,7 +257,7 @@ fn token_spans(text: &str) -> Vec<(usize, usize)> {
 mod tests {
     use super::*;
 
-    /// CONCEPT:EG-311 — real BM25 ranking: a document that mentions the query terms
+    /// CONCEPT:EG-KG.query.bm25-ranking-snippets — real BM25 ranking: a document that mentions the query terms
     /// more often out-ranks one that mentions them once, and a document with none of
     /// the query terms scores zero. This is the placeholder-killer: EG-119 returned a
     /// constant 1.0 for every row, which could not order anything.
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(s_none, 0.0, "no query term present ⇒ zero relevance");
     }
 
-    /// CONCEPT:EG-311 — corpus IDF: with a shared multi-document corpus, a RARE query
+    /// CONCEPT:EG-KG.query.bm25-ranking-snippets — corpus IDF: with a shared multi-document corpus, a RARE query
     /// term contributes more relevance than a term present in every document (which has
     /// IDF ≈ 0), so the doc matching the rare term ranks higher.
     #[test]
@@ -305,7 +305,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-311 — snippet highlights every matched term with <b>…</b>, preserving
+    /// CONCEPT:EG-KG.query.bm25-ranking-snippets — snippet highlights every matched term with <b>…</b>, preserving
     /// the original casing, and does NOT bold non-matching words.
     #[test]
     fn eg311_snippet_highlights_matched_terms() {
@@ -325,7 +325,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-311 — snippet windows around the FIRST match and marks truncation
+    /// CONCEPT:EG-KG.query.bm25-ranking-snippets — snippet windows around the FIRST match and marks truncation
     /// with an ellipsis when the match is deep in a long document.
     #[test]
     fn eg311_snippet_windows_around_match_with_ellipsis() {
@@ -346,7 +346,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-311 — a query with no matching term yields the (truncated) head of the
+    /// CONCEPT:EG-KG.query.bm25-ranking-snippets — a query with no matching term yields the (truncated) head of the
     /// document, with no highlight markup (never panics, never errors a plan).
     #[test]
     fn eg311_snippet_no_match_returns_plain_head() {
@@ -359,7 +359,7 @@ mod tests {
         assert!(snip.starts_with("the quick"), "returns head of doc: {snip}");
     }
 
-    /// CONCEPT:EG-311 — empty / whitespace inputs are total (no panic): empty doc ⇒
+    /// CONCEPT:EG-KG.query.bm25-ranking-snippets — empty / whitespace inputs are total (no panic): empty doc ⇒
     /// empty snippet and zero score; empty query ⇒ zero score.
     #[test]
     fn eg311_empty_inputs_are_total() {

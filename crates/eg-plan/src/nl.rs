@@ -1,7 +1,7 @@
-//! Natural-language → query planning seam (CONCEPT:EG-078) + a concrete, LLM-optional
-//! planner (CONCEPT:EG-080).
+//! Natural-language → query planning seam (CONCEPT:EG-KG.query.core-query-input) + a concrete, LLM-optional
+//! planner (CONCEPT:EG-KG.query.fence-stripper).
 //!
-//! ## The seam (CONCEPT:EG-078)
+//! ## The seam (CONCEPT:EG-KG.query.core-query-input)
 //!
 //! The engine stays PURE-RUST and DETERMINISTIC: NL is turned into an executable query
 //! STRING by a pluggable [`NlPlanner`], and that string then runs through the engine's
@@ -16,7 +16,7 @@
 //!    hand-written `UnifiedQueryText` — the query language target is UQL (the engine's
 //!    text front-end), so the whole downstream is the audited, deterministic path.
 //!
-//! ## The standalone planner (CONCEPT:EG-080)
+//! ## The standalone planner (CONCEPT:EG-KG.query.fence-stripper)
 //!
 //! [`UreqNlPlanner`] is a concrete [`NlPlanner`] (gated behind `nl-query`) that POSTs to
 //! an OpenAI-compatible `/chat/completions` endpoint and extracts the produced query.
@@ -35,7 +35,7 @@
 use crate::exec::{execute, PlanCtx};
 use crate::rowset::RowSet;
 
-/// The NL→query planning seam (CONCEPT:EG-078): turn a natural-language request plus a
+/// The NL→query planning seam (CONCEPT:EG-KG.query.core-query-input): turn a natural-language request plus a
 /// `schema_hint` (labels / grammar the model should target) into an executable query
 /// STRING. Returning a string — not a `Plan` — keeps the planner language-agnostic
 /// (UQL / SQL / Cypher / SPARQL) and keeps EXECUTION on the engine's existing
@@ -48,7 +48,7 @@ pub trait NlPlanner: Send + Sync {
     fn plan(&self, nl: &str, schema_hint: &str) -> Result<String, String>;
 }
 
-/// CONCEPT:EG-078 — the deterministic seam. Run `planner` to get a UQL query string,
+/// CONCEPT:EG-KG.query.core-query-input — the deterministic seam. Run `planner` to get a UQL query string,
 /// then parse + execute it through the engine's EXISTING pipeline (`uql::parse` → the
 /// fused [`crate::execute`]). The planner is the only non-deterministic step; a produced
 /// query that does not parse as UQL surfaces the caret-annotated parse error (never a
@@ -64,7 +64,7 @@ pub fn plan_and_execute(
     execute(&plan, ctx)
 }
 
-/// CONCEPT:EG-078 — the LLM-OPTIONAL entry point the engine core calls. With `None` the
+/// CONCEPT:EG-KG.query.core-query-input — the LLM-OPTIONAL entry point the engine core calls. With `None` the
 /// NL feature is a **no-op** (`Ok(None)`): the engine has no planner configured/injected,
 /// so there is simply no NL surface — it does not error, it just does nothing. With
 /// `Some(planner)` it delegates to [`plan_and_execute`] and wraps the rows in `Some`.
@@ -80,9 +80,9 @@ pub fn plan_and_execute_opt(
     }
 }
 
-// ── The concrete standalone planner (CONCEPT:EG-080, feature `nl-query`) ─────────────
+// ── The concrete standalone planner (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`) ─────────────
 
-/// A concrete [`NlPlanner`] (CONCEPT:EG-080) that asks an OpenAI-compatible
+/// A concrete [`NlPlanner`] (CONCEPT:EG-KG.query.fence-stripper) that asks an OpenAI-compatible
 /// `/chat/completions` endpoint to translate NL → a UQL query, over the SAME pure-Rust
 /// rustls HTTP client (`ureq`) the federation sources use. Kept OUT of the Pi tier.
 ///
@@ -248,7 +248,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-078 — NL → (mock planner) → canned UQL → EXISTING uql::parse + execute
+    /// CONCEPT:EG-KG.query.core-query-input — NL → (mock planner) → canned UQL → EXISTING uql::parse + execute
     /// → rows. The seam runs the produced query through the deterministic pipeline.
     #[test]
     fn eg078_mock_planner_nl_to_uql_executes_to_rows() {
@@ -267,7 +267,7 @@ mod tests {
         assert!(!ids.contains("t1"));
     }
 
-    /// CONCEPT:EG-078 — the engine core takes `Option<&dyn NlPlanner>`; a `None` planner
+    /// CONCEPT:EG-KG.query.core-query-input — the engine core takes `Option<&dyn NlPlanner>`; a `None` planner
     /// is a NO-OP (`Ok(None)`), so the NL feature is inert when unconfigured.
     #[test]
     fn eg078_none_planner_is_noop() {
@@ -277,7 +277,7 @@ mod tests {
         assert!(out.is_none(), "a None planner must be a no-op");
     }
 
-    /// CONCEPT:EG-078 — a `Some(planner)` path yields `Some(rows)` (the mirror of the
+    /// CONCEPT:EG-KG.query.core-query-input — a `Some(planner)` path yields `Some(rows)` (the mirror of the
     /// no-op case), confirming the Option seam threads the executed result through.
     #[test]
     fn eg078_some_planner_yields_rows() {
@@ -290,7 +290,7 @@ mod tests {
         assert!(out.map(|r| r.len()).unwrap_or(0) >= 3);
     }
 
-    /// CONCEPT:EG-080 — a planner that emits INVALID UQL surfaces a clean parse error
+    /// CONCEPT:EG-KG.query.fence-stripper — a planner that emits INVALID UQL surfaces a clean parse error
     /// (never a panic), so a bad model answer is a graceful failure.
     #[test]
     fn eg080_invalid_uql_from_planner_is_clean_error() {
@@ -303,7 +303,7 @@ mod tests {
         assert!(!err.is_empty());
     }
 
-    /// CONCEPT:EG-080 — the fence-stripper recovers a bare query from a fenced answer.
+    /// CONCEPT:EG-KG.query.fence-stripper — the fence-stripper recovers a bare query from a fenced answer.
     #[test]
     fn eg080_strip_query_unwraps_code_fences() {
         assert_eq!(

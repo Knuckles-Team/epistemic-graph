@@ -1,4 +1,4 @@
-// CONCEPT:EG-091 — OpenTelemetry OTLP span export + tracing init.
+// CONCEPT:EG-OS.observability.otlp-span-export — OpenTelemetry OTLP span export + tracing init.
 //
 // This is the ONE place the binary installs the global `tracing` subscriber. It
 // layers an OTLP batch span exporter ON TOP of the engine's existing tracing
@@ -26,7 +26,7 @@ pub fn init_tracing() {
             match init_with_otel(&endpoint) {
                 Ok(()) => {
                     tracing::info!(
-                        "OTel (CONCEPT:EG-091): exporting tracing spans to OTLP endpoint {endpoint}"
+                        "OTel (CONCEPT:EG-OS.observability.otlp-span-export): exporting tracing spans to OTLP endpoint {endpoint}"
                     );
                     return;
                 }
@@ -55,7 +55,7 @@ fn init_fmt_only() {
 }
 
 /// Build the OTLP batch exporter and install a Registry carrying BOTH the fmt
-/// layer and the `tracing-opentelemetry` export layer (CONCEPT:EG-091).
+/// layer and the `tracing-opentelemetry` export layer (CONCEPT:EG-OS.observability.otlp-span-export).
 #[cfg(feature = "otel")]
 fn init_with_otel(endpoint: &str) -> Result<(), Box<dyn std::error::Error>> {
     use opentelemetry::trace::TracerProvider as _;

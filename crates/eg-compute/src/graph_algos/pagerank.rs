@@ -1,4 +1,4 @@
-// CONCEPT:EG-144 — PageRank via power iteration (Neo4j GDS `gds.pageRank` parity).
+// CONCEPT:EG-KG.compute.pagerank-power-iteration — PageRank via power iteration (Neo4j GDS `gds.pageRank` parity).
 
 use super::graph::AdjacencyGraph;
 use std::hash::Hash;
@@ -6,7 +6,7 @@ use std::hash::Hash;
 /// Configuration for [`pagerank`]. Damping 0.85 and tolerance 1e-7 mirror Neo4j
 /// GDS; the iteration cap is raised to 100 so the L1 tolerance is actually
 /// reached on typical graphs (with damping 0.85 the error decays ~0.85ᵏ, so 20
-/// iterations only reaches ~4e-2). CONCEPT:EG-144
+/// iterations only reaches ~4e-2). CONCEPT:EG-KG.compute.pagerank-power-iteration
 #[derive(Debug, Clone, Copy)]
 pub struct PageRankConfig {
     /// Damping factor `d` (probability of following an edge vs teleporting).
@@ -27,7 +27,7 @@ impl Default for PageRankConfig {
     }
 }
 
-/// Result of a PageRank run. CONCEPT:EG-144
+/// Result of a PageRank run. CONCEPT:EG-KG.compute.pagerank-power-iteration
 #[derive(Debug, Clone)]
 pub struct PageRankResult<N> {
     /// `(node, rank)` pairs in node (sorted-id) order; ranks sum to ~1.0.
@@ -47,7 +47,7 @@ pub struct PageRankResult<N> {
 ///
 /// Deterministic: no RNG; iteration order is the graph's sorted index order.
 ///
-/// Complexity: `O(k · (V + E))` for `k` iterations. CONCEPT:EG-144
+/// Complexity: `O(k · (V + E))` for `k` iterations. CONCEPT:EG-KG.compute.pagerank-power-iteration
 pub fn pagerank<N>(graph: &AdjacencyGraph<N>, config: &PageRankConfig) -> PageRankResult<N>
 where
     N: Clone + Eq + Hash + Ord,

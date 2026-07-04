@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.17 - Compiled Semantic Reasoner
+// CONCEPT:EG-KG.compute.compiled-semantic-reasoner - Compiled Semantic Reasoner
 //
 // Datalog forward-chaining reasoning engine with support for:
 // - Subclass inheritance (rdfs:subClassOf)

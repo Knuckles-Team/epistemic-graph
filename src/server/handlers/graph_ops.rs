@@ -15,7 +15,7 @@ use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 
-/// Resolve a cross-graph union read's graph set to their cores (CONCEPT:KG-2.171).
+/// Resolve a cross-graph union read's graph set to their cores (CONCEPT:EG-KG.query.cross-graph-union).
 ///
 /// Access-checks each graph as Read, clones the `Arc<GraphCore>`s, and holds only
 /// the registry read lock for the resolution — the per-graph topology locks are
@@ -49,7 +49,7 @@ async fn resolve_union_cores(
 }
 
 /// Intelligent overload backstop for the `GetNodes` full-graph dump
-/// (CONCEPT:KG-2.264). Given the graph's node `count` and the configured `cap`,
+/// (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Given the graph's node `count` and the configured `cap`,
 /// returns `Some(error_message)` when the dump would exceed the cap (so the
 /// handler can refuse with a typed `RESULT_TOO_LARGE` error instead of building
 /// a gigabyte-scale frame that resets the client connection), or `None` when the
@@ -72,7 +72,7 @@ fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
 
 /// Decode a MessagePack-encoded JSON object blob (the `props_msgpack` /
 /// `semantic_props_msgpack` wire fields) into a `serde_json` object map
-/// (CONCEPT:EG-318). A missing/undecodable/non-object blob yields an empty map, so
+/// (CONCEPT:EG-KG.memory.eg-batch-decay-caller). A missing/undecodable/non-object blob yields an empty map, so
 /// a caller may omit props entirely — the eg-core primitive injects the structural
 /// markers regardless. Mirrors the `CompareAndSetNodeFields` blob-decode discipline.
 fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
@@ -83,7 +83,7 @@ fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value>
 }
 
 /// Read a node's human-readable `(name, description, type)` triple from its
-/// MessagePack property blob (CONCEPT:KG-2.132), used to hydrate `Discover` hits.
+/// MessagePack property blob (CONCEPT:EG-KG.retrieval.one-round-trip-discovery), used to hydrate `Discover` hits.
 /// `name` falls back to the node id, `type` falls back to a `node_type` field, and
 /// a missing/undecodable blob yields `(id, "", "")` — so the op never fails on a
 /// text-less node, it just returns what it can.
@@ -146,7 +146,7 @@ fn keyword_overlap(kws: &[String], name: &str, description: &str, ntype: &str) -
     matched as f32 / kws.len() as f32
 }
 
-/// One-round-trip hybrid discovery (CONCEPT:KG-2.132).
+/// One-round-trip hybrid discovery (CONCEPT:EG-KG.retrieval.one-round-trip-discovery).
 ///
 /// Ranks nodes by BOTH lexical keyword overlap (over `name`/`description`/`type`)
 /// AND semantic similarity to `query_embedding`, returning the top-`k` hydrated
@@ -260,7 +260,7 @@ fn discover(
 }
 
 /// Decode a MessagePack-encoded `{translation,rotation,scale}` JSON blob into an
-/// eg-core [`eg_core::scene::Pose`] (CONCEPT:EG-318/EG-087). `None` only if the blob
+/// eg-core [`eg_core::scene::Pose`] (CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087). `None` only if the blob
 /// is not a decodable JSON object or a present sub-object is malformed (a bare `{}`
 /// reads back as the identity pose, since translation/rotation default to identity
 /// and scale to unit). Keeps the `eg-types` wire crate free of the eg-core scene
@@ -299,7 +299,7 @@ pub(crate) async fn try_handle(
         }
         Method::GetNodes => {
             let g = &*core;
-            // Intelligent overload backstop (CONCEPT:KG-2.264): a `GetNodes` is an
+            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation): a `GetNodes` is an
             // UNBOUNDED full-graph dump. On a large graph (e.g. `__commons__` with
             // 166K+ nodes carrying 1024-dim embeddings) materializing every node's
             // properties into ONE response frame is a gigabyte-scale payload that
@@ -369,7 +369,7 @@ pub(crate) async fn try_handle(
             label,
             updates_msgpack,
         } => {
-            // CONCEPT:KG-2.303 — atomically claim the oldest pending node of `label`.
+            // CONCEPT:EG-KG.compute.atomically-claim-oldest-pending — atomically claim the oldest pending node of `label`.
             // A decode failure ⇒ nothing claimed (Raw None), never a transport error.
             let updates = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
                 &updates_msgpack,
@@ -386,7 +386,7 @@ pub(crate) async fn try_handle(
             let claimed = g.claim_next_fields(&label, &updates);
             Response::ok(req_id, ResultPayload::raw(&claimed))
         }
-        // ── Message broker admin + data (CONCEPT:EG-275) ─────────────────
+        // ── Message broker admin + data (CONCEPT:EG-KG.compute.message-broker-exchanges) ─────────────────
         // Built on the KG-2.303 queue: exchanges/bindings are nodes on this target
         // graph; publish routes + enqueues; consume/ack REUSE ClaimNext + CAS above.
         // Same handler home + precedent as ClaimNext. Gated `broker`; a slim build
@@ -438,7 +438,7 @@ pub(crate) async fn try_handle(
             let delivered = crate::broker::publish(&core, &exchange, &routing_key, &payload);
             Response::ok(req_id, ResultPayload::Count(delivered as u64))
         }
-        // ── Broker policy extensions (CONCEPT:EG-276..280) ───────────────
+        // ── Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280) ───────────────
         // Same handler home + durable/deterministic contract as EG-275: each mutates
         // control-graph nodes from explicit args (caller-supplied `now_ms`), so
         // `wal::apply` replays them identically. Consume/ack/reject reuse the CAS +
@@ -520,7 +520,7 @@ pub(crate) async fn try_handle(
             let acted = crate::broker::sweep_expired(&core, now_ms);
             Response::ok(req_id, ResultPayload::Count(acted as u64))
         }
-        // ── Replayable append-log streams (CONCEPT:EG-283) ───────────────
+        // ── Replayable append-log streams (CONCEPT:EG-KG.compute.replayable-append-log) ───────────────
         // Same handler home + durable/deterministic contract as EG-275/276..280: each
         // mutation writes control-graph nodes from explicit args (caller `now_ms` +
         // durable counters), so `wal::apply` replays them identically. Reads are pure.
@@ -575,7 +575,7 @@ pub(crate) async fn try_handle(
             let committed = crate::broker::committed_offset(&core, &stream, &group);
             Response::ok(req_id, ResultPayload::raw(&committed))
         }
-        // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-284) ──────
+        // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) ──────
         #[cfg(feature = "broker")]
         Method::PublishConfirmed {
             exchange,
@@ -598,7 +598,7 @@ pub(crate) async fn try_handle(
             );
             Response::ok(req_id, ResultPayload::raw(&token))
         }
-        // ── Idempotent producer / effectively-once (CONCEPT:EG-314) ──────
+        // ── Idempotent producer / effectively-once (CONCEPT:EG-KG.ingest.broker-reject-publish) ──────
         #[cfg(feature = "broker")]
         Method::PublishIdempotent {
             exchange,
@@ -639,7 +639,7 @@ pub(crate) async fn try_handle(
             let outcome = crate::broker::broker_nack_tag(&core, delivery_tag, requeue, now_ms);
             Response::ok(req_id, ResultPayload::String(outcome))
         }
-        // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-318) ────
+        // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ────
         // Route each Method to its eg-core `GraphCore` primitive. The mutating arms
         // share the SAME durable/deterministic contract as the broker precedent: the
         // dispatch shell records them (via `is_durable_mutation`) and `wal::apply`
@@ -831,7 +831,7 @@ pub(crate) async fn try_handle(
             Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
         }
         Method::MatchOntologyTerms { query } => {
-            // CONCEPT:EG-010 — lexical capability gate; cached aho-corasick scan.
+            // CONCEPT:EG-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
             let g = &*core;
             Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
         }
@@ -845,7 +845,7 @@ pub(crate) async fn try_handle(
             query_embedding,
             n_results,
         } => {
-            // CONCEPT:KG-2.51 / Phase C-D — the HNSW index is now maintained
+            // CONCEPT:EG-KG.txn.per-graph-write-isolation / Phase C-D — the HNSW index is now maintained
             // incrementally, so the ANN query is O(log n): hold the embedding read
             // lock only for the query itself (no whole-store clone, no per-query
             // index rebuild — at most a one-time lazy rebuild after load). The
@@ -914,7 +914,7 @@ pub(crate) async fn try_handle(
             req_id,
             "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
         ),
-        // CONCEPT:EG-330 — kernel-backed in-engine batch L2-normalize (compute-near-data).
+        // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
         // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, NO pyo3);
         // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
         Method::BatchL2Normalize { vectors } => {
@@ -1004,7 +1004,7 @@ pub(crate) async fn try_handle(
         }
         Method::GetTriples => {
             // Bulk RDF-triple export for local SPARQL materialization
-            // (CONCEPT:KG-2.7). One call instead of per-node round-trips.
+            // (CONCEPT:AU-KG.query.vendor-agnostic-traversal). One call instead of per-node round-trips.
             let g = &*core;
             let mut triples: Vec<[String; 3]> = Vec::new();
             // Edges → (subject, predicate=rel_type, object).
@@ -1250,7 +1250,7 @@ pub(crate) async fn try_handle(
         }
         // ApplyMutation carries a SPARQL UPDATE string (governance / CDC mutation).
         // Replaced the legacy naive `{ <s> <p> <o> }` string-split shim with the REAL
-        // SPARQL 1.1 UPDATE executor (CONCEPT:EG-017): a full spargebra parse + the
+        // SPARQL 1.1 UPDATE executor (CONCEPT:EG-KG.query.named-graph-support): a full spargebra parse + the
         // native merge-aware property-graph write ops (INSERT/DELETE DATA, DELETE/INSERT
         // … WHERE, CLEAR/CREATE/DROP GRAPH). Single-graph: every graph term routes to the
         // request graph's core (true named-graph routing lives on the /sparql endpoint,
@@ -1288,7 +1288,7 @@ pub(crate) async fn try_handle(
                 )
             }
         }
-        // CONCEPT:KG-2.17 - Compiled Semantic Reasoner. Forward-chaining
+        // CONCEPT:EG-KG.compute.compiled-semantic-reasoner - Compiled Semantic Reasoner. Forward-chaining
         // OWL/RDFS inference over the target graph. Runs Datalog reasoning
         // (subclass / subproperty / symmetric / transitive / inverse) and,
         // when supplied, domain/range and property-chain inference. All
@@ -1780,7 +1780,7 @@ pub(crate) async fn try_handle(
 mod tests {
     use super::*;
 
-    // CONCEPT:KG-2.264 — the GetNodes overload backstop decision logic.
+    // CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the GetNodes overload backstop decision logic.
 
     #[test]
     fn under_cap_returns_no_error_so_data_is_served() {

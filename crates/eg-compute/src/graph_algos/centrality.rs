@@ -1,11 +1,11 @@
-// CONCEPT:EG-144 — Centrality: degree centrality + betweenness (Brandes'
+// CONCEPT:EG-KG.compute.graph-data-science-algorithms — Centrality: degree centrality + betweenness (Brandes'
 // algorithm). Neo4j GDS `gds.degree` / `gds.betweenness` parity.
 
 use super::graph::AdjacencyGraph;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
-/// Which degree to score. CONCEPT:EG-144
+/// Which degree to score. CONCEPT:EG-KG.compute.graph-data-science-algorithms
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DegreeKind {
     /// In-degree (number of incoming edges).
@@ -19,7 +19,7 @@ pub enum DegreeKind {
 /// Degree centrality: the chosen degree normalised by `(n − 1)` (so a node
 /// adjacent to every other scores 1.0). Returns `(node, score)` in node order.
 ///
-/// Complexity: `O(V + E)`. CONCEPT:EG-144
+/// Complexity: `O(V + E)`. CONCEPT:EG-KG.compute.graph-data-science-algorithms
 pub fn degree_centrality<N>(graph: &AdjacencyGraph<N>, kind: DegreeKind) -> Vec<(N, f64)>
 where
     N: Clone + Eq + Hash + Ord,
@@ -49,7 +49,7 @@ where
 /// Deterministic: neighbour iteration follows sorted index order. Returns
 /// `(node, score)` in node order.
 ///
-/// Complexity: `O(V · E)` time, `O(V + E)` space. CONCEPT:EG-144
+/// Complexity: `O(V · E)` time, `O(V + E)` space. CONCEPT:EG-KG.compute.graph-data-science-algorithms
 pub fn betweenness_centrality<N>(graph: &AdjacencyGraph<N>, directed: bool) -> Vec<(N, f64)>
 where
     N: Clone + Eq + Hash + Ord,

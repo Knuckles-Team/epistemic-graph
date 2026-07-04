@@ -1,4 +1,4 @@
-//! End-to-end exec test (CONCEPT:KG-2.178): build a small GraphView, run a SELECT
+//! End-to-end exec test (CONCEPT:EG-KG.query.read-only-sql-query): build a small GraphView, run a SELECT
 //! over the `nodes` table, and assert the materialized rows. Covers schema-on-read
 //! inference, the WHERE/LIMIT path, and the `json_get*` UDF escape hatch.
 #![cfg(feature = "sql")]
@@ -96,7 +96,7 @@ fn json_get_reaches_nested_field() {
     assert_eq!(vals[0][1], json!("Tool"));
 }
 
-// ── Synthetic catalog (CONCEPT:KG-2.201) ─────────────────────────────────────
+// ── Synthetic catalog (CONCEPT:EG-KG.query.datafusion) ─────────────────────────────────────
 // A real driver/ORM introspects the catalog on connect; these prove the
 // information_schema + pg_catalog supplement resolve over the SAME exec path.
 

@@ -1,13 +1,13 @@
-//! Durable RBAC / identity persistence (CONCEPT:EG-303, feature `security`).
+//! Durable RBAC / identity persistence (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence, feature `security`).
 //!
-//! The RBAC evaluator (CONCEPT:EG-092, [`crate::rbac::RbacPolicy`]) and the
+//! The RBAC evaluator (CONCEPT:EG-KG.compute.feature, [`crate::rbac::RbacPolicy`]) and the
 //! registered [`AgentIdentity`] set both live in-memory in the
-//! [`IsolationLayer`](crate::isolation::IsolationLayer). CONCEPT:EG-303 makes that
+//! [`IsolationLayer`](crate::isolation::IsolationLayer). CONCEPT:EG-KG.compute.durable-rbac-identity-persistence makes that
 //! state **durable**: it is written through to a redb table on every
 //! `RbacAdmin`/`register_identity` mutation and reloaded at boot, so roles, grants
 //! and identities survive a process restart.
 //!
-//! Design (mirrors the redb-backed cold tier, CONCEPT:KG-2.233):
+//! Design (mirrors the redb-backed cold tier, CONCEPT:EG-KG.coordination.distributed-cache-coherence):
 //!   * ONE redb table `rbac_v1` in `{persist_dir}/rbac.redb` (a separate file, like
 //!     the blob CAS / cold tier), two well-known keys:
 //!       - `policy`     → serde_json bytes of the whole [`RbacPolicy`];
@@ -30,12 +30,12 @@ use crate::acl::AgentIdentity;
 use crate::rbac::RbacPolicy;
 
 /// `key → serde_json bytes`. One table, two well-known keys (`policy`,
-/// `identities`) written in a single durable transaction (CONCEPT:EG-303).
+/// `identities`) written in a single durable transaction (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
 const RBAC_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
 const POLICY_KEY: &str = "policy";
 const IDENTITIES_KEY: &str = "identities";
 
-/// Errors from the durable RBAC store (CONCEPT:EG-303). redb's several fallible
+/// Errors from the durable RBAC store (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). redb's several fallible
 /// surfaces are flattened to a message string (matching the cold-tier convention);
 /// io + serde carry their native errors so callers can inspect them.
 #[derive(Debug)]
@@ -73,7 +73,7 @@ impl From<serde_json::Error> for RbacPersistError {
 }
 
 /// A durable, redb-backed snapshot of the RBAC policy + registered identities
-/// (CONCEPT:EG-303). Cheap to `clone` (shares one `Arc<Database>`), so an
+/// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Cheap to `clone` (shares one `Arc<Database>`), so an
 /// `IsolationLayer` that derives `Clone` can hold `Option<Arc<RbacStore>>`.
 pub struct RbacStore {
     db: Arc<Database>,
@@ -87,7 +87,7 @@ impl fmt::Debug for RbacStore {
 
 impl RbacStore {
     /// Open (or create) `{dir}/rbac.redb` and ensure the table exists
-    /// (CONCEPT:EG-303). The dir is created if absent. Opening validates that the
+    /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). The dir is created if absent. Opening validates that the
     /// store is writable up front, so subsequent write-throughs are best-effort.
     pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, RbacPersistError> {
         std::fs::create_dir_all(dir.as_ref())?;
@@ -103,7 +103,7 @@ impl RbacStore {
         Ok(Self { db: Arc::new(db) })
     }
 
-    /// Load the persisted policy + identities (CONCEPT:EG-303). An EMPTY/absent
+    /// Load the persisted policy + identities (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). An EMPTY/absent
     /// store yields the in-memory defaults — an empty [`RbacPolicy`] and no
     /// identities — i.e. exactly today's pre-EG-303 boot state.
     pub fn load(&self) -> Result<(RbacPolicy, BTreeMap<String, AgentIdentity>), RbacPersistError> {
@@ -132,7 +132,7 @@ impl RbacStore {
     }
 
     /// Write-through the FULL RBAC state (policy + identities) in ONE durable
-    /// (immediate-fsync) transaction (CONCEPT:EG-303). Re-serializing the whole
+    /// (immediate-fsync) transaction (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Re-serializing the whole
     /// (small, admin-scale) state on each mutation keeps the two keys mutually
     /// consistent and the write path trivially correct.
     pub fn save(

@@ -34,7 +34,7 @@ flowchart TB
     OBSAG -->|"OTLP/HTTP · PromQL · federated _search"| ENGINE
     S3CLI -->|"S3 REST, SigV4-lite, multipart"| ENGINE
     LLM -->|"KV-block GET/PUT by token-hash"| ENGINE
-    ENGINE -->|"Parquet + Delta + Iceberg-REST, zero ETL (EG-317)"| LAKE
+    ENGINE -->|"Parquet + Delta + Iceberg-REST, zero ETL (EG-KG.storage.lsn-as-snapshot-returns)"| LAKE
     ENGINE -->|"OTLP export + Prometheus remote-write (EG-316)"| OTELC
     ENGINE <-->|"Raft replication + cross-shard 2PC"| PEER
     ENGINE -->|"ForeignScan federation"| EXT
@@ -46,7 +46,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Process["epistemic-graph-server (one Rust process)"]
-        subgraph Wire["Wire adapters (EG-074 WireProtocol / WireSession — one exec path)"]
+        subgraph Wire["Wire adapters (EG-KG.compute.subsystems-reference WireProtocol / WireSession — one exec path)"]
             NATIVE["native MessagePack (UDS/TCP, HMAC)"]
             PGW["pgwire"]
             SQLITEW["sqlite"]
@@ -81,7 +81,7 @@ flowchart TB
         subgraph Subsys["New cross-cutting subsystems"]
             BROKER["Message broker (eg-core/broker):<br/>exchanges · queues · streams · DLQ · TTL · exactly-once"]
             OBS["Observability: logs · PromQL (extended) metrics · traces · federated search · OTel/remote-write egress"]
-            MEM["Agent-memory: summary · consolidation · decay · scene · trajectory (wire-Op surface, EG-318)"]
+            MEM["Agent-memory: summary · consolidation · decay · scene · trajectory (wire-Op surface, EG-KG.memory.eg-batch-decay-caller)"]
             KVC["KV-cache tiering (eg-kvcache): hot/warm(zstd)/cold + shared backend"]
             LAKE["LTAP lakehouse (eg-lake): Parquet · Delta · Iceberg-REST · LSN as-of"]
         end
@@ -169,7 +169,7 @@ sequenceDiagram
     end
 ```
 
-The content-addressed BLOB substrate (CONCEPT:KG-2.206) is the bytes tier under multimodal
+The content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace) is the bytes tier under multimodal
 `:Media`/`:Blob` nodes: `begin / chunk / commit / fetch / ref / unref / gc` stream large binaries over
 the same transport (a chunk-get returns a raw MessagePack bin). The native CAS lives in `blob.redb`;
 an explicit `blob-s3` build routes chunks to S3/MinIO behind the same `ChunkStore` trait — the lean
@@ -211,7 +211,7 @@ flowchart LR
     OWLR -->|"classification, consistency, justifications"| Surfaces
 ```
 
-The OWL 2 reasoner (CONCEPT:KG-2.219/2.236) is pure-Rust — EL⁺ completion (the ELK/CEL core) unioned
+The OWL 2 reasoner (CONCEPT:EG-KG.ontology.incremental-materialization/2.236) is pure-Rust — EL⁺ completion (the ELK/CEL core) unioned
 with OWL 2 RL property rules — and reaches entailments the RL-only reasoner cannot (e.g.
 `HumanHeart ⊑ HumanComponent` through `∃partOf.Body`). It is **confidence-weighted and time-decayed**:
 each entailment carries a `[0,1]` confidence (axiom annotations × per-node confidence × Ebbinghaus
@@ -382,7 +382,7 @@ stateDiagram-v2
     Hibernated --> Purged: DeleteGraph durably purges redb rows
     Purged --> [*]
     note right of Purged
-        Tenant-delete durable purge (KG-2.221):
+        Tenant-delete durable purge (EG-KG.backend.tenant-delete-recreate-same):
         nodes / edges / ledger / semantic / identity rows
         removed under commit-before-ack, so a recreate of
         the SAME tenant name starts from a clean slate.
@@ -391,7 +391,7 @@ stateDiagram-v2
 
 Cold-tenant hibernation drops the in-RAM state while the durable redb rows + read-through seam stay
 intact (extended by the cold-tier object-store seam for whole-graph offload). The per-tenant memory
-budget (CONCEPT:KG-2.234) drives this automatically: a tenant over its byte budget has its coldest
+budget (CONCEPT:EG-KG.compute.lane-v) drives this automatically: a tenant over its byte budget has its coldest
 graphs evicted (durability-gated LRU) then hibernated, with a global ceiling + fair per-tenant caps so
 one hot tenant cannot starve others. See [the cost model](../cost_model.md).
 
@@ -411,7 +411,7 @@ is heavy, but pure-Rust, so it ships in the one main build.
 ## Related references
 
 - [Subsystems (C4 container level)](subsystems.md) — the broker, observability, GIS, tensor, stream, KV-cache, agent-memory, LTAP lakehouse, and multi-wire subsystems and how they compose on the one substrate.
-- [Lakehouse LTAP interop (EG-317)](lakehouse_ltap.md) — the eg-lake Parquet/Delta/Iceberg egress tier that makes the engine Databricks-interoperable with zero ETL.
+- [Lakehouse LTAP interop (EG-KG.storage.lsn-as-snapshot-returns)](lakehouse_ltap.md) — the eg-lake Parquet/Delta/Iceberg egress tier that makes the engine Databricks-interoperable with zero ETL.
 - [Tiers & binaries](tiers.md) — which features ship in which binary, and the prebuilt sizes.
 - [Engine modes](../engine_modes.md) — remote / shared-local / autostart resolution + the auto-bundle.
 - [Deployment](../deployment.md) — Docker / wheel / single-node / HA recipes.

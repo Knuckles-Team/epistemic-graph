@@ -11,8 +11,8 @@
 properties, held at every scale:
 
 1. **Durable source of truth.** A `kill -9` never loses an acked write — redb is
-   authoritative by default (`CONCEPT:KG-2.195`), commit-before-ack
-   (`CONCEPT:KG-2.187`), read-through-safe eviction (`CONCEPT:KG-2.191`).
+   authoritative by default (`CONCEPT:AU-KG.backend.backend-modes`), commit-before-ack
+   (`CONCEPT:EG-KG.backend.authoritative-dispatch`), read-through-safe eviction (`CONCEPT:EG-KG.storage.read-through-seam-exercised`).
 2. **Non-blocking under ingestion load.** The `__commons__` ingestion firehose must
    not serialize the box or starve interactive reads. This is the whole point of the
    write coalescer, the sharded writer, MVCC reads, and the reserved read lane.
@@ -52,13 +52,13 @@ description is the **"Durability model" section of
 
 ### Authoritative durability (the floor)
 
-- **redb-authoritative by default** (`CONCEPT:KG-2.195`) — a stock build with a
+- **redb-authoritative by default** (`CONCEPT:AU-KG.backend.backend-modes`) — a stock build with a
   persist dir is durable out of the box; the one-time `.mp`/`.wal` → redb migration
   runs on first authoritative boot.
-- **Commit-before-ack** (`CONCEPT:KG-2.187`) — a durable mutation is group-commit
+- **Commit-before-ack** (`CONCEPT:EG-KG.backend.authoritative-dispatch`) — a durable mutation is group-commit
   fsynced to redb *before* its Response is acked; a commit failure is an ERROR
   response, so an acked write is always on disk.
-- **Read-through-safe eviction** (`CONCEPT:KG-2.191`) — the per-graph node cap keeps
+- **Read-through-safe eviction** (`CONCEPT:EG-KG.storage.read-through-seam-exercised`) — the per-graph node cap keeps
   RAM bounded *without* data loss: an evicted node serves from redb on a RAM miss, and
   a node leaves RAM only after a redb read confirms it is on disk.
 - **Backpressure, not drop** — the writer's bounded channel blocks for capacity
@@ -69,20 +69,20 @@ description is the **"Durability model" section of
 Four layered optimizations turn the durable path from "one lock, one fsync, one core"
 into "K writers, batched fsyncs, parallel cores":
 
-- **Per-graph write coalescer** (`CONCEPT:KG-2.182`) — N concurrent single-op writes
+- **Per-graph write coalescer** (`CONCEPT:EG-KG.sharding.per-graph-write-coalescer`) — N concurrent single-op writes
   to ONE hot graph batch onto a lazily-created per-graph writer and apply under **one**
   `topo.write()` per batch, collapsing N lock acquisitions into ⌈N/batch⌉. Default ON,
   auto-sized from cpu count. → [`write_coalescer.md`](write_coalescer.md).
-- **Adaptive group-commit micro-linger** (`CONCEPT:EG-024`) — when the `eg-redb-writer`
+- **Adaptive group-commit micro-linger** (`CONCEPT:EG-KG.backend.adaptive-linger-coalesce`) — when the `eg-redb-writer`
   is about to commit a *shallow* batch it spends ONE bounded `recv_timeout(linger)`
   (default 1 ms) letting concurrent in-flight authoritative writers fold into the SAME
   fsync — the profiled write ceiling was ~1 op/fsync from serial awaits. Adaptive: a
   deep batch already coalesces, so it commits immediately (no added latency). Durability
   is unchanged.
-- **O(1) audit-chain tail cache** (`CONCEPT:EG-025`) — the KG-2.231 hash-chained `AUDIT`
+- **O(1) audit-chain tail cache** (`CONCEPT:EG-KG.storage.embedded-store`) — the EG-KG.sharding.row-level-security hash-chained `AUDIT`
   log appends in O(1) by caching the per-graph chain tail in-process, so a high-rate
   ingestion stream no longer pays a durable tail read on every audited write.
-- **Sharded K-way durable writer** (`CONCEPT:EG-026`) — redb is single-writer-PER-FILE,
+- **Sharded K-way durable writer** (`CONCEPT:EG-KG.backend.sharded-k-way-durable`) — redb is single-writer-PER-FILE,
   so the writer shards by graph into **K independent `graph-<n>.redb` files**, each with
   its own writer thread / bounded channel / `Pending`. All of the above (micro-linger,
   audit cache, commit-before-ack, group-commit, backpressure) hold **per shard**, so
@@ -93,7 +93,7 @@ into "K writers, batched fsyncs, parallel cores":
 
 ### Reads that never block on the writer
 
-- **Snapshot/MVCC reads off the writer** (`CONCEPT:EG-027`) — the point-read /
+- **Snapshot/MVCC reads off the writer** (`CONCEPT:EG-KG.storage.snapshot-read-off-writer`) — the point-read /
   read-through path serves an evicted node directly off a `Database::begin_read()` MVCC
   snapshot on the target shard, **concurrently** with the single writer. A read never
   routes through the writer thread and never forces a group-commit. Consistency: reads
@@ -102,7 +102,7 @@ into "K writers, batched fsyncs, parallel cores":
 
 ### Sizing the box automatically
 
-- **Dynamic capacity auto-sizing + Pi-OOM cap** (`CONCEPT:EG-028`) — the same binary
+- **Dynamic capacity auto-sizing + Pi-OOM cap** (`CONCEPT:AU-KG.backend.b-auto-size`) — the same binary
   sizes its concurrency / buffer / per-graph-node-cap defaults from `(cpu_count,
   total_RAM)` at startup. `max_in_flight` becomes `cpus*64` (256 on a Pi, 4096 on a
   64-core box); the per-graph node cap becomes `(ram/2)/2048` so a 1 GiB Pi caps a
@@ -114,8 +114,8 @@ into "K writers, batched fsyncs, parallel cores":
 ```mermaid
 flowchart LR
     P["concurrent producers<br/>(per-graph Tokio tasks)"]
-    COAL["per-graph write coalescer<br/>(KG-2.182) — ⌈N/batch⌉ topo.write()"]
-    SHARD["shard_for(name) = FNV-1a(name) % K<br/>(EG-026)"]
+    COAL["per-graph write coalescer<br/>(EG-KG.sharding.per-graph-write-coalescer) — ⌈N/batch⌉ topo.write()"]
+    SHARD["shard_for(name) = FNV-1a(name) % K<br/>(EG-KG.backend.sharded-k-way-durable)"]
     W0["eg-redb-writer 0<br/>graph-0.redb"]
     Wk["eg-redb-writer K-1<br/>graph-(K-1).redb"]
     GC["group-commit fsync<br/>(EG-024 micro-linger folds awaiting writers)"]
@@ -134,8 +134,8 @@ flowchart LR
 ```mermaid
 flowchart LR
     R["read / query"]
-    LANE{"reserved read lane<br/>(EG-044) if writes saturate admission"}
-    SNAP["MVCC snapshot:<br/>in-mem GraphCore snapshot (Cypher/SQL/GraphQL)<br/>OR redb begin_read() (read-through, EG-027)"]
+    LANE{"reserved read lane<br/>(EG-KG.coordination.reserved-read-lane) if writes saturate admission"}
+    SNAP["MVCC snapshot:<br/>in-mem GraphCore snapshot (Cypher/SQL/GraphQL)<br/>OR redb begin_read() (read-through, EG-KG.storage.snapshot-read-off-writer)"]
     RESULT["result — never a write lock, never a group-commit"]
 
     R --> LANE --> SNAP --> RESULT
@@ -148,23 +148,23 @@ flowchart LR
 Durable throughput is only half of "saturate the box while staying responsive." These
 keep **interactive** traffic alive while ingestion runs flat-out:
 
-- **Reserved read-admission lane** (`CONCEPT:EG-044`) — an interactive MCP read/query is
+- **Reserved read-admission lane** (`CONCEPT:EG-KG.coordination.reserved-read-lane`) — an interactive MCP read/query is
   **never** shed `BUSY` behind a write firehose. Under `__commons__` saturation both the
   global `max_in_flight` pool and the per-graph cap fill; a write that loses is
   back-pressured (`BUSY`, retry), but a **read** falls back to a dedicated
   `read_admission` semaphore writes can never acquire, bypassing the per-graph cap. Only
   a genuine read flood that also fills the small reserved lane is shed. →
   **[reserved_read_lane.md](reserved_read_lane.md)** (full page).
-- **Pooled / multiplexed engine connections** (`CONCEPT:EG-037`, roadmap E) —
+- **Pooled / multiplexed engine connections** (`CONCEPT:EG-KG.backend.multiplexed-connections`, roadmap E) —
   client-side: the Python `ConnectionPool` / `ShardRouter` auto-size to the box
   (`2*cpu` clamped 8..64) and fan independent ops across N connections; the engine
   spawns one task per connection, so N connections = N parallel server tasks.
-- **True single-connection request pipelining** (`CONCEPT:EG-043`) — server-side: the
+- **True single-connection request pipelining** (`CONCEPT:EG-KG.backend.framed-response`) — server-side: the
   per-connection loop `tokio::io::split`s the stream and `tokio::spawn`s a dispatch task
   per frame whose id-tagged Response is written back out of order through a single
   writer task — so many requests on ONE connection process concurrently. Composes with
   EG-037 (the pool multiplexes connections AND each connection multiplexes requests).
-- **Parallel cross-shard read fan-out** (`CONCEPT:EG-042`) — a cross-shard read
+- **Parallel cross-shard read fan-out** (`CONCEPT:AU-KG.backend.roadmap-f-parallel-cross`) — a cross-shard read
   (`load_all`/`load_into`) fans each shard's dump concurrently off its OWN `begin_read()`
   MVCC snapshot on the blocking pool (K reads on K cores), never touching a writer
   thread. → [`m3_resharding.md`](m3_resharding.md).
@@ -175,19 +175,19 @@ keep **interactive** traffic alive while ingestion runs flat-out:
 
 The opt-in `cluster` layer (cargo `raft` feature, cluster-only — the main `default`/`full` build links
 **no** openraft) runs the engine as a multi-node HA cluster replicating its
-**authoritative** redb state via **openraft 0.10** (`CONCEPT:KG-2.273` — the v2
+**authoritative** redb state via **openraft 0.10** (`CONCEPT:AU-KG.backend.authority-has-already-acked` — the v2
 split-storage API + native graceful leader transfer). Off ⇒ the write path is
 byte-for-byte the single-node path.
 
-- **Durable redb Raft log** (`CONCEPT:KG-2.204`) — the Raft log + vote + applied state
+- **Durable redb Raft log** (`CONCEPT:EG-KG.storage.one-fsync-covers-raft`) — the Raft log + vote + applied state
   live in the SAME `graph.redb` as the graph data, so a log append and its mutation
   coalesce into **one** `WriteTransaction` / one fsync; a restarted node recovers its
   log tail locally. The separate `raft.redb` sidecar is gone.
-- **Multi-Raft scaffold** (`CONCEPT:KG-2.205`) — a `MultiRaft` manager holds N openraft
+- **Multi-Raft scaffold** (`CONCEPT:EG-KG.sharding.raft-resharding`) — a `MultiRaft` manager holds N openraft
   groups keyed by `GroupId`, sharing ONE TCP listener per node (frames tagged + demuxed
   by group id) and ONE shared `graph.redb`; a `GroupRouter` maps `graph_name → GroupId`.
   Group = transaction boundary.
-- **M2 hardening** (`CONCEPT:KG-2.265/266/267/268/271`) — pooled per-peer connections,
+- **M2 hardening** (`CONCEPT:AU-KG.ontology.manage-arbitrary/266/267/268/271`) — pooled per-peer connections,
   group-per-tenant-range routing ring, per-group snapshot scoping, multi-node membership
   join, leader balancing (now the native `trigger().transfer_leader(target)` handoff),
   and heartbeat coalescing — all done + lib-tested.
@@ -195,7 +195,7 @@ byte-for-byte the single-node path.
 !!! note "K=1 under Raft"
     Under an active Raft node the durable writer is forced to **K=1** (one group = one
     serialized write path) — M2 is **HA, not write-scaling**. Multi-Raft *sharding*
-    (many write groups) is a separate, off-by-default direction (`KG-2.205/2.266`).
+    (many write groups) is a separate, off-by-default direction (`EG-KG.sharding.raft-resharding/2.266`).
 
 Validate the cluster mechanism (formation / replication / failover / native transfer /
 durable log) on throwaway loopback nodes with `scripts/validate-raft-cluster.sh`. The
@@ -213,18 +213,18 @@ share an engine without all being resident. Full handoff:
 
 | Capability | Concept | One-liner |
 |------------|---------|-----------|
-| Tenant catalog routing-override seam | `EG-031` | Durable `graph → {shard, node}` map that overrides EG-026 hash routing per graph; an **empty** catalog is byte-for-byte FNV-1a. |
-| Catalog auto-attach gate | `EG-033` | `RedbBackend::open` attaches `catalog.redb` only under `EPISTEMIC_GRAPH_TENANT_CATALOG=1` or an existing populated catalog — default OFF, pure EG-026. |
+| Tenant catalog routing-override seam | `EG-031` | Durable `graph → {shard, node}` map that overrides EG-KG.backend.sharded-k-way-durable hash routing per graph; an **empty** catalog is byte-for-byte FNV-1a. |
+| Catalog auto-attach gate | `EG-KG.sharding.r5-feature` | `RedbBackend::open` attaches `catalog.redb` only under `EPISTEMIC_GRAPH_TENANT_CATALOG=1` or an existing populated catalog — default OFF, pure EG-026. |
 | Offline K-shard migration tool | `EG-030` | OFFLINE `migrate-shards` CLI rewrites a store into a new K, routing every graph with the SAME FNV-1a; copies rows verbatim (encryption + audit chain survive). |
 | Online single-node resharding | `EG-032` | Move ONE graph between shards while the engine RUNS, then flip the catalog route; a `routing_epoch` `RwLock` quiesces only the move. |
-| Online-reshard snapshot+delta copy | `EG-041` | Shrinks the moved graph's write-pause from O(graph) to O(delta): bulk-copy off a snapshot with writes flowing, then re-export + delta-flip-purge under the quiesce. |
+| Online-reshard snapshot+delta copy | `EG-KG.backend.flush-pending-first` | Shrinks the moved graph's write-pause from O(graph) to O(delta): bulk-copy off a snapshot with writes flowing, then re-export + delta-flip-purge under the quiesce. |
 | Rebalancing planner | `EG-035` | PURE, deterministic greedy hottest→coldest planner emitting an ordered `Vec<ReshardMove>`; emits, never executes. |
-| Rebalance plan execution | `EG-039` | `rebalance_execute(plan)` applies the plan move-by-move via online resharding, one graph at a time. |
-| Cold-tenant whole-graph offload | `EG-034` | Hibernates graphs idle longer than a window (durably-gated, read-through-safe — no loss); `__commons__` never offloaded. |
-| Cold-tenant `touch()` + sweep | `EG-040` | Wires the tracker into the live read/write path + an interval offload sweep (`EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS`). |
-| In-process BLOB streaming facade | `EG-036` | Streams a multi-GB blob between a `Read`/`Write` and the content-addressed CAS without buffering the whole blob. |
+| Rebalance plan execution | `EG-KG.backend.r3-plan-execution` | `rebalance_execute(plan)` applies the plan move-by-move via online resharding, one graph at a time. |
+| Cold-tenant whole-graph offload | `EG-KG.sharding.eg-r6` | Hibernates graphs idle longer than a window (durably-gated, read-through-safe — no loss); `__commons__` never offloaded. |
+| Cold-tenant `touch()` + sweep | `EG-KG.backend.r6-feature` | Wires the tracker into the live read/write path + an interval offload sweep (`EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS`). |
+| In-process BLOB streaming facade | `EG-KG.sharding.m3-r4` | Streams a multi-GB blob between a `Read`/`Write` and the content-addressed CAS without buffering the whole blob. |
 | Catalog-driven resharding admin RPC | `EG-038` | The wire surface (`Reshard`/`Catalog*`/`RebalancePlan`/`RebalanceExecute`) that drives the M3 ops over the protocol. |
-| Parallel cross-shard read fan-out | `EG-042` | Cross-shard reads fan concurrently off per-shard `begin_read()` snapshots (also part of the responsiveness layer above). |
+| Parallel cross-shard read fan-out | `AU-KG.backend.roadmap-f-parallel-cross` | Cross-shard reads fan concurrently off per-shard `begin_read()` snapshots (also part of the responsiveness layer above). |
 
 **Still remaining:** R2 (cross-node tenant distribution — needs M2), and the object-store
 arm of R6 (cold tenants colder than redb spilled to `cold-tier-s3`/`blob-s3`).
@@ -240,7 +240,7 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 |------------|:-----------------------------:|:-----------:|
 | redb-authoritative durability (M1 floor) | ✅ | ✅ |
 | Write coalescer · K-way sharded writer · MVCC reads · group-commit linger | ✅ | ✅ |
-| Reserved read lane (EG-044) · auto-sizing (EG-028) | ✅ | ✅ |
+| Reserved read lane (EG-KG.coordination.reserved-read-lane) · auto-sizing (AU-KG.backend.b-auto-size) | ✅ | ✅ |
 | Tenant catalog · online reshard · rebalancer · cold offload (M3, `redb`) | ✅ | ✅ |
 | BLOB CAS + streaming facade | ✅ | ✅ |
 | DataFusion SQL / pg-wire (+ the whole wire family) | ✅ | ✅ |
@@ -307,8 +307,8 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 - [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md) — canonical "Durability model" section (the source of
   truth for M1/M2 mechanics + the Environment Variables table).
 - [engine.md](engine.md) — the master-of-all engine deep reference (C4 views, all modalities).
-- [write_coalescer.md](write_coalescer.md) — `CONCEPT:KG-2.182` in depth.
-- [reserved_read_lane.md](reserved_read_lane.md) — `CONCEPT:EG-044` in depth.
+- [write_coalescer.md](write_coalescer.md) — `CONCEPT:EG-KG.sharding.per-graph-write-coalescer` in depth.
+- [reserved_read_lane.md](reserved_read_lane.md) — `CONCEPT:EG-KG.coordination.reserved-read-lane` in depth.
 - [m2_raft_status.md](m2_raft_status.md) — M2 DONE-vs-REMAINING handoff.
 - [m3_resharding.md](m3_resharding.md) — M3 DONE-vs-REMAINING handoff.
 - [tiers.md](tiers.md) — feature-composition map + prebuilt binary sizes.

@@ -1,5 +1,5 @@
 //! Hybrid lexical+vector proofs for the `RankText` op and the RRF `FuseRrf` op
-//! (CONCEPT:KG-2.215, `cargo test -p eg-plan --features "text query"`).
+//! (CONCEPT:AU-KG.query.text-spatial-time, `cargo test -p eg-plan --features "text query"`).
 //!
 //! THE headline assertion: a HYBRID (RRF-fused vector + BM25) query beats EITHER
 //! modality ALONE on a fixture engineered so the two signals disagree on the top

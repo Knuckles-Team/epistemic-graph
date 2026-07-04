@@ -1,6 +1,6 @@
 """Crash / power-loss durability proof for redb-authoritative mode.
 
-CONCEPT:KG-2.187. With ``EPISTEMIC_GRAPH_REDB_AUTHORITATIVE=1`` and the redb
+CONCEPT:EG-KG.backend.authoritative-dispatch. With ``EPISTEMIC_GRAPH_REDB_AUTHORITATIVE=1`` and the redb
 persistence backend selected, every durable write is COMMIT-BEFORE-ACK: the
 client's synchronous round-trip (``nodes.add``) only returns once the engine has
 durably committed the mutation to redb. This test proves the contract that
@@ -58,7 +58,7 @@ def _build_redb() -> str | None:
 
 
 def _build_full() -> str | None:
-    """Build the standard ``full`` binary ONCE (CONCEPT:KG-2.195 — THE FLIP).
+    """Build the standard ``full`` binary ONCE (CONCEPT:AU-KG.backend.backend-modes — THE FLIP).
 
     ``full`` now folds in ``redb``, so a STOCK full build is redb-authoritative by
     default — no backend/authoritative env needed. Returns the binary path."""
@@ -240,7 +240,7 @@ def test_inflight_unacked_write_does_not_corrupt(tmp_path):
 
 @pytest.mark.timeout(600)
 def test_stock_default_build_is_durable_by_default(tmp_path):
-    """THE FLIP proof (CONCEPT:KG-2.195): a STOCK deployment is durable by default.
+    """THE FLIP proof (CONCEPT:AU-KG.backend.backend-modes): a STOCK deployment is durable by default.
 
     No ``EPISTEMIC_GRAPH_PERSIST_BACKEND`` and no
     ``EPISTEMIC_GRAPH_REDB_AUTHORITATIVE`` are set — ONLY a persist dir and the

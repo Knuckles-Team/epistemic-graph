@@ -1,4 +1,4 @@
-"""CONCEPT:EG-037 — multiplexed connection pool (parallelize the wire).
+"""CONCEPT:EG-KG.backend.multiplexed-connections — multiplexed connection pool (parallelize the wire).
 
 Proves the client-side win: N INDEPENDENT operations dispatched over N pooled
 connections run CONCURRENTLY (wall-clock ≪ serial sum), the pool reuses warm
@@ -77,7 +77,7 @@ class WorkMockServer:
 
 
 def test_pool_auto_sizes_without_a_knob():
-    # CONCEPT:EG-037 — no max_size given ⇒ auto-size to the box (no env knob).
+    # CONCEPT:EG-KG.backend.multiplexed-connections — no max_size given ⇒ auto-size to the box (no env knob).
     pool = ConnectionPool("tcp://127.0.0.1:1")
     assert pool.max_size == _auto_pool_size()
     assert pool.max_size >= 8
@@ -148,7 +148,7 @@ async def test_serial_single_connection_is_the_baseline():
 
 @pytest.mark.asyncio
 async def test_pool_respects_cap_under_concurrency():
-    # CONCEPT:EG-037 — with a cap of 2, four concurrent ops never exceed 2 in
+    # CONCEPT:EG-KG.backend.multiplexed-connections — with a cap of 2, four concurrent ops never exceed 2 in
     # flight: the surplus waits for a connection (correctness over saturation).
     server = WorkMockServer(port=9303, work=0.05)
     await server.start()
@@ -192,7 +192,7 @@ async def test_pool_reuses_warm_connections():
 
 @pytest.mark.asyncio
 async def test_ordering_preserved_within_one_caller():
-    # CONCEPT:EG-037 — a single logical write (node-before-edge) runs on ONE
+    # CONCEPT:EG-KG.backend.multiplexed-connections — a single logical write (node-before-edge) runs on ONE
     # connection inside one connection() block, so its ops keep wire order.
     server = WorkMockServer(port=9305, work=0.0)
     await server.start()

@@ -1,5 +1,5 @@
-//! MSSQL **TDS** (Tabular Data Stream) wire-protocol listener (CONCEPT:EG-077) — the
-//! MSSQL adapter in the multi-wire family (CONCEPT:EG-074), a sibling of the Postgres
+//! MSSQL **TDS** (Tabular Data Stream) wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server) — the
+//! MSSQL adapter in the multi-wire family (CONCEPT:EG-KG.compute.subsystems-reference), a sibling of the Postgres
 //! shim (`crate::server::pgwire`). It lets SQL Server clients / drivers connect over
 //! the TDS protocol and run SQL against a graph, reusing the ONE shared
 //! `classify → dispatch → exec` core ([`crate::server::wire::WireSession`]) — this
@@ -20,7 +20,7 @@
 //!      ERROR token + DONE(error)); ATTENTION → DONE(attn); transaction-manager → DONE;
 //!      RPC → an ERROR token (RPC/prepared deferred). A closed socket ends the loop.
 //!
-//! ## Auth (CONCEPT:KG-2.202)
+//! ## Auth (CONCEPT:EG-KG.query.concept-13)
 //! A TDS `user` maps to an engine `agent_id`, exactly like pgwire. When
 //! `GRAPH_SERVICE_AUTH_SECRET` is set, the connection password must equal
 //! `hex(HMAC-SHA256(secret, "mssql:" || user))` (an authorized operator computes it

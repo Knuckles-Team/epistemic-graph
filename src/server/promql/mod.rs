@@ -1,4 +1,4 @@
-//! CONCEPT:EG-172 — the Prometheus-compatible HTTP query API, layered over the
+//! CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus-compatible HTTP query API, layered over the
 //! pure-Rust PromQL engine in `eg_tsdb::promql` and the durable `SeriesStore`.
 //!
 //! This is the FACADE half of EG-172: it adapts the observability tier's durable
@@ -37,7 +37,7 @@ const NS_PER_SEC: f64 = 1_000_000_000.0;
 
 // ───────────────────────────── store adapter ─────────────────────────────
 
-/// A [`SeriesSource`] over the durable [`SeriesStore`] (CONCEPT:EG-172).
+/// A [`SeriesSource`] over the durable [`SeriesStore`] (CONCEPT:EG-KG.query.prometheus-http-query-api).
 struct StoreSource {
     store: Arc<SeriesStore>,
 }
@@ -471,7 +471,7 @@ fn now_ns() -> i64 {
         .unwrap_or(0)
 }
 
-// ───────────────────────────── tests (CONCEPT:EG-172) ─────────────────────────────
+// ───────────────────────────── tests (CONCEPT:EG-KG.query.prometheus-http-query-api) ─────────────────────────────
 
 #[cfg(test)]
 mod tests {

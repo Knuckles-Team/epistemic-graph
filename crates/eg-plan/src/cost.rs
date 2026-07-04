@@ -1,4 +1,4 @@
-//! The cross-modal cost model (CONCEPT:KG-2.209): given a FILTER and a RANK over the
+//! The cross-modal cost model (CONCEPT:EG-KG.query.concept-14): given a FILTER and a RANK over the
 //! same seed set, which goes first?
 //!
 //! This is the kernel of the whole "unified planner" argument. The win of one engine
@@ -18,7 +18,7 @@
 //! the *work* differs — which is the definition of a cost-based plan choice.
 //!
 //! The asymmetry rests on two facts about the legs:
-//! (i) a property-index-backed `Filter` (CONCEPT:KG-2.199) yields survivors WITHOUT a
+//! (i) a property-index-backed `Filter` (CONCEPT:EG-KG.query.concept-12) yields survivors WITHOUT a
 //!     full scan, but a `Rank` over an arbitrary id-set is **brute-force** — it cannot
 //!     use the global kNN index for a caller-supplied subset;
 //! (ii) the other order's `Rank` IS an index top-k, but must **over-fetch
@@ -95,7 +95,7 @@ pub struct CostModel;
 
 impl CostModel {
     /// Cost of FILTER then RANK. The filter is index-backed (a property-index lookup
-    /// yields the survivors without a full scan — CONCEPT:KG-2.199), then RANK
+    /// yields the survivors without a full scan — CONCEPT:EG-KG.query.concept-12), then RANK
     /// brute-force scores EACH survivor (it has an arbitrary id-set, not the global
     /// kNN index, so it can't use HNSW). Cost ∝ the survivor count → a SELECTIVE
     /// filter is cheap here.

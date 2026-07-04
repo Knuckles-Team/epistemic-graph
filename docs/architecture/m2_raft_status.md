@@ -1,7 +1,7 @@
 # M2 Raft Hardening — Status & Handoff
 
 > Branch `feat/m2-raft-hardening` (off `main`, which carries the full M1 stack).
-> Scope: the multi-Raft follow-ups documented on `CONCEPT:KG-2.205` —
+> Scope: the multi-Raft follow-ups documented on `CONCEPT:EG-KG.sharding.raft-resharding` —
 > pooled per-peer connections, group-per-tenant-range routing, per-group snapshot
 > scoping, leader balancing across groups, heartbeat coalescing.
 >
@@ -14,7 +14,7 @@ All file:line references are against this branch's tree.
 
 ## DONE — implemented + lib-tested
 
-### 1. Pooled per-peer Raft connections — `CONCEPT:KG-2.265`
+### 1. Pooled per-peer Raft connections — `CONCEPT:AU-KG.ontology.manage-arbitrary`
 - **What:** the scaffold opened a fresh `TcpStream` per append/vote/snapshot RPC and
   dropped it after one round-trip (a connect+handshake per heartbeat, per peer, per
   group). A shared `PeerPool` now keeps a bounded set of WARM connections **per peer
@@ -41,7 +41,7 @@ All file:line references are against this branch's tree.
     that closes after one frame forces a reconnect; the second round-trip still
     succeeds (`opens()==2`, no hard error).
 
-### 2. Group-per-tenant-range routing ring — `CONCEPT:KG-2.266`
+### 2. Group-per-tenant-range routing ring — `CONCEPT:AU-KG.ingest.mirror-inbound`
 - **What:** `GroupRouter::group_of` now resolves `override → tenant-range ring →
   DEFAULT_GROUP`. The ring is a sorted, de-duplicated set of group ids that un-pinned
   graphs hash-distribute across via a **stable FNV-1a** hash (identical on every node,
@@ -58,7 +58,7 @@ All file:line references are against this branch's tree.
   ≥2 groups; deterministic on repeat; `assign` override beats the ring;
   `is_cross_shard` works across real ranges; empty ring collapses back to default.
 
-### 3. Per-group snapshot scoping — `CONCEPT:KG-2.267`
+### 3. Per-group snapshot scoping — `CONCEPT:AU-KG.ingest.staged`
 - **What:** a group's snapshot dump is SCOPED to the graphs whose tenant range resolves
   to THIS group, so a large tenant in one group never bloats another group's snapshot.
   A store opened WITHOUT a router (the direct/single-store path) dumps the whole
@@ -90,12 +90,12 @@ All file:line references are against this branch's tree.
 > All three remaining M2 items are now **implemented + lib-tested** on top of the base.
 > Single-group default behavior is unchanged — the full pre-existing `--lib raft` suite
 > (incl. the 3-node failover test + the nemesis gauntlets) stays green.
-> **Concept-ID note:** the original plan reserved KG-2.268 (R1) and KG-2.269 (R2). By the
+> **Concept-ID note:** the original plan reserved EG-KG.storage.kg-kg-2 (R1) and KG-2.269 (R2). By the
 > time this branch landed, **KG-2.269 had been claimed by another session** (`shard-commons`,
 > "Ingestion graph routing"), so the heartbeat work uses a fresh id. Final mapping:
-> **R3 = KG-2.268**, **R1 = KG-2.270**, **R2 = KG-2.271** (all reserved in the ledger).
+> **R3 = EG-KG.storage.kg-kg-2**, **R1 = EG-KG.sharding.multi-raft**, **R2 = EG-KG.storage.concept-2** (all reserved in the ledger).
 
-### R3. Per-group multi-NODE membership join — `CONCEPT:KG-2.268`
+### R3. Per-group multi-NODE membership join — `CONCEPT:EG-KG.storage.kg-kg-2`
 - **What:** a group can now be grown from a single-node bootstrap to span multiple
   NODES via the openraft add-learner → change-membership lifecycle, per group, over the
   shared listener.
@@ -112,7 +112,7 @@ All file:line references are against this branch's tree.
   `add_group_member`s both → membership becomes `[1,2,3]`, and a write through the leader
   replicates to the two freshly-joined voters.
 
-### R1. Leader balancing across groups — `CONCEPT:KG-2.270`
+### R1. Leader balancing across groups — `CONCEPT:EG-KG.sharding.multi-raft`
 - **What:** `MultiRaft::rebalance_leaders()` spreads leadership so one node isn't leader
   for every group. EVERY node runs the pass (like a real cluster); per group it computes
   the deterministic round-robin target (`desired_leader(gid, sorted_voters)` — identical
@@ -136,10 +136,10 @@ All file:line references are against this branch's tree.
   target is node 2 (`7 % 3`), the first pass shows node 1 `yielded` + node 2 `elected`,
   periodic passes converge leadership to node 2, and a further pass is a no-op (idempotent).
 
-### R2. Heartbeat coalescing — `CONCEPT:KG-2.271`
+### R2. Heartbeat coalescing — `CONCEPT:EG-KG.storage.concept-2`
 - **What:** same-destination Raft HEARTBEATS (empty-entries `AppendEntries`) across N
   groups coalesce into ONE batched frame to that peer instead of N frames per heartbeat
-  interval; the batch rides the KG-2.265 `PeerPool` (one connect-amortized round-trip).
+  interval; the batch rides the AU-KG.ontology.manage-arbitrary `PeerPool` (one connect-amortized round-trip).
   Only heartbeats coalesce — log-bearing appends / votes / snapshots stay individual
   (latency/ordering-sensitive).
 - **Where (`src/raft/network.rs`):**
@@ -163,12 +163,12 @@ warnings pre-date this branch in M1 `redb_backend.rs` / query handlers / `eg-que
 
 ---
 
-## DONE — openraft 0.9 → 0.10 migration + native handoff (CONCEPT:KG-2.273)
+## DONE — openraft 0.9 → 0.10 migration + native handoff (CONCEPT:AU-KG.backend.authority-has-already-acked)
 
 > Branch `feat/openraft-010-cluster`. Bumped openraft to **0.10** (pinned
 > `=0.10.0-alpha.26`, the line that carries `transfer_leader`) and migrated the whole
 > `src/raft/` API surface to the **v2 split-storage** model. The cooperative
-> yield-then-claim leader balancing (KG-2.270) is **replaced** by the native graceful
+> yield-then-claim leader balancing (EG-KG.sharding.multi-raft) is **replaced** by the native graceful
 > handoff. See `docs/architecture/cluster_deployment.md` for the multi-node deploy.
 
 - **Storage = v2 split traits.** openraft 0.10 removed the combined `RaftStorage` + the

@@ -1,4 +1,4 @@
-//! AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-275) — a HAND-ROLLED AMQP 0.9.1
+//! AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.query.amqp-codec-arg-cursor) — a HAND-ROLLED AMQP 0.9.1
 //! server that lets a standard AMQP client (pika, amqplib, the `rabbitmqadmin`-style
 //! tools) speak to the native message broker built on the KG-2.303 work-queue.
 //!
@@ -9,13 +9,13 @@
 //! (`crate::broker`) THROUGH the engine dispatch (`crate::server::dispatch::dispatch`)
 //! — so an AMQP publish takes the SAME routing + atomic enqueue + WAL/CDC path a
 //! `Method::Publish` RPC does, and a consume rides the SAME `Method::ClaimNext`
-//! (CONCEPT:KG-2.303) an RPC consumer uses. No parallel mechanism.
+//! (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending) an RPC consumer uses. No parallel mechanism.
 //!
 //! It links NO AMQP crate — every byte layout is hand-rolled against the published
 //! AMQP 0.9.1 spec (the Pi-contract idiom pgwire / mysql-wire / sparql-http use), so a
 //! default/pi build carries zero AMQP dependency (asserted by `cargo tree`).
 //!
-//! ## Protocol subset (CONCEPT:EG-275)
+//! ## Protocol subset (CONCEPT:EG-KG.query.amqp-codec-arg-cursor)
 //! LANDED: the connection handshake (`connection.start`/`start-ok`/`tune`/`tune-ok`/
 //! `open`/`open-ok`/`close`), `channel.open`/`close`, `exchange.declare`/`delete`,
 //! `queue.declare`/`bind`/`unbind`, `basic.publish` (+ content header/body frames),
@@ -24,21 +24,21 @@
 //! unconditionally, like the SQL wires' trust mode); TLS, QoS prefetch, transactions,
 //! and heartbeats are DEFERRED — a client negotiating them degrades gracefully.
 //!
-//! ## Publisher confirms + idempotent publish (CONCEPT:EG-314 / EG-284)
+//! ## Publisher confirms + idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish / EG-284)
 //! `confirm.select` puts a channel into publisher-confirm mode: every subsequent
 //! `basic.publish` is answered with a `basic.ack` (delivery-tag = the per-channel
 //! 1-based publish sequence) once the broker durably accepts it, or a `basic.nack`
 //! when the target exchange is unknown — mapping the EG-284 confirm surface onto the
 //! AMQP wire. A publish that carries the idempotency application-headers
 //! `x-producer-id` (string) + `x-producer-seq` (int) is routed through
-//! `Method::PublishIdempotent` (CONCEPT:EG-314): the broker dedups a re-published
+//! `Method::PublishIdempotent` (CONCEPT:EG-KG.ingest.broker-reject-publish): the broker dedups a re-published
 //! `(producer_id, seq)` against that producer's durable high-water mark, so a client
 //! that retries after an ambiguous confirm gets effectively-once delivery (the
 //! duplicate is dropped but STILL `basic.ack`-ed). A publish with no producer header
 //! behaves exactly as before (at-least-once). The AMQP `priority` property is threaded
 //! through to EG-278 priority queues on this path.
 //!
-//! ## Stream reads (CONCEPT:EG-283) mapping
+//! ## Stream reads (CONCEPT:EG-KG.compute.replayable-append-log) mapping
 //! AMQP 0.9.1 has no request/response frame for reading a RETAINED log by offset, so
 //! EG-283 stream reads are NOT exposed over this wire — they are reached through the
 //! RPC surface (`Method::StreamRead`) or a future STOMP/native frame. A `basic.consume`
@@ -76,7 +76,7 @@ const C_CHANNEL: u16 = 20;
 const C_EXCHANGE: u16 = 40;
 const C_QUEUE: u16 = 50;
 const C_BASIC: u16 = 60;
-/// AMQP `confirm` class (CONCEPT:EG-314 publisher confirms).
+/// AMQP `confirm` class (CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms).
 const C_CONFIRM: u16 = 85;
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
@@ -133,7 +133,7 @@ fn obj(map: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(map.as_object().unwrap()).unwrap_or_default()
 }
 
-/// Claim the oldest pending message from `queue` (CONCEPT:KG-2.303), marking it
+/// Claim the oldest pending message from `queue` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending), marking it
 /// `claimed`. Returns `(node_id, routing_key, exchange, body)` or `None`.
 async fn claim_one(
     state: &Arc<RwLock<ServerState>>,
@@ -173,7 +173,7 @@ async fn claim_one(
     Some((id, rk, ex, body))
 }
 
-/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:KG-2.303
+/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending
 /// ack path). Best-effort — a lost ack simply leaves the node `claimed`.
 async fn ack_message(state: &Arc<RwLock<ServerState>>, graph: &str, node_id: &str) {
     let conditions = obj(serde_json::json!({ "status": "claimed" }));
@@ -233,7 +233,7 @@ async fn handle_connection(
     let mut delivery_tag: u64 = 0;
     // delivery-tag → (queue graph node id) for ack finalization.
     let mut unacked: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
-    // CONCEPT:EG-314 publisher confirms: channels switched into confirm mode + their
+    // CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms: channels switched into confirm mode + their
     // per-channel 1-based publish sequence (the delivery-tag returned in basic.ack/nack).
     let mut confirm_channels: std::collections::HashSet<u16> = std::collections::HashSet::new();
     let mut publish_seq: std::collections::HashMap<u16, u64> = std::collections::HashMap::new();
@@ -394,7 +394,7 @@ async fn handle_connection(
                 .await;
                 write_frame(socket, FRAME_METHOD, ch, &method_header(C_QUEUE, 51)).await?;
             }
-            // confirm.select → confirm.select-ok (CONCEPT:EG-314): enter confirm mode.
+            // confirm.select → confirm.select-ok (CONCEPT:EG-KG.ingest.broker-reject-publish): enter confirm mode.
             (C_CONFIRM, 10) => {
                 let nowait = mc.args.first().map(|b| b & 0x01 != 0).unwrap_or(false);
                 confirm_channels.insert(ch);
@@ -404,7 +404,7 @@ async fn handle_connection(
                 }
             }
             // basic.publish → read content header (+ idempotency headers) + body, then
-            // publish; in confirm mode answer basic.ack / basic.nack (CONCEPT:EG-314).
+            // publish; in confirm mode answer basic.ack / basic.nack (CONCEPT:EG-KG.ingest.broker-reject-publish).
             (C_BASIC, 40) => {
                 let mut c = Cursor::new(&mc.args);
                 c.u16(); // reserved-1
@@ -533,7 +533,7 @@ async fn pump_consumers(
 }
 
 /// Idempotency / priority fields lifted from a `basic.publish` content header
-/// (CONCEPT:EG-314). All optional — an absent header leaves the default (no producer
+/// (CONCEPT:EG-KG.ingest.broker-reject-publish). All optional — an absent header leaves the default (no producer
 /// stamp, priority 0), so a publish with no properties behaves exactly as before.
 #[derive(Default)]
 struct ContentProps {
@@ -546,7 +546,7 @@ struct ContentProps {
 }
 
 /// Read the content-header frame (body size + basic-properties) then accumulate body
-/// frames. Parses the idempotency application-headers + priority (CONCEPT:EG-314).
+/// frames. Parses the idempotency application-headers + priority (CONCEPT:EG-KG.ingest.broker-reject-publish).
 async fn read_content(socket: &mut TcpStream) -> std::io::Result<(ContentProps, Vec<u8>)> {
     // Content header frame.
     let header = match read_frame(socket).await? {
@@ -579,7 +579,7 @@ async fn read_content(socket: &mut TcpStream) -> std::io::Result<(ContentProps, 
 }
 
 /// Parse a `basic.publish` content-header payload for the idempotency headers +
-/// priority (CONCEPT:EG-314). Walks the AMQP basic-properties in flag order to reach
+/// priority (CONCEPT:EG-KG.ingest.broker-reject-publish). Walks the AMQP basic-properties in flag order to reach
 /// the application-`headers` table (bit `0x2000`) and the `priority` octet (`0x0800`).
 /// A multi-word property-flags preamble (continuation bit `0x0001`, vanishingly rare
 /// for a publish) is not decoded — extraction is skipped and the publish still lands.
@@ -612,7 +612,7 @@ fn parse_content_props(payload: &[u8]) -> ContentProps {
     props
 }
 
-/// Scan an AMQP field-table for the idempotency headers (CONCEPT:EG-314): `x-producer-id`
+/// Scan an AMQP field-table for the idempotency headers (CONCEPT:EG-KG.ingest.broker-reject-publish): `x-producer-id`
 /// (a string value) and `x-producer-seq` (an int, or a numeric string). Unknown value
 /// types whose width can't be determined end the scan (the already-found keys stand).
 fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) {
@@ -636,7 +636,7 @@ fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) {
     }
 }
 
-/// A decoded AMQP field-table value we care about (CONCEPT:EG-314) — a string, an
+/// A decoded AMQP field-table value we care about (CONCEPT:EG-KG.ingest.broker-reject-publish) — a string, an
 /// integer, or a correctly-sized value we skip over.
 enum FieldVal {
     Str(String),
@@ -645,7 +645,7 @@ enum FieldVal {
 }
 
 /// True when an engine publish result confirms the message was durably accepted
-/// (CONCEPT:EG-314 / EG-284). Decodes the `IdempotentPublish.confirmed` flag; a
+/// (CONCEPT:EG-KG.ingest.broker-reject-publish / EG-284). Decodes the `IdempotentPublish.confirmed` flag; a
 /// non-`Raw` / undecodable result is treated optimistically as confirmed.
 fn decode_confirmed(result: &ResultPayload) -> bool {
     if let ResultPayload::Raw(bytes) = result {
@@ -657,7 +657,7 @@ fn decode_confirmed(result: &ResultPayload) -> bool {
 }
 
 /// Build a server `basic.ack` (class 60 / method 80): delivery-tag + `multiple` bit
-/// (CONCEPT:EG-314 publisher confirms).
+/// (CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms).
 fn build_basic_ack(delivery_tag: u64, multiple: bool) -> Vec<u8> {
     let mut p = method_header(C_BASIC, 80);
     put_u64(&mut p, delivery_tag);
@@ -666,7 +666,7 @@ fn build_basic_ack(delivery_tag: u64, multiple: bool) -> Vec<u8> {
 }
 
 /// Build a server `basic.nack` (class 60 / method 120): delivery-tag + `multiple`/
-/// `requeue` bits (CONCEPT:EG-314 — a publish the broker could not accept).
+/// `requeue` bits (CONCEPT:EG-KG.ingest.broker-reject-publish — a publish the broker could not accept).
 fn build_basic_nack(delivery_tag: u64, multiple: bool, requeue: bool) -> Vec<u8> {
     let mut p = method_header(C_BASIC, 120);
     put_u64(&mut p, delivery_tag);
@@ -879,7 +879,7 @@ impl<'a> Cursor<'a> {
         let len = self.u32() as usize;
         self.take(len).to_vec()
     }
-    /// Decode one AMQP field-table value by its 1-byte type tag (CONCEPT:EG-314). Returns
+    /// Decode one AMQP field-table value by its 1-byte type tag (CONCEPT:EG-KG.ingest.broker-reject-publish). Returns
     /// `None` when the tag is unknown (its width is undeterminable → the caller stops).
     fn field_value(&mut self) -> Option<FieldVal> {
         if self.remaining() == 0 {
@@ -932,7 +932,7 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-275 — codec + arg-cursor unit tests (the byte layouts the hand-rolled
+    //! CONCEPT:EG-KG.query.amqp-codec-arg-cursor — codec + arg-cursor unit tests (the byte layouts the hand-rolled
     //! AMQP framing depends on). The full socket handshake is exercised by the served
     //! integration path; these pin the primitives.
     use super::*;
@@ -973,7 +973,7 @@ mod tests {
         assert_eq!(p[5], 9); // minor
     }
 
-    // ── CONCEPT:EG-314 publisher confirms + idempotent-publish headers ────
+    // ── CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms + idempotent-publish headers ────
 
     /// Assemble a content-header payload carrying an application-`headers` table
     /// (bit 0x2000) + a `priority` octet (bit 0x0800), the layout `parse_content_props`

@@ -1,7 +1,7 @@
-// CONCEPT:KG-2.233 — version-keyed query-RESULT cache (feature `result-cache`).
+// CONCEPT:EG-KG.query.version-keyed-result-cache — version-keyed query-RESULT cache (feature `result-cache`).
 //
 // The engine already caches the SQL *schema* (the inferred `nodes`/`edges` Arrow
-// tables, CONCEPT:KG-2.184) and node *properties* (read-through, CONCEPT:KG-2.191).
+// tables, CONCEPT:EG-KG.query.version-keyed-cache) and node *properties* (read-through, CONCEPT:EG-KG.storage.read-through-seam-exercised).
 // What was missing is a cache of the RESULT of a read query — the serialized bytes
 // a `Sql`/`Cypher`/`Sparql`/`UnifiedQuery` returns. For a read-mostly graph the
 // SAME query is re-run unchanged between writes; recomputing it (scan → execute →
@@ -9,7 +9,7 @@
 //
 // ## Correctness rests on the per-GraphCore version generation
 //
-// Each `GraphCore` carries a monotonic OCC write-`version()` (CONCEPT:KG-2.180)
+// Each `GraphCore` carries a monotonic OCC write-`version()` (CONCEPT:EG-KG.txn.multi-op-occ-acid)
 // bumped by `mark_dirty()` on EVERY committed write (single-op, coalesced batch,
 // txn commit, and — on a follower — a replicated `wal::apply`). The result cache is
 // keyed by `(query-hash, version)`:

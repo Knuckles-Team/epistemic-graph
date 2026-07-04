@@ -1,4 +1,4 @@
-//! Lane C proofs (CONCEPT:EG-363) — mid-pipeline OWL reasoning + the native TSDB
+//! Lane C proofs (CONCEPT:EG-KG.query.native-time-series) — mid-pipeline OWL reasoning + the native TSDB
 //! SOURCE op, both over a HAND-BUILT [`PlanCtx`] (no server, fully self-contained).
 //!
 //! Two headline properties:

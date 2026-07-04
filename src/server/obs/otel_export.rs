@@ -1,4 +1,4 @@
-//! CONCEPT:EG-316 — the OTLP EXPORT half: push the engine's OWN observability signals
+//! CONCEPT:EG-OS.observability.prometheus-ingest — the OTLP EXPORT half: push the engine's OWN observability signals
 //! (its Prometheus metrics + its stored distributed-trace spans) OUT to an external
 //! OpenTelemetry collector over OTLP/HTTP JSON.
 //!
@@ -150,7 +150,7 @@ fn otlp_str_attr(key: &str, value: &str) -> serde_json::Value {
 }
 
 /// Serialize the engine's Prometheus metrics text into an OTLP/HTTP JSON
-/// `ExportMetricsServiceRequest` (CONCEPT:EG-316). Counter-family samples (name ending
+/// `ExportMetricsServiceRequest` (CONCEPT:EG-OS.observability.prometheus-ingest). Counter-family samples (name ending
 /// `_total`/`_count`/`_sum`/`_bucket`) become a monotonic cumulative `sum`; everything
 /// else a `gauge`. Labels ride as data-point attributes; `now_unix_nano` stamps every
 /// point. Returns the JSON string.
@@ -248,7 +248,7 @@ fn span_to_otlp(sp: &Span) -> serde_json::Value {
 }
 
 /// Serialize a batch of spans into an OTLP/HTTP JSON `ExportTraceServiceRequest`
-/// (CONCEPT:EG-316), grouping spans by their `service` into one `resourceSpans` entry
+/// (CONCEPT:EG-OS.observability.prometheus-ingest), grouping spans by their `service` into one `resourceSpans` entry
 /// each (resource `service.name` = the span's service). Returns the JSON string.
 pub fn otlp_traces_json(spans: &[Span]) -> String {
     // Group by service, preserving first-seen order for a stable serialization.
@@ -306,7 +306,7 @@ fn gather_spans(state: &Arc<ObsState>) -> Vec<Span> {
 }
 
 /// Push the engine's current metrics + stored spans to an OTLP/HTTP collector at
-/// `endpoint` (CONCEPT:EG-316). Posts the metrics JSON to `{endpoint}/v1/metrics` and
+/// `endpoint` (CONCEPT:EG-OS.observability.prometheus-ingest). Posts the metrics JSON to `{endpoint}/v1/metrics` and
 /// the traces JSON to `{endpoint}/v1/traces` (the OTLP/HTTP defaults). Runs the
 /// blocking `ureq` calls off the reactor. Returns `(metrics_ok, traces_ok)` — a dead
 /// collector degrades to `Ok((false, false))` rather than failing the caller.
@@ -336,7 +336,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    /// CONCEPT:EG-316 — the engine's Prometheus metrics text serializes into a
+    /// CONCEPT:EG-OS.observability.prometheus-ingest — the engine's Prometheus metrics text serializes into a
     /// well-formed OTLP `ExportMetricsServiceRequest`: a counter (`_total`) becomes a
     /// monotonic `sum`, a gauge stays a `gauge`, labels ride as data-point attributes,
     /// and every point carries the service resource + a `timeUnixNano`.
@@ -383,7 +383,7 @@ mod tests {
             .is_empty());
     }
 
-    /// CONCEPT:EG-316 — spans serialize into the OTLP `ExportTraceServiceRequest` shape
+    /// CONCEPT:EG-OS.observability.prometheus-ingest — spans serialize into the OTLP `ExportTraceServiceRequest` shape
     /// and ROUND-TRIP back through the engine's OWN EG-163 OTLP-JSON parser to the same
     /// spans (service, ids, operation, duration, ERROR status, attribute all preserved).
     #[test]
@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(api.attributes.get("http.status_code").unwrap(), "500");
     }
 
-    /// CONCEPT:EG-316 — the Prometheus exposition parser skips `# HELP`/`# TYPE` comment
+    /// CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus exposition parser skips `# HELP`/`# TYPE` comment
     /// lines and blanks, and reads NaN/Inf value tokens.
     #[test]
     fn eg316_prom_exposition_parse_skips_comments_and_reads_special_values() {

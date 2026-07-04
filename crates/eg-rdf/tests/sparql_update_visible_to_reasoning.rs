@@ -1,4 +1,4 @@
-//! SPARQL-UPDATE → reasoning cross-modal SEAM regression (CONCEPT:EG-368).
+//! SPARQL-UPDATE → reasoning cross-modal SEAM regression (CONCEPT:EG-KG.compute.concept-7).
 //!
 //! Proves the write→read seam across the RDF/OWL modality boundary: a SPARQL 1.1
 //! `DELETE/INSERT … WHERE` that rewrites a TBox axiom is IMMEDIATELY visible to a fresh

@@ -1,4 +1,4 @@
-//! An in-house **packed Hilbert R-tree** (CONCEPT:EG-083) — a static, bottom-up-packed
+//! An in-house **packed Hilbert R-tree** (CONCEPT:EG-KG.ontology.singles-concept) — a static, bottom-up-packed
 //! spatial index over a set of bounding boxes, in the "flatbush" idiom: items are
 //! sorted along a Hilbert space-filling curve (so spatially-near boxes are near in the
 //! packed array), then grouped `node_size` at a time into a fixed tree stored in flat

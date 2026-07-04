@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20j — Derivatives: SABR Stochastic-Volatility Surface
+// CONCEPT:AU-KG.domains.derivatives — Derivatives: SABR Stochastic-Volatility Surface
 //
 // Hagan-Kumar-Lesniewski-Woodward (2002) SABR implied-volatility approximation
 // and surface calibration. Lets the finance domain price/trade volatility smiles

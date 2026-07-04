@@ -1,5 +1,5 @@
 //! Facade adapter wiring the durable [`PersistenceBackend`] to eg-core's
-//! read-through seam (CONCEPT:KG-2.191).
+//! read-through seam (CONCEPT:EG-KG.storage.read-through-seam-exercised).
 //!
 //! eg-core defines `ReadThrough` / `ReadThroughFactory` but must not know about
 //! `PersistenceBackend` (that would invert the crate DAG). This module — in the

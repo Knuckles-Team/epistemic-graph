@@ -1,4 +1,4 @@
-//! The compact byte-blob codec (CONCEPT:EG-085) — a tensor ⇄ `Vec<u8>` serialization
+//! The compact byte-blob codec (CONCEPT:EG-KG.storage.content-addressed-dedup) — a tensor ⇄ `Vec<u8>` serialization
 //! whose bytes are content-addressable in the engine's blob CAS (`ChunkStore` +
 //! EG-071 CDC). The layout is a small self-describing header + little-endian data:
 //!

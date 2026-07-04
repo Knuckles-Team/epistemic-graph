@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 pub const MAX_BATCH_IDS: usize = 100_000;
 
 /// Default cap on the number of nodes a `GetNodes`-style FULL-graph dump may
-/// return before the engine refuses to build the response (CONCEPT:KG-2.264 —
+/// return before the engine refuses to build the response (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation —
 /// intelligent overload backstop). Tunable via
 /// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`. An unbounded `GetNodes` on a large
 /// graph (e.g. `__commons__` with 166K+ nodes, each carrying a 1024-dim
@@ -29,7 +29,7 @@ pub const MAX_BATCH_IDS: usize = 100_000;
 pub const DEFAULT_MAX_RESPONSE_NODES: usize = 50_000;
 
 /// Resolve the `GetNodes` full-dump node cap, read ONCE from
-/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` (CONCEPT:KG-2.264). Cached in a
+/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Cached in a
 /// `OnceLock` so the env var is parsed a single time at first use, matching the
 /// "read once at startup" discipline without threading a new field through every
 /// `ServerState` construction site. A value of `0` disables the guard (no cap —
@@ -47,7 +47,7 @@ pub fn max_response_nodes() -> usize {
 }
 
 /// Read the OCC-transaction TTL + open-txn caps from the environment
-/// (CONCEPT:KG-2.180), with the documented defaults. Centralized so every
+/// (CONCEPT:EG-KG.txn.multi-op-occ-acid), with the documented defaults. Centralized so every
 /// `ServerState` construction site gets the same knobs without re-reading env.
 /// Returns `(ttl_secs, max_per_graph, max_per_agent)`.
 pub fn txn_limits_from_env() -> (u64, usize, usize) {
@@ -77,13 +77,13 @@ pub struct ServerState {
     pub channels: ChannelManager,
     pub auth_secret: String,
     pub persist_dir: Option<String>,
-    /// Pluggable durable persistence tier (CONCEPT:KG-2.177). `Some` when a
+    /// Pluggable durable persistence tier (CONCEPT:EG-KG.storage.kg-kg). `Some` when a
     /// persist dir is configured. The dispatch write-side-effect block calls
     /// `record` after every successful durable mutation; the chosen backend
     /// (snapshot+WAL by default, redb write-through when selected) owns its own
     /// off-reactor writer internally, so the WAL type no longer leaks here.
     pub persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    /// redb-authoritative mode (CONCEPT:KG-2.187), read ONCE at startup from
+    /// redb-authoritative mode (CONCEPT:EG-KG.backend.authoritative-dispatch), read ONCE at startup from
     /// `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` (default `false`). When `false` the
     /// engine behaves EXACTLY as before: redb (if selected) is an opt-in
     /// write-through cache tier and Postgres remains the system-of-record, with
@@ -95,7 +95,7 @@ pub struct ServerState {
     /// non-redb backend treats it as a no-op (its `record_durable` default falls
     /// back to `record`).
     pub redb_authoritative: bool,
-    /// Cold-tenant access tracker (CONCEPT:EG-034/EG-040, R6), feature `redb`. The
+    /// Cold-tenant access tracker (CONCEPT:EG-KG.sharding.eg-r6/EG-040, R6), feature `redb`. The
     /// dispatch read+write path calls `touch(graph)` on every graph access so the
     /// periodic cold-offload sweep (`offload_cold_tenants`) can hibernate graphs idle
     /// longer than a window to bound RAM across many tenants — recently-accessed graphs
@@ -107,7 +107,7 @@ pub struct ServerState {
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
     pub max_in_flight: Arc<Semaphore>,
-    /// Reserved READ-admission lane (CONCEPT:EG-044). A dedicated semaphore that ONLY
+    /// Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane). A dedicated semaphore that ONLY
     /// read/query requests may acquire, held SEPARATELY from `max_in_flight` (which
     /// writes also contend for) and from the per-graph cap. The transport admits a
     /// read on the normal path first; if `max_in_flight` OR the per-graph cap is
@@ -125,14 +125,14 @@ pub struct ServerState {
     pub per_graph_inflight: Arc<DashMap<String, Arc<Semaphore>>>,
     /// Max concurrent in-flight requests any single graph may hold.
     pub per_graph_inflight_limit: usize,
-    /// Per-graph write coalescer (CONCEPT:KG-2.182). Lazily creates one batching
+    /// Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). Lazily creates one batching
     /// writer per graph name (same lazy-keyed pattern as `per_graph_inflight`), so
     /// concurrent single-op writes to ONE hot graph (the `__commons__` ingestion
     /// firehose) collapse into one topology-lock acquisition per batch instead of
     /// serializing one-op-at-a-time. A new graph/connector gets a writer
     /// automatically. Default ON; opt out with `EPISTEMIC_GRAPH_WRITE_COALESCE=0`.
     pub write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
-    /// Open server-staged OCC transactions (CONCEPT:KG-2.180), keyed by the
+    /// Open server-staged OCC transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid), keyed by the
     /// server-issued `txn_id`. A staged txn holds its write-set + read-set off the
     /// graph lock; the lock is taken only at commit. Each entry is behind a `Mutex`
     /// so the begin/stage/commit RPCs for one txn serialize without blocking other
@@ -151,7 +151,7 @@ pub struct ServerState {
     /// Cap on concurrently-open txns per agent (`EPISTEMIC_GRAPH_TXN_MAX_PER_AGENT`,
     /// default 256). Anonymous callers (`agent_id` absent) share the `""` bucket.
     pub txn_max_per_agent: usize,
-    /// Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206), feature `blob`.
+    /// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace), feature `blob`.
     /// Holds the CAS chunk store + the open upload/fetch cursors (DashMap keyed by a
     /// server-issued cursor id, with a TTL reaper like `open_txns`). `Some` when the
     /// engine is built `--features blob`; `None` otherwise (the Blob* variants then
@@ -163,23 +163,23 @@ pub struct ServerState {
     /// (`EPISTEMIC_GRAPH_BLOB_CURSOR_TTL_SECS`, default 300).
     #[cfg(feature = "blob")]
     pub blob_cursor_ttl_secs: u64,
-    /// In-engine Raft replication handle (CONCEPT:KG-2.188), cluster tier only.
+    /// In-engine Raft replication handle (CONCEPT:AU-KG.ingest.source-sync-canonical), cluster tier only.
     /// `None` ⇒ single-node: the dispatch write path is byte-for-byte unchanged.
     /// `Some` ⇒ durable mutations are routed through Raft consensus (the leader's
     /// `client_write`) BEFORE they are applied+acked — the replication barrier.
     /// Only ever populated when built `--features raft` AND configured at startup.
     #[cfg(feature = "raft")]
     pub raft: Option<crate::raft::RaftHandle>,
-    /// The per-node [`MultiRaft`] manager (CONCEPT:KG-2.205/2.222/2.224), cluster tier
+    /// The per-node [`MultiRaft`] manager (CONCEPT:EG-KG.sharding.raft-resharding/2.222/2.224), cluster tier
     /// only. `Some` when a cluster is active. Held here (rather than leaked) so the
     /// USER-FACING surfaces that need cross-group routing reach it: the multi-graph
-    /// `Commit` path (CONCEPT:KG-2.226 — routes a cross-shard txn through the 2PC
-    /// coordinator) and the online-reshard / tenant-hibernation ops (CONCEPT:KG-2.224).
+    /// `Commit` path (CONCEPT:EG-KG.txn.routes-cross-shard-txn — routes a cross-shard txn through the 2PC
+    /// coordinator) and the online-reshard / tenant-hibernation ops (CONCEPT:EG-KG.storage.100m-tenant).
     /// `None` ⇒ single-node: a multi-graph txn falls back to applying each graph's
     /// slice locally (no consensus), and the commit path is otherwise unchanged.
     #[cfg(feature = "raft")]
     pub multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
-    /// Native time-series store (CONCEPT:KG-2.210, feature `tsdb`). `Some` when the
+    /// Native time-series store (CONCEPT:AU-KG.retrieval.god-nodes-communities, feature `tsdb`). `Some` when the
     /// engine booted with a series store: a durable `series.redb` beside `graph.redb`
     /// when a persist dir is set, else a process-temp file (in-memory deployments).
     /// The `Ts*` handlers append/scan/query through it; it is independent of the
@@ -188,7 +188,7 @@ pub struct ServerState {
     /// OWN file — NOT a second handle on `graph.redb`.
     #[cfg(feature = "tsdb")]
     pub tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
-    /// Opt-in lossless RDF quad table (CONCEPT:KG-2.217, feature `rdf-redb`). `Some`
+    /// Opt-in lossless RDF quad table (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql, feature `rdf-redb`). `Some`
     /// when a persist dir is set (a durable `rdf_quads.redb` beside `graph.redb`):
     /// the `AddTriples` handler routes multi-valued literal predicates here (the one
     /// lossy edge of the property-graph mapping), and `GetRdf` unions them back.
@@ -196,7 +196,7 @@ pub struct ServerState {
     /// silently). Its OWN redb file — NOT a second handle on `graph.redb`.
     #[cfg(feature = "rdf-redb")]
     pub rdf_quads: Option<Arc<eg_rdf::quads::QuadStore>>,
-    /// Change-Data-Capture hub (CONCEPT:KG-2.229/230, feature `streaming`). `Some` on
+    /// Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`). `Some` on
     /// any `streaming` build (constructed unconditionally — it needs no persist dir,
     /// the in-memory ring IS the cursor surface). The dispatch write-side-effect block
     /// emits a `CdcEvent` into it after every successful durable mutation; the
@@ -204,20 +204,20 @@ pub struct ServerState {
     /// + triggers off it. PURE in-memory (bounded ring + Notify) — no second redb file.
     #[cfg(feature = "streaming")]
     pub cdc: Option<Arc<crate::server::cdc::CdcHub>>,
-    /// WASM-sandboxed UDF registry (CONCEPT:KG-2.228, feature `wasm-udf`). Holds the
+    /// WASM-sandboxed UDF registry (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). Holds the
     /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`; `RunUdf` + the
     /// `Op::Udf` plan op look up + run them sandboxed (fuel + memory limits, NO host
     /// caps). Always present (empty) with the feature on — UDFs are process-global, not
     /// per-graph. Behind `Arc` so the off-lock compute path clones a handle cheaply.
     #[cfg(feature = "wasm-udf")]
     pub udf_registry: Arc<eg_wasm::UdfRegistry>,
-    /// Materialized views of distributed-compute results (CONCEPT:KG-2.227, feature
+    /// Materialized views of distributed-compute results (CONCEPT:EG-KG.storage.feature, feature
     /// `compute-dist`). The in-RAM index of named, incrementally-maintained matviews;
     /// the durable copy lives in redb (the handler persists + reloads on boot). Mutex
     /// because a `CreateMatView`/`RefreshMatView` mutates it off the registry lock.
     #[cfg(feature = "compute-dist")]
     pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
-    /// Registered FOREIGN sources for query federation (CONCEPT:KG-2.232, feature
+    /// Registered FOREIGN sources for query federation (CONCEPT:EG-KG.query.query-federation, feature
     /// `federation`), keyed by name. `RegisterForeignSource` inserts a
     /// [`eg_types::wire::ForeignSourceSpec`] here so it can be reused by name; the
     /// inline-spec `Op::ForeignScan` path does not need it. Process-global (a foreign
@@ -225,7 +225,7 @@ pub struct ServerState {
     /// feature on.
     #[cfg(feature = "federation")]
     pub foreign_sources: Arc<DashMap<String, eg_types::wire::ForeignSourceSpec>>,
-    /// Generic namespaced Key→Value store (CONCEPT:EG-022, feature `kv`). `Some` on a
+    /// Generic namespaced Key→Value store (CONCEPT:EG-KG.storage.namespaced-kv-surface, feature `kv`). `Some` on a
     /// `kv` build: a durable `{persist_dir}/kv.redb` when a persist dir is set, else an
     /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it
     /// is independent of the graph registry + the write-coalescer (KV pairs are keyed by

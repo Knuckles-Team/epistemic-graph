@@ -1,4 +1,4 @@
-//! GraphQL **real subscriptions** over Server-Sent Events (CONCEPT:EG-064, feature
+//! GraphQL **real subscriptions** over Server-Sent Events (CONCEPT:EG-KG.compute.cdc-event-emit, feature
 //! `graphql`).
 //!
 //! A minimal, dependency-free HTTP/1.1 listener — the SAME hand-rolled tokio idiom as

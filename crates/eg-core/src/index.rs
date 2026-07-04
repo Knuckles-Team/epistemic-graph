@@ -1,8 +1,8 @@
-// CONCEPT:KG-2.213 — the unified IndexManager seam.
+// CONCEPT:EG-KG.storage.index-manager-seam — the unified IndexManager seam.
 //
 // Today the engine's secondary indexes are each bolted ad-hoc onto `GraphCore`:
-// the lazy LABEL index (CONCEPT:KG-2.176), the demand-driven PROPERTY equality
-// index (CONCEPT:KG-2.199), the ontology aho-corasick term index (CONCEPT:EG-010),
+// the lazy LABEL index (CONCEPT:EG-KG.compute.consult-lazy), the demand-driven PROPERTY equality
+// index (CONCEPT:EG-KG.query.concept-12), the ontology aho-corasick term index (CONCEPT:EG-ORCH.routing.lexical-capability-escalation),
 // and the eg-ann vector index (the `SemanticStore`). Each is rebuilt-on-mutation
 // via `version()`/`mark_dirty`, and every pushdown consumer (eg-query's
 // `NodesTableProvider`, eg-plan's Filter leg) has to know each one individually.
@@ -47,18 +47,18 @@ use crate::graph::GraphCore;
 /// variant here without touching the manager core (extension point above).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndexKind {
-    /// Lazy `label → node ids` map (CONCEPT:KG-2.176).
+    /// Lazy `label → node ids` map (CONCEPT:EG-KG.compute.consult-lazy).
     Label,
     /// Bounded, demand-driven `key → value → node ids` equality index
-    /// (CONCEPT:KG-2.199).
+    /// (CONCEPT:EG-KG.query.concept-12).
     Property,
-    /// aho-corasick capability-term lexical index (CONCEPT:EG-010). Discoverable;
+    /// aho-corasick capability-term lexical index (CONCEPT:EG-ORCH.routing.lexical-capability-escalation). Discoverable;
     /// served through its own `match_ontology_terms` surface, not equality lookup.
     Ontology,
     /// HNSW / eg-ann vector index (the `SemanticStore`). Discoverable; served
     /// through kNN, not equality lookup.
     Vector,
-    // Future index kinds register here (CONCEPT:KG-2.215 text / spatial / time)
+    // Future index kinds register here (CONCEPT:AU-KG.query.text-spatial-time text / spatial / time)
     // with their own `SecondaryIndex` impl — the manager core does not change.
 }
 
@@ -130,7 +130,7 @@ pub trait SecondaryIndex: Send + Sync {
     fn lookup(&self, core: &GraphCore, predicate: &Predicate) -> Option<Vec<String>>;
 }
 
-/// The label index descriptor (CONCEPT:KG-2.176). Holds no state — it routes to
+/// The label index descriptor (CONCEPT:EG-KG.compute.consult-lazy). Holds no state — it routes to
 /// `GraphCore::get_nodes_by_label`, which owns the lazy `label_index` cache.
 #[derive(Debug, Default)]
 pub struct LabelIndex;
@@ -167,7 +167,7 @@ impl SecondaryIndex for LabelIndex {
     }
 }
 
-/// The property equality index descriptor (CONCEPT:KG-2.199). Holds no state — it
+/// The property equality index descriptor (CONCEPT:EG-KG.query.concept-12). Holds no state — it
 /// routes to `GraphCore::nodes_by_property`, which owns the bounded, demand-driven
 /// `property_index` cache (incl. the cap + env seed policy).
 #[derive(Debug, Default)]
@@ -201,7 +201,7 @@ impl SecondaryIndex for PropertyEqIndex {
 }
 
 /// Discoverable-only descriptor for the aho-corasick ontology term index
-/// (CONCEPT:EG-010). It is NOT a `Predicate`-equality index — it serves a lexical
+/// (CONCEPT:EG-ORCH.routing.lexical-capability-escalation). It is NOT a `Predicate`-equality index — it serves a lexical
 /// scan via `GraphCore::match_ontology_terms` — so it `covers` nothing and never
 /// `lookup`s; it exists in the registry purely so a planner can enumerate it.
 #[derive(Debug, Default)]
@@ -259,7 +259,7 @@ impl SecondaryIndex for VectorIndexDescriptor {
     }
 }
 
-/// The single registry/seam over a graph's secondary indexes (CONCEPT:KG-2.213).
+/// The single registry/seam over a graph's secondary indexes (CONCEPT:EG-KG.storage.index-manager-seam).
 ///
 /// Owned by [`GraphCore`]. A planner consults ONE manager instead of bespoke
 /// per-index checks:

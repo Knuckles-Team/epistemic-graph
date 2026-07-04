@@ -1,4 +1,4 @@
-//! SQL execution entry (CONCEPT:KG-2.178). Takes a `&GraphView` + a SQL string,
+//! SQL execution entry (CONCEPT:EG-KG.query.read-only-sql-query). Takes a `&GraphView` + a SQL string,
 //! builds a SessionContext, registers the `nodes` provider + the `json_get*` UDFs,
 //! runs the query, and materializes the result as `QueryResult { columns, rows }`.
 //!
@@ -32,10 +32,10 @@ use super::udfs::{
 use crate::tables::{StoredFunction, TableStore};
 
 /// One user table materialized for registration into the SQL context: its name plus
-/// the Arrow `(schema, batch)` scanned out of the redb store (CONCEPT:EG-018).
+/// the Arrow `(schema, batch)` scanned out of the redb store (CONCEPT:EG-KG.query.register-user-tables-alongside).
 type UserTable = (String, SchemaRef, arrow::record_batch::RecordBatch);
 
-/// Register the CONCEPT:EG-104 Postgres common-function surface — `greatest`/`least`,
+/// Register the CONCEPT:EG-KG.query.greatest-least-int4range-tsrange Postgres common-function surface — `greatest`/`least`,
 /// the range constructors (`int4range`/`tsrange`) + predicates (`range_contains`/
 /// `range_overlaps`/`range_contains_range`/`range_contained_by`), and the
 /// `generate_series` table function — on `ctx`. Shared so the graph exec path and the
@@ -54,7 +54,7 @@ fn register_pg_common(ctx: &SessionContext) {
     ctx.register_udtf("generate_series", Arc::new(GenerateSeriesFunc));
 }
 
-/// Register the CONCEPT:EG-329 Analytics-Program Surface-B numeric operators — the
+/// Register the CONCEPT:EG-KG.query.surface-b-numeric-operators Analytics-Program Surface-B numeric operators — the
 /// `eg-numeric`-backed `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + the
 /// `covariance` UDAF — so analytics run in-engine over resident columns
 /// (compute-near-data). Gated behind the `numeric` feature (out of `pi`); a no-numeric
@@ -70,11 +70,11 @@ fn register_numeric(ctx: &SessionContext) {
     ctx.register_udf(l2_normalize_udf());
     ctx.register_udf(zscore_udf());
     ctx.register_udaf(covariance_udaf());
-    // CONCEPT:EG-336 svd / EG-335 pca — column→Array2 marshalling UDAFs (singular values /
+    // CONCEPT:EG-KG.query.svd-eg-pca-column svd / EG-335 pca — column→Array2 marshalling UDAFs (singular values /
     // top-k principal-component directions of the aggregated vector column).
     ctx.register_udaf(svd_udaf());
     ctx.register_udaf(pca_udaf());
-    // CONCEPT:EG-344 kmeans — the clustering half; one cluster label per aggregated row.
+    // CONCEPT:EG-KG.query.kmeans-clustering-half-one kmeans — the clustering half; one cluster label per aggregated row.
     ctx.register_udaf(kmeans_udaf());
 }
 
@@ -102,7 +102,7 @@ pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
 }
 
 /// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph
-/// (CONCEPT:EG-162). Each `(name, schema, batches)` is registered as a DataFusion
+/// (CONCEPT:EG-KG.query.concept-4). Each `(name, schema, batches)` is registered as a DataFusion
 /// `MemTable`, and the `json_get*` scalar UDFs are registered so a JSON-object column
 /// (e.g. an observability log record's `attrs`) is reachable schema-on-read. This is
 /// the SQL leg the observability log-search surface (`src/server/obs`) drives: it
@@ -133,15 +133,15 @@ pub fn exec_sql_over_tables(
         ctx.register_udf(json_get_udf());
         ctx.register_udf(json_get_f64_udf());
         ctx.register_udf(json_get_i64_udf());
-        // CONCEPT:EG-117/EG-119 — time_bucket + BM25 UDFs so the obs log-search SQL leg
+        // CONCEPT:EG-KG.query.continuous-aggregate-lowering/EG-119 — time_bucket + BM25 UDFs so the obs log-search SQL leg
         // can time-bucket and lexically filter too.
         ctx.register_udf(time_bucket_udf());
         ctx.register_udf(bm25_match_udf());
         ctx.register_udf(bm25_score_udf());
         ctx.register_udf(bm25_snippet_udf());
-        // CONCEPT:EG-104 — greatest/least, range fns, generate_series (obs path too).
+        // CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — greatest/least, range fns, generate_series (obs path too).
         register_pg_common(&ctx);
-        // CONCEPT:EG-329 — Surface-B numeric operators over the obs Arrow tables too.
+        // CONCEPT:EG-KG.query.surface-b-numeric-operators — Surface-B numeric operators over the obs Arrow tables too.
         #[cfg(feature = "numeric")]
         register_numeric(&ctx);
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
@@ -151,7 +151,7 @@ pub fn exec_sql_over_tables(
 }
 
 /// Materialize EVERY user table in `store` into an Arrow `(name, schema, batch)` so
-/// it can be registered alongside `nodes`/`edges` (CONCEPT:EG-018). One redb scan
+/// it can be registered alongside `nodes`/`edges` (CONCEPT:EG-KG.query.register-user-tables-alongside). One redb scan
 /// per table; the unified-engine payoff is that the resulting tables join the graph
 /// in a single DataFusion plan.
 fn materialize_user_tables(store: &TableStore) -> Result<Vec<UserTable>, String> {
@@ -169,7 +169,7 @@ fn materialize_user_tables(store: &TableStore) -> Result<Vec<UserTable>, String>
 }
 
 /// A coarse, Postgres-mappable column type derived from the Arrow result schema.
-/// The pgwire shim (CONCEPT:KG-2.189) maps each to a wire type OID; the variants
+/// The pgwire shim (CONCEPT:AU-KG.query.raw-python) maps each to a wire type OID; the variants
 /// cover exactly the Arrow types the `nodes`/`edges` schema-on-read inference and
 /// ordinary SELECT projections produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,7 +178,7 @@ pub enum PgColType {
     Int8,
     Float8,
     Bool,
-    /// A pgvector `vector` column (CONCEPT:EG-115) — a `List<Float32>` result column.
+    /// A pgvector `vector` column (CONCEPT:EG-KG.query.view-pgvector-operators) — a `List<Float32>` result column.
     /// The pgwire shim maps it to a stable float-array wire OID and renders each value
     /// as the pgvector text form `[1,2,3]`.
     Vector,
@@ -202,7 +202,7 @@ pub struct TypedQueryResult {
     pub rows: Vec<Vec<serde_json::Value>>,
 }
 
-/// Run `sql` over `view` and return a [`TypedQueryResult`] (CONCEPT:KG-2.189).
+/// Run `sql` over `view` and return a [`TypedQueryResult`] (CONCEPT:AU-KG.query.raw-python).
 /// Identical execution to [`exec_sql`] — same providers, UDFs, table functions,
 /// off-lock snapshot, and current-thread runtime — but it captures the Arrow
 /// result schema so the pgwire shim can describe columns with real type OIDs.
@@ -221,7 +221,7 @@ pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, S
     )
 }
 
-/// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-018). Identical
+/// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-KG.query.register-user-tables-alongside). Identical
 /// to [`exec_sql_typed`] but every `CREATE TABLE` user table is registered as a
 /// DataFusion `TableProvider` alongside `nodes`/`edges`, so a SELECT can read a user
 /// table, JOIN it to the graph, or both in ONE plan. This is the read path the pgwire
@@ -231,10 +231,10 @@ pub fn exec_sql_typed_with_tables(
     store: &TableStore,
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
-    // CONCEPT:EG-118: the durable SQL stored functions, expanded into the query text
+    // CONCEPT:EG-KG.query.create-drop-function: the durable SQL stored functions, expanded into the query text
     // (scalar → scalar subquery; table → parameterized-view subquery) before planning.
     let functions = store.list_functions()?;
-    // CONCEPT:EG-340: a bare top-level `SELECT plfn(args)` / `CALL plproc(args)` naming a
+    // CONCEPT:EG-KG.query.eg-validate-procedural-body: a bare top-level `SELECT plfn(args)` / `CALL plproc(args)` naming a
     // `LANGUAGE plpgsql` function runs the procedural interpreter instead of DataFusion.
     // Its embedded SQL (expression eval, `SELECT … INTO`) runs back through THIS read path
     // — the interpreter is synchronous, so each recursive call builds its own runtime with
@@ -248,17 +248,17 @@ pub fn exec_sql_typed_with_tables(
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
     let user = materialize_user_tables(store)?;
-    // CONCEPT:EG-072: the durable views, registered as read-only named queries so a
+    // CONCEPT:EG-KG.query.durable-views: the durable views, registered as read-only named queries so a
     // SELECT that references a view expands its stored SELECT during context build.
     let views = store.list_views()?;
-    // CONCEPT:EG-116/EG-313: the durable pgvector ANN index registrations, consulted to
+    // CONCEPT:EG-KG.query.real-ann-top-k/EG-313: the durable pgvector ANN index registrations, consulted to
     // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index.
     let ann_indexes = store.list_ann_indexes()?;
     run_typed(view, nodes, edges, user, views, functions, ann_indexes, sql)
 }
 
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
-/// still valid for `version` (the GraphCore OCC `version()`, CONCEPT:KG-2.184).
+/// still valid for `version` (the GraphCore OCC `version()`, CONCEPT:EG-KG.query.version-keyed-cache).
 /// A different version (any committed write bumped it) rebuilds, so the cache never
 /// serves stale tables. `view` must be the snapshot taken at `version`.
 pub fn exec_sql_cached(
@@ -281,7 +281,7 @@ pub fn exec_sql_cached(
 }
 
 /// The materialized `SessionContext` plus the live-relation Arrow schemas the
-/// system catalogs are synthesized from (CONCEPT:EG-103). Returned by [`build_ctx`]
+/// system catalogs are synthesized from (CONCEPT:EG-KG.query.route-create-view-create). Returned by [`build_ctx`]
 /// so the caller can register the `pg_catalog` + `information_schema` system views
 /// AFTER the durable views are registered (their columns are read back from the
 /// registered view providers).
@@ -295,7 +295,7 @@ struct BuiltCtx {
 /// Build the shared `SessionContext` for a SQL run: register the `nodes`/`edges`
 /// tables, the scalar/aggregate UDFs, and the graph table functions. The synthetic
 /// Postgres system catalogs (`pg_catalog.*` + a fully-synthesized `information_schema.*`,
-/// CONCEPT:EG-103, extending CONCEPT:KG-2.201) are registered SEPARATELY by
+/// CONCEPT:EG-KG.query.route-create-view-create, extending CONCEPT:EG-KG.query.datafusion) are registered SEPARATELY by
 /// [`register_system_catalogs`] AFTER the durable views are wired, so views appear as
 /// relations (`relkind='v'`) with their real columns. DataFusion's NATIVE
 /// `information_schema` is deliberately DISABLED here because the engine synthesizes the
@@ -315,14 +315,14 @@ fn build_ctx(
     let nodes_schema = nodes.0.clone();
     let edges_schema = edges.0.clone();
 
-    // CONCEPT:KG-2.199: the `nodes` table is a custom provider with secondary-index
+    // CONCEPT:EG-KG.query.concept-12: the `nodes` table is a custom provider with secondary-index
     // predicate pushdown — a `WHERE col = 'x'` narrows rows via the index instead of
     // scanning every node. `edges` stays a plain MemTable.
     let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
     let edges_table = MemTable::try_new(edges.0, vec![vec![edges.1]])
         .map_err(|e| format!("edges mem table: {e}"))?;
 
-    // CONCEPT:EG-103: DataFusion's native `information_schema` is DISABLED — the engine
+    // CONCEPT:EG-KG.query.route-create-view-create: DataFusion's native `information_schema` is DISABLED — the engine
     // synthesizes the whole `information_schema` (plus `pg_catalog`) itself in
     // `register_system_catalogs`, because native cannot be extended with the
     // `routines`/`key_column_usage`/`table_constraints` views psql/ORMs also probe.
@@ -333,10 +333,10 @@ fn build_ctx(
         .map_err(|e| format!("register nodes: {e}"))?;
     ctx.register_table("edges", Arc::new(edges_table))
         .map_err(|e| format!("register edges: {e}"))?;
-    // CONCEPT:EG-018: register each user table (a MemTable over its scanned rows)
+    // CONCEPT:EG-KG.query.register-user-tables-alongside: register each user table (a MemTable over its scanned rows)
     // alongside the graph projection, and remember its schema for the catalog so a
     // reflecting driver sees it in `pg_class`/`information_schema`.
-    // CONCEPT:EG-020: register each user table through the SAME secondary-index
+    // CONCEPT:EG-KG.query.register-each-user-table: register each user table through the SAME secondary-index
     // pushdown provider the `nodes` table uses (`NodesTableProvider` is generic
     // equality-pushdown over an Arrow batch), so a `WHERE col = 'x'` on a user table
     // narrows rows via the index instead of scanning the whole batch.
@@ -351,12 +351,12 @@ fn build_ctx(
     ctx.register_udf(json_get_f64_udf());
     ctx.register_udf(json_get_i64_udf());
     ctx.register_udf(epistemic_decay_udf());
-    // CONCEPT:EG-115 — pgvector distance functions the `<->`/`<=>`/`<#>` operators
+    // CONCEPT:EG-KG.query.view-pgvector-operators — pgvector distance functions the `<->`/`<=>`/`<#>` operators
     // desugar to (brute-force over a vector column; the eg-ann index pushdown is EG-116).
     ctx.register_udf(vector_l2_udf());
     ctx.register_udf(vector_cosine_udf());
     ctx.register_udf(vector_ip_udf());
-    // CONCEPT:EG-117 — TimescaleDB `time_bucket`. CONCEPT:EG-119 — ParadeDB BM25
+    // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB `time_bucket`. CONCEPT:EG-KG.query.paradedb-bm25 — ParadeDB BM25
     // `col @@@ 'q'` / `paradedb.score()`/`snippet()` desugar targets.
     ctx.register_udf(time_bucket_udf());
     ctx.register_udf(bm25_match_udf());
@@ -364,10 +364,10 @@ fn build_ctx(
     ctx.register_udf(bm25_snippet_udf());
     ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
     ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
-    // CONCEPT:EG-104 — greatest/least, int4range/tsrange + range predicates, and the
+    // CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — greatest/least, int4range/tsrange + range predicates, and the
     // generate_series table function, rounding out the Postgres common-function surface.
     register_pg_common(&ctx);
-    // CONCEPT:EG-329 — Surface-B numeric operators over the graph's resident columns.
+    // CONCEPT:EG-KG.query.surface-b-numeric-operators — Surface-B numeric operators over the graph's resident columns.
     #[cfg(feature = "numeric")]
     register_numeric(&ctx);
     #[cfg(feature = "finance")]
@@ -375,7 +375,7 @@ fn build_ctx(
         ctx.register_udaf(super::udfs::var_udaf());
         ctx.register_udaf(super::udfs::cvar_udaf());
     }
-    // CONCEPT:EG-103: the `pg_catalog` + `information_schema` system views are registered
+    // CONCEPT:EG-KG.query.route-create-view-create: the `pg_catalog` + `information_schema` system views are registered
     // by the caller via `register_system_catalogs` AFTER `register_views`, so views are
     // synthesized as relations with their real column schemas.
     Ok(BuiltCtx {
@@ -386,7 +386,7 @@ fn build_ctx(
     })
 }
 
-/// Real pgvector ANN top-k pushdown (CONCEPT:EG-313). When `sql` is a covered
+/// Real pgvector ANN top-k pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top). When `sql` is a covered
 /// `SELECT … FROM t ORDER BY col <-> $q LIMIT k` (a registered `hnsw`/`ivfflat` index
 /// exists for `(t, col, metric)`), narrow the target table's materialized batch to the
 /// TRUE nearest-k rows — computed by building/consulting a real [`eg_ann`] index (HNSW
@@ -494,19 +494,19 @@ fn run(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
-    // CONCEPT:EG-103 — strip the `pg_catalog.` qualifier off catalog FUNCTION calls
+    // CONCEPT:EG-KG.query.route-create-view-create — strip the `pg_catalog.` qualifier off catalog FUNCTION calls
     // (psql `\d`/ORMs emit `pg_catalog.format_type(...)`) so the bare-name UDFs resolve;
     // schema-qualified TABLE refs (`pg_catalog.pg_class`) are untouched.
     let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
-    // CONCEPT:EG-118 — expand SQL stored-function calls into inline SQL (scalar subquery /
+    // CONCEPT:EG-KG.query.create-drop-function — expand SQL stored-function calls into inline SQL (scalar subquery /
     // parameterized-view subquery) BEFORE the pgvector desugar + planning, so an inlined
     // body is itself desugared and planned. A no-op when there are no functions.
     let sql = super::funcs::expand_functions(&sql, &functions)?;
-    // CONCEPT:EG-313 — real pgvector ANN top-k pushdown on the PRE-desugar SQL (the
+    // CONCEPT:EG-KG.query.real-pgvector-ann-top — real pgvector ANN top-k pushdown on the PRE-desugar SQL (the
     // `<->`/`<=>`/`<#>` operators are still intact for the planner). Narrows the target
     // batch to the true nearest-k via a real eg-ann index when one is registered.
     apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
-    // CONCEPT:EG-115 — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
+    // CONCEPT:EG-KG.query.view-pgvector-operators — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
     // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
     // operator for them). A no-op when none are present or the SQL doesn't parse.
     let sql = super::classify::desugar_vector_ops(&sql);
@@ -514,7 +514,7 @@ fn run(
         let built = build_ctx(snap, nodes, edges, user_tables)?;
         let ctx = built.ctx;
         register_views(&ctx, &views, &functions).await?;
-        // CONCEPT:EG-103 — synthesize `pg_catalog` + `information_schema` from the live
+        // CONCEPT:EG-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` from the live
         // relations (nodes/edges/user tables), the now-registered views, and the stored
         // functions, so psql/ORMs can introspect the real schema.
         register_system_catalogs(
@@ -532,7 +532,7 @@ fn run(
     })
 }
 
-/// Register each durable view as a DataFusion logical view (CONCEPT:EG-072): plan its
+/// Register each durable view as a DataFusion logical view (CONCEPT:EG-KG.query.durable-views): plan its
 /// stored SELECT against the already-registered `nodes`/`edges`/user tables, then
 /// register the resulting `ViewTable` under the view's name so a query that references
 /// it expands the SELECT. A view whose SELECT fails to plan (e.g. it referenced a table
@@ -543,10 +543,10 @@ async fn register_views(
     functions: &[StoredFunction],
 ) -> Result<(), String> {
     for (name, select_sql) in views {
-        // CONCEPT:EG-118 — a view body may itself call a stored function; expand it first.
+        // CONCEPT:EG-KG.query.create-drop-function — a view body may itself call a stored function; expand it first.
         let select_sql = super::funcs::expand_functions(select_sql, functions)
             .unwrap_or_else(|_| select_sql.clone());
-        // CONCEPT:EG-115 — a view body may itself use the pgvector operators.
+        // CONCEPT:EG-KG.query.view-pgvector-operators — a view body may itself use the pgvector operators.
         let select_sql = super::classify::desugar_vector_ops(&select_sql);
         match ctx.sql(&select_sql).await {
             Ok(df) => {
@@ -597,19 +597,19 @@ fn run_typed(
         .build()
         .map_err(|e| format!("runtime build: {e}"))?;
 
-    // CONCEPT:EG-103 — see `run`: strip `pg_catalog.` off catalog function calls first.
+    // CONCEPT:EG-KG.query.route-create-view-create — see `run`: strip `pg_catalog.` off catalog function calls first.
     let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
-    // CONCEPT:EG-118 — see `run`: expand SQL stored-function calls before desugar/planning.
+    // CONCEPT:EG-KG.query.create-drop-function — see `run`: expand SQL stored-function calls before desugar/planning.
     let sql = super::funcs::expand_functions(&sql, &functions)?;
-    // CONCEPT:EG-313 — see `run`: real pgvector ANN top-k pushdown on the pre-desugar SQL.
+    // CONCEPT:EG-KG.query.real-pgvector-ann-top — see `run`: real pgvector ANN top-k pushdown on the pre-desugar SQL.
     apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
-    // CONCEPT:EG-115 — see `run`: desugar the pgvector operators before planning.
+    // CONCEPT:EG-KG.query.view-pgvector-operators — see `run`: desugar the pgvector operators before planning.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
         let built = build_ctx(snap, nodes, edges, user_tables)?;
         let ctx = built.ctx;
         register_views(&ctx, &views, &functions).await?;
-        // CONCEPT:EG-103 — synthesize `pg_catalog` + `information_schema` (see `run`).
+        // CONCEPT:EG-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` (see `run`).
         register_system_catalogs(
             &ctx,
             &built.nodes_schema,
@@ -634,7 +634,7 @@ fn pg_col_type(dt: &arrow::datatypes::DataType) -> PgColType {
         Boolean => PgColType::Bool,
         Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => PgColType::Int8,
         Float16 | Float32 | Float64 => PgColType::Float8,
-        // CONCEPT:EG-115 — a `List<Float32>` result column is a pgvector `vector`.
+        // CONCEPT:EG-KG.query.view-pgvector-operators — a `List<Float32>` result column is a pgvector `vector`.
         List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => PgColType::Vector,
         _ => PgColType::Text,
     }
@@ -705,7 +705,7 @@ fn batches_to_result(batches: &[arrow::record_batch::RecordBatch]) -> Result<Que
     Ok(QueryResult { columns, rows })
 }
 
-/// One cell at `(col, row)` to a `serde_json::Value` (CONCEPT:KG-2.196).
+/// One cell at `(col, row)` to a `serde_json::Value` (CONCEPT:EG-KG.query.concept-11).
 ///
 /// DataFusion 43 fully executes aggregates / GROUP BY / HAVING, window functions,
 /// CTEs, subqueries, set ops (UNION/INTERSECT/EXCEPT) and DISTINCT — but their
@@ -870,7 +870,7 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
                 .unwrap()
                 .value(row),
         ),
-        // ── pgvector `vector` (CONCEPT:EG-115): a `List<Float32>` cell → JSON array of
+        // ── pgvector `vector` (CONCEPT:EG-KG.query.view-pgvector-operators): a `List<Float32>` cell → JSON array of
         // numbers; the pgwire shim renders that array as the pgvector text `[1,2,3]`. ──
         List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => {
             use arrow::array::{FixedSizeListArray, ListArray};
@@ -896,7 +896,7 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
                     .collect(),
             )
         }
-        // ── analytics numeric lists (CONCEPT:EG-336 svd / EG-335 pca / EG-344 kmeans): a
+        // ── analytics numeric lists (CONCEPT:EG-KG.query.svd-eg-pca-column svd / EG-335 pca / EG-344 kmeans): a
         // `List<Float64>` (singular values), a nested `List<List<Float64>>` (principal-
         // component vectors), or a `List<Int64>` (kmeans cluster labels) cell → JSON
         // array(s) of numbers, so in-engine linear-algebra/clustering results deserialize

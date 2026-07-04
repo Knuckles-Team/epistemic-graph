@@ -1,5 +1,5 @@
-//! MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
-//! adapter (CONCEPT:EG-074). A HAND-ROLLED MySQL client/server protocol that lets a
+//! MySQL / MariaDB wire-protocol listener (CONCEPT:EG-KG.query.kg-2) — the SECOND `WireProtocol`
+//! adapter (CONCEPT:EG-KG.compute.subsystems-reference). A HAND-ROLLED MySQL client/server protocol that lets a
 //! MySQL/MariaDB driver, ORM, or the `mysql` CLI connect and run SQL against a graph.
 //!
 //! ## What this is (and is NOT)
@@ -10,7 +10,7 @@
 //! [`WireProtocol`] impl). THIS module is purely the MySQL-SPECIFIC adapter:
 //!   * the TCP listener + the length-prefixed packet framing over `tokio::net`,
 //!   * the Handshake v10 + `mysql_native_password` auth (see `auth.rs`), bridged to the
-//!     engine secret / ACL identity exactly as pgwire's SCRAM path is (CONCEPT:KG-2.202),
+//!     engine secret / ACL identity exactly as pgwire's SCRAM path is (CONCEPT:EG-KG.query.concept-13),
 //!   * the command phase (`COM_QUERY` / `COM_PING` / `COM_QUIT` / `COM_INIT_DB`),
 //!   * the encoding of a wire-neutral [`WireOutcome`] / [`WireError`] into MySQL packets
 //!     (column-count + column-definition + text rows + EOF/OK, or an ERR frame).
@@ -21,7 +21,7 @@
 //! SELECT takes the SAME DataFusion path `Method::Sql` uses and a write is routed through
 //! the engine's `GraphTxn` + durability path — no SQL grammar/planner/executor here.
 //!
-//! ## Protocol subset (CONCEPT:EG-076)
+//! ## Protocol subset (CONCEPT:EG-KG.query.kg-2)
 //! LANDED: connection phase (Handshake v10 + Handshake-Response-41), `mysql_native_password`
 //! (or a trust/no-auth mode when no engine secret is set), and the TEXT-protocol command
 //! phase — `COM_QUERY` (result-set OR OK/ERR), `COM_PING`, `COM_QUIT`, `COM_INIT_DB`
@@ -78,7 +78,7 @@ fn next_conn_id() -> u32 {
     CONN_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// The capability flags this server advertises (CONCEPT:EG-076). Protocol 4.1 with the
+/// The capability flags this server advertises (CONCEPT:EG-KG.query.kg-2). Protocol 4.1 with the
 /// secure-connection + plugin-auth handshake, connect-with-DB, and transaction status
 /// tracking. Deliberately NOT `CLIENT_DEPRECATE_EOF` — we send explicit EOF packets, the
 /// universally-compatible framing.
@@ -255,7 +255,7 @@ where
         }
     };
 
-    // ── authenticate (CONCEPT:KG-2.202) ─────────────────────────────────────────
+    // ── authenticate (CONCEPT:EG-KG.query.concept-13) ─────────────────────────────────────────
     let authed = match mode {
         MysqlAuthMode::Trust => true,
         MysqlAuthMode::Native => {
@@ -361,7 +361,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     serve_with_auth(addr, state, mode).await
 }
 
-/// `serve` with an EXPLICIT auth mode (CONCEPT:EG-076 / KG-2.202). `serve` resolves the
+/// `serve` with an EXPLICIT auth mode (CONCEPT:EG-KG.query.kg-2 / KG-2.202). `serve` resolves the
 /// mode from the env + engine secret and delegates here; tests call this directly to pin
 /// trust vs native deterministically without a process-global env toggle.
 pub async fn serve_with_auth(
@@ -404,7 +404,7 @@ mod tests {
     //! Encoder unit tests + an in-process listener smoke test that drives the real
     //! listener through a full handshake and hand-built `COM_QUERY` packets over a real
     //! TCP socket (no mysql client crate) — proving SELECT / CREATE TABLE / INSERT
-    //! end-to-end through the shared `WireSession` execution core (CONCEPT:EG-076).
+    //! end-to-end through the shared `WireSession` execution core (CONCEPT:EG-KG.query.kg-2).
     use super::*;
     use crate::channels::ChannelManager;
     use crate::isolation::IsolationLayer;

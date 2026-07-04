@@ -1,9 +1,9 @@
-//! Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) — a native Bolt v4.4 server so
+//! Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol) — a native Bolt v4.4 server so
 //! Neo4j drivers / tools / the `cypher-shell` connect DIRECTLY to the engine's Cypher
 //! surface, with NO Neo4j server in the loop.
 //!
 //! ## What this is (and is NOT)
-//! Unlike the SQL wires (pgwire / mysql-wire / mssql-wire, CONCEPT:EG-074) this adapter
+//! Unlike the SQL wires (pgwire / mysql-wire / mssql-wire, CONCEPT:EG-KG.compute.subsystems-reference) this adapter
 //! does NOT drive the shared `WireSession` SQL `classify → dispatch → exec` core — Bolt
 //! speaks **Cypher**, not SQL. A `RUN` message's Cypher string is routed straight to the
 //! eg-query cypher engine (`exec_cypher_write_params`, the SAME entry-point the native
@@ -20,7 +20,7 @@
 //!   * mapping a Cypher result (`QueryResult { columns, rows }`, each row a MessagePack
 //!     `Vec<serde_json::Value>`) into PackStream `RECORD` structures.
 //!
-//! ## Protocol subset (CONCEPT:EG-159)
+//! ## Protocol subset (CONCEPT:EG-KG.query.bolt-wire-protocol)
 //! LANDED: Bolt 4.4 handshake + the request/response messages above, auto-commit
 //! (`RUN`+`PULL`) AND explicit transactions (`BEGIN`/`RUN`/`COMMIT`|`ROLLBACK`), the
 //! Bolt-5 `LOGON`/`LOGOFF` messages (accepted, minimal), and the FAILED→`RESET` recovery
@@ -96,7 +96,7 @@ struct PendingResult {
     query_type: &'static str,
 }
 
-/// Per-connection Bolt session state (CONCEPT:EG-159).
+/// Per-connection Bolt session state (CONCEPT:EG-KG.query.bolt-wire-protocol).
 struct BoltSession {
     state: Arc<RwLock<ServerState>>,
     /// The graph this connection runs Cypher against (default, or HELLO/BEGIN `db`).
@@ -246,7 +246,7 @@ fn ignored() -> PackValue {
 // ── Cypher routing ─────────────────────────────────────────────────────────────
 
 /// Run `cypher` (with `params`) against this connection's current graph via the eg-query
-/// cypher engine, materializing a [`PendingResult`] ready to stream (CONCEPT:EG-159).
+/// cypher engine, materializing a [`PendingResult`] ready to stream (CONCEPT:EG-KG.query.bolt-wire-protocol).
 async fn run_cypher(
     session: &BoltSession,
     cypher: &str,
@@ -266,7 +266,7 @@ async fn run_cypher(
         }
     };
 
-    // Engine ACL enforcement (CONCEPT:KG-2.202): mirror the SQL wires' check — while no
+    // Engine ACL enforcement (CONCEPT:EG-KG.query.concept-13): mirror the SQL wires' check — while no
     // identities are registered the layer allows everything (single-tenant/trust), else
     // the authenticated actor is checked at the statement's read/write level.
     let is_write = crate::server::access::cypher_is_write(cypher);
@@ -335,7 +335,7 @@ async fn run_cypher(
 
 /// Drive ONE Bolt connection: the handshake, then the message loop until GOODBYE or the
 /// socket closes. Generic over the byte stream so an in-process test can drive it over
-/// any duplex transport (CONCEPT:EG-159).
+/// any duplex transport (CONCEPT:EG-KG.query.bolt-wire-protocol).
 async fn handle_connection<S>(s: &mut S, mut session: BoltSession) -> std::io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -543,7 +543,7 @@ where
     Ok(())
 }
 
-/// Read ONE complete chunked Bolt message off the stream (CONCEPT:EG-159): read
+/// Read ONE complete chunked Bolt message off the stream (CONCEPT:EG-KG.query.bolt-wire-protocol): read
 /// length-prefixed chunks, appending bodies, until a zero-length chunk ends the message.
 /// Returns `Ok(None)` on a clean EOF before any chunk.
 async fn read_message<S: AsyncRead + Unpin>(s: &mut S) -> std::io::Result<Option<Vec<u8>>> {
@@ -577,7 +577,7 @@ async fn write_msg<S: AsyncWrite + Unpin>(s: &mut S, msg: &PackValue) -> std::io
 
 // ── the listener ────────────────────────────────────────────────────────────────
 
-/// Bind `addr` and serve Bolt connections until the process exits (CONCEPT:EG-159).
+/// Bind `addr` and serve Bolt connections until the process exits (CONCEPT:EG-KG.query.bolt-wire-protocol).
 /// Spawned by `main.rs` only when built `--features bolt-wire` AND
 /// `EPISTEMIC_GRAPH_BOLT_ADDR` is set. Each connection gets a fresh [`BoltSession`] so its
 /// graph selection / actor / txn stay isolated (mirrors the SQL wires' per-connection state).
@@ -603,7 +603,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
 
 #[cfg(test)]
 mod tests {
-    //! Message-level Bolt driver tests (CONCEPT:EG-159): an in-process duplex stream
+    //! Message-level Bolt driver tests (CONCEPT:EG-KG.query.bolt-wire-protocol): an in-process duplex stream
     //! drives the real `handle_connection` through the handshake + a full HELLO → RUN →
     //! PULL → SUCCESS auto-commit round-trip against the Cypher engine, plus BEGIN/COMMIT
     //! and FAILURE/RESET flows — no external Neo4j driver.

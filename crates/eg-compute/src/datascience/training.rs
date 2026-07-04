@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.22 — Rust-native training loss / optimizer kernels
+// CONCEPT:EG-KG.compute.rust-native-training-loss — Rust-native training loss / optimizer kernels
 //
 // The performance path for the in-house training substrate (Wave C / C1). These
 // mirror the pure-Python reference math in agent-utilities

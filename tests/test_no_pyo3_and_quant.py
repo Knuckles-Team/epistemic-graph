@@ -95,7 +95,7 @@ def test_length_prefixed_framing_is_binary_safe():
     assert decoded["id"] == 7
 
 
-# ── group_relative_advantage (RL reward kernel, CONCEPT:KG-2.20i) ───────────
+# ── group_relative_advantage (RL reward kernel, CONCEPT:EG-KG.domains.quant-finance) ───────────
 
 
 def test_group_relative_advantage_grpo_and_dr_grpo():

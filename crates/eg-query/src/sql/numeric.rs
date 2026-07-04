@@ -1,4 +1,4 @@
-//! Surface-B numeric analytics UDFs/UDAFs (CONCEPT:EG-329) — the Analytics-Program
+//! Surface-B numeric analytics UDFs/UDAFs (CONCEPT:EG-KG.query.surface-b-numeric-operators) — the Analytics-Program
 //! numeric kernel (`eg-numeric`: faer + ndarray, BLAS/LAPACK-free) exposed as DataFusion
 //! SQL operators so analytics run IN-ENGINE over resident columns (compute-near-data, no
 //! fetch-to-Python, no FFI). Gated behind the `numeric` cargo feature (out of `pi`).
@@ -22,12 +22,12 @@
 //!     Float64 columns, `Σ(aᵢ-ā)(bᵢ-b̄)/(n-1)`, means from [`eg_numeric::reductions::mean`].
 //!     A single accumulator buffers the aligned pairs and computes at `evaluate()` so
 //!     multi-phase grouping merges losslessly (state = two `List<Float64>` columns).
-//!   * `svd(vec_col) -> List<Float64>`    — UDAF (CONCEPT:EG-336): the singular values
+//!   * `svd(vec_col) -> List<Float64>`    — UDAF (CONCEPT:EG-KG.query.svd-eg-pca-column): the singular values
 //!     (descending) of the matrix whose ROWS are the aggregated vector column, backed by
 //!     [`eg_numeric::linalg::svdvals`]. Accepts the same operand forms as `cosine_sim`
 //!     (a stored `List<Float{32,64}>` column or a `'[1,2,3]'` text literal); each row is
 //!     one matrix row, so `n` rows of dimension `d` build an `n×d` `ndarray::Array2`.
-//!   * `pca(vec_col, k) -> List<List<Float64>>` — UDAF (CONCEPT:EG-335): the top-`k`
+//!   * `pca(vec_col, k) -> List<List<Float64>>` — UDAF (CONCEPT:EG-KG.query.concept-6): the top-`k`
 //!     principal-component DIRECTIONS (loadings) of the aggregated vector column. The rows
 //!     are stacked into an `n×d` matrix, mean-centered per column, its `d×d` sample
 //!     covariance (`ddof=1`, [`eg_numeric::reductions::mean`]) eigendecomposed via
@@ -67,7 +67,7 @@ fn to_f64(v: &[f32]) -> Array1<f64> {
 
 // ── cosine_sim(a, b) -> Float64 (scalar) ────────────────────────────────────
 
-/// `cosine_sim(a, b)` — kernel-backed cosine similarity (CONCEPT:EG-329). Complements the
+/// `cosine_sim(a, b)` — kernel-backed cosine similarity (CONCEPT:EG-KG.query.surface-b-numeric-operators). Complements the
 /// EG-115 `vector_cosine` DISTANCE UDF (`1 - sim`); this returns the raw similarity, the
 /// value clustering/ranking wants. Backed by `eg_numeric::linalg::{dot, norm}`.
 #[derive(Debug)]
@@ -125,7 +125,7 @@ pub(crate) fn cosine_sim_udf() -> ScalarUDF {
 
 // ── l2_normalize(v) -> List<Float32> (scalar) ───────────────────────────────
 
-/// `l2_normalize(v)` — the unit vector `v/‖v‖` (CONCEPT:EG-329), kernel-normed. Returns a
+/// `l2_normalize(v)` — the unit vector `v/‖v‖` (CONCEPT:EG-KG.query.surface-b-numeric-operators), kernel-normed. Returns a
 /// `List<Float32>` (the engine's native pgvector `vector` type) so the normalized vector
 /// can feed a subsequent `cosine_sim`/ANN op in-query and render as pgvector text. A
 /// zero-norm vector is returned unchanged (all-zero, matching a safe divide).
@@ -189,7 +189,7 @@ pub(crate) fn l2_normalize_udf() -> ScalarUDF {
 
 // ── zscore(col) -> Float64 (scalar-over-batch) ──────────────────────────────
 
-/// `zscore(col)` — standardize a numeric column `(x - mean)/std` (CONCEPT:EG-329) with the
+/// `zscore(col)` — standardize a numeric column `(x - mean)/std` (CONCEPT:EG-KG.query.surface-b-numeric-operators) with the
 /// batch mean/std from [`eg_numeric::reductions`] (population `ddof=0`, matching
 /// `scipy.stats.zscore`'s default). See the module docs on the single-batch semantics.
 #[derive(Debug)]
@@ -392,13 +392,13 @@ pub(crate) fn covariance_udaf() -> AggregateUDF {
 /// matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MatrixOp {
-    /// `svd` — singular values (descending) as `List<Float64>` (CONCEPT:EG-336).
+    /// `svd` — singular values (descending) as `List<Float64>` (CONCEPT:EG-KG.query.svd-eg-pca-column).
     Svd,
     /// `pca` — top-`k` principal-component directions as `List<List<Float64>>`
-    /// (CONCEPT:EG-335).
+    /// (CONCEPT:EG-KG.query.concept-6).
     Pca,
     /// `kmeans` — a hard cluster label (`0..k`) per aggregated ROW, in ingestion order, as
-    /// `List<Int64>` (CONCEPT:EG-344). Takes `k` as the 2nd argument, like `pca`.
+    /// `List<Int64>` (CONCEPT:EG-KG.query.kmeans-clustering-half-one). Takes `k` as the 2nd argument, like `pca`.
     Kmeans,
 }
 
@@ -411,7 +411,7 @@ impl MatrixOp {
 }
 
 /// Accumulator buffering a column of equal-length vectors row-major into a flat `Vec<f64>`
-/// (`n·dim` values) so the matrix is materialized once at `evaluate()` (CONCEPT:EG-335/
+/// (`n·dim` values) so the matrix is materialized once at `evaluate()` (CONCEPT:EG-KG.query.concept-6/
 /// EG-336). The first decodable row fixes `dim`; rows of a different length are skipped
 /// (NULL-safe, never error), matching the scalar operators' undecodable-operand handling.
 #[derive(Debug)]
@@ -626,7 +626,7 @@ fn pca_result(m: Option<&Array2<f64>>, k: usize) -> ScalarValue {
 }
 
 /// `evaluate` for `kmeans` — a hard cluster label (`0..k`) per aggregated ROW, in ingestion
-/// order, as a `List<Int64>` scalar (CONCEPT:EG-344). Backed by the pure-Rust
+/// order, as a `List<Int64>` scalar (CONCEPT:EG-KG.query.kmeans-clustering-half-one). Backed by the pure-Rust
 /// [`eg_numeric::cluster::kmeans_labels`] (Lloyd + k-means++, seeded for determinism). A
 /// NULL list on an empty/degenerate matrix or `k == 0` (kernel Shape error), matching the
 /// other column→matrix operators' undecodable-operand handling.
@@ -698,7 +698,7 @@ impl AggregateUDFImpl for MatrixAggUdf {
 }
 
 /// `svd(vec_col) -> List<Float64>` — singular values of the aggregated matrix
-/// (CONCEPT:EG-336).
+/// (CONCEPT:EG-KG.query.svd-eg-pca-column).
 pub(crate) fn svd_udaf() -> AggregateUDF {
     AggregateUDF::new_from_impl(MatrixAggUdf {
         op: MatrixOp::Svd,
@@ -708,7 +708,7 @@ pub(crate) fn svd_udaf() -> AggregateUDF {
 }
 
 /// `pca(vec_col, k) -> List<List<Float64>>` — top-`k` principal-component directions
-/// (CONCEPT:EG-335).
+/// (CONCEPT:EG-KG.query.concept-6).
 pub(crate) fn pca_udaf() -> AggregateUDF {
     AggregateUDF::new_from_impl(MatrixAggUdf {
         op: MatrixOp::Pca,
@@ -718,8 +718,8 @@ pub(crate) fn pca_udaf() -> AggregateUDF {
 }
 
 /// `kmeans(vec_col, k) -> List<Int64>` — a hard cluster label per aggregated ROW, in
-/// ingestion order (CONCEPT:EG-344). The clustering half of the cross-modal analytics
-/// differentiator (CONCEPT:EG-345): the vector column is marshalled into an `n×d` matrix
+/// ingestion order (CONCEPT:EG-KG.query.kmeans-clustering-half-one). The clustering half of the cross-modal analytics
+/// differentiator (CONCEPT:EG-KG.query.eg-3): the vector column is marshalled into an `n×d` matrix
 /// and clustered IN-ENGINE by the pure-Rust `eg_numeric::cluster` kernel.
 pub(crate) fn kmeans_udaf() -> AggregateUDF {
     AggregateUDF::new_from_impl(MatrixAggUdf {

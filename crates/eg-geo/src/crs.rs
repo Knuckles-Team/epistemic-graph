@@ -1,4 +1,4 @@
-//! Coordinate Reference Systems + reprojection (CONCEPT:EG-255).
+//! Coordinate Reference Systems + reprojection (CONCEPT:EG-KG.domains.coordinate-reference-system).
 //!
 //! The geometry model (`crate::geometry`) is CRS-agnostic — raw `f64 (x, y)` pairs. This
 //! module gives those coordinates a *meaning* (an [`Crs`], identified by its EPSG code)
@@ -25,7 +25,7 @@
 use crate::geodesic::{WGS84_A, WGS84_F};
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 
-/// A Coordinate Reference System, identified by its EPSG code (CONCEPT:EG-255).
+/// A Coordinate Reference System, identified by its EPSG code (CONCEPT:EG-KG.domains.coordinate-reference-system).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Crs {
     pub epsg: u32,
@@ -48,7 +48,7 @@ impl Crs {
     }
 }
 
-/// A [`Geometry`] tagged with an optional SRID/CRS (CONCEPT:EG-255). The tag lives here,
+/// A [`Geometry`] tagged with an optional SRID/CRS (CONCEPT:EG-KG.domains.coordinate-reference-system). The tag lives here,
 /// beside the geometry, rather than inside the `Geometry` enum so the geometry value's
 /// serde form + public API stay stable. `srid == None` means "unknown / unspecified CRS".
 #[derive(Clone, Debug, PartialEq)]
@@ -92,7 +92,7 @@ impl SridGeometry {
     }
 }
 
-/// Reproject `geom` from CRS `from` to CRS `to` (CONCEPT:EG-255), coordinate by
+/// Reproject `geom` from CRS `from` to CRS `to` (CONCEPT:EG-KG.domains.coordinate-reference-system), coordinate by
 /// coordinate, recursing through multis/collections and polygon holes. Any pair of
 /// supported CRSs works — the transform routes **through EPSG:4326** as the pivot
 /// (`from → 4326 → to`), so adding a CRS only needs its 4326 forward/inverse. Returns
@@ -114,7 +114,7 @@ pub fn reproject(geom: &Geometry, from: Crs, to: Crs) -> Result<Geometry, String
 }
 
 /// Apply a fallible per-coordinate transform to every vertex of a geometry, rebuilding
-/// the same structure (CONCEPT:EG-255).
+/// the same structure (CONCEPT:EG-KG.domains.coordinate-reference-system).
 fn map_coords(
     g: &Geometry,
     f: &impl Fn(&Point) -> Result<Point, String>,

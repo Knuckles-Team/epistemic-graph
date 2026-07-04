@@ -1,4 +1,4 @@
-//! SQL window-function end-to-end tests (CONCEPT:EG-089): `<fn>() OVER (PARTITION BY
+//! SQL window-function end-to-end tests (CONCEPT:EG-KG.temporal.columnar-schema-inference): `<fn>() OVER (PARTITION BY
 //! … ORDER BY … <frame>)` executed through the SAME DataFusion read path as every
 //! other SELECT (`exec_sql` → `SessionContext::sql`). DataFusion 43 provides the
 //! window operator + the ranking/offset/aggregate window functions natively; these
@@ -44,7 +44,7 @@ fn run(sql: &str) -> (Vec<String>, Vec<Vec<Value>>) {
     (r.columns, rows)
 }
 
-/// CONCEPT:EG-089 — ROW_NUMBER / RANK / DENSE_RANK over PARTITION BY … ORDER BY.
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — ROW_NUMBER / RANK / DENSE_RANK over PARTITION BY … ORDER BY.
 /// Partition `b` has a tie on `val` (n4,n5 both 100) so RANK gaps (1,1,3) while
 /// DENSE_RANK does not (1,1,2), and ROW_NUMBER is always distinct (1,2,3).
 #[test]
@@ -65,7 +65,7 @@ fn eg_089_window_row_number_rank_dense_rank() {
     assert_eq!(drnk, vec![1, 2, 3, 1, 1, 2]); // tie → DENSE_RANK no gap
 }
 
-/// CONCEPT:EG-089 — offset functions LAG / LEAD / FIRST_VALUE over a partition.
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — offset functions LAG / LEAD / FIRST_VALUE over a partition.
 #[test]
 fn eg_089_window_lag_lead_first_value() {
     let (_cols, rows) = run("SELECT id, \
@@ -83,7 +83,7 @@ fn eg_089_window_lag_lead_first_value() {
     assert_eq!(firstv, vec![10, 10, 10, 100, 100, 100]);
 }
 
-/// CONCEPT:EG-089 — SUM() OVER (PARTITION BY …) with NO frame → the whole-partition
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — SUM() OVER (PARTITION BY …) with NO frame → the whole-partition
 /// aggregate broadcast onto every row (default frame is bounded by the partition when
 /// there is no ORDER BY).
 #[test]
@@ -96,7 +96,7 @@ fn eg_089_window_sum_over_partition_by() {
     assert_eq!(totals, vec![60, 60, 60, 500, 500, 500]);
 }
 
-/// CONCEPT:EG-089 — an explicit ROWS BETWEEN frame: a trailing running sum over the
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — an explicit ROWS BETWEEN frame: a trailing running sum over the
 /// current row and the one before it (`ROWS BETWEEN 1 PRECEDING AND CURRENT ROW`).
 #[test]
 fn eg_089_window_rows_between_frame() {
@@ -109,7 +109,7 @@ fn eg_089_window_rows_between_frame() {
     assert_eq!(trailing, vec![10, 30, 50, 100, 200, 400]);
 }
 
-/// CONCEPT:EG-089 — the default frame when ORDER BY is present (RANGE UNBOUNDED
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — the default frame when ORDER BY is present (RANGE UNBOUNDED
 /// PRECEDING .. CURRENT ROW) produces a running cumulative sum; PARTITION + ORDER
 /// interplay resets the accumulation at each partition boundary.
 #[test]
@@ -122,7 +122,7 @@ fn eg_089_window_partition_order_interplay_running_sum() {
     assert_eq!(running, vec![10, 30, 60, 100, 200, 500]);
 }
 
-/// CONCEPT:EG-089 — the distribution ranking functions NTILE(n) / PERCENT_RANK /
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — the distribution ranking functions NTILE(n) / PERCENT_RANK /
 /// CUME_DIST over PARTITION BY … ORDER BY, including the tie behaviour on partition
 /// `b` (two rows share val=100).
 #[test]
@@ -145,7 +145,7 @@ fn eg_089_window_ntile_percent_rank_cume_dist() {
     assert!(approx(cd[3], 2.0 / 3.0) && approx(cd[4], 2.0 / 3.0) && approx(cd[5], 1.0));
 }
 
-/// CONCEPT:EG-089 — LAST_VALUE / NTH_VALUE over the FULL partition frame
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — LAST_VALUE / NTH_VALUE over the FULL partition frame
 /// (`ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`), so the frame spans
 /// the whole partition rather than the default running frame.
 #[test]
@@ -162,7 +162,7 @@ fn eg_089_window_last_value_nth_value_full_frame() {
     assert_eq!(second, vec![20, 20, 20, 100, 100, 100]);
 }
 
-/// CONCEPT:EG-089 — the aggregate window functions AVG/MIN/MAX/COUNT OVER a partition.
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — the aggregate window functions AVG/MIN/MAX/COUNT OVER a partition.
 #[test]
 fn eg_089_window_avg_min_max_count_over_partition() {
     let (_cols, rows) = run("SELECT id, part, \
@@ -182,7 +182,7 @@ fn eg_089_window_avg_min_max_count_over_partition() {
     assert_eq!(c, vec![3, 3, 3, 3, 3, 3]);
 }
 
-/// CONCEPT:EG-089 — a RANGE frame differs from a ROWS frame on ORDER-BY ties: peers
+/// CONCEPT:EG-KG.temporal.columnar-schema-inference — a RANGE frame differs from a ROWS frame on ORDER-BY ties: peers
 /// with an equal ORDER BY value share the same frame end. Partition `b` orders by
 /// `val` with a tie at 100, so both 100-rows see the same RANGE sum (200) while a
 /// ROWS frame would have given 100 then 200.

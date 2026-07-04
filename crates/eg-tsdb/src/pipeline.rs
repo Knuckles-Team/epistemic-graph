@@ -1,11 +1,11 @@
-//! VRL-style ingest transform pipelines (CONCEPT:EG-165).
+//! VRL-style ingest transform pipelines (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 //!
 //! OpenObserve / Vector apply a *Vector Remap Language* (VRL) program to every log
 //! or event record at ingest, BEFORE it lands in a stream: parse a JSON blob into
 //! fields, drop noisy records, set/rename/remove fields, coerce types, and route the
 //! record to a destination stream. This module is the epistemic-graph equivalent —
 //! a compact, deterministic, pure-Rust transform engine that runs over a record just
-//! before it lands in an eg-tsdb series (the log-ingest front door of CONCEPT:EG-160/
+//! before it lands in an eg-tsdb series (the log-ingest front door of CONCEPT:AU-KG.ingest.self-ingest/
 //! 161, `obs` feature).
 //!
 //! It is *not* a full VRL parser (that is a deferred follow-up, see the module tail).
@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::columnar::{CellValue, ColumnarSegment};
 
-/// A small JSON-ish value carried through the pipeline (CONCEPT:EG-165). Scalars
+/// A small JSON-ish value carried through the pipeline (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Scalars
 /// mirror the columnar [`CellValue`] kinds; `Array`/`Object` let `parse_json` hold a
 /// nested blob before it is exploded into sub-fields. `Object` is a `BTreeMap` so
 /// field order (and therefore every transform result) is deterministic.
@@ -71,7 +71,7 @@ impl PipeValue {
     }
 
     /// Numeric view (`I64`/`F64`/`Bool`) for `gt`/`lt` compares; `None` for
-    /// non-numeric kinds (CONCEPT:EG-165).
+    /// non-numeric kinds (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
     fn as_f64(&self) -> Option<f64> {
         match self {
             PipeValue::I64(n) => Some(*n as f64),
@@ -90,7 +90,7 @@ impl PipeValue {
     }
 
     /// Flatten to a columnar [`CellValue`] for the series landing seam
-    /// (CONCEPT:EG-165). Scalars map 1:1; `Array`/`Object`/`Null` collapse to their
+    /// (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Scalars map 1:1; `Array`/`Object`/`Null` collapse to their
     /// JSON text as a `Str` cell (so a nested blob still lands in a string column
     /// rather than being dropped). See [`stream_to_columnar`].
     pub fn to_cell(&self) -> CellValue {
@@ -105,7 +105,7 @@ impl PipeValue {
     }
 
     /// Render back to compact JSON text (used by `to_cell` for nested values and by
-    /// `coerce`) (CONCEPT:EG-165).
+    /// `coerce`) (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
     pub fn to_json(&self) -> String {
         let mut s = String::new();
         self.write_json(&mut s);
@@ -158,10 +158,10 @@ impl From<CellValue> for PipeValue {
     }
 }
 
-/// A record flowing through the pipeline: an ordered field map (CONCEPT:EG-165).
+/// A record flowing through the pipeline: an ordered field map (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 pub type Record = BTreeMap<String, PipeValue>;
 
-/// The scalar type a [`Stage::Coerce`] converts a field to (CONCEPT:EG-165).
+/// The scalar type a [`Stage::Coerce`] converts a field to (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CoerceType {
     Str,
@@ -170,7 +170,7 @@ pub enum CoerceType {
     Bool,
 }
 
-/// The comparison a [`Predicate`] applies to a field (CONCEPT:EG-165).
+/// The comparison a [`Predicate`] applies to a field (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CmpOp {
     /// Field equals the operand.
@@ -188,7 +188,7 @@ pub enum CmpOp {
 }
 
 /// A single field comparison used by `filter` / `drop_if` / `route`
-/// (CONCEPT:EG-165). A missing field is `false` for every op except `Ne` (absent ≠
+/// (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). A missing field is `false` for every op except `Ne` (absent ≠
 /// operand ⇒ `true`) and, of course, `Exists` (absent ⇒ `false`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Predicate {
@@ -207,7 +207,7 @@ impl Predicate {
         }
     }
 
-    /// Evaluate against a record (CONCEPT:EG-165). Deterministic and side-effect free.
+    /// Evaluate against a record (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Deterministic and side-effect free.
     pub fn eval(&self, rec: &Record) -> bool {
         let present = rec.get(&self.field);
         match self.op {
@@ -237,7 +237,7 @@ impl Predicate {
 }
 
 /// Compare a present field to an operand numerically when both are numeric, else
-/// lexicographically when both are strings (CONCEPT:EG-165).
+/// lexicographically when both are strings (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 fn cmp_num_or_str(present: Option<&PipeValue>, operand: &PipeValue) -> Option<std::cmp::Ordering> {
     let v = present?;
     if let (Some(a), Some(b)) = (v.as_f64(), operand.as_f64()) {
@@ -249,7 +249,7 @@ fn cmp_num_or_str(present: Option<&PipeValue>, operand: &PipeValue) -> Option<st
     None
 }
 
-/// A caller-supplied enrichment lookup (CONCEPT:EG-165) — the cross-modal seam. The
+/// A caller-supplied enrichment lookup (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook) — the cross-modal seam. The
 /// pipeline calls this with a field's value and folds any returned value into a
 /// target field, without knowing (or depending on) where the value came from. A graph
 /// read, a static table, an HTTP call — all live on the caller's side.
@@ -269,7 +269,7 @@ where
     }
 }
 
-/// One transform op (CONCEPT:EG-165). A closed, compact set — the VRL-subset the
+/// One transform op (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). A closed, compact set — the VRL-subset the
 /// ingest path needs. Not `serde`-derivable because [`Stage::Enrich`] carries a
 /// closure; the textual form ([`Pipeline::parse`]) is the serialized representation
 /// for the non-enrich stages.
@@ -302,7 +302,7 @@ pub enum Stage {
         stream: String,
     },
     /// Enrich `target` from the caller-supplied [`Lookup`] applied to `source`'s value
-    /// — the cross-modal (log ⨯ graph) differentiator (CONCEPT:EG-165). If `source` is
+    /// — the cross-modal (log ⨯ graph) differentiator (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). If `source` is
     /// present and the lookup returns `Some`, `target` is set to it.
     Enrich {
         source: String,
@@ -333,7 +333,7 @@ impl fmt::Debug for Stage {
 
 impl Stage {
     /// A convenience constructor for [`Stage::Enrich`] that boxes a closure
-    /// (CONCEPT:EG-165).
+    /// (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
     pub fn enrich<F>(source: impl Into<String>, target: impl Into<String>, lookup: F) -> Self
     where
         F: Fn(&PipeValue) -> Option<PipeValue> + Send + Sync + 'static,
@@ -346,7 +346,7 @@ impl Stage {
     }
 }
 
-/// The result of running a [`Pipeline`] over one record (CONCEPT:EG-165): the
+/// The result of running a [`Pipeline`] over one record (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook): the
 /// transformed fields plus the routed destination stream (`None` when no `route`
 /// stage matched — the caller falls back to a default stream).
 #[derive(Clone, Debug, PartialEq)]
@@ -355,7 +355,7 @@ pub struct RoutedRecord {
     pub fields: Record,
 }
 
-/// An ordered list of [`Stage`]s applied to a record in sequence (CONCEPT:EG-165).
+/// An ordered list of [`Stage`]s applied to a record in sequence (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 /// Build fluently (`Pipeline::new().parse_json(..).drop_if(..)`) or from the textual
 /// form ([`Pipeline::parse`]).
 #[derive(Clone, Debug, Default)]
@@ -375,7 +375,7 @@ impl Pipeline {
         self
     }
 
-    // ---- fluent builder sugar (CONCEPT:EG-165) ----
+    // ---- fluent builder sugar (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook) ----
 
     pub fn parse_json(self, field: impl Into<String>) -> Self {
         self.push(Stage::ParseJson {
@@ -431,7 +431,7 @@ impl Pipeline {
     }
 
     /// Run the pipeline over ONE record, returning the transformed + routed record, or
-    /// `None` if a `filter`/`drop_if` stage dropped it (CONCEPT:EG-165). Deterministic.
+    /// `None` if a `filter`/`drop_if` stage dropped it (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Deterministic.
     pub fn run(&self, record: Record) -> Option<RoutedRecord> {
         let mut rec = record;
         let mut stream: Option<String> = None;
@@ -489,7 +489,7 @@ impl Pipeline {
     }
 
     /// Run the pipeline over a batch, returning the kept + transformed records GROUPED
-    /// by their routed stream (CONCEPT:EG-165). Records that no `route` stage tagged
+    /// by their routed stream (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Records that no `route` stage tagged
     /// land under `default_stream`. Input order is preserved within each group, and
     /// the outer map is a `BTreeMap`, so the result is fully deterministic.
     pub fn run_batch(
@@ -507,7 +507,7 @@ impl Pipeline {
         out
     }
 
-    /// Parse the minimal one-stage-per-line textual form (CONCEPT:EG-165). Blank lines
+    /// Parse the minimal one-stage-per-line textual form (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Blank lines
     /// and `#` comments are ignored. Supported lines:
     ///
     /// ```text
@@ -540,7 +540,7 @@ impl Pipeline {
 }
 
 /// Turn a routed batch of records for ONE stream into a [`ColumnarSegment`] — the
-/// documented landing seam into the existing eg-tsdb columnar path (CONCEPT:EG-165).
+/// documented landing seam into the existing eg-tsdb columnar path (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 /// The column set is the sorted union of every record's keys (so a sparse field is
 /// NULL where absent), giving a deterministic schema. Nested `Array`/`Object` values
 /// land as their JSON text (see [`PipeValue::to_cell`]).
@@ -741,7 +741,7 @@ fn parse_predicate(toks: &[&str]) -> Result<Predicate, String> {
 }
 
 /// Parse a bare token into a [`PipeValue`]: int, then float, then `true`/`false`/
-/// `null`, else a string (CONCEPT:EG-165).
+/// `null`, else a string (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 fn parse_value_token(tok: &str) -> PipeValue {
     if let Ok(n) = tok.parse::<i64>() {
         return PipeValue::I64(n);
@@ -761,7 +761,7 @@ fn parse_value_token(tok: &str) -> PipeValue {
 // minimal hand-rolled JSON reader (no serde_json — the zero-new-dep contract)
 // ---------------------------------------------------------------------------
 
-/// Parse a JSON document into a [`PipeValue`] (CONCEPT:EG-165). A tiny
+/// Parse a JSON document into a [`PipeValue`] (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). A tiny
 /// recursive-descent reader over `&[u8]` covering objects, arrays, strings (with the
 /// standard escapes), numbers (int vs float), and `true`/`false`/`null`. Deliberately
 /// dependency-free to hold the Pi contract the rest of eg-tsdb keeps.
@@ -978,7 +978,7 @@ impl JsonParser<'_> {
     }
 }
 
-/// UTF-8 byte-width from a lead byte (CONCEPT:EG-165 JSON reader helper).
+/// UTF-8 byte-width from a lead byte (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook JSON reader helper).
 fn utf8_width(lead: u8) -> usize {
     if lead < 0x80 {
         1
@@ -993,7 +993,7 @@ fn utf8_width(lead: u8) -> usize {
     }
 }
 
-/// Write a JSON string literal (quoted + escaped) into `out` (CONCEPT:EG-165).
+/// Write a JSON string literal (quoted + escaped) into `out` (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
 fn write_json_str(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
@@ -1023,7 +1023,7 @@ mod tests {
             .collect()
     }
 
-    /// CONCEPT:EG-165 — `parse_json` explodes a JSON string field into top-level
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `parse_json` explodes a JSON string field into top-level
     /// sub-fields and removes the original blob field.
     #[test]
     fn eg_165_parse_json_expands_fields() {
@@ -1038,7 +1038,7 @@ mod tests {
         assert!(!out.fields.contains_key("body")); // original blob removed
     }
 
-    /// CONCEPT:EG-165 — `parse_json` of a nested object yields a nested `Object`
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `parse_json` of a nested object yields a nested `Object`
     /// sub-field, and the hand-rolled JSON reader handles arrays + floats + escapes.
     #[test]
     fn eg_165_parse_json_nested_and_types() {
@@ -1057,7 +1057,7 @@ mod tests {
         assert_eq!(map.get("s"), Some(&PipeValue::str("hi\n\"q\"")));
     }
 
-    /// CONCEPT:EG-165 — `filter` KEEPS records matching the predicate (drops the rest).
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `filter` KEEPS records matching the predicate (drops the rest).
     #[test]
     fn eg_165_filter_keeps_matching() {
         let pipe =
@@ -1068,7 +1068,7 @@ mod tests {
         assert!(dropped.is_none());
     }
 
-    /// CONCEPT:EG-165 — `drop_if` REMOVES records matching the predicate.
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `drop_if` REMOVES records matching the predicate.
     #[test]
     fn eg_165_drop_if_removes_matching() {
         let pipe =
@@ -1081,7 +1081,7 @@ mod tests {
             .is_some());
     }
 
-    /// CONCEPT:EG-165 — every comparison op (eq/ne/gt/lt/contains/exists), incl.
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — every comparison op (eq/ne/gt/lt/contains/exists), incl.
     /// missing-field handling for `ne`.
     #[test]
     fn eg_165_predicate_ops() {
@@ -1101,7 +1101,7 @@ mod tests {
         assert!(Predicate::new("absent", CmpOp::Ne, PipeValue::I64(1)).eval(&r));
     }
 
-    /// CONCEPT:EG-165 — `set` / `rename` / `remove` / `coerce` transform the record.
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `set` / `rename` / `remove` / `coerce` transform the record.
     #[test]
     fn eg_165_set_rename_remove_coerce() {
         let out = Pipeline::new()
@@ -1122,7 +1122,7 @@ mod tests {
         assert_eq!(out.fields.get("status"), Some(&PipeValue::I64(404)));
     }
 
-    /// CONCEPT:EG-165 — `coerce` is best-effort: an unconvertible value is left
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `coerce` is best-effort: an unconvertible value is left
     /// unchanged, and each target type round-trips.
     #[test]
     fn eg_165_coerce_best_effort() {
@@ -1144,7 +1144,7 @@ mod tests {
         assert_eq!(out.fields.get("n"), Some(&PipeValue::str("7")));
     }
 
-    /// CONCEPT:EG-165 — `route` tags the destination stream when a field matches.
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `route` tags the destination stream when a field matches.
     #[test]
     fn eg_165_route_tags_stream() {
         let pipe = Pipeline::new().route("level", PipeValue::str("error"), "errors");
@@ -1156,7 +1156,7 @@ mod tests {
         assert_eq!(miss.stream, None);
     }
 
-    /// CONCEPT:EG-165 — the cross-modal enrichment hook: a caller-supplied lookup
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — the cross-modal enrichment hook: a caller-supplied lookup
     /// (here a mock "graph" map) folds a resolved value into a new field. This is the
     /// "surpass OpenObserve" differentiator (log ⨯ graph).
     #[test]
@@ -1175,7 +1175,7 @@ mod tests {
         assert!(!miss.fields.contains_key("user_name"));
     }
 
-    /// CONCEPT:EG-165 — a multi-stage pipeline over a BATCH: parse, drop noise, set,
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — a multi-stage pipeline over a BATCH: parse, drop noise, set,
     /// route, and the executor groups the kept records by routed stream.
     #[test]
     fn eg_165_multi_stage_batch_groups_by_stream() {
@@ -1206,7 +1206,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-165 — determinism: the same batch through the same pipeline yields
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — determinism: the same batch through the same pipeline yields
     /// byte-identical grouped output across runs (BTreeMap ordering + preserved order).
     #[test]
     fn eg_165_determinism() {
@@ -1233,7 +1233,7 @@ mod tests {
         assert_eq!(keys, sorted);
     }
 
-    /// CONCEPT:EG-165 — the textual DSL form parses into an equivalent pipeline.
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — the textual DSL form parses into an equivalent pipeline.
     #[test]
     fn eg_165_textual_form_parse() {
         let text = r#"
@@ -1261,7 +1261,7 @@ mod tests {
         assert!(!out.fields.contains_key("password"));
     }
 
-    /// CONCEPT:EG-165 — a malformed textual line reports its line number; `enrich` is
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — a malformed textual line reports its line number; `enrich` is
     /// rejected in text (needs a closure).
     #[test]
     fn eg_165_textual_form_errors() {
@@ -1275,7 +1275,7 @@ mod tests {
         assert!(e.contains("line 2"), "got: {e}");
     }
 
-    /// CONCEPT:EG-165 — the documented landing seam: a routed record batch lowers into
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — the documented landing seam: a routed record batch lowers into
     /// an eg-tsdb ColumnarSegment (sorted-union schema, nested values as JSON text).
     #[test]
     fn eg_165_stream_to_columnar_seam() {

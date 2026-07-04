@@ -2,7 +2,7 @@
 
 `epistemic-graph` is reachable three ways, resolved by **one** precedence so every entrypoint provisions
 an engine identically with no per-entrypoint code. In `agent-utilities` this is the `EngineResolver`
-(CONCEPT:OS-5.63); every entrypoint — the graph-os MCP server, the gateway/host daemon, the facade, the
+(CONCEPT:AU-OS.deployment.engine-resolver-auto-provision); every entrypoint — the graph-os MCP server, the gateway/host daemon, the facade, the
 tenant engine pool, messaging, agent/serving — funnels through it.
 
 ```
@@ -58,7 +58,7 @@ The autostarted engine is the **tiny** engine — the auto-started `pi`-tier bin
 SQLite/embedded DB; the engine is the one store at every scale). Two lifecycle behaviours make sharing
 safe:
 
-- **Reference-counted graceful shutdown** (CONCEPT:KG-2.223). The accept loop selects the next
+- **Reference-counted graceful shutdown** (CONCEPT:EG-KG.backend.tiny-shared). The accept loop selects the next
   connection against a `ShutdownCoordinator` (an active-connection refcount + a `Notify`). With
   `--idle-shutdown-secs N` (`EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS`), the engine self-terminates — cleanly
   checkpointing — once the refcount has been zero for `N` seconds. So the auto-bundled tiny daemon
@@ -88,7 +88,7 @@ stateDiagram-v2
 ## Embedded in-process (the edge path)
 
 For a Pi or a single-process deployment that wants **no** Tokio server, socket, or HMAC at all, the
-`embedded` feature gives an `EmbeddedEngine` handle (CONCEPT:KG-2.216) that owns a `GraphRegistry` + the
+`embedded` feature gives an `EmbeddedEngine` handle (CONCEPT:EG-KG.backend.engine-modes) that owns a `GraphRegistry` + the
 redb durable store directly and exposes core ops as plain method calls — SQLite/DuckDB-style: open a
 persist dir, call ops. It drives the **same** `GraphCore` + redb-authoritative durable rows the socket
 dispatch does (via `wal::apply` + the server-independent `redb_store`) — one core, two transports. This

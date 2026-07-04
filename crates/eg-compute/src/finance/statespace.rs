@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20h — State-Space & Statistical-Arbitrage Kernels
+// CONCEPT:EG-KG.domains.state-space-statistical-arbitrage — State-Space & Statistical-Arbitrage Kernels
 //
 // Real-time hidden-state estimation (Kalman filters) and cross-market
 // statistical arbitrage (cointegration / Ornstein-Uhlenbeck) for the finance

@@ -1,4 +1,4 @@
-//! S3-compatible object-storage REST surface (CONCEPT:EG-176) — an Amazon-S3 /
+//! S3-compatible object-storage REST surface (CONCEPT:EG-KG.ontology.object-put-get-head) — an Amazon-S3 /
 //! MinIO-shaped HTTP API so any S3 SDK, `aws s3` CLI, or `mc` client talks to the
 //! engine's content-addressed BLOB store DIRECTLY.
 //!
@@ -6,9 +6,9 @@
 //!
 //! An ADAPTER, not a re-implemented object store. Object BYTES land in the engine's
 //! content-addressed [`ChunkStore`](crate::server::blob::store::ChunkStore) BLOB
-//! substrate (CONCEPT:KG-2.206) — so identical objects dedup by sha256 — while the
+//! substrate (CONCEPT:EG-KG.storage.blob-namespace) — so identical objects dedup by sha256 — while the
 //! bucket / object index (the listing metadata) lives in the durable KV surface
-//! (CONCEPT:EG-022), keyed for prefix-scan. Both are the engine's own durable
+//! (CONCEPT:EG-KG.storage.namespaced-kv-surface), keyed for prefix-scan. Both are the engine's own durable
 //! stores; nothing new is invented here.
 //!
 //! It is a HAND-ROLLED HTTP/1.1 listener over `tokio::net` — the SAME
@@ -18,7 +18,7 @@
 //! request headers (for the auth guard). XML responses are hand-built strings in
 //! the S3 shape.
 //!
-//! ## API subset (CONCEPT:EG-176)
+//! ## API subset (CONCEPT:EG-KG.ontology.object-put-get-head)
 //!
 //! LANDED: `PutObject` / `GetObject` / `HeadObject` / `DeleteObject`,
 //! `ListObjectsV2` (+ v1 fallback, `prefix`), `CreateBucket` / `DeleteBucket` /
@@ -27,7 +27,7 @@
 //! AWS4-HMAC-SHA256` header's `Credential=<access-key>` must match and a
 //! `Signature=` must be present).
 //!
-//! ## Multipart upload + ranged reads (CONCEPT:EG-307)
+//! ## Multipart upload + ranged reads (CONCEPT:EG-KG.txn.pubsub-transactions)
 //!
 //! LANDED (EG-307): the multipart-upload lifecycle — `CreateMultipartUpload`
 //! (`POST /b/k?uploads` → an `UploadId`), `UploadPart`
@@ -94,9 +94,9 @@ struct ObjectMeta {
     content_type: String,
 }
 
-// ── the store (CONCEPT:EG-176) — objects over the BLOB CAS + KV index ────────────
+// ── the store (CONCEPT:EG-KG.ontology.object-put-get-head) — objects over the BLOB CAS + KV index ────────────
 
-/// One uploaded part of an in-progress multipart upload (CONCEPT:EG-307). The bytes
+/// One uploaded part of an in-progress multipart upload (CONCEPT:EG-KG.txn.pubsub-transactions). The bytes
 /// live in the CAS, referenced by `digest`.
 #[derive(Clone, Debug)]
 struct PartInfo {
@@ -105,7 +105,7 @@ struct PartInfo {
     etag: String,
 }
 
-/// An in-progress multipart upload (CONCEPT:EG-307): the target bucket/key, its
+/// An in-progress multipart upload (CONCEPT:EG-KG.txn.pubsub-transactions): the target bucket/key, its
 /// content-type, and the parts received so far keyed by part number (so completion
 /// concatenates them in ascending order regardless of arrival order).
 #[derive(Clone, Debug)]
@@ -118,11 +118,11 @@ struct MultipartUpload {
 
 /// The S3 backing store: a content-addressed [`ChunkStore`] for object bytes + a
 /// durable KV index for buckets and object metadata. In-progress multipart uploads
-/// are held in an in-memory registry until completed or aborted (CONCEPT:EG-307).
+/// are held in an in-memory registry until completed or aborted (CONCEPT:EG-KG.txn.pubsub-transactions).
 pub struct S3Store {
     kv: Arc<KvStore>,
     blob: Arc<dyn ChunkStore>,
-    /// `uploadId` → the in-progress multipart upload state (CONCEPT:EG-307).
+    /// `uploadId` → the in-progress multipart upload state (CONCEPT:EG-KG.txn.pubsub-transactions).
     uploads: Mutex<HashMap<String, MultipartUpload>>,
 }
 
@@ -253,7 +253,7 @@ impl S3Store {
         Ok(out)
     }
 
-    // ── multipart upload (CONCEPT:EG-307) ─────────────────────────────────────────
+    // ── multipart upload (CONCEPT:EG-KG.txn.pubsub-transactions) ─────────────────────────────────────────
 
     /// Begin a multipart upload, returning a fresh, process-unique `UploadId`. The
     /// upload accumulates parts in memory until completed/aborted.
@@ -331,7 +331,7 @@ impl S3Store {
     }
 }
 
-// ── SigV4-lite auth guard (CONCEPT:EG-176) ────────────────────────────────────────
+// ── SigV4-lite auth guard (CONCEPT:EG-KG.ontology.object-put-get-head) ────────────────────────────────────────
 
 /// SigV4-lite: with credentials configured, require an `Authorization:
 /// AWS4-HMAC-SHA256` header whose `Credential=<access-key>` matches AND that
@@ -482,7 +482,7 @@ fn iso8601(ms: u64) -> String {
 }
 
 /// Route + execute one S3 request → an [`S3Response`]. Pure (sync) so it is fully
-/// unit-testable without a socket (CONCEPT:EG-176).
+/// unit-testable without a socket (CONCEPT:EG-KG.ontology.object-put-get-head).
 fn handle(store: &S3Store, auth: &Option<S3Auth>, req: &S3Request) -> S3Response {
     if !authorized(auth, &req.headers) {
         return S3Response::error("403 Forbidden", "AccessDenied", "Access Denied");
@@ -539,7 +539,7 @@ fn handle(store: &S3Store, auth: &Option<S3Auth>, req: &S3Request) -> S3Response
         };
     }
 
-    // Object-level. Multipart-upload sub-resources (CONCEPT:EG-307) are selected by
+    // Object-level. Multipart-upload sub-resources (CONCEPT:EG-KG.txn.pubsub-transactions) are selected by
     // query parameters (`?uploads`, `?uploadId=…`, `?partNumber=…`) and take
     // precedence over the plain object verbs.
     let has_uploads = query_param(&req.query, "uploads").is_some();
@@ -591,7 +591,7 @@ fn handle(store: &S3Store, auth: &Option<S3Auth>, req: &S3Request) -> S3Response
         }
         "GET" => match store.get_object(&bucket, &key) {
             Ok(Some((meta, bytes))) => match req.headers.get("range") {
-                // Ranged read (CONCEPT:EG-307) → 206 Partial Content.
+                // Ranged read (CONCEPT:EG-KG.txn.pubsub-transactions) → 206 Partial Content.
                 Some(range) => range_response(meta, bytes, range),
                 None => object_response(meta, bytes, false),
             },
@@ -611,7 +611,7 @@ fn handle(store: &S3Store, auth: &Option<S3Auth>, req: &S3Request) -> S3Response
     }
 }
 
-/// Route the multipart sub-resource verbs for a known `uploadId` (CONCEPT:EG-307):
+/// Route the multipart sub-resource verbs for a known `uploadId` (CONCEPT:EG-KG.txn.pubsub-transactions):
 /// `PUT …&partNumber=N` (UploadPart), `POST` (CompleteMultipartUpload),
 /// `DELETE` (AbortMultipartUpload), `GET` (ListParts).
 fn handle_multipart(
@@ -685,7 +685,7 @@ fn object_response(meta: ObjectMeta, bytes: Vec<u8>, head_only: bool) -> S3Respo
 }
 
 /// Parse an HTTP `Range` header value against a body of `total` bytes, returning the
-/// inclusive `(start, end)` byte offsets (CONCEPT:EG-307). Supports `bytes=start-end`,
+/// inclusive `(start, end)` byte offsets (CONCEPT:EG-KG.txn.pubsub-transactions). Supports `bytes=start-end`,
 /// `bytes=start-` (to end), and `bytes=-suffix` (last N bytes). Returns `None` when
 /// the range is malformed or unsatisfiable (→ a `416` reply).
 fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
@@ -720,7 +720,7 @@ fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
 }
 
 /// Build a `206 Partial Content` reply carrying the requested byte slice + the
-/// `Content-Range` / `Accept-Ranges` headers (CONCEPT:EG-307). An unsatisfiable
+/// `Content-Range` / `Accept-Ranges` headers (CONCEPT:EG-KG.txn.pubsub-transactions). An unsatisfiable
 /// range yields `416 Range Not Satisfiable`.
 fn range_response(meta: ObjectMeta, bytes: Vec<u8>, range: &str) -> S3Response {
     let total = bytes.len() as u64;
@@ -902,7 +902,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
 
 /// Serve the S3 REST surface on `addr` until the process exits. Spawned by
 /// `main.rs` only when built `--features s3-api` AND `EPISTEMIC_GRAPH_S3_ADDR` is
-/// set (CONCEPT:EG-176). One task per connection, one response per request,
+/// set (CONCEPT:EG-KG.ontology.object-put-get-head). One task per connection, one response per request,
 /// connection: close — the SAME idiom as the obs / SPARQL listeners.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let persist_dir = { state.read().await.persist_dir.clone() };
@@ -929,7 +929,7 @@ fn resolve_auth() -> Option<S3Auth> {
     }
 }
 
-/// `serve` with an EXPLICIT store + auth (CONCEPT:EG-176) — tests bind an ephemeral
+/// `serve` with an EXPLICIT store + auth (CONCEPT:EG-KG.ontology.object-put-get-head) — tests bind an ephemeral
 /// store on a random port without process env / `ServerState`.
 pub async fn serve_with_store(
     addr: &str,
@@ -973,7 +973,7 @@ pub async fn serve_with_store(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-176 — object PUT/GET/HEAD/List/Delete round-trip over the CAS+KV
+    //! CONCEPT:EG-KG.ontology.object-put-get-head — object PUT/GET/HEAD/List/Delete round-trip over the CAS+KV
     //! store, bucket lifecycle, the SigV4-lite auth accept/reject, and helper
     //! coverage (path split, query parse, XML shape).
     use super::*;
@@ -1169,7 +1169,7 @@ mod tests {
         );
     }
 
-    // ── multipart upload + ranged reads (CONCEPT:EG-307) ─────────────────────────
+    // ── multipart upload + ranged reads (CONCEPT:EG-KG.txn.pubsub-transactions) ─────────────────────────
 
     /// Pull the `<UploadId>` out of an InitiateMultipartUpload XML reply.
     fn upload_id_of(xml: &str) -> String {

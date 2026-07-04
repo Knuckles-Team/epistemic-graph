@@ -149,7 +149,7 @@ fn store_evict_before_drops_old_buckets() {
 
 #[test]
 fn store_evict_before_trims_straddling_bucket() {
-    // CONCEPT:EG-068 — a cutoff INSIDE a bucket trims that bucket point-by-point
+    // CONCEPT:EG-KG.temporal.bucket-cutoff-trim — a cutoff INSIDE a bucket trims that bucket point-by-point
     // instead of leaving the straddler intact.
     let (_d, store) = open();
     // 10s buckets; points across [0, 100s).

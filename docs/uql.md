@@ -1,7 +1,7 @@
 # UQL — the Unified Query Language
 
 UQL is epistemic-graph's human- and agent-writable query language. It is a **pure
-front-end** (CONCEPT:KG-2.214) over the engine's cross-modal plan algebra (CONCEPT:KG-2.208):
+front-end** (CONCEPT:AU-KG.query.top-nodes-by-degree) over the engine's cross-modal plan algebra (CONCEPT:AU-KG.compute.vector):
 a UQL string parses to the *exact same* `wire::Plan` (an ordered `Vec<Op>`) that the
 structured `UnifiedQuery` API executes — it adds **no** new execution path. The proof is
 in the planner tests: a UQL string parses to the byte-identical plan a hand-built test
@@ -19,7 +19,7 @@ Every stage is a function `(RowSet) -> RowSet` over the cross-modal currency —
 is an ordered list of `(id, optional score)` rows — so SQL, graph, vector, text, temporal,
 reasoning, and federation stages **compose with no impedance mismatch**. The whole pipeline
 runs over **one off-lock snapshot** at a single engine version, so a cross-modal read is
-snapshot-isolated for free (CONCEPT:KG-2.180).
+snapshot-isolated for free (CONCEPT:EG-KG.txn.multi-op-occ-acid).
 
 ```
 MATCH (:Doc) WHERE year > 2024            # source + relational filter
@@ -102,13 +102,13 @@ result is empty (degrade, never error). Sibling of the vector `RANK BY`.
 
 #### `FUSE` — N-way hybrid (reciprocal-rank fusion)
 `FUSE [ RANK BY ~[…] ] [ TEXT "…" ] [ RERANK NODE_DISTANCE FROM "x" ]` →
-`FuseRrf{branches,k}` (feature `text`, CONCEPT:KG-2.253). Runs each bracketed **sub-pipeline**
+`FuseRrf{branches,k}` (feature `text`, CONCEPT:AU-KG.compute.change-feed-subscription). Runs each bracketed **sub-pipeline**
 over the *same* seed, then reciprocal-rank-fuses their ranked id lists into one result. RRF
 fuses the **ranks** (not the incomparable cosine/BM25/distance scores), so a node strong
 across *more* branches out-ranks one strong in only one — the property that makes the fused
 query beat any single modality alone. Generalized past two legs: any number of branches.
 
-#### `RERANK` — graph-native + diversity rerankers (CONCEPT:KG-2.254 / KG-2.255)
+#### `RERANK` — graph-native + diversity rerankers (CONCEPT:EG-KG.query.uql-parser-ops / AU-KG.retrieval.mmr-diversification)
 Re-score the current candidates without leaving the engine:
 
 | Clause | Op | Meaning |
@@ -119,7 +119,7 @@ Re-score the current candidates without leaving the engine:
 
 All three are dependency-free and run under the base `query` feature.
 
-#### `AS OF` — bi-temporal point-in-time (CONCEPT:KG-2.250)
+#### `AS OF` — bi-temporal point-in-time (CONCEPT:AU-KG.compute.kg-2)
 `AS OF @1700000000` → `AsOf{ts, axis=Valid}`. Drops every row **not live** at the unix-seconds
 instant `ts`, using a half-open window `[from, until)`:
 
@@ -194,7 +194,7 @@ rows = await c.query.uql("MATCH (:Concept) |> AS OF @1700000000 |> RERANK MMR 0.
 ## See also
 
 - [Engine architecture](architecture/engine.md) — the plan executor, bi-temporal model, tiers.
-- [Concepts](concepts.md) — `KG-2.208` (fused executor), `KG-2.214` (UQL), `KG-2.250` (bi-temporal
-  `AS OF`), `KG-2.253` (N-way FUSE), `KG-2.254/2.255` (graph-native + MMR rerankers).
+- [Concepts](concepts.md) — `AU-KG.compute.vector` (fused executor), `AU-KG.query.top-nodes-by-degree` (UQL), `AU-KG.compute.kg-2` (bi-temporal
+  `AS OF`), `KG-2.253` (N-way FUSE), `EG-KG.query.uql-parser-ops/2.255` (graph-native + MMR rerankers).
 - The authoritative grammar lives in `crates/eg-plan/src/uql/parser.rs` (kept in lockstep with
   this page); the op algebra in `crates/eg-types/src/wire.rs`.

@@ -1,5 +1,5 @@
 //! SQLite/DuckDB-style embedded usage of the epistemic-graph engine
-//! (CONCEPT:KG-2.216). No socket, no server, no auth — the engine is a durable
+//! (CONCEPT:EG-KG.backend.engine-modes). No socket, no server, no auth — the engine is a durable
 //! library you open in-process.
 //!
 //! Run with:
@@ -66,7 +66,7 @@ fn main() -> Result<(), String> {
 
     // ── SQLite-equivalent SQL user tables (when built with `query`) ──────
     // No server, no socket: CREATE TABLE / INSERT / SELECT in-process, durably,
-    // against a single-file user-table store (CONCEPT:EG-022 / EG-018).
+    // against a single-file user-table store (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018).
     #[cfg(feature = "query")]
     {
         engine.sql_exec("kg", "CREATE TABLE prices (sym TEXT, px DOUBLE)")?;

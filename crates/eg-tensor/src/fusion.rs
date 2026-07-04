@@ -1,5 +1,5 @@
 //! Fuse a time-aligned multi-channel frame into a dense tensor + validity mask
-//! (CONCEPT:EG-098) — the MODALITY half of robotics/IoT sensor fusion.
+//! (CONCEPT:EG-KG.query.multi-rate-sensor-stream) — the MODALITY half of robotics/IoT sensor fusion.
 //!
 //! The time-alignment half (multi-rate resample onto a common grid with per-channel
 //! Nearest/Linear/AsofHold, and EG-067 tumbling windows) lives in [`eg_tsdb::fusion`];
@@ -20,7 +20,7 @@ use crate::tensor::{Buffer, Tensor};
 // (build streams → align/window → tensor) from `eg_tensor::fusion` alone.
 pub use eg_tsdb::fusion::{InterpMode, StreamSpec as Stream};
 
-/// A fused multimodal tensor frame (CONCEPT:EG-098): a `[timesteps × channels]` `F64`
+/// A fused multimodal tensor frame (CONCEPT:EG-KG.query.multi-rate-sensor-stream): a `[timesteps × channels]` `F64`
 /// `frame` tensor (`NaN` at gaps) + a same-shape `U8` `mask` tensor (`1` = valid /
 /// `0` = missing), plus the `grid` timestamps and channel `names` for provenance. The
 /// two tensors share the exact shape `[grid.len(), names.len()]`.
@@ -44,7 +44,7 @@ impl FusedFrame {
 }
 
 /// Stack a time-[`AlignedFrame`] into a fused `[timesteps × channels]` tensor + mask
-/// (CONCEPT:EG-098). Row `t` is the fusion instant `grid[t]`; column `c` is stream `c`.
+/// (CONCEPT:EG-KG.query.multi-rate-sensor-stream). Row `t` is the fusion instant `grid[t]`; column `c` is stream `c`.
 /// A channel GAP (`None`) becomes `NaN` in `frame` and `0` in `mask`. Errors only if a
 /// channel column length disagrees with the grid (a malformed [`AlignedFrame`]).
 pub fn fuse_aligned(aligned: &AlignedFrame) -> Result<FusedFrame, String> {
@@ -86,12 +86,12 @@ pub fn fuse_aligned(aligned: &AlignedFrame) -> Result<FusedFrame, String> {
 }
 
 /// Align N multi-rate `streams` onto `grid` and fuse them into one [`FusedFrame`]
-/// (CONCEPT:EG-098) — the one-shot alignment + tensor-stack over a caller-supplied grid.
+/// (CONCEPT:EG-KG.query.multi-rate-sensor-stream) — the one-shot alignment + tensor-stack over a caller-supplied grid.
 pub fn fuse_on_grid(streams: &[StreamSpec], grid: &[Ts]) -> Result<FusedFrame, String> {
     fuse_aligned(&align_multirate(streams, grid))
 }
 
-/// One tumbling window's fused output (CONCEPT:EG-098): the window START ts + its fused
+/// One tumbling window's fused output (CONCEPT:EG-KG.query.multi-rate-sensor-stream): the window START ts + its fused
 /// tensor frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct WindowFrame {
@@ -99,7 +99,7 @@ pub struct WindowFrame {
     pub frame: FusedFrame,
 }
 
-/// Windowed multimodal fusion (CONCEPT:EG-098): partition the time axis into TUMBLING
+/// Windowed multimodal fusion (CONCEPT:EG-KG.query.multi-rate-sensor-stream): partition the time axis into TUMBLING
 /// windows of `width` (EG-067 semantics, aligned as `(t/width)*width`) spanning the union
 /// sample span; within each window resample every stream onto a uniform `step`-spaced
 /// sub-grid and fuse it into a `[timesteps × channels]` tensor. Emits one [`WindowFrame`]

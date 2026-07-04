@@ -1,4 +1,4 @@
-//! Recall / precision self-evaluation harness (CONCEPT:EG-297).
+//! Recall / precision self-evaluation harness (CONCEPT:EG-KG.query.concept-5).
 //!
 //! Measures how much of the EXACT top-k an approximate search recovered, so the
 //! IVF-PQ tier can be *measured* and *tuned* (nprobe, refine_factor, m, nlist)
@@ -20,7 +20,7 @@ use crate::flat::{FlatIndex, Metric};
 use crate::ivfpq::{IvfPq, SearchParams};
 use std::collections::HashSet;
 
-/// Recall@k (CONCEPT:EG-297): of the exact top-k neighbours, the fraction the ANN's
+/// Recall@k (CONCEPT:EG-KG.query.concept-5): of the exact top-k neighbours, the fraction the ANN's
 /// top-k also returned — `|ann_topk ∩ exact_topk| / |exact_topk|`. Both inputs are
 /// truncated to their first `k` ids before intersecting. Returns `1.0` when the
 /// exact top-k is empty (nothing to miss), so an empty ground truth never drags a
@@ -35,7 +35,7 @@ pub fn recall_at_k(ann_results: &[u64], exact_results: &[u64], k: usize) -> f64 
     hit as f64 / exact.len() as f64
 }
 
-/// Precision@k (CONCEPT:EG-297): of the ANN's top-k, the fraction that is truly in
+/// Precision@k (CONCEPT:EG-KG.query.concept-5): of the ANN's top-k, the fraction that is truly in
 /// the exact top-k — `|ann_topk ∩ exact_topk| / |ann_topk|`. Distinct from recall
 /// only when the two lists differ in length; returns `1.0` for an empty ANN list.
 pub fn precision_at_k(ann_results: &[u64], exact_results: &[u64], k: usize) -> f64 {
@@ -49,7 +49,7 @@ pub fn precision_at_k(ann_results: &[u64], exact_results: &[u64], k: usize) -> f
 }
 
 /// Average precision of one ranked ANN list against the exact top-k relevant set
-/// (CONCEPT:EG-297). Walks the ANN ids in rank order; at each position that holds a
+/// (CONCEPT:EG-KG.query.concept-5). Walks the ANN ids in rank order; at each position that holds a
 /// relevant id, accumulates the running precision, then divides by the number of
 /// relevant items. Rank-sensitive: surfacing true neighbours earlier scores higher.
 /// Returns `1.0` when there are no relevant items.
@@ -69,7 +69,7 @@ pub fn average_precision(ann_results: &[u64], exact_results: &[u64], k: usize) -
     sum_prec / relevant.len() as f64
 }
 
-/// Mean average precision over many `(ann, exact)` query pairs (CONCEPT:EG-297) —
+/// Mean average precision over many `(ann, exact)` query pairs (CONCEPT:EG-KG.query.concept-5) —
 /// the mean of [`average_precision`] across the query set. `0.0` for an empty set.
 pub fn mean_average_precision(pairs: &[(Vec<u64>, Vec<u64>)], k: usize) -> f64 {
     if pairs.is_empty() {
@@ -82,7 +82,7 @@ pub fn mean_average_precision(pairs: &[(Vec<u64>, Vec<u64>)], k: usize) -> f64 {
     sum / pairs.len() as f64
 }
 
-/// The aggregate quality of an ANN index vs. exact ground truth (CONCEPT:EG-297),
+/// The aggregate quality of an ANN index vs. exact ground truth (CONCEPT:EG-KG.query.concept-5),
 /// produced by [`evaluate_recall`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecallReport {
@@ -100,7 +100,7 @@ pub struct RecallReport {
     pub mean_average_precision: f64,
 }
 
-/// End-to-end recall driver (CONCEPT:EG-297): for each query, take the ANN top-k
+/// End-to-end recall driver (CONCEPT:EG-KG.query.concept-5): for each query, take the ANN top-k
 /// from `ann.search` and the EXACT top-k from `truth.search(metric)`, then report
 /// mean/min recall@k, mean precision@k, and MAP across the whole query set. This is
 /// the measurement loop for tuning ANN parameters (`sp`, `m`, `nlist`) against a

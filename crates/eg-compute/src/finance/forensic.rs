@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20g — Forensic Accounting Scores
+// CONCEPT:EG-KG.domains.forensic-accounting-kernels — Forensic Accounting Scores
 //
 // Beneish M-Score, Altman Z-Score, Piotroski F-Score, Sloan accruals ratio.
 // Coefficients are the published academic values (not a blog reimplementation —

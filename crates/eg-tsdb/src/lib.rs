@@ -1,5 +1,5 @@
 //! eg-tsdb — native time-series store + TS query primitives for the epistemic-graph
-//! engine (CONCEPT:KG-2.210 store + primitives, CONCEPT:KG-2.211 decay unification +
+//! engine (CONCEPT:AU-KG.retrieval.god-nodes-communities store + primitives, CONCEPT:EG-KG.compute.handled-outside-single-anchor decay unification +
 //! Time-ops sketch).
 //!
 //! Sits ABOVE eg-compute in the DAG (`eg-types → eg-core → eg-compute → eg-tsdb →
@@ -19,15 +19,15 @@
 //!     (feature `arrow-seg`).
 //!
 //! The ONE decay curve both the series `decay_weighted_mean` and the engine's
-//! semantic-memory confidence decay use lives in `eg_core::decay` (CONCEPT:KG-2.211).
+//! semantic-memory confidence decay use lives in `eg_core::decay` (CONCEPT:EG-KG.compute.handled-outside-single-anchor).
 
-// CONCEPT:EG-089 — the native columnar (struct-of-arrays) segment for analytical
+// CONCEPT:EG-KG.temporal.native-columnar-store — the native columnar (struct-of-arrays) segment for analytical
 // scans. Pure-Rust + serde only (no Arrow/DataFusion/redb), so it compiles in the
 // lean / Pi build exactly like `point`/`query` — always on, no feature gate.
 pub mod columnar;
 pub mod point;
 
-// CONCEPT:EG-165 — VRL-style ingest transform pipelines (OpenObserve/Vector-style
+// CONCEPT:EG-KG.ingest.vrl-ingest-transform — VRL-style ingest transform pipelines (OpenObserve/Vector-style
 // parse_json / filter / set / rename / coerce / route stages applied to a log/event
 // record BEFORE it lands in a series), plus a cross-modal `enrich` hook that resolves
 // a field from a caller-injected graph lookup (the "surpass OpenObserve" angle).
@@ -38,7 +38,7 @@ pub mod pipeline;
 pub mod query;
 pub mod time_op;
 
-// CONCEPT:EG-098 — multi-rate sensor-stream alignment for multimodal fusion: resample N
+// CONCEPT:EG-KG.query.multi-rate-sensor-stream — multi-rate sensor-stream alignment for multimodal fusion: resample N
 // different-rate sensor series onto ONE target grid with per-channel Nearest/Linear/
 // AsofHold interpolation (AsofHold reuses `query::asof_join_backward`). Pure-Rust (no
 // redb/Arrow), always on — the time half of fusion; `eg-tensor::fusion` stacks the
@@ -48,7 +48,7 @@ pub mod fusion;
 #[cfg(feature = "promql")]
 pub mod promql;
 
-// CONCEPT:EG-163 — distributed span model + indexed span store + trace assembly +
+// CONCEPT:EG-OS.observability.trace-assembly — distributed span model + indexed span store + trace assembly +
 // service-dependency graph. Dependency-free (no redb/Arrow), so it links wherever the
 // facade's `traces` sub-feature is on. The HTTP glue lives in `src/server/traces`.
 #[cfg(feature = "traces")]

@@ -1,4 +1,4 @@
-//! Constructive geometry algebra (CONCEPT:EG-259) — the operations that *derive a new
+//! Constructive geometry algebra (CONCEPT:EG-KG.ontology.concept-9) — the operations that *derive a new
 //! geometry* from existing ones, the workhorses of urban-planning / logistics GIS:
 //!
 //! * [`buffer`] — grow a geometry outward by a distance (a rounded convex buffer).
@@ -18,7 +18,7 @@
 
 use crate::geometry::{point_segment_distance, Geometry, LineString, Point, Polygon};
 
-/// Grow `g` outward by `dist` (CONCEPT:EG-259), returning a convex buffer polygon: the
+/// Grow `g` outward by `dist` (CONCEPT:EG-KG.ontology.concept-9), returning a convex buffer polygon: the
 /// convex hull of a disk of radius `dist` (16-gon) placed at every vertex — i.e. the
 /// Minkowski sum of the vertices' convex hull with that disk. Its bounding box is exactly
 /// the input's grown by `dist` on every side. A non-positive `dist` degenerates to
@@ -41,14 +41,14 @@ pub fn buffer(g: &Geometry, dist: f64) -> Geometry {
     hull_geometry(convex_hull_points(cloud))
 }
 
-/// The convex hull of every vertex of `g` (CONCEPT:EG-259), via Andrew's monotone-chain
+/// The convex hull of every vertex of `g` (CONCEPT:EG-KG.ontology.concept-9), via Andrew's monotone-chain
 /// algorithm. Returns a `Polygon` (≥ 3 hull points), a `LineString` (2 collinear/coincident
 /// points), a `Point` (1), or an empty `GeometryCollection` (0).
 pub fn convex_hull(g: &Geometry) -> Geometry {
     hull_geometry(convex_hull_points(g.all_vertices()))
 }
 
-/// Douglas–Peucker vertex reduction of `g` at tolerance `tol` (CONCEPT:EG-259): every
+/// Douglas–Peucker vertex reduction of `g` at tolerance `tol` (CONCEPT:EG-KG.ontology.concept-9): every
 /// linestring / polygon ring is simplified, dropping vertices that lie within `tol` of the
 /// retained chain. Points/multipoints pass through unchanged; polygon rings stay closed.
 pub fn simplify(g: &Geometry, tol: f64) -> Geometry {
@@ -84,7 +84,7 @@ pub fn simplify(g: &Geometry, tol: f64) -> Geometry {
     }
 }
 
-/// The centroid (centre of mass) of `g` (CONCEPT:EG-259): area-weighted over polygons
+/// The centroid (centre of mass) of `g` (CONCEPT:EG-KG.ontology.concept-9): area-weighted over polygons
 /// (holes subtracted), else length-weighted over linestrings, else the arithmetic mean of
 /// the points. `None` for an empty geometry (or a zero-area/zero-length degenerate that
 /// falls through to no vertices).
@@ -137,7 +137,7 @@ pub fn centroid(g: &Geometry) -> Option<Point> {
     Some(Point::new(sx / n, sy / n))
 }
 
-/// The polygon intersection of `a` and `b` (CONCEPT:EG-259) via Sutherland–Hodgman,
+/// The polygon intersection of `a` and `b` (CONCEPT:EG-KG.ontology.concept-9) via Sutherland–Hodgman,
 /// clipping `a`'s exterior ring against `b`'s exterior ring. **Exact when `b` (the clip)
 /// is convex** — the common query-window case; a general clipper is the follow-up. `None`
 /// when either lacks a polygon ring or the clipped result is empty (< 3 vertices).
@@ -151,7 +151,7 @@ pub fn intersection(a: &Geometry, b: &Geometry) -> Option<Geometry> {
     Some(closed_polygon(out))
 }
 
-/// The (convex) union of `a` and `b` (CONCEPT:EG-259): the convex hull of both geometries'
+/// The (convex) union of `a` and `b` (CONCEPT:EG-KG.ontology.concept-9): the convex hull of both geometries'
 /// vertices — exact when the true union is convex, an over-approximation otherwise
 /// (documented; a general union is the follow-up).
 pub fn union(a: &Geometry, b: &Geometry) -> Geometry {
@@ -160,7 +160,7 @@ pub fn union(a: &Geometry, b: &Geometry) -> Geometry {
     hull_geometry(convex_hull_points(vs))
 }
 
-/// The difference `a − b` (CONCEPT:EG-259), a documented subset: exact when `a` and `b`
+/// The difference `a − b` (CONCEPT:EG-KG.ontology.concept-9), a documented subset: exact when `a` and `b`
 /// are disjoint (returns `a`) or `a` is fully covered by `b` (returns `None`, empty). For
 /// a partial non-convex overlap it conservatively returns `a` (the general Weiler–Atherton
 /// subtraction is the follow-up).

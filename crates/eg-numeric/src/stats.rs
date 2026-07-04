@@ -1,4 +1,4 @@
-//! scipy.stats-parity ops (CONCEPT:EG-357/EG-358) — the STOP-list scipy functions
+//! scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358) — the STOP-list scipy functions
 //! `agent_utilities` needs with no existing kernel equivalent:
 //!
 //! * [`spearmanr`] — Spearman rank correlation (rank-transform + Pearson) + a
@@ -181,7 +181,7 @@ mod tests {
     use super::*;
     use ndarray::array;
 
-    // Parity anchors computed with scipy 1.x (CONCEPT:EG-357/EG-358).
+    // Parity anchors computed with scipy 1.x (CONCEPT:EG-KG.compute.numeric-stats/EG-358).
     #[test]
     fn spearman_monotonic_is_one() {
         let x = array![1.0, 2.0, 3.0, 4.0, 5.0];

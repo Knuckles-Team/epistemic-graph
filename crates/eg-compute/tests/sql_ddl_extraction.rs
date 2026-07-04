@@ -1,4 +1,4 @@
-//! CONCEPT:KG-2.212 — SQL DDL extraction into the database ontology.
+//! CONCEPT:AU-KG.ontology.emits-database-ontology-entities — SQL DDL extraction into the database ontology.
 #![cfg(feature = "ast")]
 
 use eg_compute::parser::tree_sitter::parse_file;

@@ -1,4 +1,4 @@
-//! Off-reactor WAL writer with group-commit fsync (CONCEPT:KG-2.8, Phase B3).
+//! Off-reactor WAL writer with group-commit fsync (CONCEPT:EG-KG.storage.nonblocking-checkpoint, Phase B3).
 //!
 //! Previously each durable mutation appended to its graph's WAL with a blocking
 //! `write_all` executed inline on the dispatch path — i.e. on a Tokio worker

@@ -1,4 +1,4 @@
-//! STOMP 1.2 wire-protocol listener (CONCEPT:EG-282) — a HAND-ROLLED STOMP text-frame
+//! STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) — a HAND-ROLLED STOMP text-frame
 //! server that lets a standard STOMP client (stomp.py, stompjs, an ActiveMQ/RabbitMQ
 //! STOMP consumer) speak to the native message broker built on the KG-2.303 work-queue.
 //!
@@ -7,7 +7,7 @@
 //! broker. Every exchange/binding/queue/message lives as graph nodes on a control graph
 //! (`crate::broker`); this module only frames STOMP 1.2 text frames on the wire and maps
 //! each command onto the SAME broker primitives THROUGH the engine dispatch
-//! (`crate::server::dispatch::dispatch`) that the AMQP wire (CONCEPT:EG-275/276..280)
+//! (`crate::server::dispatch::dispatch`) that the AMQP wire (CONCEPT:EG-KG.compute.message-broker-exchanges/276..280)
 //! uses — no parallel mechanism, no new broker method.
 //!
 //! A STOMP `destination` (`/queue/foo`, `/topic/bar`) maps onto a broker DIRECT exchange
@@ -21,7 +21,7 @@
 //! STOMP 1.2 spec (the Pi-contract idiom pgwire / amqp-wire / mqtt-wire use), so a
 //! default/pi build carries zero STOMP dependency.
 //!
-//! ## Protocol subset (CONCEPT:EG-282)
+//! ## Protocol subset (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit)
 //! LANDED: CONNECT/STOMP → CONNECTED, SEND (→ broker publish), SUBSCRIBE/MESSAGE
 //! (destination → per-subscription queue, streamed), ACK/NACK (ack modes
 //! `auto`/`client`/`client-individual`), UNSUBSCRIBE, DISCONNECT, and `receipt`-header
@@ -59,7 +59,7 @@ fn next_req_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Serve the STOMP 1.2 wire protocol on `addr` until the listener errors (CONCEPT:EG-282).
+/// Serve the STOMP 1.2 wire protocol on `addr` until the listener errors (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let graph = std::env::var(STOMP_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let exchange =
@@ -119,7 +119,7 @@ fn obj(map: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(map.as_object().unwrap()).unwrap_or_default()
 }
 
-/// Claim the oldest pending message from `queue` (CONCEPT:KG-2.303), marking it
+/// Claim the oldest pending message from `queue` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending), marking it
 /// `claimed`. Returns `(node_id, routing_key, body)` or `None`.
 async fn claim_one(
     state: &Arc<RwLock<ServerState>>,
@@ -154,7 +154,7 @@ async fn claim_one(
     Some((id, rk, body))
 }
 
-/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:KG-2.303 ack
+/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending ack
 /// path). Best-effort — a lost ack simply leaves the node `claimed`.
 async fn ack_message(state: &Arc<RwLock<ServerState>>, graph: &str, node_id: &str) {
     let conditions = obj(serde_json::json!({ "status": "claimed" }));
@@ -190,7 +190,7 @@ async fn requeue_message(state: &Arc<RwLock<ServerState>>, graph: &str, node_id:
 
 // ── Per-connection state ──────────────────────────────────────────────────
 
-/// STOMP subscription ack discipline (CONCEPT:EG-282).
+/// STOMP subscription ack discipline (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AckMode {
     /// The message is considered acked the instant it is sent (no ACK expected).
@@ -423,7 +423,7 @@ async fn maybe_receipt(socket: &mut TcpStream, frame: &Frame) -> std::io::Result
 }
 
 /// Deliver pending messages from each subscription's queue as MESSAGE frames
-/// (CONCEPT:EG-282). Auto-ack subscriptions finalize immediately; client-ack ones record
+/// (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit). Auto-ack subscriptions finalize immediately; client-ack ones record
 /// the message for a later ACK/NACK.
 async fn pump_subscriptions(
     socket: &mut TcpStream,
@@ -626,7 +626,7 @@ async fn write_frame(socket: &mut TcpStream, frame: &Frame) -> std::io::Result<(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-282 — STOMP frame-codec unit tests (round-trips, header escaping,
+    //! CONCEPT:EG-KG.ontology.stomp-frame-codec-unit — STOMP frame-codec unit tests (round-trips, header escaping,
     //! body/NUL framing) + a served listener round-trip (CONNECT/SEND/SUBSCRIBE/MESSAGE)
     //! that proves the mapping onto the broker end-to-end.
     use super::*;
@@ -712,7 +712,7 @@ mod tests {
         assert_eq!(AckMode::parse("auto"), AckMode::Auto);
     }
 
-    // ── Served listener round-trip (CONCEPT:EG-282) ───────────────────────
+    // ── Served listener round-trip (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ───────────────────────
 
     /// A minimal `ServerState` for the broker round-trip. Every optional/feature-gated
     /// field is `None`/empty so it compiles under any feature combination.

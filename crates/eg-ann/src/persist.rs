@@ -1,4 +1,4 @@
-//! Persistent on-disk format — the no-rebuild-on-load win (CONCEPT:KG-2.207).
+//! Persistent on-disk format — the no-rebuild-on-load win (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 //!
 //! An index directory holds three files:
 //!   * `meta.bin` — bincode of everything EXCEPT the two bulk code buffers: the

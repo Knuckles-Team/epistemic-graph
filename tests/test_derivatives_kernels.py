@@ -1,4 +1,4 @@
-"""Round-trip tests for the SABR volatility-surface kernels (CONCEPT:KG-2.20j).
+"""Round-trip tests for the SABR volatility-surface kernels (CONCEPT:AU-KG.domains.derivatives).
 Full path: client -> UDS -> Rust -> result. Uses `clean_graph` from conftest.
 """
 

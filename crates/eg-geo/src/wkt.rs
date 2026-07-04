@@ -1,6 +1,6 @@
 //! A hand-written WKT / EWKT (Well-Known Text) codec for the full geometry model:
 //! `POINT` / `LINESTRING` / `POLYGON` (with interior rings) from EG-083, extended
-//! (CONCEPT:EG-257) to `MULTIPOINT` / `MULTILINESTRING` / `MULTIPOLYGON` /
+//! (CONCEPT:EG-KG.domains.geometry-collections) to `MULTIPOINT` / `MULTILINESTRING` / `MULTIPOLYGON` /
 //! `GEOMETRYCOLLECTION`. No dependency — a recursive-descent parser + a `Display`-style
 //! serializer, so the crate stays pure-Rust and Pi-lean.
 //!
@@ -22,13 +22,13 @@ use crate::geometry::{Geometry, LineString, Point, Polygon};
 
 /// Parse a WKT/EWKT string into a [`Geometry`]. Returns `Err(msg)` on malformed input.
 /// A leading EWKT `SRID=<n>;` prefix is tolerated and ignored — use [`parse_with_srid`]
-/// to also recover the SRID/CRS tag (CONCEPT:EG-255).
+/// to also recover the SRID/CRS tag (CONCEPT:EG-KG.domains.coordinate-reference-system).
 pub fn parse(input: &str) -> Result<Geometry, String> {
     let s = strip_srid(input.trim());
     parse_geometry(s.trim())
 }
 
-/// Parse a WKT/EWKT string into a `(Option<srid>, Geometry)` pair (CONCEPT:EG-255): the
+/// Parse a WKT/EWKT string into a `(Option<srid>, Geometry)` pair (CONCEPT:EG-KG.domains.coordinate-reference-system): the
 /// EWKT `SRID=<n>;` prefix EG-257 already tolerated is captured here as the geometry's
 /// CRS tag (`None` when absent). The geometry value itself is identical to [`parse`]'s.
 pub fn parse_with_srid(input: &str) -> Result<(Option<u32>, Geometry), String> {
@@ -128,7 +128,7 @@ fn parse_geometry(s: &str) -> Result<Geometry, String> {
 }
 
 /// Parse the inside of a `POLYGON (...)` — one or more parenthesized rings, the first
-/// being the exterior and the rest interior rings/holes (CONCEPT:EG-257).
+/// being the exterior and the rest interior rings/holes (CONCEPT:EG-KG.domains.geometry-collections).
 fn parse_polygon_body(body: &str) -> Result<Polygon, String> {
     let rings = split_top_level(body);
     if rings.is_empty() {
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn polygon_with_hole_round_trip() {
-        // Exterior ring + one interior ring (hole) (CONCEPT:EG-257).
+        // Exterior ring + one interior ring (hole) (CONCEPT:EG-KG.domains.geometry-collections).
         let src = "POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0), (3 3, 7 3, 7 7, 3 7, 3 3))";
         let g = parse(src).unwrap();
         if let Geometry::Polygon(pg) = &g {

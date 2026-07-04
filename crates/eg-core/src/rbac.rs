@@ -1,6 +1,6 @@
-//! RBAC-at-scale policy evaluator (CONCEPT:EG-092, feature `security`).
+//! RBAC-at-scale policy evaluator (CONCEPT:EG-KG.compute.feature, feature `security`).
 //!
-//! Layered ON TOP of the per-agent Row-Level Security / ACL (CONCEPT:KG-2.231): an
+//! Layered ON TOP of the per-agent Row-Level Security / ACL (CONCEPT:EG-KG.sharding.row-level-security): an
 //! agent carries a set of role NAMES; roles form a hierarchy (a role inherits every
 //! grant of its transitively-reachable parents); and [`Grant`]s bind a role to a
 //! (resource, action, effect) triple. Given an agent's roles + a requested

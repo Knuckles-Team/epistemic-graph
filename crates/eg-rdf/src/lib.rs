@@ -3,7 +3,7 @@
 #![allow(deprecated)]
 
 //! eg-rdf — native RDF/SPARQL surface over the epistemic-graph property-graph
-//! (Lane W increment 1: W1 `CONCEPT:KG-2.217`, W2 `CONCEPT:KG-2.218`).
+//! (Lane W increment 1: W1 `CONCEPT:EG-KG.ontology.kg-native-rdf-sparql`, W2 `CONCEPT:EG-KG.ontology.concept-11`).
 //!
 //! This is the productionized form of the `spike/rdf-owl` feasibility spike. It
 //! proves — and now ships — that RDF/SPARQL sit NATIVELY over the engine's
@@ -65,23 +65,23 @@ pub mod sparql;
 /// template + predicate→object maps) turns rows into triples ON DEMAND, and a SPARQL query
 /// over a [`obda::VirtualGraph`] pulls only the query-relevant predicates/columns from the
 /// backing [`obda::ObdaSource`] — never materializing the whole dataset. Behind `sparql`
-/// (needs the evaluator + oxrdf term model). CONCEPT:EG-101.
+/// (needs the evaluator + oxrdf term model). CONCEPT:EG-KG.ontology.foreign-source-seam.
 #[cfg(feature = "sparql")]
 pub mod obda;
 
-/// SPARQL 1.1 UPDATE executed over the native property-graph write ops (CONCEPT:EG-017):
+/// SPARQL 1.1 UPDATE executed over the native property-graph write ops (CONCEPT:EG-KG.query.named-graph-support):
 /// INSERT/DELETE DATA, DELETE/INSERT … WHERE, CLEAR/CREATE/DROP GRAPH, with named-graph
 /// routing through the `GraphStore` trait. Behind `sparql` (needs spargebra's Update).
 #[cfg(feature = "sparql")]
 pub mod update;
 
-/// OGC GeoSPARQL baseline (CONCEPT:EG-261): the `geo:`/`geof:` vocabulary, `geo:wktLiteral`
+/// OGC GeoSPARQL baseline (CONCEPT:EG-KG.ontology.concept-10): the `geo:`/`geof:` vocabulary, `geo:wktLiteral`
 /// parsing, and the core `geof:` spatial FILTER functions lowered onto the pure-Rust
 /// `eg-geo` crate. Behind `geosparql` (implies `sparql` + pulls `eg-geo`); OUT of `pi`.
 #[cfg(feature = "geosparql")]
 pub mod geosparql;
 
-/// W3 — the native OWL 2 (EL⁺ + RL) reasoner (CONCEPT:KG-2.219). Classification,
+/// W3 — the native OWL 2 (EL⁺ + RL) reasoner (CONCEPT:EG-KG.ontology.incremental-materialization). Classification,
 /// consistency checking, incremental materialization + justifications over the
 /// oxttl-parsed ontology. Pure Rust; behind `owl` (implies `rdf`).
 #[cfg(feature = "owl")]
@@ -96,7 +96,7 @@ pub mod owl;
 #[cfg(feature = "owl")]
 pub mod rules;
 
-/// W5 — the OWL-DL **tableau** reasoner (CONCEPT:EG-059). A pure-Rust description-logic
+/// W5 — the OWL-DL **tableau** reasoner (CONCEPT:EG-KG.ontology.concept-2). A pure-Rust description-logic
 /// tableau (ALCQO + role hierarchy) that DECIDES the constructs the monotone EL⁺/RL
 /// [`owl`] path cannot: full cardinality restrictions (`≥n`/`≤n`, qualified),
 /// `complementOf`/negation (via negation-normal-form), `oneOf`/`hasValue` nominals, and

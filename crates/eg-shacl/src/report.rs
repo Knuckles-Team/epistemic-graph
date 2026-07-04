@@ -1,4 +1,4 @@
-//! The SHACL validation report (CONCEPT:EG-132) — a serde-serializable mirror of an
+//! The SHACL validation report (CONCEPT:EG-KG.ontology.concept-6) — a serde-serializable mirror of an
 //! `sh:ValidationReport` (`conforms` + a list of `sh:ValidationResult`).
 //!
 //! Terms (focus node, path, value, shape) are carried as their canonical N-Triples

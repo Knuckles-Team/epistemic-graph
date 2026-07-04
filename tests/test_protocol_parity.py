@@ -1,4 +1,4 @@
-"""Python client ⇄ Rust ``Method`` enum drift gate (CONCEPT:KG-2.19).
+"""Python client ⇄ Rust ``Method`` enum drift gate (CONCEPT:EG-KG.query.wire-protocol).
 
 The Python↔Rust boundary is out-of-process MessagePack over UDS/TCP — there is
 **no PyO3 / FFI**, so nothing generates or type-checks the Python client against
