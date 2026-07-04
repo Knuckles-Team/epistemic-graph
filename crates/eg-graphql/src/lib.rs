@@ -1,5 +1,5 @@
 //! eg-graphql — a native GraphQL surface over the engine's property-graph
-//! (CONCEPT:KG-2.235 reads; CONCEPT:EG-019 writes), all pure-Rust (NO async-graphql):
+//! (CONCEPT:EG-KG.query.sparql-completeness reads; CONCEPT:EG-KG.query.mutation writes), all pure-Rust (NO async-graphql):
 //!   * [`Schema::from_view`] — derives a GraphQL schema by introspecting a live
 //!     `GraphView` (node labels → object types, properties → scalar fields, edge
 //!     relationship types → object fields). The schema tracks the real graph with no
@@ -13,11 +13,11 @@
 //!   * [`execute_mutation`] — maps a GraphQL MUTATION (`createNode`/`updateNode`/
 //!     `deleteNode`/`addEdge`/`removeEdge`) onto eg-core's native write ops over the
 //!     live `GraphCore`, then shapes the affected node with the same selection-resolver
-//!     the query path uses (CONCEPT:EG-019).
+//!     the query path uses (CONCEPT:EG-KG.query.mutation).
 //!   * [`subscribe`] / [`subscribe_versioned`] — a poll over the current matches for a
 //!     GraphQL SUBSCRIPTION (a query that streams); the OCC `version()` lets a watcher
 //!     re-render only on change.
-//!   * [`LiveQuery`] — the real PUSH path (CONCEPT:EG-064): a subscription parsed once,
+//!   * [`LiveQuery`] — the real PUSH path (CONCEPT:EG-KG.query.graphql-push-path): a subscription parsed once,
 //!     re-resolved per change event. The server layer subscribes to `GraphCore::changes()`
 //!     and drives it over a WS/SSE carrier; this crate stays runtime-free.
 //!
@@ -31,7 +31,7 @@
 //! the surface simpler AND Pi-excludable. The facade gates the whole crate behind
 //! `graphql` (node/cluster/full, OUT of pi/default), so a Pi build links none of it.
 //!
-//! ## Fragments / variables / directives (CONCEPT:EG-065) + relay pagination (EG-066)
+//! ## Fragments / variables / directives (CONCEPT:EG-KG.query.fragments-variables-directives) + relay pagination (EG-066)
 //! [`execute_with_variables`] binds an operation's `$variables`, inlines named fragment
 //! spreads / inline fragments, and applies `@skip`/`@include` before resolving. A root
 //! field selected with a relay `edges { node cursor } pageInfo` shape resolves to a
@@ -40,11 +40,11 @@
 //!
 //! ## Deferred (documented)
 //! Interfaces/unions and relay pagination on nested EDGE fields (root-level connections
-//! are supported). A push subscription transport is now REAL (CONCEPT:EG-064) — see
+//! are supported). A push subscription transport is now REAL (CONCEPT:EG-KG.query.graphql-push-path) — see
 //! [`LiveQuery`] + the server carrier; the change stream is `GraphCore::changes()`. A
 //! parse error names the unsupported construct.
 
-/// CONCEPT:EG-379/380/381 — the GraphQL CROSS-MODAL transaction seam: a multi-request
+/// CONCEPT:EG-KG.query.eg-9/380/381 — the GraphQL CROSS-MODAL transaction seam: a multi-request
 /// `txnId` handle ([`crossmodal::CrossModalTxnRegistry`]) whose `beginTransaction` /
 /// `stageEmbedding` / `addMeasurement` / `sparqlUpdate` / `sparqlConstruct` /
 /// `unifiedQuery` / `commitTransaction` verbs stage graph + vector (+ tsdb) modalities,
@@ -55,13 +55,13 @@
 /// precedent); `addMeasurement` is behind `crossmodal-tsdb`.
 #[cfg(feature = "crossmodal")]
 pub mod crossmodal;
-/// CONCEPT:EG-295 — Apollo Federation v2 subgraph support (schema `@link` + `@key`/
+/// CONCEPT:EG-KG.query.apollo-federation-subgraph — Apollo Federation v2 subgraph support (schema `@link` + `@key`/
 /// `@shareable`/… directives, `_service.sdl`, `_entities`). Gated by the `federation`
 /// sub-feature (default-on; the facade's `graphql` feature pulls this crate with default
 /// features, so federation rides into graphql/node/full — see `Cargo.toml`).
 #[cfg(feature = "federation")]
 pub mod federation;
-/// CONCEPT:EG-296 — GraphQL enterprise hardening: query depth/complexity limits, a total
+/// CONCEPT:EG-KG.domains.graphql-enterprise-hardening — GraphQL enterprise hardening: query depth/complexity limits, a total
 /// field-count cap, Automatic Persisted Queries (APQ, sha256 registry), and an
 /// introspection toggle, bundled into a [`hardening::GraphQlPolicy`] applied by
 /// [`hardening::execute_with_policy`] BEFORE the existing resolver runs. Gated by the
@@ -216,7 +216,7 @@ mod tests {
         assert!(e.contains("no node type `Widget`"), "got {e}");
     }
 
-    /// THE equivalence proof (CONCEPT:KG-2.235): a GraphQL query returns the SAME node
+    /// THE equivalence proof (CONCEPT:EG-KG.query.sparql-completeness): a GraphQL query returns the SAME node
     /// set + the SAME field values as the EQUIVALENT Cypher query, run through the
     /// engine's real Cypher executor (eg-query). Two surfaces, one substrate.
     #[test]
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(gql2_targets, vec!["Bob"]);
     }
 
-    // ── writes (CONCEPT:EG-019) ───────────────────────────────────────────────────
+    // ── writes (CONCEPT:EG-KG.query.mutation) ───────────────────────────────────────────────────
 
     /// THE core write→read proof: a `createNode` mutation makes a node a subsequent
     /// query sees, with the values supplied in `props`.
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(d1["data"]["Person"].as_array().unwrap().len(), 4);
     }
 
-    /// CONCEPT:EG-064 — the REAL push path: a write emits a `ChangeEvent` over
+    /// CONCEPT:EG-KG.query.graphql-push-path — the REAL push path: a write emits a `ChangeEvent` over
     /// `GraphCore::changes()`, and the sink re-resolves the `LiveQuery` against a fresh
     /// snapshot, observing the new state. This exercises the exact eg-core → sink →
     /// eg-graphql re-resolve wiring the server carrier drives (minus the transport).
@@ -497,7 +497,7 @@ mod tests {
         );
     }
 
-    // ── fragments / variables / directives (CONCEPT:EG-065) ───────────────────────
+    // ── fragments / variables / directives (CONCEPT:EG-KG.query.fragments-variables-directives) ───────────────────────
 
     /// A fragment SPREAD + an INLINE fragment both inline into the selection: the
     /// resolved Person carries the fields from `...personFields` and from the
@@ -570,7 +570,7 @@ mod tests {
         assert!(p2.get("age").is_some(), "age should be present");
     }
 
-    // ── relay pagination (CONCEPT:EG-066) ─────────────────────────────────────────
+    // ── relay pagination (CONCEPT:EG-KG.query.graphql-cursors) ─────────────────────────────────────────
 
     /// A relay connection query returns the `edges/node/cursor` + `pageInfo` envelope,
     /// with `hasNextPage` reflecting the deterministic page window, and `after` paging
@@ -620,7 +620,7 @@ mod tests {
     }
 
     /// A plain `first`/`limit` selection (NO relay shape) keeps returning a bare array —
-    /// relay support is additive / non-breaking (CONCEPT:EG-066).
+    /// relay support is additive / non-breaking (CONCEPT:EG-KG.query.graphql-cursors).
     #[test]
     fn plain_first_still_returns_bare_array() {
         let view = fixture();

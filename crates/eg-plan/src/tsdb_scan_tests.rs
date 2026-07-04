@@ -355,7 +355,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// CONCEPT:EG-413 — `TsScan(series) → Window(60s) → Rank → Limit`: the windowed aggregate
+/// CONCEPT:EG-KG.compute.tsscan-series-window-60s — `TsScan(series) → Window(60s) → Rank → Limit`: the windowed aggregate
 /// CONSUMES the `(ts, value)` rows the tsdb SOURCE emits and PRODUCES one row per non-empty
 /// 60-second tumbling bucket (`id` = aligned bucket start ns, `score` = the MEAN), which
 /// then composes downstream into a vector `Rank` + `Limit`. Before EG-413 a TsScan row's
@@ -432,7 +432,7 @@ fn tsscan_window_mean_consumes_and_composes() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// CONCEPT:EG-414 — the selectable-aggregate `Op::WindowAgg` runs the SAME tumbling
+/// CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers — the selectable-aggregate `Op::WindowAgg` runs the SAME tumbling
 /// windower with a chosen aggregate: over "temp" (10/20/30 in one 60s bucket) SUM=60,
 /// MIN=10, MAX=30, COUNT=3.
 #[cfg(feature = "timeseries")]

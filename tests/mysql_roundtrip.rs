@@ -1,4 +1,4 @@
-//! MySQL/MariaDB wire cross-modal transaction round-trip test (CONCEPT:EG-377).
+//! MySQL/MariaDB wire cross-modal transaction round-trip test (CONCEPT:EG-KG.query.eg-8).
 //!
 //! Per-surface parity proof (the North-Star "seamless" discipline, EG-373): the in-txn
 //! cross-modal seam already routes through the SHARED `WireSession` (EG-074/EG-372), so
@@ -294,7 +294,7 @@ async fn query(stream: &mut TcpStream, sql: &str) -> QueryResult {
 
 // ── the cross-modal round-trip tests (mirror pgwire) ────────────────────────────────
 
-/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:EG-377 / EG-372):
+/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:EG-KG.query.eg-8 / EG-372):
 /// inside an open txn, a staged graph UPDATE AND a staged vector `SET EMBEDDING` are BOTH
 /// read back by an in-txn cross-modal `UQL` read over the MySQL wire (read-your-own-writes
 /// across the graph + vector modalities before COMMIT).
@@ -334,7 +334,7 @@ async fn mysql_wire_txn_update_then_cross_modal_read() {
     query(&mut c, "COMMIT").await;
 }
 
-/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:EG-377 /
+/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:EG-KG.query.eg-8 /
 /// EG-372) — the headline per-surface parity proof. A `BEGIN; INSERT node; SET EMBEDDING;
 /// INSERT INTO series; <UQL join over graph+vector>; COMMIT` reads its OWN writes inside
 /// the txn, while a SECOND connection sees NONE of them until COMMIT. After COMMIT the

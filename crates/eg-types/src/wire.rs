@@ -14,7 +14,7 @@
 ))]
 use serde::{Deserialize, Serialize};
 
-// ── unified cross-modal query plan AST (CONCEPT:KG-2.208) ────────────────────
+// ── unified cross-modal query plan AST (CONCEPT:AU-KG.compute.vector) ────────────────────
 
 /// A simple equality / range predicate over a node property, compiled to a SQL
 /// `WHERE` fragment and evaluated by the DataFusion FILTER leg in `eg-plan`.
@@ -28,7 +28,7 @@ pub enum Pred {
     /// `prop < n` (numeric).
     LtNum { prop: String, n: f64 },
     /// DOCUMENT/JSON — keep rows whose node property document satisfies a deep
-    /// JSONPath predicate (CONCEPT:EG-084). `path` is a JSONPath (`$.a.b`, `$.a[0]`,
+    /// JSONPath predicate (CONCEPT:EG-KG.query.json-wire-roundtrip). `path` is a JSONPath (`$.a.b`, `$.a[0]`,
     /// `$.a[*]`, wildcard) evaluated against the row's decoded JSON; `op` is the
     /// existence / equality / `@>`-containment test. This is the lowered form of the
     /// Postgres JSON operators (`->`, `->>`, `@>`, `jsonb_path_query`) and a Mongo-style
@@ -40,7 +40,7 @@ pub enum Pred {
     /// so it is present whenever `query` is on and adds NO dependency.
     JsonPath { path: String, op: JsonPathOp },
     /// SPATIAL — keep rows whose geometry (in node property `column`, stored as WKT)
-    /// is spatially WITHIN the query geometry `wkt` (CONCEPT:EG-083). Evaluated by
+    /// is spatially WITHIN the query geometry `wkt` (CONCEPT:EG-KG.ontology.singles-concept). Evaluated by
     /// eg-geo's planar `within` in eg-plan (behind the `geo` feature) — NOT lowered to
     /// SQL (DataFusion has no spatial), so the FILTER leg splits spatial preds out and
     /// applies them per-row against the stored geometry. Gated by `geo` (implies
@@ -48,7 +48,7 @@ pub enum Pred {
     #[cfg(feature = "geo")]
     SpatialWithin { column: String, wkt: String },
     /// SPATIAL — keep rows whose geometry (node property `column`, WKT) lies within
-    /// planar `distance` of the query geometry `wkt` — an `ST_DWithin` (CONCEPT:EG-083).
+    /// planar `distance` of the query geometry `wkt` — an `ST_DWithin` (CONCEPT:EG-KG.ontology.singles-concept).
     /// Evaluated by eg-geo's planar `distance` in eg-plan. Gated by `geo`.
     #[cfg(feature = "geo")]
     SpatialDWithin {
@@ -56,7 +56,7 @@ pub enum Pred {
         wkt: String,
         distance: f64,
     },
-    /// SPATIAL (DE-9IM, CONCEPT:EG-258) — keep rows whose geometry (node property `column`,
+    /// SPATIAL (DE-9IM, CONCEPT:EG-KG.ontology.de-9im-relations) — keep rows whose geometry (node property `column`,
     /// WKT) is topologically related to the query geometry `wkt` per the named DE-9IM
     /// relation. Each mirrors [`Pred::SpatialWithin`] (two strings) and is evaluated per-row
     /// by eg-geo's `predicates` in eg-plan — NOT lowered to SQL. Gated by `geo`.
@@ -83,7 +83,7 @@ pub enum Pred {
 }
 
 /// DOCUMENT/JSON — the test applied by [`Pred::JsonPath`] against the value(s) a
-/// JSONPath resolves to (CONCEPT:EG-084). PURE serde (a small tag + an optional
+/// JSONPath resolves to (CONCEPT:EG-KG.query.json-wire-roundtrip). PURE serde (a small tag + an optional
 /// `serde_json::Value` literal); the actual walk/containment lives in
 /// `eg_core::jsonpath` behind eg-plan's FILTER leg — this is the wire variant.
 #[cfg(feature = "query")]
@@ -100,7 +100,7 @@ pub enum JsonPathOp {
     Contains { value: serde_json::Value },
 }
 
-/// SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-259).
+/// SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-KG.ontology.concept-9).
 /// Pure serde here (Pi-safe, no eg-geo dep); the executor maps it to eg-geo's `algebra`
 /// behind eg-plan's `geo` gate. Unary ops (`Buffer`/`ConvexHull`/`Simplify`/`Centroid`)
 /// derive from the row geometry alone; binary ops (`Union`/`Intersection`/`Difference`)
@@ -124,7 +124,7 @@ pub enum SpatialOpKind {
     Difference { wkt: String },
 }
 
-/// TENSOR — how `TensorOpKind::Reduce` collapses one axis (CONCEPT:EG-085). Mirrors
+/// TENSOR — how `TensorOpKind::Reduce` collapses one axis (CONCEPT:EG-KG.storage.content-addressed-dedup). Mirrors
 /// eg-tensor's `ReduceKind`, but defined HERE (pure serde, no eg-tensor dep) so the
 /// wire stays Pi-safe; the executor maps it to eg-tensor's enum behind eg-plan's
 /// `tensor` gate.
@@ -138,7 +138,7 @@ pub enum TensorReduceKind {
 }
 
 /// TENSOR — the scalar op `TensorOpKind::Elementwise` applies to every element
-/// (CONCEPT:EG-085). Mirrors eg-tensor's `ElementwiseOp`; pure serde here.
+/// (CONCEPT:EG-KG.storage.content-addressed-dedup). Mirrors eg-tensor's `ElementwiseOp`; pure serde here.
 #[cfg(feature = "tensor")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TensorElementwiseOp {
@@ -148,7 +148,7 @@ pub enum TensorElementwiseOp {
     Div,
 }
 
-/// TENSOR — the transform carried by `Op::TensorOp` (CONCEPT:EG-085): one of the
+/// TENSOR — the transform carried by `Op::TensorOp` (CONCEPT:EG-KG.storage.content-addressed-dedup): one of the
 /// eg-tensor array ops, applied per-row to each row's tensor. `Slice` gathers a
 /// hyper-rectangle (`ranges[d] = (start, end)`, one per axis); `Reduce` collapses one
 /// `axis` with `kind`; `Elementwise` applies `op` with `scalar` to every element. PURE
@@ -171,7 +171,7 @@ pub enum TensorOpKind {
 }
 
 /// PROBABILISTIC — the evidence for a conjugate Bayesian update carried by
-/// [`ProbQuery::Conditional`] (CONCEPT:EG-086). Mirrors `eg_compute::probabilistic::Evidence`,
+/// [`ProbQuery::Conditional`] (CONCEPT:EG-KG.compute.uncertainty-values). Mirrors `eg_compute::probabilistic::Evidence`,
 /// but defined HERE (pure serde, no eg-compute dep) so the wire stays Pi-safe; the executor
 /// maps it to eg-compute's enum behind eg-plan's `probabilistic` gate. `Bernoulli` counts
 /// are the sufficient statistic for a Beta prior; `Gaussian` observations (with a KNOWN
@@ -190,7 +190,7 @@ pub enum ProbEvidenceSpec {
     },
 }
 
-/// PROBABILISTIC — the probabilistic query carried by `Op::Probabilistic` (CONCEPT:EG-086):
+/// PROBABILISTIC — the probabilistic query carried by `Op::Probabilistic` (CONCEPT:EG-KG.compute.uncertainty-values):
 /// one closed-form question asked of each row's stored `Distribution` VALUE.
 /// * `Expectation` — the mean `E[X]`.
 /// * `Marginal { at, label }` — the marginal probability: the density `pdf(at)` for the
@@ -221,7 +221,7 @@ pub enum ProbQuery {
     },
 }
 
-/// STREAM — a per-event attribute predicate for a CEP matcher (CONCEPT:EG-088). Mirrors
+/// STREAM — a per-event attribute predicate for a CEP matcher (CONCEPT:EG-KG.query.pipelined-execution). Mirrors
 /// eg-stream's `AttrPredicate`, but defined HERE (pure serde, no eg-stream dep) so the
 /// wire stays Pi-safe; the executor maps it to eg-stream's enum behind eg-plan's
 /// `stream` gate.
@@ -246,7 +246,7 @@ pub enum CepAttrPredSpec {
 }
 
 /// STREAM — one event matcher: an optional event `key` + attribute predicates that ALL
-/// must hold (CONCEPT:EG-088). Mirrors eg-stream's `EventMatcher`; pure serde here.
+/// must hold (CONCEPT:EG-KG.query.pipelined-execution). Mirrors eg-stream's `EventMatcher`; pure serde here.
 #[cfg(feature = "stream")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CepMatcherSpec {
@@ -256,7 +256,7 @@ pub struct CepMatcherSpec {
     pub preds: Vec<CepAttrPredSpec>,
 }
 
-/// STREAM — the sliding / tumbling window a CEP pattern runs over (CONCEPT:EG-088).
+/// STREAM — the sliding / tumbling window a CEP pattern runs over (CONCEPT:EG-KG.query.pipelined-execution).
 /// Mirrors eg-stream's `Window`; pure serde here.
 #[cfg(feature = "stream")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -265,7 +265,7 @@ pub enum CepWindowSpec {
     Tumbling { size: u64 },
 }
 
-/// STREAM — the CEP pattern tree (CONCEPT:EG-088): `Sequence` (matchers in order within
+/// STREAM — the CEP pattern tree (CONCEPT:EG-KG.query.pipelined-execution): `Sequence` (matchers in order within
 /// the window), `Within` (a duration constraint wrapping an inner pattern), `Absence`
 /// (`a` NOT-followed-by `b` within `within`). Mirrors eg-stream's `CepPattern`; pure
 /// serde — the actual NFA lives in eg-stream behind eg-plan's `stream` gate.
@@ -284,7 +284,7 @@ pub enum CepNodeSpec {
     },
 }
 
-/// STREAM — the full CEP spec carried by `Op::Cep` (CONCEPT:EG-088): the `pattern` tree
+/// STREAM — the full CEP spec carried by `Op::Cep` (CONCEPT:EG-KG.query.pipelined-execution): the `pattern` tree
 /// and the `window` it is evaluated over. PURE serde — the executor turns it into an
 /// eg-stream `run(pattern, events, window)` call behind eg-plan's `stream` gate; this is
 /// the wire variant.
@@ -296,7 +296,7 @@ pub struct CepPatternSpec {
 }
 
 /// A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`
-/// (CONCEPT:KG-2.232, Lane P). A federated query reads rows from a source OUTSIDE
+/// (CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE
 /// the local engine and composes them with the local graph/vector/SQL ops — so a
 /// `ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`. Two
 /// kinds, behind one wire enum; the `ForeignSource` trait in eg-plan turns each into
@@ -349,7 +349,7 @@ pub enum ForeignSourceSpec {
         /// Maps a JSON element to a RowSet row (which field is the id / the score).
         field_map: HttpFieldMap,
     },
-    /// An EXTERNAL relational-SQL database (Postgres/MySQL/…) (CONCEPT:KG-2.239). The
+    /// An EXTERNAL relational-SQL database (Postgres/MySQL/…) (CONCEPT:EG-KG.query.feature). The
     /// federation client connects to `dsn`, runs `query`, and maps each result row to a
     /// RowSet row: the column named `id_field` becomes the row id (stringified), and
     /// (optionally) `score_field` becomes the row score. This lets ONE unified plan JOIN
@@ -376,7 +376,7 @@ pub enum ForeignSourceSpec {
         score_field: Option<String>,
     },
     /// A NAMED reference to a foreign source registered in the executor's
-    /// `ForeignSourceRegistry` (CONCEPT:EG-073). Unlike the self-describing variants
+    /// `ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike the self-describing variants
     /// above (which carry the full connection spec inline), this carries ONLY a `name`
     /// — the executor resolves it to a concrete, pre-registered [`ForeignSource`] at
     /// plan time. This is the resolution seam the UQL `FOREIGN "<name>"` clause needs:
@@ -428,7 +428,7 @@ pub enum Op {
     Traverse { rel: String, min: usize, max: usize },
     /// RANK (vector) — re-order by cosine similarity to `query` (SemanticStore kNN).
     Rank { query: Vec<f32> },
-    /// RANK (vector-from-TEXT, CONCEPT:EG-411) — like `Rank`, but the query vector is
+    /// RANK (vector-from-TEXT, CONCEPT:EG-KG.compute.no-embedder-bound-op) — like `Rank`, but the query vector is
     /// RESOLVED at exec time from the natural-language `text` by the server-side embedder
     /// bound on the `PlanCtx` (`eg_plan::PlanCtx::with_embedder`). This closes the UQL
     /// `RANK BY ~ "text"` NL→vector seam: the front-end no longer needs the caller to
@@ -437,18 +437,18 @@ pub enum Op {
     /// `TextEmbedder` trait is dep-free; the kNN reuses the SAME `SemanticStore` path as
     /// `Rank`, so a build without an embedder is byte-for-byte unchanged).
     RankEmbed { text: String },
-    /// RANK (graph distance, CONCEPT:KG-2.254) — re-order the candidate set by inverse
+    /// RANK (graph distance, CONCEPT:EG-KG.query.uql-parser-ops) — re-order the candidate set by inverse
     /// shortest-path hop distance from `center` over the graph topology, score
     /// `1/(1+hops)` (unreachable → 0). A graph-NATIVE reranker (Graphiti's
     /// `node_distance`): proximity to a focal node, fused alongside vector/BM25. Reuses
     /// the same BFS the `Traverse` leg uses; dep-free, so it ships under base `query`.
     RankNodeDistance { center: String },
-    /// RANK (provenance salience, CONCEPT:KG-2.254) — re-order the candidate set by how
+    /// RANK (provenance salience, CONCEPT:EG-KG.query.uql-parser-ops) — re-order the candidate set by how
     /// many edges MENTION each node (incoming-edge count), score normalized to the max
     /// in the set. Graphiti's `episode_mentions` salience: a node many episodes point at
     /// ranks higher. Topology-only, dep-free, base `query`.
     RankMentions {},
-    /// RANK (MMR diversity, CONCEPT:KG-2.255) — re-order the candidate set by Maximal
+    /// RANK (MMR diversity, CONCEPT:AU-KG.retrieval.mmr-diversification) — re-order the candidate set by Maximal
     /// Marginal Relevance: greedily pick the next item maximizing
     /// `lambda*rel - (1-lambda)*max_sim_to_already_picked`, where rel is the item's
     /// incoming relevance score (from a prior `Rank`) and sim is cosine over stored
@@ -457,14 +457,14 @@ pub enum Op {
     /// `ctx.semantic` (always present), so base `query`.
     RankMmr { lambda: f32, k: usize },
     /// RANK (lexical, BM25) — re-order the candidate set by BM25 relevance to the
-    /// natural-language `query` string over the text index (CONCEPT:KG-2.215). A
+    /// natural-language `query` string over the text index (CONCEPT:AU-KG.query.text-spatial-time). A
     /// sibling of the vector `Rank`: it produces a score-per-id over the SAME RowSet
     /// currency, so the closed algebra is unchanged. Gated by `text` (the Tantivy
     /// index lives in eg-text behind its own gate; this is just the wire variant).
     #[cfg(feature = "text")]
     RankText { query: String },
     /// FUSE (hybrid) — reciprocal-rank-fusion of N SUB-PLAN `branches` over the SAME
-    /// seed into ONE ranked RowSet (CONCEPT:KG-2.215 / KG-2.253). The modern hybrid-
+    /// seed into ONE ranked RowSet (CONCEPT:AU-KG.query.text-spatial-time / KG-2.253). The modern hybrid-
     /// retrieval pattern, generalized past two legs: fuse the RANKS (not the
     /// incomparable BM25/cosine/distance scores) so a doc strong across MORE branches
     /// out-ranks one strong in only one. The canonical tri-modal hybrid is
@@ -473,7 +473,7 @@ pub enum Op {
     #[cfg(feature = "text")]
     FuseRrf { branches: Vec<Vec<Op>>, k: f32 },
     /// SOURCE (semantic, OWL) — seed the RowSet with every individual the native OWL 2
-    /// reasoner INFERS to be a member of `target_class` (CONCEPT:KG-2.219/220). The
+    /// reasoner INFERS to be a member of `target_class` (CONCEPT:EG-KG.ontology.incremental-materialization/220). The
     /// reasoner classifies the graph's TBox (the OWL axioms loaded as RDF) and returns
     /// the instances of `target_class` — INCLUDING ones reached through existential
     /// restrictions / role chains for which the property-graph stored NO explicit type
@@ -491,7 +491,7 @@ pub enum Op {
         ontology: String,
     },
     /// SOURCE (semantic, SPARQL) — seed the RowSet with the node bindings of `var` in
-    /// the result of the SPARQL `query` (a basic graph pattern, CONCEPT:KG-2.220),
+    /// the result of the SPARQL `query` (a basic graph pattern, CONCEPT:EG-KG.ontology.concept-12),
     /// evaluated over the request's graph. A SPARQL-selected candidate set as a normal
     /// RowSet source: it then flows into the SAME graph/vector/SQL/time ops as any
     /// other op. Gated by `owl` (which implies `sparql`).
@@ -503,7 +503,7 @@ pub enum Op {
         var: String,
     },
     /// UDF (WASM) — transform the current `RowSet` through a registered, SANDBOXED
-    /// WebAssembly user function (CONCEPT:KG-2.228). The executor serializes the input
+    /// WebAssembly user function (CONCEPT:EG-KG.query.rowset-execution). The executor serializes the input
     /// rows (ids + scores) to bytes, runs the wasm module `id` under fuel + memory
     /// limits with NO host capabilities, and deserializes the returned rows back into
     /// the pipeline. A pure `RowSet -> RowSet` op like every other, so a UDF composes
@@ -512,7 +512,7 @@ pub enum Op {
     #[cfg(feature = "wasm-udf")]
     Udf { id: String },
     /// SOURCE (federation) — read rows from an EXTERNAL source and seed the RowSet
-    /// (CONCEPT:KG-2.232, Lane P). `source` is either a REMOTE epistemic-graph engine
+    /// (CONCEPT:EG-KG.query.query-federation, Lane P). `source` is either a REMOTE epistemic-graph engine
     /// (queried over the same transport) or a generic HTTP/JSON API — see
     /// [`ForeignSourceSpec`]. The resulting RowSet then flows — like any other source
     /// op — into a downstream `Filter`/`Traverse`/`Rank`/`Limit`, so a federated query
@@ -523,7 +523,7 @@ pub enum Op {
     ///
     /// `ForeignScan` is the RESOLVED federation EXECUTOR (it carries a fully-specified
     /// [`ForeignSourceSpec`] and actually fetches+joins). The UQL `FOREIGN "<name>"`
-    /// clause (CONCEPT:KG-2.235) instead lowers to the lighter [`Op::Foreign`] name
+    /// clause (CONCEPT:EG-KG.query.sparql-completeness) instead lowers to the lighter [`Op::Foreign`] name
     /// MARKER below — the parser only has a name, and resolving that name to a concrete
     /// `ForeignSourceSpec` requires the server-side `foreign_sources` registry that
     /// eg-plan (below the server) cannot reach. The two are complementary: `Foreign`
@@ -539,7 +539,7 @@ pub enum Op {
         #[serde(default)]
         join: bool,
     },
-    /// TIME (`AS OF [TX] @<ts>`, CONCEPT:KG-2.235 / KG-2.250) — pin the RowSet to a
+    /// TIME (`AS OF [TX] @<ts>`, CONCEPT:EG-KG.query.sparql-completeness / KG-2.250) — pin the RowSet to a
     /// point-in-time `ts` (unix seconds) and DROP rows not live at that instant. A
     /// RowSet-narrowing temporal filter executed in `eg-plan` (dep-free blob scan, no
     /// DataFusion — Pi-safe). `axis` selects the timeline: `Valid` = "what was TRUE at
@@ -550,20 +550,20 @@ pub enum Op {
         #[serde(default)]
         axis: TimeAxis,
     },
-    /// TIME (`WINDOW <dur>`, CONCEPT:KG-2.235) — declare a trailing time window of
+    /// TIME (`WINDOW <dur>`, CONCEPT:EG-KG.query.sparql-completeness) — declare a trailing time window of
     /// `secs` seconds for the windowed time-series aggregate. A RowSet-preserving
     /// CONTEXT op paired with `AsOf`; passes the rows through unchanged today (the
     /// windowed aggregate is the eg-tsdb seam) but lets the `WINDOW <dur>` UQL clause
     /// lower to ONE plan AST. Always available under `query`.
     ///
-    /// As of CONCEPT:EG-413 the executor no longer merely passes the rows through: an
+    /// As of CONCEPT:EG-KG.compute.tsscan-series-window-60s the executor no longer merely passes the rows through: an
     /// `Op::Window` over a RowSet of `(ts, value)` rows (e.g. from `Op::TsScan`, or any
     /// scored row) now emits a REAL tumbling windowed aggregate (MEAN, via eg-tsdb's
     /// `time_bucket`) — one row per non-empty bucket (`id` = the aligned bucket start,
     /// `score` = the aggregate) — composing downstream into `Rank`/`Limit`. Under a
     /// non-`timeseries` build the op keeps its RowSet-preserving passthrough behavior.
     Window { secs: f64 },
-    /// TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-414) — the SELECTABLE-aggregate form of
+    /// TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers) — the SELECTABLE-aggregate form of
     /// `Op::Window`: a real tumbling windowed aggregate over `(ts, value)` rows whose
     /// aggregate function `agg` (one of `mean`/`avg`, `sum`, `min`, `max`, `count`,
     /// `first`, `last`; unknown ⇒ `mean`) is resolved to an `eg_tsdb::query::Agg`. Emits
@@ -572,7 +572,7 @@ pub enum Op {
     /// only wired under `timeseries`; a non-`timeseries` build passes the rows through, as
     /// `Window` does).
     WindowAgg { secs: f64, agg: String },
-    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235) — mark the seed as drawn from
+    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness) — mark the seed as drawn from
     /// the named foreign source `name` (a registered federation peer). A RowSet
     /// CONTEXT op: today it passes the rows through (the cross-source pull is the
     /// federation seam) but gives the `FOREIGN "<name>"` UQL clause a plan AST to lower
@@ -580,7 +580,7 @@ pub enum Op {
     /// `federation`-gated [`Op::ForeignScan`] above; see its note for why the UQL
     /// name marker stays distinct from the resolved spec.
     Foreign { name: String },
-    /// SOURCE (spatial, CONCEPT:EG-083) — seed the RowSet with every node in the spatial
+    /// SOURCE (spatial, CONCEPT:EG-KG.ontology.singles-concept) — seed the RowSet with every node in the spatial
     /// `layer` (a node label / `type`) whose geometry's bounding box intersects `bbox`
     /// (`[minx, miny, maxx, maxy]`). The executor builds eg-geo's packed Hilbert R-tree
     /// over the layer's geometries and runs `query_bbox`, so the returned candidate set
@@ -590,7 +590,7 @@ pub enum Op {
     /// + R-tree live in eg-geo behind eg-plan's own `geo` gate; this is the wire variant).
     #[cfg(feature = "geo")]
     SpatialScan { layer: String, bbox: [f64; 4] },
-    /// TRANSFORM (spatial CRS, CONCEPT:EG-255) — reproject each row's stored geometry into
+    /// TRANSFORM (spatial CRS, CONCEPT:EG-KG.domains.coordinate-reference-system) — reproject each row's stored geometry into
     /// the target CRS `to_epsg`. The SOURCE CRS is the row geometry's EWKT `SRID=…;` tag
     /// when present, else the explicit `from_epsg` override. Rows with no/invalid geometry,
     /// no resolvable source CRS, or an unsupported EPSG code are DROPPED (order-preserving,
@@ -604,7 +604,7 @@ pub enum Op {
         #[serde(default)]
         from_epsg: Option<u32>,
     },
-    /// TRANSFORM (constructive geometry, CONCEPT:EG-259) — apply the constructive op `kind`
+    /// TRANSFORM (constructive geometry, CONCEPT:EG-KG.ontology.concept-9) — apply the constructive op `kind`
     /// (buffer / convex-hull / simplify / centroid / union / intersection / difference) to
     /// each row's stored geometry, producing a DERIVED geometry per row. Rows whose geometry
     /// is missing/invalid or where the op yields nothing (e.g. an empty intersection) are
@@ -613,7 +613,7 @@ pub enum Op {
     /// variant. Gated by `geo`.
     #[cfg(feature = "geo")]
     SpatialOp { kind: SpatialOpKind },
-    /// SOURCE (tensor, CONCEPT:EG-085) — seed the RowSet with every node in the `layer`
+    /// SOURCE (tensor, CONCEPT:EG-KG.storage.content-addressed-dedup) — seed the RowSet with every node in the `layer`
     /// (a node label / `type`) that carries a stored tensor (a dense N-D array in the
     /// conventional `tensor` node property). The returned candidate set then flows —
     /// like any source op — into a downstream `TensorOp` (slice/reduce/elementwise) /
@@ -623,14 +623,14 @@ pub enum Op {
     /// content-addressed in the blob CAS per the concept row (`ChunkStore` + EG-071).
     #[cfg(feature = "tensor")]
     TensorScan { layer: String },
-    /// TRANSFORM (tensor, CONCEPT:EG-085) — apply the eg-tensor op `kind`
+    /// TRANSFORM (tensor, CONCEPT:EG-KG.storage.content-addressed-dedup) — apply the eg-tensor op `kind`
     /// (slice/reduce/elementwise) to each row's stored tensor. Rows whose tensor is
     /// missing/invalid or where the op fails are dropped (order-preserving), exactly as
     /// the spatial `Filter` leg drops rows with no geometry. Gated by `tensor`; the
     /// N-D array math lives in eg-tensor behind eg-plan's `tensor` gate.
     #[cfg(feature = "tensor")]
     TensorOp { kind: TensorOpKind },
-    /// TRANSFORM (stream, CONCEPT:EG-088) — run the bounded NFA CEP engine (eg-stream)
+    /// TRANSFORM (stream, CONCEPT:EG-KG.query.pipelined-execution) — run the bounded NFA CEP engine (eg-stream)
     /// over the input RowSet interpreted as a time-ordered event stream: each row's node
     /// blob carries `ts`/`key`/`attrs`, and the op keeps the rows that participate in a
     /// detected match (order-preserving, exactly as the spatial/tensor legs narrow their
@@ -642,7 +642,7 @@ pub enum Op {
     /// is what lands.
     #[cfg(feature = "stream")]
     Cep { pattern: CepPatternSpec },
-    /// FUSE (multimodal sensor fusion, CONCEPT:EG-098) — time-align N heterogeneous sensor
+    /// FUSE (multimodal sensor fusion, CONCEPT:EG-KG.query.multi-rate-sensor-stream) — time-align N heterogeneous sensor
     /// `streams` to ONE common clock and emit fused multi-channel rows. Each named stream is
     /// a node layer (label / `type`) whose nodes carry a `valid_from` event time and either a
     /// scalar `value` OR an opaque tensor-blob reference (an EG-085 camera/LiDAR frame). The
@@ -662,7 +662,7 @@ pub enum Op {
         streams: Vec<String>,
         tolerance_ns: u64,
     },
-    /// SOURCE (time-series, CONCEPT:EG-363) — seed the RowSet from native TSDB series.
+    /// SOURCE (time-series, CONCEPT:EG-KG.query.native-time-series) — seed the RowSet from native TSDB series.
     /// Scans each series in `series` for points in the `[from, to)` timestamp window and
     /// emits them as rows so a downstream `Rank`/`Limit`/`Filter` composes the tsdb leg
     /// with the graph/vector/relational legs in ONE plan (tsdb-in-plan fusion). Bounds
@@ -678,7 +678,7 @@ pub enum Op {
         from: f64,
         to: f64,
     },
-    /// TRANSFORM (probabilistic, CONCEPT:EG-086) — run the probabilistic query `query`
+    /// TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — run the probabilistic query `query`
     /// against each row's stored `Distribution` VALUE (the conventional `distribution`
     /// node property, the tagged serde form of `eg_types::Distribution`) and SCORE the
     /// row with the closed-form result — expectation / marginal probability / conditional
@@ -697,7 +697,7 @@ pub enum Op {
 }
 
 /// A logical plan: an ordered list of [`Op`]s over one `RowSet`. The serializable
-/// wire payload of `Method::UnifiedQuery` (CONCEPT:KG-2.208).
+/// wire payload of `Method::UnifiedQuery` (CONCEPT:AU-KG.compute.vector).
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
@@ -846,7 +846,7 @@ pub enum FittedModel {
     },
 }
 
-// ── Streaming / CDC / continuous queries / watch / triggers (CONCEPT:KG-2.229/230) ──
+// ── Streaming / CDC / continuous queries / watch / triggers (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ──
 // PURE-data wire DTOs for the reactive surface. They are produced/consumed by the
 // `streaming` handler over the existing one-Response-per-Request transport (cursor /
 // long-poll, NOT a side-channel), so the enum stays free of any server type.
@@ -864,7 +864,7 @@ pub enum CdcKind {
     RemoveEdge,
 }
 
-/// One ordered change in a graph's CDC feed (CONCEPT:KG-2.229). `seq` is the per-graph
+/// One ordered change in a graph's CDC feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). `seq` is the per-graph
 /// monotonic cursor: a consumer tails with `CdcRead { from_seq }` and re-reads from a
 /// later `seq` to skip what it has already seen. `before`/`after` carry the affected
 /// node/edge property blob (MessagePack) pre- and post-mutation; `None` means absent
@@ -896,7 +896,7 @@ pub struct CdcEvent {
     pub had_after: bool,
 }
 
-/// Spec for a registered continuous query (CONCEPT:KG-2.229), incrementally maintained
+/// Spec for a registered continuous query (CONCEPT:EG-KG.query.streaming-cdc-subscriptions), incrementally maintained
 /// as CDC changes arrive. One graph, one label filter, one aggregate. Deliberately
 /// SIMPLE — a counting/sum/filter view that updates on delta rather than re-running.
 #[cfg(feature = "streaming")]
@@ -934,7 +934,7 @@ pub struct ContinuousQueryResult {
     pub through_seq: u64,
 }
 
-/// A batch returned by a `Watch` long-poll (CONCEPT:KG-2.230): the matching changes
+/// A batch returned by a `Watch` long-poll (CONCEPT:EG-KG.query.wire-codec): the matching changes
 /// since the client's cursor plus the next cursor to resume from.
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -944,7 +944,7 @@ pub struct WatchBatch {
     pub next_seq: u64,
 }
 
-/// One trigger registration (CONCEPT:KG-2.230). When a CDC change in `graph` matches
+/// One trigger registration (CONCEPT:EG-KG.query.wire-codec). When a CDC change in `graph` matches
 /// `label` + `op`, the trigger fires its `action` (an opaque MessagePack payload the
 /// consumer interprets — e.g. a notification topic / a webhook spec). Fired actions
 /// are recorded in a per-graph fired log a client polls with `FiredTriggers`.
@@ -961,7 +961,7 @@ pub struct TriggerInfo {
     pub fire_count: u64,
 }
 
-/// A recorded trigger firing (CONCEPT:KG-2.230). Returned by `FiredTriggers` so a
+/// A recorded trigger firing (CONCEPT:EG-KG.query.wire-codec). Returned by `FiredTriggers` so a
 /// reaction consumer pulls the action payload + the change that fired it.
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -978,7 +978,7 @@ pub struct FiredAction {
     pub action: Vec<u8>,
 }
 
-// ── spatial wire-variant round-trip (CONCEPT:EG-083) ─────────────────────────
+// ── spatial wire-variant round-trip (CONCEPT:EG-KG.ontology.singles-concept) ─────────────────────────
 #[cfg(all(test, feature = "geo"))]
 mod geo_tests {
     use super::*;
@@ -1066,7 +1066,7 @@ mod geo_tests {
     }
 }
 
-// ── tensor wire-variant round-trip (CONCEPT:EG-085) ──────────────────────────
+// ── tensor wire-variant round-trip (CONCEPT:EG-KG.storage.content-addressed-dedup) ──────────────────────────
 #[cfg(all(test, feature = "tensor"))]
 mod tensor_tests {
     use super::*;
@@ -1105,14 +1105,14 @@ mod tensor_tests {
     }
 }
 
-// ── probabilistic wire-variant round-trip (CONCEPT:EG-086) ───────────────────
+// ── probabilistic wire-variant round-trip (CONCEPT:EG-KG.compute.uncertainty-values) ───────────────────
 #[cfg(all(test, feature = "probabilistic"))]
 mod probabilistic_tests {
     use super::*;
 
     /// The `Op::Probabilistic` variant + its `ProbQuery` / `ProbEvidenceSpec` DTOs are
     /// pure-serde and round-trip through MessagePack (the wire format) unchanged — the
-    /// proof `Method::UnifiedQuery { plan }` can carry a probabilistic plan (CONCEPT:EG-086).
+    /// proof `Method::UnifiedQuery { plan }` can carry a probabilistic plan (CONCEPT:EG-KG.compute.uncertainty-values).
     #[test]
     fn probabilistic_variants_round_trip() {
         let plan = Plan::new(vec![
@@ -1161,7 +1161,7 @@ mod probabilistic_tests {
     }
 }
 
-// ── stream / CEP wire-variant round-trip (CONCEPT:EG-088) ─────────────────────
+// ── stream / CEP wire-variant round-trip (CONCEPT:EG-KG.query.pipelined-execution) ─────────────────────
 #[cfg(all(test, feature = "stream"))]
 mod stream_tests {
     use super::*;
@@ -1231,7 +1231,7 @@ mod stream_tests {
     }
 }
 
-// ── sensor-fusion wire-variant round-trip (CONCEPT:EG-098) ───────────────────
+// ── sensor-fusion wire-variant round-trip (CONCEPT:EG-KG.query.multi-rate-sensor-stream) ───────────────────
 #[cfg(all(test, feature = "timeseries"))]
 mod timeseries_tests {
     use super::*;
@@ -1254,12 +1254,12 @@ mod timeseries_tests {
     }
 }
 
-// ── document/JSON wire-variant round-trip (CONCEPT:EG-084) ───────────────────
+// ── document/JSON wire-variant round-trip (CONCEPT:EG-KG.query.json-wire-roundtrip) ───────────────────
 #[cfg(all(test, feature = "query"))]
 mod docjson_tests {
     use super::*;
 
-    /// CONCEPT:EG-084 — the `Pred::JsonPath` variant + its `JsonPathOp` (existence /
+    /// CONCEPT:EG-KG.query.json-wire-roundtrip — the `Pred::JsonPath` variant + its `JsonPathOp` (existence /
     /// equality / `@>` containment) are pure serde and round-trip through MessagePack
     /// (the wire format) unchanged, so `Method::UnifiedQuery { plan }` can carry a deep
     /// JSON filter.
@@ -1293,7 +1293,7 @@ mod docjson_tests {
         assert_eq!(plan, back);
     }
 
-    /// CONCEPT:EG-084 — JSON round-trip too (the REST/UQL surface serializes the plan as
+    /// CONCEPT:EG-KG.query.json-wire-roundtrip — JSON round-trip too (the REST/UQL surface serializes the plan as
     /// JSON), proving the enum tags are stable across both wire encodings.
     #[test]
     fn eg084_jsonpath_pred_json_round_trips() {
