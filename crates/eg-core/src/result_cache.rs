@@ -51,14 +51,19 @@ fn cap_from_env() -> usize {
         .unwrap_or(DEFAULT_CAP)
 }
 
-/// Cache key: the query identity (a 128-bit hash of the query kind + text/plan) and
-/// the GraphCore version the result was computed against. A different version is a
-/// different key, so a write (which bumps the version) makes every prior result
-/// unreachable.
+/// Cache key: the query identity (a 128-bit hash of the query kind + text/plan), the
+/// GraphCore version the result was computed against, and the RLS ACTOR-SCOPE hash
+/// (CONCEPT:EG-KG.query.rls-scoped-result-cache). A different version is a different key,
+/// so a write (which bumps the version) makes every prior result unreachable; a different
+/// `actor_scope_hash` is ALSO a different key, so a result computed under one RLS actor's
+/// row-visibility is NEVER served to a different actor. When security/RLS is off the
+/// scope is `0` for every caller, so the key collapses to the plain `(query_hash, version)`
+/// pair and single-tenant caching is byte-for-byte the pre-RLS behavior.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Key {
     query_hash: u128,
     version: u64,
+    actor_scope_hash: u64,
 }
 
 /// One cached result + its last-access tick (for LRU recency).
@@ -133,11 +138,49 @@ impl ResultCache {
         ((hi as u128) << 64) | (lo as u128)
     }
 
-    /// Look up a cached result for `query_hash` at `version`. `Some(bytes)` is a HIT
-    /// (the result is current — its version matches the caller's live version);
-    /// `None` is a MISS (cold, evicted, or a write bumped the version since). Updates
-    /// the entry's recency on a hit and bumps the hit/miss counters (the proof seam).
+    /// Hash an RLS ACTOR-SCOPE identity (its row-visibility key, e.g. the caller's
+    /// `agent_id`) into the `actor_scope_hash` key component
+    /// (CONCEPT:EG-KG.query.rls-scoped-result-cache). An EMPTY scope — the single-tenant /
+    /// security-off case — hashes to `0`, so the key collapses to `(query_hash, version)`
+    /// and existing callers that never pass a scope are byte-for-byte unchanged. Two
+    /// callers with the same visibility key hash the same (they may share a cached result);
+    /// two with different keys hash differently (they NEVER do).
+    pub fn hash_actor_scope(scope: &str) -> u64 {
+        if scope.is_empty() {
+            return 0;
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        "actor-scope".hash(&mut h);
+        scope.hash(&mut h);
+        // Keep 0 reserved for "no scope": a real scope that happens to hash to 0 is
+        // nudged to 1, so a non-empty scope can never collide with the unscoped key.
+        let v = h.finish();
+        if v == 0 {
+            1
+        } else {
+            v
+        }
+    }
+
+    /// Look up a cached result for `query_hash` at `version` in the UNSCOPED (actor
+    /// scope `0`) namespace. `Some(bytes)` is a HIT (current); `None` is a MISS. This is
+    /// the security-off / single-tenant path — identical to before RLS scoping existed.
     pub fn get(&self, query_hash: u128, version: u64) -> Option<Vec<u8>> {
+        self.get_scoped(query_hash, version, 0)
+    }
+
+    /// Look up a cached result keyed additionally on the RLS `actor_scope_hash`
+    /// (CONCEPT:EG-KG.query.rls-scoped-result-cache). A result computed under one actor's
+    /// row-visibility is unreachable under a different actor's scope, so a cached plan
+    /// result is NEVER served across RLS actors. Pass `0` for the unscoped/security-off
+    /// case (what [`get`](Self::get) does). Updates recency on a hit and bumps the
+    /// hit/miss counters (the proof seam).
+    pub fn get_scoped(
+        &self,
+        query_hash: u128,
+        version: u64,
+        actor_scope_hash: u64,
+    ) -> Option<Vec<u8>> {
         if self.cap == 0 {
             self.misses
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -146,6 +189,7 @@ impl ResultCache {
         let key = Key {
             query_hash,
             version,
+            actor_scope_hash,
         };
         let mut inner = self.inner.lock();
         inner.clock += 1;
@@ -164,15 +208,29 @@ impl ResultCache {
         }
     }
 
-    /// Insert a freshly-computed result. Evicts the least-recently-used entry first
-    /// when at capacity. A no-op when the cache is disabled (`cap == 0`).
+    /// Insert a freshly-computed result into the UNSCOPED (actor scope `0`) namespace.
+    /// Evicts the LRU entry first when at capacity. A no-op when disabled (`cap == 0`).
     pub fn put(&self, query_hash: u128, version: u64, bytes: Vec<u8>) {
+        self.put_scoped(query_hash, version, 0, bytes);
+    }
+
+    /// Insert a freshly-computed result keyed additionally on the RLS `actor_scope_hash`
+    /// (CONCEPT:EG-KG.query.rls-scoped-result-cache). Evicts the LRU entry first when at
+    /// capacity. A no-op when the cache is disabled (`cap == 0`).
+    pub fn put_scoped(
+        &self,
+        query_hash: u128,
+        version: u64,
+        actor_scope_hash: u64,
+        bytes: Vec<u8>,
+    ) {
         if self.cap == 0 {
             return;
         }
         let key = Key {
             query_hash,
             version,
+            actor_scope_hash,
         };
         let mut inner = self.inner.lock();
         inner.clock += 1;
@@ -286,6 +344,41 @@ mod tests {
         c.invalidate_all();
         assert_eq!(c.len(), 0);
         assert!(c.get(q, 5).is_none());
+    }
+
+    #[test]
+    fn two_actors_never_share_a_cached_result() {
+        // CONCEPT:EG-KG.query.rls-scoped-result-cache — the SAME query at the SAME version
+        // under two different RLS actors keys distinctly, so actor B can never read the
+        // bytes actor A cached.
+        let c = ResultCache::new();
+        let q = ResultCache::hash_query("unified", b"MATCH (n) RETURN n");
+        let a = ResultCache::hash_actor_scope("agent-A");
+        let b = ResultCache::hash_actor_scope("agent-B");
+        assert_ne!(a, b, "distinct actors hash distinctly");
+
+        // A populates its scoped result at version 7.
+        c.put_scoped(q, 7, a, b"A-visible-rows".to_vec());
+        // A HITs its own scoped entry.
+        assert_eq!(
+            c.get_scoped(q, 7, a).as_deref(),
+            Some(&b"A-visible-rows"[..])
+        );
+        // B MISSES — it never sees A's rows even though query + version match.
+        assert_eq!(c.get_scoped(q, 7, b), None);
+        // The unscoped (security-off) namespace ALSO misses A's scoped entry.
+        assert_eq!(c.get(q, 7), None);
+    }
+
+    #[test]
+    fn unscoped_get_put_is_scope_zero() {
+        // The plain get/put path is exactly actor scope 0, so an explicit scope-0 scoped
+        // call sees the same entry an unscoped put made (single-tenant byte-identity).
+        let c = ResultCache::new();
+        let q = ResultCache::hash_query("sql", b"SELECT 1");
+        c.put(q, 0, b"x".to_vec());
+        assert_eq!(c.get_scoped(q, 0, 0).as_deref(), Some(&b"x"[..]));
+        assert_eq!(ResultCache::hash_actor_scope(""), 0);
     }
 
     #[test]
