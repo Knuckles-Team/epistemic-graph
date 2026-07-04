@@ -178,6 +178,34 @@ impl SemanticStore {
         }
     }
 
+    /// Incrementally remove `node_id`'s embedding (CONCEPT:EG-KG.storage.incremental-ann): drop it
+    /// from the embedding map and tombstone its live internal id in the resident HNSW
+    /// index (hnsw_rs cannot delete a point) — NO full rebuild. Returns `true` if an
+    /// embedding was removed. Called from the write coalescer's index-maintenance seam
+    /// when a node is removed, so kNN never returns a dead node.
+    pub fn remove_embedding(&mut self, node_id: &str) -> bool {
+        if self.embeddings.remove(node_id).is_none() {
+            return false;
+        }
+        let live_len = self.embeddings.len();
+        let mut idx = self.index.write();
+        if idx.hnsw.is_some() {
+            if let Some(&internal) = idx.id_to_internal.get(node_id) {
+                idx.tombstones.insert(internal);
+            }
+            idx.id_to_internal.remove(node_id);
+            idx.built_len = live_len;
+            // Deferred compaction: once dead points exceed the ratio, drop the index
+            // so the next search rebuilds a clean one (amortized O(n)).
+            if idx.order.len() >= BRUTE_FORCE_THRESHOLD
+                && idx.tombstones.len() * 100 >= idx.order.len() * COMPACT_TOMBSTONE_PCT
+            {
+                idx.hnsw = None;
+            }
+        }
+        true
+    }
+
     /// Force a clean rebuild that drops all tombstones (ops/maintenance hook).
     pub fn force_compact(&self) {
         let mut idx = self.index.write();
@@ -457,6 +485,54 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(before, ids.len(), "tombstoned dupes must not appear");
+    }
+
+    #[test]
+    fn remove_embedding_drops_from_store_and_search() {
+        // CONCEPT:EG-KG.storage.incremental-ann — brute-force regime: a removed embedding
+        // vanishes from the store and from search; survivors remain.
+        let mut store = SemanticStore::new();
+        store.add_embedding("a".into(), vec![1.0, 0.0, 0.0]);
+        store.add_embedding("b".into(), vec![0.0, 1.0, 0.0]);
+        store.add_embedding("c".into(), vec![0.9, 0.1, 0.0]);
+        assert_eq!(store.len(), 3);
+
+        assert!(store.remove_embedding("a"));
+        assert!(!store.remove_embedding("a"), "second remove is a no-op");
+        assert_eq!(store.len(), 2);
+        assert!(store.get_embedding("a").is_none());
+
+        let hits = store.semantic_search(&[1.0, 0.0, 0.0], 3);
+        assert!(
+            hits.iter().all(|(id, _)| id != "a"),
+            "removed id must never surface: {hits:?}"
+        );
+    }
+
+    #[test]
+    fn remove_embedding_tombstones_in_built_index() {
+        // Above the HNSW threshold + built: removing a node tombstones its internal
+        // id so search filters it, with no full rebuild.
+        let mut store = SemanticStore::new();
+        for i in 0..40 {
+            let mut emb = vec![0.1f32; 8];
+            emb[i % 8] = (i as f32) / 40.0;
+            store.add_embedding(format!("n{i}"), emb);
+        }
+        let _ = store.semantic_search(&[0.1; 8], 5); // build the index
+
+        let target = store.get_embedding("n3").unwrap();
+        assert!(store
+            .semantic_search(&target, 5)
+            .iter()
+            .any(|(id, _)| id == "n3"));
+
+        assert!(store.remove_embedding("n3"));
+        let after = store.semantic_search(&target, 10);
+        assert!(
+            after.iter().all(|(id, _)| id != "n3"),
+            "tombstoned node must not surface: {after:?}"
+        );
     }
 
     #[test]
