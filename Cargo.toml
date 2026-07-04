@@ -336,6 +336,23 @@ streaming = ["server", "eg-types/streaming"]
 # Pi-safe and folded into pi/node/cluster/full. The CDC feed (feature `streaming`)
 # drives cross-replica invalidation when both are present.
 result-cache = ["eg-core/result-cache"]
+# Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview): a NAMED,
+# DURABLE `wire::Plan` over one graph whose RESULT rides the version-keyed, RLS-aware
+# result cache. Defining it executes the plan once (via the eg-plan runtime) and caches
+# the bytes; a committed write bumps the graph version — and the CDC hub marks the view
+# stale (`src/server/matview/`) — so the next Get recomputes, never serving stale rows.
+# GENERALIZES the algo-only distributed-compute matview: its Method variants route
+# through the `compute-dist` dispatch line, so `matview` IMPLIES `compute-dist`; it needs
+# `query` (the Plan AST + runtime), `result-cache` (the result store) and `streaming`
+# (the CDC invalidation hook). NOT in `full` (it pulls `compute-dist`/raft, out of the
+# node tier) — lives with `cluster`; the reconcile folds it into the tier lines.
+matview = [
+    "compute-dist",
+    "query",
+    "result-cache",
+    "streaming",
+    "eg-types/matview",
+]
 # Cold object-store tier seam (CONCEPT:KG-2.233): a `ColdTier` trait (RAM→redb→
 # object-store) + an in-memory/redb default impl so a cold graph offloads its whole
 # serialized state and rehydrates on access (extends hibernation, CONCEPT:KG-2.224).
