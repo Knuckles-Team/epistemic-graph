@@ -547,7 +547,7 @@ pub(crate) async fn try_handle(
 /// (Filter, Rank) pair before execution (CONCEPT:KG-2.209). Synchronous — runs on
 /// the blocking pool via `compute_off_lock`, like the SQL/Cypher legs.
 #[cfg(feature = "query")]
-fn run_unified(
+pub(crate) fn run_unified(
     plan: eg_plan::Plan,
     reorder_filter_selectivity: Option<f64>,
     view: &crate::graph::GraphView,
@@ -695,7 +695,7 @@ async fn run_unified_overlaid(
 /// query observe the txn's own uncommitted graph writes. Only the durable-mutation set
 /// is ever staged (the protocol restricts `Txn*` to it); any other variant is a no-op.
 #[cfg(feature = "query")]
-fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &[Method]) {
+pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &[Method]) {
     for m in write_set {
         match m {
             Method::AddNode {
