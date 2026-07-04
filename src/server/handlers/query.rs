@@ -163,7 +163,7 @@ pub(crate) async fn try_handle(
                     &semantic,
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
-                    // Off-txn: no staged-series overlay (CONCEPT:EG-374).
+                    // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                     #[cfg(feature = "tsdb")]
                     None,
                 )
@@ -238,7 +238,7 @@ pub(crate) async fn try_handle(
                     &semantic,
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
-                    // Off-txn: no staged-series overlay (CONCEPT:EG-374).
+                    // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                     #[cfg(feature = "tsdb")]
                     None,
                 )
@@ -361,7 +361,7 @@ pub(crate) async fn try_handle(
                     &semantic,
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
-                    // Off-txn: no staged-series overlay (CONCEPT:EG-374).
+                    // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                     #[cfg(feature = "tsdb")]
                     None,
                 )
@@ -566,7 +566,7 @@ pub(crate) fn run_unified(
     // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
     // yields no rows (degrade, never err). Only exists under the `tsdb` feature.
     #[cfg(feature = "tsdb")] tsdb: Option<&eg_tsdb::store::SeriesStore>,
-    // In-txn tsdb read-your-own-writes (CONCEPT:EG-374): the resolved txn's OWN staged,
+    // In-txn tsdb read-your-own-writes (CONCEPT:EG-KG.query.txn-tsdb-read-your): the resolved txn's OWN staged,
     // uncommitted series points, overlaid onto `Op::TsScan` BEFORE the committed store so
     // an in-txn UQL reads its own measurements. `None` off-txn ⇒ committed series only.
     #[cfg(feature = "tsdb")] staged_series: Option<&eg_plan::StagedSeries>,
@@ -609,7 +609,7 @@ pub(crate) fn run_unified(
         Some(store) => ctx.with_tsdb(store),
         None => ctx,
     };
-    // CONCEPT:EG-374: attach the txn's staged-series overlay so an in-txn `Op::TsScan`
+    // CONCEPT:EG-KG.query.txn-tsdb-read-your: attach the txn's staged-series overlay so an in-txn `Op::TsScan`
     // reads its own uncommitted points (RYOW). Absent overlay ⇒ committed series only.
     #[cfg(feature = "tsdb")]
     let ctx = match staged_series {
@@ -679,7 +679,7 @@ async fn run_unified_overlaid(
     // fusion inside the txn, so an in-txn UQL reads COMMITTED series.
     #[cfg(feature = "tsdb")]
     let tsdb = state.read().await.tsdb_store.clone();
-    // CONCEPT:EG-374 — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
+    // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
     // off-txn read (no overlay) still sees committed only. `SeriesStore` is redb-file-

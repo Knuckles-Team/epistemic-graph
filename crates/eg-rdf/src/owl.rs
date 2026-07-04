@@ -1504,7 +1504,7 @@ pub fn instances_of_weighted(
     out
 }
 
-/// Bridge a node's string `type` to an OWL class KEY (CONCEPT:EG-376) — the string-type
+/// Bridge a node's string `type` to an OWL class KEY (CONCEPT:EG-KG.ontology.string-type-iri-class) — the string-type
 /// ↔ IRI-class bridge. An already-IRI `t` (`<...>` or `http…`) is returned in canonical
 /// `<iri>` form; a BARE local name (`Widget`) is mapped to `<class_base + t>` when a
 /// `class_base` is supplied (the `REASON` target's namespace), else returned as-is (the
@@ -1522,7 +1522,7 @@ pub fn bridge_type_to_class(t: &str, class_base: Option<&str>) -> String {
     }
 }
 
-/// The NAMESPACE of a class IRI (CONCEPT:EG-376) — everything up to and INCLUDING the
+/// The NAMESPACE of a class IRI (CONCEPT:EG-KG.ontology.string-type-iri-class) — everything up to and INCLUDING the
 /// last `/` or `#`, the base the string-type↔IRI-class bridge maps a bare local name
 /// into. `<http://ex/Device>` → `http://ex/`; `<http://ex#Device>` → `http://ex#`.
 /// `None` when `iri` is not an IRI (a bare label has no namespace to inherit) or carries
@@ -1539,7 +1539,7 @@ pub fn class_namespace(iri: &str) -> Option<String> {
 /// Read the asserted `instance -> {class}` assignments out of a GraphView's node
 /// blobs (the folded `type` property + any explicit `rdf:type` edges) so a `Reason`
 /// Op can classify the live graph. The class ids are canonical `<iri>` form to match
-/// the ontology signature. `class_base` (CONCEPT:EG-376) bridges a BARE string `type`
+/// the ontology signature. `class_base` (CONCEPT:EG-KG.ontology.string-type-iri-class) bridges a BARE string `type`
 /// into that namespace so a string-typed node participates in `REASON <iri>`; `None`
 /// keeps a bare type as-is (the prior behavior).
 pub fn asserted_types_from_view(
@@ -1611,7 +1611,7 @@ pub fn asserted_types_with_confidence_from_view(
     for (id, blob) in &view.node_properties {
         if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
-                // Bridge a bare string type into `class_base` (CONCEPT:EG-376) when given.
+                // Bridge a bare string type into `class_base` (CONCEPT:EG-KG.ontology.string-type-iri-class) when given.
                 let class = bridge_type_to_class(t, class_base);
                 let c = fact_conf_of(&v, now, default_half_life);
                 out.entry(id.clone()).or_default().push((class, c));
@@ -1742,7 +1742,7 @@ pub fn reason_distributed_weighted(
 
     // 3. Gather + UNION the asserted (decayed-confidence) facts across every shard.
     //    A fact for the same instance asserted on two shards keeps the STRONGER.
-    // Bridge bare string types into the target class's namespace (CONCEPT:EG-376) so a
+    // Bridge bare string types into the target class's namespace (CONCEPT:EG-KG.ontology.string-type-iri-class) so a
     // string-typed node participates in a distributed `REASON <iri>` too.
     let class_base = class_namespace(target_class);
     let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();

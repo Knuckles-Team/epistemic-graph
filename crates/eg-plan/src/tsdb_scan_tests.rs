@@ -262,7 +262,7 @@ fn tsdb_in_plan_fusion() {
     let _ = std::fs::remove_file(&path);
 }
 
-/// In-txn tsdb READ-YOUR-OWN-WRITES (CONCEPT:EG-374): a `StagedSeries` overlay attached
+/// In-txn tsdb READ-YOUR-OWN-WRITES (CONCEPT:EG-KG.query.txn-tsdb-read-your): a `StagedSeries` overlay attached
 /// to the ctx via `with_staged_series` makes `Op::TsScan` read the transaction's OWN
 /// staged, uncommitted points MERGED with (and taking precedence over) the committed
 /// `SeriesStore`, while a scan with NO overlay attached sees committed points only.

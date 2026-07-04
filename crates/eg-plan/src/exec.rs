@@ -77,7 +77,7 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "timeseries")]
     pub tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
-    /// CONCEPT:EG-374 — an in-memory STAGED-series overlay consulted by `Op::TsScan`
+    /// CONCEPT:EG-KG.query.txn-tsdb-read-your — an in-memory STAGED-series overlay consulted by `Op::TsScan`
     /// BEFORE the committed [`Self::tsdb`] store, so an in-txn UQL reading a series sees
     /// the transaction's OWN uncommitted staged points (read-your-own-writes). `None` (the
     /// default) makes a `TsScan` read committed series only — byte-for-byte the prior
@@ -90,7 +90,7 @@ pub struct PlanCtx<'a> {
 }
 
 /// An in-memory overlay of a transaction's STAGED, uncommitted time-series points
-/// (CONCEPT:EG-374) — the in-txn tsdb read-your-own-writes source. The native
+/// (CONCEPT:EG-KG.query.txn-tsdb-read-your) — the in-txn tsdb read-your-own-writes source. The native
 /// [`eg_tsdb::store::SeriesStore`] is redb-file-backed with no in-memory overlay, so an
 /// in-txn `Op::TsScan` cannot see the txn's own staged `measurements` through it; this
 /// dep-free map (series id → its staged `(ts_ns, field_values)` points) is consulted
@@ -218,7 +218,7 @@ impl<'a> PlanCtx<'a> {
 
     /// Attach a [`StagedSeries`] overlay so an `Op::TsScan` reads a transaction's OWN
     /// staged, uncommitted time-series points BEFORE/merged-with the committed store
-    /// (CONCEPT:EG-374 — in-txn tsdb read-your-own-writes). Without this call a `TsScan`
+    /// (CONCEPT:EG-KG.query.txn-tsdb-read-your — in-txn tsdb read-your-own-writes). Without this call a `TsScan`
     /// reads committed series only, so a default ctx is byte-for-byte the old one.
     #[cfg(feature = "timeseries")]
     pub fn with_staged_series(mut self, staged: &'a StagedSeries) -> Self {
@@ -591,7 +591,7 @@ fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet
     let cls = reasoner.classify_weighted();
 
     let target = normalize_class(target_class);
-    // String-type↔IRI-class bridge (CONCEPT:EG-376): derive the bridge base from the
+    // String-type↔IRI-class bridge (CONCEPT:EG-KG.ontology.string-type-iri-class): derive the bridge base from the
     // REASON target IRI's namespace, so a node with a BARE string `type` (e.g.
     // `{"type":"Sensor"}`) is resolved as `<base/Sensor>` and — through the TBox subclass
     // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
@@ -817,7 +817,7 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
 /// timed streams. Rows dedup by id (ts): on a ts shared across series the FIRST series'
 /// point wins ([`RowSet::from_scored`] keeps the first occurrence).
 ///
-/// CONCEPT:EG-374 — in-txn read-your-own-writes: when a [`StagedSeries`] overlay is
+/// CONCEPT:EG-KG.query.txn-tsdb-read-your — in-txn read-your-own-writes: when a [`StagedSeries`] overlay is
 /// attached ([`PlanCtx::with_staged_series`]), the transaction's OWN staged points are
 /// emitted FIRST (before the committed store), so on a ts a series staged in-txn shadows
 /// the committed value (RYOW precedence) and staged-only points (a series the txn just

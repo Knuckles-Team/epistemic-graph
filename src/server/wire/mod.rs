@@ -393,7 +393,7 @@ enum NodeOp {
     Remove { id: String },
 }
 
-/// The CROSS-MODAL write-set staged inside an open wire transaction (CONCEPT:EG-372).
+/// The CROSS-MODAL write-set staged inside an open wire transaction (CONCEPT:EG-KG.txn.isolation-ryow-begin-set).
 /// Parallel to the graph-node [`GraphTxnBuffer`] + user-table `TableTxn` buffers, this
 /// holds the NON-graph-topology modalities a pgwire `SET EMBEDDING` / `INSERT INTO
 /// series` / `SPARQL UPDATE` / `SPARQL CONSTRUCT` statement stages while a `BEGIN` is
@@ -472,7 +472,7 @@ pub struct WireSession {
     /// In-flight `COPY … FROM STDIN` state (CONCEPT:EG-KG.query.register-each-user-table), set between the copy-in
     /// response and the wire's copy-done/copy-fail hook.
     copy: parking_lot::Mutex<Option<CopyState>>,
-    /// The OPEN transaction's staged CROSS-MODAL write-set (CONCEPT:EG-372) — vectors,
+    /// The OPEN transaction's staged CROSS-MODAL write-set (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — vectors,
     /// measurements, and lowered OWL/CONSTRUCT methods from the pgwire cross-modal
     /// statements. Empty when no `BEGIN` is active or the txn touched no cross-modal
     /// modality; when non-empty at `COMMIT` the whole txn commits atomically through the
@@ -538,7 +538,7 @@ impl WireSession {
         }
     }
 
-    /// Drain the open transaction's staged CROSS-MODAL write-set (CONCEPT:EG-372),
+    /// Drain the open transaction's staged CROSS-MODAL write-set (CONCEPT:EG-KG.txn.isolation-ryow-begin-set),
     /// leaving it empty. Called by `COMMIT` (to hand the modalities to the shared
     /// cross-modal commit) and `ROLLBACK` (drain-and-drop).
     #[cfg(feature = "query")]
@@ -901,7 +901,7 @@ impl WireSession {
         }
         // The graph a txn was pinned to at BEGIN (node ops are scoped to it).
         let graph = self.txn_graph.lock().clone();
-        // Drain the staged cross-modal write-set (CONCEPT:EG-372) BEFORE the buffers.
+        // Drain the staged cross-modal write-set (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) BEFORE the buffers.
         #[cfg(feature = "query")]
         let xmodal = self.take_xmodal();
         #[cfg(feature = "query")]
@@ -2136,7 +2136,7 @@ impl WireSession {
         Ok(map)
     }
 
-    // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-372) ──────────────────────
+    // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) ──────────────────────
     // The PGWIRE TEXT entrypoint for the EG-359..363 in-txn cross-modal seam. These
     // recognize the cross-modal verbs (`UQL …`, `SET EMBEDDING FOR …`, `INSERT INTO
     // series …`, `SPARQL UPDATE …`, `SPARQL CONSTRUCT …`) and route them onto the
@@ -2184,7 +2184,7 @@ impl WireSession {
         Ok(methods)
     }
 
-    /// Detect a cross-modal verb (CONCEPT:EG-372). Cheap prefix classification only —
+    /// Detect a cross-modal verb (CONCEPT:EG-KG.txn.isolation-ryow-begin-set). Cheap prefix classification only —
     /// the heavy parse (vector literal, series tuple, SPARQL) happens in
     /// [`WireSession::exec_crossmodal`] so a parse error becomes a clean `WireError`.
     #[cfg(feature = "query")]
@@ -2227,7 +2227,7 @@ impl WireSession {
         }
     }
 
-    /// Execute a detected cross-modal verb (CONCEPT:EG-372). A UQL read runs over the
+    /// Execute a detected cross-modal verb (CONCEPT:EG-KG.txn.isolation-ryow-begin-set). A UQL read runs over the
     /// RYOW overlay (in a txn) or the committed snapshot (off-txn); a cross-modal write
     /// stages into the open txn's [`XmodalStaged`] buffer, or — off-txn — auto-commits as
     /// ONE atomic cross-modal statement so the seam is seamless at both surfaces.
@@ -2299,12 +2299,12 @@ impl WireSession {
         }
     }
 
-    /// Run a UQL unified cross-modal read over the current graph (CONCEPT:EG-372). In a
+    /// Run a UQL unified cross-modal read over the current graph (CONCEPT:EG-KG.txn.isolation-ryow-begin-set). In a
     /// txn the committed snapshot is OVERLAID with the txn's staged graph writes (the
     /// wire node buffer + lowered OWL/CONSTRUCT methods) and staged vectors, giving
     /// read-your-own-writes; off-txn it reads the committed store (the overlay is empty).
     /// Reuses the EXTRACTED `run_unified` executor + `overlay_write_set`/`semantic_overlay`
-    /// — no plan logic duplicated. In-txn tsdb read-your-own-writes (CONCEPT:EG-374) is
+    /// — no plan logic duplicated. In-txn tsdb read-your-own-writes (CONCEPT:EG-KG.query.txn-tsdb-read-your) is
     /// wired too: the txn's staged, uncommitted `measurements` are overlaid into `Op::TsScan`
     /// via a `StagedSeries` so an in-txn UQL reads its own points; off-txn `TsScan` reads
     /// committed series only.
@@ -2322,7 +2322,7 @@ impl WireSession {
         } else {
             (Vec::new(), Vec::new())
         };
-        // CONCEPT:EG-374 — build the in-txn staged-series RYOW overlay from the wire txn's
+        // CONCEPT:EG-KG.query.txn-tsdb-read-your — build the in-txn staged-series RYOW overlay from the wire txn's
         // staged, uncommitted measurements (empty off-txn ⇒ committed series only).
         #[cfg(feature = "tsdb")]
         let staged_series = {
@@ -2357,7 +2357,7 @@ impl WireSession {
     }
 
     /// Build a fresh single-statement [`crate::server::txn::GraphTxnState`] pinned to
-    /// `graph` for an off-txn cross-modal auto-commit (CONCEPT:EG-372).
+    /// `graph` for an off-txn cross-modal auto-commit (CONCEPT:EG-KG.txn.isolation-ryow-begin-set).
     #[cfg(feature = "query")]
     async fn new_txn_state(&self, graph: &str) -> WireResult<crate::server::txn::GraphTxnState> {
         let core = self.graph_core(graph).await?;
@@ -2373,7 +2373,7 @@ impl WireSession {
     }
 
     /// Commit an assembled [`crate::server::txn::GraphTxnState`] through the SHARED RPC
-    /// cross-modal commit (CONCEPT:EG-372) — the SAME `commit_cross_modal_txn` the RPC
+    /// cross-modal commit (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — the SAME `commit_cross_modal_txn` the RPC
     /// `Method::Commit` drives, so graph + vector + OWL modalities land atomically in ONE
     /// redb `WriteTransaction` (in-memory-only on a no-persistence engine). Used by both
     /// the off-txn auto-commit and the wire `COMMIT` of a cross-modal txn.
@@ -2393,7 +2393,7 @@ impl WireSession {
     }
 }
 
-/// A detected cross-modal wire statement (CONCEPT:EG-372) — the parser/router output of
+/// A detected cross-modal wire statement (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — the parser/router output of
 /// [`WireSession::detect_crossmodal`]. Carries the raw statement text; the heavy parse
 /// happens in [`WireSession::exec_crossmodal`].
 #[cfg(feature = "query")]
@@ -2441,7 +2441,7 @@ fn uql_rows_to_result(rows: Vec<(String, Option<f32>)>) -> TypedQueryResult {
     TypedQueryResult { columns, rows }
 }
 
-/// Parse `SET EMBEDDING FOR <id> = <vector>` (CONCEPT:EG-372) into `(node_id, embedding)`.
+/// Parse `SET EMBEDDING FOR <id> = <vector>` (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) into `(node_id, embedding)`.
 /// `<id>` and `<vector>` may be single/double-quoted; `<vector>` is a `[a, b, c]` literal.
 #[cfg(feature = "query")]
 fn parse_set_embedding(sql: &str) -> WireResult<(String, Vec<f32>)> {
@@ -2485,7 +2485,7 @@ fn parse_set_embedding(sql: &str) -> WireResult<(String, Vec<f32>)> {
     Ok((id, out))
 }
 
-/// Parse `INSERT INTO series (cols) VALUES (vals)` (CONCEPT:EG-372) into a
+/// Parse `INSERT INTO series (cols) VALUES (vals)` (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) into a
 /// [`crate::server::txn::StagedMeasurement`] — one point. Columns `id`/`series`,
 /// `ts`/`time`, `value`/`val` (any order); values may be quoted.
 #[cfg(feature = "query")]
@@ -2616,7 +2616,7 @@ impl WireProtocol for WireSession {
         }
         let graph = self.current_graph();
 
-        // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-372) ──────────────────
+        // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) ──────────────────
         // Recognize the cross-modal verbs BEFORE the SQL classifier (a UQL query / a
         // `SET EMBEDDING` / an `INSERT INTO series` / a `SPARQL …` statement is not SQL)
         // and route them onto the committed RPC seam. The same aborted-txn gate,
