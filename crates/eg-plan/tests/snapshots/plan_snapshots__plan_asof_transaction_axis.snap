@@ -1,0 +1,13 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&parsed.ops)
+---
+[
+    Scan {
+        label: "Event",
+    },
+    AsOf {
+        ts: 150.0,
+        axis: Transaction,
+    },
+]
