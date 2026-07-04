@@ -550,6 +550,28 @@ pub(crate) async fn try_handle(
     }
 }
 
+/// The process-wide server-side text→vector embedder for the UQL `RANK BY ~ "text"`
+/// (`Op::RankEmbed`) NL→vector seam (CONCEPT:EG-412 / EG-411) — the FACADE injection point.
+/// Returns the bound embedder, or `None` when none is configured (an `Op::RankEmbed` then
+/// errors cleanly). The engine stores embeddings but produces them client-side today, so no
+/// in-process model ships and the default is `None`; `EG_UQL_TEXT_EMBEDDER=hash` binds the
+/// deterministic `HashEmbedder` fallback (offline/testing — arbitrary ranking). A real
+/// embedding model (an ONNX/remote-service impl of `eg_plan::TextEmbedder`) is wired in HERE.
+#[cfg(feature = "query")]
+fn uql_text_embedder() -> Option<&'static dyn eg_plan::TextEmbedder> {
+    use std::sync::OnceLock;
+    static EMBEDDER: OnceLock<Option<eg_plan::HashEmbedder>> = OnceLock::new();
+    EMBEDDER
+        .get_or_init(
+            || match std::env::var("EG_UQL_TEXT_EMBEDDER").ok().as_deref() {
+                Some("hash") => Some(eg_plan::HashEmbedder::default()),
+                _ => None,
+            },
+        )
+        .as_ref()
+        .map(|e| e as &dyn eg_plan::TextEmbedder)
+}
+
 /// Execute a unified cross-modal plan (CONCEPT:KG-2.208/209) over one off-lock
 /// snapshot and return the result rows as `[id, score|nil]`. When
 /// `reorder_filter_selectivity` is set, the cost model reorders an adjacent
@@ -602,6 +624,20 @@ pub(crate) fn run_unified(
     // explicit follow-up integration (CONCEPT:KG-2.215 increment 2); the algebra +
     // index crate land + are proven here.
     let ctx = PlanCtx::new(view, semantic);
+    // CONCEPT:EG-412 — bind the server-side text→vector embedder so a UQL `RANK BY ~ "text"`
+    // (`Op::RankEmbed`) resolves its query vector at exec time (the NL→vector seam,
+    // EG-411). This is the facade INJECTION POINT: the engine stores embeddings but
+    // produces them CLIENT-side today (no in-process model), so a real embedding model — an
+    // ONNX/remote embedding-service impl of `eg_plan::TextEmbedder` producing vectors in the
+    // graph's embedding space — is bound HERE. Absent a bound model an `Op::RankEmbed` is a
+    // clean typed error (never a panic), exactly the documented unbound behavior. The
+    // deterministic `HashEmbedder` fallback is opt-in via `EG_UQL_TEXT_EMBEDDER=hash` so the
+    // seam is exercisable end-to-end offline (its ranking is deterministic but semantically
+    // arbitrary — never the production default).
+    let ctx = match uql_text_embedder() {
+        Some(embedder) => ctx.with_embedder(embedder),
+        None => ctx,
+    };
     // RECONCILE (CONCEPT:EG-363): attach the committed tsdb store so `Op::TsScan`
     // sources real series (tsdb-in-plan fusion). Absent store ⇒ ctx unchanged.
     #[cfg(feature = "tsdb")]
