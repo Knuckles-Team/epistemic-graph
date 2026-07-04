@@ -162,6 +162,33 @@ a 30-second min-aggregate. Canonical example — downsample a series and rerank:
 #### `LIMIT`
 `LIMIT 10` → `Limit{k}`. Order-respecting top-k.
 
+## Composition, sources & commutativity (the empty ⇒ source rule)
+
+UQL ops compose as a left-to-right fold over one RowSet, but composition is **deliberately
+not freely commutative**. The rule is: **an op fed an EMPTY RowSet acts as a SOURCE** — a
+`WHERE` / `AS OF` / `REASON` (and the rank leaves) with no surviving input re-seeds from the
+whole snapshot instead of staying empty. This is what lets a **bare** op be a leaf source: a
+query may start with `AS OF @t` (every node live at `t`), `REASON <Class>` (every inferred
+member), or `TEXT "q"` (every lexical hit) with no upstream `MATCH`. It is **intended
+semantics, not a bug** (EG-405 / `EG-KG.query.empty-set-commutativity`).
+
+Consequence for reordering: two narrowers do **not** commute when the first empties the set.
+Over the Event fixture at `ts=100`, `WHERE level>9` (which matches nothing) `|> AS OF @100`
+yields `[e1]` (the empty filter output makes `AS OF` a source), while `AS OF @100 |> WHERE
+level>9` yields `[]`. The algebraic commute law therefore holds **only in the non-emptying
+regime**. The cost optimizer respects this precisely: it reorders **only** an adjacent
+*narrower-vs-`RANK`* pair whose input comes from a source and where **both** candidate
+intermediates stay ≥ 1 row — never *narrower-vs-narrower* (the exact EG-405 witness), so no
+rewrite can silently flip an op's source-vs-filter role. The witnesses
+`plan_proptest::empty_intermediate_reseeds_source_breaks_commute` (the break) and
+`filter_and_asof_commute_in_nonempty_regime` (the law when non-empty) are the **spec**: a
+change to this behavior must update them and the `docs/north_star.md` row.
+
+`REASON` confidence is **decay-neutral by default** (a bare `REASON` is a stable, deterministic
+leaf). A server/facade may bind a `(now, half_life)` decay context onto the plan context
+(`PlanCtx::with_decay`, `EG-KG.query.reason-decay-in-plan`) so `REASON` membership confidence is
+Ebbinghaus-decayed **in-plan** and composes alongside `AS OF` in one fused pipeline.
+
 ## Op mapping (cheat sheet)
 
 | UQL | `wire::Op` |

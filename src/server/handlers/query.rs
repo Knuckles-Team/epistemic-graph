@@ -657,11 +657,63 @@ fn uql_text_embedder() -> Option<&'static dyn eg_plan::TextEmbedder> {
         .map(|e| e as &dyn eg_plan::TextEmbedder)
 }
 
+/// Does `ops` reference a lexical text op — an `Op::RankText` at the top level or nested
+/// inside an `Op::FuseRrf` branch (CONCEPT:EG-KG.query.served-text-index-binding)? Drives whether
+/// `run_unified` builds+binds a served text index at all, so a non-text plan pays nothing.
+#[cfg(all(feature = "query", feature = "text"))]
+fn plan_needs_text(ops: &[eg_plan::Op]) -> bool {
+    ops.iter().any(|op| match op {
+        eg_plan::Op::RankText { .. } => true,
+        eg_plan::Op::FuseRrf { branches, .. } => branches.iter().any(|b| plan_needs_text(b)),
+        _ => false,
+    })
+}
+
+/// Build a BM25 [`eg_text::TextIndex`] from a graph snapshot's node blobs
+/// (CONCEPT:EG-KG.query.served-text-index-binding) — the served lexical index for `Op::RankText` /
+/// `Op::FuseRrf`. Each node's indexable text is the concatenation of every STRING leaf in its
+/// JSON property blob (so `name` / `description` / `text` / `content` / `title` / … are all
+/// searchable, matching the human-readable fields `Discover` hydrates), keyed by node id. An
+/// in-memory index (no persist dir needed — it is rebuilt per served text query off the exact
+/// queried snapshot, so it is always current with the read). Returns `None` on a build/commit
+/// error (the plan then degrades to no lexical hits — never errs), mirroring an absent index.
+#[cfg(all(feature = "query", feature = "text"))]
+fn build_text_index_from_view(view: &crate::graph::GraphView) -> Option<eg_text::TextIndex> {
+    /// Append every string leaf in `v` (recursing objects/arrays) to `out`, space-separated.
+    fn collect_strings(v: &serde_json::Value, out: &mut String) {
+        match v {
+            serde_json::Value::String(s) => {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(s);
+            }
+            serde_json::Value::Array(a) => a.iter().for_each(|e| collect_strings(e, out)),
+            serde_json::Value::Object(o) => o.values().for_each(|e| collect_strings(e, out)),
+            _ => {}
+        }
+    }
+    let mut index = eg_text::TextIndex::in_memory().ok()?;
+    for (id, blob) in &view.node_properties {
+        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+            continue;
+        };
+        let mut text = String::new();
+        collect_strings(&v, &mut text);
+        if !text.is_empty() {
+            index.upsert(id, &text);
+        }
+    }
+    index.commit().ok()?;
+    Some(index)
+}
+
 /// Execute a unified cross-modal plan (CONCEPT:AU-KG.compute.vector/209) over one off-lock
-/// snapshot and return the result rows as `[id, score|nil]`. When
-/// `reorder_filter_selectivity` is set, the cost model reorders an adjacent
-/// (Filter, Rank) pair before execution (CONCEPT:EG-KG.query.concept-14). Synchronous — runs on
-/// the blocking pool via `compute_off_lock`, like the SQL/Cypher legs.
+/// snapshot and return the result rows as `[id, score|nil]`. The plan is routed through the
+/// full cost optimizer by `eg_plan::execute` (CONCEPT:EG-KG.query.served-plan-optimize-routing); a
+/// lexical `Op::RankText`/`Op::FuseRrf` leg is served over a snapshot-derived BM25 index
+/// (CONCEPT:EG-KG.query.served-text-index-binding). Synchronous — runs on the blocking pool via
+/// `compute_off_lock`, like the SQL/Cypher legs.
 #[cfg(feature = "query")]
 pub(crate) fn run_unified(
     plan: eg_plan::Plan,
@@ -678,44 +730,45 @@ pub(crate) fn run_unified(
     // an in-txn UQL reads its own measurements. `None` off-txn ⇒ committed series only.
     #[cfg(feature = "tsdb")] staged_series: Option<&eg_plan::StagedSeries>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
-    use eg_plan::{CostModel, Op, PlanCtx, Stats};
+    use eg_plan::PlanCtx;
 
-    // Optional cost-based reorder of the adjacent (Filter, Rank) pair. The final
-    // top-k requested by a trailing Limit drives the cost asymmetry; default to the
-    // seed size if there is no Limit. Seed/embedding counts come straight from the
-    // snapshot, so the decision is fed by derivable stats (CONCEPT:EG-KG.query.concept-14).
-    // No-Legacy note (handoff-1 Lane A): the SAME filter-vs-rank decision is now also a
-    // rule inside the cross-modal optimizer (CONCEPT:EG-KG.query.filter-pushdown-rule folds
-    // this in, sharing `CostModel::order` + the `place_narrower` swap). This served path
-    // keeps the direct `reorder_filter_rank` call rather than routing through
-    // `plan_optimize`/`execute` on purpose: it runs a proven, answer-preserving single swap
-    // and must not change served-plan shape by pulling in the full multi-rule optimizer here.
-    // `reorder_filter_rank` therefore stays the internal helper shared by both surfaces.
-    let ops = match reorder_filter_selectivity {
-        Some(sel) => {
-            let seed_rows = view.node_properties.len();
-            let top_k = plan
-                .ops
-                .iter()
-                .rev()
-                .find_map(|o| match o {
-                    Op::Limit { k } => Some(*k),
-                    _ => None,
-                })
-                .unwrap_or(seed_rows.max(1));
-            let stats = Stats::estimate(seed_rows, sel, top_k, semantic.len());
-            CostModel::reorder_filter_rank(plan.ops, &stats)
-        }
-        None => plan.ops,
-    };
+    // CONCEPT:EG-KG.query.served-plan-optimize-routing — No-Legacy migration (handoff-1). The
+    // served path NO LONGER runs the bespoke single `CostModel::reorder_filter_rank` swap.
+    // Instead the plan is handed to `eg_plan::execute` UNCHANGED, and `execute` routes it
+    // through the FULL cost optimizer (`plan_optimize` → `eg_plan::optimizer::optimize`) — so a
+    // served `UnifiedQuery` now gets EVERY optimizer rule (filter/AsOf-before-Rank, Reason↔Rank
+    // reorder, FuseRrf branch reorder), not just the one legacy reorder. The optimizer folds
+    // the legacy `reorder_filter_rank` in as its `FilterAsOfBeforeRank` rule
+    // (CONCEPT:EG-KG.query.filter-pushdown-rule), driving the decision off the SAME snapshot-derived
+    // cardinality/`CostModel::order` primitives, and every rule is answer-preserving within the
+    // EG-405 non-empty guard (proven by `tests/differential_oracle.rs` + the plan snapshots), so
+    // served-plan RESULTS are unchanged on the covered cases. The runtime kill-switch
+    // `EPISTEMIC_GRAPH_COST_OPT=0` makes `plan_optimize` an identity passthrough (the reorder is
+    // pure performance, never correctness). `reorder_filter_selectivity` is now a legacy no-op
+    // HINT the optimizer's own derived selectivity supersedes — kept in the signature/wire DTO
+    // for backward compatibility (a caller may still pass it; it no longer changes the plan).
+    let _ = reorder_filter_selectivity;
+    let ops = plan.ops;
 
-    // `PlanCtx::new` defaults the (feature-gated) text index to `None`, so a
-    // `RankText`/`FuseRrf` op served today degrades to no lexical hits rather than
-    // erroring. Threading a live BM25 `TextIndex` into `ServerState` (index-on-write +
-    // an `AddText`/`IndexText` Method + a persist dir beside graph.redb) is the
-    // explicit follow-up integration (CONCEPT:AU-KG.query.text-spatial-time increment 2); the algebra +
-    // index crate land + are proven here.
+    // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 `TextIndex` into the served
+    // `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries `Op::RankText`
+    // or an `Op::FuseRrf` text branch gets REAL lexical scores (it previously degraded to ZERO
+    // lexical hits — the EG-KG.query.served-text-index-unbound-finding seam gap). The index is
+    // derived from the SAME off-lock snapshot the rest of the plan reads (`view`), so the lexical
+    // leg is snapshot-consistent with the vector/graph/temporal legs of the fused query — the
+    // BM25 result over a document set is deterministic, so this yields byte-identical lexical
+    // ranking to a persistent index over the same documents. Built ONLY when the plan actually
+    // references a text op, so a non-text served query pays nothing. (A persistent index-on-write
+    // in `ServerState` beside `graph.redb` is a pure performance follow-up — it does not change
+    // the answer, only avoids the per-query build.)
     let ctx = PlanCtx::new(view, semantic);
+    #[cfg(feature = "text")]
+    let served_text_index = plan_needs_text(&ops).then(|| build_text_index_from_view(view));
+    #[cfg(feature = "text")]
+    let ctx = match served_text_index.as_ref().and_then(|r| r.as_ref()) {
+        Some(index) => ctx.with_text(index),
+        None => ctx,
+    };
     // CONCEPT:EG-KG.query.bind-server-side-text — bind the server-side text→vector embedder so a UQL `RANK BY ~ "text"`
     // (`Op::RankEmbed`) resolves its query vector at exec time (the NL→vector seam,
     // EG-411). This is the facade INJECTION POINT: the engine stores embeddings but
