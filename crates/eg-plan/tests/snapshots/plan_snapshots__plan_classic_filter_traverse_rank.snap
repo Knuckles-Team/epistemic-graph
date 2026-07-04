@@ -1,0 +1,33 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&parsed.ops)
+---
+[
+    Scan {
+        label: "Doc",
+    },
+    Filter {
+        preds: [
+            GtNum {
+                prop: "year",
+                n: 2024.0,
+            },
+        ],
+    },
+    Traverse {
+        rel: "CITES",
+        min: 1,
+        max: 2,
+    },
+    Rank {
+        query: [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+        ],
+    },
+    Limit {
+        k: 10,
+    },
+]
